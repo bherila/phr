@@ -141,6 +141,23 @@ class OAuthLoginTest extends TestCase
         Http::assertNothingSent();
     }
 
+    public function test_rejected_authorization_code_does_not_create_or_authenticate_an_account(): void
+    {
+        Http::fake([
+            'https://identity.example.test/oauth/token' => Http::response([
+                'error' => 'invalid_grant',
+            ], 400),
+        ]);
+
+        $this->withSession($this->oauthSession())
+            ->get('/oauth/callback?state=expected-state&code=rejected-code')
+            ->assertStatus(502);
+
+        $this->assertGuest();
+        $this->assertDatabaseCount('users', 0);
+        Http::assertSentCount(1);
+    }
+
     /**
      * @return array<string, string>
      */
