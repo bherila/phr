@@ -66,8 +66,18 @@ yet. Do not flip it to public without doing that review first.
 Real login, not a TODO: email+password via `bherila/auth-laravel`, backed by this
 app's own `users` table (separate database from finance and games — see #1805).
 `user_role` gates login (`canLogin()` requires the `user` or `admin` role); user id 1
-is always treated as admin. A `/login/dev-by-id` route exists for **localhost only**
-(guarded by `APP_ENV=local` / `APP_URL` containing `localhost`).
+is always treated as admin.
+
+There is no dev-login route. The former `/login/dev` and `/login/dev-by-id`
+endpoints signed the caller in as any user without a password, gated only by
+`APP_ENV`/`APP_URL`, and `login()` accepted a hardcoded master password under the
+same condition — one misconfigured variable away from a public login-as-anyone
+endpoint. To get into a local environment, set a password from the console:
+
+```bash
+php artisan user:set-password you@example.com --password=local-dev-password
+# omit --password to have one generated and printed
+```
 
 ## Running locally
 

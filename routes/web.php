@@ -14,9 +14,6 @@ Route::post('/login', [LoginController::class, 'login']);
 Route::post('/login/email-code', [LoginController::class, 'requestEmailCode'])
     ->middleware('throttle:5,1')
     ->name('login.email-code');
-Route::post('/login/dev', [LoginController::class, 'devLogin'])->name('login.dev');
-Route::post('/login/dev-by-id', [LoginController::class, 'devLoginById'])->name('login.dev.by-id');
-
 Route::redirect('/', '/phr');
 
 Route::middleware('auth')->group(function (): void {

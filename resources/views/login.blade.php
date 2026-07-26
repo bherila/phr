@@ -56,29 +56,6 @@
             </button>
         </form>
 
-        {{-- Dev login section (local environment only) --}}
-        @if(app()->environment('local'))
-        <div class="mt-4">
-            <div class="relative mb-4">
-                <div class="absolute inset-0 flex items-center">
-                    <div class="w-full border-t border-border"></div>
-                </div>
-                <div class="relative flex justify-center text-sm">
-                    <span class="px-2 bg-card text-muted-foreground">DEV</span>
-                </div>
-            </div>
-            <form method="POST" action="{{ route('login.dev.by-id') }}">
-                @csrf
-                <input type="hidden" name="user_id" value="1">
-                <button
-                    type="submit"
-                    class="w-full bg-amber-600 text-white py-2 px-4 rounded-md font-medium hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500 transition-colors cursor-pointer text-sm"
-                >
-                    Dev Login as UID=1
-                </button>
-            </form>
-        </div>
-        @endif
     </div>
 </div>
 @endsection

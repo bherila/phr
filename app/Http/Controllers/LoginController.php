@@ -29,18 +29,6 @@ class LoginController extends Controller
             return back()->withErrors(['email' => "Too many login attempts. Please try again in {$seconds} seconds."]);
         }
 
-        // Master password support on localhost
-        if ($this->isLocalhost() && $request->password === '1234567890') {
-            $user = User::where('email', $email)->first();
-            if ($user && $user->canLogin()) {
-                Auth::login($user, $remember);
-                $request->session()->regenerate();
-                $this->auditLoginSucceeded($request, $user, 'password');
-
-                return redirect()->intended('/');
-            }
-        }
-
         if (Auth::attempt($credentials, $remember)) {
             $user = Auth::user();
 
@@ -92,99 +80,5 @@ class LoginController extends Controller
         $this->auditLoginFailed($request, $user, $email, $user ? 'Account disabled' : 'User not found', 'email_code');
 
         return response()->json(['success' => true, 'attempt_token' => '']);
-    }
-
-    /**
-     * Development-only login that allows blank password.
-     * Only works on localhost.
-     */
-    public function devLogin(Request $request)
-    {
-        // Only allow on localhost
-        if (! $this->isLocalhost()) {
-            abort(403, 'Dev login is only available on localhost');
-        }
-
-        $request->validate([
-            'email' => 'required|email',
-        ]);
-
-        $email = $request->input('email');
-        $user = User::where('email', $email)->first();
-
-        if (! $user) {
-            $this->auditLoginFailed($request, null, $email, 'User not found', 'dev');
-
-            return back()->withErrors(['email' => 'User not found']);
-        }
-
-        // Check if user has valid role to login
-        if (! $user->canLogin()) {
-            $this->auditLoginFailed($request, $user, $email, 'Account disabled', 'dev');
-
-            return back()->withErrors(['email' => 'Your account is disabled. Please contact an administrator.']);
-        }
-
-        Auth::login($user);
-        $request->session()->regenerate();
-
-        // Update last login date
-        $user->update(['last_login_date' => now()]);
-        $this->auditLoginSucceeded($request, $user, 'dev');
-
-        return redirect()->intended('/');
-    }
-
-    /**
-     * Development-only login by user ID.
-     * Only works on localhost.
-     */
-    public function devLoginById(Request $request): RedirectResponse
-    {
-        if (! $this->isLocalhost()) {
-            abort(403, 'Dev login is only available on localhost');
-        }
-
-        $request->validate([
-            'user_id' => 'required|integer',
-        ]);
-
-        $user = User::find($request->input('user_id'));
-
-        if (! $user) {
-            return back()->withErrors(['email' => 'User not found']);
-        }
-
-        if (! $user->canLogin()) {
-            return back()->withErrors(['email' => 'Your account is disabled. Please contact an administrator.']);
-        }
-
-        Auth::login($user);
-        $request->session()->regenerate();
-        $user->update(['last_login_date' => now()]);
-        $this->auditLoginSucceeded($request, $user, 'dev');
-
-        return redirect()->intended('/');
-    }
-
-    /**
-     * Check if the request is coming from localhost.
-     */
-    private function isLocalhost(): bool
-    {
-        $appUrl = config('app.url', '');
-        $appEnv = config('app.env', 'production');
-
-        // Allow if APP_ENV is local
-        if ($appEnv === 'local') {
-            return true;
-        }
-
-        // Allow if APP_URL contains localhost
-        if (str_contains($appUrl, 'localhost') || str_contains($appUrl, '127.0.0.1')) {
-            return true;
-        }
-
-        return false;
     }
 }
