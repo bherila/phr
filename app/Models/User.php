@@ -26,12 +26,16 @@ class User extends Authenticatable
      *
      * @var list<string>
      */
+    /**
+     * `mcp_api_key` and its lifecycle columns are deliberately absent: the MCP
+     * bearer token is a full-account credential and must only ever be written
+     * through issueMcpToken()/revokeMcpToken(), never through mass assignment.
+     */
     protected $fillable = [
         'name',
         'email',
         'password',
         'gemini_api_key',
-        'mcp_api_key',
         'genai_daily_quota_limit',
         'user_role',
         'last_login_date',
@@ -83,7 +87,79 @@ class User extends Authenticatable
             'password' => 'hashed',
             'last_login_date' => 'datetime',
             'genai_daily_quota_limit' => 'integer',
+            'mcp_api_key_expires_at' => 'datetime',
+            'mcp_api_key_last_used_at' => 'datetime',
         ];
+    }
+
+    /**
+     * Default lifetime for a freshly issued MCP bearer token.
+     */
+    public const int MCP_TOKEN_DEFAULT_DAYS = 90;
+
+    /**
+     * Tokens are stored hashed so a database read does not yield a usable
+     * credential. SHA-256 rather than a password hash is deliberate: the token
+     * is 64 random characters, so it has no guessable structure to protect
+     * against, and the lookup has to be a single indexed query.
+     */
+    public static function hashMcpToken(string $token): string
+    {
+        return hash('sha256', $token);
+    }
+
+    /**
+     * Issue a new MCP bearer token, invalidating any previous one.
+     *
+     * Returns the plaintext token, which is the only time it exists in a
+     * readable form.
+     */
+    public function issueMcpToken(?int $days = null): string
+    {
+        $token = Str::random(64);
+
+        $this->forceFill([
+            'mcp_api_key' => self::hashMcpToken($token),
+            'mcp_api_key_expires_at' => now()->addDays($days ?? self::MCP_TOKEN_DEFAULT_DAYS),
+            'mcp_api_key_last_used_at' => null,
+        ])->save();
+
+        return $token;
+    }
+
+    public function revokeMcpToken(): void
+    {
+        $this->forceFill([
+            'mcp_api_key' => null,
+            'mcp_api_key_expires_at' => null,
+            'mcp_api_key_last_used_at' => null,
+        ])->save();
+    }
+
+    /**
+     * A token with no recorded expiry is treated as inactive rather than
+     * eternal, so the credential fails closed.
+     */
+    public function mcpTokenIsActive(): bool
+    {
+        return $this->mcp_api_key !== null
+            && $this->mcp_api_key_expires_at !== null
+            && $this->mcp_api_key_expires_at->isFuture();
+    }
+
+    /**
+     * Record that the token authenticated a request, at most once a minute so
+     * a batching device does not cause a write per call.
+     */
+    public function recordMcpTokenUse(): void
+    {
+        $lastUsed = $this->mcp_api_key_last_used_at;
+
+        if ($lastUsed !== null && $lastUsed->diffInSeconds(now(), absolute: true) < 60) {
+            return;
+        }
+
+        $this->forceFill(['mcp_api_key_last_used_at' => now()])->saveQuietly();
     }
 
     public function getGeminiApiKey(): ?string

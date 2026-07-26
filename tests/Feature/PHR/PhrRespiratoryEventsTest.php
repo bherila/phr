@@ -147,8 +147,8 @@ class PhrRespiratoryEventsTest extends TestCase
     {
         // Build the patient without actingAs so the request authenticates purely
         // via the bearer header (a leaked session would mask a broken token path).
-        $plainToken = 'device-token-abc';
-        $owner = $this->createUser(['mcp_api_key' => hash('sha256', $plainToken)]);
+        $owner = $this->createUser();
+        $plainToken = $owner->issueMcpToken();
         $patientId = PhrPatient::query()->create([
             'owner_user_id' => $owner->id,
             'display_name' => 'Device Patient',
@@ -181,8 +181,7 @@ class PhrRespiratoryEventsTest extends TestCase
     public function test_bearer_token_user_cannot_write_to_another_users_patient(): void
     {
         // Cross-patient authorization must hold for bearer-authed device requests too.
-        $plainToken = 'device-token-xyz';
-        $this->createUser(['mcp_api_key' => hash('sha256', $plainToken)]);
+        $plainToken = $this->createUser()->issueMcpToken();
 
         $otherOwner = $this->createUser();
         $patientId = PhrPatient::query()->create([

@@ -166,8 +166,13 @@ class PhrSinusSettingsTest extends TestCase
     {
         ['owner' => $owner, 'patientId' => $patientId] = $this->createPatientWithAccess();
 
-        $plain = 'sinus-settings-token';
-        $owner->forceFill(['mcp_api_key' => hash('sha256', $plain)])->save();
+        $plain = $owner->issueMcpToken();
+
+        // The fixture above authenticated over HTTP, and the middleware
+        // short-circuits on Auth::check() — so without dropping the resolved
+        // guard this would pass on the leftover session and prove nothing
+        // about the bearer path.
+        $this->app['auth']->forgetGuards();
 
         $this->withHeader('Authorization', "Bearer {$plain}")
             ->putJson("/api/phr/patients/{$patientId}/sinus-settings", [

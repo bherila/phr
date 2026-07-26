@@ -20,16 +20,21 @@ class AuthenticateWebOrMcpRequest
 
         if ($token !== null) {
             $user = User::query()
-                ->where('mcp_api_key', hash('sha256', $token))
+                ->where('mcp_api_key', User::hashMcpToken($token))
                 ->first();
 
-            if ($user !== null && $user->canLogin()) {
+            // mcpTokenIsActive() fails closed: a token with no recorded expiry
+            // is rejected rather than treated as eternal.
+            if ($user !== null && $user->canLogin() && $user->mcpTokenIsActive()) {
+                $user->recordMcpTokenUse();
                 Auth::setUser($user);
 
                 return $next($request);
             }
         }
 
+        // Deliberately identical for an unknown, revoked and expired token, so
+        // the response does not confirm that a token was ever valid.
         return response()->json(['message' => 'Unauthenticated.'], 401);
     }
 

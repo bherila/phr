@@ -79,6 +79,23 @@ php artisan user:set-password you@example.com --password=local-dev-password
 # omit --password to have one generated and printed
 ```
 
+### MCP device tokens
+
+The Sinus Sentinel desktop app authenticates with a bearer token instead of a
+session (`AuthenticateWebOrMcpRequest`), scoped to the respiratory-event and
+sinus routes. Tokens are stored only as a SHA-256 hash, expire, and are issued
+and revoked from the console:
+
+```bash
+php artisan mcp:token:issue you@example.com --days=90   # prints the token once
+php artisan mcp:token:revoke you@example.com            # effective immediately
+```
+
+Issuing replaces any existing token for that user. A token with no expiry
+recorded is rejected, so the credential fails closed. `mcp_api_key_last_used_at`
+records the last authenticated call, which is the signal to watch if a device is
+lost.
+
 ## Running locally
 
 ```bash
