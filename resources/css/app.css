@@ -1,0 +1,485 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/atkinson-hyperlegible-next/wght.css';
+@plugin "tailwindcss-animate";
+@plugin "@tailwindcss/typography";
+
+/* The theme script + navbar toggle drive dark mode via the `dark` class on
+   <html> (mirroring the OS preference when theme is "system"). Without this
+   variant override, Tailwind v4 keys `dark:` utilities to the OS media query
+   and they desync from the class-driven CSS variables above. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+.animate__animated {
+  animation-duration: var(--animate-duration, 1s);
+  animation-fill-mode: both;
+}
+
+.animate__fadeIn {
+  animation-name: animate-fade-in;
+}
+
+.scroll-highlight-flash {
+  animation: scroll-highlight-fade 3s ease-out;
+}
+
+@keyframes animate-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scroll-highlight-fade {
+  0% {
+    background-color: #fef08a;
+  }
+
+  100% {
+    background-color: transparent;
+  }
+}
+
+/* 2048 tile feedback. Declared here rather than inline so the reduced-motion
+   query below can neutralise it along with the tile slide transition. */
+.twenty48-tile-appear {
+  animation: twenty48-tile-appear 140ms ease-out;
+}
+
+.twenty48-tile-pop {
+  animation: twenty48-tile-pop 140ms ease-out;
+}
+
+@keyframes twenty48-tile-appear {
+  from {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes twenty48-tile-pop {
+  0% {
+    transform: scale(1);
+  }
+
+  55% {
+    transform: scale(1.18);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+@media print, (prefers-reduced-motion: reduce) {
+  .animate__animated,
+  .scroll-highlight-flash,
+  .twenty48-tile,
+  .twenty48-tile-appear,
+  .twenty48-tile-pop {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+@theme {
+  --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif,
+    'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  --font-hyperlegible: 'Atkinson Hyperlegible Next Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-currency: 'Atkinson Hyperlegible Mono', 'Atkinson Hyperlegible Next Variable', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-navbar: hsl(var(--navbar));
+  --color-navbar-foreground: hsl(var(--navbar-foreground));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  
+  --color-success: hsl(var(--success));
+  --color-success-foreground: hsl(var(--success-foreground));
+
+  --color-warning: hsl(var(--warning));
+  --color-warning-foreground: hsl(var(--warning-foreground));
+
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+
+  --color-info: hsl(var(--info));
+  --color-info-foreground: hsl(var(--info-foreground));
+
+  --color-table-border: hsl(var(--table-border));
+}
+
+/* ----------------------------- */
+/* Light Mode                    */
+/* ----------------------------- */
+
+:root {
+  --cost-chart-advisory: #2a78d6;
+  --cost-chart-transaction: #008300;
+  --cost-chart-commission: #e87ba4;
+  --cost-chart-margin: #eda100;
+  --cost-chart-grid: #737373;
+  --cost-chart-tooltip-background: #ffffff;
+  --cost-chart-tooltip-border: #d9d9d9;
+  --cost-chart-tooltip-foreground: #1a1a1a;
+
+  --background: 0 0% 96%;        /* #f5f5f5 */
+  --foreground: 0 0% 10%;        /* #1a1a1a */
+  --navbar: 0 0% 92%;
+  --navbar-foreground: 0 0% 10%; /* #1a1a1a - high-contrast for light navbar */
+
+  --primary: 39 40% 45%;         /* Darker Gold for contrast */
+  --primary-foreground: 0 0% 98%;
+
+  --secondary: 0 0% 90%;         /* #e5e5e5 */
+  --secondary-foreground: 0 0% 10%;
+
+  --muted: 0 0% 92%;             
+  --muted-foreground: 0 0% 40%;  /* #666666 */
+
+  --accent: 39 40% 92%;          /* Soft gold background */
+  --accent-foreground: 39 50% 30%;
+
+  --destructive: 0 65% 45%;      /* Darker Red */
+  --destructive-foreground: 0 0% 98%;
+
+  --success: 147 40% 38%;        /* Darker Green */
+  --success-foreground: 0 0% 98%;
+
+  --warning: 46 65% 40%;         /* Darker Yellow/Amber */
+  --warning-foreground: 0 0% 98%;
+
+  --info: 155 35% 40%;           /* Darker Teal */
+  --info-foreground: 0 0% 98%;
+
+  --border: 0 0% 85%;
+  --input: 0 0% 85%;
+  --ring: 39 40% 45%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 10%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 10%;
+
+  --table-border: 0 0% 85%;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --cost-chart-advisory: #3987e5;
+    --cost-chart-transaction: #008300;
+    --cost-chart-commission: #d55181;
+    --cost-chart-margin: #c98500;
+    --cost-chart-grid: #888888;
+    --cost-chart-tooltip-background: #171717;
+    --cost-chart-tooltip-border: #2a2a2a;
+    --cost-chart-tooltip-foreground: #e8e8e8;
+  }
+}
+
+:root[data-theme='dark'],
+:root.dark {
+  --cost-chart-advisory: #3987e5;
+  --cost-chart-transaction: #008300;
+  --cost-chart-commission: #d55181;
+  --cost-chart-margin: #c98500;
+  --cost-chart-grid: #888888;
+  --cost-chart-tooltip-background: #171717;
+  --cost-chart-tooltip-border: #2a2a2a;
+  --cost-chart-tooltip-foreground: #e8e8e8;
+}
+
+/* ----------------------------- */
+/* Dark Mode                     */
+/* ----------------------------- */
+
+.dark {
+  --background: 0 0% 6%;         /* #0f0f0f */
+  --foreground: 0 0% 91%;        /* #e8e8e8 */
+  --navbar: 0 0% 9%;             /* #171717 */
+  --navbar-foreground: 0 0% 91%; /* #e8e8e8 - high-contrast for dark navbar */
+
+  --primary: 39 45% 61%;         /* #c8a96e - The signature Gold */
+  --primary-foreground: 0 0% 10%;
+
+  --secondary: 0 0% 12%;         /* #1f1f1f */
+  --secondary-foreground: 0 0% 91%;
+
+  --muted: 0 0% 12%;
+  --muted-foreground: 0 0% 53%;  /* #888888 */
+
+  --accent: 39 45% 15%;          /* Faint gold background for active states */
+  --accent-foreground: 39 45% 61%;
+
+  --destructive: 0 67% 62%;      /* #e05a5a - Red */
+  --destructive-foreground: 0 0% 10%;
+
+  --success: 147 31% 51%;        /* #5aaa7e - Green */
+  --success-foreground: 0 0% 10%;
+
+  --warning: 46 62% 56%;         /* #d4b44a - Yellow */
+  --warning-foreground: 0 0% 10%;
+
+  --info: 155 31% 61%;           /* #7eb8a0 - Teal */
+  --info-foreground: 0 0% 10%;
+
+  --border: 0 0% 16%;            /* #2a2a2a */
+  --input: 0 0% 16%;
+  --ring: 39 45% 61%;
+
+  --card: 0 0% 9%;               /* #171717 */
+  --card-foreground: 0 0% 91%;
+
+  --popover: 0 0% 9%;
+  --popover-foreground: 0 0% 91%;
+
+  --table-border: 0 0% 16%;      /* #2a2a2a - match border for muted card/table chrome */
+}
+
+/* ----------------------------- */
+/* Base Layer                    */
+/* ----------------------------- */
+
+@layer base {
+  body {
+    @apply bg-background text-foreground font-sans;
+  }
+
+  input[type='number'] {
+    appearance: textfield;
+    -moz-appearance: textfield;
+  }
+
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+
+  .site-header {
+    @apply bg-navbar text-navbar-foreground border-b border-border;
+  }
+
+  /* Game pages (layouts/game.blade.php) are exactly one viewport tall and own
+     every gesture: no pull-to-refresh or rubber-band scroll behind the canvas,
+     and no double-tap zoom swallowing taps meant for the playfield. */
+  body.game-shell {
+    overscroll-behavior: none;
+    touch-action: manipulation;
+  }
+
+  p,
+  li {
+    @apply text-muted-foreground;
+  }
+
+  a {
+    @apply text-primary hover:underline;
+  }
+
+  /* Ensure table borders use the dedicated table border variable */
+  table,
+  thead,
+  tbody,
+  tr,
+  th,
+  td {
+    border-color: hsl(var(--table-border));
+  }
+}
+
+/* ----------------------------- */
+/* Finance Heading System        */
+/* ----------------------------- */
+
+@layer components {
+  .finance-shell .finance-heading-1 {
+    @apply text-2xl font-semibold tracking-tight text-primary;
+  }
+
+  .finance-shell .finance-heading-2 {
+    @apply text-lg font-semibold tracking-tight text-primary;
+  }
+
+  .finance-shell .finance-heading-2[data-tone='accent'] {
+    @apply text-accent-foreground;
+  }
+
+  .finance-shell .finance-heading-3 {
+    @apply text-sm font-semibold tracking-wide text-primary;
+  }
+
+  .finance-shell .finance-heading-muted {
+    @apply text-sm font-semibold uppercase tracking-wide text-muted-foreground;
+  }
+
+  .finance-shell .finance-kicker {
+    @apply text-[10px] font-semibold uppercase tracking-wide text-muted-foreground;
+  }
+
+  .finance-shell .finance-nav-title {
+    @apply text-base font-semibold tracking-tight text-primary;
+  }
+
+  .finance-shell .finance-card-heading {
+    @apply text-sm font-semibold uppercase tracking-wide text-primary;
+  }
+
+  .finance-shell .finance-card-heading[data-tone='info'] {
+    @apply text-info;
+  }
+
+  .finance-shell .finance-card-heading[data-tone='success'] {
+    @apply text-success;
+  }
+
+  .finance-shell .finance-card-heading[data-tone='warning'] {
+    @apply text-warning;
+  }
+
+  .finance-shell .finance-section-heading {
+    @apply mb-2 border-b border-primary/30 pb-1 text-xs font-semibold uppercase tracking-wide text-primary;
+  }
+
+  .finance-shell .finance-section-heading-inline {
+    @apply border-b border-primary/30 pb-1 text-xs font-semibold uppercase tracking-wide text-primary;
+  }
+
+  .finance-shell .finance-section-heading-inline[data-tone='info'] {
+    @apply border-info/30 text-info;
+  }
+
+  .finance-shell .finance-section-heading[data-tone='accent'] {
+    @apply border-accent text-accent-foreground;
+  }
+
+  .finance-shell .finance-section-heading[data-tone='info'] {
+    @apply border-info/30 text-info;
+  }
+
+  .finance-shell .finance-section-heading[data-tone='success'] {
+    @apply border-success/30 text-success;
+  }
+
+  .finance-shell .finance-section-heading[data-tone='warning'] {
+    @apply border-warning/40 text-warning;
+  }
+
+  .finance-shell .finance-section-heading[data-tone='destructive'] {
+    @apply border-destructive/30 text-destructive;
+  }
+}
+
+/* ----------------------------- */
+/* Shiki dual-theme tokens       */
+/* ----------------------------- */
+
+.shiki-token {
+  color: var(--shiki-light, inherit);
+  background-color: var(--shiki-light-bg, transparent);
+  font-style: var(--shiki-light-font-style, inherit);
+  font-weight: var(--shiki-light-font-weight, inherit);
+  text-decoration: var(--shiki-light-text-decoration, inherit);
+}
+
+.dark .shiki-token {
+  color: var(--shiki-dark, inherit);
+  background-color: var(--shiki-dark-bg, transparent);
+  font-style: var(--shiki-dark-font-style, inherit);
+  font-weight: var(--shiki-dark-font-weight, inherit);
+  text-decoration: var(--shiki-dark-text-decoration, inherit);
+}
+
+/* @tailwindcss/typography wraps inline <code> in literal backticks via
+   ::before/::after pseudo-elements. The markdown preview already styles
+   inline code with its own bg/padding, so the backticks are redundant. */
+.markdown-preview code::before,
+.markdown-preview code::after {
+  content: none;
+}
+
+@media print {
+  @page {
+    margin: 0.6in;
+  }
+
+  nav,
+  header.markdown-toolbar,
+  .markdown-editor-pane,
+  .markdown-actions,
+  .no-print {
+    display: none !important;
+  }
+
+  .markdown-tool-shell,
+  .markdown-preview-pane,
+  .markdown-preview {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+  }
+
+  .markdown-preview {
+    background: #fff !important;
+    color: #111 !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .markdown-preview pre,
+  .markdown-preview .mermaid-block {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .markdown-preview svg {
+    max-width: 100% !important;
+    height: auto !important;
+  }
+
+  .markdown-preview .shiki-token,
+  .dark .markdown-preview .shiki-token {
+    color: var(--shiki-light, inherit) !important;
+    background-color: var(--shiki-light-bg, transparent) !important;
+    font-style: var(--shiki-light-font-style, inherit) !important;
+    font-weight: var(--shiki-light-font-weight, inherit) !important;
+    text-decoration: var(--shiki-light-text-decoration, inherit) !important;
+  }
+}

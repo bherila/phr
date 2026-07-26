@@ -1,0 +1,21 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`PhrNotFoundColumn renders a custom message 1`] = `
+<DocumentFragment>
+  <div
+    class="flex h-full items-center justify-center p-8 text-center text-sm text-muted-foreground"
+  >
+    Record missing for this patient.
+  </div>
+</DocumentFragment>
+`;
+
+exports[`PhrNotFoundColumn renders the default message 1`] = `
+<DocumentFragment>
+  <div
+    class="flex h-full items-center justify-center p-8 text-center text-sm text-muted-foreground"
+  >
+    Record not found. It may belong to a different patient.
+  </div>
+</DocumentFragment>
+`;

@@ -1,0 +1,17 @@
+name: Setup pnpm and Node
+description: Install pnpm, configure Node.js, and install dependencies
+runs:
+  using: composite
+  steps:
+    - name: Set up pnpm
+      uses: pnpm/action-setup@v5
+
+    - name: Set up Node
+      uses: actions/setup-node@v5
+      with:
+        node-version: '24'
+        cache: 'pnpm'
+
+    - name: Install Node dependencies
+      shell: bash
+      run: pnpm install --frozen-lockfile

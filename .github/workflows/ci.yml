@@ -1,0 +1,251 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Deploy is manual-only for now — see the `deploy` job below for why.
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend-build:
+    name: Frontend Build
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup pnpm + Node dependencies
+        uses: ./.github/actions/setup-pnpm-node
+
+      - name: Build frontend
+        run: pnpm run build
+
+      - name: Upload frontend build artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: frontend-build
+          path: public/build/
+          retention-days: 2
+
+  frontend-static:
+    name: Frontend Static Checks
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup pnpm + Node dependencies
+        uses: ./.github/actions/setup-pnpm-node
+
+      - name: Type-check
+        run: pnpm run type-check
+
+      - name: Lint
+        run: pnpm run lint
+
+  frontend-tests:
+    name: Frontend Tests
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup pnpm + Node dependencies
+        uses: ./.github/actions/setup-pnpm-node
+
+      - name: Run Jest
+        run: pnpm run test
+
+  backend-static:
+    name: Backend Static Checks
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v5
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Run Pint
+        run: ./vendor/bin/pint --test
+
+  backend-tests:
+    name: Backend Tests
+    # Some page tests render a real Blade view without ->withoutVite(), so they need
+    # an actual public/build/manifest.json — reuse frontend-build's artifact instead
+    # of building twice.
+    needs: frontend-build
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v5
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Download frontend build artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: frontend-build
+          path: public/build/
+
+      - name: Create .env for tests
+        run: |
+          cp .env.example .env
+          php artisan key:generate --no-interaction
+
+      - name: Run PHPUnit
+        run: php -d memory_limit=1G vendor/bin/phpunit
+
+  test:
+    name: Run Tests
+    needs:
+      - frontend-build
+      - frontend-static
+      - frontend-tests
+      - backend-static
+      - backend-tests
+    if: always()
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    steps:
+      - name: Check required job results
+        run: |
+          check() {
+            local name="$1" result="$2"
+            if [ "$result" != "success" ]; then
+              echo "::error::$name => $result"
+              exit 1
+            fi
+            echo "$name => $result"
+          }
+          check "frontend-build" "${{ needs.frontend-build.result }}"
+          check "frontend-static" "${{ needs.frontend-static.result }}"
+          check "frontend-tests" "${{ needs.frontend-tests.result }}"
+          check "backend-static" "${{ needs.backend-static.result }}"
+          check "backend-tests" "${{ needs.backend-tests.result }}"
+
+  deploy:
+    name: Deploy to Production
+    needs:
+      - test
+      - frontend-build
+    # Manual-only trigger (workflow_dispatch), NOT automatic on push to main.
+    #
+    # The games split (bherila/2025-website#1803) deployed to production unprompted the
+    # moment its secrets existed, because that repo's deploy job triggers on green CI —
+    # and GitHub's `required_reviewers` environment-protection rule (the intended guard)
+    # is only available on public repos, or private repos on a paid plan. This repo is
+    # created PRIVATE per bherila/2025-website#1805 and stays that way until reviewed, so
+    # `required_reviewers` cannot be attached to the `prod` environment yet. Requiring a
+    # manual `workflow_dispatch` is the interim substitute: nothing deploys just because
+    # CI went green. Switch the trigger back to push-on-green (matching games' ci.yml)
+    # once either (a) this repo goes public and `required_reviewers` is added to `prod`,
+    # or (b) the account is on a plan that supports it on a private repo.
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && needs.test.result == 'success' && needs['frontend-build'].result == 'success' }}
+    runs-on: ubuntu-24.04-arm
+    environment: prod
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v5
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+
+      - name: Install Composer (no dev)
+        run: composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Download frontend build artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: frontend-build
+          path: public/build/
+
+      - name: Set up SSH deploy key
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      # Destination is hard-coded to ~/phr-laravel/ — this account also hosts the
+      # separate finance app at ~/bwh-php/ (webroot ~/public_html) and the games app at
+      # ~/games-laravel/, and --delete makes a wrong or empty destination catastrophic.
+      # Never point this at ~/, ~/bwh-php, ~/games-laravel, or ~/public_html.
+      #
+      # Host key is pinned via SSH_KNOWN_HOSTS (no StrictHostKeyChecking=no) — the
+      # deploy key alone only proves who we are, not that the server is who it claims
+      # to be, so skipping host verification here would defeat the point of pinning it.
+      - name: Deploy with rsync
+        run: |
+          rsync -av --delete --exclude='.env' \
+            -e "ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
+            app \
+            bootstrap \
+            config \
+            database \
+            public \
+            resources \
+            routes \
+            storage \
+            vendor \
+            artisan \
+            composer.json \
+            composer.lock \
+            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:~/phr-laravel/
+
+      - name: Run artisan migrate, config clear/cache on server
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes \
+            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
+            "cd ~/phr-laravel && /opt/cpanel/ea-php85/root/usr/bin/php artisan migrate --force && /opt/cpanel/ea-php85/root/usr/bin/php artisan config:clear && /opt/cpanel/ea-php85/root/usr/bin/php artisan config:cache"
