@@ -105,17 +105,24 @@ class PhrDicomGarbageCollect extends Command
 
     /**
      * List storage keys with no matching phr_dicom_files row and delete them.
+     *
+     * `derived/volume-cache` is swept alongside `phr/dicom` because derived
+     * volumes live outside the per-upload prefix. It also self-heals objects
+     * left behind by the volume-cache key-shape change: keys under the old
+     * `derived/volume-cache/{SeriesInstanceUID}/` layout no longer match any
+     * row, so they are reclaimed on the next run.
      */
     private function reclaimOrphanedObjects(bool $dryRun): int
     {
         $disk = $this->uploadProcessor->disk();
+        $keys = [];
 
-        try {
-            $keys = $disk->allFiles('phr/dicom');
-        } catch (Throwable $error) {
-            $this->error('Failed to list DICOM storage: '.$error->getMessage());
-
-            return 0;
+        foreach (['phr/dicom', 'derived/volume-cache'] as $prefix) {
+            try {
+                $keys = [...$keys, ...$disk->allFiles($prefix)];
+            } catch (Throwable $error) {
+                $this->error("Failed to list DICOM storage [{$prefix}]: ".$error->getMessage());
+            }
         }
 
         if ($keys === []) {

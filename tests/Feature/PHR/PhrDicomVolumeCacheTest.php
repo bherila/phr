@@ -16,12 +16,13 @@ use Tests\TestCase;
 
 class PhrDicomVolumeCacheTest extends TestCase
 {
-    public function test_unrelated_user_cannot_store_or_read_cache_but_viewer_can_store_it(): void
+    public function test_unrelated_user_cannot_store_or_read_cache_and_viewer_cannot_store_it(): void
     {
         Storage::fake(DicomUploadProcessor::DISK);
 
         $owner = $this->createUser();
         $viewer = $this->createUser();
+        $manager = $this->createUser();
         $unrelated = $this->createUser();
         $patientId = $this->createPatientFor($owner);
         $series = $this->createSeries($owner, $patientId);
@@ -34,7 +35,16 @@ class PhrDicomVolumeCacheTest extends TestCase
 
         $this->grantPatientAccess($owner, $patientId, $viewer, 'viewer');
 
+        // Populating the cache overwrites bytes every other reader of this
+        // patient downloads and decodes, so a read-only grant must not permit
+        // it. The viewer keeps read access to an artifact somebody else stored.
         $this->postCache($viewer, $patientId, $series->id, $this->gzipBytes())
+            ->assertForbidden();
+        $this->assertSame(0, PhrDicomFile::query()->where('file_kind', PhrDicomFile::KIND_DERIVED_VOLUME)->count());
+
+        $this->grantPatientAccess($owner, $patientId, $manager, 'manager');
+
+        $this->postCache($manager, $patientId, $series->id, $this->gzipBytes())
             ->assertCreated()
             ->assertExactJson([
                 'stored' => true,
@@ -42,12 +52,16 @@ class PhrDicomVolumeCacheTest extends TestCase
                 'pipeline_version' => 1,
             ]);
 
+        $this->actingAs($viewer)
+            ->get($this->cacheUrl($patientId, $series->id))
+            ->assertOk();
+
         $artifact = PhrDicomFile::query()
             ->where('file_kind', PhrDicomFile::KIND_DERIVED_VOLUME)
             ->sole();
         $this->assertSame($patientId, $artifact->patient_id);
         $this->assertSame($series->instances()->firstOrFail()->upload_id, $artifact->upload_id);
-        $this->assertSame("derived/volume-cache/{$series->series_instance_uid}/v1.bin.gz", $artifact->r2_key);
+        $this->assertSame("derived/volume-cache/patients/{$patientId}/series/{$series->id}/v1.bin.gz", $artifact->r2_key);
         $this->assertSame($artifact->r2_key, $artifact->original_relative_path);
         $this->assertSame(hash('sha256', $artifact->r2_key), $artifact->original_path_hash);
         $this->assertSame('volume-cache-v1.bin.gz', $artifact->original_filename);
@@ -58,6 +72,66 @@ class PhrDicomVolumeCacheTest extends TestCase
             'pipeline_version' => 1,
         ], $artifact->metadata_json);
         Storage::disk(DicomUploadProcessor::DISK)->assertExists($artifact->r2_key);
+    }
+
+    /**
+     * Regression: cross-tenant volume-cache poisoning.
+     *
+     * `SeriesInstanceUID` is read verbatim from an uploaded DICOM file, so an
+     * attacker can mint a series carrying a victim's UID under their own
+     * patient. When the cache key was derived from that UID, storing a cache
+     * for the attacker's own series overwrote the victim's cached volume in
+     * shared object storage — the victim's 3D viewer then decoded attacker
+     * bytes. The key must contain no DICOM-supplied identifier.
+     */
+    public function test_colliding_series_uid_under_another_patient_cannot_overwrite_victim_cache(): void
+    {
+        Storage::fake(DicomUploadProcessor::DISK);
+        $disk = Storage::disk(DicomUploadProcessor::DISK);
+
+        $victim = $this->createUser();
+        $victimPatientId = $this->createPatientFor($victim);
+        $victimSeries = $this->createSeries($victim, $victimPatientId);
+
+        $victimBytes = $this->gzipBytes('victim-volume');
+        $this->postCache($victim, $victimPatientId, $victimSeries->id, $victimBytes)->assertCreated();
+        $victimArtifact = PhrDicomFile::query()
+            ->where('file_kind', PhrDicomFile::KIND_DERIVED_VOLUME)
+            ->where('patient_id', $victimPatientId)
+            ->sole();
+        $this->assertSame($victimBytes, $disk->get($victimArtifact->r2_key));
+
+        // The attacker controls their own upload, so they can author a series
+        // whose SeriesInstanceUID is identical to the victim's.
+        $attacker = $this->createUser();
+        $attackerPatientId = $this->createPatientFor($attacker);
+        $attackerSeries = $this->createSeries(
+            $attacker,
+            $attackerPatientId,
+            seriesInstanceUid: $victimSeries->series_instance_uid,
+        );
+        $this->assertSame($victimSeries->series_instance_uid, $attackerSeries->series_instance_uid);
+        $this->assertNotSame($victimSeries->id, $attackerSeries->id);
+
+        $this->postCache($attacker, $attackerPatientId, $attackerSeries->id, $this->gzipBytes('attacker-payload'))
+            ->assertCreated();
+
+        // The victim's object is untouched, and the two artifacts occupy
+        // distinct keys despite the colliding UID.
+        $this->assertSame($victimBytes, $disk->get($victimArtifact->r2_key));
+
+        $attackerArtifact = PhrDicomFile::query()
+            ->where('file_kind', PhrDicomFile::KIND_DERIVED_VOLUME)
+            ->where('patient_id', $attackerPatientId)
+            ->sole();
+        $this->assertNotSame($victimArtifact->r2_key, $attackerArtifact->r2_key);
+        $this->assertSame($this->gzipBytes('attacker-payload'), $disk->get($attackerArtifact->r2_key));
+
+        // And the victim still serves their own bytes over the read path.
+        $response = $this->actingAs($victim)
+            ->get($this->cacheUrl($victimPatientId, $victimSeries->id))
+            ->assertOk();
+        $this->assertSame($victimBytes, $response->streamedContent());
     }
 
     public function test_manifest_cache_changes_from_unavailable_to_available_after_upload(): void
@@ -208,7 +282,7 @@ class PhrDicomVolumeCacheTest extends TestCase
             ->where('file_kind', PhrDicomFile::KIND_DERIVED_VOLUME)
             ->sole();
 
-        $staleKey = "derived/volume-cache/{$series->series_instance_uid}/v0.bin.gz";
+        $staleKey = "derived/volume-cache/patients/{$patientId}/series/{$series->id}/v0.bin.gz";
         Storage::disk(DicomUploadProcessor::DISK)->put($staleKey, $this->gzipBytes('stale'));
         $staleArtifact = PhrDicomFile::create([
             'patient_id' => $patientId,
@@ -264,8 +338,12 @@ class PhrDicomVolumeCacheTest extends TestCase
         ])->assertCreated();
     }
 
-    private function createSeries(User $owner, int $patientId, int $instanceCount = 20): PhrDicomSeries
-    {
+    private function createSeries(
+        User $owner,
+        int $patientId,
+        int $instanceCount = 20,
+        ?string $seriesInstanceUid = null,
+    ): PhrDicomSeries {
         $upload = PhrDicomUpload::create([
             'patient_id' => $patientId,
             'uploaded_by_user_id' => $owner->id,
@@ -282,7 +360,7 @@ class PhrDicomVolumeCacheTest extends TestCase
         $series = PhrDicomSeries::create([
             'patient_id' => $patientId,
             'study_id' => $study->id,
-            'series_instance_uid' => '1.2.840.10008.series.'.uniqid(),
+            'series_instance_uid' => $seriesInstanceUid ?? '1.2.840.10008.series.'.uniqid(),
             'modality' => 'CT',
             'description' => 'Volume series',
         ]);

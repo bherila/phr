@@ -5,6 +5,7 @@ namespace App\Http\Controllers\PHR\DICOM;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\PHR\DICOM\StoreDicomVolumeCacheRequest;
 use App\Models\PhrDicomSeries;
+use App\Models\PhrPatient;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\DICOM\VolumeCacheService;
 use App\Services\PHR\DICOM\VolumeSeriesInspector;
@@ -23,7 +24,7 @@ class DicomVolumeCacheController extends Controller
 
     public function store(StoreDicomVolumeCacheRequest $request, int $patient, int $series): JsonResponse
     {
-        $resolvedSeries = $this->resolveSeries($request, $patient, $series);
+        $resolvedSeries = $this->resolveWritableSeries($request, $patient, $series);
         $inspection = $this->volumeSeriesInspector->inspect($resolvedSeries);
         if (! $inspection['eligible']) {
             return response()->json(['error' => 'series_not_eligible'], 422);
@@ -64,13 +65,38 @@ class DicomVolumeCacheController extends Controller
         ]);
     }
 
+    /**
+     * Read path: any user the patient is shared with may fetch the artifact.
+     */
     private function resolveSeries(Request $request, int $patient, int $series): PhrDicomSeries
     {
         $userId = (int) $request->user()?->id;
-        $resolvedPatient = $this->accessService->accessiblePatient($patient, $userId);
 
+        return $this->seriesFor(
+            $this->accessService->accessiblePatient($patient, $userId),
+            $series,
+        );
+    }
+
+    /**
+     * Write path: populating the cache overwrites bytes every other reader of
+     * this patient subsequently downloads and decodes, so it requires write
+     * access — a read-only (viewer) grant is not enough.
+     */
+    private function resolveWritableSeries(Request $request, int $patient, int $series): PhrDicomSeries
+    {
+        $userId = (int) $request->user()?->id;
+
+        return $this->seriesFor(
+            $this->accessService->writablePatient($patient, $userId),
+            $series,
+        );
+    }
+
+    private function seriesFor(PhrPatient $patient, int $series): PhrDicomSeries
+    {
         return PhrDicomSeries::query()
-            ->where('patient_id', (int) $resolvedPatient->id)
+            ->where('patient_id', (int) $patient->id)
             ->with(['instances'])
             ->findOrFail($series);
     }

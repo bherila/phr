@@ -122,9 +122,25 @@ class VolumeCacheService
         return $this->uploadProcessor->disk();
     }
 
+    /**
+     * Namespace the cache object by the series' own primary key, under its
+     * patient.
+     *
+     * The key deliberately contains no DICOM-supplied identifier.
+     * `SeriesInstanceUID` is read verbatim out of an uploaded file, so it is
+     * attacker-controlled: keying on it let anyone who knew a victim's series
+     * UID mint a colliding series under their own patient and overwrite the
+     * victim's cached volume. `patient_id` and `id` are database-assigned and
+     * cannot collide across tenants.
+     */
     private function storageKey(PhrDicomSeries $series, int $pipelineVersion): string
     {
-        return "derived/volume-cache/{$series->series_instance_uid}/v{$pipelineVersion}.bin.gz";
+        return sprintf(
+            'derived/volume-cache/patients/%d/series/%d/v%d.bin.gz',
+            (int) $series->patient_id,
+            (int) $series->id,
+            $pipelineVersion,
+        );
     }
 
     private function safeFilename(string $filename): string
