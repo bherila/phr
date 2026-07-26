@@ -36,9 +36,10 @@ function patientIdFromPath(): number | undefined {
 
 interface PhrMillerShellProps {
   initialPatientId?: number
+  backUrl?: string
 }
 
-export function PhrMillerShell({ initialPatientId }: PhrMillerShellProps): ReactElement {
+export function PhrMillerShell({ initialPatientId, backUrl }: PhrMillerShellProps): ReactElement {
   const [patientId, setPatientId] = useState<number | undefined>(initialPatientId)
   const [paletteOpen, setPaletteOpen] = useState(false)
   usePhrCommandPaletteShortcut(paletteOpen, setPaletteOpen)
@@ -94,6 +95,7 @@ export function PhrMillerShell({ initialPatientId }: PhrMillerShellProps): React
     <PhrNavbar
       {...(patientId !== undefined ? { patientId } : {})}
       {...(activeSection ? { activeSection } : {})}
+      {...(backUrl ? { backUrl } : {})}
       className="flex h-full flex-col"
       onPatientChange={handlePatientChange}
       onSectionChange={handleSectionChange}

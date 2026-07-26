@@ -114,4 +114,24 @@ describe('PhrNavbar', () => {
 
     expect(onSectionChange).toHaveBeenCalledWith('imports')
   })
+
+  it('the back control defaults to the parent site when no backUrl is supplied', async () => {
+    const PhrNavbar = (await import('@/components/phr/PhrNavbar')).default
+
+    await act(async () => {
+      render(<PhrNavbar activeSection="patients" />)
+    })
+
+    expect(screen.getByRole('link', { name: 'Back to BWH' })).toHaveAttribute('href', 'https://bherila.net')
+  })
+
+  it('the back control uses the configured backUrl when supplied', async () => {
+    const PhrNavbar = (await import('@/components/phr/PhrNavbar')).default
+
+    await act(async () => {
+      render(<PhrNavbar activeSection="patients" backUrl="https://staging.bherila.net" />)
+    })
+
+    expect(screen.getByRole('link', { name: 'Back to BWH' })).toHaveAttribute('href', 'https://staging.bherila.net')
+  })
 })

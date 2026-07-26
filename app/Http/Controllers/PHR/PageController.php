@@ -67,6 +67,17 @@ class PageController extends Controller
             'patientId' => $patientId,
             'canManage' => $canManage,
             'title' => $title,
+            'backUrl' => $this->backUrl(),
         ]);
+    }
+
+    /**
+     * The navbar's "back" affordance exits PHR entirely rather than navigating within it, so it
+     * points at the parent site (also the OAuth identity provider PHR authenticates against)
+     * instead of a hardcoded literal.
+     */
+    private function backUrl(): string
+    {
+        return rtrim((string) config('services.identity_provider.base_url', 'https://bherila.net'), '/');
     }
 }
