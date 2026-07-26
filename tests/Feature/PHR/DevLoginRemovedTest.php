@@ -4,6 +4,7 @@ namespace Tests\Feature\PHR;
 
 use App\Http\Controllers\LoginController;
 use App\Models\User;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
@@ -55,31 +56,28 @@ class DevLoginRemovedTest extends TestCase
         $this->assertNotContains('devLoginById', $methods);
     }
 
-    public function test_master_password_is_rejected(): void
+    public function test_local_password_login_is_not_registered(): void
     {
         $user = $this->createUser(['password' => 'a-real-and-distinct-password']);
 
-        // The removed branch accepted this literal for any account whenever
-        // isLocalhost() was true; the test suite runs with APP_ENV=testing and
-        // APP_URL=http://localhost, which is exactly the condition it trusted.
         $this->post('/login', [
             'email' => $user->email,
             'password' => '1234567890',
-        ])->assertSessionHasErrors('email');
+        ])->assertMethodNotAllowed();
 
         $this->assertGuest();
     }
 
-    public function test_correct_password_still_signs_in(): void
+    public function test_correct_local_password_cannot_bypass_the_identity_provider(): void
     {
         $user = $this->createUser(['password' => 'a-real-and-distinct-password']);
 
         $this->post('/login', [
             'email' => $user->email,
             'password' => 'a-real-and-distinct-password',
-        ])->assertRedirect();
+        ])->assertMethodNotAllowed();
 
-        $this->assertAuthenticatedAs($user);
+        $this->assertGuest();
     }
 
     public function test_set_password_command_updates_credentials(): void
@@ -91,12 +89,10 @@ class DevLoginRemovedTest extends TestCase
             '--password' => 'replacement-password',
         ])->assertExitCode(0);
 
-        $this->post('/login', [
-            'email' => $user->email,
-            'password' => 'replacement-password',
-        ])->assertRedirect();
-
-        $this->assertAuthenticatedAs(User::query()->findOrFail($user->id));
+        $this->assertTrue(Hash::check(
+            'replacement-password',
+            User::query()->findOrFail($user->id)->password,
+        ));
     }
 
     public function test_set_password_command_fails_for_unknown_user(): void

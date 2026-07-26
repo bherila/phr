@@ -5,13 +5,13 @@ use App\Models\User;
 
 return [
     'routes' => [
-        'enabled' => true,
+        'enabled' => false,
         'prefix' => 'api',
         'middleware' => ['web', ThrottleTwoFactorVerify::class],
-        'passkeys' => true,
-        'password_resets' => true,
-        'change_password' => true,
-        'two_factor' => true,
+        'passkeys' => false,
+        'password_resets' => false,
+        'change_password' => false,
+        'two_factor' => false,
     ],
 
     'migrations' => [
