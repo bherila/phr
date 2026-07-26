@@ -210,6 +210,15 @@ jobs:
           name: frontend-build
           path: public/build/
 
+      # cPanel stores the vhost's PHP-version handler INSIDE public/.htaccess, which rsync
+      # replaces on every deploy. Without re-appending it the vhost silently falls back to
+      # the account default (ea-php81) and every page 500s on composer's platform check —
+      # while this workflow still reports success, because every step exits 0. The failure
+      # is visible only in ~/phr-laravel/public/error_log. Setting the version in MultiPHP
+      # is not enough on its own: the next deploy wipes it again.
+      - name: Append cPanel PHP handler to .htaccess
+        run: cat htaccess-append.txt >> public/.htaccess
+
       - name: Set up SSH deploy key
         run: |
           install -d -m 700 ~/.ssh
