@@ -30,15 +30,20 @@ interface PhrNavbarProps {
   activeSection?: PhrSection
   children?: ReactNode
   className?: string
+  /** Where the navbar's "back" affordance exits PHR to. Defaults to the parent site. */
+  backUrl?: string
   onPatientChange?: (patientId: number) => void
   onSectionChange?: (section: PhrSection) => void
 }
+
+const DEFAULT_BACK_URL = 'https://bherila.net'
 
 export default function PhrNavbar({
   patientId,
   activeSection,
   children,
   className,
+  backUrl = DEFAULT_BACK_URL,
   onPatientChange,
   onSectionChange,
 }: PhrNavbarProps) {
@@ -101,7 +106,7 @@ export default function PhrNavbar({
           <Tooltip>
             <TooltipTrigger asChild>
               <Button variant="secondary" size="icon" className="h-7 w-7 shrink-0" asChild>
-                <a href="/" aria-label="Back to BWH">
+                <a href={backUrl} aria-label="Back to BWH">
                   <ArrowLeft className="h-4 w-4" />
                 </a>
               </Button>

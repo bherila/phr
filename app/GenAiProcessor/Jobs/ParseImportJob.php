@@ -144,7 +144,7 @@ class ParseImportJob implements ShouldQueue
             [$inputTokens, $outputTokens] = $this->extractTokenUsage(is_array($response) ? $response : []);
 
             $jobUpdates = [];
-            if ($rawResponse !== null) {
+            if ($rawResponse !== false) {
                 $jobUpdates['raw_response'] = $rawResponse;
             }
             if ($inputTokens !== null) {
@@ -208,9 +208,9 @@ class ParseImportJob implements ShouldQueue
      * per-user quota check (GenAiJobDispatcherService::claimQuota), trimmed to the parts
      * PHR uses.
      */
-    private function claimQuota(int $userId, ?User $user = null, ?int $excludeJobId = null): bool
+    private function claimQuota(int $userId, User $user, ?int $excludeJobId = null): bool
     {
-        $siteLimit = (int) env('GEMINI_DAILY_REQUEST_LIMIT', 500);
+        $siteLimit = (int) config('genai.daily_request_limit', 500);
         $today = now()->utc()->toDateString();
 
         return DB::transaction(function () use ($today, $siteLimit, $userId, $user, $excludeJobId) {
@@ -225,8 +225,7 @@ class ParseImportJob implements ShouldQueue
                 return false;
             }
 
-            $userModel = $user ?? User::find($userId);
-            $userLimit = $userModel?->genai_daily_quota_limit ?? -1;
+            $userLimit = $user->genai_daily_quota_limit ?? -1;
             if ($userLimit >= 0) {
                 $userCount = GenAiImportJob::where('user_id', $userId)
                     ->whereDate('created_at', $today)

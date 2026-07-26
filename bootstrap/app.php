@@ -27,6 +27,11 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        // Unauthenticated /api/* requests must render 401 JSON regardless of the
+        // Accept header — never a redirect to /login, and never a 500 from resolving
+        // a `login` route that may not exist. API clients treat 401 as "authentication
+        // required" and degrade; anything else hits a generic error path. Contract is
+        // locked by tests/Feature/ApiUnauthenticatedResponseTest.php.
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request) => $request->is('api/*'),
         );

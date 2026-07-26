@@ -55,6 +55,26 @@ class PhrNavigationTest extends TestCase
         $response->assertRedirect('/phr/patients');
     }
 
+    public function test_shell_exposes_the_parent_site_as_the_back_url(): void
+    {
+        $this->withoutVite();
+        $response = $this->actingAs($this->createUser())->get('/phr/patients');
+
+        $response->assertOk();
+        $response->assertSee('data-back-url="https://bherila.net"', false);
+    }
+
+    public function test_shell_reads_the_back_url_from_the_identity_provider_config(): void
+    {
+        $this->withoutVite();
+        config(['services.identity_provider.base_url' => 'https://staging.bherila.net/']);
+
+        $response = $this->actingAs($this->createUser())->get('/phr/patients');
+
+        $response->assertOk();
+        $response->assertSee('data-back-url="https://staging.bherila.net"', false);
+    }
+
     public function test_section_routes_render_the_shared_shell(): void
     {
         $this->withoutVite();

@@ -15,9 +15,6 @@ class StorePatientAccessRequest extends FormRequest
     }
 
     /**
-     * @return array<string, ValidationRule|array<mixed>|string>
-     */
-    /**
      * `email` is deliberately not validated with `exists:users,email`.
      *
      * That rule turned this endpoint into an account-enumeration oracle: any
@@ -26,6 +23,8 @@ class StorePatientAccessRequest extends FormRequest
      * validation error. The controller now resolves the address and responds
      * identically whether or not it belongs to an account, matching
      * LoginController::requestEmailCode.
+     *
+     * @return array<string, ValidationRule|array<mixed>|string>
      */
     public function rules(): array
     {

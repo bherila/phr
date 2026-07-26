@@ -1,6 +1,7 @@
 <?php
 
-use App\Http\Controllers\LoginController;
+use App\Http\Controllers\OAuthLoginController;
+use App\Http\Controllers\OhifViewerController;
 use App\Http\Controllers\PHR\PageController as PHRPageController;
 use App\Http\Controllers\PHR\PhrDocumentController;
 use App\Http\Controllers\PHR\PhrExportController;
@@ -10,10 +11,15 @@ Route::get('/login', function () {
     return view('login');
 })->name('login');
 
-Route::post('/login', [LoginController::class, 'login']);
-Route::post('/login/email-code', [LoginController::class, 'requestEmailCode'])
-    ->middleware('throttle:5,1')
-    ->name('login.email-code');
+Route::get('/oauth/redirect', [OAuthLoginController::class, 'redirect'])
+    ->middleware('throttle:20,1')
+    ->name('oauth.redirect');
+Route::get('/oauth/callback', [OAuthLoginController::class, 'callback'])
+    ->middleware('throttle:20,1')
+    ->name('oauth.callback');
+Route::post('/logout', [OAuthLoginController::class, 'logout'])
+    ->middleware('auth')
+    ->name('logout');
 Route::redirect('/', '/phr');
 
 Route::middleware('auth')->group(function (): void {
@@ -28,6 +34,20 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/phr/patient/{patient}/imaging/series/{series}/explore-3d', [PHRPageController::class, 'explore3d'])
         ->whereNumber(['patient', 'series'])
         ->name('phr.imaging.explore-3d');
+
+    /*
+     * Static OHIF Viewer bundle (public/ohif/, uploaded out of band — see
+     * OhifViewerController). The imaging UI opens /ohif/viewer/dicomjson?url=…
+     * in a new tab, and that manifest URL is an authenticated /api/phr/ route,
+     * so the viewer is useless without a session. Keeping the entrypoint behind
+     * `auth` means an expired session lands on the identity provider and comes
+     * back to the viewer URL via redirect()->intended(), instead of rendering a
+     * viewer shell that then fails to load any images.
+     */
+    Route::get('/ohif', OhifViewerController::class)->name('ohif.index');
+    Route::get('/ohif/viewer/{path?}', OhifViewerController::class)
+        ->where('path', '.*')
+        ->name('ohif.viewer');
 });
 
 Route::middleware(['auth', 'signed'])->group(function (): void {

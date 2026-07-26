@@ -11,6 +11,8 @@ return [
     */
     'default' => env('GENAI_PROVIDER', 'gemini'),
 
+    'daily_request_limit' => (int) env('GEMINI_DAILY_REQUEST_LIMIT', 500),
+
     /*
     |--------------------------------------------------------------------------
     | Retry policy (applies to all providers)

@@ -1,0 +1,10 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    phpVersion: 80300
+    level: 6
+    paths:
+        - app/
+    tmpDir: .phpstan-cache/tmp
+    resultCachePath: .phpstan-cache/result-cache.php

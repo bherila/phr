@@ -14,8 +14,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
+/**
+ * @property Carbon|null $mcp_api_key_expires_at
+ * @property Carbon|null $mcp_api_key_last_used_at
+ */
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
@@ -55,9 +60,9 @@ class User extends Authenticatable
     /**
      * The accessors to append to the model's array form.
      *
-     * @var array
+     * @var list<string>
      */
-    protected $appends = ['user_role', 'virtual_user_role'];
+    protected $appends = ['virtual_user_role'];
 
     /**
      * Override the user_role attribute to return Admin for all admin-level users.
@@ -250,6 +255,8 @@ class User extends Authenticatable
 
     /**
      * Get all roles as an array.
+     *
+     * @return list<string>
      */
     public function getRoles(): array
     {

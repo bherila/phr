@@ -37,6 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const patientId = parsePatientId(mount.dataset.patientId) ?? patientIdFromPath()
   const activeSection = isPhrSection(mount.dataset.activeSection) ? mount.dataset.activeSection : undefined
+  const backUrl = mount.dataset.backUrl
 
   // Section routes (e.g. /phr/imports) seed the matching column into the hash so the single
   // hash-routed shell boots to the right place. Patient routes leave the hash untouched.
@@ -45,6 +46,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   createRoot(mount).render(
-    <PhrMillerShell {...(patientId !== undefined ? { initialPatientId: patientId } : {})} />,
+    <PhrMillerShell
+      {...(patientId !== undefined ? { initialPatientId: patientId } : {})}
+      {...(backUrl ? { backUrl } : {})}
+    />,
   )
 })

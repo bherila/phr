@@ -1,5 +1,19 @@
 <?php
 
+/*
+ * `root` means two different things depending on the driver: a filesystem path
+ * for "local", but an object-key prefix for "s3". The PHR DICOM disk can be
+ * either, so its root has to follow the driver — defaulting it to a
+ * storage_path() unconditionally prefixes every R2 key with an absolute host
+ * path, no object is ever found, and every DICOM read 404s while the config
+ * still looks correct.
+ */
+$phrDicomDiskDriver = env('PHR_DICOM_DISK_DRIVER', 's3');
+$phrDicomDiskRoot = env(
+    'PHR_DICOM_DISK_ROOT',
+    $phrDicomDiskDriver === 'local' ? storage_path('app/private/phr-dicom') : ''
+);
+
 return [
 
     /*
@@ -65,7 +79,7 @@ return [
         // R2 bucket and are uploaded directly by the browser through signed
         // PUT URLs.
         'phr_dicom' => [
-            'driver' => env('PHR_DICOM_DISK_DRIVER', 's3'),
+            'driver' => $phrDicomDiskDriver,
             'key' => env('PHR_DICOM_R2_ACCESS_KEY_ID'),
             'secret' => env('PHR_DICOM_R2_SECRET_ACCESS_KEY'),
             'region' => env('PHR_DICOM_R2_REGION', 'auto'),
@@ -73,7 +87,7 @@ return [
             'url' => env('PHR_DICOM_R2_URL'),
             'endpoint' => env('PHR_DICOM_R2_ENDPOINT'),
             'use_path_style_endpoint' => env('PHR_DICOM_R2_USE_PATH_STYLE_ENDPOINT', false),
-            'root' => env('PHR_DICOM_DISK_ROOT', storage_path('app/private/phr-dicom')),
+            'root' => $phrDicomDiskRoot,
             'serve' => env('PHR_DICOM_DISK_SERVE', false),
             'throw' => false,
             'report' => false,
