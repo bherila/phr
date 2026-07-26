@@ -10,7 +10,8 @@
         "test:slow": "JEST_INCLUDE_SLOW_TESTS=1 jest --passWithNoTests --testPathPatterns='\\.slow\\.test\\.[tj]sx?$'",
         "type-check": "tsc --noEmit --jsx react-jsx",
         "lint": "eslint . --cache",
-        "lint:fix": "eslint . --fix"
+        "lint:fix": "eslint . --fix",
+        "scan-sensitive": "node scripts/scan-sensitive.mjs"
     },
     "devDependencies": {
         "@eslint-react/eslint-plugin": "^5.9.3",
