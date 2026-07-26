@@ -248,9 +248,25 @@ jobs:
       # Host key is pinned via SSH_KNOWN_HOSTS (no StrictHostKeyChecking=no) — the
       # deploy key alone only proves who we are, not that the server is who it claims
       # to be, so skipping host verification here would defeat the point of pinning it.
+      #
+      # The --exclude list is what --delete must not touch. Excluded paths are
+      # hidden from the transfer entirely, so rsync also refuses to delete them
+      # on the receiver:
+      #   ohif           the ~200 MB static OHIF Viewer bundle at public/ohif/.
+      #                  It is built out of band and is not in git, so without
+      #                  this the first deploy after uploading it deletes it and
+      #                  /ohif/viewer/... starts 404ing again.
+      #   phr-documents  local disk root for uploaded PHR documents.
+      #   phr-exports    local disk root for generated PHR exports.
+      # The last two hold real clinical records that only exist on the server;
+      # deleting them is unrecoverable. (DICOM pixel data lives in R2, not here.)
       - name: Deploy with rsync
         run: |
-          rsync -av --delete --exclude='.env' \
+          rsync -av --delete \
+            --exclude='.env' \
+            --exclude='ohif' \
+            --exclude='phr-documents' \
+            --exclude='phr-exports' \
             -e "ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
             app \
             bootstrap \
