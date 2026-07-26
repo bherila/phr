@@ -98,9 +98,7 @@ class PhrDocumentController extends Controller
         try {
             $stored = Storage::disk('phr_documents')->put($storagePath, $stream);
         } finally {
-            if (is_resource($stream)) {
-                fclose($stream);
-            }
+            fclose($stream);
         }
 
         abort_unless($stored, 500, 'The uploaded file could not be stored.');
@@ -183,9 +181,7 @@ class PhrDocumentController extends Controller
         try {
             $stored = Storage::disk('s3')->put($s3Key, $stream);
         } finally {
-            if (is_resource($stream)) {
-                fclose($stream);
-            }
+            fclose($stream);
         }
 
         abort_unless($stored, 503, 'GenAI staging storage is not available.');

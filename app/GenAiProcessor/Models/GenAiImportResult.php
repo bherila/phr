@@ -24,7 +24,7 @@ class GenAiImportResult extends Model
     ];
 
     /**
-     * @return BelongsTo<GenAiImportJob, self>
+     * @return BelongsTo<GenAiImportJob, $this>
      */
     public function job(): BelongsTo
     {
