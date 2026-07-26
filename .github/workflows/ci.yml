@@ -169,19 +169,20 @@ jobs:
     needs:
       - test
       - frontend-build
-    # Manual-only trigger (workflow_dispatch), NOT automatic on push to main.
+    # Deploys automatically on a green push to main, matching bherila/2025-website and
+    # bherila/website-games. `workflow_dispatch` also still works for a manual redeploy.
     #
-    # The games split (bherila/2025-website#1803) deployed to production unprompted the
-    # moment its secrets existed, because that repo's deploy job triggers on green CI —
-    # and GitHub's `required_reviewers` environment-protection rule (the intended guard)
-    # is only available on public repos, or private repos on a paid plan. This repo is
-    # created PRIVATE per bherila/2025-website#1805 and stays that way until reviewed, so
-    # `required_reviewers` cannot be attached to the `prod` environment yet. Requiring a
-    # manual `workflow_dispatch` is the interim substitute: nothing deploys just because
-    # CI went green. Switch the trigger back to push-on-green (matching games' ci.yml)
-    # once either (a) this repo goes public and `required_reviewers` is added to `prod`,
-    # or (b) the account is on a plan that supports it on a private repo.
-    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && needs.test.result == 'success' && needs['frontend-build'].result == 'success' }}
+    # This was manual-only while the repo was private and unreviewed: the authorization
+    # review (bherila/2025-website#1805) was outstanding and `required_reviewers` is not
+    # available on private repos without a paid plan, so there was no way to gate an
+    # automatic deploy. Both conditions have since cleared — the review is done and its
+    # findings are fixed, and the repo is public.
+    #
+    # The gate that remains is `needs.test.result == 'success'`: the aggregate job checks
+    # every other job explicitly, so a new job added to this workflow must also be added
+    # to that check or it becomes invisible to the gate and can fail while the deploy
+    # still runs.
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.test.result == 'success' && needs['frontend-build'].result == 'success' }}
     runs-on: ubuntu-24.04-arm
     environment: prod
     permissions:
