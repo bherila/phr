@@ -63,6 +63,15 @@ class PhrDocument extends Model
         'mychart_zip',
     ];
 
+    /**
+     * The only disk PHR document bytes are ever written to.
+     *
+     * Read paths pin the disk to this constant rather than trusting the
+     * `storage_disk` column, so a row that somehow acquired a different value
+     * cannot redirect a stream at an unrelated filesystem.
+     */
+    public const string STORAGE_DISK = 'phr_documents';
+
     protected $fillable = [
         'patient_id',
         'user_id',

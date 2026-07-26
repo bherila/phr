@@ -249,7 +249,12 @@ class PhrDocumentController extends Controller
     {
         abort_unless($document->storage_path !== null, 404);
 
-        $disk = Storage::disk($document->storage_disk);
+        // Pinned rather than read from the row: document bytes are only ever
+        // written to this disk, so honouring a stray `storage_disk` value could
+        // only ever point the stream somewhere it should not go.
+        abort_unless($document->storage_disk === PhrDocument::STORAGE_DISK, 404);
+
+        $disk = Storage::disk(PhrDocument::STORAGE_DISK);
         abort_unless($disk->exists($document->storage_path), 404);
 
         $stream = $disk->readStream($document->storage_path);

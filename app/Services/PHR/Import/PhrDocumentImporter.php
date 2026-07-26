@@ -144,6 +144,21 @@ class PhrDocumentImporter
     {
         $payload = $this->documentPayload($payload);
 
+        // `storage_disk` and `storage_path` are deliberately absent.
+        //
+        // This payload is untrusted parsed input — a FHIR bundle or a model's
+        // JSON output — and taking a disk and path from it would let a crafted
+        // document point the file-streaming endpoints at an arbitrary object on
+        // an arbitrary disk, including another patient's stored documents.
+        // Bytes only ever reach a PhrDocument through storeLocalDocument() or
+        // storeGenAiDocument(), which derive the path server-side from the
+        // patient id and a fresh UUID.
+        //
+        // Omitting the keys (rather than nulling them) matters on the upsert
+        // path: an existing row that already has a stored file keeps its
+        // location instead of having it overwritten by a re-import. On insert
+        // the column default applies and storage_path stays null, which is
+        // correct for a metadata-only record such as a FHIR DocumentReference.
         $attributes = [
             'patient_id' => $patient->id,
             'user_id' => $patient->owner_user_id,
@@ -153,8 +168,6 @@ class PhrDocumentImporter
             'document_type' => ValueCoercion::normalizeDocumentType($payload['document_type'] ?? null),
             'observed_at' => ValueCoercion::dateTime($payload['observed_at'] ?? null),
             'original_filename' => ValueCoercion::string($payload['original_filename'] ?? null),
-            'storage_disk' => ValueCoercion::string($payload['storage_disk'] ?? null) ?? 'phr_documents',
-            'storage_path' => ValueCoercion::string($payload['storage_path'] ?? null),
             'mime_type' => ValueCoercion::string($payload['mime_type'] ?? null),
             'byte_size' => (int) ($payload['byte_size'] ?? $payload['file_size_bytes'] ?? 0),
             'file_hash' => ValueCoercion::string($payload['file_hash'] ?? $payload['sha256'] ?? null),
