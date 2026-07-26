@@ -52,6 +52,13 @@ jobs:
       - name: Lint
         run: pnpm run lint
 
+      # This repository is public and the application handles clinical records, so a
+      # committed identifier cannot be walked back: deleting it later leaves it in
+      # history and in every fork. The scanner redacts its own output because CI logs
+      # for a public repository are public too.
+      - name: Scan for sensitive data
+        run: pnpm run scan-sensitive
+
   frontend-tests:
     name: Frontend Tests
     runs-on: ubuntu-24.04-arm

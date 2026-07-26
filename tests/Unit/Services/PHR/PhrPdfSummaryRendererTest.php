@@ -130,7 +130,7 @@ class PhrPdfSummaryRendererTest extends TestCase
 
         foreach ([
             'Name | Test Patient',
-            'Birth Date | 1980-01-02',
+            'Birth Date | 1980-01-02', // sensitive-scan-ignore: synthetic fixture for "Test Patient", not a real record
             '2026-01-15 | Hemoglobin | 13.2 g/dL | normal',
             '2026-01-15 | Blood Pressure | 120/80 mmHg',
             'Hypertension | I10 | active',
