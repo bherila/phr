@@ -19,6 +19,11 @@
     </source>
     <php>
         <env name="APP_ENV" value="testing"/>
+        <!-- Pinned so the suite does not inherit a developer's local APP_URL. Several tests
+             assert generated absolute URLs (signed DICOM instance URLs, volume-cache manifests),
+             and a local .env pointing at e.g. http://localhost:8000 fails them for reasons that
+             have nothing to do with the code under test. -->
+        <env name="APP_URL" value="http://localhost"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>
