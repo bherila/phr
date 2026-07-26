@@ -1,6 +1,6 @@
 <?php
 
-use App\Http\Controllers\LoginController;
+use App\Http\Controllers\OAuthLoginController;
 use App\Http\Controllers\PHR\PageController as PHRPageController;
 use App\Http\Controllers\PHR\PhrDocumentController;
 use App\Http\Controllers\PHR\PhrExportController;
@@ -10,10 +10,15 @@ Route::get('/login', function () {
     return view('login');
 })->name('login');
 
-Route::post('/login', [LoginController::class, 'login']);
-Route::post('/login/email-code', [LoginController::class, 'requestEmailCode'])
-    ->middleware('throttle:5,1')
-    ->name('login.email-code');
+Route::get('/oauth/redirect', [OAuthLoginController::class, 'redirect'])
+    ->middleware('throttle:20,1')
+    ->name('oauth.redirect');
+Route::get('/oauth/callback', [OAuthLoginController::class, 'callback'])
+    ->middleware('throttle:20,1')
+    ->name('oauth.callback');
+Route::post('/logout', [OAuthLoginController::class, 'logout'])
+    ->middleware('auth')
+    ->name('logout');
 Route::redirect('/', '/phr');
 
 Route::middleware('auth')->group(function (): void {

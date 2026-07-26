@@ -105,7 +105,7 @@ class GenAiImportJob extends Model
     }
 
     /**
-     * @return BelongsTo<User, self>
+     * @return BelongsTo<User, $this>
      */
     public function user(): BelongsTo
     {
@@ -113,7 +113,7 @@ class GenAiImportJob extends Model
     }
 
     /**
-     * @return HasMany<GenAiImportResult, self>
+     * @return HasMany<GenAiImportResult, $this>
      */
     public function results(): HasMany
     {

@@ -94,6 +94,11 @@ jobs:
       - name: Run Pint
         run: ./vendor/bin/pint --test
 
+      # phpstan.neon and the larastan dev dependency exist so this can gate; a
+      # config that CI never runs is not a gate.
+      - name: Run PHPStan
+        run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
+
   backend-tests:
     name: Backend Tests
     # Some page tests render a real Blade view without ->withoutVite(), so they need

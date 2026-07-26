@@ -8,6 +8,7 @@ use App\Models\PhrDocument;
 use App\Models\PhrLabResult;
 use App\Models\PhrPatient;
 use App\Models\User;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -121,6 +122,53 @@ class PhrDocumentsTest extends TestCase
         $this->assertSame($document->id, (int) ($job->getContextArray()['document_id'] ?? 0));
         Storage::disk('s3')->assertExists($job->s3_path);
         Queue::assertPushed(ParseImportJob::class, fn (ParseImportJob $queuedJob): bool => $queuedJob->jobId === $job->id);
+    }
+
+    /**
+     * The real S3 adapter hands the stream to a Guzzle PSR-7 wrapper whose
+     * destructor closes the underlying resource before put() returns, so the
+     * controller's cleanup must tolerate an already-closed stream. Storage::fake
+     * uses the local adapter, which leaves the stream open — this wrapper
+     * restores the production behaviour the fake hides.
+     */
+    public function test_process_succeeds_when_the_staging_disk_closes_the_stream(): void
+    {
+        Storage::fake('phr_documents');
+        $stagingDisk = Storage::fake('s3');
+        Storage::set('s3', new class($stagingDisk)
+        {
+            public function __construct(public FilesystemAdapter $inner) {}
+
+            public function put(string $path, mixed $contents, mixed $options = []): bool
+            {
+                $result = $this->inner->put($path, $contents, $options);
+                if (is_resource($contents)) {
+                    fclose($contents);
+                }
+
+                return $result;
+            }
+
+            /**
+             * @param  array<int, mixed>  $arguments
+             */
+            public function __call(string $method, array $arguments): mixed
+            {
+                return $this->inner->{$method}(...$arguments);
+            }
+        });
+        Queue::fake();
+
+        $owner = $this->createUser();
+        $patient = $this->createPatient($owner);
+        $document = $this->createStoredDocument($patient, $owner, 'source/lab.pdf', '%PDF-1.4 lab');
+
+        $this->actingAs($owner)
+            ->postJson("/api/phr/patients/{$patient->id}/documents/{$document->id}/process")
+            ->assertAccepted();
+
+        $job = GenAiImportJob::query()->where('job_type', 'phr_document')->sole();
+        $stagingDisk->assertExists($job->s3_path);
     }
 
     public function test_metadata_response_includes_linked_rows_created_from_document(): void

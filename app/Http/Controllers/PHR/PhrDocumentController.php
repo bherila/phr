@@ -98,9 +98,7 @@ class PhrDocumentController extends Controller
         try {
             $stored = Storage::disk('phr_documents')->put($storagePath, $stream);
         } finally {
-            if (is_resource($stream)) {
-                fclose($stream);
-            }
+            $this->closeStreamIfStillOpen($stream);
         }
 
         abort_unless($stored, 500, 'The uploaded file could not be stored.');
@@ -183,9 +181,7 @@ class PhrDocumentController extends Controller
         try {
             $stored = Storage::disk('s3')->put($s3Key, $stream);
         } finally {
-            if (is_resource($stream)) {
-                fclose($stream);
-            }
+            $this->closeStreamIfStillOpen($stream);
         }
 
         abort_unless($stored, 503, 'GenAI staging storage is not available.');
@@ -378,6 +374,20 @@ class PhrDocumentController extends Controller
         }
 
         return array_values($clean);
+    }
+
+    /**
+     * Flysystem adapters may close a stream passed to put() — the S3 adapter's
+     * Guzzle PSR-7 wrapper closes the underlying resource on destruct — and
+     * fclose() on a closed resource throws a TypeError on PHP 8+. is_resource()
+     * returns false for closed resources, so this guard is load-bearing; it is
+     * locked by PhrDocumentsTest::test_process_succeeds_when_the_staging_disk_closes_the_stream.
+     */
+    private function closeStreamIfStillOpen(mixed $stream): void
+    {
+        if (is_resource($stream)) {
+            fclose($stream);
+        }
     }
 
     private function storagePath(int $patientId, string $filename): string
