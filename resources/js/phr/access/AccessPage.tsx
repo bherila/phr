@@ -6,12 +6,7 @@ import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
 import type { PhrListPageProps } from '@/phr/miller'
 import { errorMessage } from '@/phr/shared'
-import {
-  type PhrAccessGrant,
-  PhrAccessResponseSchema,
-  type PhrPatient,
-  PhrPatientResponseSchema,
-} from '@/phr/types'
+import { type PhrAccessGrant, type PhrPatient, PhrPatientResponseSchema } from '@/phr/types'
 
 const LEVEL_LABEL: Record<string, string> = {
   owner: 'Owner',
@@ -56,12 +51,14 @@ export default function AccessPage({ patientId, onDrill }: PhrListPageProps) {
     setFormError(null)
     setFormBusy(true)
     try {
-      const raw: unknown = await fetchWrapper.post(`/api/phr/patients/${patientId}/access`, {
+      await fetchWrapper.post(`/api/phr/patients/${patientId}/access`, {
         email,
         access_level: accessLevel,
       })
-      const response = PhrAccessResponseSchema.parse(raw)
-      setPatient(response.patient)
+      // The grant endpoint returns no patient payload on purpose — echoing the
+      // grant back would reveal whether the address belongs to an account.
+      // Reload instead; the grant list below is the owner's own data.
+      await load()
       setEmail('')
     } catch (err) {
       setFormError(errorMessage(err))
@@ -159,6 +156,10 @@ export default function AccessPage({ patientId, onDrill }: PhrListPageProps) {
                   {formBusy ? 'Granting…' : 'Grant'}
                 </Button>
               </form>
+              <p className="mt-3 text-xs text-muted-foreground">
+                The address must already have an account. Check the list below to confirm the grant
+                was added — nothing is sent to addresses that have not registered.
+              </p>
             </div>
           )}
 

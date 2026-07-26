@@ -388,11 +388,6 @@ export const PhrDicomUploadFileResponseSchema = z.object({
   upload: PhrDicomUploadSchema,
 })
 
-export const PhrAccessResponseSchema = z.object({
-  access: PhrAccessGrantSchema,
-  patient: PhrPatientSchema,
-})
-
 export const PhrAccessGrantDetailResponseSchema = z.object({
   access: PhrAccessGrantSchema,
 })

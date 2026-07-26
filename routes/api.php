@@ -61,7 +61,10 @@ Route::middleware(['web', 'auth'])
         Route::get('/patients/{patient}/vitals/{vital}', [PHRVitalController::class, 'show'])->whereNumber(['patient', 'vital'])->name('patients.vitals.show');
         Route::patch('/patients/{patient}/vitals/{vital}', [PHRVitalController::class, 'update'])->whereNumber(['patient', 'vital'])->name('patients.vitals.update');
         Route::delete('/patients/{patient}/vitals/{vital}', [PHRVitalController::class, 'destroy'])->whereNumber(['patient', 'vital'])->name('patients.vitals.destroy');
-        Route::post('/patients/{patient}/access', [PHRPatientAccessController::class, 'store'])->whereNumber('patient')->name('patients.access.store');
+        // Throttled: the handler responds identically whether or not the
+        // address belongs to an account, but a rate limit keeps bulk probing
+        // of the user table impractical regardless.
+        Route::post('/patients/{patient}/access', [PHRPatientAccessController::class, 'store'])->whereNumber('patient')->middleware('throttle:10,1')->name('patients.access.store');
         Route::delete('/patients/{patient}/access/{access}', [PHRPatientAccessController::class, 'destroy'])->whereNumber(['patient', 'access'])->name('patients.access.destroy');
         Route::get('/patients/{patient}/office-visits', [PHROfficeVisitController::class, 'index'])->whereNumber('patient')->name('patients.office-visits.index');
         Route::post('/patients/{patient}/office-visits', [PHROfficeVisitController::class, 'store'])->whereNumber('patient')->name('patients.office-visits.store');
