@@ -11,6 +11,7 @@
     @isset($patientId) data-patient-id="{{ $patientId }}" @endisset
     @isset($activeSection) data-active-section="{{ $activeSection }}" @endisset
     data-can-manage="{{ $canManage ? 'true' : 'false' }}"
+    data-back-url="{{ $backUrl }}"
   ></div>
 @endsection
 
