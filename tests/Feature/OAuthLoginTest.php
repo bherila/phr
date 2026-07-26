@@ -94,6 +94,79 @@ class OAuthLoginTest extends TestCase
         $this->assertSame(0, PhrPatient::query()->accessibleBy((int) $newUser->getKey())->count());
     }
 
+    public function test_auto_provisioned_account_gets_no_data_from_clinical_endpoints(): void
+    {
+        $owner = User::factory()->create();
+        $patient = PhrPatient::query()->create([
+            'owner_user_id' => $owner->getKey(),
+            'display_name' => 'Existing patient',
+        ]);
+        $this->fakeProvider('new-provider-subject', 'New Account', 'new-account@example.test');
+
+        $this->withSession($this->oauthSession())
+            ->get('/oauth/callback?state=expected-state&code=authorization-code')
+            ->assertRedirect('/');
+
+        $this->getJson('/api/phr/patients')
+            ->assertOk()
+            ->assertExactJson(['patients' => []]);
+        $this->getJson("/api/phr/patients/{$patient->id}")->assertNotFound();
+        $this->getJson("/api/phr/patients/{$patient->id}/documents")->assertNotFound();
+        $this->getJson("/api/phr/patients/{$patient->id}/dicom/studies")->assertNotFound();
+        $this->get("/phr/patient/{$patient->id}")->assertNotFound();
+    }
+
+    public function test_disabled_account_cannot_sign_in_through_the_provider(): void
+    {
+        User::factory()->create();
+        $disabledUser = User::factory()->create(['user_role' => '']);
+        $disabledUser->forceFill([
+            'oauth_provider' => 'bherila',
+            'oauth_subject' => 'disabled-provider-subject',
+        ])->save();
+        $this->assertFalse($disabledUser->canLogin());
+
+        $this->fakeProvider('disabled-provider-subject', 'Disabled Account', 'disabled-account@example.test');
+
+        $this->withSession($this->oauthSession())
+            ->get('/oauth/callback?state=expected-state&code=authorization-code')
+            ->assertForbidden();
+
+        $this->assertGuest();
+        $this->assertDatabaseHas('auth_audit_log', [
+            'event' => 'login_failed',
+            'auth_method' => 'oauth',
+            'user_id' => $disabledUser->getKey(),
+            'reason' => 'Account disabled',
+        ]);
+    }
+
+    public function test_oauth_sign_in_is_audited(): void
+    {
+        $user = User::factory()->create();
+        $user->forceFill([
+            'oauth_provider' => 'bherila',
+            'oauth_subject' => 'audited-provider-subject',
+        ])->save();
+        $this->fakeProvider('audited-provider-subject', 'Audited Name', 'audited-address@example.test');
+
+        $this->withSession($this->oauthSession())
+            ->get('/oauth/callback?state=expected-state&code=authorization-code')
+            ->assertRedirect('/');
+
+        $this->assertDatabaseHas('auth_audit_log', [
+            'event' => 'login_succeeded',
+            'auth_method' => 'oauth',
+            'user_id' => $user->getKey(),
+        ]);
+
+        $this->post('/logout')->assertRedirect('/');
+        $this->assertDatabaseHas('auth_audit_log', [
+            'event' => 'logged_out',
+            'user_id' => $user->getKey(),
+        ]);
+    }
+
     public function test_matching_email_never_rebinds_a_different_account(): void
     {
         $existingUser = User::factory()->create(['email' => 'reused-address@example.test']);
