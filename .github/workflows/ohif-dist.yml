@@ -1,0 +1,148 @@
+name: OHIF Dist
+
+# Build the static OHIF Viewer bundle and deploy it to public/ohif/ on the
+# server. Independent of the main CI deploy so OHIF upgrades don't piggyback
+# on every app deploy — and so we don't have to commit ~200 MB of OHIF build
+# artifacts to this repo.
+#
+# The main CI rsync (ci.yml) excludes the `ohif` directory so app deploys
+# don't clobber the OHIF dist that lives at ~/phr-laravel/public/ohif/ on the
+# server. This workflow is the only thing that should ever write there.
+#
+# Ported from the bwh-php monorepo, where OHIF for this app used to be built
+# and deployed before the PHR app was split into its own repo. That version
+# deployed to ~/bwh-php/public/ohif/ over password SSH; this one deploys to
+# ~/phr-laravel/public/ohif/ using this repo's key-based deploy credentials
+# (see ci.yml's `deploy` job for the same pattern).
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'OHIF Viewers release tag (e.g. v3.12.0)'
+        required: true
+        default: 'v3.12.0'
+  # Re-run automatically if the patcher script or workflow itself changes,
+  # since both affect what the deployed bundle looks like.
+  push:
+    branches: [main]
+    paths:
+      - '.github/ohif/**'
+      - '.github/workflows/ohif-dist.yml'
+
+concurrency:
+  group: ohif-dist
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build OHIF Dist
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # When triggered by push, no input is available; fall back to a pinned tag.
+      OHIF_TAG: ${{ github.event.inputs.tag || 'v3.12.0' }}
+
+    steps:
+      - name: Checkout phr (for patcher script)
+        uses: actions/checkout@v6
+        with:
+          path: phr
+          sparse-checkout: |
+            .github/ohif
+          sparse-checkout-cone-mode: false
+
+      - name: Checkout OHIF Viewers ${{ env.OHIF_TAG }}
+        uses: actions/checkout@v6
+        with:
+          repository: OHIF/Viewers
+          ref: ${{ env.OHIF_TAG }}
+          path: Viewers
+
+      - name: Setup Node 20
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+          cache: 'yarn'
+          cache-dependency-path: Viewers/yarn.lock
+
+      - name: Patch OHIF config for /ohif/ subpath + dicomjson default
+        run: node phr/.github/ohif/patch-config.mjs Viewers
+
+      - name: Yarn install
+        working-directory: Viewers
+        run: yarn install --frozen-lockfile
+
+      - name: Yarn build (PUBLIC_URL=/ohif/)
+        working-directory: Viewers
+        env:
+          PUBLIC_URL: /ohif/
+        run: yarn run build
+
+      - name: Sanity check build output
+        run: |
+          test -f Viewers/platform/app/dist/index.html
+          test -d Viewers/platform/app/dist/assets
+          du -sh Viewers/platform/app/dist
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: ohif-dist
+          path: Viewers/platform/app/dist
+
+  deploy:
+    name: Deploy OHIF Dist
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: build
+    environment: prod
+    permissions:
+      contents: read
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: ohif-dist
+          path: ohif-dist
+
+      # Same key-based auth as ci.yml's `deploy` job (SSH_PRIVATE_KEY +
+      # SSH_KNOWN_HOSTS) — this repo's deploy credentials are a key, not a
+      # password, unlike the monorepo original this was ported from. Host
+      # key is pinned via SSH_KNOWN_HOSTS (no StrictHostKeyChecking=no).
+      - name: Set up SSH deploy key
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Ensure remote target directory exists
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes \
+            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
+            "mkdir -p ~/phr-laravel/public/ohif"
+
+      # Destination is scoped to public/ohif/ only — --delete can remove
+      # stale files *inside* that directory (old OHIF asset hashes) but
+      # rsync never sees or touches anything outside the paths given here,
+      # so it cannot reach the rest of ~/phr-laravel/ (app code, .env,
+      # phr-documents, phr-exports). Trailing slashes on both source and
+      # destination matter: they deploy the *contents* of ohif-dist/ into
+      # public/ohif/, not a nested ohif-dist/ directory inside it.
+      - name: Deploy OHIF dist to public/ohif/
+        run: |
+          rsync -av --delete \
+            -e "ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
+            ohif-dist/ \
+            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:~/phr-laravel/public/ohif/
+
+      - name: Summarize
+        env:
+          OHIF_TAG: ${{ github.event.inputs.tag || 'v3.12.0' }}
+        run: |
+          echo "Deployed OHIF ${OHIF_TAG} to /ohif/ on ${{ secrets.SSH_HOST }}." >> "$GITHUB_STEP_SUMMARY"
