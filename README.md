@@ -14,11 +14,11 @@ split. History was intentionally not carried over: the source repo is private an
 history references tax/financial data unrelated to PHR, so starting clean avoids ever
 leaking any of that.
 
-**This repo starts private and stays private until reviewed** — the coupling here is
-heavier than the games split (a real GenAI import pipeline, patient-sharing
-authorization, DICOM object storage) and the review pass called out in #1805
-(auditing `PatientAccessController` and the patient-sharing model) has not happened
-yet. Do not flip it to public without doing that review first.
+This repository is now public. Before publication, the authorization and security
+review called out in #1805 audited `PatientAccessController`, the patient-sharing
+model, the GenAI import pipeline, and DICOM object storage; the resulting findings
+were fixed. The private-first extraction was deliberate because the coupling here is
+heavier than in the games split.
 
 ## What's here
 
@@ -36,7 +36,9 @@ yet. Do not flip it to public without doing that review first.
   handle deterministic tax-form parsers, tax-document account matching, and lot
   rebuilds — none of which PHR touches. This repo reimplements just the PHR-relevant
   slice (TOON/JSON text-output decoding + the PHR result-splitting logic) directly on
-  the public `bherila/genai-laravel` client, and owns it going forward. The two
+  the public `bherila/genai-laravel` client, and owns it going forward. A scheduled
+  `genai:requeue-stale` pass promotes quota-deferred work, retries jobs stranded by
+  queue or worker failures, and caps stale-processing retries. The two
   `ParseImportJob` classes are expected to diverge.
 - `@/components/phr/PdfViewer` — copied from the monorepo's
   `@/components/finance/statements/PdfViewer` (per #1805: it's a generic PDF.js
@@ -54,10 +56,10 @@ yet. Do not flip it to public without doing that review first.
 - `bherila/auth-laravel` (passkeys + passwordless email code + password fallback +
   audit log) backs real per-user login — this repo does **not** ship with the
   no-auth stance the games split took. `LoginController` + `login.blade.php` are
-  carried over from the monorepo, simplified to the password + local-only dev-login
-  path; the passkey/passwordless-email-code frontend widgets were **not** ported (the
-  package's API routes for them are still registered and usable, just without a
-  frontend — see "Not ported" below).
+  carried over from the monorepo, simplified to the password path; the
+  passkey/passwordless-email-code frontend widgets were **not** ported (the package's
+  API routes for them are still registered and usable, just without a frontend — see
+  "Not ported" below).
 - `bherila/genai-laravel` — the public, provider-agnostic GenAI client
   (Gemini/Anthropic/Bedrock) both this repo and the monorepo build on.
 
@@ -109,8 +111,9 @@ php artisan migrate
 composer run dev   # runs php artisan serve + queue + pail + vite concurrently
 ```
 
-Create a user and grant it the `user` role via `php artisan tinker`, or use the
-localhost-only dev-login route.
+Create a user and grant it the `user` role via `php artisan tinker`, then set its
+password with `php artisan user:set-password` as described above. There is no
+dev-login route.
 
 ## Testing
 
@@ -146,43 +149,32 @@ subdomain, and database:
   while the deploy workflow still reports success — this bit the games deploy)
 - `PHR_DICOM_R2_*` env vars point at the dedicated Cloudflare R2 bucket `bhdicom`
 
-**Deploy secrets are not set yet — do not trigger a deploy until they are.**
-`.github/workflows/ci.yml`'s `deploy` job expects four repo secrets:
+Deploy credentials are configured as four repository secrets used by
+`.github/workflows/ci.yml`'s `deploy` job:
 `SSH_PRIVATE_KEY` (the deploy key's full PEM), `SSH_HOST`, `SSH_USERNAME`, and
 `SSH_KNOWN_HOSTS` (`ssh-keyscan -H` output, so the deploy pins the host key instead of
 disabling verification). It deploys **only** to `~/phr-laravel/` on the server — never
 to the finance app's or games app's directory.
 
-### Deploy trigger is manual-only (`workflow_dispatch`), not automatic on green CI
+### Deploy triggers
 
-This is a deliberate deviation from the games repo's `ci.yml`, and the reason is a
-real constraint, not a style choice: the games split's `deploy` job fired to
-production **unprompted** the moment its secrets existed, because it triggers on
-green CI, and GitHub's `required_reviewers` environment-protection rule (the intended
-guard) is only available on public repos or private repos on a paid plan. This repo
-is private (see above) and stays that way until reviewed, so `required_reviewers`
-could not be attached to the `prod` GitHub Environment at creation time — attempting
-it returns `Please ensure the billing plan supports the required reviewers protection
-rule`. Requiring a manual `workflow_dispatch` run is the interim substitute: nothing
-deploys just because CI went green on a push.
+A green push to `main` deploys automatically to production. `workflow_dispatch`
+remains available for a manual redeploy. The deploy job is gated on the aggregate
+test job and the frontend build, so new CI jobs must be added to that aggregate gate
+if they should block deployment.
 
-**Switch `deploy`'s trigger back to push-on-green** (matching games' `ci.yml`) once
-either (a) this repo goes public and `required_reviewers` is added to the `prod`
-environment, or (b) the account is on a plan that supports `required_reviewers` on a
-private repo.
+The workflow was manual-only during the initial private, unreviewed extraction.
+GitHub's `required_reviewers` environment-protection rule was unavailable for a
+private repository on the account's plan, so `workflow_dispatch` served as the
+interim safety gate. The authorization review and its fixes were completed before
+the repository became public, after which push-on-green deployment was enabled.
 
 ## Not ported (scope cuts made during extraction)
 
 - **Passkey / passwordless-email-code login UI.** `bherila/auth-laravel`'s backend
   routes for these are registered and functional; only the React mount points
   (`login-passkey.tsx` and friends) were not carried over. `login.blade.php` currently
-  offers password + localhost dev-login only.
-- **GenAI queue recovery pollers** (`genai:run-queue`, `genai:process-scheduled`,
-  `genai:requeue-stale` in the monorepo). PHR's minimal queue dispatches
-  `ParseImportJob` directly at enqueue time, so the primary path doesn't need them —
-  but a job stuck in `queued_tomorrow` (quota exhausted) or `processing` (worker died
-  mid-job) currently has no automatic self-heal. Add a recovery command if that
-  becomes a real problem.
+  offers password login only.
 - **Full TOON/YAML response-decoding fallback.** The monorepo's
   `GenAiJobDispatcherService::decodeStructuredText()` has an elaborate YAML-shaped
   fallback and tabular-block normalization for finance-specific TOON dialects PHR
@@ -199,10 +191,9 @@ private repo.
 
 ## Privacy
 
-This repo starts **private** and stays that way until the authorization review noted
-above happens (see #1805: "publishing makes the authorization model publicly
-readable... review the access-control paths before the repo goes public, not after").
-When it does go public: do not commit real patient names, dates of birth, MRNs,
+This repository is public. Do not commit real patient names, dates of birth, MRNs,
 provider names, addresses, or other identifying information in code, fixtures, seeds,
-commit messages, or CI config. No DICOM/HL7/CCDA payloads or real clinical records are
-committed as of the extraction commit — PHR's tests use factories/faker throughout.
+commit messages, or CI config. The pre-publication authorization review required by
+#1805 was completed and its findings were fixed. No DICOM/HL7/CCDA payloads or real
+clinical records were committed in the extraction; PHR's tests use factories/faker
+throughout.

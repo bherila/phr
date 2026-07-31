@@ -53,11 +53,32 @@ class ParseImportJob implements ShouldQueue
     {
         $job = GenAiImportJob::find($this->jobId);
 
-        if (! $job || $job->status !== 'pending') {
+        if (! $job) {
             Log::info('ParseImportJob: skipping stale dispatch', ['job_id' => $this->jobId]);
 
             return;
         }
+
+        // A recovery poll may redispatch a pending row whose original queue
+        // message is merely delayed. Claim the row before doing any provider
+        // work so only one of those messages can process it.
+        $claimed = GenAiImportJob::query()
+            ->whereKey($job->id)
+            ->where('status', 'pending')
+            ->update([
+                'status' => 'processing',
+                'scheduled_for' => null,
+                'error_message' => null,
+                'updated_at' => now(),
+            ]);
+
+        if ($claimed !== 1) {
+            Log::info('ParseImportJob: skipping stale dispatch', ['job_id' => $this->jobId]);
+
+            return;
+        }
+
+        $job->refresh();
 
         if (! PhrStructuredDataImporter::isPhrJobType($job->job_type)) {
             $job->markFailed('Unsupported job type: '.$job->job_type);
@@ -124,7 +145,6 @@ class ParseImportJob implements ShouldQueue
             }
 
             $job->update([
-                'status' => 'processing',
                 'ai_configuration_id' => $activeConfig?->id,
                 'ai_provider' => $client->provider(),
                 'ai_model' => $client->model(),

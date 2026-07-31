@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-  # Deploy is manual-only for now — see the `deploy` job below for why.
+  # A green push to main deploys automatically; this also permits manual redeploys.
   workflow_dispatch:
 
 concurrency:
