@@ -156,11 +156,13 @@ Deploy credentials are configured as four repository secrets used by
 disabling verification). It deploys **only** to `~/phr-laravel/` on the server — never
 to the finance app's or games app's directory.
 
-The deploy also owns one cPanel account cron entry, keyed by the stable
-`JOB:phr-laravel-scheduler` tag. It runs Laravel's scheduler every five minutes,
-preserves every untagged account cron entry, and fails deployment unless the
-canonical entry and all three PHR maintenance schedules are present. Five minutes is
-the scheduler's production resolution: do not add an every-minute task without also
+The deploy owns two cPanel account cron entries, keyed independently by the stable
+`JOB:phr-laravel-scheduler` and `JOB:phr-laravel-queue-worker` tags. Both run every
+five minutes. The scheduler launches the three PHR maintenance schedules; the
+`flock`-protected worker drains only `genai-imports` and `phr-exports`, then exits when
+the queues are empty. Installation preserves every cron entry carrying neither PHR
+tag and rolls the account crontab back if verification fails. Five minutes is the
+scheduler's production resolution: do not add an every-minute task without also
 changing the managed cPanel cron cadence.
 
 ### Deploy triggers

@@ -83,7 +83,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Test cPanel scheduler cron installer
+      - name: Test cPanel cron installer
         run: bash .github/scripts/configure-phr-scheduler.test.sh
 
       - name: Setup PHP
@@ -291,7 +291,7 @@ jobs:
             ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
             "cd ~/phr-laravel && /opt/cpanel/ea-php85/root/usr/bin/php artisan migrate --force && /opt/cpanel/ea-php85/root/usr/bin/php artisan config:clear && /opt/cpanel/ea-php85/root/usr/bin/php artisan config:cache"
 
-      - name: Configure and verify cPanel scheduler cron
+      - name: Configure and verify cPanel scheduler and queue worker crons
         run: |
           ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes \
             ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \

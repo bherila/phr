@@ -36,8 +36,9 @@ class PhrQueueAuditCommand extends BasePhrCommand
         $failedTotal = $failedRows->sum(fn (object $row): int => (int) $row->job_count);
 
         $this->line(sprintf(
-            'queue-audit driver=%s pending_total=%d failed_total=%d',
+            'queue-audit driver=%s retry_after=%d pending_total=%d failed_total=%d',
             (string) config('queue.default'),
+            (int) config('queue.connections.database.retry_after'),
             $pendingTotal,
             $failedTotal,
         ));
