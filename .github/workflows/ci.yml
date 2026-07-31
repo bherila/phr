@@ -83,6 +83,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Test cPanel scheduler cron installer
+        run: bash .github/scripts/configure-phr-scheduler.test.sh
+
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
@@ -287,3 +290,12 @@ jobs:
           ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes \
             ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
             "cd ~/phr-laravel && /opt/cpanel/ea-php85/root/usr/bin/php artisan migrate --force && /opt/cpanel/ea-php85/root/usr/bin/php artisan config:clear && /opt/cpanel/ea-php85/root/usr/bin/php artisan config:cache"
+
+      - name: Configure and verify cPanel scheduler cron
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes \
+            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
+            "bash -s" < .github/scripts/configure-phr-scheduler.sh
+
+      - name: Verify production health
+        run: curl --fail --silent --show-error --retry 3 --retry-all-errors --max-time 20 https://phr.bherila.net/up > /dev/null
