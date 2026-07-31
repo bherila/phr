@@ -11,15 +11,8 @@ Artisan::command('inspire', function () {
 // PHR DICOM storage cleanup: reclaim stuck pending uploads + orphan objects.
 Schedule::command('phr:dicom:gc')->hourly()->withoutOverlapping(30);
 Schedule::command('phr:exports:purge')->daily()->withoutOverlapping(30);
+Schedule::command('genai:requeue-stale')->everyFiveMinutes()->withoutOverlapping(10);
 
 // Auth audit log retention pruning (bherila/auth-laravel).
 // No-op unless BHERILA_AUTH_AUDIT_RETENTION_DAYS is set in .env.
 Schedule::command('bherila-auth:prune-audit-log')->daily()->withoutOverlapping(10);
-
-// NOTE: the monorepo also schedules genai:run-queue / genai:process-scheduled /
-// genai:requeue-stale as recovery pollers for the shared GenAiProcessor pipeline.
-// PHR's minimal queue (bherila/2025-website#1805, option (c)) dispatches
-// ParseImportJob directly at enqueue time (PhrGenAiEnqueueCommand, PhrDocumentController
-// ::process()), so there is no separate poller yet. A `queued_tomorrow` job or one stuck
-// in `processing` will not currently self-heal — add a recovery command if that becomes
-// a real problem.
