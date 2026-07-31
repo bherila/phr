@@ -52,7 +52,7 @@ class PhrQueueAuditCommandTest extends TestCase
         ]);
 
         $this->artisan('phr:queue:audit')
-            ->expectsOutputToContain('queue-audit driver=database pending_total=3 failed_total=1')
+            ->expectsOutputToContain('queue-audit driver=database retry_after=360 pending_total=3 failed_total=1')
             ->expectsOutputToContain('pending queue=genai-imports count=2 reserved=1 max_attempts=2 oldest_seconds=300')
             ->expectsOutputToContain('pending queue=phr-exports count=1 reserved=0 max_attempts=1 oldest_seconds=60')
             ->expectsOutputToContain('failed queue=genai-imports count=1 oldest_seconds=600')
