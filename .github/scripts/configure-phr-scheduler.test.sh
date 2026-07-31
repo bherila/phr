@@ -29,6 +29,9 @@ if [[ -n "${FAKE_CRONTAB_FILE:-}" && $# -gt 0 ]]; then
                 config:show)
                     printf '%s\n' 'queue.default ..................................................... database'
                     ;;
+                phr:queue:audit)
+                    printf '%s\n' 'queue-audit driver=database pending_total=0 failed_total=0'
+                    ;;
                 *)
                     echo "Unexpected fake Artisan command: $*" >&2
                     exit 1
