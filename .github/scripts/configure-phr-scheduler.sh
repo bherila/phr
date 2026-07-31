@@ -112,6 +112,9 @@ printf '%s\n' "$schedule_output"
 echo "Production queue driver:"
 "$php_bin" artisan config:show queue.default --no-ansi
 
+echo "Production queue backlog:"
+"$php_bin" artisan phr:queue:audit --no-ansi
+
 queue_cron_count="$(
     awk '/artisan[[:space:]]+queue:(work|listen)/ { count++ } END { print count + 0 }' "$installed_file"
 )"
