@@ -121,9 +121,11 @@ dev-login route.
 pnpm run type-check
 pnpm run lint
 pnpm run test                          # Jest
+pnpm audit --audit-level high --ignore-registry-errors
 
 pnpm run build                         # required before PHPUnit (Vite manifest)
 ./vendor/bin/pint --test
+composer audit --locked --no-interaction
 php -d memory_limit=1G vendor/bin/phpunit
 ```
 
