@@ -43,6 +43,10 @@
 
     <footer class="border-t border-border py-6 text-sm text-center text-muted-foreground">
       <span>&copy; {{ date('Y') }} {{ config('app.name', 'Personal Health Record') }}</span>
+      @if (auth()->check() && auth()->user()->hasRole('admin'))
+        <span aria-hidden="true">&middot;</span>
+        <a class="underline underline-offset-4 hover:text-foreground" href="{{ route('uptime') }}">Uptime</a>
+      @endif
     </footer>
 
     @stack('scripts')
