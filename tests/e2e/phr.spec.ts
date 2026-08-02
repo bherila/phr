@@ -8,7 +8,13 @@ const outsiderCredentials = {
   email: 'unrelated-user@example.test',
   password: 'outsider-password',
 }
-const patientName = 'Synthetic Playwright Patient'
+// Playwright reruns a whole serial group on retry, but global setup — and the
+// synthetic database it recreates — runs once per invocation. Namespacing the
+// patient by attempt keeps a retry from tripping over rows the failed attempt
+// already wrote.
+function patientNameForAttempt(retry: number): string {
+  return `Synthetic Playwright Patient ${retry}`
+}
 
 async function signIn(page: Page, credentials: typeof ownerCredentials): Promise<void> {
   await page.context().clearCookies()
@@ -22,7 +28,7 @@ async function signIn(page: Page, credentials: typeof ownerCredentials): Promise
   await expect(page).toHaveURL(/\/phr\/patients/)
 }
 
-async function ownerPatientId(page: Page): Promise<number> {
+async function ownerPatientId(page: Page, patientName: string): Promise<number> {
   const response = await page.request.get('/api/phr/patients')
   expect(response.ok()).toBeTruthy()
   const payload = await response.json() as { patients: Array<{ id: number, display_name: string | null }> }
@@ -43,7 +49,8 @@ test.describe.serial('PHR browser journeys', () => {
     await expect(page.getByRole('heading', { name: 'Patients' })).toBeVisible()
   })
 
-  test('lets the owner create and open a patient profile through the UI', async ({ page }) => {
+  test('lets the owner create and open a patient profile through the UI', async ({ page }, testInfo) => {
+    const patientName = patientNameForAttempt(testInfo.retry)
     await signIn(page, ownerCredentials)
     await page.getByRole('link', { name: 'Add Patient' }).first().click()
     await expect(page.getByRole('heading', { name: 'Manage Patients' })).toBeVisible()
@@ -59,9 +66,9 @@ test.describe.serial('PHR browser journeys', () => {
     await expect(page.getByRole('heading', { name: patientName })).toBeVisible()
   })
 
-  test('uploads and views a synthetic document', async ({ page }) => {
+  test('uploads and views a synthetic document', async ({ page }, testInfo) => {
     await signIn(page, ownerCredentials)
-    const patientId = await ownerPatientId(page)
+    const patientId = await ownerPatientId(page, patientNameForAttempt(testInfo.retry))
     await page.goto(`/phr/patient/${patientId}#/documents`)
     await expect(page.getByRole('heading', { name: 'Documents' })).toBeVisible()
 
@@ -82,9 +89,10 @@ test.describe.serial('PHR browser journeys', () => {
     await expect(page.getByTitle('Document viewer').last()).toBeVisible()
   })
 
-  test('generates an export synchronously and exposes a working download', async ({ page }) => {
+  test('generates an export synchronously and exposes a working download', async ({ page }, testInfo) => {
+    const patientName = patientNameForAttempt(testInfo.retry)
     await signIn(page, ownerCredentials)
-    const patientId = await ownerPatientId(page)
+    const patientId = await ownerPatientId(page, patientName)
     await page.goto(`/phr/patient/${patientId}#/summary`)
     await expect(page.getByRole('heading', { name: patientName })).toBeVisible()
 
@@ -99,9 +107,9 @@ test.describe.serial('PHR browser journeys', () => {
     expect(download.suggestedFilename()).toMatch(/^patient-\d+-\d{8}\.zip$/)
   })
 
-  test('denies an unrelated user access to patient and DICOM resources', async ({ page }) => {
+  test('denies an unrelated user access to patient and DICOM resources', async ({ page }, testInfo) => {
     await signIn(page, ownerCredentials)
-    const patientId = await ownerPatientId(page)
+    const patientId = await ownerPatientId(page, patientNameForAttempt(testInfo.retry))
 
     const ownerDicom = await page.request.get(`/api/phr/patients/${patientId}/dicom/studies`)
     expect(ownerDicom.status()).toBe(200)
