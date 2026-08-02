@@ -15,6 +15,7 @@ const LOADING = <div role="status" aria-live="polite" className="p-8 text-sm tex
 const SECTION_TO_MODULE: Record<PhrSection, PhrModuleId> = {
   patients: 'patients',
   'manage-patients': 'patients-manage',
+  'data-hub': 'data-hub',
   imports: 'imports',
   config: 'config',
 }
@@ -22,6 +23,7 @@ const SECTION_TO_MODULE: Record<PhrSection, PhrModuleId> = {
 const MODULE_TO_SECTION: Partial<Record<PhrModuleId, PhrSection>> = {
   patients: 'patients',
   'patients-manage': 'manage-patients',
+  'data-hub': 'data-hub',
   imports: 'imports',
   config: 'config',
 }

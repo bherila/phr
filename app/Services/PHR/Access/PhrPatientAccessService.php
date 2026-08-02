@@ -85,4 +85,26 @@ class PhrPatientAccessService
                     });
             });
     }
+
+    /**
+     * The Data Hub must resolve ownership through the same access boundary as
+     * patient routes. Keeping these queries here prevents callers from treating
+     * a client-supplied patient id as proof of ownership.
+     *
+     * @return Builder<PhrPatient>
+     */
+    public function ownedPatientsQuery(int $userId): Builder
+    {
+        return PhrPatient::query()
+            ->accessibleBy($userId)
+            ->where('owner_user_id', $userId);
+    }
+
+    /** @return Builder<PhrPatient> */
+    public function sharedPatientsQuery(int $userId): Builder
+    {
+        return PhrPatient::query()
+            ->accessibleBy($userId)
+            ->where('owner_user_id', '<>', $userId);
+    }
 }

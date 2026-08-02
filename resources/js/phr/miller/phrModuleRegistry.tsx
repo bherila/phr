@@ -31,6 +31,7 @@ export type PhrModuleId =
   | 'access-grant-detail'
   | 'patients'
   | 'patients-manage'
+  | 'data-hub'
   | 'imports'
   | 'config'
 
@@ -62,6 +63,7 @@ export const PHR_MODULE_IDS: readonly PhrModuleId[] = [
   'access-grant-detail',
   'patients',
   'patients-manage',
+  'data-hub',
   'imports',
   'config',
 ]
@@ -342,6 +344,14 @@ const IMPORTS_MODULE = {
   keywords: ['imports', 'upload', 'ccda', 'fhir'],
 } satisfies PhrModuleDefinition
 
+const DATA_HUB_MODULE = {
+  id: 'data-hub',
+  label: 'Data Hub',
+  shortLabel: 'Data Hub',
+  category: 'Admin',
+  keywords: ['data', 'inventory', 'export', 'backup', 'restore', 'delete'],
+} satisfies PhrModuleDefinition
+
 const CONFIG_MODULE = {
   id: 'config',
   label: 'PHR Config',
@@ -358,6 +368,7 @@ const CONFIG_MODULE = {
 export const PHR_SECTION_MODULES: PhrModuleDefinition[] = [
   PATIENTS_MODULE,
   PATIENTS_MANAGE_MODULE,
+  DATA_HUB_MODULE,
   IMPORTS_MODULE,
   CONFIG_MODULE,
 ]
@@ -432,6 +443,7 @@ const AccessGrantDetail = lazy(() => import('@/phr/access/AccessGrantDetail'))
 const PatientsPage = lazy(() => import('@/phr/patients/PatientsPage'))
 const PatientsManagePage = lazy(() => import('@/phr/patients-manage/PatientsManagePage'))
 const AiProviderSettingsPage = lazy(() => import('@/phr/config/AiProviderSettingsPage'))
+const DataHubPage = lazy(() => import('@/phr/data-hub/DataHubPage'))
 
 function noPatientState() {
   return (
@@ -533,6 +545,10 @@ function PatientsManageColumn() {
   return <PatientsManagePage />
 }
 
+function DataHubColumn() {
+  return <DataHubPage />
+}
+
 function ComingSoonColumn({ title }: { title: string }) {
   return (
     <div className="p-6">
@@ -578,6 +594,7 @@ export const phrModuleRegistry: Record<PhrModuleId, PhrRegistryEntry> = {
   'access-grant-detail': makeDetailModule(ACCESS_GRANT_DETAIL_MODULE, AccessGrantDetail),
   patients: makeSectionModule(PATIENTS_MODULE, PatientsColumn),
   'patients-manage': makeSectionModule(PATIENTS_MANAGE_MODULE, PatientsManageColumn),
+  'data-hub': makeSectionModule(DATA_HUB_MODULE, DataHubColumn),
   imports: makeSectionModule(IMPORTS_MODULE, ImportsColumn),
   config: makeSectionModule(CONFIG_MODULE, ConfigColumn),
 }

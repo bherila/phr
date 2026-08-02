@@ -70,6 +70,7 @@ describe('PhrNavbar', () => {
     expect(screen.getByLabelText('PHR section')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Patients' })).toHaveAttribute('aria-current', 'page')
     expect(screen.getByRole('link', { name: 'Manage Patients' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Data Hub' })).toHaveAttribute('href', '/phr/data-hub')
   })
 
   it('loads patient combobox when patientId is provided', async () => {

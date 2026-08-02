@@ -30,6 +30,7 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/phr/patients/manage', [PHRPageController::class, 'managePatients'])->name('phr.patients.manage');
     Route::get('/phr/imports', [PHRPageController::class, 'imports'])->name('phr.imports');
     Route::get('/phr/config', [PHRPageController::class, 'config'])->name('phr.config');
+    Route::get('/phr/data-hub', [PHRPageController::class, 'dataHub'])->name('phr.data-hub');
     Route::get('/phr/patient/{patient}', [PHRPageController::class, 'patient'])
         ->whereNumber('patient')
         ->name('phr.patient');

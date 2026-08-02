@@ -33,7 +33,7 @@ class PhrExportController extends Controller
             ->map(fn (PhrExport $export): array => $this->payload($export))
             ->values();
 
-        return response()->json(['exports' => $exports]);
+        return $this->privateJson(['exports' => $exports]);
     }
 
     public function store(StorePhrExportRequest $request, int $patient): JsonResponse
@@ -43,7 +43,7 @@ class PhrExportController extends Controller
 
         $export = $this->exportService->createQueuedExport($resolvedPatient, $userId, $request->formats())->refresh();
 
-        return response()->json(['export' => $this->payload($export)], 202);
+        return $this->privateJson(['export' => $this->payload($export)], 202);
     }
 
     public function download(Request $request, PhrExport $export): StreamedResponse
@@ -55,7 +55,11 @@ class PhrExportController extends Controller
         abort_unless($export->expires_at === null || $export->expires_at->isFuture(), 410);
         abort_unless(Storage::disk($export->storage_disk)->exists($export->storage_path), 404);
 
-        return Storage::disk($export->storage_disk)->download($export->storage_path, $export->filename ?? ('phr-export-'.$export->id.'.zip'));
+        $response = Storage::disk($export->storage_disk)->download($export->storage_path, $export->filename ?? ('phr-export-'.$export->id.'.zip'));
+        $response->headers->set('Cache-Control', 'private, no-store, max-age=0');
+        $response->headers->set('Pragma', 'no-cache');
+
+        return $response;
     }
 
     /**
@@ -79,5 +83,17 @@ class PhrExportController extends Controller
                 ? URL::temporarySignedRoute('phr.exports.download', now()->addMinutes(15), ['export' => $export->id])
                 : null,
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    private function privateJson(array $payload, int $status = 200): JsonResponse
+    {
+        $response = response()->json($payload, $status);
+        $response->headers->set('Cache-Control', 'private, no-store, max-age=0');
+        $response->headers->set('Pragma', 'no-cache');
+
+        return $response;
     }
 }
