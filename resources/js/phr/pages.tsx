@@ -3,11 +3,12 @@ import { createRoot } from 'react-dom/client'
 import type { PhrSection } from '@/lib/phrRouteBuilder'
 import { PhrMillerShell } from '@/phr/miller'
 
-const PHR_SECTIONS: readonly PhrSection[] = ['patients', 'manage-patients', 'imports', 'config']
+const PHR_SECTIONS: readonly PhrSection[] = ['patients', 'manage-patients', 'data-hub', 'imports', 'config']
 
 const SECTION_HASH: Record<PhrSection, string> = {
   patients: '#/patients',
   'manage-patients': '#/patients-manage',
+  'data-hub': '#/data-hub',
   imports: '#/imports',
   config: '#/config',
 }
