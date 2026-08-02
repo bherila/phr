@@ -3,10 +3,7 @@
 namespace App\Http\Controllers\PHR\DICOM;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\PHR\DICOM\CompleteDirectDicomUploadRequest;
 use App\Http\Requests\PHR\DICOM\OpenDicomUploadRequest;
-use App\Http\Requests\PHR\DICOM\RequestDirectDicomUploadBatchRequest;
-use App\Http\Requests\PHR\DICOM\RequestDirectDicomUploadRequest;
 use App\Http\Requests\PHR\DICOM\StoreDicomUploadFileRequest;
 use App\Models\PhrDicomUpload;
 use App\Models\PhrPatient;
@@ -57,75 +54,6 @@ class DicomUploadController extends Controller
         $relativePath = $request->string('relative_path')->trim()->value() ?: null;
 
         $result = $this->uploadProcessor->processSingleFile($session, $file, $relativePath);
-
-        return response()->json([
-            'result' => $result,
-            'upload' => $this->uploadPayload($session->refresh()),
-        ]);
-    }
-
-    /**
-     * Reserve an R2 object key and return a signed PUT URL for the browser.
-     */
-    public function requestUploadUrl(RequestDirectDicomUploadRequest $request, int $patient, int $upload): JsonResponse
-    {
-        $patientModel = $this->resolvePatient($request, $patient);
-        $session = $this->resolveSession($patientModel, $upload);
-
-        if ($session->status !== PhrDicomUpload::STATUS_PENDING) {
-            throw new HttpException(409, 'Upload session is no longer accepting files.');
-        }
-
-        $signedUpload = $this->uploadProcessor->requestDirectUpload(
-            $session,
-            $request->string('filename')->value(),
-            $request->string('relative_path')->trim()->value() ?: null,
-            $request->string('content_type')->trim()->value() ?: null,
-            $request->integer('file_size'),
-        );
-
-        return response()->json($this->signedUploadPayload($signedUpload));
-    }
-
-    /**
-     * Reserve R2 object keys and return signed PUT URLs for a client-side batch.
-     */
-    public function requestUploadUrls(RequestDirectDicomUploadBatchRequest $request, int $patient, int $upload): JsonResponse
-    {
-        $patientModel = $this->resolvePatient($request, $patient);
-        $session = $this->resolveSession($patientModel, $upload);
-
-        if ($session->status !== PhrDicomUpload::STATUS_PENDING) {
-            throw new HttpException(409, 'Upload session is no longer accepting files.');
-        }
-
-        $signedUploads = $this->uploadProcessor->requestDirectUploadBatch($session, $request->uploadFiles());
-
-        return response()->json([
-            'uploads' => array_map(fn (array $signedUpload): array => $this->signedUploadBatchPayload($signedUpload), $signedUploads),
-        ]);
-    }
-
-    /**
-     * Register a browser-uploaded R2 object against the open DICOM session.
-     */
-    public function completeFile(CompleteDirectDicomUploadRequest $request, int $patient, int $upload): JsonResponse
-    {
-        $patientModel = $this->resolvePatient($request, $patient);
-        $session = $this->resolveSession($patientModel, $upload);
-
-        if ($session->status !== PhrDicomUpload::STATUS_PENDING) {
-            throw new HttpException(409, 'Upload session is no longer accepting files.');
-        }
-
-        $result = $this->uploadProcessor->processDirectUploadedFile(
-            $session,
-            $request->string('r2_key')->value(),
-            $request->string('relative_path')->value(),
-            $request->string('original_filename')->value(),
-            $request->string('mime_type')->trim()->value() ?: null,
-            $request->integer('file_size_bytes'),
-        );
 
         return response()->json([
             'result' => $result,
@@ -216,37 +144,6 @@ class DicomUploadController extends Controller
             'max_file_bytes' => $maxFileBytes,
             'max_file_size_label' => DicomUploadLimits::formatBytes($maxFileBytes),
             'direct_upload' => true,
-        ];
-    }
-
-    /**
-     * @param  array{upload_url: string, headers: array<string, string>, r2_key: string, relative_path: string, expires_in: int}  $signedUpload
-     * @return array{upload_url: string, headers: object, r2_key: string, relative_path: string, expires_in: int}
-     */
-    private function signedUploadPayload(array $signedUpload): array
-    {
-        return [
-            'upload_url' => $signedUpload['upload_url'],
-            'headers' => (object) $signedUpload['headers'],
-            'r2_key' => $signedUpload['r2_key'],
-            'relative_path' => $signedUpload['relative_path'],
-            'expires_in' => $signedUpload['expires_in'],
-        ];
-    }
-
-    /**
-     * @param  array{client_id: string, upload_url: string, headers: array<string, string>, r2_key: string, relative_path: string, expires_in: int}  $signedUpload
-     * @return array{client_id: string, upload_url: string, headers: object, r2_key: string, relative_path: string, expires_in: int}
-     */
-    private function signedUploadBatchPayload(array $signedUpload): array
-    {
-        return [
-            'client_id' => $signedUpload['client_id'],
-            'upload_url' => $signedUpload['upload_url'],
-            'headers' => (object) $signedUpload['headers'],
-            'r2_key' => $signedUpload['r2_key'],
-            'relative_path' => $signedUpload['relative_path'],
-            'expires_in' => $signedUpload['expires_in'],
         ];
     }
 }

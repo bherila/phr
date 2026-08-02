@@ -4,15 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Progress } from '@/components/ui/progress'
-import { fetchWrapper } from '@/fetchWrapper'
+import { fetchWrapper, getCsrfToken } from '@/fetchWrapper'
 import { cn, formatBytes } from '@/lib/utils'
 import type { PhrListPageProps } from '@/phr/miller'
 import { errorMessage } from '@/phr/shared'
 import {
-  type PhrDicomSignedUploadBatchItem,
-  PhrDicomSignedUploadBatchResponseSchema,
   PhrDicomStudiesResponseSchema,
   type PhrDicomStudy,
+  type PhrDicomUploadFileResponse,
   PhrDicomUploadFileResponseSchema,
   PhrDicomUploadFinalizeResponseSchema,
   PhrDicomUploadResponseSchema,
@@ -31,7 +30,6 @@ const directoryInputAttributes: DirectoryInputAttributes = {
 }
 
 const UPLOAD_CONCURRENCY = 4
-const SIGNED_UPLOAD_BATCH_SIZE = 32
 
 type UploadPhase = 'uploading' | 'done' | 'duplicate' | 'aborting' | 'cancelled' | 'failed'
 
@@ -400,14 +398,6 @@ interface FileOutcome {
   relativePath: string
 }
 
-interface SignedUploadBatchRequestFile {
-  client_id: string
-  filename: string
-  relative_path: string
-  content_type: string
-  file_size: number
-}
-
 interface UploadControllerOptions {
   patientId: number
   uploadId: number
@@ -424,12 +414,6 @@ class UploadController {
   private readonly options: UploadControllerOptions
 
   private nextIndex = 0
-
-  private nextSigningIndex = 0
-
-  private readonly signedUploadsByIndex = new Map<number, PhrDicomSignedUploadBatchItem>()
-
-  private signedUploadBatchPromise: Promise<void> | null = null
 
   private readonly activeRequests = new Set<XMLHttpRequest>()
 
@@ -494,29 +478,12 @@ class UploadController {
       }
     }
 
+    if (this.aborted) {
+      return { stored: false, skippedReason: null, errorMessage: 'Cancelled.', relativePath }
+    }
+
     try {
-      const signedUpload = await this.signedUploadFor(index)
-
-      if (this.aborted) {
-        return { stored: false, skippedReason: null, errorMessage: 'Cancelled.', relativePath }
-      }
-
-      await this.putFileToStorage(file, signedUpload.upload_url, signedUpload.headers)
-
-      if (this.aborted) {
-        return { stored: false, skippedReason: null, errorMessage: 'Cancelled.', relativePath }
-      }
-
-      const completed = PhrDicomUploadFileResponseSchema.parse(await fetchWrapper.post(
-        `/api/phr/patients/${this.options.patientId}/dicom/uploads/${this.options.uploadId}/files/complete`,
-        {
-          r2_key: signedUpload.r2_key,
-          relative_path: signedUpload.relative_path,
-          original_filename: file.name,
-          mime_type: file.type || 'application/dicom',
-          file_size_bytes: file.size,
-        },
-      ))
+      const completed = await this.postFile(file, relativePath)
 
       return {
         stored: completed.result.stored,
@@ -534,95 +501,15 @@ class UploadController {
     }
   }
 
-  private async signedUploadFor(index: number): Promise<PhrDicomSignedUploadBatchItem> {
-    while (!this.signedUploadsByIndex.has(index)) {
-      if (this.nextSigningIndex >= this.options.files.length && this.signedUploadBatchPromise === null) {
-        break
-      }
-
-      await this.ensureSignedUploadBatch(index)
-    }
-
-    const signedUpload = this.signedUploadsByIndex.get(index)
-    if (!signedUpload) {
-      const file = this.options.files[index]
-      const fileLabel = file ? relativeFilePath(file) : `file ${index + 1}`
-      throw new Error(`Unable to reserve DICOM upload URL for ${fileLabel}.`)
-    }
-
-    this.signedUploadsByIndex.delete(index)
-
-    return signedUpload
-  }
-
-  private async ensureSignedUploadBatch(requiredIndex: number): Promise<void> {
-    if (this.signedUploadBatchPromise === null) {
-      this.signedUploadBatchPromise = this.requestNextSignedUploadBatch(requiredIndex).finally(() => {
-        this.signedUploadBatchPromise = null
-      })
-    }
-
-    await this.signedUploadBatchPromise
-  }
-
-  private async requestNextSignedUploadBatch(requiredIndex: number): Promise<void> {
-    if (this.aborted) {
-      return
-    }
-
-    if (this.nextSigningIndex < requiredIndex) {
-      this.nextSigningIndex = requiredIndex
-    }
-
-    const files: SignedUploadBatchRequestFile[] = []
-    while (this.nextSigningIndex < this.options.files.length && files.length < SIGNED_UPLOAD_BATCH_SIZE) {
-      const fileIndex = this.nextSigningIndex
-      const file = this.options.files[fileIndex]
-      this.nextSigningIndex += 1
-
-      if (!file || !this.shouldRequestSignedUpload(file)) {
-        continue
-      }
-
-      files.push({
-        client_id: String(fileIndex),
-        filename: file.name,
-        relative_path: relativeFilePath(file),
-        content_type: file.type || 'application/dicom',
-        file_size: file.size,
-      })
-    }
-
-    if (files.length === 0) {
-      return
-    }
-
-    const response = PhrDicomSignedUploadBatchResponseSchema.parse(await fetchWrapper.post(
-      `/api/phr/patients/${this.options.patientId}/dicom/uploads/${this.options.uploadId}/signed-urls`,
-      { files },
-    ))
-
-    for (const signedUpload of response.uploads) {
-      const fileIndex = Number.parseInt(signedUpload.client_id, 10)
-      if (Number.isInteger(fileIndex)) {
-        this.signedUploadsByIndex.set(fileIndex, signedUpload)
-      }
-    }
-  }
-
-  private shouldRequestSignedUpload(file: FileWithRelativePath): boolean {
-    return this.options.maxFileBytes === null || file.size <= this.options.maxFileBytes
-  }
-
-  private putFileToStorage(file: FileWithRelativePath, uploadUrl: string, signedHeaders: Record<string, string>): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
+  private postFile(file: FileWithRelativePath, relativePath: string): Promise<PhrDicomUploadFileResponse> {
+    return new Promise<PhrDicomUploadFileResponse>((resolve, reject) => {
       const xhr = new XMLHttpRequest()
-      xhr.open('PUT', uploadUrl)
-      for (const [key, value] of Object.entries(signedHeaders)) {
-        xhr.setRequestHeader(key, value)
-      }
-      if (!Object.keys(signedHeaders).some((key) => key.toLowerCase() === 'content-type')) {
-        xhr.setRequestHeader('Content-Type', file.type || 'application/dicom')
+      xhr.open('POST', `/api/phr/patients/${this.options.patientId}/dicom/uploads/${this.options.uploadId}/files`)
+      xhr.setRequestHeader('Accept', 'application/json')
+      xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest')
+      const csrfToken = getCsrfToken()
+      if (csrfToken) {
+        xhr.setRequestHeader('X-CSRF-TOKEN', csrfToken)
       }
 
       let lastLoaded = 0
@@ -639,15 +526,19 @@ class UploadController {
         this.options.onFileBytesProgress(file.size - lastLoaded)
 
         if (xhr.status >= 200 && xhr.status < 300) {
-          resolve()
+          try {
+            resolve(PhrDicomUploadFileResponseSchema.parse(JSON.parse(xhr.responseText)))
+          } catch (error) {
+            reject(error instanceof Error ? error : new Error(errorMessage(error)))
+          }
         } else {
-          reject(new Error(`Storage upload failed: ${extractServerError(xhr)}`))
+          reject(new Error(extractServerError(xhr)))
         }
       })
 
       xhr.addEventListener('error', () => {
         this.activeRequests.delete(xhr)
-        reject(new Error('Network error during storage upload.'))
+        reject(new Error('Network error during upload.'))
       })
 
       xhr.addEventListener('abort', () => {
@@ -655,9 +546,13 @@ class UploadController {
         reject(new Error('Cancelled.'))
       })
 
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('relative_path', relativePath)
+
       this.activeRequests.add(xhr)
       try {
-        xhr.send(file)
+        xhr.send(formData)
       } catch (error) {
         this.activeRequests.delete(xhr)
         reject(error instanceof Error ? error : new Error(errorMessage(error)))

@@ -1,13 +1,6 @@
 import { z } from 'zod'
 
 const nullableString = z.string().nullable()
-const signedUploadHeadersSchema = z.preprocess((value) => {
-  if (Array.isArray(value) && value.length === 0) {
-    return {}
-  }
-
-  return value
-}, z.record(z.string(), z.string()))
 
 export const PhrConditionClinicalStatusSchema = z.enum([
   'active',
@@ -354,26 +347,6 @@ export const PhrDicomUploadFinalizeResponseSchema = PhrDicomUploadResponseSchema
   duplicate_upload: z.boolean().optional(),
 })
 
-export const PhrDicomSignedUploadResponseSchema = z.object({
-  upload_url: z.string(),
-  headers: signedUploadHeadersSchema.default({}),
-  r2_key: z.string(),
-  relative_path: z.string(),
-  expires_in: z.number(),
-})
-
-export type PhrDicomSignedUpload = z.infer<typeof PhrDicomSignedUploadResponseSchema>
-
-export const PhrDicomSignedUploadBatchItemSchema = PhrDicomSignedUploadResponseSchema.extend({
-  client_id: z.string(),
-})
-
-export type PhrDicomSignedUploadBatchItem = z.infer<typeof PhrDicomSignedUploadBatchItemSchema>
-
-export const PhrDicomSignedUploadBatchResponseSchema = z.object({
-  uploads: z.array(PhrDicomSignedUploadBatchItemSchema),
-})
-
 export const PhrDicomUploadFileResultSchema = z.object({
   stored: z.boolean(),
   skipped_reason: z.string().nullable(),
@@ -387,6 +360,8 @@ export const PhrDicomUploadFileResponseSchema = z.object({
   result: PhrDicomUploadFileResultSchema,
   upload: PhrDicomUploadSchema,
 })
+
+export type PhrDicomUploadFileResponse = z.infer<typeof PhrDicomUploadFileResponseSchema>
 
 export const PhrAccessGrantDetailResponseSchema = z.object({
   access: PhrAccessGrantSchema,

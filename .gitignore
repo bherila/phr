@@ -31,3 +31,14 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Production blob mirrors must never live inside the working tree. The local mirror is a
+# sibling of the repos at ~/proj/x-data/<project>/ (see that directory's README), because
+# this tree holds PHI / financial documents and is headed for a public remote — gitignored
+# is not the same as absent, and `git add -f` or `git clean -xdf` would each be a disaster.
+#
+# storage/app/private/ is already covered by its own stock `*` ignore. These entries are
+# the backstop for someone syncing to the obvious-but-wrong place instead.
+/blobs/
+/x-data/
+/storage/blobs/

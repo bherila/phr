@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\PHR;
 
+use App\Http\Requests\PHR\DICOM\StoreDicomUploadFileRequest;
 use App\Models\PhrDicomFile;
 use App\Models\PhrDicomInstance;
 use App\Models\PhrDicomSeries;
@@ -257,204 +258,6 @@ class PhrDicomTest extends TestCase
         ])), 'IM0002')->assertStatus(409);
     }
 
-    public function test_direct_upload_url_reserves_unique_r2_paths(): void
-    {
-        $owner = $this->createUser();
-        $patientId = $this->createPatientFor($owner);
-        $uploadId = $this->openUpload($owner, $patientId, 'CARDIAC_CT');
-        $adapter = new class
-        {
-            /**
-             * @param  array<string, string>  $options
-             * @return array{url: string, headers: array<string, string>}
-             */
-            public function temporaryUploadUrl(string $path, mixed $expiration, array $options): array
-            {
-                return [
-                    'url' => 'https://r2.example.test/'.rawurlencode($path),
-                    'headers' => [
-                        'Content-Type' => $options['ContentType'],
-                        'Host' => ['dicom-test-bucket.r2.example.test'],
-                        'x-amz-meta-upload' => ['dicom'],
-                    ],
-                ];
-            }
-        };
-
-        config(['filesystems.disks.'.DicomUploadProcessor::DISK.'.bucket' => 'dicom-test-bucket']);
-        Storage::shouldReceive('disk')
-            ->twice()
-            ->with(DicomUploadProcessor::DISK)
-            ->andReturn($adapter);
-
-        $payload = [
-            'filename' => 'IM0001',
-            'relative_path' => 'CARDIAC_CT/ST0001/SE0001/IM0001',
-            'content_type' => 'application/dicom',
-            'file_size' => 1024,
-        ];
-
-        $first = $this->actingAs($owner)
-            ->postJson("/api/phr/patients/{$patientId}/dicom/uploads/{$uploadId}/signed-url", $payload)
-            ->assertOk()
-            ->assertJsonPath('relative_path', 'CARDIAC_CT/ST0001/SE0001/IM0001')
-            ->assertJsonPath('headers.Content-Type', 'application/dicom')
-            ->assertJsonPath('headers.x-amz-meta-upload', 'dicom')
-            ->assertJsonMissingPath('headers.Host');
-
-        $second = $this->actingAs($owner)
-            ->postJson("/api/phr/patients/{$patientId}/dicom/uploads/{$uploadId}/signed-url", $payload)
-            ->assertOk()
-            ->assertJsonPath('relative_path', 'CARDIAC_CT/ST0001/SE0001/IM0001-2');
-
-        $this->assertStringStartsWith('phr/dicom/patients/'.$patientId.'/uploads/', (string) $first->json('r2_key'));
-        $this->assertStringEndsWith('CARDIAC_CT/ST0001/SE0001/IM0001-2', (string) $second->json('r2_key'));
-
-        $upload = PhrDicomUpload::query()->findOrFail($uploadId);
-        $this->assertSame([
-            'CARDIAC_CT/ST0001/SE0001/IM0001',
-            'CARDIAC_CT/ST0001/SE0001/IM0001-2',
-        ], $upload->manifest_json['reserved_paths']);
-    }
-
-    public function test_direct_upload_url_batch_reserves_unique_r2_paths(): void
-    {
-        $owner = $this->createUser();
-        $patientId = $this->createPatientFor($owner);
-        $uploadId = $this->openUpload($owner, $patientId, 'CARDIAC_CT');
-        $adapter = new class
-        {
-            /**
-             * @param  array<string, string>  $options
-             * @return array{url: string, headers: array<string, string>}
-             */
-            public function temporaryUploadUrl(string $path, mixed $expiration, array $options): array
-            {
-                return [
-                    'url' => 'https://r2.example.test/'.rawurlencode($path),
-                    'headers' => [
-                        'Content-Type' => $options['ContentType'],
-                        'Host' => ['dicom-test-bucket.r2.example.test'],
-                        'x-amz-meta-upload' => ['dicom'],
-                    ],
-                ];
-            }
-        };
-
-        config(['filesystems.disks.'.DicomUploadProcessor::DISK.'.bucket' => 'dicom-test-bucket']);
-        Storage::shouldReceive('disk')
-            ->twice()
-            ->with(DicomUploadProcessor::DISK)
-            ->andReturn($adapter);
-
-        $response = $this->actingAs($owner)
-            ->postJson("/api/phr/patients/{$patientId}/dicom/uploads/{$uploadId}/signed-urls", [
-                'files' => [
-                    [
-                        'client_id' => 'file-1',
-                        'filename' => 'IM0001',
-                        'relative_path' => 'CARDIAC_CT/ST0001/SE0001/IM0001',
-                        'content_type' => 'application/dicom',
-                        'file_size' => 1024,
-                    ],
-                    [
-                        'client_id' => 'file-2',
-                        'filename' => 'IM0001',
-                        'relative_path' => 'CARDIAC_CT/ST0001/SE0001/IM0001',
-                        'content_type' => 'application/dicom',
-                        'file_size' => 1024,
-                    ],
-                ],
-            ])
-            ->assertOk()
-            ->assertJsonPath('uploads.0.client_id', 'file-1')
-            ->assertJsonPath('uploads.0.relative_path', 'CARDIAC_CT/ST0001/SE0001/IM0001')
-            ->assertJsonPath('uploads.0.headers.Content-Type', 'application/dicom')
-            ->assertJsonPath('uploads.0.headers.x-amz-meta-upload', 'dicom')
-            ->assertJsonMissingPath('uploads.0.headers.Host')
-            ->assertJsonPath('uploads.1.client_id', 'file-2')
-            ->assertJsonPath('uploads.1.relative_path', 'CARDIAC_CT/ST0001/SE0001/IM0001-2');
-
-        $this->assertStringStartsWith('phr/dicom/patients/'.$patientId.'/uploads/', (string) $response->json('uploads.0.r2_key'));
-        $this->assertStringEndsWith('CARDIAC_CT/ST0001/SE0001/IM0001-2', (string) $response->json('uploads.1.r2_key'));
-
-        $upload = PhrDicomUpload::query()->findOrFail($uploadId);
-        $this->assertSame([
-            'CARDIAC_CT/ST0001/SE0001/IM0001',
-            'CARDIAC_CT/ST0001/SE0001/IM0001-2',
-        ], $upload->manifest_json['reserved_paths']);
-    }
-
-    public function test_direct_upload_url_batch_rejects_files_over_configured_cap(): void
-    {
-        config(['phr.dicom_max_file_bytes' => 10]);
-
-        $owner = $this->createUser();
-        $patientId = $this->createPatientFor($owner);
-        $uploadId = $this->openUpload($owner, $patientId, 'CARDIAC_CT');
-
-        $response = $this->actingAs($owner)
-            ->postJson("/api/phr/patients/{$patientId}/dicom/uploads/{$uploadId}/signed-urls", [
-                'files' => [
-                    [
-                        'client_id' => 'file-1',
-                        'filename' => 'IM0001',
-                        'relative_path' => 'CARDIAC_CT/ST0001/SE0001/IM0001',
-                        'content_type' => 'application/dicom',
-                        'file_size' => 11,
-                    ],
-                ],
-            ])
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('files.0.file_size');
-
-        $errors = $response->json('errors');
-        $this->assertIsArray($errors);
-        $this->assertSame(['Each DICOM file must be 10 B or smaller.'], $errors['files.0.file_size'] ?? null);
-
-        $upload = PhrDicomUpload::query()->findOrFail($uploadId);
-        $this->assertArrayNotHasKey('reserved_paths', $upload->manifest_json);
-    }
-
-    public function test_direct_upload_url_serializes_empty_headers_as_json_object(): void
-    {
-        $owner = $this->createUser();
-        $patientId = $this->createPatientFor($owner);
-        $uploadId = $this->openUpload($owner, $patientId, 'CARDIAC_CT');
-        $adapter = new class
-        {
-            /**
-             * @param  array<string, mixed>  $options
-             * @return array{url: string, headers: array<string, string>}
-             */
-            public function temporaryUploadUrl(string $path, mixed $expiration, array $options): array
-            {
-                return [
-                    'url' => 'https://r2.example.test/'.rawurlencode($path),
-                    'headers' => [],
-                ];
-            }
-        };
-
-        config(['filesystems.disks.'.DicomUploadProcessor::DISK.'.bucket' => 'dicom-test-bucket']);
-        Storage::shouldReceive('disk')
-            ->once()
-            ->with(DicomUploadProcessor::DISK)
-            ->andReturn($adapter);
-
-        $response = $this->actingAs($owner)
-            ->postJson("/api/phr/patients/{$patientId}/dicom/uploads/{$uploadId}/signed-url", [
-                'filename' => 'IM0001',
-                'relative_path' => 'CARDIAC_CT/ST0001/SE0001/IM0001',
-                'content_type' => 'application/dicom',
-                'file_size' => 1024,
-            ])
-            ->assertOk()
-            ->assertJsonPath('relative_path', 'CARDIAC_CT/ST0001/SE0001/IM0001');
-
-        $this->assertStringContainsString('"headers":{}', (string) $response->getContent());
-    }
-
     public function test_viewer_json_can_emit_direct_signed_instance_urls_when_enabled(): void
     {
         $this->fakeDicomDisk();
@@ -485,108 +288,24 @@ class PhrDicomTest extends TestCase
         $this->assertStringNotContainsString('/api/phr/patients/', $signedInstanceUrl);
     }
 
-    public function test_direct_upload_url_rejects_files_over_configured_cap(): void
-    {
-        config(['phr.dicom_max_file_bytes' => 10]);
-
-        $owner = $this->createUser();
-        $patientId = $this->createPatientFor($owner);
-        $uploadId = $this->openUpload($owner, $patientId, 'CARDIAC_CT');
-
-        $this->actingAs($owner)
-            ->postJson("/api/phr/patients/{$patientId}/dicom/uploads/{$uploadId}/signed-url", [
-                'filename' => 'IM0001',
-                'relative_path' => 'CARDIAC_CT/ST0001/SE0001/IM0001',
-                'content_type' => 'application/dicom',
-                'file_size' => 11,
-            ])
-            ->assertUnprocessable()
-            ->assertJsonValidationErrors('file_size')
-            ->assertJsonPath('errors.file_size.0', 'Each DICOM file must be 10 B or smaller.');
-
-        $upload = PhrDicomUpload::query()->findOrFail($uploadId);
-        $this->assertArrayNotHasKey('reserved_paths', $upload->manifest_json);
-    }
-
-    public function test_direct_upload_completion_deletes_objects_over_configured_cap(): void
-    {
-        config(['phr.dicom_max_file_bytes' => 10]);
-        $this->fakeDicomDisk();
-
-        $owner = $this->createUser();
-        $patientId = $this->createPatientFor($owner);
-        $uploadId = $this->openUpload($owner, $patientId, 'CARDIAC_CT');
-        $upload = PhrDicomUpload::query()->findOrFail($uploadId);
-        $relativePath = 'CARDIAC_CT/ST0001/SE0001/IM0001';
-        $storageKey = $upload->r2_prefix.'/'.$relativePath;
-
-        $upload->update([
-            'manifest_json' => array_merge($upload->manifest_json ?? [], [
-                'reserved_paths' => [$relativePath],
-            ]),
-        ]);
-        Storage::disk(DicomUploadProcessor::DISK)->put($storageKey, str_repeat('x', 11));
-
-        $this->actingAs($owner)
-            ->postJson("/api/phr/patients/{$patientId}/dicom/uploads/{$uploadId}/files/complete", [
-                'r2_key' => $storageKey,
-                'relative_path' => $relativePath,
-                'original_filename' => 'IM0001',
-                'mime_type' => 'application/dicom',
-                'file_size_bytes' => 10,
-            ])
-            ->assertUnprocessable()
-            ->assertJsonPath('message', 'Each DICOM file must be 10 B or smaller.');
-
-        Storage::disk(DicomUploadProcessor::DISK)->assertMissing($storageKey);
-    }
-
-    public function test_direct_uploaded_r2_object_is_registered_and_finalized(): void
+    public function test_oversized_multipart_upload_is_rejected_before_processing(): void
     {
         $this->fakeDicomDisk();
 
         $owner = $this->createUser();
         $patientId = $this->createPatientFor($owner);
         $uploadId = $this->openUpload($owner, $patientId, 'CARDIAC_CT');
+
+        $oversizedFile = UploadedFile::fake()->create('IM0001', StoreDicomUploadFileRequest::MAX_FILE_KILOBYTES + 1);
+
+        $this->postFile($owner, $patientId, $uploadId, $oversizedFile, 'CARDIAC_CT/ST0001/SE0001/IM0001')
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('file')
+            ->assertJsonPath('errors.file.0', 'Each DICOM file must be 200 MB or smaller.');
+
         $upload = PhrDicomUpload::query()->findOrFail($uploadId);
-        $relativePath = 'CARDIAC_CT/ST0001/SE0001/IM0001';
-        $storageKey = $upload->r2_prefix.'/'.$relativePath;
-        $contents = $this->dicomBytes();
-
-        $upload->update([
-            'manifest_json' => array_merge($upload->manifest_json ?? [], [
-                'reserved_paths' => [$relativePath],
-            ]),
-        ]);
-        Storage::disk(DicomUploadProcessor::DISK)->put($storageKey, $contents);
-
-        $this->actingAs($owner)
-            ->postJson("/api/phr/patients/{$patientId}/dicom/uploads/{$uploadId}/files/complete", [
-                'r2_key' => $storageKey,
-                'relative_path' => $relativePath,
-                'original_filename' => 'IM0001',
-                'mime_type' => 'application/dicom',
-                'file_size_bytes' => strlen($contents),
-            ])
-            ->assertOk()
-            ->assertJsonPath('result.stored', true)
-            ->assertJsonPath('result.relative_path', $relativePath)
-            ->assertJsonPath('upload.total_files', 1)
-            ->assertJsonPath('upload.stored_files', 1);
-
-        $this->finalizeUpload($owner, $patientId, $uploadId)
-            ->assertOk()
-            ->assertJsonPath('upload.status', PhrDicomUpload::STATUS_PROCESSED);
-
-        $study = PhrDicomStudy::query()->where('patient_id', $patientId)->sole();
-        $instance = PhrDicomInstance::query()->where('study_id', $study->id)->sole();
-        $file = PhrDicomFile::query()->where('patient_id', $patientId)->sole();
-
-        $this->assertSame($storageKey, $file->r2_key);
-        $this->assertSame(hash('sha256', $contents), $file->sha256);
-        $this->assertSame('1.2.840.113619.2.55.3.604688437.20260517.1.1.1', $instance->sop_instance_uid);
-        $this->assertSame([], PhrDicomUpload::query()->findOrFail($uploadId)->manifest_json['reserved_paths']);
-        Storage::disk(DicomUploadProcessor::DISK)->assertExists($storageKey);
+        $this->assertSame(0, $upload->total_files);
+        $this->assertSame([], Storage::disk(DicomUploadProcessor::DISK)->allFiles());
     }
 
     public function test_upload_parses_image_metadata_after_undefined_length_sequence(): void
@@ -782,33 +501,14 @@ class PhrDicomTest extends TestCase
         $originalFile = PhrDicomFile::query()->where('patient_id', $patientId)->sole();
 
         $secondId = $this->openUpload($owner, $patientId, 'CARDIAC_CT');
-        $secondUpload = PhrDicomUpload::query()->findOrFail($secondId);
         $relativePath = 'CARDIAC_CT/ST0001/SE0001/IM0001';
-        $storageKey = $secondUpload->r2_prefix.'/'.$relativePath;
-        $contents = $this->dicomBytes();
 
-        $secondUpload->update([
-            'manifest_json' => array_merge($secondUpload->manifest_json ?? [], [
-                'reserved_paths' => [$relativePath],
-            ]),
-        ]);
-        Storage::disk(DicomUploadProcessor::DISK)->put($storageKey, $contents);
-
-        $this->actingAs($owner)
-            ->postJson("/api/phr/patients/{$patientId}/dicom/uploads/{$secondId}/files/complete", [
-                'r2_key' => $storageKey,
-                'relative_path' => $relativePath,
-                'original_filename' => 'IM0001',
-                'mime_type' => 'application/dicom',
-                'file_size_bytes' => strlen($contents),
-            ])
+        $this->postFile($owner, $patientId, $secondId, UploadedFile::fake()->createWithContent('IM0001', $this->dicomBytes()), $relativePath)
             ->assertOk()
             ->assertJsonPath('result.stored', false)
             ->assertJsonPath('result.skipped_reason', 'duplicate_sop_instance')
             ->assertJsonPath('upload.stored_files', 0)
             ->assertJsonPath('upload.skipped_files', 1);
-
-        Storage::disk(DicomUploadProcessor::DISK)->assertMissing($storageKey);
 
         $this->finalizeUpload($owner, $patientId, $secondId)
             ->assertOk()

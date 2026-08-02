@@ -31,6 +31,7 @@ jest.mock('@/fetchWrapper', () => ({
     patch: (...args: unknown[]) => mockPatch(...args),
     delete: (...args: unknown[]) => mockDelete(...args),
   },
+  getCsrfToken: () => null,
 }))
 
 function makePatient() {
@@ -186,12 +187,6 @@ describe('PHR page mounts', () => {
       if (url === `/api/phr/patients/${PATIENT_ID}/dicom/uploads`) {
         return { upload: makeDicomUpload('pending') }
       }
-      if (url === `/api/phr/patients/${PATIENT_ID}/dicom/uploads/501/signed-urls`) {
-        return makeSignedDicomUploadBatch()
-      }
-      if (url === `/api/phr/patients/${PATIENT_ID}/dicom/uploads/501/files/complete`) {
-        return makeDicomUploadFileResponse()
-      }
       if (url === `/api/phr/patients/${PATIENT_ID}/dicom/uploads/501/finalize`) {
         throw new Error('Finalize failed.')
       }
@@ -217,35 +212,20 @@ describe('PHR page mounts', () => {
       fireEvent.change(input, { target: { files: [file] } })
 
       await waitFor(() => expect(screen.getByText('Upload failed')).toBeInTheDocument())
-      expect(MockUploadXMLHttpRequest.instances[0]?.requestHeaders).toMatchObject({
-        'Content-Type': 'application/dicom',
-        'x-amz-meta-upload': 'dicom',
-      })
+      expect(MockUploadXMLHttpRequest.instances).toHaveLength(1)
+      expect(MockUploadXMLHttpRequest.instances[0]?.requestUrl).toBe(
+        `/api/phr/patients/${PATIENT_ID}/dicom/uploads/501/files`,
+      )
+      expect(MockUploadXMLHttpRequest.instances[0]?.requestBody?.get('relative_path')).toBe('CARDIAC_CT/IM0001')
       expect(screen.queryByText('Upload complete')).not.toBeInTheDocument()
       expect(screen.getAllByText(/Finalize failed\./).length).toBeGreaterThan(0)
-      expect(mockPost).toHaveBeenCalledWith(`/api/phr/patients/${PATIENT_ID}/dicom/uploads/501/signed-urls`, {
-        files: [{
-          client_id: '0',
-          filename: 'IM0001',
-          relative_path: 'CARDIAC_CT/IM0001',
-          content_type: 'application/dicom',
-          file_size: 5,
-        }],
-      })
-      expect(mockPost).toHaveBeenCalledWith(`/api/phr/patients/${PATIENT_ID}/dicom/uploads/501/files/complete`, {
-        r2_key: 'phr/dicom/patients/1/uploads/upload-uuid/CARDIAC_CT/IM0001',
-        relative_path: 'CARDIAC_CT/IM0001',
-        original_filename: 'IM0001',
-        mime_type: 'application/dicom',
-        file_size_bytes: 5,
-      })
       expect(mockPost).toHaveBeenCalledWith(`/api/phr/patients/${PATIENT_ID}/dicom/uploads/501/cancel`, {})
     } finally {
       globalThis.XMLHttpRequest = originalXmlHttpRequest
     }
   })
 
-  it('uploads imaging files when signed URL response has empty headers array', async () => {
+  it('uploads a single imaging file with one multipart POST and finalizes', async () => {
     const originalXmlHttpRequest = globalThis.XMLHttpRequest
     MockUploadXMLHttpRequest.reset()
     globalThis.XMLHttpRequest = MockUploadXMLHttpRequest as unknown as typeof XMLHttpRequest
@@ -253,12 +233,6 @@ describe('PHR page mounts', () => {
     mockPost.mockImplementation(async (url: string) => {
       if (url === `/api/phr/patients/${PATIENT_ID}/dicom/uploads`) {
         return { upload: makeDicomUpload('pending') }
-      }
-      if (url === `/api/phr/patients/${PATIENT_ID}/dicom/uploads/501/signed-urls`) {
-        return makeSignedDicomUploadBatch([])
-      }
-      if (url === `/api/phr/patients/${PATIENT_ID}/dicom/uploads/501/files/complete`) {
-        return makeDicomUploadFileResponse()
       }
       if (url === `/api/phr/patients/${PATIENT_ID}/dicom/uploads/501/finalize`) {
         return { upload: makeDicomUpload('processed') }
@@ -282,16 +256,9 @@ describe('PHR page mounts', () => {
       fireEvent.change(input, { target: { files: [file] } })
 
       await waitFor(() => expect(screen.getByText('Upload complete')).toBeInTheDocument())
-      expect(MockUploadXMLHttpRequest.instances[0]?.requestHeaders).toEqual({
-        'Content-Type': 'application/dicom',
-      })
-      expect(mockPost).toHaveBeenCalledWith(`/api/phr/patients/${PATIENT_ID}/dicom/uploads/501/files/complete`, {
-        r2_key: 'phr/dicom/patients/1/uploads/upload-uuid/CARDIAC_CT/IM0001',
-        relative_path: 'CARDIAC_CT/IM0001',
-        original_filename: 'IM0001',
-        mime_type: 'application/dicom',
-        file_size_bytes: 5,
-      })
+      expect(MockUploadXMLHttpRequest.instances).toHaveLength(1)
+      expect(MockUploadXMLHttpRequest.instances[0]?.requestBody?.get('file')).toBeInstanceOf(File)
+      expect(MockUploadXMLHttpRequest.instances[0]?.requestBody?.get('relative_path')).toBe('CARDIAC_CT/IM0001')
       expect(mockPost).toHaveBeenCalledWith(`/api/phr/patients/${PATIENT_ID}/dicom/uploads/501/finalize`, {})
     } finally {
       globalThis.XMLHttpRequest = originalXmlHttpRequest
@@ -302,6 +269,11 @@ describe('PHR page mounts', () => {
     const originalXmlHttpRequest = globalThis.XMLHttpRequest
     MockUploadXMLHttpRequest.reset()
     globalThis.XMLHttpRequest = MockUploadXMLHttpRequest as unknown as typeof XMLHttpRequest
+    MockUploadXMLHttpRequest.responseText = JSON.stringify(makeDicomUploadFileResponse('CARDIAC_CT/IM0001', {
+      stored: false,
+      skipped_reason: 'duplicate_sop_instance',
+      study_id: null,
+    }))
 
     const finalizeUrl = `/api/phr/patients/${PATIENT_ID}/dicom/uploads/501/finalize`
     const cancelUrl = `/api/phr/patients/${PATIENT_ID}/dicom/uploads/501/cancel`
@@ -309,16 +281,6 @@ describe('PHR page mounts', () => {
     mockPost.mockImplementation(async (url: string) => {
       if (url === `/api/phr/patients/${PATIENT_ID}/dicom/uploads`) {
         return { upload: makeDicomUpload('pending') }
-      }
-      if (url === `/api/phr/patients/${PATIENT_ID}/dicom/uploads/501/signed-urls`) {
-        return makeSignedDicomUploadBatch()
-      }
-      if (url === `/api/phr/patients/${PATIENT_ID}/dicom/uploads/501/files/complete`) {
-        return makeDicomUploadFileResponse('CARDIAC_CT/IM0001', {
-          stored: false,
-          skipped_reason: 'duplicate_sop_instance',
-          study_id: null,
-        })
       }
       if (url === finalizeUrl) {
         return {
@@ -363,36 +325,17 @@ describe('PHR page mounts', () => {
     }
   })
 
-  it('requests signed DICOM upload URLs in batches', async () => {
+  it('uploads multiple imaging files, one multipart POST per file', async () => {
     const originalXmlHttpRequest = globalThis.XMLHttpRequest
     MockUploadXMLHttpRequest.reset()
     globalThis.XMLHttpRequest = MockUploadXMLHttpRequest as unknown as typeof XMLHttpRequest
+    MockUploadXMLHttpRequest.responseTextFor = (body) => JSON.stringify(
+      makeDicomUploadFileResponse(String(body.get('relative_path'))),
+    )
 
-    const signedUrlsUrl = `/api/phr/patients/${PATIENT_ID}/dicom/uploads/501/signed-urls`
-    const completeUrl = `/api/phr/patients/${PATIENT_ID}/dicom/uploads/501/files/complete`
-
-    mockPost.mockImplementation(async (url: string, payload?: unknown) => {
+    mockPost.mockImplementation(async (url: string) => {
       if (url === `/api/phr/patients/${PATIENT_ID}/dicom/uploads`) {
         return { upload: makeDicomUpload('pending') }
-      }
-      if (url === signedUrlsUrl) {
-        return {
-          uploads: [
-            makeSignedDicomUpload('0', 'CARDIAC_CT/IM0001', {
-              'Content-Type': 'application/dicom',
-              'x-amz-meta-upload': 'dicom',
-            }),
-            makeSignedDicomUpload('1', 'CARDIAC_CT/IM0002', {
-              'Content-Type': 'application/dicom',
-              'x-amz-meta-upload': 'dicom',
-            }),
-          ],
-        }
-      }
-      if (url === completeUrl) {
-        const completePayload = payload as { relative_path?: string }
-
-        return makeDicomUploadFileResponse(completePayload.relative_path ?? 'CARDIAC_CT/IM0001')
       }
       if (url === `/api/phr/patients/${PATIENT_ID}/dicom/uploads/501/finalize`) {
         return { upload: makeDicomUpload('processed') }
@@ -419,44 +362,17 @@ describe('PHR page mounts', () => {
 
       await waitFor(() => expect(screen.getByText('Upload complete')).toBeInTheDocument())
       expect(MockUploadXMLHttpRequest.instances).toHaveLength(2)
-      expect(mockPost).toHaveBeenCalledWith(signedUrlsUrl, {
-        files: [
-          {
-            client_id: '0',
-            filename: 'IM0001',
-            relative_path: 'CARDIAC_CT/IM0001',
-            content_type: 'application/dicom',
-            file_size: 5,
-          },
-          {
-            client_id: '1',
-            filename: 'IM0002',
-            relative_path: 'CARDIAC_CT/IM0002',
-            content_type: 'application/dicom',
-            file_size: 6,
-          },
-        ],
-      })
-      expect(mockPost).toHaveBeenCalledWith(completeUrl, {
-        r2_key: 'phr/dicom/patients/1/uploads/upload-uuid/CARDIAC_CT/IM0001',
-        relative_path: 'CARDIAC_CT/IM0001',
-        original_filename: 'IM0001',
-        mime_type: 'application/dicom',
-        file_size_bytes: 5,
-      })
-      expect(mockPost).toHaveBeenCalledWith(completeUrl, {
-        r2_key: 'phr/dicom/patients/1/uploads/upload-uuid/CARDIAC_CT/IM0002',
-        relative_path: 'CARDIAC_CT/IM0002',
-        original_filename: 'IM0002',
-        mime_type: 'application/dicom',
-        file_size_bytes: 6,
-      })
+      const relativePaths = MockUploadXMLHttpRequest.instances
+        .map((instance) => instance.requestBody?.get('relative_path'))
+        .sort()
+      expect(relativePaths).toEqual(['CARDIAC_CT/IM0001', 'CARDIAC_CT/IM0002'])
+      expect(mockPost).toHaveBeenCalledWith(`/api/phr/patients/${PATIENT_ID}/dicom/uploads/501/finalize`, {})
     } finally {
       globalThis.XMLHttpRequest = originalXmlHttpRequest
     }
   })
 
-  it('cancels imaging upload sessions when direct storage upload fails', async () => {
+  it('cancels imaging upload sessions when the server rejects a file', async () => {
     const originalXmlHttpRequest = globalThis.XMLHttpRequest
     MockUploadXMLHttpRequest.reset()
     MockUploadXMLHttpRequest.status = 403
@@ -470,12 +386,6 @@ describe('PHR page mounts', () => {
     mockPost.mockImplementation(async (url: string) => {
       if (url === `/api/phr/patients/${PATIENT_ID}/dicom/uploads`) {
         return { upload: makeDicomUpload('pending') }
-      }
-      if (url === `/api/phr/patients/${PATIENT_ID}/dicom/uploads/501/signed-urls`) {
-        return makeSignedDicomUploadBatch()
-      }
-      if (url === `/api/phr/patients/${PATIENT_ID}/dicom/uploads/501/files/complete`) {
-        throw new Error('Complete should not be called.')
       }
       if (url === finalizeUrl) {
         throw new Error('Finalize should not be called.')
@@ -502,9 +412,59 @@ describe('PHR page mounts', () => {
       fireEvent.change(input, { target: { files: [file] } })
 
       await waitFor(() => expect(screen.getByText('Upload failed')).toBeInTheDocument())
-      expect(MockUploadXMLHttpRequest.instances[0]?.requestHeaders['Content-Type']).toBe('application/dicom')
+      expect(MockUploadXMLHttpRequest.instances).toHaveLength(1)
       expect(screen.queryByText('Upload complete')).not.toBeInTheDocument()
-      expect(screen.getAllByText(/Storage upload failed/).length).toBeGreaterThan(0)
+      expect(screen.getAllByText(/Forbidden/).length).toBeGreaterThan(0)
+      expect(mockPost).toHaveBeenCalledWith(cancelUrl, {})
+      expect(mockPost).not.toHaveBeenCalledWith(finalizeUrl, {})
+    } finally {
+      globalThis.XMLHttpRequest = originalXmlHttpRequest
+    }
+  })
+
+  it('aborts an in-flight imaging upload when the user cancels', async () => {
+    const originalXmlHttpRequest = globalThis.XMLHttpRequest
+    MockUploadXMLHttpRequest.reset()
+    MockUploadXMLHttpRequest.autoComplete = false
+    globalThis.XMLHttpRequest = MockUploadXMLHttpRequest as unknown as typeof XMLHttpRequest
+
+    const finalizeUrl = `/api/phr/patients/${PATIENT_ID}/dicom/uploads/501/finalize`
+    const cancelUrl = `/api/phr/patients/${PATIENT_ID}/dicom/uploads/501/cancel`
+
+    mockPost.mockImplementation(async (url: string) => {
+      if (url === `/api/phr/patients/${PATIENT_ID}/dicom/uploads`) {
+        return { upload: makeDicomUpload('pending') }
+      }
+      if (url === finalizeUrl) {
+        throw new Error('Finalize should not be called.')
+      }
+      if (url === cancelUrl) {
+        return { upload: makeDicomUpload('failed') }
+      }
+      return { patient: makePatient() }
+    })
+
+    try {
+      const { container } = render(<ImagingPage patientId={PATIENT_ID} />)
+
+      await waitFor(() => expect(screen.getByRole('button', { name: /upload dicom/i })).toBeInTheDocument())
+
+      const input = container.querySelector('input[type="file"]')
+      if (!(input instanceof HTMLInputElement)) {
+        throw new Error('Expected DICOM file input to render.')
+      }
+
+      const file = new File(['dicom'], 'IM0001', { type: 'application/dicom' })
+      Object.defineProperty(file, 'webkitRelativePath', { value: 'CARDIAC_CT/IM0001' })
+
+      fireEvent.change(input, { target: { files: [file] } })
+
+      // The mock XHR never fires 'load' while autoComplete is false, so the request
+      // is still genuinely in flight when the user clicks Cancel.
+      await waitFor(() => expect(MockUploadXMLHttpRequest.instances).toHaveLength(1))
+      fireEvent.click(screen.getByRole('button', { name: /cancel upload/i }))
+
+      await waitFor(() => expect(screen.getByText('Upload cancelled')).toBeInTheDocument())
       expect(mockPost).toHaveBeenCalledWith(cancelUrl, {})
       expect(mockPost).not.toHaveBeenCalledWith(finalizeUrl, {})
     } finally {
@@ -699,26 +659,6 @@ function makeDicomStudy(overrides: Partial<PhrDicomStudy> = {}): PhrDicomStudy {
   }
 }
 
-function makeSignedDicomUploadBatch(headers: Record<string, string> | [] = {
-  'Content-Type': 'application/dicom',
-  'x-amz-meta-upload': 'dicom',
-}) {
-  return {
-    uploads: [makeSignedDicomUpload('0', 'CARDIAC_CT/IM0001', headers)],
-  }
-}
-
-function makeSignedDicomUpload(clientId: string, relativePath: string, headers: Record<string, string> | []) {
-  return {
-    client_id: clientId,
-    upload_url: `https://r2.example.test/signed-put/${clientId}`,
-    headers,
-    r2_key: `phr/dicom/patients/1/uploads/upload-uuid/${relativePath}`,
-    relative_path: relativePath,
-    expires_in: 900,
-  }
-}
-
 function makeDicomUploadFileResponse(
   relativePath = 'CARDIAC_CT/IM0001',
   overrides: Partial<{ stored: boolean, skipped_reason: string | null, study_id: number | null }> = {},
@@ -744,11 +684,21 @@ class MockUploadXMLHttpRequest {
 
   static responseText = ''
 
+  // When set, overrides `responseText` per request using the sent FormData — lets a
+  // multi-file test give each file its own result payload (e.g. a distinct relative_path).
+  static responseTextFor: ((body: FormData) => string) | null = null
+
+  // When false, `send()` never fires 'load' on its own, leaving the request genuinely
+  // in flight so a test can exercise `UploadController.abort()` mid-upload.
+  static autoComplete = true
+
   static reset(): void {
     MockUploadXMLHttpRequest.instances = []
     MockUploadXMLHttpRequest.status = 200
     MockUploadXMLHttpRequest.statusText = 'OK'
-    MockUploadXMLHttpRequest.responseText = ''
+    MockUploadXMLHttpRequest.responseText = JSON.stringify(makeDicomUploadFileResponse())
+    MockUploadXMLHttpRequest.responseTextFor = null
+    MockUploadXMLHttpRequest.autoComplete = true
   }
 
   upload = new MockUploadEventTarget()
@@ -763,13 +713,19 @@ class MockUploadXMLHttpRequest {
 
   readonly requestHeaders: Record<string, string> = {}
 
+  requestUrl = ''
+
+  requestBody: FormData | null = null
+
   private readonly listeners = new MockUploadEventTarget()
 
   constructor() {
     MockUploadXMLHttpRequest.instances.push(this)
   }
 
-  open(): void {}
+  open(_method: string, url: string): void {
+    this.requestUrl = url
+  }
 
   setRequestHeader(name: string, value: string): void {
     this.requestHeaders[name] = value
@@ -779,8 +735,14 @@ class MockUploadXMLHttpRequest {
     this.listeners.addEventListener(type, listener)
   }
 
-  send(): void {
-    queueMicrotask(() => this.listeners.dispatch('load'))
+  send(body?: FormData): void {
+    this.requestBody = body ?? null
+    if (MockUploadXMLHttpRequest.responseTextFor && body) {
+      this.responseText = MockUploadXMLHttpRequest.responseTextFor(body)
+    }
+    if (MockUploadXMLHttpRequest.autoComplete) {
+      queueMicrotask(() => this.listeners.dispatch('load'))
+    }
   }
 
   abort(): void {

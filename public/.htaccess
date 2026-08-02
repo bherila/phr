@@ -1,3 +1,20 @@
+# PHP limits. Raised 2026-08-01 when DICOM moved off Cloudflare R2 onto web1, which
+# routes uploads back through PHP instead of signed PUTs straight to the bucket. The
+# ea-php85 defaults (2M / 8M / 128M / 30s / 60s) cannot accept a DICOM instance above
+# 2 MB; the largest currently stored is 4.5 MB and config/phr.php permits up to 1 GiB.
+#
+# php_value in .htaccess is the mechanism that actually works here: the SAPI is
+# `litespeed`, which parses these directives itself. A .user.ini is NOT honoured on
+# this host even though user_ini.filename and user_ini.cache_ttl are both set — that
+# was verified against the live vhost, so do not "simplify" this back to .user.ini.
+<IfModule LiteSpeed>
+    php_value upload_max_filesize 512M
+    php_value post_max_size 544M
+    php_value memory_limit 1024M
+    php_value max_execution_time 900
+    php_value max_input_time 900
+</IfModule>
+
 <IfModule mod_rewrite.c>
     <IfModule mod_negotiation.c>
         Options -MultiViews -Indexes
