@@ -18,6 +18,20 @@
         </include>
     </source>
     <php>
+        <!-- The suite reaches ~121 MB of resident allocations by the time it gets to the
+             PHR import tests, and mime_content_type() then needs a further ~7 MB to load
+             libmagic's magic database — enough to blow a 128 MB limit on a 19-byte fixture.
+             Nothing is leaking; the limit is simply too low for the whole suite in one
+             process.
+
+             This has to live here rather than in the invocation, because the limit
+             otherwise depends on how the suite is started. CI runs
+             `php -d memory_limit=1G vendor/bin/phpunit`, which is fine, but
+             `php artisan test` spawns phpunit as a subprocess that does NOT inherit -d,
+             so it silently falls back to php.ini (128 M on a stock macOS build) and dies
+             with "Premature end of PHP process". Setting it here covers every entry point:
+             artisan test, phpunit directly, and IDE runners. -->
+        <ini name="memory_limit" value="1G"/>
         <env name="APP_ENV" value="testing"/>
         <!-- Pinned so the suite does not inherit a developer's local APP_URL. Several tests
              assert generated absolute URLs (signed DICOM instance URLs, volume-cache manifests),
