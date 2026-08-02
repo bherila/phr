@@ -161,6 +161,36 @@ subdomain, and database:
   `ea-php81`, which 500s every page against this app's `>=8.4.1` platform requirement
   while the deploy workflow still reports success — this bit the games deploy)
 - `PHR_DICOM_R2_*` env vars point at the dedicated Cloudflare R2 bucket `bhdicom`
+- PHP limits for the vhost live in `public/.htaccess` under `<IfModule LiteSpeed>`, **not**
+  in a `.user.ini` — the web SAPI is `litespeed`, which ignores `.user.ini` on this host
+  even though `user_ini.filename` is set, so values silently stay at the ea-php85 defaults
+  (`2M / 8M / 128M`). Verify changes by probing the live vhost, not the CLI
+
+### Blob storage
+
+DICOM pixel data lives in the Cloudflare R2 bucket `bhdicom` (2,649 objects / 824 MB),
+reached through the `phr_dicom` disk. That disk follows `PHR_DICOM_DISK_DRIVER`: `s3` today,
+`local` to root it at `storage/app/private/phr-dicom` instead (`config/filesystems.php:11`).
+Object keys are stored in the database and are identical either way, so switching drivers
+needs no data rewrite. The `phr_documents` and `phr_exports` disks are already `local`.
+
+R2 has durability but no point-in-time recovery, so a bad delete or an app bug is
+unrecoverable there. `pnpm blobs` mirrors the server's `storage/app/private/` to
+`~/proj/x-data/phr/`, which `~/proj/backup.sh` then carries into restic:
+
+```bash
+pnpm blobs pull            # dry-run, web1 -> x-data
+pnpm blobs pull --apply
+pnpm blobs verify          # compare file count and bytes
+```
+
+**web1 is authoritative.** `pull` is routine; `push` exists for restore-after-loss and
+refuses to run from an empty mirror. Never point the mirror inside this repo — see
+`~/proj/x-data/README.md`.
+
+Every local disk root under `storage/app/private/` **must** have a matching `--exclude` in
+`ci.yml`'s deploy step, which rsyncs `storage` with `--delete`. Miss one and the next green
+deploy silently deletes the data.
 
 Deploy credentials are configured as four repository secrets used by
 `.github/workflows/ci.yml`'s `deploy` job:
