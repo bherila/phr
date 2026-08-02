@@ -81,8 +81,8 @@ export PHR_FLOCK_BIN="$helper"
 bash "$installer" >/dev/null
 bash "$installer" >/dev/null
 
-readonly expected_scheduler_line="*/5 * * * * cd ${fake_app} && ${helper} artisan schedule:run >> /dev/null 2>&1 # JOB:phr-laravel-scheduler"
-readonly expected_worker_line="*/5 * * * * cd ${fake_app} && ${helper} -n ${fake_app}/storage/framework/phr-queue-worker.lock ${helper} artisan queue:work database --queue=genai-imports,phr-exports --stop-when-empty --max-time=240 --timeout=300 --sleep=1 >> /dev/null 2>&1 # JOB:phr-laravel-queue-worker"
+readonly expected_scheduler_line="*/5 * * * * cd ${fake_app} && ${helper} artisan phr:uptime:run-scheduler >> /dev/null 2>&1 # JOB:phr-laravel-scheduler"
+readonly expected_worker_line="*/5 * * * * cd ${fake_app} && ${helper} -n ${fake_app}/storage/framework/phr-queue-worker.lock ${helper} artisan phr:uptime:run-worker >> /dev/null 2>&1 # JOB:phr-laravel-queue-worker"
 
 [[ "$(grep -Ec '# JOB:phr-laravel-scheduler[[:space:]]*$' "$fake_crontab")" == '1' ]]
 [[ "$(grep -Ec '# JOB:phr-laravel-queue-worker[[:space:]]*$' "$fake_crontab")" == '1' ]]

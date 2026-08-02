@@ -167,6 +167,13 @@ tag and rolls the account crontab back if verification fails. Five minutes is th
 scheduler's production resolution: do not add an every-minute task without also
 changing the managed cPanel cron cadence.
 
+Both managed cron entries run through fixed application wrappers. They and the three
+scheduled PHR maintenance tasks record only allow-listed job names, timestamps,
+duration, status, and exit code; output, exceptions, paths, queue payloads, and patient
+data are never persisted. Admin users can review current/stale state and the latest
+history at `/uptime`. Five-minute heartbeats become stale after 15 minutes, and history
+older than 30 days is pruned daily.
+
 ### Deploy triggers
 
 A green push to `main` deploys automatically to production. `workflow_dispatch`

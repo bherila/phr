@@ -8,10 +8,12 @@ Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
 
-// PHR DICOM storage cleanup: reclaim stuck pending uploads + orphan objects.
-Schedule::command('phr:dicom:gc')->hourly()->withoutOverlapping(30);
-Schedule::command('phr:exports:purge')->daily()->withoutOverlapping(30);
-Schedule::command('genai:requeue-stale')->everyFiveMinutes()->withoutOverlapping(10);
+// PHR jobs run through an allow-listed uptime wrapper that persists only fixed
+// job names and numeric result metadata (never output, exception text, or PHI).
+Schedule::command('phr:uptime:run-task', ['phr:dicom:gc'])->hourly()->withoutOverlapping(30);
+Schedule::command('phr:uptime:run-task', ['phr:exports:purge'])->daily()->withoutOverlapping(30);
+Schedule::command('phr:uptime:run-task', ['genai:requeue-stale'])->everyFiveMinutes()->withoutOverlapping(10);
+Schedule::command('phr:uptime:prune', ['--days' => 30])->daily()->withoutOverlapping(10);
 
 // Auth audit log retention pruning (bherila/auth-laravel).
 // No-op unless BHERILA_AUTH_AUDIT_RETENTION_DAYS is set in .env.
