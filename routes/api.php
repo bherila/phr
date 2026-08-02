@@ -27,10 +27,8 @@ use App\Http\Controllers\PHR\VitalController as PHRVitalController;
 use App\Http\Middleware\AuthenticateWebOrMcpRequest;
 use Illuminate\Support\Facades\Route;
 
-// AI configuration routes. Backs the per-user AI provider settings ParseImportJob
-// resolves via User::resolvedAiClient(). PHR's frontend "Config" section is currently
-// a placeholder (same as upstream), so these are API-only for now — manage via this
-// API or `php artisan tinker` until a settings screen is built.
+// Per-user AI provider settings used by ParseImportJob via User::resolvedAiClient().
+// The authenticated PHR Config screen consumes these session-protected endpoints.
 Route::middleware(['web', 'auth'])->group(function (): void {
     Route::get('/user/ai-prefs', [UserAiConfigurationController::class, 'index']);
     Route::post('/user/ai-prefs', [UserAiConfigurationController::class, 'store']);

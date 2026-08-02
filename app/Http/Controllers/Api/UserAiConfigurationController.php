@@ -90,6 +90,12 @@ class UserAiConfigurationController extends Controller
             ], 422);
         }
 
+        if (! in_array($model, $models, true)) {
+            return response()->json([
+                'error' => 'The selected model is not available for these API credentials.',
+            ], 422);
+        }
+
         $config = DB::transaction(function () use ($data, $model, $user) {
             // Lock existing configs to prevent a race between two concurrent first-config creates.
             $existingCount = $user->aiConfigurations()->lockForUpdate()->count();
@@ -125,13 +131,26 @@ class UserAiConfigurationController extends Controller
             ], 422);
         }
 
+        $replacementApiKey = filled($data['api_key'] ?? null) ? $data['api_key'] : null;
+        $replacementSessionToken = $data['provider'] === 'bedrock' && filled($data['session_token'] ?? null)
+            ? $data['session_token']
+            : null;
+        $clearSessionToken = $data['provider'] === 'bedrock' && ($data['clear_session_token'] ?? false);
+        $region = $data['region'] ?? $config->region ?? 'us-east-1';
+        $model = $data['model'] ?? $config->model;
+        $credentialsChanged = $replacementApiKey !== null
+            || $replacementSessionToken !== null
+            || ($clearSessionToken && filled($config->session_token))
+            || $region !== ($config->region ?? 'us-east-1');
+        $modelChanged = $model !== $config->model;
         $models = null;
-        if (! empty($data['api_key'])) {
+
+        if ($credentialsChanged || $modelChanged) {
             $models = $this->validateCredentials(
                 provider: $data['provider'],
-                apiKey: $data['api_key'],
-                region: $data['region'] ?? 'us-east-1',
-                sessionToken: $data['session_token'] ?? '',
+                apiKey: $replacementApiKey ?? $config->api_key,
+                region: $region,
+                sessionToken: $clearSessionToken ? '' : ($replacementSessionToken ?? $config->session_token ?? ''),
             );
 
             if ($models === []) {
@@ -139,23 +158,32 @@ class UserAiConfigurationController extends Controller
                     'error' => 'No usable models were found for these API credentials.',
                 ], 422);
             }
-        }
 
-        $model = $data['model'] ?? $config->model;
-        if ($models !== null && ! in_array($model, $models, true)) {
-            $model = $models[0];
+            if (! in_array($model, $models, true)) {
+                return response()->json([
+                    'error' => 'The selected model is not available for these API credentials.',
+                ], 422);
+            }
         }
 
         $update = [
             'name' => $data['name'],
-            'region' => $data['region'] ?? null,
-            'session_token' => $data['session_token'] ?? null,
+            'region' => $config->provider === 'bedrock' ? $region : null,
             'model' => $model,
             'expires_at' => $data['expires_at'] ?? null,
         ];
 
-        if (! empty($data['api_key'])) {
-            $update['api_key'] = $data['api_key'];
+        if ($replacementApiKey !== null) {
+            $update['api_key'] = $replacementApiKey;
+        }
+
+        if ($clearSessionToken) {
+            $update['session_token'] = null;
+        } elseif ($replacementSessionToken !== null) {
+            $update['session_token'] = $replacementSessionToken;
+        }
+
+        if ($credentialsChanged) {
             $update['api_key_invalid_at'] = null;
             $update['api_key_invalid_reason'] = null;
         }
@@ -228,7 +256,7 @@ class UserAiConfigurationController extends Controller
         } catch (GenAiFatalException $e) {
             Log::warning('Failed to validate AI configuration credentials', [
                 'provider' => $provider,
-                'error' => $e->getMessage(),
+                'exception' => $e::class,
             ]);
 
             if (GenAiCredentialErrorClassifier::isInvalidCredential($provider, $e)) {
@@ -237,7 +265,7 @@ class UserAiConfigurationController extends Controller
         } catch (\Exception $e) {
             Log::warning('Failed to validate AI configuration credentials', [
                 'provider' => $provider,
-                'error' => $e->getMessage(),
+                'exception' => $e::class,
             ]);
         }
 
