@@ -162,10 +162,11 @@ The deploy owns two cPanel account cron entries, keyed independently by the stab
 `JOB:phr-laravel-scheduler` and `JOB:phr-laravel-queue-worker` tags. Both run every
 five minutes. The scheduler launches the three PHR maintenance schedules; the
 `flock`-protected worker drains only `genai-imports` and `phr-exports`, then exits when
-the queues are empty. Installation preserves every cron entry carrying neither PHR
-tag and rolls the account crontab back if verification fails. Five minutes is the
-scheduler's production resolution: do not add an every-minute task without also
-changing the managed cPanel cron cadence.
+the queues are empty. It retains the 240-second run window and 300-second job timeout,
+with a fixed 256 MB worker safety ceiling. Installation preserves every cron entry
+carrying neither PHR tag and rolls the account crontab back if verification fails.
+Five minutes is the scheduler's production resolution: do not add an every-minute task
+without also changing the managed cPanel cron cadence.
 
 Both managed cron entries run through fixed application wrappers. They and the three
 scheduled PHR maintenance tasks record only allow-listed job names, timestamps,

@@ -12,6 +12,8 @@ use Illuminate\Support\Facades\Artisan;
 #[Description('Drain the managed PHR queues with sanitized cPanel cron history')]
 class UptimeRunWorkerCommand extends BasePhrCommand
 {
+    public const int MEMORY_LIMIT_MEGABYTES = 256;
+
     public function handle(UptimeMonitor $monitor): int
     {
         return $monitor->run(
@@ -22,6 +24,7 @@ class UptimeRunWorkerCommand extends BasePhrCommand
                 '--stop-when-empty' => true,
                 '--max-time' => 240,
                 '--timeout' => 300,
+                '--memory' => self::MEMORY_LIMIT_MEGABYTES,
                 '--sleep' => 1,
             ], $this->output),
         );

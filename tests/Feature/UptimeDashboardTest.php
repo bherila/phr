@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Console\Commands\Phr\UptimeRunWorkerCommand;
 use App\Models\UptimeRun;
 use App\Models\User;
 use App\Services\Uptime\UptimeJobCatalog;
@@ -158,8 +159,16 @@ class UptimeDashboardTest extends TestCase
     public function test_queue_worker_wrapper_records_an_empty_queue_drain(): void
     {
         config(['queue.default' => 'database']);
+        $this->assertSame(256, UptimeRunWorkerCommand::MEMORY_LIMIT_MEGABYTES);
+
+        // Exercise the wrapper above Laravel's 128 MB queue-worker default so
+        // removing the explicit ceiling reproduces EXIT_MEMORY_LIMIT (12).
+        $targetUsage = 160 * 1024 * 1024;
+        $memoryPressure = str_repeat('x', max(0, $targetUsage - memory_get_usage(true)));
+        $this->assertGreaterThan(128 * 1024 * 1024, memory_get_usage(true));
 
         $this->artisan('phr:uptime:run-worker')->assertSuccessful();
+        $this->assertIsString($memoryPressure);
 
         $this->assertDatabaseHas('uptime_runs', [
             'job_name' => UptimeJobCatalog::QUEUE_WORKER,
