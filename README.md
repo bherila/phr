@@ -194,12 +194,6 @@ the repository became public, after which push-on-green deployment was enabled.
   everything `PhrPromptTemplate` actually asks the model for. Not exercised by the test
   suite either way — the existing PHR GenAI tests fixture `GenAiImportJob`/
   `GenAiImportResult` rows directly rather than mocking a live AI response.
-- **AI-provider settings UI.** The monorepo's `/phr/config` section is *also* just a
-  "Coming Soon" placeholder upstream, so this isn't a regression — but note the
-  `/api/user/ai-prefs` backend (`UserAiConfigurationController`/`UserAiModelsController`)
-  is included and functional; there's just no frontend for it yet. Manage AI provider
-  keys via that API or `php artisan tinker` until a settings screen exists.
-
 ## Privacy
 
 This repository is public. Do not commit real patient names, dates of birth, MRNs,

@@ -431,6 +431,7 @@ const AccessPage = lazy(() => import('@/phr/access/AccessPage'))
 const AccessGrantDetail = lazy(() => import('@/phr/access/AccessGrantDetail'))
 const PatientsPage = lazy(() => import('@/phr/patients/PatientsPage'))
 const PatientsManagePage = lazy(() => import('@/phr/patients-manage/PatientsManagePage'))
+const AiProviderSettingsPage = lazy(() => import('@/phr/config/AiProviderSettingsPage'))
 
 function noPatientState() {
   return (
@@ -546,7 +547,7 @@ function ImportsColumn() {
 }
 
 function ConfigColumn() {
-  return <ComingSoonColumn title="PHR Config" />
+  return <AiProviderSettingsPage />
 }
 
 export const phrModuleRegistry: Record<PhrModuleId, PhrRegistryEntry> = {

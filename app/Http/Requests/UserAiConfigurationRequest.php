@@ -23,8 +23,9 @@ class UserAiConfigurationRequest extends FormRequest
             'name' => ['required', 'string', 'max:255'],
             'provider' => ['required', 'string', 'in:gemini,anthropic,bedrock'],
             'api_key' => [$isCreate ? 'required' : 'nullable', 'string', 'max:500'],
-            'region' => ['nullable', 'string', 'max:64', 'required_if:provider,bedrock'],
-            'session_token' => ['nullable', 'string'],
+            'region' => ['nullable', 'string', 'max:64', 'required_if:provider,bedrock', 'prohibited_unless:provider,bedrock'],
+            'session_token' => ['nullable', 'string', 'max:4096', 'prohibited_unless:provider,bedrock', 'prohibited_if:clear_session_token,true'],
+            'clear_session_token' => ['nullable', 'boolean', 'prohibited_unless:provider,bedrock'],
             'model' => ['nullable', 'string', 'max:255'],
             'expires_at' => ['nullable', 'date', 'after:today'],
         ];
