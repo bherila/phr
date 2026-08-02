@@ -121,13 +121,24 @@ dev-login route.
 pnpm run type-check
 pnpm run lint
 pnpm run test                          # Jest
+pnpm run test:e2e:install              # one-time Chromium + OS dependencies
+pnpm run build                         # E2E serves the built frontend
+pnpm run test:e2e                      # Playwright, isolated SQLite + synthetic OAuth
 pnpm audit --audit-level high --ignore-registry-errors
 
-pnpm run build                         # required before PHPUnit (Vite manifest)
+pnpm run build                         # also required before PHPUnit (Vite manifest)
 ./vendor/bin/pint --test
 composer audit --locked --no-interaction
 php -d memory_limit=1G vendor/bin/phpunit
 ```
+
+The Playwright harness starts Laravel and a local synthetic OAuth provider on
+ports 4173 and 4174. It recreates only
+`storage/framework/testing/playwright.sqlite`, uses isolated storage roots under
+`storage/framework/testing/playwright-storage`, and runs queued exports through
+the synchronous queue. It never targets the configured production URL or uses a
+login bypass. Browser traces, screenshots, and videos are retained only when a
+test fails.
 
 `php artisan test` did not honor `-d memory_limit=1G` reliably in this environment
 (it under-forwards the ini override to its internal test-runner process); CI and this

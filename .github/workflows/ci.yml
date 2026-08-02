@@ -157,6 +157,55 @@ jobs:
       - name: Run PHPUnit
         run: php -d memory_limit=1G vendor/bin/phpunit
 
+  e2e:
+    name: Playwright E2E
+    needs: frontend-build
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v5
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist
+
+      - name: Setup pnpm + Node dependencies
+        uses: ./.github/actions/setup-pnpm-node
+
+      - name: Download frontend build artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: frontend-build
+          path: public/build/
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run Playwright
+        run: pnpm run test:e2e
+
+      - name: Upload failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: playwright-failure-artifacts
+          path: test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
   test:
     name: Run Tests
     needs:
@@ -165,6 +214,7 @@ jobs:
       - frontend-tests
       - backend-static
       - backend-tests
+      - e2e
     if: always()
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
@@ -184,6 +234,7 @@ jobs:
           check "frontend-tests" "${{ needs.frontend-tests.result }}"
           check "backend-static" "${{ needs.backend-static.result }}"
           check "backend-tests" "${{ needs.backend-tests.result }}"
+          check "e2e" "${{ needs.e2e.result }}"
 
   deploy:
     name: Deploy to Production
