@@ -56,7 +56,7 @@ describe('PhrMillerShell', () => {
     expect(await screen.findByRole('heading', { name: 'Imports' })).toBeInTheDocument()
 
     setHash('#/config')
-    expect(await screen.findByRole('heading', { name: 'PHR Config' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'AI Provider Settings' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Imports' })).not.toBeInTheDocument()
   })
 
