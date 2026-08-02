@@ -12,8 +12,8 @@ readonly app_dir="${PHR_CRON_APP_DIR:-${HOME}/phr-laravel}"
 readonly crontab_bin="${PHR_CRONTAB_BIN:-crontab}"
 readonly flock_bin="${PHR_FLOCK_BIN:-/usr/bin/flock}"
 readonly worker_lock="${app_dir}/storage/framework/phr-queue-worker.lock"
-readonly scheduler_cron_line="${cron_schedule} cd ${app_dir} && ${php_bin} artisan schedule:run >> /dev/null 2>&1 ${scheduler_job_tag}"
-readonly worker_cron_line="${cron_schedule} cd ${app_dir} && ${flock_bin} -n ${worker_lock} ${php_bin} artisan queue:work database --queue=genai-imports,phr-exports --stop-when-empty --max-time=240 --timeout=300 --sleep=1 >> /dev/null 2>&1 ${worker_job_tag}"
+readonly scheduler_cron_line="${cron_schedule} cd ${app_dir} && ${php_bin} artisan phr:uptime:run-scheduler >> /dev/null 2>&1 ${scheduler_job_tag}"
+readonly worker_cron_line="${cron_schedule} cd ${app_dir} && ${flock_bin} -n ${worker_lock} ${php_bin} artisan phr:uptime:run-worker >> /dev/null 2>&1 ${worker_job_tag}"
 
 for value in "$php_bin" "$app_dir" "$flock_bin"; do
     if [[ ! "$value" =~ ^/[A-Za-z0-9._/-]+$ ]]; then
@@ -188,12 +188,12 @@ other_queue_cron_count="$(
             sub(/[[:space:]]+$/, "", trimmed)
             return substr(trimmed, length(trimmed) - length(tag) + 1) == tag
         }
-        /artisan[[:space:]]+queue:(work|listen)/ && !has_tag($0, managed_tag) { count++ }
+        /artisan[[:space:]]+(queue:(work|listen)|phr:uptime:run-worker)/ && !has_tag($0, managed_tag) { count++ }
         END { print count + 0 }' \
         "$installed_file"
 )"
 if command -v pgrep >/dev/null 2>&1; then
-    queue_process_count="$(pgrep -u "$(id -u)" -fc 'artisan (queue:work|queue:listen)' || true)"
+    queue_process_count="$(pgrep -u "$(id -u)" -fc 'artisan (queue:work|queue:listen|phr:uptime:run-worker)' || true)"
 else
     queue_process_count='unknown'
 fi
