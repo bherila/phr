@@ -5,6 +5,7 @@ use App\Http\Controllers\OhifViewerController;
 use App\Http\Controllers\PHR\PageController as PHRPageController;
 use App\Http\Controllers\PHR\PhrDocumentController;
 use App\Http\Controllers\PHR\PhrExportController;
+use App\Http\Controllers\UptimeController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/login', function () {
@@ -23,6 +24,7 @@ Route::post('/logout', [OAuthLoginController::class, 'logout'])
 Route::redirect('/', '/phr');
 
 Route::middleware('auth')->group(function (): void {
+    Route::get('/uptime', UptimeController::class)->name('uptime');
     Route::get('/phr', [PHRPageController::class, 'index'])->name('phr.index');
     Route::get('/phr/patients', [PHRPageController::class, 'patients'])->name('phr.patients');
     Route::get('/phr/patients/manage', [PHRPageController::class, 'managePatients'])->name('phr.patients.manage');
