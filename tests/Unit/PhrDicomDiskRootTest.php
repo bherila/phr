@@ -85,32 +85,42 @@ class PhrDicomDiskRootTest extends TestCase
      */
     private function loadS3DiskConfig(?string $driver, ?string $root = null): array
     {
-        $original = [
-            'S3_DISK_DRIVER' => $_SERVER['S3_DISK_DRIVER'] ?? null,
-            'S3_DISK_ROOT' => $_SERVER['S3_DISK_ROOT'] ?? null,
-        ];
+        // Laravel's env repository reads putenv() as well as the superglobals, and CI
+        // populates all three by copying .env.example to .env. Clearing only $_SERVER and
+        // $_ENV would leave a stale getenv() value and quietly test the wrong thing.
+        $keys = ['S3_DISK_DRIVER' => $driver, 'S3_DISK_ROOT' => $root];
+        $original = [];
 
-        foreach (['S3_DISK_DRIVER' => $driver, 'S3_DISK_ROOT' => $root] as $key => $value) {
-            if ($value === null) {
-                unset($_SERVER[$key], $_ENV[$key]);
-            } else {
-                $_SERVER[$key] = $value;
-                $_ENV[$key] = $value;
-            }
+        foreach (array_keys($keys) as $key) {
+            $value = getenv($key);
+            $original[$key] = $value === false ? null : $value;
+        }
+
+        foreach ($keys as $key => $value) {
+            $this->applyEnv($key, $value);
         }
 
         try {
             return (require base_path('config/filesystems.php'))['disks']['s3'];
         } finally {
             foreach ($original as $key => $value) {
-                if ($value === null) {
-                    unset($_SERVER[$key], $_ENV[$key]);
-                } else {
-                    $_SERVER[$key] = $value;
-                    $_ENV[$key] = $value;
-                }
+                $this->applyEnv($key, $value);
             }
         }
+    }
+
+    private function applyEnv(string $key, ?string $value): void
+    {
+        if ($value === null) {
+            putenv($key);
+            unset($_SERVER[$key], $_ENV[$key]);
+
+            return;
+        }
+
+        putenv("{$key}={$value}");
+        $_SERVER[$key] = $value;
+        $_ENV[$key] = $value;
     }
 
     /**
@@ -139,5 +149,31 @@ class PhrDicomDiskRootTest extends TestCase
         foreach (['s3', 'local'] as $driver) {
             $this->assertSame('custom/prefix', $this->loadS3DiskConfig($driver, 'custom/prefix')['root']);
         }
+    }
+
+    /**
+     * A bare `S3_DISK_ROOT=` in a .env is set-to-empty, not unset, so it beats an env()
+     * default. On the local driver that roots Flysystem at the process working directory
+     * and staged files land outside storage/ entirely.
+     *
+     * This is not hypothetical: CI builds its .env with `cp .env.example .env`, so one
+     * empty line in the example file is enough to reach every test run and every fresh
+     * deployment that starts from it.
+     */
+    public function test_staging_disk_ignores_an_empty_root_override(): void
+    {
+        $this->assertSame(
+            storage_path('app/private/s3-blobs'),
+            $this->loadS3DiskConfig('local', '')['root'],
+        );
+        $this->assertSame('', $this->loadS3DiskConfig('s3', '')['root']);
+    }
+
+    public function test_staging_disk_ignores_an_empty_driver_override(): void
+    {
+        $disk = $this->loadS3DiskConfig('');
+
+        $this->assertSame('local', $disk['driver']);
+        $this->assertSame(storage_path('app/private/s3-blobs'), $disk['root']);
     }
 }

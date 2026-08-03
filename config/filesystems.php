@@ -28,9 +28,15 @@ $phrDicomDiskRoot = env(
  *
  * Set S3_DISK_DRIVER=s3 with the AWS_* vars to put staging back on an object store.
  */
-$s3DiskDriver = env('S3_DISK_DRIVER', 'local');
-$s3DiskRoot = env(
-    'S3_DISK_ROOT',
+$s3DiskDriver = env('S3_DISK_DRIVER', 'local') ?: 'local';
+
+/*
+ * `?:` rather than an env() default, because a bare `S3_DISK_ROOT=` in a .env is *set* to
+ * the empty string and so wins over the default. On the local driver that roots Flysystem
+ * at the process working directory instead of storage/, scattering staged files wherever
+ * the app happened to be invoked from. An explicitly empty root is never the intent.
+ */
+$s3DiskRoot = env('S3_DISK_ROOT') ?: (
     $s3DiskDriver === 'local' ? storage_path('app/private/s3-blobs') : ''
 );
 
