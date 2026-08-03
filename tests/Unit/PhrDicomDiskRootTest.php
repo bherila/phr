@@ -79,4 +79,101 @@ class PhrDicomDiskRootTest extends TestCase
             $this->assertSame('custom/prefix', $config['disks']['phr_dicom']['root']);
         }
     }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function loadS3DiskConfig(?string $driver, ?string $root = null): array
+    {
+        // Laravel's env repository reads putenv() as well as the superglobals, and CI
+        // populates all three by copying .env.example to .env. Clearing only $_SERVER and
+        // $_ENV would leave a stale getenv() value and quietly test the wrong thing.
+        $keys = ['S3_DISK_DRIVER' => $driver, 'S3_DISK_ROOT' => $root];
+        $original = [];
+
+        foreach (array_keys($keys) as $key) {
+            $value = getenv($key);
+            $original[$key] = $value === false ? null : $value;
+        }
+
+        foreach ($keys as $key => $value) {
+            $this->applyEnv($key, $value);
+        }
+
+        try {
+            return (require base_path('config/filesystems.php'))['disks']['s3'];
+        } finally {
+            foreach ($original as $key => $value) {
+                $this->applyEnv($key, $value);
+            }
+        }
+    }
+
+    private function applyEnv(string $key, ?string $value): void
+    {
+        if ($value === null) {
+            putenv($key);
+            unset($_SERVER[$key], $_ENV[$key]);
+
+            return;
+        }
+
+        putenv("{$key}={$value}");
+        $_SERVER[$key] = $value;
+        $_ENV[$key] = $value;
+    }
+
+    /**
+     * Unlike phr_dicom, the GenAI staging disk defaults to local. This app has never set
+     * the AWS_* vars anywhere, so an "s3" default resolves to a driver with no region and
+     * throws on first use — which is exactly what production did until 2026-08-02.
+     */
+    public function test_staging_disk_defaults_to_local_storage(): void
+    {
+        $disk = $this->loadS3DiskConfig(null);
+
+        $this->assertSame('local', $disk['driver']);
+        $this->assertSame(storage_path('app/private/s3-blobs'), $disk['root']);
+    }
+
+    public function test_staging_disk_takes_no_key_prefix_on_the_object_store(): void
+    {
+        $disk = $this->loadS3DiskConfig('s3');
+
+        $this->assertSame('s3', $disk['driver']);
+        $this->assertSame('', $disk['root'], 'A storage_path() here would prefix every object key and 404 every read.');
+    }
+
+    public function test_staging_disk_honours_an_explicit_root_on_either_driver(): void
+    {
+        foreach (['s3', 'local'] as $driver) {
+            $this->assertSame('custom/prefix', $this->loadS3DiskConfig($driver, 'custom/prefix')['root']);
+        }
+    }
+
+    /**
+     * A bare `S3_DISK_ROOT=` in a .env is set-to-empty, not unset, so it beats an env()
+     * default. On the local driver that roots Flysystem at the process working directory
+     * and staged files land outside storage/ entirely.
+     *
+     * This is not hypothetical: CI builds its .env with `cp .env.example .env`, so one
+     * empty line in the example file is enough to reach every test run and every fresh
+     * deployment that starts from it.
+     */
+    public function test_staging_disk_ignores_an_empty_root_override(): void
+    {
+        $this->assertSame(
+            storage_path('app/private/s3-blobs'),
+            $this->loadS3DiskConfig('local', '')['root'],
+        );
+        $this->assertSame('', $this->loadS3DiskConfig('s3', '')['root']);
+    }
+
+    public function test_staging_disk_ignores_an_empty_driver_override(): void
+    {
+        $disk = $this->loadS3DiskConfig('');
+
+        $this->assertSame('local', $disk['driver']);
+        $this->assertSame(storage_path('app/private/s3-blobs'), $disk['root']);
+    }
 }

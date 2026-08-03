@@ -319,11 +319,15 @@ jobs:
       #   phr-documents  local disk root for uploaded PHR documents.
       #   phr-exports    local disk root for generated PHR exports.
       #   phr-dicom      local disk root for DICOM pixel data (storage/app/private/).
-      # The last three hold real clinical records that only exist on the server;
-      # deleting them is unrecoverable. phr-dicom joined that list on 2026-08-01 when
-      # DICOM moved off Cloudflare R2 onto this host — before that the data lived in a
-      # bucket and this exclude was unnecessary. It is now load-bearing for ~824 MB of
-      # patient imaging that exists nowhere else on the server.
+      #   s3-blobs       local disk root for GenAI import staging (the disk named "s3").
+      # These hold real clinical records that only exist on the server; deleting them is
+      # unrecoverable. phr-dicom joined that list on 2026-08-01 when DICOM moved off
+      # Cloudflare R2 onto this host — before that the data lived in a bucket and this
+      # exclude was unnecessary. It is now load-bearing for ~824 MB of patient imaging
+      # that exists nowhere else on the server.
+      #
+      # LocalDiskDeployExcludeTest asserts this list covers every local disk root, so
+      # adding a disk without an exclude fails the build rather than the next deploy.
       - name: Deploy with rsync
         run: |
           rsync -av --delete \
@@ -332,6 +336,7 @@ jobs:
             --exclude='phr-documents' \
             --exclude='phr-exports' \
             --exclude='phr-dicom' \
+            --exclude='s3-blobs' \
             -e "ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
             app \
             bootstrap \

@@ -20,8 +20,9 @@ class PhrStorageMap
     /**
      * The disks to sweep, and the key prefixes to sweep within each.
      *
-     * PHR spreads blobs across three disks, each with its own filesystem root:
-     * `phr_dicom` (storage/app/private/phr-dicom), `phr_documents`, and `phr_exports`.
+     * PHR spreads blobs across four disks, each with its own filesystem root:
+     * `phr_dicom` (storage/app/private/phr-dicom), `phr_documents`, `phr_exports`, and the
+     * GenAI staging disk still named `s3` (storage/app/private/s3-blobs).
      * Keys additionally carry a `phr/<area>/` prefix inside their disk, inherited from the
      * R2 key shape and retained through the migration so no stored path had to be rewritten.
      * Sweeping one disk with another's prefixes finds nothing — hence the pairing.
@@ -40,6 +41,12 @@ class PhrStorageMap
             'phr_dicom' => ['phr/dicom', 'derived/volume-cache'],
             'phr_documents' => ['phr/documents'],
             'phr_exports' => ['phr/exports'],
+
+            // GenAI import staging. Its only writer is PhrDocumentController::process,
+            // which keys everything under genai-import/<userId>/. Scoped to that prefix
+            // rather than the whole disk so a future disk-sharing caller is not swept up
+            // by a map that never heard of it.
+            's3' => ['genai-import'],
         ];
     }
 
@@ -60,8 +67,12 @@ class PhrStorageMap
 
             ->from('phr_exports', 'storage_path')
 
-            // Staging for GenAI imports. Empty in production today, but the column exists
-            // and must be honoured rather than assumed dead.
+            // Staging for GenAI imports, on the disk named `s3`. Empty in production today,
+            // but the column exists and must be honoured rather than assumed dead.
+            //
+            // In bwh-php this same column also stores `inline://paste/<uuid>` sentinels for
+            // pasted content, which are not storage keys. Harmless either way — a sentinel
+            // matches no file, so it neither protects nor reaps anything.
             ->from('genai_import_jobs', 's3_path')
 
             // Columns that match a key-ish name but hold no storage key. Listed so the

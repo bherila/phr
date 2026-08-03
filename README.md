@@ -168,14 +168,23 @@ subdomain, and database:
 
 ### Blob storage
 
-DICOM pixel data lives in the Cloudflare R2 bucket `bhdicom` (2,649 objects / 824 MB),
-reached through the `phr_dicom` disk. That disk follows `PHR_DICOM_DISK_DRIVER`: `s3` today,
-`local` to root it at `storage/app/private/phr-dicom` instead (`config/filesystems.php:11`).
-Object keys are stored in the database and are identical either way, so switching drivers
-needs no data rewrite. The `phr_documents` and `phr_exports` disks are already `local`.
+All four disks are `local` in production as of 2026-08-02. DICOM pixel data lived in the
+Cloudflare R2 bucket `bhdicom` until then and now sits at `storage/app/private/phr-dicom`
+(2,650 files / 867 MB), reached through the `phr_dicom` disk; `phr_documents`, `phr_exports`
+and the GenAI staging disk named `s3` are local too. The move was for backups — R2 has
+durability but no point-in-time recovery, and web1 is snapshotted hourly.
 
-R2 has durability but no point-in-time recovery, so a bad delete or an app bug is
-unrecoverable there. `pnpm blobs` mirrors the server's `storage/app/private/` to
+Each disk follows a driver env var (`PHR_DICOM_DISK_DRIVER`, `S3_DISK_DRIVER`), so returning
+to an object store is a one-line flip. Object keys are stored in the database and are
+identical either way, so switching drivers needs no data rewrite.
+
+> Two things bite when adding a local disk. Its `root` must follow the driver — a
+> filesystem path on `local`, an object-key prefix on `s3` — or every read 404s while the
+> config still looks right. And its directory needs an rsync `--exclude` in
+> `.github/workflows/ci.yml`, or the next deploy's `--delete` reaps it silently.
+> `PhrDicomDiskRootTest` and `LocalDiskDeployExcludeTest` fail the build on both.
+
+`pnpm blobs` mirrors the server's `storage/app/private/` to
 `~/proj/x-data/phr/`, which `~/proj/backup.sh` then carries into restic:
 
 ```bash
