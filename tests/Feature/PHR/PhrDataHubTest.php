@@ -95,7 +95,7 @@ class PhrDataHubTest extends TestCase
             ->assertJsonPath('owned_patients.0.storage_bytes.total', 375)
             ->assertJsonPath('owned_patients.0.active_share_count', 1)
             ->assertJsonPath('owned_patients.0.operations.clinical_export.status', 'available')
-            ->assertJsonPath('owned_patients.0.operations.native_backup.status', 'planned')
+            ->assertJsonPath('owned_patients.0.operations.native_backup.status', 'available')
             ->assertJsonPath('owned_patients.0.operations.restore.status', 'planned')
             ->assertJsonPath('owned_patients.0.operations.aggregate_delete.status', 'planned');
 

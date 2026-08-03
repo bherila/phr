@@ -31,7 +31,7 @@ function inventoryPayload() {
       active_share_count: 1,
       operations: {
         clinical_export: { eligible: true, status: 'available', format: 'ccda' },
-        native_backup: { eligible: true, status: 'planned' },
+        native_backup: { eligible: true, status: 'available' },
         restore: { eligible: true, status: 'planned' },
         aggregate_delete: { eligible: true, status: 'planned' },
       },
@@ -66,15 +66,36 @@ const readyExport = {
   download_url: '/phr/exports/9/download?signature=synthetic',
 }
 
+const readyBackup = {
+  id: 12,
+  patient_id: 42,
+  format: 'phr-native-v1',
+  schema_version: 1,
+  status: 'ready',
+  file_size_bytes: 300,
+  archive_sha256: 'a'.repeat(64),
+  counts: { phr_patients: 1 },
+  failure_category: null,
+  generated_at: '2026-08-03T01:01:00+00:00',
+  expires_at: '2026-08-10T01:01:00+00:00',
+  created_at: '2026-08-03T01:00:00+00:00',
+  download_url: '/phr/native-backups/12/download?signature=synthetic',
+}
+
 beforeEach(() => {
   mockGet.mockReset()
   mockPost.mockReset()
   mockGet.mockImplementation(async (url: string) => {
     if (url === '/api/phr/data-hub') return inventoryPayload()
     if (url === '/api/phr/patients/42/exports') return { exports: [readyExport] }
+    if (url === '/api/phr/patients/42/native-backups') return { backups: [readyBackup] }
     throw new Error(`Unexpected GET ${url}`)
   })
-  mockPost.mockResolvedValue({ export: readyExport })
+  mockPost.mockImplementation(async (url: string) => {
+    if (url === '/api/phr/patients/42/exports') return { export: readyExport }
+    if (url === '/api/phr/patients/42/native-backups') return { backup: readyBackup }
+    throw new Error(`Unexpected POST ${url}`)
+  })
 })
 
 describe('DataHubPage', () => {
@@ -87,7 +108,7 @@ describe('DataHubPage', () => {
     expect(screen.getAllByText('3.00 KB')).toHaveLength(2)
     expect(screen.getByText('Synthetic Shared Profile')).toBeInTheDocument()
     expect(screen.getByText(/viewer access · owner operations unavailable/i)).toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: 'Not yet available' })).toHaveLength(3)
+    expect(screen.getAllByRole('button', { name: 'Not yet available' })).toHaveLength(2)
     expect(screen.queryByText('Undisclosed health value')).not.toBeInTheDocument()
   })
 
@@ -111,5 +132,21 @@ describe('DataHubPage', () => {
       expect(mockGet).toHaveBeenCalledWith('/api/phr/patients/42/exports')
     })
     expect(await screen.findByRole('link', { name: 'Download XML' })).toBeInTheDocument()
+  })
+
+  it('creates and refreshes a native backup only for the selected patient', async () => {
+    render(<DataHubPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Generate native backup' }))
+
+    await waitFor(() => {
+      expect(mockPost).toHaveBeenCalledWith('/api/phr/patients/42/native-backups', {})
+    })
+    expect(await screen.findByRole('link', { name: 'Download backup' }))
+      .toHaveAttribute('href', '/phr/native-backups/12/download?signature=synthetic')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Check backup status' }))
+    await waitFor(() => {
+      expect(mockGet).toHaveBeenCalledWith('/api/phr/patients/42/native-backups')
+    })
   })
 })

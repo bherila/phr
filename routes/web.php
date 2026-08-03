@@ -5,6 +5,7 @@ use App\Http\Controllers\OhifViewerController;
 use App\Http\Controllers\PHR\PageController as PHRPageController;
 use App\Http\Controllers\PHR\PhrDocumentController;
 use App\Http\Controllers\PHR\PhrExportController;
+use App\Http\Controllers\PHR\PhrNativeBackupController;
 use App\Http\Controllers\UptimeController;
 use Illuminate\Support\Facades\Route;
 
@@ -60,4 +61,7 @@ Route::middleware(['auth', 'signed'])->group(function (): void {
     Route::get('/phr/exports/{export}/download', [PhrExportController::class, 'download'])
         ->whereNumber('export')
         ->name('phr.exports.download');
+    Route::get('/phr/native-backups/{backup}/download', [PhrNativeBackupController::class, 'download'])
+        ->whereNumber('backup')
+        ->name('phr.native-backups.download');
 });
