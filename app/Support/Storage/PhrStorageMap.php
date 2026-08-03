@@ -40,7 +40,7 @@ class PhrStorageMap
             // listing explicitly or reclaimed volumes accumulate forever.
             'phr_dicom' => ['phr/dicom', 'derived/volume-cache'],
             'phr_documents' => ['phr/documents'],
-            'phr_exports' => ['phr/exports'],
+            'phr_exports' => ['phr/exports', 'phr/native-backups'],
 
             // GenAI import staging. Its only writer is PhrDocumentController::process,
             // which keys everything under genai-import/<userId>/. Scoped to that prefix
@@ -66,6 +66,10 @@ class PhrStorageMap
             ->from('phr_documents', 'storage_path')
 
             ->from('phr_exports', 'storage_path')
+
+            // Native archives have a shorter retention policy but share the existing
+            // private export disk. A live row protects its archive from quarantine.
+            ->from('phr_native_backups', 'storage_path')
 
             // Staging for GenAI imports, on the disk named `s3`. Empty in production today,
             // but the column exists and must be honoured rather than assumed dead.

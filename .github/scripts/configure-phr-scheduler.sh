@@ -38,7 +38,8 @@ schedule_output="$("$php_bin" artisan schedule:list --no-ansi)"
 for expected_command in \
     'genai:requeue-stale' \
     'phr:dicom:gc' \
-    'phr:exports:purge'
+    'phr:exports:purge' \
+    'phr:native-backups:purge'
 do
     if ! grep -Fq "$expected_command" <<<"$schedule_output"; then
         echo "Laravel schedule is missing ${expected_command}." >&2

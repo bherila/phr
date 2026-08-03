@@ -105,7 +105,7 @@ final class PhrDataInventoryService
                 'active_share_count' => $activeShareCount,
                 'operations' => [
                     'clinical_export' => ['eligible' => true, 'status' => 'available', 'format' => 'ccda'],
-                    'native_backup' => ['eligible' => true, 'status' => 'planned'],
+                    'native_backup' => ['eligible' => true, 'status' => 'available'],
                     'restore' => ['eligible' => true, 'status' => 'planned'],
                     'aggregate_delete' => ['eligible' => true, 'status' => 'planned'],
                 ],

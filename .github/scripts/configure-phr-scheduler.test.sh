@@ -25,6 +25,9 @@ if [[ -n "${FAKE_CRONTAB_FILE:-}" && $# -gt 0 ]]; then
                     if [[ "${FAKE_SCHEDULE_MISSING_EXPORT_PURGE:-false}" != 'true' ]]; then
                         printf '%s\n' '0 0 * * * php artisan phr:exports:purge'
                     fi
+                    if [[ "${FAKE_SCHEDULE_MISSING_NATIVE_BACKUP_PURGE:-false}" != 'true' ]]; then
+                        printf '%s\n' '0 0 * * * php artisan phr:native-backups:purge'
+                    fi
                     ;;
                 config:show)
                     printf '%s\n' "queue.default ..................................................... ${FAKE_QUEUE_DRIVER:-database}"
@@ -102,6 +105,14 @@ fi
 cmp -s "$original_crontab" "$fake_crontab"
 
 unset FAKE_SCHEDULE_MISSING_EXPORT_PURGE
+export FAKE_SCHEDULE_MISSING_NATIVE_BACKUP_PURGE=true
+if bash "$installer" >/dev/null 2>&1; then
+    echo 'Expected missing native backup purge schedule verification to fail.' >&2
+    exit 1
+fi
+cmp -s "$original_crontab" "$fake_crontab"
+
+unset FAKE_SCHEDULE_MISSING_NATIVE_BACKUP_PURGE
 export FAKE_QUEUE_DRIVER=redis
 if bash "$installer" >/dev/null 2>&1; then
     echo 'Expected non-database queue verification to fail.' >&2

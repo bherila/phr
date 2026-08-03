@@ -39,6 +39,10 @@ final class UptimeJobCatalog
                 'label' => 'Expired export cleanup',
                 'stale_after_seconds' => 26 * 60 * 60,
             ],
+            'phr:native-backups:purge' => [
+                'label' => 'Expired native backup cleanup',
+                'stale_after_seconds' => 26 * 60 * 60,
+            ],
         ];
     }
 
@@ -49,6 +53,7 @@ final class UptimeJobCatalog
             'genai:requeue-stale' => 'genai:requeue-stale',
             'phr:dicom:gc' => 'phr:dicom:gc',
             'phr:exports:purge' => 'phr:exports:purge',
+            'phr:native-backups:purge' => 'phr:native-backups:purge',
         ];
     }
 
