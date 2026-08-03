@@ -29,7 +29,8 @@ heavier than in the games split.
 - `app/Models/Phr*.php`, `app/Services/PHR/**`, `app/Http/Controllers/PHR/**`,
   `app/Console/Commands/Phr/**` — the PHR domain: patients, clinical records, DICOM
   upload/viewer/volume-cache, CCDA/FHIR/MyChart import, CCDA/FHIR/PDF export, Sinus
-  Sentinel device ingest.
+  Sentinel device ingest. The generated XML's profile and known interoperability gaps
+  are tracked in [`docs/ccda-conformance.md`](docs/ccda-conformance.md).
 - `app/GenAiProcessor/**` — **PHR's own minimal GenAI import-job queue**, not a copy of
   the monorepo's shared 55-file pipeline. Per #1805 option (c): the monorepo's
   `ParseImportJob`/`GenAiImportJob`/`GenAiImportResult` are shared with finance and
