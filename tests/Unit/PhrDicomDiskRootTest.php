@@ -79,4 +79,65 @@ class PhrDicomDiskRootTest extends TestCase
             $this->assertSame('custom/prefix', $config['disks']['phr_dicom']['root']);
         }
     }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function loadS3DiskConfig(?string $driver, ?string $root = null): array
+    {
+        $original = [
+            'S3_DISK_DRIVER' => $_SERVER['S3_DISK_DRIVER'] ?? null,
+            'S3_DISK_ROOT' => $_SERVER['S3_DISK_ROOT'] ?? null,
+        ];
+
+        foreach (['S3_DISK_DRIVER' => $driver, 'S3_DISK_ROOT' => $root] as $key => $value) {
+            if ($value === null) {
+                unset($_SERVER[$key], $_ENV[$key]);
+            } else {
+                $_SERVER[$key] = $value;
+                $_ENV[$key] = $value;
+            }
+        }
+
+        try {
+            return (require base_path('config/filesystems.php'))['disks']['s3'];
+        } finally {
+            foreach ($original as $key => $value) {
+                if ($value === null) {
+                    unset($_SERVER[$key], $_ENV[$key]);
+                } else {
+                    $_SERVER[$key] = $value;
+                    $_ENV[$key] = $value;
+                }
+            }
+        }
+    }
+
+    /**
+     * Unlike phr_dicom, the GenAI staging disk defaults to local. This app has never set
+     * the AWS_* vars anywhere, so an "s3" default resolves to a driver with no region and
+     * throws on first use — which is exactly what production did until 2026-08-02.
+     */
+    public function test_staging_disk_defaults_to_local_storage(): void
+    {
+        $disk = $this->loadS3DiskConfig(null);
+
+        $this->assertSame('local', $disk['driver']);
+        $this->assertSame(storage_path('app/private/s3-blobs'), $disk['root']);
+    }
+
+    public function test_staging_disk_takes_no_key_prefix_on_the_object_store(): void
+    {
+        $disk = $this->loadS3DiskConfig('s3');
+
+        $this->assertSame('s3', $disk['driver']);
+        $this->assertSame('', $disk['root'], 'A storage_path() here would prefix every object key and 404 every read.');
+    }
+
+    public function test_staging_disk_honours_an_explicit_root_on_either_driver(): void
+    {
+        foreach (['s3', 'local'] as $driver) {
+            $this->assertSame('custom/prefix', $this->loadS3DiskConfig($driver, 'custom/prefix')['root']);
+        }
+    }
 }
