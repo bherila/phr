@@ -86,6 +86,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Setup pnpm + Node dependencies
+        uses: ./.github/actions/setup-pnpm-node
+
       - name: Test cPanel cron installer
         run: bash .github/scripts/configure-phr-scheduler.test.sh
 
@@ -103,6 +106,9 @@ jobs:
 
       - name: Install Composer dependencies
         run: composer install --no-interaction --prefer-dist
+
+      - name: Validate synthetic C-CDA document
+        run: pnpm run validate:ccda
 
       - name: Audit Composer dependencies
         run: composer audit --locked --no-interaction
