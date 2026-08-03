@@ -176,7 +176,9 @@ subdomain, and database:
 - The vhost's PHP version is set to `ea-php85` (new cPanel subdomains default to
   `ea-php81`, which 500s every page against this app's `>=8.4.1` platform requirement
   while the deploy workflow still reports success — this bit the games deploy)
-- `PHR_DICOM_R2_*` env vars point at the dedicated Cloudflare R2 bucket `bhdicom`
+- `PHR_DICOM_DISK_DRIVER=local` keeps production DICOM under
+  `storage/app/private/phr-dicom`; the `PHR_DICOM_R2_*` settings remain available when
+  the driver is switched to `s3`
 - PHP limits for the vhost live in `public/.htaccess` under `<IfModule LiteSpeed>`, **not**
   in a `.user.ini` — the web SAPI is `litespeed`, which ignores `.user.ini` on this host
   even though `user_ini.filename` is set, so values silently stay at the ea-php85 defaults
@@ -184,15 +186,13 @@ subdomain, and database:
 
 ### Blob storage
 
-All four disks are `local` in production as of 2026-08-02. DICOM pixel data lived in the
-Cloudflare R2 bucket `bhdicom` until then and now sits at `storage/app/private/phr-dicom`
-(2,650 files / 867 MB), reached through the `phr_dicom` disk; `phr_documents`, `phr_exports`
-and the GenAI staging disk named `s3` are local too. The move was for backups — R2 has
-durability but no point-in-time recovery, and web1 is snapshotted hourly.
-
-Each disk follows a driver env var (`PHR_DICOM_DISK_DRIVER`, `S3_DISK_DRIVER`), so returning
-to an object store is a one-line flip. Object keys are stored in the database and are
-identical either way, so switching drivers needs no data rewrite.
+DICOM pixel data is reached through the driver-agnostic `phr_dicom` disk. Production sets
+`PHR_DICOM_DISK_DRIVER=local`, rooted at `storage/app/private/phr-dicom`; the configuration
+default remains `s3` and the `PHR_DICOM_R2_*` settings support an R2-backed deployment.
+The `phr_documents`, `phr_exports`, and GenAI staging disk named `s3` are also local in
+production. GenAI staging can return to an object store with `S3_DISK_DRIVER=s3` and the
+corresponding AWS settings. Object keys are identical with either driver, so switching
+drivers needs no database rewrite.
 
 > Two things bite when adding a local disk. Its `root` must follow the driver — a
 > filesystem path on `local`, an object-key prefix on `s3` — or every read 404s while the
@@ -200,8 +200,10 @@ identical either way, so switching drivers needs no data rewrite.
 > `.github/workflows/ci.yml`, or the next deploy's `--delete` reaps it silently.
 > `PhrDicomDiskRootTest` and `LocalDiskDeployExcludeTest` fail the build on both.
 
-`pnpm blobs` mirrors the server's `storage/app/private/` to
-`~/proj/x-data/phr/`, which `~/proj/backup.sh` then carries into restic:
+The authoritative web1 disk has no point-in-time recovery by itself, so a bad delete or
+an app bug can destroy its only live copy. `pnpm blobs` mirrors the server's complete
+`storage/app/private/` tree to `~/proj/x-data/phr/`, which `~/proj/backup.sh` then carries
+into restic:
 
 ```bash
 pnpm blobs pull            # dry-run, web1 -> x-data
