@@ -49,7 +49,7 @@ class PhrDicomTest extends TestCase
         $this->assertSame(PhrDicomUpload::STATUS_PENDING, $upload->refresh()->status);
     }
 
-    public function test_open_upload_advertises_direct_upload_size_cap(): void
+    public function test_open_upload_advertises_the_multipart_request_cap(): void
     {
         config(['phr.dicom_max_file_bytes' => DicomUploadLimits::DEFAULT_MAX_DIRECT_FILE_BYTES]);
 
@@ -59,9 +59,27 @@ class PhrDicomTest extends TestCase
         $this->actingAs($owner)
             ->postJson("/api/phr/patients/{$patientId}/dicom/uploads", ['root_name' => 'CARDIAC_CT'])
             ->assertCreated()
-            ->assertJsonPath('limits.max_file_bytes', DicomUploadLimits::DEFAULT_MAX_DIRECT_FILE_BYTES)
-            ->assertJsonPath('limits.max_file_size_label', '1 GB')
+            ->assertJsonPath('limits.max_file_bytes', DicomUploadLimits::MAX_MULTIPART_FILE_BYTES)
+            ->assertJsonPath('limits.max_file_size_label', '200 MB')
             ->assertJsonPath('limits.direct_upload', true);
+    }
+
+    public function test_open_upload_honors_a_lower_configured_file_cap(): void
+    {
+        config(['phr.dicom_max_file_bytes' => 64 * 1024 * 1024]);
+
+        $owner = $this->createUser();
+        $patientId = $this->createPatientFor($owner);
+
+        $this->actingAs($owner)
+            ->postJson("/api/phr/patients/{$patientId}/dicom/uploads", ['root_name' => 'CARDIAC_CT'])
+            ->assertCreated()
+            ->assertJsonPath('limits.max_file_bytes', 64 * 1024 * 1024)
+            ->assertJsonPath('limits.max_file_size_label', '64 MB');
+
+        $fileRules = (new StoreDicomUploadFileRequest)->rules()['file'];
+        $this->assertIsArray($fileRules);
+        $this->assertContains('max:65536', $fileRules);
     }
 
     public function test_manager_can_upload_directory_and_viewer_can_read_metadata_and_download_study(): void

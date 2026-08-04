@@ -14,6 +14,9 @@ class GeneratePhrNativeBackupJob implements ShouldQueue
 
     public int $timeout = 300;
 
+    /** Ensure a hard worker timeout does not leave the row stuck in processing. */
+    public bool $failOnTimeout = true;
+
     public int $tries = 2;
 
     public int $backoff = 30;
@@ -38,5 +41,10 @@ class GeneratePhrNativeBackupJob implements ShouldQueue
         }
 
         $backupService->generate($backup);
+    }
+
+    public function failed(?\Throwable $exception): void
+    {
+        app(PhrNativeBackupService::class)->markQueueFailure($this->backupId);
     }
 }

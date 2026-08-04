@@ -9,6 +9,7 @@ use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\Access\PhrPatientPresenter;
+use App\Services\PHR\NativeBackup\PhrNativeBackupService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -19,6 +20,7 @@ class PatientController extends Controller
     public function __construct(
         private PhrPatientAccessService $accessService,
         private PhrPatientPresenter $presenter,
+        private PhrNativeBackupService $nativeBackupService,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -87,7 +89,14 @@ class PatientController extends Controller
         $userId = (int) $request->user()?->id;
         $resolvedPatient = $this->accessService->ownedPatient($patient, $userId);
 
-        $resolvedPatient->delete();
+        DB::transaction(function () use ($resolvedPatient): void {
+            $lockedPatient = PhrPatient::query()
+                ->whereKey($resolvedPatient->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+            $this->nativeBackupService->deleteForPatient($lockedPatient);
+            $lockedPatient->delete();
+        });
 
         return response()->noContent();
     }

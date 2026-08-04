@@ -79,6 +79,79 @@ class PhrNativeBackupTest extends TestCase
             ->assertJsonPath('backups.0.id', $backupId);
     }
 
+    public function test_active_or_unexpired_backup_is_reused_instead_of_queued_again(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->createPatient($owner);
+        $service = app(PhrNativeBackupService::class);
+        $original = $service->createQueuedBackup($patient, (int) $owner->id);
+
+        $this->assertSame($original->id, $service->createQueuedBackup($patient, (int) $owner->id)->id);
+
+        $original->update(['status' => PhrNativeBackup::STATUS_PROCESSING]);
+        $this->assertSame($original->id, $service->createQueuedBackup($patient, (int) $owner->id)->id);
+
+        $original->update([
+            'status' => PhrNativeBackup::STATUS_READY,
+            'storage_path' => 'phr/native-backups/fixture/current.zip',
+            'expires_at' => now()->addHour(),
+        ]);
+        $this->assertSame($original->id, $service->createQueuedBackup($patient, (int) $owner->id)->id);
+
+        $this->assertSame(1, PhrNativeBackup::query()->where('patient_id', $patient->id)->count());
+        Queue::assertPushed(GeneratePhrNativeBackupJob::class, 1);
+    }
+
+    public function test_worker_failure_marks_active_backup_terminal_and_preserves_domain_failure(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->createPatient($owner);
+        $backup = $this->newBackup($patient, $owner);
+        $backup->update(['status' => PhrNativeBackup::STATUS_PROCESSING]);
+        $job = new GeneratePhrNativeBackupJob($backup->id);
+
+        $this->assertTrue($job->failOnTimeout);
+        $job->failed(new \RuntimeException('Synthetic worker failure'));
+
+        $this->assertDatabaseHas('phr_native_backups', [
+            'id' => $backup->id,
+            'status' => PhrNativeBackup::STATUS_FAILED,
+            'failure_category' => 'queue_failure',
+        ]);
+        $this->assertDatabaseHas('phr_native_backup_audits', [
+            'patient_root_id' => $patient->id,
+            'outcome' => 'failed',
+            'failure_category' => 'queue_failure',
+        ]);
+
+        $backup->update(['failure_category' => 'size_limit']);
+        $job->failed(new \RuntimeException('Synthetic retry exhaustion'));
+        $this->assertSame('size_limit', $backup->refresh()->failure_category);
+    }
+
+    public function test_patient_api_deletion_removes_native_archive_before_rows_cascade(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->createPatient($owner);
+        $path = 'phr/native-backups/fixture/patient-delete.zip';
+        Storage::disk('phr_exports')->put($path, 'synthetic archive');
+        $backup = PhrNativeBackup::query()->create([
+            'patient_id' => $patient->id,
+            'requested_by_user_id' => $owner->id,
+            'status' => PhrNativeBackup::STATUS_READY,
+            'schema_version' => PhrNativeBackupCatalog::SCHEMA_VERSION,
+            'storage_disk' => 'phr_exports',
+            'storage_path' => $path,
+            'expires_at' => now()->addHour(),
+        ]);
+
+        $this->actingAs($owner)->deleteJson("/api/phr/patients/{$patient->id}")->assertNoContent();
+
+        Storage::disk('phr_exports')->assertMissing($path);
+        $this->assertDatabaseMissing('phr_native_backups', ['id' => $backup->id]);
+        $this->assertDatabaseMissing('phr_patients', ['id' => $patient->id]);
+    }
+
     public function test_archive_round_trips_every_catalog_table_with_stable_hashes_and_artifacts(): void
     {
         $owner = $this->createUser();
