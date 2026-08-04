@@ -6,12 +6,29 @@ final class DicomUploadLimits
 {
     public const int DEFAULT_MAX_DIRECT_FILE_BYTES = 1_073_741_824;
 
+    /** Laravel receives each file as multipart form data, where validation caps it at 200 MiB. */
+    public const int MAX_MULTIPART_FILE_KILOBYTES = 204_800;
+
+    public const int MAX_MULTIPART_FILE_BYTES = self::MAX_MULTIPART_FILE_KILOBYTES * 1024;
+
     public static function maxDirectFileBytes(): int
     {
         $configured = config('phr.dicom_max_file_bytes', self::DEFAULT_MAX_DIRECT_FILE_BYTES);
         $bytes = is_numeric($configured) ? (int) $configured : self::DEFAULT_MAX_DIRECT_FILE_BYTES;
 
         return $bytes > 0 ? $bytes : self::DEFAULT_MAX_DIRECT_FILE_BYTES;
+    }
+
+    /**
+     * The truthful limit for the current upload route.
+     *
+     * `phr.dicom_max_file_bytes` remains the configurable product ceiling, but this
+     * endpoint is not a storage-direct upload: PHP and Laravel receive the body first.
+     * Never advertise more than the request validator can accept.
+     */
+    public static function maxMultipartFileBytes(): int
+    {
+        return min(self::maxDirectFileBytes(), self::MAX_MULTIPART_FILE_BYTES);
     }
 
     public static function formatBytes(int $bytes): string

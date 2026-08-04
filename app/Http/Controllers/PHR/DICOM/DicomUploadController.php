@@ -138,7 +138,7 @@ class DicomUploadController extends Controller
      */
     private function uploadLimitsPayload(): array
     {
-        $maxFileBytes = DicomUploadLimits::maxDirectFileBytes();
+        $maxFileBytes = DicomUploadLimits::maxMultipartFileBytes();
 
         return [
             'max_file_bytes' => $maxFileBytes,
