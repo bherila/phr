@@ -3,10 +3,32 @@
 namespace App\Services\PHR\Export;
 
 use App\Models\PhrPatient;
+use Illuminate\Support\Str;
 use XMLWriter;
 
 class PhrCcdaExporter
 {
+    /**
+     * C-CDA 5.0 section templates that describe the existing narrative tables.
+     *
+     * The eight entries-required clinical sections deliberately retain their human-readable
+     * tables without claiming that those rows are structured C-CDA entries. See
+     * docs/ccda-conformance.md for the interoperability boundary and validation baseline.
+     *
+     * @var array<string, array{root: string, extension: string, code: string}>
+     */
+    private const array SECTION_TEMPLATES = [
+        'Results' => ['root' => '2.16.840.1.113883.10.20.22.2.3.1', 'extension' => '2015-08-01', 'code' => '30954-2'],
+        'Vital Signs' => ['root' => '2.16.840.1.113883.10.20.22.2.4.1', 'extension' => '2015-08-01', 'code' => '8716-3'],
+        'Problems' => ['root' => '2.16.840.1.113883.10.20.22.2.5.1', 'extension' => '2015-08-01', 'code' => '11450-4'],
+        'Medications' => ['root' => '2.16.840.1.113883.10.20.22.2.1.1', 'extension' => '2014-06-09', 'code' => '10160-0'],
+        'Procedures' => ['root' => '2.16.840.1.113883.10.20.22.2.7.1', 'extension' => '2014-06-09', 'code' => '47519-4'],
+        'Immunizations' => ['root' => '2.16.840.1.113883.10.20.22.2.2.1', 'extension' => '2015-08-01', 'code' => '11369-6'],
+        'Allergies' => ['root' => '2.16.840.1.113883.10.20.22.2.6.1', 'extension' => '2015-08-01', 'code' => '48765-2'],
+        'Encounters' => ['root' => '2.16.840.1.113883.10.20.22.2.22.1', 'extension' => '2015-08-01', 'code' => '46240-8'],
+        'Social History' => ['root' => '2.16.840.1.113883.10.20.22.2.17', 'extension' => '2015-08-01', 'code' => '29762-2'],
+    ];
+
     /**
      * @param  array<string, mixed>  $data
      */
@@ -28,11 +50,14 @@ class PhrCcdaExporter
         $xml->writeAttribute('root', '2.16.840.1.113883.1.3');
         $xml->writeAttribute('extension', 'POCD_HD000040');
         $xml->endElement();
-        $xml->startElement('templateId');
-        $xml->writeAttribute('root', '2.16.840.1.113883.10.20.22.1.2');
-        $xml->endElement();
+        // CCD is the closest C-CDA document-level contract for this longitudinal summary.
+        // The patient-generated header distinguishes an app-authored PHR document from a
+        // provider-authored clinical note; it is an additional header, not a document type.
+        $this->templateId($xml, '2.16.840.1.113883.10.20.22.1.1', '2024-05-01');
+        $this->templateId($xml, '2.16.840.1.113883.10.20.29.1', '2024-05-01');
+        $this->templateId($xml, '2.16.840.1.113883.10.20.22.1.2', '2024-05-01');
         $xml->startElement('id');
-        $xml->writeAttribute('root', 'urn:uuid:phr-ccda-'.$patient->id.'-'.now()->format('YmdHis'));
+        $xml->writeAttribute('root', (string) Str::uuid());
         $xml->endElement();
         $xml->startElement('code');
         $xml->writeAttribute('code', '34133-9');
@@ -40,8 +65,19 @@ class PhrCcdaExporter
         $xml->writeAttribute('displayName', 'Summarization of Episode Note');
         $xml->endElement();
         $xml->writeElement('title', 'Personal Health Record Summary');
-        $this->time($xml, 'effectiveTime', now()->format('YmdHisO'));
+        $effectiveTime = now()->format('YmdHisO');
+        $this->time($xml, 'effectiveTime', $effectiveTime);
+        $xml->startElement('confidentialityCode');
+        $xml->writeAttribute('code', 'N');
+        $xml->writeAttribute('codeSystem', '2.16.840.1.113883.5.25');
+        $xml->endElement();
+        $xml->startElement('languageCode');
+        $xml->writeAttribute('code', 'en-US');
+        $xml->endElement();
         $this->patient($xml, $patient);
+        $this->author($xml, $effectiveTime);
+        $this->custodian($xml);
+        $this->documentationOf($xml);
         $xml->startElement('component');
         $xml->startElement('structuredBody');
 
@@ -59,6 +95,7 @@ class PhrCcdaExporter
             $vital->vital_value ?? $vital->value_numeric,
             $vital->unit,
         ])->all());
+        $this->section($xml, 'Social History', ['Category', 'Value'], []);
         $this->section($xml, 'Problems', ['Condition', 'Code', 'Status', 'Onset'], $data['conditions']->map(fn ($condition): array => [
             $condition->name,
             $condition->icd10_code,
@@ -134,21 +171,38 @@ class PhrCcdaExporter
         $xml->startElement('recordTarget');
         $xml->startElement('patientRole');
         $xml->startElement('id');
-        $xml->writeAttribute('root', 'urn:phr:patient');
-        $xml->writeAttribute('extension', (string) $patient->id);
+        // This application has no assigning authority suitable for an interoperable patient
+        // identifier. NI is preferable to leaking a deployment-local database primary key.
+        $xml->writeAttribute('nullFlavor', 'NI');
         $xml->endElement();
+        $this->nullFlavor($xml, 'addr');
+        $this->nullFlavor($xml, 'telecom');
         $xml->startElement('patient');
         $xml->startElement('name');
         $xml->writeElement('given', $patient->display_name ?? 'Patient');
+        $this->nullFlavor($xml, 'family');
         $xml->endElement();
-        if ($patient->sex_at_birth) {
+        $administrativeGender = match (strtolower((string) $patient->sex_at_birth)) {
+            'male', 'm' => 'M',
+            'female', 'f' => 'F',
+            'undifferentiated', 'un' => 'UN',
+            default => null,
+        };
+        if ($administrativeGender !== null) {
             $xml->startElement('administrativeGenderCode');
-            $xml->writeAttribute('code', strtoupper(substr($patient->sex_at_birth, 0, 1)));
+            $xml->writeAttribute('code', $administrativeGender);
+            $xml->writeAttribute('codeSystem', '2.16.840.1.113883.5.1');
             $xml->endElement();
+        } else {
+            $this->nullFlavor($xml, 'administrativeGenderCode');
         }
         if ($patient->birth_date) {
             $this->time($xml, 'birthTime', $patient->birth_date->format('Ymd'));
+        } else {
+            $this->nullFlavor($xml, 'birthTime');
         }
+        $this->nullFlavor($xml, 'raceCode');
+        $this->nullFlavor($xml, 'ethnicGroupCode');
         $xml->endElement();
         $xml->endElement();
         $xml->endElement();
@@ -162,8 +216,27 @@ class PhrCcdaExporter
     {
         $xml->startElement('component');
         $xml->startElement('section');
+        $template = self::SECTION_TEMPLATES[$title] ?? null;
+        if ($template !== null) {
+            if ($rows === []) {
+                $xml->writeAttribute('nullFlavor', 'NI');
+            }
+            $this->templateId($xml, $template['root'], $template['extension']);
+            $xml->startElement('code');
+            $xml->writeAttribute('code', $template['code']);
+            $xml->writeAttribute('codeSystem', '2.16.840.1.113883.6.1');
+            $xml->endElement();
+        }
         $xml->writeElement('title', $title);
         $xml->startElement('text');
+        if ($rows === []) {
+            $xml->writeElement('paragraph', 'No information available.');
+            $xml->endElement();
+            $xml->endElement();
+            $xml->endElement();
+
+            return;
+        }
         $xml->startElement('table');
         $xml->startElement('thead');
         $xml->startElement('tr');
@@ -191,6 +264,70 @@ class PhrCcdaExporter
     {
         $xml->startElement($element);
         $xml->writeAttribute('value', $value);
+        $xml->endElement();
+    }
+
+    private function templateId(XMLWriter $xml, string $root, string $extension): void
+    {
+        $xml->startElement('templateId');
+        $xml->writeAttribute('root', $root);
+        $xml->writeAttribute('extension', $extension);
+        $xml->endElement();
+    }
+
+    private function nullFlavor(XMLWriter $xml, string $element, string $nullFlavor = 'UNK'): void
+    {
+        $xml->startElement($element);
+        $xml->writeAttribute('nullFlavor', $nullFlavor);
+        $xml->endElement();
+    }
+
+    private function author(XMLWriter $xml, string $effectiveTime): void
+    {
+        $xml->startElement('author');
+        $this->time($xml, 'time', $effectiveTime);
+        $xml->startElement('assignedAuthor');
+        $this->nullFlavor($xml, 'id', 'NI');
+        $this->nullFlavor($xml, 'addr');
+        $this->nullFlavor($xml, 'telecom');
+        $xml->startElement('assignedAuthoringDevice');
+        $xml->writeElement('manufacturerModelName', 'PHR');
+        $xml->writeElement('softwareName', 'PHR');
+        $xml->endElement();
+        $xml->startElement('representedOrganization');
+        $this->nullFlavor($xml, 'id', 'NI');
+        $xml->writeElement('name', 'PHR');
+        $this->nullFlavor($xml, 'telecom');
+        $this->nullFlavor($xml, 'addr');
+        $xml->endElement();
+        $xml->endElement();
+        $xml->endElement();
+    }
+
+    private function custodian(XMLWriter $xml): void
+    {
+        $xml->startElement('custodian');
+        $xml->startElement('assignedCustodian');
+        $xml->startElement('representedCustodianOrganization');
+        $this->nullFlavor($xml, 'id', 'NI');
+        $xml->writeElement('name', 'PHR');
+        $this->nullFlavor($xml, 'telecom');
+        $this->nullFlavor($xml, 'addr');
+        $xml->endElement();
+        $xml->endElement();
+        $xml->endElement();
+    }
+
+    private function documentationOf(XMLWriter $xml): void
+    {
+        $xml->startElement('documentationOf');
+        $xml->startElement('serviceEvent');
+        $xml->writeAttribute('classCode', 'PCPR');
+        $xml->startElement('effectiveTime');
+        $this->nullFlavor($xml, 'low');
+        $this->nullFlavor($xml, 'high');
+        $xml->endElement();
+        $xml->endElement();
         $xml->endElement();
     }
 
