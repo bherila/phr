@@ -20,6 +20,7 @@ use App\Http\Controllers\PHR\PhrDataHubController;
 use App\Http\Controllers\PHR\PhrDocumentController;
 use App\Http\Controllers\PHR\PhrExportController;
 use App\Http\Controllers\PHR\PhrGenAiImportController;
+use App\Http\Controllers\PHR\PhrNativeBackupController;
 use App\Http\Controllers\PHR\ProcedureController as PHRProcedureController;
 use App\Http\Controllers\PHR\RespiratoryEventController as PHRRespiratoryEventController;
 use App\Http\Controllers\PHR\SinusEnrollmentController as PHRSinusEnrollmentController;
@@ -127,6 +128,8 @@ Route::middleware(['web', 'auth'])
         Route::post('/patients/{patient}/documents/{document}/process', [PhrDocumentController::class, 'process'])->whereNumber(['patient', 'document'])->name('patients.documents.process');
         Route::get('/patients/{patient}/exports', [PhrExportController::class, 'index'])->whereNumber('patient')->name('patients.exports.index');
         Route::post('/patients/{patient}/exports', [PhrExportController::class, 'store'])->whereNumber('patient')->name('patients.exports.store');
+        Route::get('/patients/{patient}/native-backups', [PhrNativeBackupController::class, 'index'])->whereNumber('patient')->name('patients.native-backups.index');
+        Route::post('/patients/{patient}/native-backups', [PhrNativeBackupController::class, 'store'])->whereNumber('patient')->name('patients.native-backups.store');
         Route::get('/genai/writable-patients', [PhrGenAiImportController::class, 'writablePatients'])->name('genai.writable-patients');
         Route::post('/genai/jobs/{job}/results/{result}/accept', [PhrGenAiImportController::class, 'accept'])->whereNumber(['job', 'result'])->name('genai.results.accept');
     });
