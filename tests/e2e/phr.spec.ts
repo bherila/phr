@@ -84,7 +84,10 @@ test.describe.serial('PHR browser journeys', () => {
     const documentCard = page.getByRole('button', { name: /Synthetic Visit Note/ })
     await expect(documentCard).toBeVisible()
     await documentCard.click()
-    await expect(page.getByRole('heading', { name: 'Synthetic Visit Note' })).toBeVisible()
+    // Selecting a document intentionally leaves its title visible in the library
+    // pane while opening a second, detail-column heading. Assert the opened column
+    // instead of relying on a globally unique title.
+    await expect(page.getByRole('heading', { name: 'Synthetic Visit Note' }).last()).toBeVisible()
     await expect(page.getByRole('link', { name: 'Download' })).toBeVisible()
     await expect(page.getByTitle('Document viewer').last()).toBeVisible()
   })

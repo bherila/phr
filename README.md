@@ -63,6 +63,22 @@ heavier than in the games split.
 - `bherila/genai-laravel` — the public, provider-agnostic GenAI client
   (Gemini/Anthropic/Bedrock) both this repo and the monorepo build on.
 
+## Patient Data Hub
+
+`/phr/data-hub` is an authenticated, patient-rooted inventory. Owned profiles show
+authoritative record counts, source-document and original-DICOM bytes, last change,
+and active shares. Profiles shared with the current user are listed separately with
+their access level and never expose aggregate counts or owner-only operations. The
+page and inventory API use `private, no-store` responses.
+
+Clinical interoperability export remains distinct from native backup. Each owned
+patient can generate the existing C-CDA XML clinical summary independently; there is
+no all-patients export. A future native archive from issue #12 will preserve original
+files and PHR-specific state that C-CDA does not model, with its own versioned restore
+contract. The current XML generator predates the 2026 C-CDA v5 publication, so formal
+v5 profile validation is a separate compatibility hardening step rather than an
+assumed claim of conformance.
+
 ## Auth
 
 Real login, not a TODO: email+password via `bherila/auth-laravel`, backed by this

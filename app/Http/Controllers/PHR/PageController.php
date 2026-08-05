@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\View\View;
 
 class PageController extends Controller
@@ -37,6 +38,14 @@ class PageController extends Controller
         return $this->shell('config', 'PHR Config');
     }
 
+    public function dataHub(): Response
+    {
+        return response()
+            ->view('phr.shell', $this->shellData('data-hub', 'PHR Data Hub'))
+            ->header('Cache-Control', 'private, no-store, max-age=0')
+            ->header('Pragma', 'no-cache');
+    }
+
     public function patient(Request $request, int $patient): View
     {
         $user = $request->user();
@@ -62,13 +71,19 @@ class PageController extends Controller
 
     private function shell(?string $activeSection, string $title, ?int $patientId = null, bool $canManage = false): View
     {
-        return view('phr.shell', [
+        return view('phr.shell', $this->shellData($activeSection, $title, $patientId, $canManage));
+    }
+
+    /** @return array<string, mixed> */
+    private function shellData(?string $activeSection, string $title, ?int $patientId = null, bool $canManage = false): array
+    {
+        return [
             'activeSection' => $activeSection,
             'patientId' => $patientId,
             'canManage' => $canManage,
             'title' => $title,
             'backUrl' => $this->backUrl(),
-        ]);
+        ];
     }
 
     /**

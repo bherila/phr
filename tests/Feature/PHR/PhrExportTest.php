@@ -97,6 +97,8 @@ class PhrExportTest extends TestCase
 
         $response
             ->assertAccepted()
+            ->assertHeader('Cache-Control', 'max-age=0, no-store, private')
+            ->assertHeader('Pragma', 'no-cache')
             ->assertJsonPath('export.status', PhrExport::STATUS_READY)
             ->assertJsonPath('export.format', 'zip')
             ->assertJsonPath('export.formats.0', 'zip');
@@ -104,6 +106,15 @@ class PhrExportTest extends TestCase
         $downloadUrl = $response->json('export.download_url');
         $this->assertIsString($downloadUrl);
         $this->assertNotSame('', $downloadUrl);
+
+        $this->actingAs($owner)->getJson("/api/phr/patients/{$patient->id}/exports")
+            ->assertOk()
+            ->assertHeader('Cache-Control', 'max-age=0, no-store, private')
+            ->assertHeader('Pragma', 'no-cache');
+        $this->actingAs($owner)->get($downloadUrl)
+            ->assertOk()
+            ->assertHeader('Cache-Control', 'max-age=0, no-store, private')
+            ->assertHeader('Pragma', 'no-cache');
 
         $export = PhrExport::query()->where('patient_id', $patient->id)->sole();
         $this->assertSame(PhrExport::STATUS_READY, $export->status);
