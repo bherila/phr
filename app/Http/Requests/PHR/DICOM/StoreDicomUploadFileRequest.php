@@ -40,6 +40,6 @@ class StoreDicomUploadFileRequest extends FormRequest
 
     private function maxFileKilobytes(): int
     {
-        return intdiv(DicomUploadLimits::maxMultipartFileBytes(), 1024);
+        return DicomUploadLimits::maxMultipartFileKilobytes();
     }
 }

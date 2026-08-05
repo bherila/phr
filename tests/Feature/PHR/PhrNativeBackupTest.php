@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Services\PHR\NativeBackup\NativeBackupException;
 use App\Services\PHR\NativeBackup\PhrNativeBackupCatalog;
 use App\Services\PHR\NativeBackup\PhrNativeBackupService;
+use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -79,7 +80,7 @@ class PhrNativeBackupTest extends TestCase
             ->assertJsonPath('backups.0.id', $backupId);
     }
 
-    public function test_active_or_unexpired_backup_is_reused_instead_of_queued_again(): void
+    public function test_active_or_fresh_ready_backup_is_reused_but_stale_ready_backup_is_replaced(): void
     {
         $owner = $this->createUser();
         $patient = $this->createPatient($owner);
@@ -94,12 +95,21 @@ class PhrNativeBackupTest extends TestCase
         $original->update([
             'status' => PhrNativeBackup::STATUS_READY,
             'storage_path' => 'phr/native-backups/fixture/current.zip',
+            'generated_at' => now()->addSecond(),
             'expires_at' => now()->addHour(),
         ]);
         $this->assertSame($original->id, $service->createQueuedBackup($patient, (int) $owner->id)->id);
 
-        $this->assertSame(1, PhrNativeBackup::query()->where('patient_id', $patient->id)->count());
-        Queue::assertPushed(GeneratePhrNativeBackupJob::class, 1);
+        DB::table('phr_patients')->where('id', $patient->id)->update([
+            'notes' => 'Synthetic patient data changed after backup generation.',
+            'updated_at' => now()->addMinute(),
+        ]);
+        $replacement = $service->createQueuedBackup($patient, (int) $owner->id);
+
+        $this->assertNotSame($original->id, $replacement->id);
+        $this->assertSame(PhrNativeBackup::STATUS_PENDING, $replacement->status);
+        $this->assertSame(2, PhrNativeBackup::query()->where('patient_id', $patient->id)->count());
+        Queue::assertPushed(GeneratePhrNativeBackupJob::class, 2);
     }
 
     public function test_worker_failure_marks_active_backup_terminal_and_preserves_domain_failure(): void
@@ -150,6 +160,27 @@ class PhrNativeBackupTest extends TestCase
         Storage::disk('phr_exports')->assertMissing($path);
         $this->assertDatabaseMissing('phr_native_backups', ['id' => $backup->id]);
         $this->assertDatabaseMissing('phr_patients', ['id' => $patient->id]);
+    }
+
+    public function test_partial_archive_cleanup_failure_never_restores_a_row_for_deleted_bytes(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->createPatient($owner);
+        $first = $this->readyBackup($patient, $owner, 'phr/native-backups/fixture/first.zip');
+        $second = $this->readyBackup($patient, $owner, 'phr/native-backups/fixture/second.zip');
+
+        $disk = \Mockery::mock(Filesystem::class);
+        $disk->shouldReceive('delete')->once()->with((string) $first->storage_path)->andReturnTrue()->ordered();
+        $disk->shouldReceive('delete')->once()->with((string) $second->storage_path)->andReturnFalse()->ordered();
+        Storage::shouldReceive('disk')->twice()->with('phr_exports')->andReturn($disk);
+
+        $this->actingAs($owner)
+            ->deleteJson("/api/phr/patients/{$patient->id}")
+            ->assertServerError();
+
+        $this->assertDatabaseMissing('phr_native_backups', ['id' => $first->id]);
+        $this->assertDatabaseHas('phr_native_backups', ['id' => $second->id]);
+        $this->assertDatabaseHas('phr_patients', ['id' => $patient->id]);
     }
 
     public function test_archive_round_trips_every_catalog_table_with_stable_hashes_and_artifacts(): void
@@ -570,6 +601,20 @@ class PhrNativeBackupTest extends TestCase
     private function newBackup(PhrPatient $patient, User $owner): PhrNativeBackup
     {
         return app(PhrNativeBackupService::class)->createQueuedBackup($patient, (int) $owner->id);
+    }
+
+    private function readyBackup(PhrPatient $patient, User $owner, string $path): PhrNativeBackup
+    {
+        return PhrNativeBackup::query()->create([
+            'patient_id' => $patient->id,
+            'requested_by_user_id' => $owner->id,
+            'status' => PhrNativeBackup::STATUS_READY,
+            'schema_version' => PhrNativeBackupCatalog::SCHEMA_VERSION,
+            'storage_disk' => 'phr_exports',
+            'storage_path' => $path,
+            'generated_at' => now(),
+            'expires_at' => now()->addHour(),
+        ]);
     }
 
     private function generate(PhrPatient $patient, User $owner): PhrNativeBackup

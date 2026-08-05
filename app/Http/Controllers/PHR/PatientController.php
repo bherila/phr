@@ -89,14 +89,7 @@ class PatientController extends Controller
         $userId = (int) $request->user()?->id;
         $resolvedPatient = $this->accessService->ownedPatient($patient, $userId);
 
-        DB::transaction(function () use ($resolvedPatient): void {
-            $lockedPatient = PhrPatient::query()
-                ->whereKey($resolvedPatient->id)
-                ->lockForUpdate()
-                ->firstOrFail();
-            $this->nativeBackupService->deleteForPatient($lockedPatient);
-            $lockedPatient->delete();
-        });
+        $this->nativeBackupService->deletePatientAndBackups($resolvedPatient);
 
         return response()->noContent();
     }

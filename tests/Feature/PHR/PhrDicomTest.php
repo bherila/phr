@@ -64,9 +64,9 @@ class PhrDicomTest extends TestCase
             ->assertJsonPath('limits.direct_upload', true);
     }
 
-    public function test_open_upload_honors_a_lower_configured_file_cap(): void
+    public function test_open_upload_normalizes_a_lower_configured_file_cap_to_the_validator_boundary(): void
     {
-        config(['phr.dicom_max_file_bytes' => 64 * 1024 * 1024]);
+        config(['phr.dicom_max_file_bytes' => (64 * 1024 * 1024) + 511]);
 
         $owner = $this->createUser();
         $patientId = $this->createPatientFor($owner);
@@ -80,6 +80,10 @@ class PhrDicomTest extends TestCase
         $fileRules = (new StoreDicomUploadFileRequest)->rules()['file'];
         $this->assertIsArray($fileRules);
         $this->assertContains('max:65536', $fileRules);
+        $this->assertSame(
+            'Each DICOM file must be 64 MB or smaller.',
+            (new StoreDicomUploadFileRequest)->messages()['file.max'],
+        );
     }
 
     public function test_manager_can_upload_directory_and_viewer_can_read_metadata_and_download_study(): void
