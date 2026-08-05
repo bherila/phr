@@ -9,6 +9,7 @@ use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\Access\PhrPatientPresenter;
+use App\Services\PHR\NativeBackup\NativeBackupInProgressException;
 use App\Services\PHR\NativeBackup\PhrNativeBackupService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -89,7 +90,11 @@ class PatientController extends Controller
         $userId = (int) $request->user()?->id;
         $resolvedPatient = $this->accessService->ownedPatient($patient, $userId);
 
-        $this->nativeBackupService->deletePatientAndBackups($resolvedPatient);
+        try {
+            $this->nativeBackupService->deletePatientAndBackups($resolvedPatient);
+        } catch (NativeBackupInProgressException) {
+            abort(409, 'Native backup generation is in progress. Try deleting this patient again shortly.');
+        }
 
         return response()->noContent();
     }
