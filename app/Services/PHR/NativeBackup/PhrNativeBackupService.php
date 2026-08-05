@@ -6,6 +6,7 @@ use App\Jobs\PHR\GeneratePhrNativeBackupJob;
 use App\Models\PhrNativeBackup;
 use App\Models\PhrNativeBackupAudit;
 use App\Models\PhrPatient;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -18,28 +19,41 @@ final class PhrNativeBackupService
     public function createQueuedBackup(PhrPatient $patient, int $requestedByUserId): PhrNativeBackup
     {
         // Lock the aggregate root so concurrent requests cannot both observe an empty
-        // backup set and enqueue duplicate multi-gigabyte work. A pending/processing
-        // archive, or a still-downloadable ready archive, is already a usable response.
+        // backup set and enqueue duplicate multi-gigabyte work. In-flight work is
+        // always reusable; a ready archive is reusable only when it was generated
+        // after every row in the native-backup catalog was last changed.
         [$backup, $created] = DB::transaction(function () use ($patient, $requestedByUserId): array {
             $lockedPatient = PhrPatient::query()->whereKey($patient->id)->lockForUpdate()->firstOrFail();
             $existing = PhrNativeBackup::query()
                 ->where('patient_id', $lockedPatient->id)
-                ->where(function ($query): void {
-                    $query->whereIn('status', [
-                        PhrNativeBackup::STATUS_PENDING,
-                        PhrNativeBackup::STATUS_PROCESSING,
-                    ])->orWhere(function ($ready): void {
-                        $ready->where('status', PhrNativeBackup::STATUS_READY)
-                            ->where(function ($unexpired): void {
-                                $unexpired->whereNull('expires_at')->orWhere('expires_at', '>', now());
-                            });
-                    });
-                })
+                ->whereIn('status', [
+                    PhrNativeBackup::STATUS_PENDING,
+                    PhrNativeBackup::STATUS_PROCESSING,
+                ])
                 ->latest('id')
                 ->first();
 
             if ($existing !== null) {
                 return [$existing, false];
+            }
+
+            $latestPatientUpdate = $this->latestPatientDataUpdate($lockedPatient->id);
+            $ready = PhrNativeBackup::query()
+                ->where('patient_id', $lockedPatient->id)
+                ->where('status', PhrNativeBackup::STATUS_READY)
+                ->whereNotNull('generated_at')
+                ->where(function ($unexpired): void {
+                    $unexpired->whereNull('expires_at')->orWhere('expires_at', '>', now());
+                })
+                ->when(
+                    $latestPatientUpdate !== null,
+                    fn ($query) => $query->where('generated_at', '>=', $latestPatientUpdate),
+                )
+                ->latest('id')
+                ->first();
+
+            if ($ready !== null) {
+                return [$ready, false];
             }
 
             return [PhrNativeBackup::query()->create([
@@ -163,25 +177,105 @@ final class PhrNativeBackupService
         });
     }
 
-    /**
-     * Delete every native archive before its patient row cascades the tracking rows.
-     * A failed disk deletion aborts aggregate deletion so bytes never become untracked.
-     */
-    public function deleteForPatient(PhrPatient $patient): void
+    /** Delete a patient only after every native archive is durably untracked. */
+    public function deletePatientAndBackups(PhrPatient $patient): void
     {
-        PhrNativeBackup::query()
-            ->where('patient_id', $patient->id)
-            ->orderBy('id')
-            ->lockForUpdate()
-            ->get()
-            ->each(function (PhrNativeBackup $backup): void {
+        while (true) {
+            $backupId = PhrNativeBackup::query()
+                ->where('patient_id', $patient->id)
+                ->orderBy('id')
+                ->value('id');
+
+            if ($backupId === null) {
+                $deleted = DB::transaction(function () use ($patient): bool {
+                    $lockedPatient = PhrPatient::query()
+                        ->whereKey($patient->id)
+                        ->lockForUpdate()
+                        ->first();
+                    if ($lockedPatient === null) {
+                        return true;
+                    }
+
+                    // A backup request can race between loop iterations. Holding the
+                    // aggregate-root lock makes the empty check and patient deletion
+                    // atomic with createQueuedBackup() and generate() finalization.
+                    if (PhrNativeBackup::query()->where('patient_id', $patient->id)->exists()) {
+                        return false;
+                    }
+
+                    $lockedPatient->delete();
+
+                    return true;
+                });
+
+                if ($deleted) {
+                    return;
+                }
+
+                continue;
+            }
+
+            // Each successful filesystem deletion and row deletion commits together.
+            // If a later disk operation fails, earlier rows are not rolled back into
+            // references to files that are already gone, and the patient remains.
+            $removed = DB::transaction(function () use ($patient, $backupId): bool {
+                $patientExists = PhrPatient::query()
+                    ->whereKey($patient->id)
+                    ->lockForUpdate()
+                    ->first() !== null;
+                if (! $patientExists) {
+                    return true;
+                }
+
+                $backup = PhrNativeBackup::query()
+                    ->where('patient_id', $patient->id)
+                    ->whereKey($backupId)
+                    ->lockForUpdate()
+                    ->first();
+                if ($backup === null) {
+                    return true;
+                }
+
                 if ($backup->storage_path !== null
                     && ! Storage::disk($backup->storage_disk)->delete($backup->storage_path)) {
-                    throw new RuntimeException('Native backup storage cleanup failed.');
+                    return false;
                 }
 
                 $backup->delete();
+
+                return true;
             });
+
+            if (! $removed) {
+                throw new RuntimeException('Native backup storage cleanup failed.');
+            }
+        }
+    }
+
+    /**
+     * Find the aggregate watermark from the same explicit catalog used by the archive.
+     * This deliberately includes soft-deleted rows and child tables; relying only on
+     * phr_patients.updated_at would serve a stale archive after a child record changed.
+     */
+    private function latestPatientDataUpdate(int $patientId): ?Carbon
+    {
+        $latest = null;
+
+        foreach (PhrNativeBackupCatalog::included() as $table => $definition) {
+            $updatedAt = DB::table($table)
+                ->where($definition['patient_column'], $patientId)
+                ->max('updated_at');
+            if ($updatedAt === null) {
+                continue;
+            }
+
+            $candidate = Carbon::parse((string) $updatedAt);
+            if ($latest === null || $candidate->greaterThan($latest)) {
+                $latest = $candidate;
+            }
+        }
+
+        return $latest;
     }
 
     private function markFailed(PhrNativeBackup $backup, string $category): void

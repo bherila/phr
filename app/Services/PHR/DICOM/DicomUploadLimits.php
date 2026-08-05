@@ -28,7 +28,19 @@ final class DicomUploadLimits
      */
     public static function maxMultipartFileBytes(): int
     {
-        return min(self::maxDirectFileBytes(), self::MAX_MULTIPART_FILE_BYTES);
+        return self::maxMultipartFileKilobytes() * 1024;
+    }
+
+    /**
+     * Laravel's file max rule is expressed in whole KiB. Normalize the product
+     * ceiling once so validation, API metadata, and error text describe one limit.
+     */
+    public static function maxMultipartFileKilobytes(): int
+    {
+        return max(1, intdiv(
+            min(self::maxDirectFileBytes(), self::MAX_MULTIPART_FILE_BYTES),
+            1024,
+        ));
     }
 
     public static function formatBytes(int $bytes): string
