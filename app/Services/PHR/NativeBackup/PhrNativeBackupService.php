@@ -133,7 +133,9 @@ final class PhrNativeBackupService
                 return $current;
             });
             if ($readyBackup === null) {
-                Storage::disk($backup->storage_disk)->delete($storagePath);
+                if (! Storage::disk($backup->storage_disk)->delete($storagePath)) {
+                    throw new NativeBackupException('output_cleanup_failed');
+                }
                 $storagePath = null;
 
                 throw new NativeBackupException('patient_deleted');
@@ -238,6 +240,13 @@ final class PhrNativeBackupService
                     ->first();
                 if ($backup === null) {
                     return true;
+                }
+
+                // Once processing begins, the worker may already have uploaded bytes
+                // not yet recorded on this row. Keep the aggregate and tracking row
+                // until finalization wins; a retry can then delete the ready archive.
+                if ($backup->status === PhrNativeBackup::STATUS_PROCESSING) {
+                    throw new NativeBackupInProgressException;
                 }
 
                 if ($backup->storage_path !== null

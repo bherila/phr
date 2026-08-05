@@ -207,6 +207,30 @@ class PhrNativeBackupTest extends TestCase
         $this->assertDatabaseMissing('phr_patients', ['id' => $patient->id]);
     }
 
+    public function test_patient_deletion_waits_for_processing_backup_finalization(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->createPatient($owner);
+        $backup = $this->newBackup($patient, $owner);
+        $backup->update(['status' => PhrNativeBackup::STATUS_PROCESSING]);
+
+        $this->actingAs($owner)
+            ->deleteJson("/api/phr/patients/{$patient->id}")
+            ->assertConflict();
+
+        $this->assertDatabaseHas('phr_native_backups', [
+            'id' => $backup->id,
+            'status' => PhrNativeBackup::STATUS_PROCESSING,
+        ]);
+        $this->assertDatabaseHas('phr_patients', ['id' => $patient->id]);
+
+        $backup->update(['status' => PhrNativeBackup::STATUS_FAILED]);
+        $this->actingAs($owner)
+            ->deleteJson("/api/phr/patients/{$patient->id}")
+            ->assertNoContent();
+        $this->assertDatabaseMissing('phr_patients', ['id' => $patient->id]);
+    }
+
     public function test_partial_archive_cleanup_failure_never_restores_a_row_for_deleted_bytes(): void
     {
         $owner = $this->createUser();
