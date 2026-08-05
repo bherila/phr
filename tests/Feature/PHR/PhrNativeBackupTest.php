@@ -224,7 +224,9 @@ class PhrNativeBackupTest extends TestCase
         ]);
         $this->assertDatabaseHas('phr_patients', ['id' => $patient->id]);
 
-        $backup->update(['status' => PhrNativeBackup::STATUS_FAILED]);
+        DB::table('phr_native_backups')->where('id', $backup->id)->update([
+            'updated_at' => now()->subMinutes(16),
+        ]);
         $this->actingAs($owner)
             ->deleteJson("/api/phr/patients/{$patient->id}")
             ->assertNoContent();
