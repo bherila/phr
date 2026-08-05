@@ -6,7 +6,6 @@ use App\Jobs\PHR\GeneratePhrNativeBackupJob;
 use App\Models\PhrNativeBackup;
 use App\Models\PhrNativeBackupAudit;
 use App\Models\PhrPatient;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -14,46 +13,40 @@ use RuntimeException;
 
 final class PhrNativeBackupService
 {
+    // Longer than the job timeout plus retry backoff, but finite so a queue entry
+    // lost after commit cannot block this patient from requesting a backup forever.
+    private const int ACTIVE_BACKUP_LEASE_MINUTES = 15;
+
     public function __construct(private readonly PhrNativeArchiveBuilder $archiveBuilder) {}
 
     public function createQueuedBackup(PhrPatient $patient, int $requestedByUserId): PhrNativeBackup
     {
         // Lock the aggregate root so concurrent requests cannot both observe an empty
-        // backup set and enqueue duplicate multi-gigabyte work. In-flight work is
-        // always reusable; a ready archive is reusable only when it was generated
-        // after every row in the native-backup catalog was last changed.
-        [$backup, $created] = DB::transaction(function () use ($patient, $requestedByUserId): array {
+        // backup set and enqueue duplicate multi-gigabyte work. Completed archives
+        // are immutable snapshots and are never reused: a new explicit request must
+        // capture hard deletes, concurrent edits, and the current schema version.
+        [$backup, $dispatch] = DB::transaction(function () use ($patient, $requestedByUserId): array {
             $lockedPatient = PhrPatient::query()->whereKey($patient->id)->lockForUpdate()->firstOrFail();
-            $existing = PhrNativeBackup::query()
+            $active = PhrNativeBackup::query()
                 ->where('patient_id', $lockedPatient->id)
                 ->whereIn('status', [
                     PhrNativeBackup::STATUS_PENDING,
                     PhrNativeBackup::STATUS_PROCESSING,
                 ])
                 ->latest('id')
+                ->lockForUpdate()
                 ->first();
 
-            if ($existing !== null) {
-                return [$existing, false];
-            }
+            if ($active !== null) {
+                $leaseExpired = $active->updated_at === null
+                    || $active->updated_at->lte(now()->subMinutes(self::ACTIVE_BACKUP_LEASE_MINUTES));
+                if ($leaseExpired) {
+                    // Renew before redispatch so simultaneous requests cannot all
+                    // enqueue the same recovery job. The job also has an overlap lock.
+                    $active->touch();
+                }
 
-            $latestPatientUpdate = $this->latestPatientDataUpdate($lockedPatient->id);
-            $ready = PhrNativeBackup::query()
-                ->where('patient_id', $lockedPatient->id)
-                ->where('status', PhrNativeBackup::STATUS_READY)
-                ->whereNotNull('generated_at')
-                ->where(function ($unexpired): void {
-                    $unexpired->whereNull('expires_at')->orWhere('expires_at', '>', now());
-                })
-                ->when(
-                    $latestPatientUpdate !== null,
-                    fn ($query) => $query->where('generated_at', '>=', $latestPatientUpdate),
-                )
-                ->latest('id')
-                ->first();
-
-            if ($ready !== null) {
-                return [$ready, false];
+                return [$active, $leaseExpired];
             }
 
             return [PhrNativeBackup::query()->create([
@@ -62,12 +55,22 @@ final class PhrNativeBackupService
                 'status' => PhrNativeBackup::STATUS_PENDING,
                 'schema_version' => PhrNativeBackupCatalog::SCHEMA_VERSION,
                 'storage_disk' => 'phr_exports',
-                'expires_at' => now()->addDays((int) config('phr.native_backup_retention_days', 7)),
+                // Retention starts only after bytes are ready to download. A paused
+                // queue must not consume or outlive the promised retrieval window.
+                'expires_at' => null,
             ]), true];
         });
 
-        if ($created) {
-            GeneratePhrNativeBackupJob::dispatch($backup->id);
+        if ($dispatch) {
+            try {
+                GeneratePhrNativeBackupJob::dispatch($backup->id);
+            } catch (\Throwable $exception) {
+                // A synchronous queue-dispatch failure happens after the row commits.
+                // Make it terminal immediately instead of waiting for lease recovery.
+                $this->markQueueFailure($backup->id);
+
+                throw $exception;
+            }
         }
 
         return $backup;
@@ -124,6 +127,7 @@ final class PhrNativeBackupService
                     'counts_json' => $result->counts,
                     'failure_category' => null,
                     'generated_at' => now(),
+                    'expires_at' => now()->addDays((int) config('phr.native_backup_retention_days', 7)),
                 ]);
 
                 return $current;
@@ -252,32 +256,6 @@ final class PhrNativeBackupService
         }
     }
 
-    /**
-     * Find the aggregate watermark from the same explicit catalog used by the archive.
-     * This deliberately includes soft-deleted rows and child tables; relying only on
-     * phr_patients.updated_at would serve a stale archive after a child record changed.
-     */
-    private function latestPatientDataUpdate(int $patientId): ?Carbon
-    {
-        $latest = null;
-
-        foreach (PhrNativeBackupCatalog::included() as $table => $definition) {
-            $updatedAt = DB::table($table)
-                ->where($definition['patient_column'], $patientId)
-                ->max('updated_at');
-            if ($updatedAt === null) {
-                continue;
-            }
-
-            $candidate = Carbon::parse((string) $updatedAt);
-            if ($latest === null || $candidate->greaterThan($latest)) {
-                $latest = $candidate;
-            }
-        }
-
-        return $latest;
-    }
-
     private function markFailed(PhrNativeBackup $backup, string $category): void
     {
         if (! PhrNativeBackup::query()->whereKey($backup->id)->exists()) {
@@ -292,6 +270,7 @@ final class PhrNativeBackupService
             'counts_json' => null,
             'failure_category' => $category,
             'generated_at' => null,
+            'expires_at' => now()->addDays((int) config('phr.native_backup_retention_days', 7)),
         ]);
         $this->audit($backup, 'failed', $category);
     }

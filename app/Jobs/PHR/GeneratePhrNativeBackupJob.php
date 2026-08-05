@@ -7,6 +7,7 @@ use App\Services\PHR\NativeBackup\PhrNativeBackupService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 
 class GeneratePhrNativeBackupJob implements ShouldQueue
 {
@@ -24,6 +25,16 @@ class GeneratePhrNativeBackupJob implements ShouldQueue
     public function __construct(public int $backupId)
     {
         $this->onQueue('phr-exports');
+    }
+
+    /** @return list<WithoutOverlapping> */
+    public function middleware(): array
+    {
+        return [
+            (new WithoutOverlapping("phr-native-backup:{$this->backupId}"))
+                ->dontRelease()
+                ->expireAfter($this->timeout + 60),
+        ];
     }
 
     public function handle(PhrNativeBackupService $backupService): void
