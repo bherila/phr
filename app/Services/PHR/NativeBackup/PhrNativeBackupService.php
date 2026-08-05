@@ -242,10 +242,13 @@ final class PhrNativeBackupService
                     return true;
                 }
 
-                // Once processing begins, the worker may already have uploaded bytes
-                // not yet recorded on this row. Keep the aggregate and tracking row
-                // until finalization wins; a retry can then delete the ready archive.
-                if ($backup->status === PhrNativeBackup::STATUS_PROCESSING) {
+                // A live worker may already have uploaded bytes not yet recorded on
+                // this row, so keep the aggregate until finalization wins. Beyond the
+                // lease (three times the hard worker timeout), processing is abandoned
+                // and cannot permanently prevent patient deletion.
+                if ($backup->status === PhrNativeBackup::STATUS_PROCESSING
+                    && ($backup->updated_at === null
+                        || $backup->updated_at->gt(now()->subMinutes(self::ACTIVE_BACKUP_LEASE_MINUTES)))) {
                     throw new NativeBackupInProgressException;
                 }
 
