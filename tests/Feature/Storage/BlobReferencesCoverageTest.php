@@ -73,6 +73,12 @@ class BlobReferencesCoverageTest extends TestCase
                 Schema::hasColumn($reference->table, $reference->column),
                 "Mapped column {$reference->label()} does not exist — the map has drifted from the schema.",
             );
+            foreach (array_keys($reference->conditions) as $conditionColumn) {
+                $this->assertTrue(
+                    Schema::hasColumn($reference->table, $conditionColumn),
+                    "Mapped condition {$reference->table}.{$conditionColumn} does not exist — the map has drifted from the schema.",
+                );
+            }
         }
     }
 }
