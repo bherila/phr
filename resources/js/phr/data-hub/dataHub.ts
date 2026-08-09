@@ -70,6 +70,26 @@ export const DataHubResponseSchema = z.object({
 
 export type DataHubResponse = z.infer<typeof DataHubResponseSchema>
 
+export const NativeBackupSchema = z.object({
+  id: z.number().int().positive(),
+  patient_id: z.number().int().positive(),
+  format: z.literal('phr-native-v1'),
+  schema_version: z.literal(1),
+  status: z.enum(['pending', 'processing', 'ready', 'failed']),
+  file_size_bytes: z.number().int().nonnegative().nullable(),
+  archive_sha256: z.string().length(64).nullable(),
+  counts: z.record(z.string(), z.number().int().nonnegative()).nullable(),
+  failure_category: z.string().nullable(),
+  generated_at: z.string().nullable(),
+  expires_at: z.string().nullable(),
+  created_at: z.string().nullable(),
+  download_url: z.string().nullable(),
+})
+
+export const NativeBackupResponseSchema = z.object({ backup: NativeBackupSchema })
+export const NativeBackupsResponseSchema = z.object({ backups: z.array(NativeBackupSchema) })
+export type NativeBackup = z.infer<typeof NativeBackupSchema>
+
 export const DATA_HUB_CATEGORY_LABELS: Record<DataHubCategoryKey, string> = {
   lab_results: 'Lab results',
   vitals: 'Vitals',

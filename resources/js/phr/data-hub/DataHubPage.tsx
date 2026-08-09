@@ -12,6 +12,9 @@ import {
   DATA_HUB_CATEGORY_LABELS,
   type DataHubCategoryKey,
   DataHubResponseSchema,
+  type NativeBackup,
+  NativeBackupResponseSchema,
+  NativeBackupsResponseSchema,
   type OwnedPatientInventory,
 } from './dataHub'
 
@@ -74,18 +77,22 @@ function countRows(patient: OwnedPatientInventory, keys: DataHubCategoryKey[]): 
 interface PatientCardProps {
   patient: OwnedPatientInventory
   currentExport?: PhrExport
+  currentBackup?: NativeBackup
   busy: boolean
   actionError?: string
   onGenerate: (patientId: number) => Promise<void>
   onRefresh: (patientId: number) => Promise<void>
+  onGenerateBackup: (patientId: number) => Promise<void>
+  onRefreshBackup: (patientId: number) => Promise<void>
 }
 
-function PatientCard({ patient, currentExport, busy, actionError, onGenerate, onRefresh }: PatientCardProps): ReactElement {
+function PatientCard({ patient, currentExport, currentBackup, busy, actionError, onGenerate, onRefresh, onGenerateBackup, onRefreshBackup }: PatientCardProps): ReactElement {
   const totalRecords = useMemo(
     () => DATA_HUB_CATEGORY_KEYS.reduce((sum, key) => sum + patient.record_counts[key], 0),
     [patient.record_counts],
   )
   const exportInProgress = currentExport?.status === 'pending' || currentExport?.status === 'processing'
+  const backupInProgress = currentBackup?.status === 'pending' || currentBackup?.status === 'processing'
 
   return (
     <article className="rounded-lg border border-border bg-card p-5 text-card-foreground shadow-sm">
@@ -150,8 +157,33 @@ function PatientCard({ patient, currentExport, busy, actionError, onGenerate, on
           {actionError ? <p role="alert" className="mt-2 text-xs text-destructive">{actionError}</p> : null}
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
-          <PlannedAction icon={<Archive className="size-4" />} label="Native backup" phase="Phase 2" />
+        <div className="rounded-md border border-sky-500/30 bg-sky-500/5 p-3">
+          <div className="flex items-start gap-2">
+            <Archive className="mt-0.5 size-4 text-sky-700 dark:text-sky-300" />
+            <div>
+              <h3 className="text-sm font-semibold">Lossless native backup</h3>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Create a private, per-patient phr-native-v1 archive with original documents, DICOM, and PHR-specific records. It expires after seven days.
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button type="button" size="sm" disabled={busy || backupInProgress} onClick={() => void onGenerateBackup(patient.id)}>
+              <Archive className="size-4" /> {busy ? 'Working…' : 'Generate native backup'}
+            </Button>
+            <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void onRefreshBackup(patient.id)}>
+              <RefreshCw className={`size-4 ${busy ? 'animate-spin' : ''}`} /> Check backup status
+            </Button>
+            {currentBackup?.download_url ? (
+              <a className="text-sm font-medium text-primary underline underline-offset-4" href={currentBackup.download_url}>Download backup</a>
+            ) : null}
+          </div>
+          {currentBackup ? (
+            <p role="status" className="mt-2 text-xs text-muted-foreground">Latest native backup: {currentBackup.status}</p>
+          ) : null}
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-2 lg:col-span-2">
           <PlannedAction icon={<RotateCcw className="size-4" />} label="Dry-run restore" phase="Phase 4" />
           <PlannedAction icon={<Trash2 className="size-4" />} label="Safe deletion" phase="Phase 3" />
         </div>
@@ -175,6 +207,7 @@ export default function DataHubPage(): ReactElement {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [exports, setExports] = useState<Record<number, PhrExport>>({})
+  const [backups, setBackups] = useState<Record<number, NativeBackup>>({})
   const [busyPatientId, setBusyPatientId] = useState<number | null>(null)
   const [actionErrors, setActionErrors] = useState<Record<number, string>>({})
 
@@ -236,6 +269,38 @@ export default function DataHubPage(): ReactElement {
     }
   }
 
+  async function generateBackup(patientId: number): Promise<void> {
+    setBusyPatientId(patientId)
+    setPatientError(patientId)
+    try {
+      const raw: unknown = await fetchWrapper.post(`/api/phr/patients/${patientId}/native-backups`, {})
+      const created = NativeBackupResponseSchema.parse(raw).backup
+      setBackups((current) => ({ ...current, [patientId]: created }))
+    } catch (caught) {
+      setPatientError(patientId, errorMessage(caught))
+    } finally {
+      setBusyPatientId(null)
+    }
+  }
+
+  async function refreshBackup(patientId: number): Promise<void> {
+    setBusyPatientId(patientId)
+    setPatientError(patientId)
+    try {
+      const raw: unknown = await fetchWrapper.get(`/api/phr/patients/${patientId}/native-backups`)
+      const latest = NativeBackupsResponseSchema.parse(raw).backups[0]
+      if (!latest) {
+        setPatientError(patientId, 'No native backup has been generated for this patient yet.')
+      } else {
+        setBackups((current) => ({ ...current, [patientId]: latest }))
+      }
+    } catch (caught) {
+      setPatientError(patientId, errorMessage(caught))
+    } finally {
+      setBusyPatientId(null)
+    }
+  }
+
   return (
     <div className="h-full overflow-y-auto p-6">
       <div className="mx-auto max-w-6xl">
@@ -276,10 +341,13 @@ export default function DataHubPage(): ReactElement {
               key={patient.id}
               patient={patient}
               {...(exports[patient.id] ? { currentExport: exports[patient.id] } : {})}
+              {...(backups[patient.id] ? { currentBackup: backups[patient.id] } : {})}
               busy={busyPatientId === patient.id}
               {...(actionErrors[patient.id] ? { actionError: actionErrors[patient.id] } : {})}
               onGenerate={generateExport}
               onRefresh={refreshExport}
+              onGenerateBackup={generateBackup}
+              onRefreshBackup={refreshBackup}
             />
           ))}
         </div>
