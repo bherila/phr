@@ -47,12 +47,31 @@ class PhrDocument extends Model
     public const array DOCUMENT_TYPES = [
         'lab_report',
         'office_visit_note',
+        'clinical_questionnaire',
+        'patient_symptom_log',
         'discharge_summary',
         'imaging_report',
         'prescription',
+        'medical_necessity_letter',
+        'prior_authorization',
         'insurance',
         'consent',
+        'care_correspondence',
         'other',
+    ];
+
+    /**
+     * Suggested document tags. Tags remain intentionally extensible so a
+     * source-specific label does not require a schema change.
+     *
+     * @var array<int, string>
+     */
+    public const array DOCUMENT_TAGS = [
+        'medical-necessity',
+        'prior-authorization',
+        'clinical-questionnaire',
+        'patient-symptom-log',
+        'care-correspondence',
     ];
 
     public const array SOURCES = [
