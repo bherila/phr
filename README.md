@@ -160,8 +160,6 @@ test fails.
 (it under-forwards the ini override to its internal test-runner process); CI and this
 README both call `vendor/bin/phpunit` directly, which does honor it.
 
-No E2E suite is included — the monorepo has none for PHR either.
-
 ## Deployment
 
 CI targets GitHub-hosted `ubuntu-24.04-arm` runners exclusively — this repo has no
