@@ -37,7 +37,7 @@ class StoragePrunerTest extends TestCase
             $this->disk(),
             BlobReferences::make()
                 ->from('phr_dicom_files', 'r2_key')
-                ->from('phr_dicom_uploads', 'r2_prefix')->asPrefix(),
+                ->from('phr_dicom_uploads', 'r2_prefix')->asPrefix()->where('status', PhrDicomUpload::STATUS_PENDING),
             ['phr/dicom'],
             $minAgeHours,
             $maxRatio,
@@ -138,12 +138,32 @@ class StoragePrunerTest extends TestCase
         $this->disk()->put('phr/dicom/uploads/abc/one.dcm', 'aaaa');
         $this->disk()->put('phr/dicom/uploads/abc/two.dcm', 'aaaa');
         DB::table('phr_dicom_uploads')->where('id', $this->uploadId)
-            ->update(['r2_prefix' => 'phr/dicom/uploads/abc']);
+            ->update([
+                'r2_prefix' => 'phr/dicom/uploads/abc',
+                'status' => PhrDicomUpload::STATUS_PENDING,
+            ]);
         $this->ageEverything();
 
         $plan = $this->pruner()->plan();
 
         $this->assertSame([], $plan->orphans);
+    }
+
+    public function test_terminal_upload_prefix_does_not_protect_unreferenced_leftovers(): void
+    {
+        Storage::fake('phr_dicom');
+        $this->seedOwnerPatientAndUpload();
+        $this->disk()->put('phr/dicom/uploads/complete/leftover.dcm', 'aaaa');
+        DB::table('phr_dicom_uploads')->where('id', $this->uploadId)
+            ->update([
+                'r2_prefix' => 'phr/dicom/uploads/complete',
+                'status' => PhrDicomUpload::STATUS_PROCESSED,
+            ]);
+        $this->ageEverything();
+
+        $plan = $this->pruner()->plan();
+
+        $this->assertSame(['phr/dicom/uploads/complete/leftover.dcm'], $plan->orphans);
     }
 
     public function test_quarantine_moves_rather_than_deletes(): void

@@ -61,7 +61,7 @@ case "$MODE" in
   push)
     [ -d "$LOCAL_PATH" ] || die "local mirror does not exist: $LOCAL_PATH — run 'pull' first"
     # Guard: pushing an empty mirror with --prune would erase production.
-    if [ -z "$(find "$LOCAL_PATH" -type f -print -quit)" ]; then
+    if [ -z "$(find "$LOCAL_PATH" -type f ! -name .gitignore ! -name .DS_Store -print -quit)" ]; then
       die "local mirror is empty: $LOCAL_PATH — refusing to push (run 'pull' first)"
     fi
     if [ "$PRUNE" -eq 1 ]; then
@@ -78,10 +78,19 @@ case "$MODE" in
 
   verify)
     info "comparing file count and bytes"
-    remote_stat=$(ssh "$REMOTE_HOST" "find '$REMOTE_PATH' -type f ! -name .gitignore 2>/dev/null | wc -l; find '$REMOTE_PATH' -type f ! -name .gitignore -printf '%s\n' 2>/dev/null | awk '{s+=\$1} END {print s+0}'")
-    local_stat=$(printf '%s\n%s\n' \
-      "$(find "$LOCAL_PATH" -type f ! -name .gitignore 2>/dev/null | wc -l | tr -d ' ')" \
-      "$(find "$LOCAL_PATH" -type f ! -name .gitignore -print0 2>/dev/null | xargs -0 stat -f %z 2>/dev/null | awk '{s+=$1} END {print s+0}')")
+    remote_stat=$(ssh "$REMOTE_HOST" "find '$REMOTE_PATH' -type f ! -name .gitignore ! -name .DS_Store 2>/dev/null | wc -l; find '$REMOTE_PATH' -type f ! -name .gitignore ! -name .DS_Store -printf '%s\n' 2>/dev/null | awk '{s+=\$1} END {print s+0}'")
+
+    # `stat -f %z` is BSD syntax and reports filesystem metadata on GNU/Linux.
+    # wc reads the payload itself and is portable across both platforms. The NUL-
+    # delimited loop also handles whitespace and newlines in filenames safely.
+    local_count=0
+    local_bytes=0
+    while IFS= read -r -d '' file; do
+      file_bytes=$(wc -c < "$file")
+      local_count=$((local_count + 1))
+      local_bytes=$((local_bytes + file_bytes))
+    done < <(find "$LOCAL_PATH" -type f ! -name .gitignore ! -name .DS_Store -print0 2>/dev/null)
+    local_stat=$(printf '%s\n%s\n' "$local_count" "$local_bytes")
     printf 'web1    %s files, %s bytes\n' $(echo "$remote_stat" | tr '\n' ' ')
     printf 'x-data  %s files, %s bytes\n' $(echo "$local_stat" | tr '\n' ' ')
     [ "$(echo "$remote_stat" | tr -d ' \n')" = "$(echo "$local_stat" | tr -d ' \n')" ] \

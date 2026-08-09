@@ -18,6 +18,29 @@ final class PhrNativeSnapshotService
      */
     public function rows(int $patientId): array
     {
+        $connection = DB::connection();
+        $driver = $connection->getDriverName();
+
+        // MySQL/MariaDB applies this to the next transaction. PostgreSQL requires
+        // it immediately after BEGIN. SQLite transactions already retain one read
+        // snapshot after their first query. In every case, all relational rows are
+        // materialized before the transaction closes and artifact streaming begins.
+        if ($driver === 'mysql') {
+            $connection->statement('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+        }
+
+        return $connection->transaction(function () use ($connection, $driver, $patientId): array {
+            if ($driver === 'pgsql') {
+                $connection->statement('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
+            }
+
+            return $this->materializeRows($patientId);
+        });
+    }
+
+    /** @return array<string, Collection<int, \stdClass>> */
+    private function materializeRows(int $patientId): array
+    {
         $originalFiles = DB::table('phr_dicom_files')
             ->where('patient_id', $patientId)
             ->whereIn('file_kind', [PhrDicomFile::KIND_DICOM, PhrDicomFile::KIND_DICOMDIR])

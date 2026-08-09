@@ -7,12 +7,16 @@ use App\Services\PHR\NativeBackup\PhrNativeBackupService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 
 class GeneratePhrNativeBackupJob implements ShouldQueue
 {
     use Dispatchable, Queueable;
 
     public int $timeout = 300;
+
+    /** Ensure a hard worker timeout does not leave the row stuck in processing. */
+    public bool $failOnTimeout = true;
 
     public int $tries = 2;
 
@@ -21,6 +25,16 @@ class GeneratePhrNativeBackupJob implements ShouldQueue
     public function __construct(public int $backupId)
     {
         $this->onQueue('phr-exports');
+    }
+
+    /** @return list<WithoutOverlapping> */
+    public function middleware(): array
+    {
+        return [
+            (new WithoutOverlapping("phr-native-backup:{$this->backupId}"))
+                ->dontRelease()
+                ->expireAfter($this->timeout + 60),
+        ];
     }
 
     public function handle(PhrNativeBackupService $backupService): void
@@ -38,5 +52,10 @@ class GeneratePhrNativeBackupJob implements ShouldQueue
         }
 
         $backupService->generate($backup);
+    }
+
+    public function failed(?\Throwable $exception): void
+    {
+        app(PhrNativeBackupService::class)->markQueueFailure($this->backupId);
     }
 }

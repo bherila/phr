@@ -79,14 +79,15 @@ interface PatientCardProps {
   currentExport?: PhrExport
   currentBackup?: NativeBackup
   busy: boolean
-  actionError?: string
+  exportError?: string
+  backupError?: string
   onGenerate: (patientId: number) => Promise<void>
   onRefresh: (patientId: number) => Promise<void>
   onGenerateBackup: (patientId: number) => Promise<void>
   onRefreshBackup: (patientId: number) => Promise<void>
 }
 
-function PatientCard({ patient, currentExport, currentBackup, busy, actionError, onGenerate, onRefresh, onGenerateBackup, onRefreshBackup }: PatientCardProps): ReactElement {
+function PatientCard({ patient, currentExport, currentBackup, busy, exportError, backupError, onGenerate, onRefresh, onGenerateBackup, onRefreshBackup }: PatientCardProps): ReactElement {
   const totalRecords = useMemo(
     () => DATA_HUB_CATEGORY_KEYS.reduce((sum, key) => sum + patient.record_counts[key], 0),
     [patient.record_counts],
@@ -154,7 +155,7 @@ function PatientCard({ patient, currentExport, currentBackup, busy, actionError,
           {currentExport ? (
             <p role="status" className="mt-2 text-xs text-muted-foreground">Latest C-CDA export: {currentExport.status}</p>
           ) : null}
-          {actionError ? <p role="alert" className="mt-2 text-xs text-destructive">{actionError}</p> : null}
+          {exportError ? <p role="alert" className="mt-2 text-xs text-destructive">{exportError}</p> : null}
         </div>
 
         <div className="rounded-md border border-sky-500/30 bg-sky-500/5 p-3">
@@ -181,6 +182,7 @@ function PatientCard({ patient, currentExport, currentBackup, busy, actionError,
           {currentBackup ? (
             <p role="status" className="mt-2 text-xs text-muted-foreground">Latest native backup: {currentBackup.status}</p>
           ) : null}
+          {backupError ? <p role="alert" className="mt-2 text-xs text-destructive">{backupError}</p> : null}
         </div>
 
         <div className="grid gap-2 sm:grid-cols-2 lg:col-span-2">
@@ -209,7 +211,8 @@ export default function DataHubPage(): ReactElement {
   const [exports, setExports] = useState<Record<number, PhrExport>>({})
   const [backups, setBackups] = useState<Record<number, NativeBackup>>({})
   const [busyPatientId, setBusyPatientId] = useState<number | null>(null)
-  const [actionErrors, setActionErrors] = useState<Record<number, string>>({})
+  const [exportErrors, setExportErrors] = useState<Record<number, string>>({})
+  const [backupErrors, setBackupErrors] = useState<Record<number, string>>({})
 
   const loadInventory = useCallback(async (): Promise<void> => {
     setLoading(true)
@@ -228,8 +231,17 @@ export default function DataHubPage(): ReactElement {
     void loadInventory()
   }, [loadInventory])
 
-  function setPatientError(patientId: number, message?: string): void {
-    setActionErrors((current) => {
+  function setExportError(patientId: number, message?: string): void {
+    setExportErrors((current) => {
+      const next = { ...current }
+      if (message) next[patientId] = message
+      else delete next[patientId]
+      return next
+    })
+  }
+
+  function setBackupError(patientId: number, message?: string): void {
+    setBackupErrors((current) => {
       const next = { ...current }
       if (message) next[patientId] = message
       else delete next[patientId]
@@ -239,13 +251,13 @@ export default function DataHubPage(): ReactElement {
 
   async function generateExport(patientId: number): Promise<void> {
     setBusyPatientId(patientId)
-    setPatientError(patientId)
+    setExportError(patientId)
     try {
       const raw: unknown = await fetchWrapper.post(`/api/phr/patients/${patientId}/exports`, { formats: ['ccda'] })
       const created = PhrExportResponseSchema.parse(raw).export
       setExports((current) => ({ ...current, [patientId]: created }))
     } catch (caught) {
-      setPatientError(patientId, errorMessage(caught))
+      setExportError(patientId, errorMessage(caught))
     } finally {
       setBusyPatientId(null)
     }
@@ -253,17 +265,17 @@ export default function DataHubPage(): ReactElement {
 
   async function refreshExport(patientId: number): Promise<void> {
     setBusyPatientId(patientId)
-    setPatientError(patientId)
+    setExportError(patientId)
     try {
       const raw: unknown = await fetchWrapper.get(`/api/phr/patients/${patientId}/exports`)
       const latest = PhrExportsResponseSchema.parse(raw).exports.find((item) => item.formats.includes('ccda'))
       if (!latest) {
-        setPatientError(patientId, 'No C-CDA export has been generated for this patient yet.')
+        setExportError(patientId, 'No C-CDA export has been generated for this patient yet.')
       } else {
         setExports((current) => ({ ...current, [patientId]: latest }))
       }
     } catch (caught) {
-      setPatientError(patientId, errorMessage(caught))
+      setExportError(patientId, errorMessage(caught))
     } finally {
       setBusyPatientId(null)
     }
@@ -271,13 +283,13 @@ export default function DataHubPage(): ReactElement {
 
   async function generateBackup(patientId: number): Promise<void> {
     setBusyPatientId(patientId)
-    setPatientError(patientId)
+    setBackupError(patientId)
     try {
       const raw: unknown = await fetchWrapper.post(`/api/phr/patients/${patientId}/native-backups`, {})
       const created = NativeBackupResponseSchema.parse(raw).backup
       setBackups((current) => ({ ...current, [patientId]: created }))
     } catch (caught) {
-      setPatientError(patientId, errorMessage(caught))
+      setBackupError(patientId, errorMessage(caught))
     } finally {
       setBusyPatientId(null)
     }
@@ -285,17 +297,17 @@ export default function DataHubPage(): ReactElement {
 
   async function refreshBackup(patientId: number): Promise<void> {
     setBusyPatientId(patientId)
-    setPatientError(patientId)
+    setBackupError(patientId)
     try {
       const raw: unknown = await fetchWrapper.get(`/api/phr/patients/${patientId}/native-backups`)
       const latest = NativeBackupsResponseSchema.parse(raw).backups[0]
       if (!latest) {
-        setPatientError(patientId, 'No native backup has been generated for this patient yet.')
+        setBackupError(patientId, 'No native backup has been generated for this patient yet.')
       } else {
         setBackups((current) => ({ ...current, [patientId]: latest }))
       }
     } catch (caught) {
-      setPatientError(patientId, errorMessage(caught))
+      setBackupError(patientId, errorMessage(caught))
     } finally {
       setBusyPatientId(null)
     }
@@ -343,7 +355,8 @@ export default function DataHubPage(): ReactElement {
               {...(exports[patient.id] ? { currentExport: exports[patient.id] } : {})}
               {...(backups[patient.id] ? { currentBackup: backups[patient.id] } : {})}
               busy={busyPatientId === patient.id}
-              {...(actionErrors[patient.id] ? { actionError: actionErrors[patient.id] } : {})}
+              {...(exportErrors[patient.id] ? { exportError: exportErrors[patient.id] } : {})}
+              {...(backupErrors[patient.id] ? { backupError: backupErrors[patient.id] } : {})}
               onGenerate={generateExport}
               onRefresh={refreshExport}
               onGenerateBackup={generateBackup}

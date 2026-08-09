@@ -1,0 +1,93 @@
+<?php
+
+namespace Tests\Unit\Scripts;
+
+use PHPUnit\Framework\TestCase;
+use Symfony\Component\Process\Process;
+
+class BlobsScriptTest extends TestCase
+{
+    /** @var list<string> */
+    private array $temporaryDirectories = [];
+
+    protected function tearDown(): void
+    {
+        foreach ($this->temporaryDirectories as $directory) {
+            $this->removeDirectory($directory);
+        }
+
+        parent::tearDown();
+    }
+
+    public function test_scaffolding_files_do_not_bypass_empty_mirror_guard(): void
+    {
+        $xData = $this->temporaryDirectory();
+        mkdir($xData.'/phr', 0700, true);
+        file_put_contents($xData.'/phr/.gitignore', "*\n");
+        file_put_contents($xData.'/phr/.DS_Store', 'scaffold');
+
+        $process = $this->runScript(['push', '--apply', '--prune'], $xData);
+
+        $this->assertSame(1, $process->getExitCode());
+        $this->assertStringContainsString('local mirror is empty', $process->getErrorOutput());
+    }
+
+    public function test_verify_counts_bytes_portably_on_linux(): void
+    {
+        $xData = $this->temporaryDirectory();
+        mkdir($xData.'/phr', 0700, true);
+        file_put_contents($xData.'/phr/payload.bin', 'data');
+        file_put_contents($xData.'/phr/.gitignore', "*\n");
+
+        $bin = $this->temporaryDirectory();
+        $ssh = $bin.'/ssh';
+        file_put_contents($ssh, "#!/bin/sh\nprintf '1\\n4\\n'\n");
+        chmod($ssh, 0700);
+
+        $process = $this->runScript(['verify'], $xData, $bin);
+
+        $this->assertSame(0, $process->getExitCode(), $process->getErrorOutput());
+        $this->assertStringContainsString('x-data  1 files, 4 bytes', $process->getOutput());
+        $this->assertStringContainsString('match', $process->getOutput());
+    }
+
+    /** @param list<string> $arguments */
+    private function runScript(array $arguments, string $xData, ?string $bin = null): Process
+    {
+        $projectRoot = dirname(__DIR__, 3);
+        $path = $bin === null ? (string) getenv('PATH') : $bin.':'.getenv('PATH');
+        $process = new Process(
+            ['bash', $projectRoot.'/scripts/blobs.sh', ...$arguments],
+            $projectRoot,
+            ['X_DATA_DIR' => $xData, 'PATH' => $path],
+        );
+        $process->run();
+
+        return $process;
+    }
+
+    private function temporaryDirectory(): string
+    {
+        $directory = sys_get_temp_dir().'/phr-blobs-test-'.bin2hex(random_bytes(8));
+        mkdir($directory, 0700, true);
+        $this->temporaryDirectories[] = $directory;
+
+        return $directory;
+    }
+
+    private function removeDirectory(string $directory): void
+    {
+        if (! is_dir($directory)) {
+            return;
+        }
+
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($directory, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST,
+        );
+        foreach ($iterator as $entry) {
+            $entry->isDir() ? rmdir($entry->getPathname()) : unlink($entry->getPathname());
+        }
+        rmdir($directory);
+    }
+}

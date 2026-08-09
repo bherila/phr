@@ -64,6 +64,10 @@ class PhrNativeBackupController extends Controller
     /** @return array<string, mixed> */
     private function payload(PhrNativeBackup $backup): array
     {
+        $downloadable = $backup->status === PhrNativeBackup::STATUS_READY
+            && $backup->storage_path !== null
+            && ($backup->expires_at === null || $backup->expires_at->isFuture());
+
         return [
             'id' => $backup->id,
             'patient_id' => $backup->patient_id,
@@ -77,7 +81,7 @@ class PhrNativeBackupController extends Controller
             'generated_at' => $backup->generated_at?->toIso8601String(),
             'expires_at' => $backup->expires_at?->toIso8601String(),
             'created_at' => $backup->created_at?->toIso8601String(),
-            'download_url' => $backup->status === PhrNativeBackup::STATUS_READY
+            'download_url' => $downloadable
                 ? URL::temporarySignedRoute('phr.native-backups.download', now()->addMinutes(15), ['backup' => $backup->id])
                 : null,
         ];

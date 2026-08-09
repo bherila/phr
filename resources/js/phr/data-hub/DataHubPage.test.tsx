@@ -149,4 +149,17 @@ describe('DataHubPage', () => {
       expect(mockGet).toHaveBeenCalledWith('/api/phr/patients/42/native-backups')
     })
   })
+
+  it('renders native backup failures in the native backup panel', async () => {
+    mockPost.mockRejectedValueOnce(new Error('Synthetic backup failure'))
+    render(<DataHubPage />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Generate native backup' }))
+
+    const alert = await screen.findByRole('alert')
+    const backupPanel = screen.getByRole('heading', { name: 'Lossless native backup' }).closest('.rounded-md')
+    const exportPanel = screen.getByRole('heading', { name: 'Clinical interoperability export' }).closest('.rounded-md')
+    expect(backupPanel).toContainElement(alert)
+    expect(exportPanel).not.toContainElement(alert)
+  })
 })

@@ -57,8 +57,10 @@ class PhrStorageMap
             ->from('phr_dicom_files', 'r2_key')
 
             // An upload's whole directory. Objects can land here before the per-file rows
-            // exist, so the prefix protects an in-flight upload as a unit.
-            ->from('phr_dicom_uploads', 'r2_prefix')->asPrefix()
+            // exist, so the prefix protects a pending upload as a unit. Once processing
+            // finishes (successfully or not), only per-file rows remain authoritative;
+            // otherwise a terminal upload row would protect partial leftovers forever.
+            ->from('phr_dicom_uploads', 'r2_prefix')->asPrefix()->where('status', 'pending')
 
             // Clinical documents. Soft-deleted rows still count: BlobReferences queries
             // through DB::table(), so the SoftDeletes scope never applies and a trashed

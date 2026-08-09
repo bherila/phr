@@ -2,6 +2,7 @@
 
 namespace App\Support\Storage;
 
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -69,7 +70,39 @@ class BlobReferences
         }
 
         $reference = $this->references[$last];
-        $this->references[$last] = new BlobReference($reference->table, $reference->column, isPrefix: true);
+        $this->references[$last] = new BlobReference(
+            $reference->table,
+            $reference->column,
+            isPrefix: true,
+            conditions: $reference->conditions,
+        );
+
+        return $this;
+    }
+
+    /**
+     * Restrict the most recently declared reference to rows matching a value.
+     *
+     * This is intentionally equality-only. A reference map should be declarative and
+     * auditable, not an escape hatch for arbitrary SQL. DICOM upload prefixes use this
+     * to protect bytes only while an upload is pending; processed and failed uploads are
+     * protected by their per-file rows and must not make leftovers immortal.
+     */
+    public function where(string $column, string|int|float|bool|null $value): self
+    {
+        $last = array_key_last($this->references);
+
+        if ($last === null) {
+            throw new \LogicException('where() must follow a from() call.');
+        }
+
+        $reference = $this->references[$last];
+        $this->references[$last] = new BlobReference(
+            $reference->table,
+            $reference->column,
+            isPrefix: $reference->isPrefix,
+            conditions: [...$reference->conditions, $column => $value],
+        );
 
         return $this;
     }
@@ -116,10 +149,11 @@ class BlobReferences
                 continue;
             }
 
-            DB::table($reference->table)
+            $query = DB::table($reference->table)
                 ->select($reference->column)
                 ->whereNotNull($reference->column)
-                ->where($reference->column, '!=', '')
+                ->where($reference->column, '!=', '');
+            $this->applyConditions($query, $reference)
                 ->orderBy($reference->column)
                 ->chunk(5000, function ($rows) use ($reference, &$keys): void {
                     foreach ($rows as $row) {
@@ -145,10 +179,11 @@ class BlobReferences
                 continue;
             }
 
-            foreach (DB::table($reference->table)
+            $query = DB::table($reference->table)
                 ->whereNotNull($reference->column)
-                ->where($reference->column, '!=', '')
-                ->pluck($reference->column) as $prefix) {
+                ->where($reference->column, '!=', '');
+
+            foreach ($this->applyConditions($query, $reference)->pluck($reference->column) as $prefix) {
                 $prefixes[] = rtrim((string) $prefix, '/').'/';
             }
         }
@@ -185,7 +220,25 @@ class BlobReferences
      */
     private function exists(BlobReference $reference): bool
     {
-        return Schema::hasTable($reference->table)
-            && Schema::hasColumn($reference->table, $reference->column);
+        if (! Schema::hasTable($reference->table) || ! Schema::hasColumn($reference->table, $reference->column)) {
+            return false;
+        }
+
+        foreach (array_keys($reference->conditions) as $column) {
+            if (! Schema::hasColumn($reference->table, $column)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private function applyConditions(Builder $query, BlobReference $reference): Builder
+    {
+        foreach ($reference->conditions as $column => $value) {
+            $query->where($column, $value);
+        }
+
+        return $query;
     }
 }
