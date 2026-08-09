@@ -16,6 +16,48 @@ use Tests\TestCase;
 
 class PhrDocumentsTest extends TestCase
 {
+    public function test_owner_can_upload_a_specialized_document_type(): void
+    {
+        Storage::fake('phr_documents');
+
+        $owner = $this->createUser();
+        $patient = $this->createPatient($owner);
+
+        $response = $this->actingAs($owner)->post("/api/phr/patients/{$patient->id}/documents", [
+            'file' => UploadedFile::fake()->createWithContent('approval.pdf', '%PDF-1.4 approval'),
+            'title' => 'Dupixent Prior Authorization',
+            'document_type' => 'prior_authorization',
+            'tags' => ['prior-authorization', 'dupixent'],
+        ]);
+
+        $response
+            ->assertCreated()
+            ->assertJsonPath('document.document_type', 'prior_authorization')
+            ->assertJsonPath('document.tags.0', 'prior-authorization');
+
+        $this->assertSame('prior_authorization', PhrDocument::query()->where('patient_id', $patient->id)->sole()->document_type);
+    }
+
+    public function test_owner_can_upload_a_medical_necessity_letter(): void
+    {
+        Storage::fake('phr_documents');
+
+        $owner = $this->createUser();
+        $patient = $this->createPatient($owner);
+
+        $response = $this->actingAs($owner)->post("/api/phr/patients/{$patient->id}/documents", [
+            'file' => UploadedFile::fake()->createWithContent('lmn.pdf', '%PDF-1.4 lmn'),
+            'title' => 'Allergy Letter of Medical Necessity',
+            'document_type' => 'medical_necessity_letter',
+            'tags' => ['medical-necessity', 'allergy'],
+        ]);
+
+        $response
+            ->assertCreated()
+            ->assertJsonPath('document.document_type', 'medical_necessity_letter')
+            ->assertJsonPath('document.tags.0', 'medical-necessity');
+    }
+
     public function test_owner_can_upload_and_filter_documents(): void
     {
         Storage::fake('phr_documents');

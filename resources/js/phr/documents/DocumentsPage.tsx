@@ -34,12 +34,25 @@ type ViewMode = 'grid' | 'list'
 const DOCUMENT_TYPE_OPTIONS: DocumentType[] = [
   'lab_report',
   'office_visit_note',
+  'clinical_questionnaire',
+  'patient_symptom_log',
   'discharge_summary',
   'imaging_report',
   'prescription',
+  'medical_necessity_letter',
+  'prior_authorization',
   'insurance',
   'consent',
+  'care_correspondence',
   'other',
+]
+
+const DOCUMENT_TAG_SUGGESTIONS = [
+  'medical-necessity',
+  'prior-authorization',
+  'clinical-questionnaire',
+  'patient-symptom-log',
+  'care-correspondence',
 ]
 
 const SOURCE_OPTIONS: DocumentSource[] = [
@@ -53,11 +66,16 @@ const SOURCE_OPTIONS: DocumentSource[] = [
 const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
   lab_report: 'Lab Report',
   office_visit_note: 'Office Visit',
+  clinical_questionnaire: 'Clinical Questionnaire',
+  patient_symptom_log: 'Patient Symptom Log',
   discharge_summary: 'Discharge',
   imaging_report: 'Imaging',
   prescription: 'Prescription',
+  medical_necessity_letter: 'Medical Necessity Letter',
+  prior_authorization: 'Prior Authorization',
   insurance: 'Insurance',
   consent: 'Consent',
+  care_correspondence: 'Care Correspondence',
   other: 'Other',
 }
 
@@ -347,7 +365,8 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
               </LabeledSelect>
               <LabeledInput label="Title" value={uploadForm.title} onChange={(value) => setUploadForm((current) => ({ ...current, title: value }))} />
               <LabeledInput label="Observed" type="datetime-local" value={uploadForm.observed_at} onChange={(value) => setUploadForm((current) => ({ ...current, observed_at: value }))} />
-              <LabeledInput label="Tags" value={uploadForm.tags} onChange={(value) => setUploadForm((current) => ({ ...current, tags: value }))} />
+              <LabeledInput label="Tags (comma-separated)" value={uploadForm.tags} onChange={(value) => setUploadForm((current) => ({ ...current, tags: value }))} />
+              <p className="text-xs text-muted-foreground">Suggested: {DOCUMENT_TAG_SUGGESTIONS.join(', ')}</p>
               <label className="grid gap-1 text-sm font-medium text-foreground">
                 Summary
                 <textarea
@@ -458,7 +477,8 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
                   ))}
                 </LabeledSelect>
                 <LabeledInput label="Observed" type="datetime-local" value={editForm.observed_at ?? ''} onChange={(value) => setEditForm({ ...editForm, observed_at: value })} />
-                <LabeledInput label="Tags" value={editForm.tags.join(', ')} onChange={(value) => setEditForm({ ...editForm, tags: splitTags(value) })} />
+                <LabeledInput label="Tags (comma-separated)" value={editForm.tags.join(', ')} onChange={(value) => setEditForm({ ...editForm, tags: splitTags(value) })} />
+                <p className="text-xs text-muted-foreground">Suggested: {DOCUMENT_TAG_SUGGESTIONS.join(', ')}</p>
                 <label className="grid gap-1 text-sm font-medium text-foreground">
                   Summary
                   <textarea

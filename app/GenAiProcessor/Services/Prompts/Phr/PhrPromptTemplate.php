@@ -48,7 +48,7 @@ Use this exact top-level shape:
   "source_document": {
     "record_key": "stable key for this source document",
     "title": "document title",
-    "document_type": "lab_report|office_visit_note|discharge_summary|imaging_report|prescription|insurance|consent|other",
+    "document_type": "lab_report|office_visit_note|clinical_questionnaire|patient_symptom_log|discharge_summary|imaging_report|prescription|medical_necessity_letter|prior_authorization|insurance|consent|care_correspondence|other",
     "observed_at": "YYYY-MM-DD HH:MM:SS",
     "summary": "concise clinical summary",
     "extracted_text": "important extracted source text",
@@ -399,7 +399,7 @@ SCHEMA,
 SCHEMA,
             'phr_document' => <<<'SCHEMA'
     "title": "document title",
-    "document_type": "lab_report/office_visit_note/discharge_summary/imaging_report/prescription/insurance/consent/other",
+    "document_type": "lab_report/office_visit_note/clinical_questionnaire/patient_symptom_log/discharge_summary/imaging_report/prescription/medical_necessity_letter/prior_authorization/insurance/consent/care_correspondence/other",
     "summary": "concise clinical summary",
     "extracted_text": "important extracted text"
 SCHEMA,

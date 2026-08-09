@@ -374,7 +374,7 @@ export const PhrDocumentSchema = z.object({
   uploaded_by_user_id: z.number().nullable(),
   genai_job_id: z.number().nullable(),
   title: nullableString,
-  document_type: z.enum(['lab_report', 'office_visit_note', 'discharge_summary', 'imaging_report', 'prescription', 'insurance', 'consent', 'other']),
+  document_type: z.enum(['lab_report', 'office_visit_note', 'clinical_questionnaire', 'patient_symptom_log', 'discharge_summary', 'imaging_report', 'prescription', 'medical_necessity_letter', 'prior_authorization', 'insurance', 'consent', 'care_correspondence', 'other']),
   observed_at: nullableString,
   original_filename: nullableString,
   mime_type: nullableString,
@@ -408,7 +408,7 @@ export const PhrDocumentResponseSchema = z.object({
 
 export const PhrDocumentMetadataFormSchema = z.object({
   title: z.string().trim().max(255).optional(),
-  document_type: z.enum(['lab_report', 'office_visit_note', 'discharge_summary', 'imaging_report', 'prescription', 'insurance', 'consent', 'other']),
+  document_type: z.enum(['lab_report', 'office_visit_note', 'clinical_questionnaire', 'patient_symptom_log', 'discharge_summary', 'imaging_report', 'prescription', 'medical_necessity_letter', 'prior_authorization', 'insurance', 'consent', 'care_correspondence', 'other']),
   observed_at: z.string().trim().optional(),
   summary: z.string().trim().max(20000).optional(),
   tags: z.array(z.string().trim().min(1).max(50)).max(30),
