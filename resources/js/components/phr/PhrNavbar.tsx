@@ -1,6 +1,6 @@
 'use client'
 
-import { ArrowLeft, Settings } from 'lucide-react'
+import { ArrowLeft, Database, Settings } from 'lucide-react'
 import { type MouseEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -198,6 +198,26 @@ export default function PhrNavbar({
                   </NavigationMenuLink>
                 </NavigationMenuItem>
               )}
+              <NavigationMenuItem>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <NavigationMenuLink
+                      href={phrSectionUrl('data-hub')}
+                      onClick={(event) => handleSectionClick('data-hub', event)}
+                      aria-current={activeSection === 'data-hub' ? 'page' : undefined}
+                      aria-label="Data Hub"
+                      className={cn(
+                        navigationMenuTriggerStyle(),
+                        'h-8 w-8 p-0',
+                        activeSection === 'data-hub' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground',
+                      )}
+                    >
+                      <Database className="h-4 w-4" />
+                    </NavigationMenuLink>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Data Hub</TooltipContent>
+                </Tooltip>
+              </NavigationMenuItem>
               <NavigationMenuItem>
                 <NavigationMenuLink
                   href={phrSectionUrl('imports')}

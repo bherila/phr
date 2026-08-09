@@ -16,6 +16,7 @@ use App\Http\Controllers\PHR\MedicationController as PHRMedicationController;
 use App\Http\Controllers\PHR\OfficeVisitController as PHROfficeVisitController;
 use App\Http\Controllers\PHR\PatientAccessController as PHRPatientAccessController;
 use App\Http\Controllers\PHR\PatientController as PHRPatientController;
+use App\Http\Controllers\PHR\PhrDataHubController;
 use App\Http\Controllers\PHR\PhrDocumentController;
 use App\Http\Controllers\PHR\PhrExportController;
 use App\Http\Controllers\PHR\PhrGenAiImportController;
@@ -42,6 +43,7 @@ Route::middleware(['web', 'auth'])
     ->prefix('phr')
     ->name('phr.')
     ->group(function (): void {
+        Route::get('/data-hub', [PhrDataHubController::class, 'index'])->name('data-hub.index');
         Route::get('/patients', [PHRPatientController::class, 'index'])->name('patients.index');
         Route::post('/patients', [PHRPatientController::class, 'store'])->name('patients.store');
         Route::get('/patients/{patient}', [PHRPatientController::class, 'show'])->whereNumber('patient')->name('patients.show');
