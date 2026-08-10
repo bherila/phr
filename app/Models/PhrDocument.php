@@ -164,4 +164,10 @@ class PhrDocument extends Model
     {
         return $this->hasMany(PhrNegativeAssertion::class, 'source_document_id');
     }
+
+    /** @return HasMany<PhrEob, $this> */
+    public function eobs(): HasMany
+    {
+        return $this->hasMany(PhrEob::class, 'source_document_id');
+    }
 }

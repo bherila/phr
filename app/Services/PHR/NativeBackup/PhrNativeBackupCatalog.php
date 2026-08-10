@@ -51,6 +51,19 @@ final class PhrNativeBackupCatalog
                     'storage_path' => 'Storage keys are regenerated from opaque artifact paths.',
                 ],
             ],
+            'phr_eobs' => [
+                'patient_column' => 'patient_id',
+                'relationships' => [
+                    'user_id' => self::actor(false),
+                    'source_document_id' => self::record('phr_documents', true),
+                ],
+            ],
+            'phr_eob_lines' => [
+                'patient_column' => 'patient_id',
+                'relationships' => [
+                    'eob_id' => self::record('phr_eobs', false),
+                ],
+            ],
             'phr_dicom_uploads' => [
                 'patient_column' => 'patient_id',
                 'relationships' => ['uploaded_by_user_id' => self::actor(false)],
