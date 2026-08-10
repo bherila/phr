@@ -16,6 +16,7 @@ use Illuminate\Support\Carbon;
  * @property int|null $source_document_id
  * @property string $import_source
  * @property string $external_id
+ * @property string|null $claim_fingerprint
  * @property string|null $claim_number
  * @property string $claim_type
  * @property Carbon|null $print_date
@@ -32,6 +33,7 @@ class PhrEob extends Model
         'source_document_id',
         'import_source',
         'external_id',
+        'claim_fingerprint',
         'claim_number',
         'claim_type',
         'administrator',
