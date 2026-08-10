@@ -118,4 +118,12 @@ class PhrEob extends Model
             ->withPivot('patient_id')
             ->withTimestamps();
     }
+
+    /** @return BelongsToMany<PhrProcedure, $this> */
+    public function procedures(): BelongsToMany
+    {
+        return $this->belongsToMany(PhrProcedure::class, 'phr_procedure_eobs', 'eob_id', 'procedure_id')
+            ->withPivot('patient_id')
+            ->withTimestamps();
+    }
 }
