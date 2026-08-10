@@ -136,6 +136,13 @@ final class PhrNativeBackupCatalog
             'phr_medications' => ['patient_column' => 'patient_id', 'relationships' => $clinical()],
             'phr_conditions' => ['patient_column' => 'patient_id', 'relationships' => $clinical()],
             'phr_procedures' => ['patient_column' => 'patient_id', 'relationships' => $clinical()],
+            'phr_procedure_eobs' => [
+                'patient_column' => 'patient_id',
+                'relationships' => [
+                    'procedure_id' => self::record('phr_procedures', false),
+                    'eob_id' => self::record('phr_eobs', false),
+                ],
+            ],
             'phr_immunizations' => ['patient_column' => 'patient_id', 'relationships' => $clinical()],
             'phr_allergies' => ['patient_column' => 'patient_id', 'relationships' => $clinical()],
             'phr_portal_messages' => ['patient_column' => 'patient_id', 'relationships' => $clinical()],
