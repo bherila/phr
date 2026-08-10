@@ -32,6 +32,7 @@ use Illuminate\Support\Carbon;
  * @property-read Collection<int, PhrHealthLogEntry> $healthLogEntries
  * @property-read Collection<int, PhrNegativeAssertion> $negativeAssertions
  * @property-read Collection<int, PhrPortalMessage> $portalMessages
+ * @property-read Collection<int, PhrEob> $eobs
  */
 class PhrPatient extends Model
 {
@@ -152,6 +153,12 @@ class PhrPatient extends Model
     public function negativeAssertions(): HasMany
     {
         return $this->hasMany(PhrNegativeAssertion::class, 'patient_id');
+    }
+
+    /** @return HasMany<PhrEob, $this> */
+    public function eobs(): HasMany
+    {
+        return $this->hasMany(PhrEob::class, 'patient_id');
     }
 
     /**
