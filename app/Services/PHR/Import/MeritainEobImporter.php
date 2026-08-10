@@ -16,11 +16,12 @@ class MeritainEobImporter
 
     public function __construct(
         private MeritainEobParser $parser,
+        private MeritainEobFingerprint $fingerprint,
         private PhrDocumentImporter $documentImporter,
     ) {}
 
     /**
-     * @return array{scanned: int, imported: int, skipped: int, lines: int, failures: int, warnings: array<int, string>}
+     * @return array{scanned: int, imported: int, skipped: int, duplicates: int, lines: int, failures: int, warnings: array<int, string>}
      */
     public function importDirectory(PhrPatient $patient, int $actorUserId, string $directory, bool $dryRun = false): array
     {
@@ -37,10 +38,12 @@ class MeritainEobImporter
             'scanned' => 0,
             'imported' => 0,
             'skipped' => 0,
+            'duplicates' => 0,
             'lines' => 0,
             'failures' => 0,
             'warnings' => [],
         ];
+        $seenClaimFingerprints = [];
 
         foreach ($paths as $path) {
             $result['scanned']++;
@@ -67,6 +70,18 @@ class MeritainEobImporter
                     throw new RuntimeException('No EOB service lines were extracted.');
                 }
 
+                $claimFingerprint = $this->fingerprint->fromParsed($parsed);
+                if (isset($seenClaimFingerprints[$claimFingerprint]) || PhrEob::query()
+                    ->where('patient_id', $patient->id)
+                    ->where('import_source', self::IMPORT_SOURCE)
+                    ->where('claim_fingerprint', $claimFingerprint)
+                    ->exists()) {
+                    $result['duplicates']++;
+
+                    continue;
+                }
+                $seenClaimFingerprints[$claimFingerprint] = true;
+
                 $result['lines'] += count($parsed['lines']);
                 if ($dryRun) {
                     $result['imported']++;
@@ -74,7 +89,7 @@ class MeritainEobImporter
                     continue;
                 }
 
-                DB::transaction(function () use ($patient, $actorUserId, $path, $sha256, $externalId, $parsed): void {
+                DB::transaction(function () use ($patient, $actorUserId, $path, $sha256, $externalId, $claimFingerprint, $parsed): void {
                     $document = PhrDocument::withTrashed()
                         ->where('patient_id', $patient->id)
                         ->where('file_hash', $sha256)
@@ -107,6 +122,7 @@ class MeritainEobImporter
                         'source_document_id' => $document->id,
                         'import_source' => self::IMPORT_SOURCE,
                         'external_id' => $externalId,
+                        'claim_fingerprint' => $claimFingerprint,
                         'claim_number' => $parsed['claim_number'],
                         'claim_type' => $parsed['claim_type'],
                         'administrator' => $parsed['administrator'],

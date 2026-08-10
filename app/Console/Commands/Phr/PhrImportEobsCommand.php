@@ -21,7 +21,7 @@ class PhrImportEobsCommand extends BasePhrCommand
 
         $result = $importer->importDirectory($patient, (int) $this->option('actor'), $directory, (bool) $this->option('dry-run'));
         $mode = (bool) $this->option('dry-run') ? 'Dry run' : 'Imported';
-        $this->info("{$mode}: {$result['imported']}; Scanned: {$result['scanned']}; Skipped: {$result['skipped']}; Lines: {$result['lines']}; Failures: {$result['failures']}");
+        $this->info("{$mode}: {$result['imported']}; Scanned: {$result['scanned']}; Skipped: {$result['skipped']}; Duplicates: {$result['duplicates']}; Lines: {$result['lines']}; Failures: {$result['failures']}");
         foreach ($result['warnings'] as $warning) {
             $this->warn($warning);
         }
