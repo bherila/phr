@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Traits\SerializesDatesAsLocal;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -89,5 +90,13 @@ class PhrOfficeVisit extends Model
     public function sourceDocument(): BelongsTo
     {
         return $this->belongsTo(PhrDocument::class, 'source_document_id');
+    }
+
+    /** @return BelongsToMany<PhrEob, $this> */
+    public function eobs(): BelongsToMany
+    {
+        return $this->belongsToMany(PhrEob::class, 'phr_office_visit_eobs', 'office_visit_id', 'eob_id')
+            ->withPivot('patient_id')
+            ->withTimestamps();
     }
 }

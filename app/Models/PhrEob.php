@@ -6,6 +6,7 @@ use App\Traits\SerializesDatesAsLocal;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
@@ -108,5 +109,13 @@ class PhrEob extends Model
     public function lines(): HasMany
     {
         return $this->hasMany(PhrEobLine::class, 'eob_id');
+    }
+
+    /** @return BelongsToMany<PhrOfficeVisit, $this> */
+    public function officeVisits(): BelongsToMany
+    {
+        return $this->belongsToMany(PhrOfficeVisit::class, 'phr_office_visit_eobs', 'eob_id', 'office_visit_id')
+            ->withPivot('patient_id')
+            ->withTimestamps();
     }
 }
