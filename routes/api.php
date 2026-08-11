@@ -1,7 +1,9 @@
 <?php
 
+use App\Http\Controllers\Api\DevicePairingExchangeController;
 use App\Http\Controllers\Api\UserAiConfigurationController;
 use App\Http\Controllers\Api\UserAiModelsController;
+use App\Http\Controllers\Api\UserDeviceController;
 use App\Http\Controllers\PHR\AllergyController as PHRAllergyController;
 use App\Http\Controllers\PHR\ConditionController as PHRConditionController;
 use App\Http\Controllers\PHR\DICOM\DicomFileController as PHRDicomFileController;
@@ -38,7 +40,26 @@ Route::middleware(['web', 'auth'])->group(function (): void {
     Route::delete('/user/ai-prefs/{id}', [UserAiConfigurationController::class, 'destroy']);
     Route::post('/user/ai-prefs/{id}/activate', [UserAiConfigurationController::class, 'activate']);
     Route::post('/user/ai-prefs/models', [UserAiModelsController::class, 'fetch']);
+
+    // Device management for devices paired via /device-pairing (DevicePairingController).
+    // Session-only: this never accepts a device's own bearer key, only a browser session,
+    // so a stolen device key cannot be used to enumerate or revoke other devices.
+    Route::get('/user/devices', [UserDeviceController::class, 'index']);
+    Route::delete('/user/devices/{id}', [UserDeviceController::class, 'destroy']);
 });
+
+// Device-pairing code exchange (Sinus Sentinel companion app). No session: the
+// app has no cookie jar, so this sits outside the ['web','auth'] group above —
+// the code + PKCE verifier pair is its own credential. Still needs the `web`
+// middleware group to be eligible for the CSRF exemption in bootstrap/app.php
+// (there is nothing to exempt from a group that never checks it).
+// Throttled: the response is identical for every failure mode (see
+// DevicePairingExchangeController), so rate limiting is the only thing
+// standing between this endpoint and code-guessing — same precedent as
+// patients.access.store below.
+Route::post('/device-pairing/exchange', [DevicePairingExchangeController::class, 'exchange'])
+    ->middleware(['web', 'throttle:10,1'])
+    ->name('device-pairing.exchange');
 
 Route::middleware(['web', 'auth'])
     ->prefix('phr')

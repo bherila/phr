@@ -24,6 +24,11 @@ return Application::configure(basePath: dirname(__DIR__))
             'api/phr/patients/*/respiratory-events/flag-batch',
             'api/phr/patients/*/sinus-settings',
             'api/phr/patients/*/sinus-enrollments/batch',
+            // Device-pairing exchange (DevicePairingExchangeController): the Mac
+            // app has no session/cookie jar, so it cannot carry a CSRF token.
+            // DevicePairingExchangeRequest's 415 guard on non-JSON bodies is what
+            // closes the CSRF gap this exemption would otherwise open.
+            'api/device-pairing/exchange',
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
