@@ -31,7 +31,12 @@ return new class extends Migration
             $table->string('name', 100)->comment('Human-readable device name shown on the approve page.');
             $table->char('code_hash', 64)->comment('SHA-256 of the one-time plaintext code; never store the code itself.');
             $table->string('code_challenge', 128)->comment('PKCE S256 challenge; verified against code_verifier at exchange time.');
-            $table->timestamp('expires_at')->comment('5 minutes after approval. A code with no expiry is never issued.');
+            // dateTime for the same MySQL reason as phr_device_keys.expires_at
+            // (see that migration). This one only survived production's first
+            // migrate because it happened to be the table's FIRST timestamp
+            // column, which MySQL silently gifts CURRENT_TIMESTAMP — an
+            // accident of column order, not a design.
+            $table->dateTime('expires_at')->comment('5 minutes after approval. A code with no expiry is never issued.');
             $table->timestamp('consumed_at')->nullable();
             $table->timestamps();
 
