@@ -79,7 +79,7 @@ class PhrDeviceKey extends Model
             ->where('device_id', $deviceId)
             ->delete();
 
-        $key = new static;
+        $key = new self;
         $key->forceFill([
             'user_id' => $user->id,
             'device_id' => $deviceId,

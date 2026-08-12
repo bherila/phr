@@ -79,7 +79,7 @@ class PhrDevicePairingCode extends Model
     {
         $plaintext = Str::random(64);
 
-        $code = new static;
+        $code = new self;
         $code->forceFill([
             'user_id' => $user->id,
             'device_id' => $deviceId,
