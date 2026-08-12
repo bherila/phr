@@ -1,6 +1,7 @@
 import type React from 'react'
-import { lazy } from 'react'
+import { lazy, useState } from 'react'
 
+import { Button } from '@/components/ui/button'
 import type { KeyAmount, MillerDrillTarget, MillerRegistryEntry, MillerRenderProps } from '@/components/ui/miller'
 
 export type PhrModuleId =
@@ -443,6 +444,7 @@ const AccessGrantDetail = lazy(() => import('@/phr/access/AccessGrantDetail'))
 const PatientsPage = lazy(() => import('@/phr/patients/PatientsPage'))
 const PatientsManagePage = lazy(() => import('@/phr/patients-manage/PatientsManagePage'))
 const AiProviderSettingsPage = lazy(() => import('@/phr/config/AiProviderSettingsPage'))
+const ConnectedDevicesPanel = lazy(() => import('@/phr/config/ConnectedDevicesPanel'))
 const DataHubPage = lazy(() => import('@/phr/data-hub/DataHubPage'))
 
 function noPatientState() {
@@ -562,8 +564,38 @@ function ImportsColumn() {
   return <ComingSoonColumn title="Imports" />
 }
 
+type ConfigTab = 'ai-providers' | 'devices'
+
+const CONFIG_TABS: { id: ConfigTab, label: string }[] = [
+  { id: 'ai-providers', label: 'AI Provider Settings' },
+  { id: 'devices', label: 'Connected Devices' },
+]
+
 function ConfigColumn() {
-  return <AiProviderSettingsPage />
+  const [tab, setTab] = useState<ConfigTab>('ai-providers')
+  return (
+    <div className="flex h-full flex-col">
+      <div role="tablist" aria-label="PHR configuration" className="flex gap-2 border-b border-border px-6 pt-4">
+        {CONFIG_TABS.map((candidate) => (
+          <Button
+            key={candidate.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === candidate.id}
+            variant={tab === candidate.id ? 'default' : 'ghost'}
+            size="sm"
+            className="rounded-b-none"
+            onClick={() => setTab(candidate.id)}
+          >
+            {candidate.label}
+          </Button>
+        ))}
+      </div>
+      <div className="min-h-0 flex-1">
+        {tab === 'ai-providers' ? <AiProviderSettingsPage /> : <ConnectedDevicesPanel />}
+      </div>
+    </div>
+  )
 }
 
 export const phrModuleRegistry: Record<PhrModuleId, PhrRegistryEntry> = {
