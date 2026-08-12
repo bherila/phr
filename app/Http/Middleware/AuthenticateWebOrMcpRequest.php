@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\PhrDeviceKey;
 use App\Models\User;
 use Closure;
 use Illuminate\Http\Request;
@@ -19,8 +20,10 @@ class AuthenticateWebOrMcpRequest
         $token = $this->extractBearerToken($request);
 
         if ($token !== null) {
+            $hash = User::hashMcpToken($token);
+
             $user = User::query()
-                ->where('mcp_api_key', User::hashMcpToken($token))
+                ->where('mcp_api_key', $hash)
                 ->first();
 
             // mcpTokenIsActive() fails closed: a token with no recorded expiry
@@ -28,6 +31,22 @@ class AuthenticateWebOrMcpRequest
             if ($user !== null && $user->canLogin() && $user->mcpTokenIsActive()) {
                 $user->recordMcpTokenUse();
                 Auth::setUser($user);
+
+                return $next($request);
+            }
+
+            // The legacy per-user key missed; try a per-device key minted by
+            // the device-pairing flow (DevicePairingExchangeController). Same
+            // fail-closed shape as above: isActive() rejects a revoked or
+            // expired key rather than treating a missing state as valid.
+            $deviceKey = PhrDeviceKey::query()
+                ->with('user')
+                ->where('token_hash', $hash)
+                ->first();
+
+            if ($deviceKey !== null && $deviceKey->isActive() && $deviceKey->user?->canLogin()) {
+                $deviceKey->recordUse();
+                Auth::setUser($deviceKey->user);
 
                 return $next($request);
             }

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\DevicePairingController;
 use App\Http\Controllers\OAuthLoginController;
 use App\Http\Controllers\OhifViewerController;
 use App\Http\Controllers\PHR\PageController as PHRPageController;
@@ -26,6 +27,16 @@ Route::redirect('/', '/phr');
 
 Route::middleware('auth')->group(function (): void {
     Route::get('/uptime', UptimeController::class)->name('uptime');
+
+    /*
+     * Browser-approved device pairing for the Sinus Sentinel Mac app (see
+     * DevicePairingController). GET renders the approve/deny page; the app
+     * never sees this page itself, only the sinussentinel://paired redirect
+     * these POSTs produce.
+     */
+    Route::get('/device-pairing', [DevicePairingController::class, 'show'])->name('device-pairing.show');
+    Route::post('/device-pairing/approve', [DevicePairingController::class, 'approve'])->name('device-pairing.approve');
+    Route::post('/device-pairing/deny', [DevicePairingController::class, 'deny'])->name('device-pairing.deny');
     Route::get('/phr', [PHRPageController::class, 'index'])->name('phr.index');
     Route::get('/phr/patients', [PHRPageController::class, 'patients'])->name('phr.patients');
     Route::get('/phr/patients/manage', [PHRPageController::class, 'managePatients'])->name('phr.patients.manage');

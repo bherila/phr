@@ -178,6 +178,12 @@ class User extends Authenticatable
         return $this->hasMany(UserAiConfiguration::class);
     }
 
+    /** @return HasMany<PhrDeviceKey, $this> */
+    public function deviceKeys(): HasMany
+    {
+        return $this->hasMany(PhrDeviceKey::class);
+    }
+
     /** @return HasMany<PhrPatient, $this> */
     public function ownedPhrPatients(): HasMany
     {
