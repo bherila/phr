@@ -30,7 +30,12 @@ return new class extends Migration
             $table->string('name', 100)->comment('Human-readable device name shown in device management.');
             $table->char('token_hash', 64)->comment('SHA-256 of the plaintext key, shown to the device exactly once.');
             $table->timestamp('last_used_at')->nullable();
-            $table->timestamp('expires_at')->comment('A key with no expiry is rejected; see isActive().');
+            // dateTime, not timestamp: this NOT NULL column sits after a
+            // nullable timestamp, and MySQL would hand the non-first
+            // timestamp an invalid zero-date implicit default (error 1067,
+            // strict mode) — which SQLite, and therefore the test suite,
+            // happily accepts. DATETIME has no implicit-default rules.
+            $table->dateTime('expires_at')->comment('A key with no expiry is rejected; see isActive().');
             $table->timestamp('revoked_at')->nullable()->comment('Set by the user-facing device management endpoints.');
             $table->timestamps();
 
