@@ -80,4 +80,27 @@ describe('DocumentViewer', () => {
     expect(image).toHaveAttribute('src', '/api/phr/patients/42/documents/10/file')
     expect(screen.queryByTestId('pdf-viewer')).not.toBeInTheDocument()
   })
+  it.each([
+    ['image/tiff', 'scan.tif'],
+    ['image/heic', 'photo.heic'],
+    ['image/heif', 'photo.heif'],
+  ])('falls back to the download prompt for %s instead of a broken <img>', async (mimeType, filename) => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      text: async () => JSON.stringify({
+        document: makeDocument({
+          mime_type: mimeType,
+          original_filename: filename,
+        }),
+      }),
+    })
+
+    render(<DocumentViewer patientId={42} recordId="10" />)
+
+    expect(await screen.findByText('Inline preview is unavailable for this file type.')).toBeInTheDocument()
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /download/i })).toHaveAttribute('href', '/api/phr/patients/42/documents/10/file')
+  })
 })

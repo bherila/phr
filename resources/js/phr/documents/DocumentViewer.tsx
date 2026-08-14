@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 
 import PdfViewer from '@/components/phr/PdfViewer'
 import { Button } from '@/components/ui/button'
+import { isBrowserPreviewableImage } from '@/phr/documents/browserImagePreview'
 import { PhrNotFoundColumn } from '@/phr/miller/PhrNotFoundColumn'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { type PhrDocument, PhrDocumentResponseSchema } from '@/phr/types'
@@ -149,7 +150,7 @@ function isPdf(document: PhrDocument): boolean {
 }
 
 function isImage(document: PhrDocument): boolean {
-  return document.mime_type?.startsWith('image/') ?? false
+  return isBrowserPreviewableImage(document.mime_type)
 }
 
 function isTextLike(document: PhrDocument): boolean {

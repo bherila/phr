@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
 import { formatBytes } from '@/lib/utils'
+import { isBrowserPreviewableImage } from '@/phr/documents/browserImagePreview'
 import type { PhrListPageProps } from '@/phr/miller'
 import { errorMessage } from '@/phr/shared'
 import {
@@ -650,7 +651,7 @@ function isPdf(document: PhrDocument): boolean {
 }
 
 function isImage(document: PhrDocument): boolean {
-  return document.mime_type?.startsWith('image/') ?? false
+  return isBrowserPreviewableImage(document.mime_type)
 }
 
 function isTextLike(document: PhrDocument): boolean {
