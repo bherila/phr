@@ -21,6 +21,11 @@ describe('VitalsTrend', () => {
   })
 
   it('loads and renders trend data with range controls', async () => {
+    const recentReading = new Date(Date.now() - 24 * 60 * 60 * 1000)
+      .toISOString()
+      .replace('T', ' ')
+      .slice(0, 19)
+
     jest.spyOn(globalThis, 'fetch').mockResolvedValue({
       ok: true,
       status: 200,
@@ -30,8 +35,8 @@ describe('VitalsTrend', () => {
         metric_label: 'Systolic BP',
         unit: 'mmHg',
         points: [
-          { reading_id: 1, recorded_at: '2026-05-01 08:00:00', value: 120 },
-          { reading_id: 2, recorded_at: '2026-05-15 08:00:00', value: 124 },
+          { reading_id: 1, recorded_at: recentReading, value: 120 },
+          { reading_id: 2, recorded_at: recentReading, value: 124 },
         ],
       }),
     } as Response)
