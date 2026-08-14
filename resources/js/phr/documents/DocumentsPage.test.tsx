@@ -112,4 +112,30 @@ describe('DocumentsPage', () => {
 
     expect(onDrill).toHaveBeenCalledWith({ id: 'document-viewer', instance: '10' })
   })
+  it('previews browser-decodable images inline', async () => {
+    mockGet.mockResolvedValue({
+      documents: [makeDocument({ mime_type: 'image/png', original_filename: 'scan.png' })],
+      can_manage: true,
+    })
+
+    render(<DocumentsPage patientId={42} />)
+
+    const images = await screen.findAllByRole('img', { name: 'January Labs' })
+    expect(images[0]).toHaveAttribute('src', '/api/phr/patients/42/documents/10/file')
+  })
+
+  it.each(['image/tiff', 'image/heic', 'image/heif'])(
+    'falls back to the open-file prompt for %s instead of a broken <img>',
+    async (mimeType) => {
+      mockGet.mockResolvedValue({
+        documents: [makeDocument({ mime_type: mimeType, original_filename: 'scan.bin' })],
+        can_manage: true,
+      })
+
+      render(<DocumentsPage patientId={42} />)
+
+      expect(await screen.findByRole('link', { name: /open file/i })).toHaveAttribute('href', '/api/phr/patients/42/documents/10/file')
+      expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    },
+  )
 })
