@@ -14,6 +14,18 @@ return [
         'two_factor' => false,
     ],
 
+    'oauth_client' => [
+        'provider' => env('OAUTH_PROVIDER', 'bherila'),
+        'base_url' => env('OAUTH_PROVIDER_URL', 'https://bherila.net'),
+        'client_id' => env('OAUTH_CLIENT_ID'),
+        'client_secret' => env('OAUTH_CLIENT_SECRET'),
+        'redirect_uri' => env('OAUTH_REDIRECT_URI', rtrim((string) env('APP_URL'), '/').'/oauth/callback'),
+        'scope' => env('OAUTH_SCOPE', 'identity:read'),
+        'authorize_path' => '/oauth/authorize',
+        'token_path' => '/oauth/token',
+        'identity_path' => '/api/oauth/user',
+    ],
+
     'migrations' => [
         'drop_tables_on_rollback' => false,
     ],
