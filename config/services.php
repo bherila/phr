@@ -35,12 +35,4 @@ return [
         ],
     ],
 
-    'identity_provider' => [
-        'name' => env('OAUTH_PROVIDER', 'bherila'),
-        'base_url' => env('OAUTH_PROVIDER_URL', 'https://bherila.net'),
-        'client_id' => env('OAUTH_CLIENT_ID'),
-        'client_secret' => env('OAUTH_CLIENT_SECRET'),
-        'redirect_uri' => env('OAUTH_REDIRECT_URI', rtrim((string) env('APP_URL'), '/').'/oauth/callback'),
-    ],
-
 ];

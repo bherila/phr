@@ -67,7 +67,7 @@ class PhrNavigationTest extends TestCase
     public function test_shell_reads_the_back_url_from_the_identity_provider_config(): void
     {
         $this->withoutVite();
-        config(['services.identity_provider.base_url' => 'https://staging.bherila.net/']);
+        config(['bherila-auth.oauth_client.base_url' => 'https://staging.bherila.net/']);
 
         $response = $this->actingAs($this->createUser())->get('/phr/patients');
 

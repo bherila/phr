@@ -4,6 +4,7 @@ namespace App\Http\Controllers\PHR;
 
 use App\Http\Controllers\Controller;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use BWH\Auth\OAuth\OAuthClient;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -11,7 +12,10 @@ use Illuminate\View\View;
 
 class PageController extends Controller
 {
-    public function __construct(private PhrPatientAccessService $accessService) {}
+    public function __construct(
+        private PhrPatientAccessService $accessService,
+        private OAuthClient $oauth,
+    ) {}
 
     public function index(): RedirectResponse
     {
@@ -93,6 +97,6 @@ class PageController extends Controller
      */
     private function backUrl(): string
     {
-        return rtrim((string) config('services.identity_provider.base_url', 'https://bherila.net'), '/');
+        return $this->oauth->providerBaseUrl();
     }
 }
