@@ -55,6 +55,7 @@ class PhrDocumentImporter
             'uploaded_by_user_id' => $actorUserId,
             'title' => $attributes['title'] ?? pathinfo($filename, PATHINFO_FILENAME),
             'document_type' => ValueCoercion::normalizeDocumentType($attributes['document_type'] ?? null),
+            'observed_at' => ValueCoercion::dateTime($attributes['observed_at'] ?? null),
             'original_filename' => $filename,
             'storage_disk' => 'phr_documents',
             'storage_path' => $storagePath,

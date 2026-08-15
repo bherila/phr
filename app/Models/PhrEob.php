@@ -20,6 +20,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $claim_fingerprint
  * @property string|null $claim_number
  * @property string $claim_type
+ * @property Carbon|null $submission_date
  * @property Carbon|null $print_date
  * @property Carbon|null $processed_date
  * @property-read Collection<int, PhrEobLine> $lines
@@ -45,12 +46,15 @@ class PhrEob extends Model
         'participant_name',
         'patient_name',
         'provider_name',
+        'provider_phone',
         'payment_to',
         'provider_tin',
         'check_number',
         'check_amount',
+        'submission_date',
         'print_date',
         'processed_date',
+        'total_accepted_fee',
         'total_charges',
         'total_provider_discount',
         'total_ineligible_amount',
@@ -72,8 +76,10 @@ class PhrEob extends Model
             'user_id' => 'integer',
             'source_document_id' => 'integer',
             'check_amount' => 'decimal:2',
+            'submission_date' => 'date',
             'print_date' => 'date',
             'processed_date' => 'date',
+            'total_accepted_fee' => 'decimal:2',
             'total_charges' => 'decimal:2',
             'total_provider_discount' => 'decimal:2',
             'total_ineligible_amount' => 'decimal:2',
