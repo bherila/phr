@@ -51,6 +51,38 @@ class BlobsScriptTest extends TestCase
         $this->assertStringContainsString('match', $process->getOutput());
     }
 
+    public function test_pull_forces_private_modes_after_archive_sync(): void
+    {
+        $xData = $this->temporaryDirectory();
+        $bin = $this->temporaryDirectory();
+        $rsync = $bin.'/rsync';
+        file_put_contents($rsync, <<<'SH'
+#!/bin/sh
+destination=''
+private_modes=0
+for argument do
+    destination="$argument"
+    [ "$argument" = '--chmod=Du=rwx,Dgo=,Fu=rw,Fgo=' ] && private_modes=1
+done
+[ "$private_modes" -eq 1 ] || exit 9
+
+destination=${destination%/}
+mkdir -p "$destination/nested"
+touch "$destination/nested/payload.bin"
+chmod 0755 "$destination" "$destination/nested"
+chmod 0644 "$destination/nested/payload.bin"
+SH);
+        chmod($rsync, 0700);
+
+        $process = $this->runScript(['pull', '--apply'], $xData, $bin);
+
+        $this->assertSame(0, $process->getExitCode(), $process->getErrorOutput());
+        clearstatcache();
+        $this->assertSame(0700, fileperms($xData.'/phr') & 0777);
+        $this->assertSame(0700, fileperms($xData.'/phr/nested') & 0777);
+        $this->assertSame(0600, fileperms($xData.'/phr/nested/payload.bin') & 0777);
+    }
+
     /** @param list<string> $arguments */
     private function runScript(array $arguments, string $xData, ?string $bin = null): Process
     {
