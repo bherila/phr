@@ -55,7 +55,11 @@ case "$MODE" in
     mkdir -p "$LOCAL_PATH"; chmod 700 "$LOCAL_PATH"
     # --delete is safe here: it only prunes the local mirror to match web1.
     info "pull  ${REMOTE}/  ->  ${LOCAL_PATH}/   $([ "$APPLY" -eq 1 ] && echo '(APPLY)' || echo '(dry-run)')"
-    rsync "${RSYNC_OPTS[@]}" --delete "${REMOTE}/" "${LOCAL_PATH}/"
+    rsync "${RSYNC_OPTS[@]}" --chmod=Du=rwx,Dgo=,Fu=rw,Fgo= --delete "${REMOTE}/" "${LOCAL_PATH}/"
+    # openrsync applies --chmod only to transferred entries. Normalize the full
+    # local mirror so unchanged files from an incremental pull stay private too.
+    find "$LOCAL_PATH" -type d -exec chmod 700 {} +
+    find "$LOCAL_PATH" -type f -exec chmod 600 {} +
     ;;
 
   push)
