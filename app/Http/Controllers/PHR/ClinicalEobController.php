@@ -101,7 +101,9 @@ class ClinicalEobController extends Controller
     }
 
     /**
-     * @param  BelongsToMany<PhrEob, PhrOfficeVisit|PhrProcedure>  $relation
+     * @template TDeclaringModel of PhrOfficeVisit|PhrProcedure
+     *
+     * @param  BelongsToMany<PhrEob, TDeclaringModel>  $relation
      */
     private function link(BelongsToMany $relation, PhrPatient $patient, int $eob): JsonResponse
     {
@@ -116,7 +118,9 @@ class ClinicalEobController extends Controller
     }
 
     /**
-     * @param  BelongsToMany<PhrEob, PhrOfficeVisit|PhrProcedure>  $relation
+     * @template TDeclaringModel of PhrOfficeVisit|PhrProcedure
+     *
+     * @param  BelongsToMany<PhrEob, TDeclaringModel>  $relation
      */
     private function unlink(BelongsToMany $relation, PhrPatient $patient, int $eob): Response
     {
