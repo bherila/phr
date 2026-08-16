@@ -1,0 +1,145 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "PHR Agent API",
+    "version": "1.0.0",
+    "description": "Versioned OAuth API for authorized PHR automation clients. Responses containing personal data are private and non-cacheable."
+  },
+  "servers": [
+    { "url": "https://phr.bherila.net/api/v1" }
+  ],
+  "paths": {
+    "/capabilities": {
+      "get": {
+        "operationId": "capabilities.get",
+        "summary": "Discover API operations, scopes, and limits",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Server capabilities",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Capabilities" } } }
+          }
+        }
+      }
+    },
+    "/me": {
+      "get": {
+        "operationId": "identity.get",
+        "summary": "Get the authorized identity and granted scopes",
+        "security": [{ "oauth2": ["identity:read"] }],
+        "responses": {
+          "200": {
+            "description": "Authorized identity",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IdentityResponse" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/oauth/token": {
+      "delete": {
+        "operationId": "oauth.disconnect",
+        "summary": "Immediately revoke the current access token and its refresh token",
+        "security": [{ "oauth2": ["identity:read"] }],
+        "responses": {
+          "204": { "description": "Token family revoked" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/InsufficientScope" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "oauth2": {
+        "type": "oauth2",
+        "description": "OAuth 2.1 Authorization Code with S256 PKCE. Access tokens expire after 15 minutes and refresh tokens rotate on use.",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "https://phr.bherila.net/oauth/authorize",
+            "tokenUrl": "https://phr.bherila.net/oauth/token",
+            "refreshUrl": "https://phr.bherila.net/oauth/token",
+            "scopes": {
+              "identity:read": "Read account identity and granted scopes",
+              "patients:read": "List and read accessible patients",
+              "clinical:read": "Read authorized clinical records",
+              "clinical:write": "Create and update authorized clinical records",
+              "documents:read": "Read document metadata and download authorized files",
+              "documents:write": "Upload and update patient documents",
+              "imports:read": "Read import jobs and extraction results",
+              "imports:write": "Create and review import jobs",
+              "exports:read": "Read export and backup status and download results",
+              "exports:write": "Request exports and native backups",
+              "reconciliation:read": "Preview administrative reconciliation",
+              "reconciliation:write": "Apply confirmed reconciliation",
+              "mcp:use": "Connect through the PHR MCP server"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Capabilities": {
+        "type": "object",
+        "required": ["api_version", "openapi_url", "oauth", "scopes", "limits", "operations"],
+        "properties": {
+          "api_version": { "const": "v1" },
+          "openapi_url": { "type": "string", "format": "uri" },
+          "oauth": { "type": "object", "additionalProperties": true },
+          "scopes": { "type": "object", "additionalProperties": { "type": "string" } },
+          "limits": { "type": "object", "additionalProperties": { "type": "integer" } },
+          "operations": { "type": "object", "additionalProperties": { "$ref": "#/components/schemas/Operation" } }
+        },
+        "additionalProperties": false
+      },
+      "Operation": {
+        "type": "object",
+        "required": ["available", "scope"],
+        "properties": {
+          "available": { "type": "boolean" },
+          "scope": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "IdentityResponse": {
+        "type": "object",
+        "required": ["identity", "scopes"],
+        "properties": {
+          "identity": {
+            "type": "object",
+            "required": ["id", "name", "email"],
+            "properties": {
+              "id": { "type": "integer" },
+              "name": { "type": "string" },
+              "email": { "type": "string", "format": "email" }
+            },
+            "additionalProperties": false
+          },
+          "scopes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+        },
+        "additionalProperties": false
+      },
+      "Error": {
+        "type": "object",
+        "properties": { "message": { "type": "string" } },
+        "additionalProperties": true
+      }
+    },
+    "responses": {
+      "Unauthenticated": {
+        "description": "Missing, expired, or revoked bearer token",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "InsufficientScope": {
+        "description": "The token does not grant the required scope",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "RateLimited": {
+        "description": "Per-user request limit exceeded",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      }
+    }
+  }
+}

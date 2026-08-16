@@ -326,6 +326,8 @@ jobs:
       #   phr-exports    local disk root for generated PHR exports.
       #   phr-dicom      local disk root for DICOM pixel data (storage/app/private/).
       #   s3-blobs       local disk root for GenAI import staging (the disk named "s3").
+      #   oauth          persistent Passport signing keys. Rotating these on deploy
+      #                  immediately invalidates every connected OAuth client.
       # These hold real clinical records that only exist on the server; deleting them is
       # unrecoverable. phr-dicom joined that list on 2026-08-01 when DICOM moved off
       # Cloudflare R2 onto this host — before that the data lived in a bucket and this
@@ -343,6 +345,7 @@ jobs:
             --exclude='phr-exports' \
             --exclude='phr-dicom' \
             --exclude='s3-blobs' \
+            --exclude='/storage/app/private/oauth/' \
             -e "ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
             app \
             bootstrap \
@@ -357,6 +360,22 @@ jobs:
             composer.json \
             composer.lock \
             ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:~/phr-laravel/
+
+      - name: Create or verify persistent OAuth signing keys
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes \
+            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
+            "cd ~/phr-laravel && \
+             install -d -m 700 storage/app/private/oauth && \
+             if [ -s storage/app/private/oauth/oauth-private.key ] && [ -s storage/app/private/oauth/oauth-public.key ]; then \
+               chmod 600 storage/app/private/oauth/oauth-private.key storage/app/private/oauth/oauth-public.key; \
+             elif [ ! -e storage/app/private/oauth/oauth-private.key ] && [ ! -e storage/app/private/oauth/oauth-public.key ]; then \
+               /opt/cpanel/ea-php85/root/usr/bin/php artisan passport:keys --force && \
+               chmod 600 storage/app/private/oauth/oauth-private.key storage/app/private/oauth/oauth-public.key; \
+             else \
+               echo 'OAuth signing key pair is incomplete; refusing to rotate it automatically.' >&2; \
+               exit 1; \
+             fi"
 
       - name: Run artisan migrate, config clear/cache on server
         run: |

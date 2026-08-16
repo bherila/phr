@@ -18,15 +18,17 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use Laravel\Passport\Contracts\OAuthenticatable;
+use Laravel\Passport\HasApiTokens;
 
 /**
  * @property Carbon|null $mcp_api_key_expires_at
  * @property Carbon|null $mcp_api_key_last_used_at
  */
-class User extends Authenticatable
+class User extends Authenticatable implements OAuthenticatable
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable, SerializesDatesAsLocal;
+    use HasApiTokens, HasFactory, Notifiable, SerializesDatesAsLocal;
 
     protected static function booted(): void
     {
@@ -37,6 +39,9 @@ class User extends Authenticatable
             DB::table('phr_patient_deletions')->where('actor_user_id', $user->id)->update(['actor_user_id' => null]);
             if (Schema::hasTable('phr_native_restore_attempts')) {
                 DB::table('phr_native_restore_attempts')->where('actor_user_id', $user->id)->update(['actor_user_id' => null]);
+            }
+            if (Schema::hasTable('agent_api_audits')) {
+                DB::table('agent_api_audits')->where('actor_user_id', $user->id)->update(['actor_user_id' => null]);
             }
         });
     }

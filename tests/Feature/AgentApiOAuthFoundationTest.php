@@ -1,0 +1,310 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\AgentApiAudit;
+use App\Support\AgentApi\AgentApiScopes;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
+use Laravel\Passport\AccessToken;
+use Laravel\Passport\Client;
+use Laravel\Passport\Passport;
+use Laravel\Passport\RefreshToken;
+use Laravel\Passport\Token;
+use Tests\TestCase;
+
+class AgentApiOAuthFoundationTest extends TestCase
+{
+    use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // CI intentionally has no production signing keys. Ephemeral in-memory keys
+        // exercise Passport without writing credentials into the repository tree.
+        $key = openssl_pkey_new([
+            'private_key_bits' => 2048,
+            'private_key_type' => OPENSSL_KEYTYPE_RSA,
+        ]);
+        $this->assertNotFalse($key);
+        $this->assertTrue(openssl_pkey_export($key, $privateKey));
+        $details = openssl_pkey_get_details($key);
+        $this->assertIsArray($details);
+
+        config([
+            'passport.private_key' => $privateKey,
+            'passport.public_key' => $details['key'],
+        ]);
+    }
+
+    public function test_oauth_metadata_advertises_authorization_code_pkce_and_rotating_refresh_tokens(): void
+    {
+        $this->getJson('/.well-known/oauth-authorization-server')
+            ->assertOk()
+            ->assertHeader('Cache-Control', 'max-age=300, public')
+            ->assertJsonPath('grant_types_supported', ['authorization_code', 'refresh_token'])
+            ->assertJsonPath('response_types_supported', ['code'])
+            ->assertJsonPath('code_challenge_methods_supported', ['S256'])
+            ->assertJsonPath('scopes_supported', AgentApiScopes::ids());
+
+        $this->getJson('/.well-known/oauth-protected-resource')
+            ->assertOk()
+            ->assertJsonPath('resource', url('/api/v1'))
+            ->assertJsonPath('authorization_servers.0', url('/'));
+
+        $this->assertTrue(Passport::$revokeRefreshTokenAfterUse);
+        $this->assertFalse(Passport::$implicitGrantEnabled);
+        $this->assertFalse(Passport::$passwordGrantEnabled);
+        $this->assertFalse(Passport::$deviceCodeGrantEnabled);
+        $this->assertGreaterThanOrEqual(895, $this->intervalSeconds(Passport::tokensExpireIn()));
+        $this->assertLessThanOrEqual(900, $this->intervalSeconds(Passport::tokensExpireIn()));
+        $this->assertGreaterThanOrEqual(2_591_995, $this->intervalSeconds(Passport::refreshTokensExpireIn()));
+        $this->assertLessThanOrEqual(2_592_000, $this->intervalSeconds(Passport::refreshTokensExpireIn()));
+    }
+
+    public function test_authorization_endpoint_rejects_missing_or_downgraded_pkce_without_redirecting(): void
+    {
+        $query = http_build_query([
+            'client_id' => 'caller-controlled-client',
+            'redirect_uri' => 'https://untrusted.example.test/callback',
+            'response_type' => 'code',
+            'scope' => AgentApiScopes::IDENTITY_READ,
+        ]);
+
+        $this->getJson('/oauth/authorize?'.$query)
+            ->assertBadRequest()
+            ->assertHeaderMissing('Location')
+            ->assertJson([
+                'error' => 'invalid_request',
+                'error_description' => 'Authorization requests require S256 PKCE.',
+            ]);
+
+        $this->getJson('/oauth/authorize?'.$query.'&code_challenge=synthetic&code_challenge_method=plain')
+            ->assertBadRequest()
+            ->assertHeaderMissing('Location');
+    }
+
+    public function test_public_client_completes_pkce_refresh_rotation_and_immediate_revocation(): void
+    {
+        $user = $this->createUser([
+            'name' => 'Synthetic OAuth User',
+            'email' => 'oauth-user@example.test',
+        ]);
+        $client = Client::query()->create([
+            'name' => 'Synthetic Public Client',
+            'secret' => null,
+            'provider' => 'users',
+            'redirect_uris' => ['https://client.example.test/callback'],
+            'grant_types' => ['authorization_code', 'refresh_token'],
+            'revoked' => false,
+        ]);
+        $verifier = str_repeat('synthetic-verifier-', 3);
+        $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+
+        $authorization = $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+            'client_id' => $client->id,
+            'redirect_uri' => 'https://client.example.test/callback',
+            'response_type' => 'code',
+            'scope' => AgentApiScopes::IDENTITY_READ,
+            'state' => 'synthetic-state',
+            'code_challenge' => $challenge,
+            'code_challenge_method' => 'S256',
+        ]));
+        $authorization->assertOk()->assertSee('Synthetic Public Client');
+
+        $approval = $this->post('/oauth/authorize', [
+            'auth_token' => session('authToken'),
+        ])->assertRedirect();
+        parse_str((string) parse_url((string) $approval->headers->get('Location'), PHP_URL_QUERY), $redirectQuery);
+        $this->assertSame('synthetic-state', $redirectQuery['state']);
+        $this->assertIsString($redirectQuery['code']);
+
+        $issued = $this->postJson('/oauth/token', [
+            'grant_type' => 'authorization_code',
+            'client_id' => $client->id,
+            'redirect_uri' => 'https://client.example.test/callback',
+            'code_verifier' => $verifier,
+            'code' => $redirectQuery['code'],
+        ])->assertOk()->json();
+        $this->assertSame(900, $issued['expires_in']);
+
+        $this->withToken($issued['access_token'])->getJson('/api/v1/me')
+            ->assertOk()
+            ->assertJsonPath('identity.email', 'oauth-user@example.test');
+
+        $rotated = $this->postJson('/oauth/token', [
+            'grant_type' => 'refresh_token',
+            'client_id' => $client->id,
+            'refresh_token' => $issued['refresh_token'],
+        ])->assertOk()->json();
+        $this->assertNotSame($issued['refresh_token'], $rotated['refresh_token']);
+
+        Auth::forgetGuards();
+        $this->withToken($issued['access_token'])->getJson('/api/v1/me')->assertUnauthorized();
+        Auth::forgetGuards();
+        $this->withToken($rotated['access_token'])->deleteJson('/api/v1/oauth/token')->assertNoContent();
+        Auth::forgetGuards();
+        $this->withToken($rotated['access_token'])->getJson('/api/v1/me')->assertUnauthorized();
+    }
+
+    public function test_capabilities_and_openapi_are_versioned_and_share_the_scope_contract(): void
+    {
+        $capabilities = $this->getJson('/api/v1/capabilities')
+            ->assertOk()
+            ->assertHeader('Cache-Control', 'max-age=300, public')
+            ->assertJsonPath('api_version', 'v1')
+            ->assertJsonPath('limits.maximum_page_size', 100)
+            ->assertJsonPath('oauth.authorization_code_pkce', true)
+            ->json();
+
+        $document = json_decode((string) file_get_contents(public_path('openapi/phr-agent-v1.json')), true, flags: JSON_THROW_ON_ERROR);
+
+        $this->assertSame('3.1.0', $document['openapi']);
+        $this->assertSame(
+            AgentApiScopes::ids(),
+            array_keys($document['components']['securitySchemes']['oauth2']['flows']['authorizationCode']['scopes']),
+        );
+        $this->assertSame(
+            AgentApiScopes::ids(),
+            array_keys($capabilities['scopes']),
+        );
+        $this->assertSame(
+            ['capabilities.get', 'identity.get', 'oauth.disconnect'],
+            collect($document['paths'])->flatMap(fn (array $path): array => array_column($path, 'operationId'))->values()->all(),
+        );
+    }
+
+    public function test_identity_requires_the_exact_scope_and_never_allows_caching(): void
+    {
+        $user = $this->createUser([
+            'name' => 'Synthetic Agent User',
+            'email' => 'agent-user@example.test',
+        ]);
+
+        Passport::actingAs($user, [AgentApiScopes::PATIENTS_READ]);
+        $this->getJson('/api/v1/me')->assertForbidden();
+
+        Passport::actingAs($user, [AgentApiScopes::IDENTITY_READ]);
+        $this->getJson('/api/v1/me')
+            ->assertOk()
+            ->assertHeader('Cache-Control', 'max-age=0, no-store, private')
+            ->assertJsonPath('identity.id', $user->id)
+            ->assertJsonPath('identity.email', 'agent-user@example.test')
+            ->assertJsonPath('scopes.0', AgentApiScopes::IDENTITY_READ);
+    }
+
+    public function test_unauthenticated_agent_request_is_json_and_is_not_audited_as_an_actor(): void
+    {
+        $this->get('/api/v1/me', ['Accept' => 'text/html'])
+            ->assertUnauthorized()
+            ->assertHeader('Content-Type', 'application/json');
+
+        $this->assertDatabaseCount('agent_api_audits', 0);
+    }
+
+    public function test_authenticated_requests_have_metadata_only_audits_even_when_scope_is_denied(): void
+    {
+        $user = $this->createUser();
+        $client = Client::query()->create([
+            'name' => 'Synthetic Test Client',
+            'secret' => null,
+            'provider' => 'users',
+            'redirect_uris' => ['https://client.example.test/callback'],
+            'grant_types' => ['authorization_code', 'refresh_token'],
+            'revoked' => false,
+        ]);
+
+        Passport::actingAs($user, [AgentApiScopes::PATIENTS_READ], 'api', $client);
+        $this->withHeader('Authorization', 'Bearer should-never-be-persisted')
+            ->getJson('/api/v1/me?clinical_value=should-never-be-persisted')
+            ->assertForbidden();
+
+        $audit = AgentApiAudit::query()->sole();
+        $this->assertSame(403, $audit->response_status);
+        $this->assertSame('agent-api.v1.me', $audit->route_name);
+        $this->assertSame($client->id, $audit->oauth_client_id);
+        $this->assertSame([
+            'id',
+            'request_id',
+            'actor_user_id',
+            'oauth_client_id',
+            'oauth_token_hash',
+            'event',
+            'route_name',
+            'http_method',
+            'response_status',
+            'duration_ms',
+            'created_at',
+        ], Schema::getColumnListing('agent_api_audits'));
+        $this->assertStringNotContainsString(
+            'should-never-be-persisted',
+            json_encode($audit->getAttributes(), JSON_THROW_ON_ERROR),
+        );
+    }
+
+    public function test_disconnect_immediately_revokes_the_access_and_refresh_token_family(): void
+    {
+        $user = $this->createUser();
+        $client = Client::query()->create([
+            'name' => 'Synthetic Disconnect Client',
+            'secret' => null,
+            'provider' => 'users',
+            'redirect_uris' => ['https://client.example.test/callback'],
+            'grant_types' => ['authorization_code', 'refresh_token'],
+            'revoked' => false,
+        ]);
+        $tokenId = Str::random(80);
+        $token = Token::query()->create([
+            'id' => $tokenId,
+            'user_id' => $user->id,
+            'client_id' => $client->id,
+            'name' => null,
+            'scopes' => [AgentApiScopes::IDENTITY_READ],
+            'revoked' => false,
+            'expires_at' => now()->addMinutes(15),
+        ]);
+        $refresh = RefreshToken::query()->create([
+            'id' => Str::random(80),
+            'access_token_id' => $tokenId,
+            'revoked' => false,
+            'expires_at' => now()->addDays(30),
+        ]);
+
+        Passport::actingAs($user, [AgentApiScopes::IDENTITY_READ], 'api', $client);
+        $user->withAccessToken(new AccessToken([
+            'oauth_access_token_id' => $tokenId,
+            'oauth_client_id' => $client->id,
+            'oauth_user_id' => (string) $user->id,
+            'oauth_scopes' => [AgentApiScopes::IDENTITY_READ],
+        ]));
+        Auth::guard('api')->setUser($user);
+
+        $this->deleteJson('/api/v1/oauth/token')->assertNoContent();
+
+        $this->assertTrue($token->fresh()->revoked);
+        $this->assertTrue($refresh->fresh()->revoked);
+        $this->assertSame(hash('sha256', $tokenId), AgentApiAudit::query()->sole()->oauth_token_hash);
+    }
+
+    public function test_agent_api_is_rate_limited_per_authenticated_user(): void
+    {
+        Passport::actingAs($this->createUser(), [AgentApiScopes::IDENTITY_READ]);
+
+        for ($request = 1; $request <= 120; $request++) {
+            $this->getJson('/api/v1/me')->assertOk();
+        }
+
+        $this->getJson('/api/v1/me')->assertTooManyRequests();
+        $this->assertDatabaseCount('agent_api_audits', 120);
+    }
+
+    private function intervalSeconds(\DateInterval $interval): int
+    {
+        $origin = new \DateTimeImmutable('@0');
+
+        return $origin->add($interval)->getTimestamp();
+    }
+}

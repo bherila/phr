@@ -148,6 +148,19 @@ recorded is rejected, so the credential fails closed. `mcp_api_key_last_used_at`
 records the last authenticated call, which is the signal to watch if a device is
 lost.
 
+### OAuth agent API
+
+The versioned agent surface begins at `/api/v1`. Public discovery is available at
+`/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource`,
+and `/api/v1/capabilities`; its OpenAPI 3.1 contract is
+[`public/openapi/phr-agent-v1.json`](public/openapi/phr-agent-v1.json). Interactive
+clients use OAuth Authorization Code with S256 PKCE, 15-minute access tokens, and
+rotating 30-day refresh tokens. The legacy Sinus Sentinel device credentials above
+remain isolated from this scoped API.
+
+See [`docs/agent-api-security.md`](docs/agent-api-security.md) for the threat model,
+PHI-safe audit boundary, signing-key deployment, and revocation procedures.
+
 ## Running locally
 
 ```bash
