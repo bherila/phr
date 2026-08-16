@@ -2,7 +2,10 @@
 
 namespace App\Http\Requests\PHR;
 
+use App\Rules\JsonObject;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Validator;
+use JsonException;
 
 class StoreHealthLogEntryRequest extends FormRequest
 {
@@ -36,6 +39,27 @@ class StoreHealthLogEntryRequest extends FormRequest
         ];
     }
 
+    /** @return list<callable(Validator): void> */
+    public function after(): array
+    {
+        return [function (Validator $validator): void {
+            if (! $this->isJson()) {
+                return;
+            }
+            try {
+                $payload = json_decode($this->getContent(), false, 512, JSON_THROW_ON_ERROR);
+            } catch (JsonException) {
+                return;
+            }
+            if (! is_object($payload) || ! property_exists($payload, 'details')) {
+                return;
+            }
+            if ($payload->details !== null && ! is_object($payload->details)) {
+                $validator->errors()->add('details', 'The details field must be a JSON object.');
+            }
+        }];
+    }
+
     /** @return array<string, mixed> */
     protected function healthLogEntryRules(bool $updating): array
     {
@@ -46,7 +70,7 @@ class StoreHealthLogEntryRequest extends FormRequest
             'intensity' => ['nullable', 'integer', 'between:0,10'],
             'tags' => ['nullable', 'array', 'max:20'],
             'tags.*' => ['string', 'max:50', 'distinct'],
-            'details' => ['nullable', 'array', 'max:50'],
+            'details' => ['nullable', 'array', new JsonObject, 'max:50'],
         ];
     }
 }

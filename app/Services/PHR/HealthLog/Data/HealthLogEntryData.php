@@ -11,7 +11,7 @@ readonly class HealthLogEntryData
 {
     /**
      * @param  list<string>  $tags
-     * @param  array<string, mixed>|null  $details
+     * @param  array<string, mixed>|object|null  $details
      */
     public function __construct(
         public int $id,
@@ -26,7 +26,7 @@ readonly class HealthLogEntryData
         #[LiteralTypeScriptType('Array<string>')]
         public array $tags,
         #[LiteralTypeScriptType('Record<string, unknown> | null')]
-        public ?array $details,
+        public array|object|null $details,
         public ?string $created_at,
         public ?string $updated_at,
     ) {}
@@ -44,7 +44,9 @@ readonly class HealthLogEntryData
             notes: $entry->notes,
             intensity: $entry->intensity,
             tags: $entry->tags ?? [],
-            details: $entry->details,
+            // JSON objects decode through Eloquent's array cast. Preserve the
+            // empty-object wire shape instead of serializing it back as [].
+            details: $entry->details === [] ? (object) [] : $entry->details,
             created_at: $entry->created_at?->toDateTimeString(),
             updated_at: $entry->updated_at?->toDateTimeString(),
         );

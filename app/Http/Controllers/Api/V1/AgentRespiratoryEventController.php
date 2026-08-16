@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\AgentApi\ListAgentRespiratoryEventsRequest;
 use App\Http\Requests\PHR\StoreRespiratoryEventBatchRequest;
 use App\Http\Resources\PHR\RespiratoryEventResource;
 use App\Models\PhrRespiratoryEvent;
@@ -11,8 +12,6 @@ use App\Services\PHR\Respiratory\PhrRespiratoryEventService;
 use App\Support\AgentApi\AgentApiCursor;
 use App\Support\AgentApi\AgentApiUpdateWindow;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
-use Illuminate\Validation\Rule;
 
 final class AgentRespiratoryEventController extends Controller
 {
@@ -21,18 +20,9 @@ final class AgentRespiratoryEventController extends Controller
         private PhrRespiratoryEventService $events,
     ) {}
 
-    public function index(Request $request, int $patient): JsonResponse
+    public function index(ListAgentRespiratoryEventsRequest $request, int $patient): JsonResponse
     {
-        $validated = $request->validate([
-            'limit' => ['sometimes', 'integer', 'between:1,100'],
-            'cursor' => ['sometimes', 'string', 'max:2048'],
-            'updated_after' => ['sometimes', 'date'],
-            'updated_before' => ['sometimes', 'date', 'after_or_equal:updated_after'],
-            'occurred_after' => ['sometimes', 'date'],
-            'occurred_before' => ['sometimes', 'date', 'after_or_equal:occurred_after'],
-            'event_type' => ['sometimes', 'string', Rule::in(PhrRespiratoryEvent::EVENT_TYPES)],
-            'include_false_positives' => ['sometimes', 'boolean'],
-        ]);
+        $validated = $request->validated();
         $actorId = (int) $request->user('api')?->id;
         $resolvedPatient = $this->accessService->accessiblePatientWithCurrentGrant($patient, $actorId);
         $query = $this->events->query(

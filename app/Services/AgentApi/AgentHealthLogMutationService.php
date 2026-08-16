@@ -94,11 +94,12 @@ final readonly class AgentHealthLogMutationService
             $targetTable, $create, $find,
         ): AgentAppendResult {
             PhrPatient::query()->whereKey($patient->id)->lockForUpdate()->firstOrFail();
-            $requestHash = AgentApiRequestFingerprint::for($fingerprintPayload);
+            $requestHashes = AgentApiRequestFingerprint::candidates($fingerprintPayload);
+            $requestHash = $requestHashes[0];
             $identity = $this->identities->find($patient->id, $client, $operation, $externalId);
 
             if ($identity !== null) {
-                if (! hash_equals($identity->request_hash, $requestHash)
+                if (! $this->matchesAny($identity->request_hash, $requestHashes)
                     || $identity->target_table !== $targetTable) {
                     throw new ConflictHttpException('The stable external identifier is already bound to different data.');
                 }
@@ -107,6 +108,14 @@ final readonly class AgentHealthLogMutationService
                 } catch (ModelNotFoundException) {
                     throw new ConflictHttpException('The stable external identifier refers to a record that no longer exists.');
                 }
+                $this->identities->rotateDigests(
+                    $identity,
+                    $patient->id,
+                    $client,
+                    $operation,
+                    $externalId,
+                    $requestHash,
+                );
 
                 return new AgentAppendResult($record, AgentAppendResult::UNCHANGED);
             }
@@ -124,5 +133,17 @@ final readonly class AgentHealthLogMutationService
 
             return new AgentAppendResult($record, AgentAppendResult::CREATED);
         }, 3);
+    }
+
+    /** @param non-empty-list<string> $candidates */
+    private function matchesAny(string $stored, array $candidates): bool
+    {
+        foreach ($candidates as $candidate) {
+            if (hash_equals($stored, $candidate)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

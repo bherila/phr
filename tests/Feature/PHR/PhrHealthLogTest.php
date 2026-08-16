@@ -190,6 +190,12 @@ class PhrHealthLogTest extends TestCase
             'details' => 'not-an-object',
         ])->assertUnprocessable()
             ->assertJsonValidationErrors(['occurred_at', 'intensity', 'tags.1', 'details']);
+
+        $this->actingAs($owner)->postJson("/api/phr/patients/{$patientId}/health-logs/{$logId}/entries", [
+            'occurred_at' => '2026-07-13 16:00:00',
+            'details' => ['synthetic-list-value'],
+        ])->assertUnprocessable()
+            ->assertJsonValidationErrors('details');
     }
 
     public function test_health_log_api_requires_authentication(): void

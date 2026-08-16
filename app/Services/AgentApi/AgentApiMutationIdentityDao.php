@@ -16,7 +16,15 @@ final class AgentApiMutationIdentityDao
         string $externalId,
     ): ?AgentApiMutationIdentity {
         return AgentApiMutationIdentity::query()
-            ->where($this->identity($patientId, $client, $operation, $externalId))
+            ->where('patient_id', $patientId)
+            ->where('oauth_client_id', $client->id)
+            ->where('operation', $operation)
+            ->whereIn('external_id_hash', $this->externalIdHashes(
+                $patientId,
+                $client,
+                $operation,
+                $externalId,
+            ))
             ->lockForUpdate()
             ->first();
     }
@@ -38,6 +46,25 @@ final class AgentApiMutationIdentityDao
         ]);
     }
 
+    public function rotateDigests(
+        AgentApiMutationIdentity $identity,
+        int $patientId,
+        AgentApiClientIdentity $client,
+        string $operation,
+        string $externalId,
+        string $requestHash,
+    ): void {
+        $identity->update([
+            'external_id_hash' => $this->externalIdHashes(
+                $patientId,
+                $client,
+                $operation,
+                $externalId,
+            )[0],
+            'request_hash' => $requestHash,
+        ]);
+    }
+
     /** @return array{patient_id: int, oauth_client_id: string, operation: string, external_id_hash: string} */
     private function identity(
         int $patientId,
@@ -49,10 +76,25 @@ final class AgentApiMutationIdentityDao
             'patient_id' => $patientId,
             'oauth_client_id' => $client->id,
             'operation' => $operation,
-            'external_id_hash' => AgentApiSecretDigest::for(
-                'mutation-external-id',
-                implode("\0", [$patientId, $client->id, $operation, $externalId]),
-            ),
+            'external_id_hash' => $this->externalIdHashes(
+                $patientId,
+                $client,
+                $operation,
+                $externalId,
+            )[0],
         ];
+    }
+
+    /** @return non-empty-list<string> */
+    private function externalIdHashes(
+        int $patientId,
+        AgentApiClientIdentity $client,
+        string $operation,
+        string $externalId,
+    ): array {
+        return AgentApiSecretDigest::candidates(
+            'mutation-external-id',
+            implode("\0", [$patientId, $client->id, $operation, $externalId]),
+        );
     }
 }

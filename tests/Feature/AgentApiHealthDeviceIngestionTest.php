@@ -138,6 +138,41 @@ final class AgentApiHealthDeviceIngestionTest extends TestCase
         ])->assertForbidden();
     }
 
+    public function test_health_log_entry_details_require_a_json_object(): void
+    {
+        $actor = $this->user('health-details-agent@example.test');
+        $patient = $this->patient($actor, 'Synthetic Health Details Patient');
+        $client = $this->client('Synthetic Health Details Agent');
+        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_WRITE], 'api', $client);
+
+        $logId = (int) $this->postJson("/api/v1/patients/{$patient->id}/health-logs", [
+            'external_id' => 'synthetic-details-log',
+            'name' => 'Synthetic details journal',
+            'kind' => PhrHealthLog::KIND_CUSTOM,
+        ])->assertCreated()->json('data.id');
+        $endpoint = "/api/v1/patients/{$patient->id}/health-logs/{$logId}/entries";
+        $base = [
+            'external_id' => 'synthetic-details-entry',
+            'occurred_at' => '2026-08-16T13:00:00Z',
+        ];
+
+        $this->postJson($endpoint, [...$base, 'details' => ['synthetic-list-value']])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('details');
+        $this->postJson($endpoint, [...$base, 'details' => []])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('details');
+
+        $response = $this->call(
+            'POST',
+            $endpoint,
+            server: ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json'],
+            content: json_encode([...$base, 'details' => (object) []], JSON_THROW_ON_ERROR),
+        )->assertCreated();
+        $wirePayload = json_decode($response->getContent(), false, flags: JSON_THROW_ON_ERROR);
+        $this->assertIsObject($wirePayload->data->details);
+    }
+
     public function test_agent_respiratory_ingest_reuses_device_validation_and_duplicate_semantics(): void
     {
         $actor = $this->user('respiratory-agent@example.test');
@@ -172,6 +207,13 @@ final class AgentApiHealthDeviceIngestionTest extends TestCase
             ->assertOk()
             ->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.client_event_uuid', 'synthetic-event-1');
+        PhrRespiratoryEvent::query()->sole()->update(['false_positive_at' => now()]);
+        $this->getJson("/api/v1/patients/{$patient->id}/respiratory-events?include_false_positives=false")
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+        $this->getJson("/api/v1/patients/{$patient->id}/respiratory-events?include_false_positives=true")
+            ->assertOk()
+            ->assertJsonCount(1, 'data');
         $this->getJson("/api/v1/patients/{$patient->id}/respiratory-events?event_type=unsupported")
             ->assertUnprocessable();
         $this->assertDatabaseCount('phr_respiratory_events', 1);
@@ -183,6 +225,64 @@ final class AgentApiHealthDeviceIngestionTest extends TestCase
             'route_name' => 'agent-api.v1.respiratory-events.batch',
             'response_status' => 200,
         ]);
+    }
+
+    public function test_health_log_retry_identities_survive_application_key_rotation(): void
+    {
+        $oldKey = 'base64:'.base64_encode(str_repeat('o', 32));
+        $newKey = 'base64:'.base64_encode(str_repeat('n', 32));
+        config(['app.key' => $oldKey, 'app.previous_keys' => []]);
+
+        $actor = $this->user('health-rotation-agent@example.test');
+        $patient = $this->patient($actor, 'Synthetic Rotation Patient');
+        $client = $this->client('Synthetic Rotation Agent');
+        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_WRITE], 'api', $client);
+        $logPayload = [
+            'external_id' => 'synthetic-rotation-log',
+            'name' => 'Synthetic rotation journal',
+            'kind' => PhrHealthLog::KIND_CUSTOM,
+        ];
+        $logId = (int) $this->postJson("/api/v1/patients/{$patient->id}/health-logs", $logPayload)
+            ->assertCreated()
+            ->json('data.id');
+        $entryPayload = [
+            'external_id' => 'synthetic-rotation-entry',
+            'occurred_at' => '2026-08-16T14:00:00Z',
+            'title' => 'Synthetic rotation observation',
+        ];
+        $entryEndpoint = "/api/v1/patients/{$patient->id}/health-logs/{$logId}/entries";
+        $this->postJson($entryEndpoint, $entryPayload)->assertCreated();
+        $oldDigests = AgentApiMutationIdentity::query()
+            ->orderBy('operation')
+            ->pluck('external_id_hash', 'operation')
+            ->all();
+
+        config(['app.key' => $newKey, 'app.previous_keys' => [$oldKey]]);
+        $this->postJson("/api/v1/patients/{$patient->id}/health-logs", $logPayload)
+            ->assertOk()
+            ->assertJsonPath('outcome', 'unchanged');
+        $this->postJson($entryEndpoint, $entryPayload)
+            ->assertOk()
+            ->assertJsonPath('outcome', 'unchanged');
+        $newDigests = AgentApiMutationIdentity::query()
+            ->orderBy('operation')
+            ->pluck('external_id_hash', 'operation')
+            ->all();
+        $this->assertNotSame($oldDigests, $newDigests);
+
+        config(['app.previous_keys' => []]);
+        $this->postJson("/api/v1/patients/{$patient->id}/health-logs", $logPayload)
+            ->assertOk()
+            ->assertJsonPath('outcome', 'unchanged');
+        $this->postJson($entryEndpoint, $entryPayload)
+            ->assertOk()
+            ->assertJsonPath('outcome', 'unchanged');
+        $this->postJson($entryEndpoint, [...$entryPayload, 'title' => 'Synthetic changed observation'])
+            ->assertConflict();
+
+        $this->assertDatabaseCount('phr_health_logs', 1);
+        $this->assertDatabaseCount('phr_health_log_entries', 1);
+        $this->assertDatabaseCount('agent_api_mutation_identities', 2);
     }
 
     public function test_capabilities_openapi_and_model_allow_lists_stay_in_sync(): void

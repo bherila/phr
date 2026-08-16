@@ -51,7 +51,9 @@ typed DAO. Their retry ledger stores only domain-separated HMAC external-ID/requ
 digests, an OAuth client UUID, and a target row reference—never the caller's raw
 identifier or clinical payload. A patient row lock serializes concurrent first writes;
 an exact retry returns the existing row, while a changed payload or deleted target
-conflicts. The ledger cascades with patient deletion and is intentionally operational,
+conflicts. Digest lookup accepts `APP_PREVIOUS_KEYS` and migrates a matched row to the
+current key, so routine key rotation cannot invalidate retry identities. The ledger
+cascades with patient deletion and is intentionally operational,
 not part of a native patient archive.
 
 Respiratory-event automation delegates to the same service used by the paired-device
