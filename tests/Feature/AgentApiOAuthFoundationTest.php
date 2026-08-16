@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Middleware\SerializeOAuthTokenExchange;
 use App\Models\AgentApiAudit;
 use App\Models\User;
 use App\Support\AgentApi\AccountAwareAuthCodeRepository;
@@ -11,7 +12,9 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Laravel\Passport\AccessToken;
@@ -19,6 +22,7 @@ use Laravel\Passport\AuthCode;
 use Laravel\Passport\Bridge\AuthCodeRepository as PassportAuthCodeRepository;
 use Laravel\Passport\Bridge\RefreshTokenRepository as PassportRefreshTokenRepository;
 use Laravel\Passport\Client;
+use Laravel\Passport\Events\RefreshTokenCreated;
 use Laravel\Passport\Passport;
 use Laravel\Passport\RefreshToken;
 use Laravel\Passport\Token;
@@ -125,11 +129,16 @@ class AgentApiOAuthFoundationTest extends TestCase
             'code_challenge' => $challenge,
             'code_challenge_method' => 'S256',
         ]));
-        $authorization->assertOk()->assertSee('Synthetic Public Client');
+        $authorization->assertOk()
+            ->assertHeader('X-Frame-Options', 'DENY')
+            ->assertHeader('Content-Security-Policy', "frame-ancestors 'none'")
+            ->assertSee('Synthetic Public Client');
 
         $approval = $this->post('/oauth/authorize', [
             'auth_token' => session('authToken'),
-        ])->assertRedirect();
+        ])->assertRedirect()
+            ->assertHeader('X-Frame-Options', 'DENY')
+            ->assertHeader('Content-Security-Policy', "frame-ancestors 'none'");
         parse_str((string) parse_url((string) $approval->headers->get('Location'), PHP_URL_QUERY), $redirectQuery);
         $this->assertSame('synthetic-state', $redirectQuery['state']);
         $this->assertIsString($redirectQuery['code']);
@@ -478,6 +487,63 @@ class AgentApiOAuthFoundationTest extends TestCase
         $this->assertDatabaseCount('oauth_access_tokens', 0);
     }
 
+    public function test_token_exchange_is_serialized_and_rechecks_account_state_after_issuance(): void
+    {
+        $route = Route::getRoutes()->getByName('passport.token');
+        $this->assertNotNull($route);
+        $this->assertContains(SerializeOAuthTokenExchange::class, $route->gatherMiddleware());
+
+        $this->createAdminUser();
+        $user = $this->createUser();
+        $client = Client::query()->create([
+            'name' => 'Synthetic Post-Issuance Guard Client',
+            'secret' => null,
+            'provider' => 'users',
+            'redirect_uris' => ['https://client.example.test/callback'],
+            'grant_types' => ['authorization_code', 'refresh_token'],
+            'revoked' => false,
+        ]);
+        $verifier = str_repeat('post-issuance-check-', 3);
+        $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+            'client_id' => $client->id,
+            'redirect_uri' => 'https://client.example.test/callback',
+            'response_type' => 'code',
+            'scope' => AgentApiScopes::IDENTITY_READ,
+            'state' => 'synthetic-post-issuance-state',
+            'code_challenge' => $challenge,
+            'code_challenge_method' => 'S256',
+        ]))->assertOk();
+        $approval = $this->post('/oauth/authorize', [
+            'auth_token' => session('authToken'),
+        ])->assertRedirect();
+        parse_str((string) parse_url((string) $approval->headers->get('Location'), PHP_URL_QUERY), $redirectQuery);
+        $this->assertIsString($redirectQuery['code']);
+
+        // Disable the account immediately after Passport persists the new
+        // refresh token but before the exchange middleware returns its response.
+        $passportConnection = DB::connection(is_string(config('passport.connection')) ? config('passport.connection') : null);
+        $baselineTransactionLevel = $passportConnection->transactionLevel();
+        $issuanceTransactionLevel = $baselineTransactionLevel;
+        Event::listen(RefreshTokenCreated::class, function () use ($user, $passportConnection, &$issuanceTransactionLevel): void {
+            $issuanceTransactionLevel = $passportConnection->transactionLevel();
+            DB::table('users')->where('id', $user->id)->update(['user_role' => '']);
+        });
+        $this->postJson('/oauth/token', [
+            'grant_type' => 'authorization_code',
+            'client_id' => $client->id,
+            'redirect_uri' => 'https://client.example.test/callback',
+            'code_verifier' => $verifier,
+            'code' => $redirectQuery['code'],
+        ])->assertBadRequest()->assertJsonPath('error', 'invalid_grant');
+
+        $this->assertGreaterThan($baselineTransactionLevel, $issuanceTransactionLevel);
+        $token = Token::query()->where('user_id', $user->id)->sole();
+        $refresh = RefreshToken::query()->where('access_token_id', $token->id)->sole();
+        $this->assertTrue($token->fresh()->revoked);
+        $this->assertTrue($refresh->fresh()->revoked);
+    }
+
     public function test_auth_code_repository_fails_closed_when_account_was_disabled_outside_eloquent(): void
     {
         // User id 1 is intentionally always an administrator and cannot be disabled.
@@ -586,6 +652,53 @@ class AgentApiOAuthFoundationTest extends TestCase
 
         $this->assertDatabaseCount('agent_api_audits', 1);
         $this->assertDatabaseHas('agent_api_audits', ['id' => $recent->id]);
+    }
+
+    public function test_scheduled_passport_purge_removes_revoked_credentials(): void
+    {
+        $user = $this->createUser();
+        $client = Client::query()->create([
+            'name' => 'Synthetic Purge Client',
+            'secret' => null,
+            'provider' => 'users',
+            'redirect_uris' => ['https://client.example.test/callback'],
+            'grant_types' => ['authorization_code', 'refresh_token'],
+            'revoked' => false,
+        ]);
+        $token = Token::query()->create([
+            'id' => Str::random(80),
+            'user_id' => $user->id,
+            'client_id' => $client->id,
+            'name' => null,
+            'scopes' => [AgentApiScopes::IDENTITY_READ],
+            'revoked' => true,
+            'expires_at' => now()->addMinutes(15),
+        ]);
+        $refresh = RefreshToken::query()->create([
+            'id' => Str::random(80),
+            'access_token_id' => $token->id,
+            'revoked' => true,
+            'expires_at' => now()->addDays(30),
+        ]);
+        $authorizationCode = AuthCode::query()->create([
+            'id' => Str::random(80),
+            'user_id' => $user->id,
+            'client_id' => $client->id,
+            'scopes' => json_encode([AgentApiScopes::IDENTITY_READ], JSON_THROW_ON_ERROR),
+            'revoked' => true,
+            'expires_at' => now()->addMinutes(10),
+        ]);
+
+        $this->artisan('phr:uptime:run-task', ['job' => 'passport:purge'])->assertSuccessful();
+
+        $this->assertDatabaseMissing('oauth_access_tokens', ['id' => $token->id]);
+        $this->assertDatabaseMissing('oauth_refresh_tokens', ['id' => $refresh->id]);
+        $this->assertDatabaseMissing('oauth_auth_codes', ['id' => $authorizationCode->id]);
+        $this->assertDatabaseHas('uptime_runs', [
+            'job_name' => 'passport:purge',
+            'status' => 'success',
+            'exit_code' => 0,
+        ]);
     }
 
     public function test_oauth_key_verifier_accepts_only_a_parseable_matching_pair(): void
