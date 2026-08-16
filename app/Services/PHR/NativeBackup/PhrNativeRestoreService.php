@@ -163,6 +163,7 @@ final class PhrNativeRestoreService
         $attempt->update([
             'status' => PhrNativeRestoreAttempt::STATUS_PREVIEW_PROCESSING,
             'failure_category' => null,
+            'completed_at' => null,
         ]);
         try {
             if ($attempt->actor_user_id === null
@@ -259,7 +260,11 @@ final class PhrNativeRestoreService
 
     public function apply(PhrNativeRestoreAttempt $attempt): PhrNativeRestoreAttempt
     {
-        $attempt->update(['status' => PhrNativeRestoreAttempt::STATUS_PROCESSING, 'failure_category' => null]);
+        $attempt->update([
+            'status' => PhrNativeRestoreAttempt::STATUS_PROCESSING,
+            'failure_category' => null,
+            'completed_at' => null,
+        ]);
         $written = new PhrNativeRestoreWrittenArtifacts;
         try {
             if ($attempt->actor_user_id === null

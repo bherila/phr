@@ -95,7 +95,7 @@ final class PhrNativeRestoreArchiveReader
             || ($manifest['schemaVersion'] ?? null) !== PhrNativeBackupCatalog::SCHEMA_VERSION) {
             throw new NativeRestoreException('unsupported_schema');
         }
-        if (! Str::isUuid($manifest['patientNativeId'] ?? null)) {
+        if (! $this->isUuid($manifest['patientNativeId'] ?? null)) {
             throw new NativeRestoreException('invalid_archive');
         }
         $tables = $manifest['tables'] ?? null;
@@ -249,7 +249,7 @@ final class PhrNativeRestoreArchiveReader
     private function validateRecord(string $table, array $definition, array $record): void
     {
         if (array_keys($record) !== ['attributes', 'contentHash', 'nativeId', 'relationships']
-            || ! Str::isUuid($record['nativeId'] ?? null)
+            || ! $this->isUuid($record['nativeId'] ?? null)
             || ! $this->isHash($record['contentHash'] ?? null)
             || ! is_array($record['attributes'] ?? null)
             || ! is_array($record['relationships'] ?? null)) {
@@ -295,7 +295,7 @@ final class PhrNativeRestoreArchiveReader
             if (! is_array($relationship)
                 || ($relationship['kind'] ?? null) !== $expected['kind']
                 || ($relationship['table'] ?? null) !== $expected['target']
-                || ! Str::isUuid($relationship['nativeId'] ?? null)) {
+                || ! $this->isUuid($relationship['nativeId'] ?? null)) {
                 throw new NativeRestoreException('invalid_archive');
             }
         }
@@ -316,7 +316,7 @@ final class PhrNativeRestoreArchiveReader
         foreach ($manifest['artifacts'] as $artifact) {
             if (! is_array($artifact)
                 || ! in_array($artifact['kind'] ?? null, ['document', 'dicom', 'dicomdir'], true)
-                || ! Str::isUuid($artifact['recordNativeId'] ?? null)
+                || ! $this->isUuid($artifact['recordNativeId'] ?? null)
                 || ! is_string($artifact['path'] ?? null)
                 || ! is_int($artifact['size'] ?? null) || $artifact['size'] < 0
                 || ! $this->isHash($artifact['sha256'] ?? null)
@@ -373,5 +373,10 @@ final class PhrNativeRestoreArchiveReader
     private function isHash(mixed $value): bool
     {
         return is_string($value) && preg_match('/\A[a-f0-9]{64}\z/', $value) === 1;
+    }
+
+    private function isUuid(mixed $value): bool
+    {
+        return is_string($value) && $value === strtolower($value) && Str::isUuid($value);
     }
 }
