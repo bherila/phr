@@ -13,6 +13,7 @@ Artisan::command('inspire', function () {
 Schedule::command('phr:uptime:run-task', ['phr:dicom:gc'])->hourly()->withoutOverlapping(30);
 Schedule::command('phr:uptime:run-task', ['phr:exports:purge'])->daily()->withoutOverlapping(30);
 Schedule::command('phr:uptime:run-task', ['phr:native-backups:purge'])->daily()->withoutOverlapping(30);
+Schedule::command('phr:uptime:run-task', ['phr:data-hub:prune-audits'])->daily()->withoutOverlapping(30);
 Schedule::command('phr:uptime:run-task', ['genai:requeue-stale'])->everyFiveMinutes()->withoutOverlapping(10);
 Schedule::command('phr:uptime:prune', ['--days' => 30])->daily()->withoutOverlapping(10);
 

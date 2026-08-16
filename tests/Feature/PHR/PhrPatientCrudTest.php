@@ -109,8 +109,14 @@ class PhrPatientCrudTest extends TestCase
     {
         $owner = $this->createUser();
         $patientId = (int) $this->actingAs($owner)->postJson('/api/phr/patients', ['display_name' => 'Alice'])->json('patient.id');
+        $digest = (string) $this->actingAs($owner)
+            ->getJson("/api/phr/data-hub/patients/{$patientId}/deletion-preview")
+            ->json('deletion_preview.preview_digest');
 
-        $this->actingAs($owner)->deleteJson("/api/phr/patients/{$patientId}")->assertNoContent();
+        $this->actingAs($owner)->deleteJson("/api/phr/patients/{$patientId}", [
+            'confirmation' => 'DELETE',
+            'preview_digest' => $digest,
+        ])->assertAccepted();
 
         $this->actingAs($owner)->getJson('/api/phr/patients')->assertJsonCount(0, 'patients');
     }

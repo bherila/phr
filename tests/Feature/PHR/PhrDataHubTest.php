@@ -97,7 +97,7 @@ class PhrDataHubTest extends TestCase
             ->assertJsonPath('owned_patients.0.operations.clinical_export.status', 'available')
             ->assertJsonPath('owned_patients.0.operations.native_backup.status', 'available')
             ->assertJsonPath('owned_patients.0.operations.restore.status', 'planned')
-            ->assertJsonPath('owned_patients.0.operations.aggregate_delete.status', 'planned');
+            ->assertJsonPath('owned_patients.0.operations.aggregate_delete.status', 'available');
 
         $this->assertSame(
             array_keys(PhrDataInventoryService::CATEGORIES),

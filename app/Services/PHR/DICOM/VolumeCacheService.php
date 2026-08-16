@@ -5,6 +5,7 @@ namespace App\Services\PHR\DICOM;
 use App\Models\PhrDicomFile;
 use App\Models\PhrDicomInstance;
 use App\Models\PhrDicomSeries;
+use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
 use App\Support\Storage\PhrStorageKey;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
@@ -12,7 +13,10 @@ use RuntimeException;
 
 class VolumeCacheService
 {
-    public function __construct(private readonly DicomUploadProcessor $uploadProcessor) {}
+    public function __construct(
+        private readonly DicomUploadProcessor $uploadProcessor,
+        private readonly PhrPatientArtifactWriteGuard $artifactWriteGuard,
+    ) {}
 
     public function pipelineVersion(): int
     {
@@ -36,6 +40,17 @@ class VolumeCacheService
     }
 
     public function store(PhrDicomSeries $series, UploadedFile $artifact): PhrDicomFile
+    {
+        return $this->artifactWriteGuard->run((int) $series->patient_id, function () use ($series, $artifact): PhrDicomFile {
+            $currentSeries = PhrDicomSeries::query()
+                ->where('patient_id', $series->patient_id)
+                ->findOrFail($series->id);
+
+            return $this->storeWhilePatientLocked($currentSeries, $artifact);
+        });
+    }
+
+    private function storeWhilePatientLocked(PhrDicomSeries $series, UploadedFile $artifact): PhrDicomFile
     {
         $pipelineVersion = $this->pipelineVersion();
         $storageKey = $this->storageKey($series, $pipelineVersion);

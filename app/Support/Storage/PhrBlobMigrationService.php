@@ -5,8 +5,10 @@ namespace App\Support\Storage;
 use App\Models\PhrDicomFile;
 use App\Models\PhrDicomSeries;
 use App\Models\PhrDicomUpload;
+use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Ramsey\Uuid\Uuid;
@@ -34,6 +36,8 @@ final class PhrBlobMigrationService
     public const array DISKS = ['phr_documents', 'phr_dicom', 'phr_exports'];
 
     private const string UUID_NAMESPACE = 'c49e9b22-a4ad-5a87-a68f-2f0149be6770';
+
+    public function __construct(private readonly PhrPatientArtifactWriteGuard $artifactWriteGuard) {}
 
     /**
      * @param  callable(array{artifact: string, table: string, id: int, status: string}): void|null  $reporter
@@ -122,6 +126,7 @@ final class PhrBlobMigrationService
                 );
                 $result = $this->migrateReference(
                     $apply,
+                    $patientId,
                     'documents',
                     'phr_documents',
                     'phr_documents',
@@ -181,6 +186,7 @@ final class PhrBlobMigrationService
                 );
                 $result = $this->migrateReference(
                     $apply,
+                    $patientId,
                     'exports',
                     'phr_exports',
                     'phr_exports',
@@ -239,6 +245,7 @@ final class PhrBlobMigrationService
                 );
                 $result = $this->migrateReference(
                     $apply,
+                    $patientId,
                     'native-backups',
                     'phr_exports',
                     'phr_native_backups',
@@ -311,6 +318,7 @@ final class PhrBlobMigrationService
 
                 $result = $this->migrateReference(
                     $apply,
+                    $patientId,
                     $artifact,
                     'phr_dicom',
                     'phr_dicom_files',
@@ -430,6 +438,55 @@ final class PhrBlobMigrationService
      * @return array{status: string, bytes: int}
      */
     private function migrateReference(
+        bool $apply,
+        int $patientId,
+        string $artifact,
+        string $diskName,
+        string $table,
+        int $id,
+        string $column,
+        string $source,
+        string $destination,
+        ?int $expectedSize,
+        ?string $expectedHash,
+    ): array {
+        if (! $apply) {
+            return $this->migrateReferenceWhilePatientLocked(
+                false,
+                $artifact,
+                $diskName,
+                $table,
+                $id,
+                $column,
+                $source,
+                $destination,
+                $expectedSize,
+                $expectedHash,
+            );
+        }
+
+        try {
+            return $this->artifactWriteGuard->run($patientId, fn (): array => $this->migrateReferenceWhilePatientLocked(
+                true,
+                $artifact,
+                $diskName,
+                $table,
+                $id,
+                $column,
+                $source,
+                $destination,
+                $expectedSize,
+                $expectedHash,
+            ));
+        } catch (ModelNotFoundException) {
+            return ['status' => 'stale_reference', 'bytes' => 0];
+        }
+    }
+
+    /**
+     * @return array{status: string, bytes: int}
+     */
+    private function migrateReferenceWhilePatientLocked(
         bool $apply,
         string $artifact,
         string $diskName,
