@@ -29,7 +29,8 @@ heavier than in the games split.
 - `app/Models/Phr*.php`, `app/Services/PHR/**`, `app/Http/Controllers/PHR/**`,
   `app/Console/Commands/Phr/**` — the PHR domain: patients, clinical records, DICOM
   upload/viewer/volume-cache, CCDA/FHIR/MyChart import, CCDA/FHIR/PDF export, Sinus
-  Sentinel device ingest.
+  Sentinel device ingest. The generated XML's profile and known interoperability gaps
+  are tracked in [`docs/ccda-conformance.md`](docs/ccda-conformance.md).
 - `app/GenAiProcessor/**` — **PHR's own minimal GenAI import-job queue**, not a copy of
   the monorepo's shared 55-file pipeline. Per #1805 option (c): the monorepo's
   `ParseImportJob`/`GenAiImportJob`/`GenAiImportResult` are shared with finance and
@@ -73,11 +74,44 @@ page and inventory API use `private, no-store` responses.
 
 Clinical interoperability export remains distinct from native backup. Each owned
 patient can generate the existing C-CDA XML clinical summary independently; there is
-no all-patients export. A future native archive from issue #12 will preserve original
-files and PHR-specific state that C-CDA does not model, with its own versioned restore
-contract. The current XML generator predates the 2026 C-CDA v5 publication, so formal
-v5 profile validation is a separate compatibility hardening step rather than an
-assumed claim of conformance.
+no all-patients export. The `phr-native-v1` archive preserves original files and
+PHR-specific state that C-CDA does not model, with its own versioned restore contract.
+The current XML generator predates the 2026 C-CDA v5 publication, so formal v5 profile
+validation remains a separate compatibility hardening step rather than an assumed
+claim of conformance.
+
+Owners can preview and confirm aggregate deletion from the Data Hub. The preview
+contains table-level row counts, active-share count, exclusively owned artifact count
+and bytes, fixed blocker codes, and a digest—never clinical values, filenames, or
+storage keys. Applying it requires typing `DELETE`, presenting the unchanged digest,
+and separately acknowledging active shares. The database graph is deleted in one
+transaction; exact document, DICOM, export, native-backup, and migration-ledger objects
+then move through durable retryable cleanup rows. A storage failure reports
+`cleanup_failed` without pretending cleanup completed or restoring accessible rows.
+
+The Data Hub also accepts a re-uploaded `phr-native-v1` ZIP for restore. The browser
+uploads authenticated 8 MiB chunks so the existing cPanel request ceiling does not cap
+the 20 GiB archive contract. A queued read-only pass then performs integrity and conflict validation before any patient mutation: the
+plan reports fixed create/skip/block counts for records and source artifacts, and
+requires typing `RESTORE` with the unchanged plan digest. Missing stable identities
+are created, byte-identical identities are skipped, and any differing identity blocks
+the whole transaction—version 1 never merges or overwrites fields. The owner grant is
+the patient ownership invariant; non-owner shares remain omitted unless separately
+selected and every opaque actor identity can be mapped to an existing account. Apply
+runs on the queue, remaps database IDs atomically, streams original files, and removes
+partial object writes if the database transaction rolls back. Only schema version 1 is
+accepted; future versions fail closed rather than receiving a best-effort import.
+
+Data Hub audit policy is explicit: successful metadata-only events are retained for
+2,555 days (seven years) and durable operation failures for 365 days. Read-only
+previews and pre-mutation refusals/no-ops are not persisted as audit events. Pending
+cleanup work is never pruned. Full user-account deletion anonymizes `actor_user_id` while retaining the
+patient root id, applicable schema/checksum or preview digest, counts, timestamps,
+outcome, and fixed failure category. `phr:data-hub:prune-audits` runs daily through the monitored scheduler; the
+windows are configurable with `PHR_DATA_HUB_AUDIT_*_RETENTION_DAYS`.
+Uploaded restore sources are short-lived operational copies, defaulting to seven days;
+`phr:native-restores:purge` clears expired source bytes while retaining the applicable
+metadata-only audit event.
 
 ## Auth
 
@@ -113,6 +147,28 @@ Issuing replaces any existing token for that user. A token with no expiry
 recorded is rejected, so the credential fails closed. `mcp_api_key_last_used_at`
 records the last authenticated call, which is the signal to watch if a device is
 lost.
+
+### OAuth agent API
+
+The versioned agent surface begins at `/api/v1`. Public discovery is available at
+`/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource`,
+and `/api/v1/capabilities`; its OpenAPI 3.1 contract is
+[`public/openapi/phr-agent-v1.json`](public/openapi/phr-agent-v1.json). Interactive
+clients use OAuth Authorization Code with S256 PKCE, 15-minute access tokens, and
+rotating 30-day refresh tokens. The legacy Sinus Sentinel device credentials above
+remain isolated from this scoped API.
+
+The initial read surface registers three independently consented scopes:
+`identity:read`, `patients:read`, and `clinical:read`. Patient discovery returns only
+the caller's own access level and never enumerates other grants or owner identities.
+Core clinical list/get endpoints cover office visits, procedures, immunizations,
+medications, conditions, allergies, labs, vitals, and health logs. Lists use opaque
+cursor pagination (25 records by default, 100 maximum), support update-window filters,
+and preserve import/source-document provenance through the same JSON Resources used by
+the browser API. Every protected response is private and non-cacheable.
+
+See [`docs/agent-api-security.md`](docs/agent-api-security.md) for the threat model,
+PHI-safe audit boundary, signing-key deployment, and revocation procedures.
 
 ## Running locally
 
@@ -160,8 +216,6 @@ test fails.
 (it under-forwards the ini override to its internal test-runner process); CI and this
 README both call `vendor/bin/phpunit` directly, which does honor it.
 
-No E2E suite is included — the monorepo has none for PHR either.
-
 ## Deployment
 
 CI targets GitHub-hosted `ubuntu-24.04-arm` runners exclusively — this repo has no
@@ -176,7 +230,9 @@ subdomain, and database:
 - The vhost's PHP version is set to `ea-php85` (new cPanel subdomains default to
   `ea-php81`, which 500s every page against this app's `>=8.4.1` platform requirement
   while the deploy workflow still reports success — this bit the games deploy)
-- `PHR_DICOM_R2_*` env vars point at the dedicated Cloudflare R2 bucket `bhdicom`
+- `PHR_DICOM_DISK_DRIVER=local` keeps production DICOM under
+  `storage/app/private/phr-dicom`; the `PHR_DICOM_R2_*` settings remain available when
+  the driver is switched to `s3`
 - PHP limits for the vhost live in `public/.htaccess` under `<IfModule LiteSpeed>`, **not**
   in a `.user.ini` — the web SAPI is `litespeed`, which ignores `.user.ini` on this host
   even though `user_ini.filename` is set, so values silently stay at the ea-php85 defaults
@@ -184,15 +240,80 @@ subdomain, and database:
 
 ### Blob storage
 
-All four disks are `local` in production as of 2026-08-02. DICOM pixel data lived in the
-Cloudflare R2 bucket `bhdicom` until then and now sits at `storage/app/private/phr-dicom`
-(2,650 files / 867 MB), reached through the `phr_dicom` disk; `phr_documents`, `phr_exports`
-and the GenAI staging disk named `s3` are local too. The move was for backups — R2 has
-durability but no point-in-time recovery, and web1 is snapshotted hourly.
+DICOM pixel data is reached through the driver-agnostic `phr_dicom` disk. Production sets
+`PHR_DICOM_DISK_DRIVER=local`, rooted at `storage/app/private/phr-dicom`; the configuration
+default remains `s3` and the `PHR_DICOM_R2_*` settings support an R2-backed deployment.
+The `phr_documents`, `phr_exports`, and GenAI staging disk named `s3` are also local in
+production. GenAI staging can return to an object store with `S3_DISK_DRIVER=s3` and the
+corresponding AWS settings. Object keys are identical with either driver, so switching
+drivers needs no database rewrite.
 
-Each disk follows a driver env var (`PHR_DICOM_DISK_DRIVER`, `S3_DISK_DRIVER`), so returning
-to an object store is a one-line flip. Object keys are stored in the database and are
-identical either way, so switching drivers needs no data rewrite.
+Durable PHR objects use patient-first relative keys on their respective disks:
+
+```text
+patients/{patient_id}/documents/{object_uuid}/{safe_original_filename}
+patients/{patient_id}/imaging/dicom/uploads/{upload_uuid}/{original_relative_path}
+patients/{patient_id}/imaging/dicom/derived/series/{series_id}/v{pipeline_version}.bin.gz
+patients/{patient_id}/exports/{export_uuid}/{filename}
+```
+
+Stored database paths are authoritative and path-format agnostic, so legacy keys remain
+readable during migration. The garbage collector covers both namespaces until the
+rollback window and an explicit cleanup are complete. EOB attachments use their linked
+`phr_documents` blob rather than a second EOB-specific store.
+
+Operational blobs are not the source-evidence archive: original provider bundles,
+imaging containers, recordings, and insurer repositories remain separate evidence.
+Structured clinical and EOB rows remain in the database, while exports and derived
+volumes are reproducible artifacts. Never retire an external source repository until a
+separate SHA-256 reconciliation has matched its authoritative files to PHR document
+blobs. Disaster-recovery mirrors copy the complete operational tree and are never a
+normal migration source.
+
+Legacy keys move through a guarded, resumable command. It is a dry run unless
+`--apply` is present, and it can be narrowed to a patient, disk, or artifact class:
+
+```bash
+php artisan phr:storage:migrate-keys
+php artisan phr:storage:migrate-keys --patient=123 --artifact=documents
+php artisan phr:storage:migrate-keys --disk=phr_dicom --apply
+```
+
+The command resolves each exact stored reference, hashes the source, refuses a
+different destination object, copies and verifies before a compare-and-swap database
+update, then reads the canonical object back. Its output contains only artifact classes,
+table/id references, statuses, and aggregate counts/bytes—never keys or filenames.
+`phr_blob_migrations` protects verified legacy copies from both garbage collectors for
+the configured `PHR_BLOB_MIGRATION_ROLLBACK_DAYS` (30 by default). This command never
+deletes them. After production downloads, DICOM viewing, exports, and
+production-to-mirror verification all pass, retirement is a separate command:
+
+```bash
+php artisan phr:storage:cleanup-legacy-keys
+php artisan phr:storage:cleanup-legacy-keys --patient=123 --artifact=documents
+php artisan phr:storage:cleanup-legacy-keys --disk=phr_dicom --apply
+```
+
+Cleanup is also a dry run unless `--apply` is present. It ignores unexpired ledger
+rows, locks each canonical reference against concurrent recovery, and re-verifies the
+patient, reference, destination hash, source hash, and byte count before deleting only
+the legacy object. A mismatch fails closed and leaves the live ledger in place. Missing
+legacy bytes can be acknowledged only after the canonical side verifies; no command
+deletes a canonical destination through the migration ledger.
+
+Reconcile a patient-scoped source-evidence directory against operational document
+blobs before an insurer or provider repository is retired. The report is read-only,
+streams both sides through SHA-256, and emits only aggregate counts/bytes and internal
+`phr_documents#id` statuses—never source paths, object keys, or hashes:
+
+```bash
+php artisan phr:storage:reconcile-source-evidence --patient=123 --source=/outside/repo/evidence
+php artisan phr:storage:reconcile-source-evidence --patient=123 --source=/outside/repo/evidence --extension=pdf
+```
+
+An unmatched source file, unmatched document, missing blob, or metadata/hash mismatch
+returns a failing exit code. Source evidence stays outside this repository and every
+worktree; the command never writes to it or to the PHR database.
 
 > Two things bite when adding a local disk. Its `root` must follow the driver — a
 > filesystem path on `local`, an object-key prefix on `s3` — or every read 404s while the
@@ -200,8 +321,10 @@ identical either way, so switching drivers needs no data rewrite.
 > `.github/workflows/ci.yml`, or the next deploy's `--delete` reaps it silently.
 > `PhrDicomDiskRootTest` and `LocalDiskDeployExcludeTest` fail the build on both.
 
-`pnpm blobs` mirrors the server's `storage/app/private/` to
-`~/proj/x-data/phr/`, which `~/proj/backup.sh` then carries into restic:
+The authoritative web1 disk has no point-in-time recovery by itself, so a bad delete or
+an app bug can destroy its only live copy. `pnpm blobs` mirrors the server's complete
+`storage/app/private/` tree to `~/proj/x-data/phr/`, which `~/proj/backup.sh` then carries
+into restic:
 
 ```bash
 pnpm blobs pull            # dry-run, web1 -> x-data
@@ -229,7 +352,10 @@ The deploy owns two cPanel account cron entries, keyed independently by the stab
 five minutes. The scheduler launches the three PHR maintenance schedules; the
 `flock`-protected worker drains only `genai-imports` and `phr-exports`, then exits when
 the queues are empty. It retains the 240-second run window and 300-second job timeout,
-with a fixed 256 MB worker safety ceiling. Installation preserves every cron entry
+with a fixed 256 MB worker safety ceiling. Native restore jobs declare their own
+3,600-second timeout; the database queue reservation window has an enforced 3,660-second
+minimum, and deployment refuses a shorter effective value so a live restore cannot be reserved twice.
+Installation preserves every cron entry
 carrying neither PHR tag and rolls the account crontab back if verification fails.
 Five minutes is the scheduler's production resolution: do not add an every-minute task
 without also changing the managed cPanel cron cadence.

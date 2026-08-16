@@ -33,7 +33,7 @@ if [[ -n "${FAKE_CRONTAB_FILE:-}" && $# -gt 0 ]]; then
                     printf '%s\n' "queue.default ..................................................... ${FAKE_QUEUE_DRIVER:-database}"
                     ;;
                 phr:queue:audit)
-                    printf '%s\n' "queue-audit driver=database retry_after=${FAKE_RETRY_AFTER:-360} pending_total=0 failed_total=0"
+                    printf '%s\n' "queue-audit driver=database retry_after=${FAKE_RETRY_AFTER:-3660} pending_total=0 failed_total=0"
                     ;;
                 *)
                     echo "Unexpected fake Artisan command: $*" >&2
@@ -121,7 +121,7 @@ fi
 cmp -s "$original_crontab" "$fake_crontab"
 
 unset FAKE_QUEUE_DRIVER
-export FAKE_RETRY_AFTER=300
+export FAKE_RETRY_AFTER=3600
 if bash "$installer" >/dev/null 2>&1; then
     echo 'Expected unsafe retry_after verification to fail.' >&2
     exit 1

@@ -1,0 +1,391 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "PHR Agent API",
+    "version": "1.0.0",
+    "description": "Versioned OAuth API for authorized PHR automation clients. Responses containing personal data are private and non-cacheable."
+  },
+  "servers": [
+    { "url": "/api/v1" }
+  ],
+  "paths": {
+    "/capabilities": {
+      "get": {
+        "operationId": "capabilities.get",
+        "summary": "Discover API operations, scopes, and limits",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Server capabilities",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Capabilities" } } }
+          },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/me": {
+      "get": {
+        "operationId": "identity.get",
+        "summary": "Get the authorized identity and granted scopes",
+        "security": [{ "oauth2": ["identity:read"] }],
+        "responses": {
+          "200": {
+            "description": "Authorized identity",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IdentityResponse" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/patients": {
+      "get": {
+        "operationId": "patients.list",
+        "summary": "List patients accessible to the authorized user",
+        "security": [{ "oauth2": ["patients:read"] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/Limit" },
+          { "$ref": "#/components/parameters/Cursor" },
+          { "$ref": "#/components/parameters/UpdatedAfter" },
+          { "$ref": "#/components/parameters/UpdatedBefore" },
+          { "$ref": "#/components/parameters/Archived" }
+        ],
+        "responses": {
+          "200": {
+            "description": "A cursor-bounded page of accessible patients",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PatientListResponse" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "422": { "$ref": "#/components/responses/InvalidRequest" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/patients/{patient}": {
+      "get": {
+        "operationId": "patients.get",
+        "summary": "Get one accessible patient and the caller's access metadata",
+        "security": [{ "oauth2": ["patients:read"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
+        "responses": {
+          "200": {
+            "description": "Accessible patient",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PatientResponse" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/patients/{patient}/{resource}": {
+      "get": {
+        "operationId": "clinical.list",
+        "summary": "List one core clinical resource type for an accessible patient",
+        "security": [{ "oauth2": ["clinical:read"] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/PatientId" },
+          { "$ref": "#/components/parameters/ClinicalResource" },
+          { "$ref": "#/components/parameters/Limit" },
+          { "$ref": "#/components/parameters/Cursor" },
+          { "$ref": "#/components/parameters/UpdatedAfter" },
+          { "$ref": "#/components/parameters/UpdatedBefore" },
+          { "$ref": "#/components/parameters/ImportSource" },
+          { "$ref": "#/components/parameters/SourceDocumentId" },
+          { "$ref": "#/components/parameters/Archived" }
+        ],
+        "responses": {
+          "200": {
+            "description": "A cursor-bounded page of clinical records",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalListResponse" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/InvalidRequest" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/patients/{patient}/{resource}/{record}": {
+      "get": {
+        "operationId": "clinical.get",
+        "summary": "Get one core clinical record for an accessible patient",
+        "security": [{ "oauth2": ["clinical:read"] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/PatientId" },
+          { "$ref": "#/components/parameters/ClinicalResource" },
+          { "$ref": "#/components/parameters/RecordId" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Clinical record",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalResponse" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/oauth/token": {
+      "delete": {
+        "operationId": "oauth.disconnect",
+        "summary": "Immediately revoke the current access token and its refresh token",
+        "security": [{ "oauth2": [] }],
+        "responses": {
+          "204": { "description": "Token family revoked" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "oauth2": {
+        "type": "oauth2",
+        "description": "OAuth 2.1 Authorization Code with S256 PKCE. Access tokens expire after 15 minutes and refresh tokens rotate on use.",
+        "flows": {
+          "authorizationCode": {
+            "authorizationUrl": "/oauth/authorize",
+            "tokenUrl": "/oauth/token",
+            "refreshUrl": "/oauth/token",
+            "scopes": {
+              "identity:read": "Read account identity and granted scopes",
+              "patients:read": "List and read patients you can access",
+              "clinical:read": "Read clinical records for patients you can access"
+            }
+          }
+        }
+      }
+    },
+    "parameters": {
+      "PatientId": {
+        "name": "patient",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "integer", "minimum": 1 }
+      },
+      "RecordId": {
+        "name": "record",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "integer", "minimum": 1 }
+      },
+      "ClinicalResource": {
+        "name": "resource",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "enum": ["office-visits", "procedures", "immunizations", "medications", "conditions", "allergies", "lab-results", "vitals", "health-logs"]
+        }
+      },
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 25 }
+      },
+      "Cursor": {
+        "name": "cursor",
+        "in": "query",
+        "schema": { "type": "string", "maxLength": 2048 }
+      },
+      "UpdatedAfter": {
+        "name": "updated_after",
+        "in": "query",
+        "schema": { "type": "string", "format": "date-time" }
+      },
+      "UpdatedBefore": {
+        "name": "updated_before",
+        "in": "query",
+        "schema": { "type": "string", "format": "date-time" }
+      },
+      "ImportSource": {
+        "name": "import_source",
+        "in": "query",
+        "description": "Exact provenance-source filter; prohibited for health logs.",
+        "schema": { "type": "string", "maxLength": 100 }
+      },
+      "SourceDocumentId": {
+        "name": "source_document_id",
+        "in": "query",
+        "description": "Exact source-document filter; prohibited for health logs.",
+        "schema": { "type": "integer", "minimum": 1 }
+      },
+      "Archived": {
+        "name": "archived",
+        "in": "query",
+        "description": "Patient and health-log archival filter. Prohibited for other clinical resources.",
+        "schema": { "type": "string", "enum": ["include", "exclude", "only"], "default": "include" }
+      }
+    },
+    "schemas": {
+      "Capabilities": {
+        "type": "object",
+        "required": ["api_version", "openapi_url", "oauth", "scopes", "limits", "operations", "clinical_resources", "list_filters"],
+        "properties": {
+          "api_version": { "const": "v1" },
+          "openapi_url": { "type": "string", "format": "uri" },
+          "oauth": { "type": "object", "additionalProperties": true },
+          "scopes": { "type": "object", "additionalProperties": { "type": "string" } },
+          "limits": { "type": "object", "additionalProperties": { "type": "integer" } },
+          "operations": { "type": "object", "additionalProperties": { "$ref": "#/components/schemas/Operation" } },
+          "clinical_resources": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+          "list_filters": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "string" } } }
+        },
+        "additionalProperties": false
+      },
+      "Operation": {
+        "type": "object",
+        "required": ["available", "scope"],
+        "properties": {
+          "available": { "type": "boolean" },
+          "scope": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      },
+      "IdentityResponse": {
+        "type": "object",
+        "required": ["identity", "scopes"],
+        "properties": {
+          "identity": {
+            "type": "object",
+            "required": ["id", "name", "email"],
+            "properties": {
+              "id": { "type": "integer" },
+              "name": { "type": "string" },
+              "email": { "type": "string", "format": "email" }
+            },
+            "additionalProperties": false
+          },
+          "scopes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+        },
+        "additionalProperties": false
+      },
+      "PatientAccess": {
+        "type": "object",
+        "required": ["level", "is_owner", "can_write", "granted_at"],
+        "properties": {
+          "level": { "type": ["string", "null"], "enum": ["owner", "manager", "viewer", null] },
+          "is_owner": { "type": "boolean" },
+          "can_write": { "type": "boolean" },
+          "granted_at": { "$ref": "#/components/schemas/LocalDateTime" }
+        },
+        "additionalProperties": false
+      },
+      "Patient": {
+        "type": "object",
+        "required": ["id", "display_name", "relationship", "birth_date", "sex_at_birth", "archived_at", "created_at", "updated_at", "access"],
+        "properties": {
+          "id": { "type": "integer" },
+          "display_name": { "type": ["string", "null"] },
+          "relationship": { "type": ["string", "null"] },
+          "birth_date": { "type": ["string", "null"], "format": "date" },
+          "sex_at_birth": { "type": ["string", "null"] },
+          "archived_at": { "$ref": "#/components/schemas/LocalDateTime" },
+          "created_at": { "$ref": "#/components/schemas/LocalDateTime" },
+          "updated_at": { "$ref": "#/components/schemas/LocalDateTime" },
+          "access": { "$ref": "#/components/schemas/PatientAccess" },
+          "notes": { "type": ["string", "null"], "description": "Present only in patients.get responses." }
+        },
+        "additionalProperties": false
+      },
+      "Pagination": {
+        "type": "object",
+        "required": ["limit", "has_more", "next_cursor"],
+        "properties": {
+          "limit": { "type": "integer", "minimum": 1, "maximum": 100 },
+          "has_more": { "type": "boolean" },
+          "next_cursor": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      },
+      "LocalDateTime": {
+        "description": "Application-local datetime in the existing PHR JSON wire format; no timezone offset is implied.",
+        "type": ["string", "null"],
+        "pattern": "^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$"
+      },
+      "PatientListResponse": {
+        "type": "object",
+        "required": ["data", "pagination"],
+        "properties": {
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/Patient" } },
+          "pagination": { "$ref": "#/components/schemas/Pagination" }
+        },
+        "additionalProperties": false
+      },
+      "PatientResponse": {
+        "type": "object",
+        "required": ["data"],
+        "properties": { "data": { "$ref": "#/components/schemas/Patient" } },
+        "additionalProperties": false
+      },
+      "ClinicalRecord": {
+        "type": "object",
+        "required": ["id", "patient_id", "created_at", "updated_at"],
+        "properties": {
+          "id": { "type": "integer" },
+          "patient_id": { "type": "integer" },
+          "created_at": { "$ref": "#/components/schemas/LocalDateTime" },
+          "updated_at": { "$ref": "#/components/schemas/LocalDateTime" }
+        },
+        "additionalProperties": true
+      },
+      "ClinicalListResponse": {
+        "type": "object",
+        "required": ["resource_type", "patient_id", "data", "pagination"],
+        "properties": {
+          "resource_type": { "type": "string" },
+          "patient_id": { "type": "integer" },
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/ClinicalRecord" } },
+          "pagination": { "$ref": "#/components/schemas/Pagination" }
+        },
+        "additionalProperties": false
+      },
+      "ClinicalResponse": {
+        "type": "object",
+        "required": ["resource_type", "patient_id", "data"],
+        "properties": {
+          "resource_type": { "type": "string" },
+          "patient_id": { "type": "integer" },
+          "data": { "$ref": "#/components/schemas/ClinicalRecord" }
+        },
+        "additionalProperties": false
+      },
+      "Error": {
+        "type": "object",
+        "properties": { "message": { "type": "string" } },
+        "additionalProperties": true
+      }
+    },
+    "responses": {
+      "Unauthenticated": {
+        "description": "Missing, expired, or revoked bearer token",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "InsufficientScope": {
+        "description": "The token does not grant the required scope",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "RateLimited": {
+        "description": "Request or pre-authentication limit exceeded",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "NotFound": {
+        "description": "Patient, resource, or record was not found within the caller's access boundary",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "InvalidRequest": {
+        "description": "A filter, limit, or cursor is invalid",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      }
+    }
+  }
+}

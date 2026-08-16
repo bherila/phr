@@ -2,6 +2,8 @@
 # routes uploads back through PHP instead of signed PUTs straight to the bucket. The
 # ea-php85 defaults (2M / 8M / 128M / 30s / 60s) cannot accept a DICOM instance above
 # 2 MB; the largest currently stored is 4.5 MB and config/phr.php permits up to 1 GiB.
+# Native restores use authenticated 8 MiB chunks, so their 20 GiB archive ceiling does
+# not require widening this global pre-authentication request limit.
 #
 # php_value in .htaccess is the mechanism that actually works here: the SAPI is
 # `litespeed`, which parses these directives itself. A .user.ini is NOT honoured on

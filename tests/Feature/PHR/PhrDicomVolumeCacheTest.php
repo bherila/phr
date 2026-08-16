@@ -61,7 +61,7 @@ class PhrDicomVolumeCacheTest extends TestCase
             ->sole();
         $this->assertSame($patientId, $artifact->patient_id);
         $this->assertSame($series->instances()->firstOrFail()->upload_id, $artifact->upload_id);
-        $this->assertSame("derived/volume-cache/patients/{$patientId}/series/{$series->id}/v1.bin.gz", $artifact->r2_key);
+        $this->assertSame("patients/{$patientId}/imaging/dicom/derived/series/{$series->id}/v1.bin.gz", $artifact->r2_key);
         $this->assertSame($artifact->r2_key, $artifact->original_relative_path);
         $this->assertSame(hash('sha256', $artifact->r2_key), $artifact->original_path_hash);
         $this->assertSame('volume-cache-v1.bin.gz', $artifact->original_filename);
@@ -182,6 +182,56 @@ class PhrDicomVolumeCacheTest extends TestCase
         $this->assertSame($bytes, $response->streamedContent());
     }
 
+    public function test_current_legacy_cache_remains_readable_and_regeneration_repoints_its_row(): void
+    {
+        Storage::fake(DicomUploadProcessor::DISK);
+
+        $owner = $this->createUser();
+        $patientId = $this->createPatientFor($owner);
+        $series = $this->createSeries($owner, $patientId);
+        $legacyKey = "derived/volume-cache/patients/{$patientId}/series/{$series->id}/v1.bin.gz";
+        $legacyBytes = $this->gzipBytes('legacy-current');
+        Storage::disk(DicomUploadProcessor::DISK)->put($legacyKey, $legacyBytes);
+        $legacyArtifact = PhrDicomFile::create([
+            'patient_id' => $patientId,
+            'upload_id' => $series->instances()->firstOrFail()->upload_id,
+            'file_kind' => PhrDicomFile::KIND_DERIVED_VOLUME,
+            'r2_key' => $legacyKey,
+            'original_relative_path' => $legacyKey,
+            'original_path_hash' => hash('sha256', $legacyKey),
+            'original_filename' => 'volume-cache-v1.bin.gz',
+            'mime_type' => 'application/gzip',
+            'file_size_bytes' => strlen($legacyBytes),
+            'sha256' => hash('sha256', $legacyBytes),
+            'metadata_json' => [
+                'kind' => 'volume_cache',
+                'series_id' => $series->id,
+                'pipeline_version' => 1,
+            ],
+        ]);
+
+        $response = $this->actingAs($owner)
+            ->get($this->cacheUrl($patientId, $series->id))
+            ->assertOk();
+        $this->assertSame($legacyBytes, $response->streamedContent());
+        $this->actingAs($owner)
+            ->getJson($this->manifestUrl($patientId, $series->id))
+            ->assertOk()
+            ->assertJsonPath('cache.available', true);
+
+        $replacement = $this->gzipBytes('canonical-replacement');
+        $this->postCache($owner, $patientId, $series->id, $replacement)->assertCreated();
+
+        $this->assertSame(1, PhrDicomFile::query()->where('file_kind', PhrDicomFile::KIND_DERIVED_VOLUME)->count());
+        $legacyArtifact->refresh();
+        $this->assertSame(
+            "patients/{$patientId}/imaging/dicom/derived/series/{$series->id}/v1.bin.gz",
+            $legacyArtifact->r2_key,
+        );
+        $this->assertSame($replacement, Storage::disk(DicomUploadProcessor::DISK)->get($legacyArtifact->r2_key));
+        Storage::disk(DicomUploadProcessor::DISK)->assertExists($legacyKey);
+    }
+
     public function test_store_rejects_wrong_pipeline_version_missing_gzip_magic_and_ineligible_series(): void
     {
         Storage::fake(DicomUploadProcessor::DISK);
@@ -256,7 +306,7 @@ class PhrDicomVolumeCacheTest extends TestCase
             ->assertOk()
             ->assertJsonPath('cache.available', true);
         $signedUrl = (string) $manifestResponse->json('cache.url');
-        $this->assertStringStartsWith('http://localhost/derived/volume-cache/', $signedUrl);
+        $this->assertStringStartsWith('http://localhost/patients/', $signedUrl);
         $this->assertStringContainsString('expiration=', $signedUrl);
         $this->assertStringNotContainsString('/api/phr/patients/', $signedUrl);
 
@@ -265,7 +315,7 @@ class PhrDicomVolumeCacheTest extends TestCase
             ->assertRedirect()
             ->assertHeader('Cache-Control', 'no-store, private');
         $location = (string) $redirectResponse->headers->get('Location');
-        $this->assertStringStartsWith('http://localhost/derived/volume-cache/', $location);
+        $this->assertStringStartsWith('http://localhost/patients/', $location);
         $this->assertStringContainsString('expiration=', $location);
     }
 
@@ -308,6 +358,22 @@ class PhrDicomVolumeCacheTest extends TestCase
         $this->assertDatabaseHas('phr_dicom_files', ['id' => $currentArtifact->id]);
         Storage::disk(DicomUploadProcessor::DISK)->assertMissing($staleKey);
         Storage::disk(DicomUploadProcessor::DISK)->assertExists($currentArtifact->r2_key);
+    }
+
+    public function test_scheduled_gc_reclaims_canonical_orphans_without_printing_their_keys(): void
+    {
+        Storage::fake(DicomUploadProcessor::DISK);
+
+        $owner = $this->createUser();
+        $patientId = $this->createPatientFor($owner);
+        $key = "patients/{$patientId}/imaging/dicom/uploads/018f1f3a-6d18-7f42-a780-5dd94c10f312/synthetic-private-name.dcm";
+        Storage::disk(DicomUploadProcessor::DISK)->put($key, 'synthetic bytes');
+
+        $this->artisan('phr:dicom:gc')
+            ->doesntExpectOutputToContain('synthetic-private-name.dcm')
+            ->assertSuccessful();
+
+        Storage::disk(DicomUploadProcessor::DISK)->assertMissing($key);
     }
 
     private function postCache(User $actor, int $patientId, int $seriesId, string $bytes, int $pipelineVersion = 1): TestResponse

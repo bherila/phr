@@ -12,6 +12,8 @@ use App\Models\PhrLabResult;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatientVital;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
+use App\Support\Storage\PhrStorageKey;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -21,7 +23,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class PhrDocumentController extends Controller
 {
-    public function __construct(private PhrPatientAccessService $accessService) {}
+    public function __construct(
+        private PhrPatientAccessService $accessService,
+        private PhrPatientArtifactWriteGuard $artifactWriteGuard,
+    ) {}
 
     public function index(Request $request, int $patient): JsonResponse
     {
@@ -92,36 +97,48 @@ class PhrDocumentController extends Controller
 
         $originalName = $file->getClientOriginalName() ?: 'document';
         $storagePath = $this->storagePath((int) $resolvedPatient->id, $originalName);
-        $stream = fopen($realPath, 'rb');
-        abort_unless(is_resource($stream), 422, 'The uploaded file could not be opened.');
-
-        try {
-            $stored = Storage::disk('phr_documents')->put($storagePath, $stream);
-        } finally {
-            $this->closeStreamIfStillOpen($stream);
-        }
-
-        abort_unless($stored, 500, 'The uploaded file could not be stored.');
-
         $byteSize = (int) ($file->getSize() ?: 0);
-        $document = PhrDocument::query()->create([
-            'patient_id' => $resolvedPatient->id,
-            'user_id' => $resolvedPatient->owner_user_id,
-            'uploaded_by_user_id' => $userId,
-            'title' => $request->validated('title') ?: pathinfo($originalName, PATHINFO_FILENAME),
-            'document_type' => $request->validated('document_type'),
-            'observed_at' => $request->validated('observed_at'),
-            'original_filename' => $originalName,
-            'storage_disk' => 'phr_documents',
-            'storage_path' => $storagePath,
-            'mime_type' => $file->getClientMimeType() ?: $file->getMimeType(),
-            'byte_size' => $byteSize,
-            'file_hash' => $hash,
-            'summary' => $request->validated('summary'),
-            'source' => 'manual_upload',
-            'tags' => $this->cleanTags($request->validated('tags', [])),
-            'imported_at' => now(),
-        ]);
+        $document = $this->artifactWriteGuard->run((int) $resolvedPatient->id, function ($lockedPatient) use ($realPath, $storagePath, $userId, $request, $originalName, $file, $byteSize, $hash): PhrDocument {
+            try {
+                $stream = fopen($realPath, 'rb');
+                abort_unless(is_resource($stream), 422, 'The uploaded file could not be opened.');
+                try {
+                    $stored = Storage::disk(PhrDocument::STORAGE_DISK)->put($storagePath, $stream);
+                } finally {
+                    $this->closeStreamIfStillOpen($stream);
+                }
+                abort_unless($stored, 500, 'The uploaded file could not be stored.');
+
+                return PhrDocument::query()->create([
+                    'patient_id' => $lockedPatient->id,
+                    'user_id' => $lockedPatient->owner_user_id,
+                    'uploaded_by_user_id' => $userId,
+                    'title' => $request->validated('title') ?: pathinfo($originalName, PATHINFO_FILENAME),
+                    'document_type' => $request->validated('document_type'),
+                    'observed_at' => $request->validated('observed_at'),
+                    'original_filename' => $originalName,
+                    'storage_disk' => PhrDocument::STORAGE_DISK,
+                    'storage_path' => $storagePath,
+                    'mime_type' => $file->getClientMimeType() ?: $file->getMimeType(),
+                    'byte_size' => $byteSize,
+                    'file_hash' => $hash,
+                    'summary' => $request->validated('summary'),
+                    'source' => 'manual_upload',
+                    'tags' => $this->cleanTags($request->validated('tags', [])),
+                    'imported_at' => now(),
+                ]);
+            } catch (\Throwable $exception) {
+                // The random destination is not visible until its row commits.
+                // Best-effort cleanup closes the filesystem/transaction gap.
+                try {
+                    Storage::disk(PhrDocument::STORAGE_DISK)->delete($storagePath);
+                } catch (\Throwable) {
+                    // Preserve the original request failure.
+                }
+
+                throw $exception;
+            }
+        });
 
         return response()->json(['document' => $this->payload($document)], 201);
     }
@@ -392,17 +409,12 @@ class PhrDocumentController extends Controller
 
     private function storagePath(int $patientId, string $filename): string
     {
-        return 'phr/documents/patients/'.$patientId.'/'.Str::uuid().'/'.$this->safeStoredFilename($filename);
+        return PhrStorageKey::document($patientId, Str::uuid()->toString(), $filename);
     }
 
     private function safeStoredFilename(string $filename): string
     {
-        $safeName = Str::of($filename)
-            ->replaceMatches('/[^\w.\-]+/', '_')
-            ->trim('_')
-            ->toString();
-
-        return $safeName !== '' ? $safeName : 'document';
+        return PhrStorageKey::safeFilename($filename, 'document');
     }
 
     private function safeDownloadName(string $filename): string

@@ -2,13 +2,34 @@
 
 use App\Http\Controllers\DevicePairingController;
 use App\Http\Controllers\OAuthLoginController;
+use App\Http\Controllers\OAuthMetadataController;
 use App\Http\Controllers\OhifViewerController;
 use App\Http\Controllers\PHR\PageController as PHRPageController;
 use App\Http\Controllers\PHR\PhrDocumentController;
 use App\Http\Controllers\PHR\PhrExportController;
 use App\Http\Controllers\PHR\PhrNativeBackupController;
 use App\Http\Controllers\UptimeController;
+use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
+use Illuminate\Cookie\Middleware\EncryptCookies;
+use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
+use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
+use Illuminate\View\Middleware\ShareErrorsFromSession;
+
+Route::withoutMiddleware([
+    EncryptCookies::class,
+    AddQueuedCookiesToResponse::class,
+    StartSession::class,
+    ShareErrorsFromSession::class,
+    PreventRequestForgery::class,
+])->group(function (): void {
+    Route::get('/.well-known/oauth-authorization-server', [OAuthMetadataController::class, 'authorizationServer'])
+        ->name('oauth.metadata.authorization-server');
+    Route::get('/.well-known/oauth-protected-resource', [OAuthMetadataController::class, 'protectedResource'])
+        ->name('oauth.metadata.protected-resource-root');
+    Route::get('/.well-known/oauth-protected-resource/api/v1', [OAuthMetadataController::class, 'protectedResource'])
+        ->name('oauth.metadata.protected-resource');
+});
 
 Route::get('/login', function () {
     return view('login');

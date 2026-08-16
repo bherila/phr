@@ -5,8 +5,11 @@ namespace App\Console\Commands;
 use App\Models\PhrDicomFile;
 use App\Models\PhrDicomUpload;
 use App\Services\PHR\DICOM\DicomUploadProcessor;
+use App\Support\Storage\PhrStorageMap;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Throwable;
 
 class PhrDicomGarbageCollect extends Command
@@ -60,7 +63,7 @@ class PhrDicomGarbageCollect extends Command
             ->get();
 
         foreach ($uploads as $upload) {
-            $this->line("  Stale pending upload #{$upload->id} (prefix={$upload->r2_prefix})");
+            $this->line("  Stale pending upload #{$upload->id}");
             $count++;
 
             if ($dryRun) {
@@ -86,7 +89,7 @@ class PhrDicomGarbageCollect extends Command
             });
 
         foreach ($staleArtifacts as $artifact) {
-            $this->line("  Stale derived volume #{$artifact->id} (key={$artifact->r2_key})");
+            $this->line("  Stale derived volume #{$artifact->id}");
 
             if ($dryRun) {
                 continue;
@@ -96,7 +99,7 @@ class PhrDicomGarbageCollect extends Command
                 $this->uploadProcessor->disk()->delete($artifact->r2_key);
                 $artifact->delete();
             } catch (Throwable $error) {
-                $this->error("    Failed to delete [{$artifact->r2_key}]: ".$error->getMessage());
+                $this->error("    Failed to delete derived volume #{$artifact->id} (".$error::class.').');
             }
         }
 
@@ -106,18 +109,16 @@ class PhrDicomGarbageCollect extends Command
     /**
      * List storage keys with no matching phr_dicom_files row and delete them.
      *
-     * `derived/volume-cache` is swept alongside `phr/dicom` because derived
-     * volumes live outside the per-upload prefix. It also self-heals objects
-     * left behind by the volume-cache key-shape change: keys under the old
-     * `derived/volume-cache/{SeriesInstanceUID}/` layout no longer match any
-     * row, so they are reclaimed on the next run.
+     * Canonical and legacy roots come from the same map as storage:prune so a
+     * key-shape rollout cannot silently create a namespace this scheduled
+     * collector never visits.
      */
     private function reclaimOrphanedObjects(bool $dryRun): int
     {
         $disk = $this->uploadProcessor->disk();
         $keys = [];
 
-        foreach (['phr/dicom', 'derived/volume-cache'] as $prefix) {
+        foreach (PhrStorageMap::disks()[DicomUploadProcessor::DISK] as $prefix) {
             try {
                 $keys = [...$keys, ...$disk->allFiles($prefix)];
             } catch (Throwable $error) {
@@ -135,13 +136,32 @@ class PhrDicomGarbageCollect extends Command
                 ->whereIn('r2_key', $keyBatch)
                 ->pluck('r2_key')
                 ->all());
+            if (Schema::hasTable('phr_blob_migrations')) {
+                $protectedMigrations = DB::table('phr_blob_migrations')
+                    ->where('storage_disk', DicomUploadProcessor::DISK)
+                    ->whereNull('legacy_deleted_at')
+                    ->where(function ($query) use ($keyBatch): void {
+                        $query->whereIn('source_key', $keyBatch)
+                            ->orWhereIn('destination_key', $keyBatch);
+                    })
+                    ->get(['source_key', 'destination_key']);
+                foreach ($protectedMigrations as $migration) {
+                    foreach ([(string) $migration->source_key, (string) $migration->destination_key] as $protectedKey) {
+                        if (in_array($protectedKey, $keyBatch, true)) {
+                            $knownSet[$protectedKey] = true;
+                        }
+                    }
+                }
+            }
 
             foreach ($keyBatch as $key) {
                 if (isset($knownSet[$key])) {
                     continue;
                 }
 
-                $this->line("  Orphan object: {$key}");
+                // Orphan rows have no internal artifact id to report, and the key
+                // can contain an original filename. Keep command/cron output PHI-free.
+                $this->line('  Orphan DICOM object detected.');
                 $count++;
 
                 if ($dryRun) {
@@ -151,7 +171,7 @@ class PhrDicomGarbageCollect extends Command
                 try {
                     $disk->delete($key);
                 } catch (Throwable $error) {
-                    $this->error("    Failed to delete [{$key}]: ".$error->getMessage());
+                    $this->error('    Failed to delete orphan DICOM object ('.$error::class.').');
                 }
             }
         }

@@ -83,6 +83,7 @@ trait HandlesClinicalResourceRequests
 
         return response()->json([
             $this->resourceKey() => $this->resourcePayload($this->resolveClinicalResource($resolvedPatient, $record)),
+            'can_manage' => $this->accessService()->canWrite($resolvedPatient, $userId),
         ]);
     }
 

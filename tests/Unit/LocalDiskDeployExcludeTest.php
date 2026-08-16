@@ -108,4 +108,18 @@ class LocalDiskDeployExcludeTest extends TestCase
 
         $this->assertSame([], $this->unprotectedDiskRoots());
     }
+
+    public function test_persistent_oauth_keys_are_excluded_and_never_rotated_on_normal_deploys(): void
+    {
+        $workflow = file_get_contents(base_path('.github/workflows/ci.yml'));
+        $this->assertIsString($workflow);
+
+        $this->assertStringContainsString("--exclude='/storage/app/private/oauth/'", $workflow);
+        $this->assertStringNotContainsString("--exclude='oauth'", $workflow);
+        $this->assertStringContainsString(
+            'OAuth signing key pair is incomplete; refusing to rotate it automatically.',
+            $workflow,
+        );
+        $this->assertStringNotContainsString('passport:keys --force ||', $workflow);
+    }
 }

@@ -55,8 +55,8 @@ fi
 
 queue_audit_output="$("$php_bin" artisan phr:queue:audit --no-ansi)"
 retry_after="$(sed -nE 's/^queue-audit .*retry_after=([0-9]+).*$/\1/p' <<<"$queue_audit_output")"
-if [[ -z "$retry_after" || "$retry_after" -le 300 ]]; then
-    echo 'The database queue retry_after must exceed the 300-second job timeout.' >&2
+if [[ -z "$retry_after" || "$retry_after" -le 3600 ]]; then
+    echo 'The database queue retry_after must exceed the 3,600-second native restore timeout.' >&2
     exit 1
 fi
 

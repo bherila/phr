@@ -5,13 +5,18 @@ namespace App\Services\PHR\Import;
 use App\GenAiProcessor\Models\GenAiImportJob;
 use App\Models\PhrDocument;
 use App\Models\PhrPatient;
+use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
+use App\Support\Storage\PhrStorageKey;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
 
 class PhrDocumentImporter
 {
-    public function __construct(private PhrImportModelUpserter $upserter) {}
+    public function __construct(
+        private PhrImportModelUpserter $upserter,
+        private PhrPatientArtifactWriteGuard $artifactWriteGuard,
+    ) {}
 
     /**
      * @param  array<string, mixed>  $attributes
@@ -32,44 +37,50 @@ class PhrDocumentImporter
             throw new RuntimeException("Unable to hash document path: {$path}");
         }
 
-        $stream = fopen($path, 'rb');
-        if ($stream === false) {
-            throw new RuntimeException("Unable to read document path: {$path}");
-        }
+        return $this->artifactWriteGuard->run((int) $patient->id, function (PhrPatient $lockedPatient) use ($path, $storagePath, $actorUserId, $attributes, $filename, $sha256): PhrDocument {
+            try {
+                $stream = fopen($path, 'rb');
+                if ($stream === false) {
+                    throw new RuntimeException("Unable to read document path: {$path}");
+                }
+                try {
+                    $stored = Storage::disk(PhrDocument::STORAGE_DISK)->put($storagePath, $stream);
+                } finally {
+                    if (is_resource($stream)) {
+                        fclose($stream);
+                    }
+                }
+                if (! $stored) {
+                    throw new RuntimeException("Unable to store document at {$storagePath}.");
+                }
 
-        try {
-            $stored = Storage::disk('phr_documents')->put($storagePath, $stream);
-        } finally {
-            if (is_resource($stream)) {
-                fclose($stream);
+                return PhrDocument::create([
+                    'patient_id' => $lockedPatient->id,
+                    'user_id' => $lockedPatient->owner_user_id,
+                    'uploaded_by_user_id' => $actorUserId,
+                    'title' => $attributes['title'] ?? pathinfo($filename, PATHINFO_FILENAME),
+                    'document_type' => ValueCoercion::normalizeDocumentType($attributes['document_type'] ?? null),
+                    'observed_at' => ValueCoercion::dateTime($attributes['observed_at'] ?? null),
+                    'original_filename' => $filename,
+                    'storage_disk' => PhrDocument::STORAGE_DISK,
+                    'storage_path' => $storagePath,
+                    'mime_type' => $attributes['mime_type'] ?? $this->mimeType($path),
+                    'byte_size' => filesize($path) ?: 0,
+                    'file_hash' => $sha256,
+                    'extracted_text' => $attributes['extracted_text'] ?? null,
+                    'summary' => $attributes['summary'] ?? null,
+                    'source' => ValueCoercion::normalizeDocumentSource($attributes['source'] ?? $attributes['import_source'] ?? null),
+                    'tags' => $attributes['tags'] ?? null,
+                    'import_source' => $attributes['import_source'] ?? null,
+                    'external_id' => $attributes['external_id'] ?? null,
+                    'imported_at' => now(),
+                ]);
+            } catch (\Throwable $exception) {
+                $this->deleteUnpublishedDocument($storagePath);
+
+                throw $exception;
             }
-        }
-
-        if (! $stored) {
-            throw new RuntimeException("Unable to store document at {$storagePath}.");
-        }
-
-        return PhrDocument::create([
-            'patient_id' => $patient->id,
-            'user_id' => $patient->owner_user_id,
-            'uploaded_by_user_id' => $actorUserId,
-            'title' => $attributes['title'] ?? pathinfo($filename, PATHINFO_FILENAME),
-            'document_type' => ValueCoercion::normalizeDocumentType($attributes['document_type'] ?? null),
-            'observed_at' => ValueCoercion::dateTime($attributes['observed_at'] ?? null),
-            'original_filename' => $filename,
-            'storage_disk' => 'phr_documents',
-            'storage_path' => $storagePath,
-            'mime_type' => $attributes['mime_type'] ?? $this->mimeType($path),
-            'byte_size' => filesize($path) ?: 0,
-            'file_hash' => $sha256,
-            'extracted_text' => $attributes['extracted_text'] ?? null,
-            'summary' => $attributes['summary'] ?? null,
-            'source' => ValueCoercion::normalizeDocumentSource($attributes['source'] ?? $attributes['import_source'] ?? null),
-            'tags' => $attributes['tags'] ?? null,
-            'import_source' => $attributes['import_source'] ?? null,
-            'external_id' => $attributes['external_id'] ?? null,
-            'imported_at' => now(),
-        ]);
+        });
     }
 
     /**
@@ -80,41 +91,50 @@ class PhrDocumentImporter
         $payload = $this->documentPayload($payload);
         $filename = $job->original_filename ?: 'phr-document-'.$job->id;
         $storagePath = $this->documentStoragePath((int) $patient->id, $filename);
-        $stream = Storage::disk('s3')->readStream($job->s3_path);
-        if ($stream === null) {
-            throw new RuntimeException('Unable to read GenAI source file.');
-        }
 
-        try {
-            Storage::disk('phr_documents')->put($storagePath, $stream);
-        } finally {
-            if (is_resource($stream)) {
-                fclose($stream);
+        return $this->artifactWriteGuard->run((int) $patient->id, function (PhrPatient $lockedPatient) use ($job, $storagePath, $actorUserId, $payload, $filename): PhrDocument {
+            try {
+                $stream = Storage::disk('s3')->readStream($job->s3_path);
+                if (! is_resource($stream)) {
+                    throw new RuntimeException('Unable to read GenAI source file.');
+                }
+                try {
+                    $stored = Storage::disk(PhrDocument::STORAGE_DISK)->put($storagePath, $stream);
+                } finally {
+                    fclose($stream);
+                }
+                if (! $stored) {
+                    throw new RuntimeException('Unable to store GenAI document.');
+                }
+
+                return PhrDocument::create([
+                    'patient_id' => $lockedPatient->id,
+                    'user_id' => $lockedPatient->owner_user_id,
+                    'uploaded_by_user_id' => $actorUserId,
+                    'genai_job_id' => $job->id,
+                    'title' => ValueCoercion::string($payload['title'] ?? null) ?? pathinfo($filename, PATHINFO_FILENAME),
+                    'document_type' => ValueCoercion::normalizeDocumentType($payload['document_type'] ?? null),
+                    'observed_at' => ValueCoercion::dateTime($payload['observed_at'] ?? null),
+                    'original_filename' => $filename,
+                    'storage_disk' => PhrDocument::STORAGE_DISK,
+                    'storage_path' => $storagePath,
+                    'mime_type' => $job->mime_type,
+                    'byte_size' => $job->file_size_bytes,
+                    'file_hash' => $job->file_hash,
+                    'extracted_text' => ValueCoercion::string($payload['extracted_text'] ?? $payload['text'] ?? null),
+                    'summary' => ValueCoercion::string($payload['summary'] ?? null),
+                    'source' => 'genai_import',
+                    'tags' => ValueCoercion::tags($payload['tags'] ?? null),
+                    'import_source' => 'genai',
+                    'external_id' => 'genai-job-'.$job->id,
+                    'imported_at' => now(),
+                ]);
+            } catch (\Throwable $exception) {
+                $this->deleteUnpublishedDocument($storagePath);
+
+                throw $exception;
             }
-        }
-
-        return PhrDocument::create([
-            'patient_id' => $patient->id,
-            'user_id' => $patient->owner_user_id,
-            'uploaded_by_user_id' => $actorUserId,
-            'genai_job_id' => $job->id,
-            'title' => ValueCoercion::string($payload['title'] ?? null) ?? pathinfo($filename, PATHINFO_FILENAME),
-            'document_type' => ValueCoercion::normalizeDocumentType($payload['document_type'] ?? null),
-            'observed_at' => ValueCoercion::dateTime($payload['observed_at'] ?? null),
-            'original_filename' => $filename,
-            'storage_disk' => 'phr_documents',
-            'storage_path' => $storagePath,
-            'mime_type' => $job->mime_type,
-            'byte_size' => $job->file_size_bytes,
-            'file_hash' => $job->file_hash,
-            'extracted_text' => ValueCoercion::string($payload['extracted_text'] ?? $payload['text'] ?? null),
-            'summary' => ValueCoercion::string($payload['summary'] ?? null),
-            'source' => 'genai_import',
-            'tags' => ValueCoercion::tags($payload['tags'] ?? null),
-            'import_source' => 'genai',
-            'external_id' => 'genai-job-'.$job->id,
-            'imported_at' => now(),
-        ]);
+        });
     }
 
     /**
@@ -202,12 +222,7 @@ class PhrDocumentImporter
 
     private function documentStoragePath(int $patientId, string $filename): string
     {
-        $safeName = Str::of($filename)
-            ->replaceMatches('/[^\w.\-]+/', '_')
-            ->trim('_')
-            ->toString();
-
-        return 'phr/documents/patients/'.$patientId.'/'.Str::uuid().'/'.($safeName !== '' ? $safeName : 'document');
+        return PhrStorageKey::document($patientId, Str::uuid()->toString(), $filename);
     }
 
     private function mimeType(string $path): ?string
@@ -215,5 +230,15 @@ class PhrDocumentImporter
         $mimeType = mime_content_type($path);
 
         return is_string($mimeType) ? $mimeType : null;
+    }
+
+    private function deleteUnpublishedDocument(string $storagePath): void
+    {
+        try {
+            Storage::disk(PhrDocument::STORAGE_DISK)->delete($storagePath);
+        } catch (\Throwable) {
+            // Preserve the original write/transaction failure. The generic
+            // storage pruner remains a fallback for an unreachable random key.
+        }
     }
 }

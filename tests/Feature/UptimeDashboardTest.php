@@ -184,6 +184,9 @@ class UptimeDashboardTest extends TestCase
 
         $this->assertStringContainsString("phr:uptime:run-task 'phr:dicom:gc'", $display);
         $this->assertStringContainsString("phr:uptime:run-task 'phr:exports:purge'", $display);
+        $this->assertStringContainsString("phr:uptime:run-task 'phr:native-restores:purge'", $display);
+        $this->assertStringContainsString("phr:uptime:run-task 'phr:data-hub:prune-audits'", $display);
+        $this->assertStringContainsString("phr:uptime:run-task 'phr:agent-api:prune-oauth-credentials'", $display);
         $this->assertStringContainsString("phr:uptime:run-task 'genai:requeue-stale'", $display);
         $this->assertStringContainsString('phr:uptime:prune --days=30', $display);
     }

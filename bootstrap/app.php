@@ -1,9 +1,16 @@
 <?php
 
+use App\Http\Middleware\AuditAgentApiRequest;
+use App\Http\Middleware\EnsureOAuthAuthorizationUserCanLogin;
+use App\Http\Middleware\ThrottleAgentApiAuthentication;
+use Illuminate\Auth\AuthenticationException;
+use Illuminate\Auth\Middleware\Authenticate;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Middleware\ThrottleRequests;
+use Symfony\Component\HttpFoundation\Response;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -13,6 +20,15 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Agent API audits must wrap throttling so rejected 429 attempts retain the
+        // same metadata-only evidence as successful authenticated requests.
+        $middleware->prependToPriorityList(ThrottleRequests::class, AuditAgentApiRequest::class);
+        $middleware->append(ThrottleAgentApiAuthentication::class);
+        // Passport's authorization routes declare their package middleware
+        // outside the route-level web/auth middleware. Force the account-state
+        // check after session authentication but before the consent controller.
+        $middleware->appendToPriorityList(Authenticate::class, EnsureOAuthAuthorizationUserCanLogin::class);
+
         // PHR respiratory-events / Sinus Sentinel device ingest authenticates via bearer
         // token (AuthenticateWebOrMcpRequest) and carries no session/CSRF token. These
         // routes still sit in the `web` group for session support, so exempt the write
@@ -32,6 +48,34 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        $exceptions->respond(function (Response $response, Throwable $exception, Request $request): Response {
+            if ($request->is('api/v1/*') && ! $request->is('api/v1/capabilities')) {
+                $response->headers->set('Cache-Control', 'private, no-store, max-age=0');
+                $response->headers->set('Pragma', 'no-cache');
+                $response->headers->set('X-Content-Type-Options', 'nosniff');
+            }
+
+            return $response;
+        });
+
+        $exceptions->render(function (AuthenticationException $exception, Request $request) {
+            if (! $request->is('api/v1/*')) {
+                return null;
+            }
+
+            return response()->json(
+                ['message' => 'Unauthenticated.'],
+                401,
+                [
+                    'Cache-Control' => 'private, no-store',
+                    'WWW-Authenticate' => sprintf(
+                        'Bearer resource_metadata="%s"',
+                        url('/.well-known/oauth-protected-resource/api/v1'),
+                    ),
+                ],
+            );
+        });
+
         // Unauthenticated /api/* requests must render 401 JSON regardless of the
         // Accept header — never a redirect to /login, and never a 500 from resolving
         // a `login` route that may not exist. API clients treat 401 as "authentication

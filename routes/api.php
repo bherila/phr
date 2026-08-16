@@ -4,6 +4,10 @@ use App\Http\Controllers\Api\DevicePairingExchangeController;
 use App\Http\Controllers\Api\UserAiConfigurationController;
 use App\Http\Controllers\Api\UserAiModelsController;
 use App\Http\Controllers\Api\UserDeviceController;
+use App\Http\Controllers\Api\V1\AgentClinicalReadController;
+use App\Http\Controllers\Api\V1\AgentDiscoveryController;
+use App\Http\Controllers\Api\V1\AgentPatientController;
+use App\Http\Controllers\Api\V1\AgentTokenController;
 use App\Http\Controllers\PHR\AllergyController as PHRAllergyController;
 use App\Http\Controllers\PHR\ClinicalEobController as PHRClinicalEobController;
 use App\Http\Controllers\PHR\ConditionController as PHRConditionController;
@@ -24,13 +28,67 @@ use App\Http\Controllers\PHR\PhrDocumentController;
 use App\Http\Controllers\PHR\PhrExportController;
 use App\Http\Controllers\PHR\PhrGenAiImportController;
 use App\Http\Controllers\PHR\PhrNativeBackupController;
+use App\Http\Controllers\PHR\PhrNativeRestoreController;
+use App\Http\Controllers\PHR\PhrPatientDeletionController;
 use App\Http\Controllers\PHR\ProcedureController as PHRProcedureController;
 use App\Http\Controllers\PHR\RespiratoryEventController as PHRRespiratoryEventController;
 use App\Http\Controllers\PHR\SinusEnrollmentController as PHRSinusEnrollmentController;
 use App\Http\Controllers\PHR\SinusSettingsController as PHRSinusSettingsController;
 use App\Http\Controllers\PHR\VitalController as PHRVitalController;
+use App\Http\Middleware\AuditAgentApiRequest;
 use App\Http\Middleware\AuthenticateWebOrMcpRequest;
+use App\Http\Middleware\EnsureOAuthUserCanLogin;
+use App\Http\Middleware\PreventAgentApiResponseCaching;
+use App\Support\AgentApi\AgentApiScopes;
+use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use Illuminate\Support\Facades\Route;
+use Laravel\Passport\Http\Middleware\CheckToken;
+
+Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
+    Route::get('/capabilities', [AgentDiscoveryController::class, 'capabilities'])
+        ->middleware('throttle:60,1')
+        ->name('capabilities');
+
+    Route::middleware([
+        'auth:api',
+        AuditAgentApiRequest::class,
+        EnsureOAuthUserCanLogin::class,
+        PreventAgentApiResponseCaching::class,
+    ])->group(function (): void {
+        // Self-revocation is deliberately outside the ordinary traffic bucket. A
+        // saturated API limit must never prevent a client from disconnecting.
+        Route::delete('/oauth/token', [AgentTokenController::class, 'destroy'])
+            ->name('oauth-token.destroy');
+
+        Route::get('/me', [AgentDiscoveryController::class, 'me'])
+            ->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::IDENTITY_READ))
+            ->name('me');
+
+        Route::get('/patients', [AgentPatientController::class, 'index'])
+            ->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::PATIENTS_READ))
+            ->name('patients.index');
+        Route::get('/patients/{patient}', [AgentPatientController::class, 'show'])
+            ->whereNumber('patient')
+            ->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::PATIENTS_READ))
+            ->name('patients.show');
+
+        Route::get('/patients/{patient}/{resource}', [AgentClinicalReadController::class, 'index'])
+            ->whereNumber('patient')
+            ->whereIn('resource', AgentClinicalResourceCatalog::ids())
+            ->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))
+            ->name('clinical.index');
+        Route::get('/patients/{patient}/{resource}/{record}', [AgentClinicalReadController::class, 'show'])
+            ->whereNumber(['patient', 'record'])
+            ->whereIn('resource', AgentClinicalResourceCatalog::ids())
+            ->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))
+            ->name('clinical.show');
+    });
+});
 
 // Per-user AI provider settings used by ParseImportJob via User::resolvedAiClient().
 // The authenticated PHR Config screen consumes these session-protected endpoints.
@@ -67,6 +125,16 @@ Route::middleware(['web', 'auth'])
     ->name('phr.')
     ->group(function (): void {
         Route::get('/data-hub', [PhrDataHubController::class, 'index'])->name('data-hub.index');
+        Route::get('/data-hub/deletions', [PhrPatientDeletionController::class, 'index'])->name('data-hub.deletions.index');
+        Route::get('/data-hub/patients/{patient}/deletion-preview', [PhrPatientDeletionController::class, 'preview'])->whereNumber('patient')->name('data-hub.deletions.preview');
+        Route::get('/data-hub/deletions/{deletion}', [PhrPatientDeletionController::class, 'show'])->whereNumber('deletion')->name('data-hub.deletions.show');
+        Route::post('/data-hub/deletions/{deletion}/retry', [PhrPatientDeletionController::class, 'retry'])->whereNumber('deletion')->name('data-hub.deletions.retry');
+        Route::get('/data-hub/native-restores', [PhrNativeRestoreController::class, 'index'])->name('data-hub.native-restores.index');
+        Route::post('/data-hub/native-restores/uploads', [PhrNativeRestoreController::class, 'startUpload'])->middleware('throttle:10,1')->name('data-hub.native-restores.uploads.start');
+        Route::post('/data-hub/native-restores/{restore}/chunks', [PhrNativeRestoreController::class, 'appendChunk'])->whereNumber('restore')->middleware('throttle:120,1')->name('data-hub.native-restores.uploads.chunk');
+        Route::post('/data-hub/native-restores/{restore}/preview', [PhrNativeRestoreController::class, 'preview'])->whereNumber('restore')->name('data-hub.native-restores.preview');
+        Route::get('/data-hub/native-restores/{restore}', [PhrNativeRestoreController::class, 'show'])->whereNumber('restore')->name('data-hub.native-restores.show');
+        Route::post('/data-hub/native-restores/{restore}/apply', [PhrNativeRestoreController::class, 'apply'])->whereNumber('restore')->name('data-hub.native-restores.apply');
         Route::get('/patients', [PHRPatientController::class, 'index'])->name('patients.index');
         Route::post('/patients', [PHRPatientController::class, 'store'])->name('patients.store');
         Route::get('/patients/{patient}', [PHRPatientController::class, 'show'])->whereNumber('patient')->name('patients.show');

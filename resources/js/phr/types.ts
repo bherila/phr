@@ -749,6 +749,7 @@ export type PhrAllergy = z.infer<typeof PhrAllergySchema>
 
 export const PhrAllergyResponseSchema = z.object({
   allergy: PhrAllergySchema,
+  can_manage: z.boolean().default(false),
 })
 
 export const PhrAllergiesResponseSchema = z.object({

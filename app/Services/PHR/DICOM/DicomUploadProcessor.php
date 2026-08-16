@@ -8,6 +8,8 @@ use App\Models\PhrDicomSeries;
 use App\Models\PhrDicomStudy;
 use App\Models\PhrDicomUpload;
 use App\Models\PhrPatient;
+use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
+use App\Support\Storage\PhrStorageKey;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -69,7 +71,10 @@ class DicomUploadProcessor
 
     public const DUPLICATE_UPLOAD_MESSAGE = 'Duplicate DICOM study upload was skipped because all image instances already exist for this patient.';
 
-    public function __construct(private readonly DicomMetadataParser $metadataParser) {}
+    public function __construct(
+        private readonly DicomMetadataParser $metadataParser,
+        private readonly ?PhrPatientArtifactWriteGuard $artifactWriteGuard = null,
+    ) {}
 
     /**
      * Open a new upload session and return the persisted row.
@@ -80,10 +85,10 @@ class DicomUploadProcessor
      */
     public function openUpload(PhrPatient $patient, int $uploadedByUserId, ?string $rootName): PhrDicomUpload
     {
-        $storagePrefix = sprintf('phr/dicom/patients/%d/uploads/%s', $patient->id, Str::uuid()->toString());
+        $storagePrefix = PhrStorageKey::dicomUpload((int) $patient->id, Str::uuid()->toString());
 
-        return PhrDicomUpload::create([
-            'patient_id' => $patient->id,
+        return $this->writeGuard()->run((int) $patient->id, fn (PhrPatient $lockedPatient): PhrDicomUpload => PhrDicomUpload::create([
+            'patient_id' => $lockedPatient->id,
             'uploaded_by_user_id' => $uploadedByUserId,
             'status' => PhrDicomUpload::STATUS_PENDING,
             'original_root_name' => $rootName,
@@ -101,7 +106,7 @@ class DicomUploadProcessor
                 'instance_uids' => [],
             ],
             'skipped_files_json' => [],
-        ]);
+        ]));
     }
 
     /**
@@ -673,7 +678,7 @@ class DicomUploadProcessor
 
     private function storageKey(string $storagePrefix, string $relativePath): string
     {
-        return $storagePrefix.'/'.$relativePath;
+        return PhrStorageKey::dicomObject($storagePrefix, $relativePath);
     }
 
     /**
@@ -734,5 +739,10 @@ class DicomUploadProcessor
         $trimmed = trim($value);
 
         return $trimmed === '' ? null : $trimmed;
+    }
+
+    private function writeGuard(): PhrPatientArtifactWriteGuard
+    {
+        return $this->artifactWriteGuard ?? app(PhrPatientArtifactWriteGuard::class);
     }
 }
