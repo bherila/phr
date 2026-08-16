@@ -76,6 +76,7 @@ class PhrDocument extends Model
 
     public const array SOURCES = [
         'manual_upload',
+        'agent_upload',
         'genai_import',
         'fhir_import',
         'ccda_import',

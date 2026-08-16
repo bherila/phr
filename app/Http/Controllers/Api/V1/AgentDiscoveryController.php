@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
+use App\Support\PHR\PhrDocumentUploadLimits;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Laravel\Passport\AccessToken;
@@ -35,6 +36,7 @@ class AgentDiscoveryController extends Controller
                 'mcp_session_ttl_seconds' => config('agent_api.mcp_session_ttl_seconds', 1800),
                 'default_page_size' => 25,
                 'maximum_page_size' => 100,
+                'maximum_document_upload_bytes' => PhrDocumentUploadLimits::MAX_BYTES,
             ],
             'operations' => [
                 'capabilities.get' => ['available' => true, 'scope' => null],
@@ -55,6 +57,7 @@ class AgentDiscoveryController extends Controller
                 'eob_lines.get' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
                 'evidence.links' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
                 'documents.list' => ['available' => true, 'scope' => AgentApiScopes::DOCUMENTS_READ],
+                'documents.upload' => ['available' => true, 'scope' => AgentApiScopes::DOCUMENTS_WRITE],
                 'documents.get' => ['available' => true, 'scope' => AgentApiScopes::DOCUMENTS_READ],
                 'documents.download_access.create' => ['available' => true, 'scope' => AgentApiScopes::DOCUMENTS_READ],
                 'documents.download' => ['available' => true, 'scope' => AgentApiScopes::DOCUMENTS_READ],

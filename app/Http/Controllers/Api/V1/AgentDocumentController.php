@@ -2,15 +2,22 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\DataTransferObjects\PHR\DocumentUploadData;
+use App\DataTransferObjects\PHR\DocumentUploadResult;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\AgentApi\StoreAgentDocumentRequest;
 use App\Models\PhrDocument;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Services\PHR\Documents\PhrDocumentUploadService;
+use App\Support\AgentApi\AgentApiClientIdentity;
 use App\Support\AgentApi\AgentApiCursor;
 use App\Support\AgentApi\AgentApiExternalId;
+use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentApiUpdateWindow;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
@@ -19,7 +26,10 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 
 final class AgentDocumentController extends Controller
 {
-    public function __construct(private PhrPatientAccessService $accessService) {}
+    public function __construct(
+        private PhrPatientAccessService $accessService,
+        private PhrDocumentUploadService $documentUploads,
+    ) {}
 
     public function index(Request $request, int $patient): JsonResponse
     {
@@ -85,6 +95,35 @@ final class AgentDocumentController extends Controller
         return response()->json([
             'resource_type' => 'document', 'patient_id' => $resolved->patient_id, 'data' => $this->payload($resolved),
         ]);
+    }
+
+    public function store(StoreAgentDocumentRequest $request, int $patient): JsonResponse
+    {
+        $actorUserId = (int) $request->user('api')?->id;
+        $resolvedPatient = $this->accessService->writablePatient($patient, $actorUserId);
+        $file = $request->file('file');
+        abort_unless($file instanceof UploadedFile, 422, 'A document file is required.');
+        $identity = AgentApiClientIdentity::fromRequest($request);
+        $result = $this->documentUploads->upload(
+            $resolvedPatient,
+            $actorUserId,
+            DocumentUploadData::fromValidated(
+                $file,
+                $request->validated(),
+                source: 'agent_upload',
+                importSource: $identity->importSource(),
+                externalId: (string) $request->validated('external_id'),
+            ),
+        );
+
+        return response()->json([
+            'resource_type' => 'document',
+            'patient_id' => $resolvedPatient->id,
+            'outcome' => $result->outcome,
+            'data' => $request->user('api')?->tokenCan(AgentApiScopes::DOCUMENTS_READ)
+                ? $this->payload($result->document)
+                : $this->mutationReceipt($result->document),
+        ], $result->outcome === DocumentUploadResult::CREATED ? 201 : 200);
     }
 
     public function createDownloadAccess(Request $request, int $patient, int $document): JsonResponse
@@ -197,12 +236,27 @@ final class AgentDocumentController extends Controller
             'tags' => $document->tags ?? [], 'import_source' => $document->import_source,
             'external_id' => AgentApiExternalId::withoutDocumentHash($document->external_id),
             'imported_at' => $document->imported_at?->toIso8601String(),
-            'processing_state' => $document->genai_job_id === null
-                ? 'not_requested'
-                : $document->genAiJob->status,
+            'processing_state' => $this->processingState($document),
             'has_file' => $document->storage_path !== null,
             'created_at' => $document->created_at?->toIso8601String(),
             'updated_at' => $document->updated_at?->toIso8601String(),
         ];
+    }
+
+    /** @return array{id: int, patient_id: int, processing_state: string} */
+    private function mutationReceipt(PhrDocument $document): array
+    {
+        return [
+            'id' => (int) $document->id,
+            'patient_id' => (int) $document->patient_id,
+            'processing_state' => $this->processingState($document),
+        ];
+    }
+
+    private function processingState(PhrDocument $document): string
+    {
+        return $document->genai_job_id === null
+            ? 'not_requested'
+            : $document->genAiJob->status;
     }
 }

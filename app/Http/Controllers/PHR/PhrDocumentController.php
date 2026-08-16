@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\PHR;
 
+use App\DataTransferObjects\PHR\DocumentUploadData;
 use App\GenAiProcessor\Jobs\ParseImportJob;
 use App\GenAiProcessor\Models\GenAiImportJob;
 use App\Http\Controllers\Controller;
@@ -12,7 +13,8 @@ use App\Models\PhrLabResult;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatientVital;
 use App\Services\PHR\Access\PhrPatientAccessService;
-use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
+use App\Services\PHR\Documents\PhrDocumentUploadService;
+use App\Support\PHR\PhrDocumentTags;
 use App\Support\Storage\PhrStorageKey;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -25,7 +27,7 @@ class PhrDocumentController extends Controller
 {
     public function __construct(
         private PhrPatientAccessService $accessService,
-        private PhrPatientArtifactWriteGuard $artifactWriteGuard,
+        private PhrDocumentUploadService $documentUploads,
     ) {}
 
     public function index(Request $request, int $patient): JsonResponse
@@ -88,57 +90,11 @@ class PhrDocumentController extends Controller
         $resolvedPatient = $this->accessService->writablePatient($patient, $userId);
         $file = $request->file('file');
         abort_unless($file instanceof UploadedFile, 422, 'A document file is required.');
-
-        $realPath = $file->getRealPath();
-        abort_unless(is_string($realPath), 422, 'The uploaded file could not be read.');
-
-        $hash = hash_file('sha256', $realPath);
-        abort_unless(is_string($hash), 422, 'The uploaded file could not be hashed.');
-
-        $originalName = $file->getClientOriginalName() ?: 'document';
-        $storagePath = $this->storagePath((int) $resolvedPatient->id, $originalName);
-        $byteSize = (int) ($file->getSize() ?: 0);
-        $document = $this->artifactWriteGuard->run((int) $resolvedPatient->id, function ($lockedPatient) use ($realPath, $storagePath, $userId, $request, $originalName, $file, $byteSize, $hash): PhrDocument {
-            try {
-                $stream = fopen($realPath, 'rb');
-                abort_unless(is_resource($stream), 422, 'The uploaded file could not be opened.');
-                try {
-                    $stored = Storage::disk(PhrDocument::STORAGE_DISK)->put($storagePath, $stream);
-                } finally {
-                    $this->closeStreamIfStillOpen($stream);
-                }
-                abort_unless($stored, 500, 'The uploaded file could not be stored.');
-
-                return PhrDocument::query()->create([
-                    'patient_id' => $lockedPatient->id,
-                    'user_id' => $lockedPatient->owner_user_id,
-                    'uploaded_by_user_id' => $userId,
-                    'title' => $request->validated('title') ?: pathinfo($originalName, PATHINFO_FILENAME),
-                    'document_type' => $request->validated('document_type'),
-                    'observed_at' => $request->validated('observed_at'),
-                    'original_filename' => $originalName,
-                    'storage_disk' => PhrDocument::STORAGE_DISK,
-                    'storage_path' => $storagePath,
-                    'mime_type' => $file->getClientMimeType() ?: $file->getMimeType(),
-                    'byte_size' => $byteSize,
-                    'file_hash' => $hash,
-                    'summary' => $request->validated('summary'),
-                    'source' => 'manual_upload',
-                    'tags' => $this->cleanTags($request->validated('tags', [])),
-                    'imported_at' => now(),
-                ]);
-            } catch (\Throwable $exception) {
-                // The random destination is not visible until its row commits.
-                // Best-effort cleanup closes the filesystem/transaction gap.
-                try {
-                    Storage::disk(PhrDocument::STORAGE_DISK)->delete($storagePath);
-                } catch (\Throwable) {
-                    // Preserve the original request failure.
-                }
-
-                throw $exception;
-            }
-        });
+        $document = $this->documentUploads->upload(
+            $resolvedPatient,
+            $userId,
+            DocumentUploadData::fromValidated($file, $request->validated()),
+        )->document;
 
         return response()->json(['document' => $this->payload($document)], 201);
     }
@@ -163,7 +119,7 @@ class PhrDocumentController extends Controller
         $validated = $request->validated();
 
         if (array_key_exists('tags', $validated)) {
-            $validated['tags'] = $this->cleanTags($validated['tags'] ?? []);
+            $validated['tags'] = PhrDocumentTags::normalize($validated['tags'] ?? []);
         }
 
         $resolvedDocument->update($validated);
@@ -368,32 +324,6 @@ class PhrDocumentController extends Controller
     }
 
     /**
-     * @return array<int, string>
-     */
-    private function cleanTags(mixed $tags): array
-    {
-        if (! is_array($tags)) {
-            return [];
-        }
-
-        $clean = [];
-        foreach ($tags as $tag) {
-            if (! is_string($tag)) {
-                continue;
-            }
-
-            $trimmed = trim($tag);
-            if ($trimmed === '') {
-                continue;
-            }
-
-            $clean[Str::lower($trimmed)] = $trimmed;
-        }
-
-        return array_values($clean);
-    }
-
-    /**
      * Flysystem adapters may close a stream passed to put() — the S3 adapter's
      * Guzzle PSR-7 wrapper closes the underlying resource on destruct — and
      * fclose() on a closed resource throws a TypeError on PHP 8+. is_resource()
@@ -405,11 +335,6 @@ class PhrDocumentController extends Controller
         if (is_resource($stream)) {
             fclose($stream);
         }
-    }
-
-    private function storagePath(int $patientId, string $filename): string
-    {
-        return PhrStorageKey::document($patientId, Str::uuid()->toString(), $filename);
     }
 
     private function safeStoredFilename(string $filename): string

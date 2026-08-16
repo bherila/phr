@@ -28,6 +28,9 @@ final class AgentMcpInputSchemaFactory
             $schema['properties']['document_type']['enum'] = PhrDocument::DOCUMENT_TYPES;
             $schema['properties']['source']['enum'] = PhrDocument::SOURCES;
         }
+        if ($definition->name === 'documents.upload') {
+            $schema['properties']['document_type']['enum'] = PhrDocument::DOCUMENT_TYPES;
+        }
 
         $clinicalLists = array_map(
             static fn (string $resource): string => str_replace('-', '_', $resource).'.list',

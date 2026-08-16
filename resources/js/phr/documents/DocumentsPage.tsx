@@ -25,28 +25,16 @@ import {
   type PhrDocumentMetadataFormData,
   PhrDocumentMetadataFormSchema,
   PhrDocumentSchema,
+  PhrDocumentSourceSchema,
   PhrDocumentsResponseSchema,
+  PhrDocumentTypeSchema,
 } from '@/phr/types'
 
 type DocumentType = PhrDocument['document_type']
 type DocumentSource = NonNullable<PhrDocument['source']>
 type ViewMode = 'grid' | 'list'
 
-const DOCUMENT_TYPE_OPTIONS: DocumentType[] = [
-  'lab_report',
-  'office_visit_note',
-  'clinical_questionnaire',
-  'patient_symptom_log',
-  'discharge_summary',
-  'imaging_report',
-  'prescription',
-  'medical_necessity_letter',
-  'prior_authorization',
-  'insurance',
-  'consent',
-  'care_correspondence',
-  'other',
-]
+const DOCUMENT_TYPE_OPTIONS: DocumentType[] = [...PhrDocumentTypeSchema.options]
 
 const DOCUMENT_TAG_SUGGESTIONS = [
   'medical-necessity',
@@ -56,13 +44,7 @@ const DOCUMENT_TAG_SUGGESTIONS = [
   'care-correspondence',
 ]
 
-const SOURCE_OPTIONS: DocumentSource[] = [
-  'manual_upload',
-  'genai_import',
-  'fhir_import',
-  'ccda_import',
-  'mychart_zip',
-]
+const SOURCE_OPTIONS: DocumentSource[] = [...PhrDocumentSourceSchema.options]
 
 const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
   lab_report: 'Lab Report',
@@ -82,6 +64,7 @@ const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
 
 const SOURCE_LABELS: Record<DocumentSource, string> = {
   manual_upload: 'Manual Upload',
+  agent_upload: 'Agent Upload',
   genai_import: 'GenAI Import',
   fhir_import: 'FHIR Import',
   ccda_import: 'CCDA Import',

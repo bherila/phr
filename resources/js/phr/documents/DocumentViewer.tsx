@@ -15,6 +15,7 @@ interface DocumentViewerProps {
 
 const SOURCE_LABELS: Record<NonNullable<PhrDocument['source']>, string> = {
   manual_upload: 'Manual Upload',
+  agent_upload: 'Agent Upload',
   genai_import: 'GenAI Import',
   fhir_import: 'FHIR Import',
   ccda_import: 'CCDA Import',

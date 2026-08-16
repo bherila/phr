@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Http\Middleware\SerializeOAuthTokenExchange;
 use App\Models\AgentApiAudit;
 use App\Models\OAuthTokenFamily;
+use App\Models\PhrDocument;
 use App\Models\User;
 use App\Support\AgentApi\AccountAwareAccessTokenRepository;
 use App\Support\AgentApi\AccountAwareAuthCodeRepository;
@@ -13,6 +14,7 @@ use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentApiTokenPolicy;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use App\Support\AgentApi\OAuthExchangeAccountGuard;
+use App\Support\PHR\PhrDocumentUploadLimits;
 use DateTimeImmutable;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -280,6 +282,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             'eob_lines.get',
             'evidence.links',
             'documents.list',
+            'documents.upload',
             'documents.get',
             'documents.download_access.create',
             'documents.download',
@@ -309,6 +312,22 @@ class AgentApiOAuthFoundationTest extends TestCase
         $this->assertSame(
             [AgentApiScopes::DOCUMENTS_READ],
             $document['paths']['/patients/{patient}/documents']['get']['security'][0]['oauth2'],
+        );
+        $this->assertSame(
+            [AgentApiScopes::DOCUMENTS_WRITE],
+            $document['paths']['/patients/{patient}/documents']['post']['security'][0]['oauth2'],
+        );
+        $this->assertSame(
+            PhrDocumentUploadLimits::MAX_BYTES,
+            $capabilities['limits']['maximum_document_upload_bytes'],
+        );
+        $this->assertSame(
+            PhrDocumentUploadLimits::MAX_BYTES,
+            $document['components']['schemas']['DocumentUploadRequest']['properties']['file']['maxLength'],
+        );
+        $this->assertSame(
+            PhrDocument::DOCUMENT_TYPES,
+            $document['components']['schemas']['DocumentUploadRequest']['properties']['document_type']['enum'],
         );
         $this->assertSame(
             [AgentApiScopes::CLINICAL_WRITE],
