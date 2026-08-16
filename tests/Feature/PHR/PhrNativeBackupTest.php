@@ -9,6 +9,7 @@ use App\Models\PhrNativeBackupAudit;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Models\User;
+use App\Services\PHR\DataHub\PhrPatientDeletionCleanupService;
 use App\Services\PHR\NativeBackup\NativeBackupException;
 use App\Services\PHR\NativeBackup\PhrNativeBackupCatalog;
 use App\Services\PHR\NativeBackup\PhrNativeBackupService;
@@ -19,6 +20,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
+use Illuminate\Testing\TestResponse;
 use Tests\Support\PhrNativeBackupTestReader;
 use Tests\TestCase;
 use ZipArchive;
@@ -200,7 +202,8 @@ class PhrNativeBackupTest extends TestCase
             'expires_at' => now()->addHour(),
         ]);
 
-        $this->actingAs($owner)->deleteJson("/api/phr/patients/{$patient->id}")->assertNoContent();
+        $response = $this->deletePatient($owner, $patient)->assertAccepted();
+        app(PhrPatientDeletionCleanupService::class)->cleanup((int) $response->json('deletion.id'));
 
         Storage::disk('phr_exports')->assertMissing($path);
         $this->assertDatabaseMissing('phr_native_backups', ['id' => $backup->id]);
@@ -214,8 +217,7 @@ class PhrNativeBackupTest extends TestCase
         $backup = $this->newBackup($patient, $owner);
         $backup->update(['status' => PhrNativeBackup::STATUS_PROCESSING]);
 
-        $this->actingAs($owner)
-            ->deleteJson("/api/phr/patients/{$patient->id}")
+        $this->deletePatient($owner, $patient)
             ->assertConflict();
 
         $this->assertDatabaseHas('phr_native_backups', [
@@ -227,13 +229,11 @@ class PhrNativeBackupTest extends TestCase
         DB::table('phr_native_backups')->where('id', $backup->id)->update([
             'updated_at' => now()->subMinutes(16),
         ]);
-        $this->actingAs($owner)
-            ->deleteJson("/api/phr/patients/{$patient->id}")
-            ->assertNoContent();
+        $this->deletePatient($owner, $patient)->assertAccepted();
         $this->assertDatabaseMissing('phr_patients', ['id' => $patient->id]);
     }
 
-    public function test_partial_archive_cleanup_failure_never_restores_a_row_for_deleted_bytes(): void
+    public function test_partial_archive_cleanup_failure_is_durable_after_database_deletion(): void
     {
         $owner = $this->createUser();
         $patient = $this->createPatient($owner);
@@ -241,17 +241,31 @@ class PhrNativeBackupTest extends TestCase
         $second = $this->readyBackup($patient, $owner, 'phr/native-backups/fixture/second.zip');
 
         $disk = \Mockery::mock(Filesystem::class);
+        $disk->shouldReceive('exists')->once()->with((string) $first->storage_path)->andReturnTrue()->ordered();
         $disk->shouldReceive('delete')->once()->with((string) $first->storage_path)->andReturnTrue()->ordered();
+        $disk->shouldReceive('exists')->once()->with((string) $first->storage_path)->andReturnFalse()->ordered();
+        $disk->shouldReceive('exists')->once()->with((string) $second->storage_path)->andReturnTrue()->ordered();
         $disk->shouldReceive('delete')->once()->with((string) $second->storage_path)->andReturnFalse()->ordered();
         Storage::shouldReceive('disk')->twice()->with('phr_exports')->andReturn($disk);
 
-        $this->actingAs($owner)
-            ->deleteJson("/api/phr/patients/{$patient->id}")
-            ->assertServerError();
+        $response = $this->deletePatient($owner, $patient)
+            ->assertAccepted()
+            ->assertJsonPath('deletion.status', 'pending_cleanup');
+        try {
+            app(PhrPatientDeletionCleanupService::class)->cleanup((int) $response->json('deletion.id'));
+            $this->fail('Synthetic partial storage cleanup should fail.');
+        } catch (\RuntimeException) {
+            // The durable work row is asserted below.
+        }
 
         $this->assertDatabaseMissing('phr_native_backups', ['id' => $first->id]);
-        $this->assertDatabaseHas('phr_native_backups', ['id' => $second->id]);
-        $this->assertDatabaseHas('phr_patients', ['id' => $patient->id]);
+        $this->assertDatabaseMissing('phr_native_backups', ['id' => $second->id]);
+        $this->assertDatabaseMissing('phr_patients', ['id' => $patient->id]);
+        $this->assertDatabaseHas('phr_patient_deletion_artifacts', [
+            'deletion_id' => (int) $response->json('deletion.id'),
+            'storage_key' => $second->storage_path,
+            'status' => 'failed',
+        ]);
     }
 
     public function test_archive_round_trips_every_catalog_table_with_stable_hashes_and_artifacts(): void
@@ -706,6 +720,17 @@ class PhrNativeBackupTest extends TestCase
     private function generate(PhrPatient $patient, User $owner): PhrNativeBackup
     {
         return app(PhrNativeBackupService::class)->generate($this->newBackup($patient, $owner));
+    }
+
+    private function deletePatient(User $owner, PhrPatient $patient): TestResponse
+    {
+        $preview = $this->actingAs($owner)
+            ->getJson("/api/phr/data-hub/patients/{$patient->id}/deletion-preview");
+
+        return $this->actingAs($owner)->deleteJson("/api/phr/patients/{$patient->id}", [
+            'confirmation' => 'DELETE',
+            'preview_digest' => (string) $preview->json('deletion_preview.preview_digest'),
+        ]);
     }
 
     /** @return array<string, mixed> */

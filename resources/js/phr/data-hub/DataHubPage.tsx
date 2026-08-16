@@ -16,6 +16,10 @@ import {
   NativeBackupResponseSchema,
   NativeBackupsResponseSchema,
   type OwnedPatientInventory,
+  type PatientDeletion,
+  type PatientDeletionPreview,
+  PatientDeletionPreviewResponseSchema,
+  PatientDeletionResponseSchema,
 } from './dataHub'
 
 const CLINICAL_CATEGORIES: DataHubCategoryKey[] = [
@@ -43,6 +47,30 @@ const FILE_CATEGORIES: DataHubCategoryKey[] = [
   'dicom_instances',
   'original_dicom_files',
 ]
+
+const DELETION_MESSAGES: Record<string, string> = {
+  active_shares_unacknowledged: 'Confirm that active shares will be revoked before deleting.',
+  dispatch_failed: 'Storage cleanup could not be queued. Retry the cleanup.',
+  dicom_upload_in_progress: 'A DICOM upload is still in progress. Finish or cancel it, then preview again.',
+  invalid_storage_reference: 'A stored-file reference needs administrator attention before deletion.',
+  native_backup_in_progress: 'A native backup is still being generated. Wait for it to finish, then preview again.',
+  preview_changed: 'The patient data changed after this preview. Generate a new deletion preview.',
+  queue_failure: 'Storage cleanup stopped before it completed. Retry the cleanup.',
+  shared_storage_reference: 'A stored file is referenced by another patient and cannot be deleted safely.',
+  storage_cleanup_failed: 'One or more stored files could not be removed. Retry the cleanup.',
+}
+
+const DELETION_STATUS_LABELS: Record<PatientDeletion['status'], string> = {
+  pending_cleanup: 'queued',
+  cleanup_processing: 'in progress',
+  cleanup_failed: 'failed',
+  completed: 'complete',
+}
+
+function deletionMessage(value: unknown): string {
+  const message = errorMessage(value)
+  return DELETION_MESSAGES[message] ?? message
+}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -81,13 +109,19 @@ interface PatientCardProps {
   busy: boolean
   exportError?: string
   backupError?: string
+  deletionPreview?: PatientDeletionPreview
+  deletionError?: string
   onGenerate: (patientId: number) => Promise<void>
   onRefresh: (patientId: number) => Promise<void>
   onGenerateBackup: (patientId: number) => Promise<void>
   onRefreshBackup: (patientId: number) => Promise<void>
+  onPreviewDeletion: (patientId: number) => Promise<void>
+  onDelete: (patientId: number, preview: PatientDeletionPreview, acknowledgeShares: boolean) => Promise<void>
 }
 
-function PatientCard({ patient, currentExport, currentBackup, busy, exportError, backupError, onGenerate, onRefresh, onGenerateBackup, onRefreshBackup }: PatientCardProps): ReactElement {
+function PatientCard({ patient, currentExport, currentBackup, busy, exportError, backupError, deletionPreview, deletionError, onGenerate, onRefresh, onGenerateBackup, onRefreshBackup, onPreviewDeletion, onDelete }: PatientCardProps): ReactElement {
+  const [confirmation, setConfirmation] = useState('')
+  const [acknowledgeShares, setAcknowledgeShares] = useState(false)
   const totalRecords = useMemo(
     () => DATA_HUB_CATEGORY_KEYS.reduce((sum, key) => sum + patient.record_counts[key], 0),
     [patient.record_counts],
@@ -137,7 +171,7 @@ function PatientCard({ patient, currentExport, currentBackup, busy, exportError,
             <div>
               <h3 className="text-sm font-semibold">Clinical interoperability export</h3>
               <p className="mt-1 text-xs text-muted-foreground">
-                Generate this patient’s C-CDA XML clinical summary. This is separate from the future lossless native backup.
+                Generate this patient’s C-CDA XML clinical summary. This remains separate from the lossless native backup.
               </p>
             </div>
           </div>
@@ -187,7 +221,49 @@ function PatientCard({ patient, currentExport, currentBackup, busy, exportError,
 
         <div className="grid gap-2 sm:grid-cols-2 lg:col-span-2">
           <PlannedAction icon={<RotateCcw className="size-4" />} label="Dry-run restore" phase="Phase 4" />
-          <PlannedAction icon={<Trash2 className="size-4" />} label="Safe deletion" phase="Phase 3" />
+          <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
+            <div className="flex items-center gap-2 text-sm font-medium"><Trash2 className="size-4" />Safe aggregate deletion</div>
+            <p className="mt-1 text-xs text-muted-foreground">Preview database rows, active shares, and exclusively owned files before committing.</p>
+            {!deletionPreview ? (
+              <Button type="button" size="sm" variant="outline" className="mt-3" disabled={busy} onClick={() => void onPreviewDeletion(patient.id)}>
+                Preview deletion
+              </Button>
+            ) : (
+              <div className="mt-3 space-y-3 text-xs">
+                <p>
+                  {deletionPreview.database_row_count.toLocaleString()} database rows · {deletionPreview.artifact_count.toLocaleString()} files · {formatBytes(deletionPreview.artifact_bytes)} · {deletionPreview.active_share_count} active share{deletionPreview.active_share_count === 1 ? '' : 's'}
+                </p>
+                {deletionPreview.blockers.length > 0 ? (
+                  <p role="alert" className="text-destructive">Deletion is blocked: {deletionPreview.blockers.map(deletionMessage).join(' ')}</p>
+                ) : null}
+                <label className="block font-medium">
+                  Type DELETE to confirm
+                  <input
+                    aria-label={`Type DELETE to delete ${patient.display_name ?? `patient ${patient.id}`}`}
+                    className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    value={confirmation}
+                    onChange={(event) => setConfirmation(event.target.value)}
+                  />
+                </label>
+                {deletionPreview.active_share_count > 0 ? (
+                  <label className="flex items-start gap-2">
+                    <input type="checkbox" checked={acknowledgeShares} onChange={(event) => setAcknowledgeShares(event.target.checked)} />
+                    I understand active shares will be revoked.
+                  </label>
+                ) : null}
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="destructive"
+                  disabled={busy || confirmation !== 'DELETE' || deletionPreview.blockers.length > 0 || (deletionPreview.active_share_count > 0 && !acknowledgeShares)}
+                  onClick={() => void onDelete(patient.id, deletionPreview, acknowledgeShares)}
+                >
+                  Permanently delete patient data
+                </Button>
+              </div>
+            )}
+            {deletionError ? <p role="alert" className="mt-2 text-xs text-destructive">{deletionError}</p> : null}
+          </div>
         </div>
       </section>
     </article>
@@ -213,6 +289,10 @@ export default function DataHubPage(): ReactElement {
   const [busyPatientId, setBusyPatientId] = useState<number | null>(null)
   const [exportErrors, setExportErrors] = useState<Record<number, string>>({})
   const [backupErrors, setBackupErrors] = useState<Record<number, string>>({})
+  const [deletionPreviews, setDeletionPreviews] = useState<Record<number, PatientDeletionPreview>>({})
+  const [deletionErrors, setDeletionErrors] = useState<Record<number, string>>({})
+  const [deletionResult, setDeletionResult] = useState<PatientDeletion | null>(null)
+  const [deletionStatusError, setDeletionStatusError] = useState<string | null>(null)
 
   const loadInventory = useCallback(async (): Promise<void> => {
     setLoading(true)
@@ -242,6 +322,15 @@ export default function DataHubPage(): ReactElement {
 
   function setBackupError(patientId: number, message?: string): void {
     setBackupErrors((current) => {
+      const next = { ...current }
+      if (message) next[patientId] = message
+      else delete next[patientId]
+      return next
+    })
+  }
+
+  function setDeletionError(patientId: number, message?: string): void {
+    setDeletionErrors((current) => {
       const next = { ...current }
       if (message) next[patientId] = message
       else delete next[patientId]
@@ -313,6 +402,65 @@ export default function DataHubPage(): ReactElement {
     }
   }
 
+  async function previewDeletion(patientId: number): Promise<void> {
+    setBusyPatientId(patientId)
+    setDeletionError(patientId)
+    try {
+      const raw: unknown = await fetchWrapper.get(`/api/phr/data-hub/patients/${patientId}/deletion-preview`)
+      const preview = PatientDeletionPreviewResponseSchema.parse(raw).deletion_preview
+      setDeletionPreviews((current) => ({ ...current, [patientId]: preview }))
+    } catch (caught) {
+      setDeletionError(patientId, deletionMessage(caught))
+    } finally {
+      setBusyPatientId(null)
+    }
+  }
+
+  async function deletePatient(patientId: number, preview: PatientDeletionPreview, acknowledgeShares: boolean): Promise<void> {
+    setBusyPatientId(patientId)
+    setDeletionError(patientId)
+    try {
+      const raw: unknown = await fetchWrapper.delete(`/api/phr/patients/${patientId}`, {
+        confirmation: 'DELETE',
+        preview_digest: preview.preview_digest,
+        acknowledge_active_shares: acknowledgeShares,
+      })
+      const deletion = PatientDeletionResponseSchema.parse(raw).deletion
+      setInventory((current) => current ? {
+        ...current,
+        owned_patients: current.owned_patients.filter((item) => item.id !== patientId),
+      } : current)
+      setDeletionResult(deletion)
+      setDeletionStatusError(null)
+    } catch (caught) {
+      setDeletionError(patientId, deletionMessage(caught))
+    } finally {
+      setBusyPatientId(null)
+    }
+  }
+
+  async function refreshDeletion(): Promise<void> {
+    if (!deletionResult) return
+    setDeletionStatusError(null)
+    try {
+      const raw: unknown = await fetchWrapper.get(`/api/phr/data-hub/deletions/${deletionResult.id}`)
+      setDeletionResult(PatientDeletionResponseSchema.parse(raw).deletion)
+    } catch (caught) {
+      setDeletionStatusError(deletionMessage(caught))
+    }
+  }
+
+  async function retryDeletion(): Promise<void> {
+    if (!deletionResult) return
+    setDeletionStatusError(null)
+    try {
+      const raw: unknown = await fetchWrapper.post(`/api/phr/data-hub/deletions/${deletionResult.id}/retry`, {})
+      setDeletionResult(PatientDeletionResponseSchema.parse(raw).deletion)
+    } catch (caught) {
+      setDeletionStatusError(deletionMessage(caught))
+    }
+  }
+
   return (
     <div className="h-full overflow-y-auto p-6">
       <div className="mx-auto max-w-6xl">
@@ -321,7 +469,7 @@ export default function DataHubPage(): ReactElement {
           <div>
             <h1 className="text-2xl font-semibold text-foreground">PHR Data Hub</h1>
             <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-              Review each patient independently. Clinical XML exports are available now; lossless backup, previewed deletion, and dry-run restore remain separate safety phases.
+              Review each patient independently. Clinical XML exports, lossless backup, and previewed aggregate deletion are available; dry-run restore remains a separate safety phase.
             </p>
           </div>
         </header>
@@ -337,6 +485,21 @@ export default function DataHubPage(): ReactElement {
             <span>{loadError}</span>
             <Button type="button" variant="outline" size="sm" onClick={() => void loadInventory()}>Retry</Button>
           </div>
+        ) : null}
+        {deletionResult ? (
+          <section role="status" className="mt-4 rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
+            <p>Patient database data was deleted. Storage cleanup: {DELETION_STATUS_LABELS[deletionResult.status]}.</p>
+            {deletionResult.failure_category ? <p role="alert" className="mt-1 text-destructive">{deletionMessage(deletionResult.failure_category)}</p> : null}
+            {deletionStatusError ? <p role="alert" className="mt-1 text-destructive">{deletionStatusError}</p> : null}
+            <div className="mt-2 flex gap-2">
+              {deletionResult.status === 'cleanup_failed' ? (
+                <Button type="button" size="sm" variant="outline" onClick={() => void retryDeletion()}>Retry storage cleanup</Button>
+              ) : null}
+              {deletionResult.status !== 'completed' ? (
+                <Button type="button" size="sm" variant="outline" onClick={() => void refreshDeletion()}>Check cleanup status</Button>
+              ) : null}
+            </div>
+          </section>
         ) : null}
 
         {!loading && inventory?.owned_patients.length === 0 ? (
@@ -357,10 +520,14 @@ export default function DataHubPage(): ReactElement {
               busy={busyPatientId === patient.id}
               {...(exportErrors[patient.id] ? { exportError: exportErrors[patient.id] } : {})}
               {...(backupErrors[patient.id] ? { backupError: backupErrors[patient.id] } : {})}
+              {...(deletionPreviews[patient.id] ? { deletionPreview: deletionPreviews[patient.id] } : {})}
+              {...(deletionErrors[patient.id] ? { deletionError: deletionErrors[patient.id] } : {})}
               onGenerate={generateExport}
               onRefresh={refreshExport}
               onGenerateBackup={generateBackup}
               onRefreshBackup={refreshBackup}
+              onPreviewDeletion={previewDeletion}
+              onDelete={deletePatient}
             />
           ))}
         </div>

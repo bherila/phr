@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
@@ -25,6 +26,16 @@ class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable, SerializesDatesAsLocal;
+
+    protected static function booted(): void
+    {
+        static::deleting(function (User $user): void {
+            // Data Hub audits retain operation proof but anonymize the actor when
+            // a full account is removed. Neither table has clinical/free text.
+            DB::table('phr_native_backup_audits')->where('actor_user_id', $user->id)->update(['actor_user_id' => null]);
+            DB::table('phr_patient_deletions')->where('actor_user_id', $user->id)->update(['actor_user_id' => null]);
+        });
+    }
 
     /**
      * The attributes that are mass assignable.

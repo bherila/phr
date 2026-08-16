@@ -7,11 +7,13 @@ import DataHubPage from './DataHubPage'
 
 const mockGet = jest.fn()
 const mockPost = jest.fn()
+const mockDelete = jest.fn()
 
 jest.mock('@/fetchWrapper', () => ({
   fetchWrapper: {
     get: (...args: unknown[]) => mockGet(...args),
     post: (...args: unknown[]) => mockPost(...args),
+    delete: (...args: unknown[]) => mockDelete(...args),
   },
 }))
 
@@ -33,7 +35,7 @@ function inventoryPayload() {
         clinical_export: { eligible: true, status: 'available', format: 'ccda' },
         native_backup: { eligible: true, status: 'available' },
         restore: { eligible: true, status: 'planned' },
-        aggregate_delete: { eligible: true, status: 'planned' },
+        aggregate_delete: { eligible: true, status: 'available' },
       },
     }],
     shared_patients: [{
@@ -82,20 +84,56 @@ const readyBackup = {
   download_url: '/phr/native-backups/12/download?signature=synthetic',
 }
 
+const deletionPreview = {
+  patient_id: 42,
+  record_counts: { phr_patients: 1, phr_documents: 2 },
+  database_row_count: 3,
+  active_share_count: 1,
+  artifact_count: 2,
+  artifact_bytes: 3072,
+  blockers: [],
+  preview_digest: 'b'.repeat(64),
+  confirmation_text: 'DELETE',
+}
+
+const acceptedDeletion = {
+  id: 18,
+  patient_root_id: 42,
+  status: 'pending_cleanup',
+  record_counts: deletionPreview.record_counts,
+  active_share_count: 1,
+  artifact_count: 2,
+  artifact_bytes: 3072,
+  failure_category: null,
+  deleted_at: '2026-08-16T01:00:00+00:00',
+  completed_at: null,
+}
+
+const completedDeletion = {
+  ...acceptedDeletion,
+  status: 'completed',
+  completed_at: '2026-08-16T01:01:00+00:00',
+}
+
 beforeEach(() => {
   mockGet.mockReset()
   mockPost.mockReset()
+  mockDelete.mockReset()
   mockGet.mockImplementation(async (url: string) => {
     if (url === '/api/phr/data-hub') return inventoryPayload()
     if (url === '/api/phr/patients/42/exports') return { exports: [readyExport] }
     if (url === '/api/phr/patients/42/native-backups') return { backups: [readyBackup] }
+    if (url === '/api/phr/data-hub/patients/42/deletion-preview') return { deletion_preview: deletionPreview }
+    if (url === '/api/phr/data-hub/deletions/18') return { deletion: completedDeletion }
     throw new Error(`Unexpected GET ${url}`)
   })
   mockPost.mockImplementation(async (url: string) => {
     if (url === '/api/phr/patients/42/exports') return { export: readyExport }
     if (url === '/api/phr/patients/42/native-backups') return { backup: readyBackup }
+    if (url === '/api/phr/data-hub/deletions/18/retry') return { deletion: acceptedDeletion }
     throw new Error(`Unexpected POST ${url}`)
   })
+  mockDelete.mockResolvedValue({ deletion: acceptedDeletion })
 })
 
 describe('DataHubPage', () => {
@@ -108,7 +146,7 @@ describe('DataHubPage', () => {
     expect(screen.getAllByText('3.00 KB')).toHaveLength(2)
     expect(screen.getByText('Synthetic Shared Profile')).toBeInTheDocument()
     expect(screen.getByText(/viewer access · owner operations unavailable/i)).toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: 'Not yet available' })).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: 'Not yet available' })).toHaveLength(1)
     expect(screen.queryByText('Undisclosed health value')).not.toBeInTheDocument()
   })
 
@@ -161,5 +199,57 @@ describe('DataHubPage', () => {
     const exportPanel = screen.getByRole('heading', { name: 'Clinical interoperability export' }).closest('.rounded-md')
     expect(backupPanel).toContainElement(alert)
     expect(exportPanel).not.toContainElement(alert)
+  })
+
+  it('previews and confirms patient deletion with a separate share acknowledgement', async () => {
+    render(<DataHubPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Preview deletion' }))
+
+    await waitFor(() => {
+      expect(mockGet).toHaveBeenCalledWith('/api/phr/data-hub/patients/42/deletion-preview')
+    })
+    expect(await screen.findByText(/3 database rows · 2 files · 3.00 KB · 1 active share/)).toBeInTheDocument()
+    const commit = screen.getByRole('button', { name: 'Permanently delete patient data' })
+    expect(commit).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText('Type DELETE to delete Synthetic Record Owner'), { target: { value: 'DELETE' } })
+    fireEvent.click(screen.getByLabelText('I understand active shares will be revoked.'))
+    expect(commit).toBeEnabled()
+    fireEvent.click(commit)
+
+    await waitFor(() => {
+      expect(mockDelete).toHaveBeenCalledWith('/api/phr/patients/42', {
+        confirmation: 'DELETE',
+        preview_digest: deletionPreview.preview_digest,
+        acknowledge_active_shares: true,
+      })
+    })
+    expect(await screen.findByText(/Storage cleanup: queued/)).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Synthetic Record Owner' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Check cleanup status' }))
+    await waitFor(() => {
+      expect(mockGet).toHaveBeenCalledWith('/api/phr/data-hub/deletions/18')
+    })
+    expect(await screen.findByText(/Storage cleanup: complete/)).toBeInTheDocument()
+  })
+
+  it('reports failed storage cleanup and exposes a retry without restoring the patient card', async () => {
+    mockDelete.mockResolvedValueOnce({
+      deletion: { ...acceptedDeletion, status: 'cleanup_failed', failure_category: 'storage_cleanup_failed' },
+    })
+    render(<DataHubPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Preview deletion' }))
+    await screen.findByText(/3 database rows/)
+    fireEvent.change(screen.getByLabelText('Type DELETE to delete Synthetic Record Owner'), { target: { value: 'DELETE' } })
+    fireEvent.click(screen.getByLabelText('I understand active shares will be revoked.'))
+    fireEvent.click(screen.getByRole('button', { name: 'Permanently delete patient data' }))
+
+    expect(await screen.findByText(/Storage cleanup: failed/)).toBeInTheDocument()
+    expect(screen.getByText(/One or more stored files could not be removed/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry storage cleanup' }))
+    await waitFor(() => {
+      expect(mockPost).toHaveBeenCalledWith('/api/phr/data-hub/deletions/18/retry', {})
+    })
   })
 })

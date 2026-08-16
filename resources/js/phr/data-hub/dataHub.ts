@@ -90,6 +90,36 @@ export const NativeBackupResponseSchema = z.object({ backup: NativeBackupSchema 
 export const NativeBackupsResponseSchema = z.object({ backups: z.array(NativeBackupSchema) })
 export type NativeBackup = z.infer<typeof NativeBackupSchema>
 
+export const PatientDeletionPreviewSchema = z.object({
+  patient_id: z.number().int().positive(),
+  record_counts: z.record(z.string(), z.number().int().nonnegative()),
+  database_row_count: z.number().int().nonnegative(),
+  active_share_count: z.number().int().nonnegative(),
+  artifact_count: z.number().int().nonnegative(),
+  artifact_bytes: z.number().int().nonnegative(),
+  blockers: z.array(z.string()),
+  preview_digest: z.string().regex(/^[a-f0-9]{64}$/),
+  confirmation_text: z.literal('DELETE'),
+})
+
+export const PatientDeletionSchema = z.object({
+  id: z.number().int().positive(),
+  patient_root_id: z.number().int().positive(),
+  status: z.enum(['pending_cleanup', 'cleanup_processing', 'cleanup_failed', 'completed']),
+  record_counts: z.record(z.string(), z.number().int().nonnegative()),
+  active_share_count: z.number().int().nonnegative(),
+  artifact_count: z.number().int().nonnegative(),
+  artifact_bytes: z.number().int().nonnegative(),
+  failure_category: z.string().nullable(),
+  deleted_at: z.string(),
+  completed_at: z.string().nullable(),
+})
+
+export const PatientDeletionPreviewResponseSchema = z.object({ deletion_preview: PatientDeletionPreviewSchema })
+export const PatientDeletionResponseSchema = z.object({ deletion: PatientDeletionSchema })
+export type PatientDeletionPreview = z.infer<typeof PatientDeletionPreviewSchema>
+export type PatientDeletion = z.infer<typeof PatientDeletionSchema>
+
 export const DATA_HUB_CATEGORY_LABELS: Record<DataHubCategoryKey, string> = {
   lab_results: 'Lab results',
   vitals: 'Vitals',

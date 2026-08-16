@@ -78,6 +78,10 @@ class PhrStorageMap
             ->from('phr_blob_migrations', 'source_key')->where('legacy_deleted_at', null)
             ->from('phr_blob_migrations', 'destination_key')->where('legacy_deleted_at', null)
 
+            // Patient deletion commits the database graph first, then retries exact
+            // artifact cleanup. Durable work rows protect those keys in between.
+            ->from('phr_patient_deletion_artifacts', 'storage_key')
+
             // Staging for GenAI imports, on the disk named `s3`. Empty in production today,
             // but the column exists and must be honoured rather than assumed dead.
             //

@@ -100,7 +100,6 @@ export default function PatientsManagePage() {
   const [editError, setEditError] = useState<string | null>(null)
 
   const [deletingId, setDeletingId] = useState<number | null>(null)
-  const [deleteBusy, setDeleteBusy] = useState(false)
 
   const loadPatients = useCallback(async () => {
     setBusy(true)
@@ -176,19 +175,6 @@ export default function PatientsManagePage() {
     }
   }
 
-  async function handleDelete(patientId: number): Promise<void> {
-    setDeleteBusy(true)
-    try {
-      await fetchWrapper.delete(`/api/phr/patients/${patientId}`, {})
-      setPatients((prev) => prev.filter((p) => p.id !== patientId))
-      setDeletingId(null)
-    } catch (err) {
-      setError(errorMessage(err))
-    } finally {
-      setDeleteBusy(false)
-    }
-  }
-
   return (
     <div>
       <div className="mb-6">
@@ -254,21 +240,13 @@ export default function PatientsManagePage() {
             return (
               <div key={patient.id} className="rounded-lg border border-destructive/40 bg-card p-4">
                 <p className="mb-3 text-sm text-foreground">
-                  Delete <strong>{patient.display_name}</strong>? This cannot be undone.
+                  Deleting <strong>{patient.display_name}</strong> requires an inventory preview, typed confirmation, and a separate acknowledgement when shares will be revoked.
                 </p>
                 <div className="flex gap-2">
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    disabled={deleteBusy}
-                    onClick={() => void handleDelete(patient.id)}
-                  >
-                    {deleteBusy ? 'Deleting…' : 'Delete'}
-                  </Button>
+                  <a className="inline-flex h-8 items-center rounded-md bg-destructive px-3 text-xs font-medium text-destructive-foreground" href="/phr/data-hub">Open Data Hub deletion preview</a>
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={deleteBusy}
                     onClick={() => setDeletingId(null)}
                   >
                     Cancel

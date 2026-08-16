@@ -74,11 +74,28 @@ page and inventory API use `private, no-store` responses.
 
 Clinical interoperability export remains distinct from native backup. Each owned
 patient can generate the existing C-CDA XML clinical summary independently; there is
-no all-patients export. A future native archive from issue #12 will preserve original
-files and PHR-specific state that C-CDA does not model, with its own versioned restore
-contract. The current XML generator predates the 2026 C-CDA v5 publication, so formal
-v5 profile validation is a separate compatibility hardening step rather than an
-assumed claim of conformance.
+no all-patients export. The `phr-native-v1` archive preserves original files and
+PHR-specific state that C-CDA does not model, with its own versioned restore contract.
+The current XML generator predates the 2026 C-CDA v5 publication, so formal v5 profile
+validation remains a separate compatibility hardening step rather than an assumed
+claim of conformance.
+
+Owners can preview and confirm aggregate deletion from the Data Hub. The preview
+contains table-level row counts, active-share count, exclusively owned artifact count
+and bytes, fixed blocker codes, and a digest—never clinical values, filenames, or
+storage keys. Applying it requires typing `DELETE`, presenting the unchanged digest,
+and separately acknowledging active shares. The database graph is deleted in one
+transaction; exact document, DICOM, export, native-backup, and migration-ledger objects
+then move through durable retryable cleanup rows. A storage failure reports
+`cleanup_failed` without pretending cleanup completed or restoring accessible rows.
+
+Data Hub audit policy is explicit: successful metadata-only events are retained for
+2,555 days (seven years) and durable operation failures for 365 days. Read-only
+previews and pre-mutation refusals/no-ops are not persisted as audit events. Pending
+cleanup work is never pruned. Full user-account deletion anonymizes `actor_user_id` while retaining the
+patient root id, applicable schema/checksum or preview digest, counts, timestamps,
+outcome, and fixed failure category. `phr:data-hub:prune-audits` runs daily through the monitored scheduler; the
+windows are configurable with `PHR_DATA_HUB_AUDIT_*_RETENTION_DAYS`.
 
 ## Auth
 

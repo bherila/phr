@@ -13,6 +13,12 @@ return [
     // A migrated reference keeps its verified legacy object until a separate,
     // explicit cleanup phase runs after this rollback window.
     'blob_migration_rollback_days' => max(1, (int) env('PHR_BLOB_MIGRATION_ROLLBACK_DAYS', 30)),
+
+    // Metadata-only successful Data Hub audit events are retained for seven years;
+    // durable failures are retained for one year. Read-only/pre-mutation no-ops are
+    // not persisted, and pending cleanup work is never pruned.
+    'data_hub_audit_success_retention_days' => max(1, (int) env('PHR_DATA_HUB_AUDIT_SUCCESS_RETENTION_DAYS', 2555)),
+    'data_hub_audit_failure_retention_days' => max(1, (int) env('PHR_DATA_HUB_AUDIT_FAILURE_RETENTION_DAYS', 365)),
     'dicom_max_file_bytes' => (int) env('PHR_DICOM_MAX_FILE_BYTES', 1024 * 1024 * 1024),
     'dicom_viewer_direct_signed_urls' => filter_var(env('PHR_DICOM_VIEWER_DIRECT_SIGNED_URLS', false), FILTER_VALIDATE_BOOL),
     'dicom_viewer_url_ttl_minutes' => max(1, (int) env('PHR_DICOM_VIEWER_URL_TTL_MINUTES', 30)),

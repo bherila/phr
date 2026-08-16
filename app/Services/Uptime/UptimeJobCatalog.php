@@ -43,6 +43,10 @@ final class UptimeJobCatalog
                 'label' => 'Expired native backup cleanup',
                 'stale_after_seconds' => 26 * 60 * 60,
             ],
+            'phr:data-hub:prune-audits' => [
+                'label' => 'Data Hub audit retention',
+                'stale_after_seconds' => 26 * 60 * 60,
+            ],
         ];
     }
 
@@ -54,6 +58,7 @@ final class UptimeJobCatalog
             'phr:dicom:gc' => 'phr:dicom:gc',
             'phr:exports:purge' => 'phr:exports:purge',
             'phr:native-backups:purge' => 'phr:native-backups:purge',
+            'phr:data-hub:prune-audits' => 'phr:data-hub:prune-audits',
         ];
     }
 

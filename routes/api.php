@@ -23,6 +23,7 @@ use App\Http\Controllers\PHR\PhrDocumentController;
 use App\Http\Controllers\PHR\PhrExportController;
 use App\Http\Controllers\PHR\PhrGenAiImportController;
 use App\Http\Controllers\PHR\PhrNativeBackupController;
+use App\Http\Controllers\PHR\PhrPatientDeletionController;
 use App\Http\Controllers\PHR\ProcedureController as PHRProcedureController;
 use App\Http\Controllers\PHR\RespiratoryEventController as PHRRespiratoryEventController;
 use App\Http\Controllers\PHR\SinusEnrollmentController as PHRSinusEnrollmentController;
@@ -66,6 +67,9 @@ Route::middleware(['web', 'auth'])
     ->name('phr.')
     ->group(function (): void {
         Route::get('/data-hub', [PhrDataHubController::class, 'index'])->name('data-hub.index');
+        Route::get('/data-hub/patients/{patient}/deletion-preview', [PhrPatientDeletionController::class, 'preview'])->whereNumber('patient')->name('data-hub.deletions.preview');
+        Route::get('/data-hub/deletions/{deletion}', [PhrPatientDeletionController::class, 'show'])->whereNumber('deletion')->name('data-hub.deletions.show');
+        Route::post('/data-hub/deletions/{deletion}/retry', [PhrPatientDeletionController::class, 'retry'])->whereNumber('deletion')->name('data-hub.deletions.retry');
         Route::get('/patients', [PHRPatientController::class, 'index'])->name('patients.index');
         Route::post('/patients', [PHRPatientController::class, 'store'])->name('patients.store');
         Route::get('/patients/{patient}', [PHRPatientController::class, 'show'])->whereNumber('patient')->name('patients.show');
