@@ -78,7 +78,7 @@ describe('PhrCommandPalette', () => {
     expect(screen.queryByText('Medications')).not.toBeInTheDocument()
 
     fireEvent.change(input, { target: { value: 'office-visits' } })
-    expect(screen.getByText('Office Visits')).toBeInTheDocument()
+    expect(screen.getByText('Visits')).toBeInTheDocument()
     expect(screen.queryByText('Labs')).not.toBeInTheDocument()
   })
 
