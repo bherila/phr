@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use App\Models\User;
+use App\Support\AgentApi\OAuthExchangeAccountGuard;
 use Closure;
 use Illuminate\Contracts\Auth\Factory;
 use Illuminate\Contracts\Auth\StatefulGuard;
@@ -12,7 +13,10 @@ use Symfony\Component\HttpFoundation\Response;
 
 final class EnsureOAuthAuthorizationUserCanLogin
 {
-    public function __construct(private Factory $auth) {}
+    public function __construct(
+        private Factory $auth,
+        private OAuthExchangeAccountGuard $accountGuard,
+    ) {}
 
     public function handle(Request $request, Closure $next): Response
     {
@@ -32,6 +36,15 @@ final class EnsureOAuthAuthorizationUserCanLogin
 
         $user = User::query()->find($authenticated->getAuthIdentifier());
         if ($user instanceof User && $user->canLogin()) {
+            // Persist the generation validated at the authorization boundary in
+            // request-local state. Auth-code persistence must not bless a grant
+            // with a newer generation read after a disable/re-enable transition.
+            $this->accountGuard->recordValidatedGrant(
+                $user->getAuthIdentifier(),
+                $user->oauth_security_version,
+                null,
+            );
+
             return $next($request);
         }
 

@@ -13,6 +13,10 @@ final class ThrottleAgentApiAuthentication
 
     public function handle(Request $request, Closure $next): Response
     {
+        if ($request->is('oauth/authorize')) {
+            return $this->throttle->handle($request, $next, 'agent-api-authorization');
+        }
+
         if ($request->isMethod('POST') && $request->is('oauth/token')) {
             return $this->throttle->handle($request, $next, 'agent-api-token-exchange');
         }

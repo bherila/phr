@@ -38,6 +38,7 @@ class AccountAwareRefreshTokenRepository extends RefreshTokenRepository
 
         if (! $user instanceof User
             || ! $user->canLogin()
+            || $accessToken->revoked
             || $accessToken->oauth_security_version === null
             || (int) $accessToken->oauth_security_version !== (int) $user->oauth_security_version) {
             if ($accessToken?->user_id !== null) {

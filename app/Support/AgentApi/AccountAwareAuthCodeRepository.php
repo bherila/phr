@@ -14,9 +14,11 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
     public function persistNewAuthCode(AuthCodeEntityInterface $authCodeEntity): void
     {
         $userId = $authCodeEntity->getUserIdentifier();
-        $securityVersion = $userId === null
-            ? null
-            : User::query()->whereKey($userId)->value('oauth_security_version');
+        $validatedGrant = $userId === null ? null : $this->accountGuard->validatedGrantFor($userId);
+        // Authorization routes always pass through the account-state middleware.
+        // Missing request-local state fails closed as an unusable code rather than
+        // falling back to a race-prone user-table read here.
+        $securityVersion = $validatedGrant['security_version'] ?? null;
 
         Passport::authCode()->forceFill([
             'id' => $authCodeEntity->getIdentifier(),

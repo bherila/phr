@@ -24,6 +24,7 @@ use Laravel\Passport\AccessToken;
 use Laravel\Passport\AuthCode;
 use Laravel\Passport\Bridge\AccessToken as PassportAccessTokenEntity;
 use Laravel\Passport\Bridge\AccessTokenRepository as PassportAccessTokenRepository;
+use Laravel\Passport\Bridge\AuthCode as PassportAuthCodeEntity;
 use Laravel\Passport\Bridge\AuthCodeRepository as PassportAuthCodeRepository;
 use Laravel\Passport\Bridge\Client as PassportClientEntity;
 use Laravel\Passport\Bridge\RefreshTokenRepository as PassportRefreshTokenRepository;
@@ -239,6 +240,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             ->assertJsonPath('limits.maximum_page_size', 100)
             ->assertJsonPath('limits.authentication_attempts_per_minute', 300)
             ->assertJsonPath('limits.token_exchange_attempts_per_minute', 60)
+            ->assertJsonPath('limits.authorization_attempts_per_minute', 30)
             ->assertJsonPath('oauth.authorization_code_pkce', true)
             ->json();
 
@@ -352,6 +354,35 @@ class AgentApiOAuthFoundationTest extends TestCase
 
         Passport::actingAs($this->createUser(), []);
         $this->deleteJson('/api/v1/oauth/token')->assertNoContent();
+    }
+
+    public function test_authorization_requests_have_a_separate_pre_session_limit(): void
+    {
+        config(['agent_api.authorization_attempts_per_minute' => 3]);
+        $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.80']);
+        $query = http_build_query([
+            'client_id' => (string) Str::uuid(),
+            'redirect_uri' => 'https://client.example.test/callback',
+            'response_type' => 'code',
+            'scope' => AgentApiScopes::IDENTITY_READ,
+            'code_challenge' => str_repeat('a', 43),
+            'code_challenge_method' => 'S256',
+        ]);
+
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            $response = $this->getJson('/oauth/authorize?'.$query);
+            $this->assertNotSame(429, $response->getStatusCode());
+            $response->assertHeader('X-RateLimit-Limit', '3');
+        }
+        $this->postJson('/oauth/authorize?'.$query)->assertTooManyRequests();
+
+        $tokenResponse = $this->postJson('/oauth/token', [
+            'grant_type' => 'refresh_token',
+            'client_id' => (string) Str::uuid(),
+            'refresh_token' => 'synthetic-invalid-refresh-token',
+        ]);
+        $this->assertNotSame(429, $tokenResponse->getStatusCode());
+        $tokenResponse->assertHeader('X-RateLimit-Limit', '60');
     }
 
     public function test_authenticated_requests_have_metadata_only_audits_even_when_scope_is_denied(): void
@@ -784,6 +815,64 @@ class AgentApiOAuthFoundationTest extends TestCase
         $this->assertSame($familyIdentifier, $successor->oauth_family_id);
         $this->assertFalse($guard->credentialsMayBeReturned());
         $this->assertTrue($successor->fresh()->revoked);
+    }
+
+    public function test_authorization_code_preserves_the_generation_validated_at_consent(): void
+    {
+        // User id 1 is intentionally always an administrator and cannot be disabled.
+        $this->createAdminUser();
+        $user = $this->createUser();
+        $client = Client::query()->create([
+            'name' => 'Synthetic Consent Snapshot Client',
+            'secret' => null,
+            'provider' => 'users',
+            'redirect_uris' => ['https://client.example.test/callback'],
+            'grant_types' => ['authorization_code'],
+            'revoked' => false,
+        ]);
+        $guard = app(OAuthExchangeAccountGuard::class);
+        $guard->recordValidatedGrant($user->id, $user->fresh()->oauth_security_version, null);
+
+        // Simulate a lifecycle transition after the authorization middleware
+        // approves the account but before Passport persists the code.
+        DB::table('users')->where('id', $user->id)->update(['user_role' => '']);
+        DB::table('users')->where('id', $user->id)->update(['user_role' => 'User']);
+
+        $entity = new PassportAuthCodeEntity;
+        $entity->setIdentifier($codeId = Str::random(80));
+        $entity->setUserIdentifier((string) $user->id);
+        $entity->setClient(new PassportClientEntity($client->id, $client->name, $client->redirect_uris));
+        $entity->setExpiryDateTime(new DateTimeImmutable('+10 minutes'));
+        app(PassportAuthCodeRepository::class)->persistNewAuthCode($entity);
+
+        $authorizationCode = AuthCode::query()->findOrFail($codeId);
+        $this->assertSame(0, $authorizationCode->oauth_security_version);
+        $this->assertTrue(app(PassportAuthCodeRepository::class)->isAuthCodeRevoked($codeId));
+        $this->assertTrue($authorizationCode->fresh()->revoked);
+    }
+
+    public function test_refresh_repository_rejects_an_operator_revoked_parent_access_token(): void
+    {
+        $user = $this->createUser();
+        $token = Token::query()->create([
+            'id' => Str::random(80),
+            'user_id' => $user->id,
+            'client_id' => (string) Str::uuid(),
+            'scopes' => [AgentApiScopes::IDENTITY_READ],
+            'revoked' => true,
+            'oauth_security_version' => $user->fresh()->oauth_security_version,
+            'oauth_family_id' => Str::random(80),
+            'expires_at' => now()->addMinutes(15),
+        ]);
+        $refresh = RefreshToken::query()->create([
+            'id' => Str::random(80),
+            'access_token_id' => $token->id,
+            'revoked' => false,
+            'expires_at' => now()->addDays(30),
+        ]);
+
+        $this->assertTrue(app(PassportRefreshTokenRepository::class)->isRefreshTokenRevoked($refresh->id));
+        $this->assertTrue($refresh->fresh()->revoked);
     }
 
     public function test_account_lifecycle_revocation_uses_passports_configured_connection(): void

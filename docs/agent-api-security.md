@@ -13,9 +13,9 @@ clinical data escaping through logs or diagnostics. The controls are short-lived
 access tokens, one-use rotating refresh tokens, explicit user consent, default-deny
 scopes, patient grant checks, bounded pagination, per-user throttling, idempotency and
 concurrency preconditions on writes, and metadata-only audit records.
-The public token endpoint has its own pre-authentication IP bucket, separate from
-the protected-resource buckets, so invalid grants cannot create unbounded parsing
-or transaction work.
+The public authorization and token endpoints have dedicated pre-authentication IP
+buckets, separate from each other and from protected-resource buckets, so invalid
+requests cannot create unbounded session, parsing, or transaction work.
 
 The agent audit table intentionally excludes request URLs, route parameters, query
 strings, request and response bodies, filenames, error messages, IP addresses, and
