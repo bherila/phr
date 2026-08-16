@@ -10,7 +10,7 @@
         "test": "jest --passWithNoTests --maxWorkers=2",
         "test:e2e": "playwright test",
         "test:e2e:install": "playwright install --with-deps chromium",
-        "validate:ccda": "node scripts/validate-ccda.mjs",
+        "validate:ccda": "node --test scripts/validate-ccda-process.test.mjs && node scripts/validate-ccda.mjs",
         "test:slow": "JEST_INCLUDE_SLOW_TESTS=1 jest --passWithNoTests --testPathPatterns='\\.slow\\.test\\.[tj]sx?$'",
         "type-check": "tsc --noEmit --jsx react-jsx",
         "lint": "eslint . --cache",

@@ -5,6 +5,8 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 
+import { generatorFailureExitCode } from './validate-ccda-process.mjs';
+
 const require = createRequire(import.meta.url);
 const { validate } = require('cda-schematron-validator');
 
@@ -126,9 +128,13 @@ await Promise.all([
 const generated = spawnSync('php', [join(root, 'scripts/generate-synthetic-ccda.php')], {
     encoding: 'utf8',
 });
-if (generated.status !== 0 || generated.stdout === '') {
+const generatorExitCode = generatorFailureExitCode(generated.status, generated.stdout);
+if (generatorExitCode !== null) {
     process.stderr.write(generated.stderr);
-    process.exit(generated.status ?? 1);
+    if (generated.status === 0) {
+        process.stderr.write('Synthetic C-CDA generator produced no output.\n');
+    }
+    process.exit(generatorExitCode);
 }
 writeFileSync(fixture, generated.stdout);
 
