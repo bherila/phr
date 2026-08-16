@@ -23,7 +23,7 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
         // Missing request-local state fails closed as an unusable code rather than
         // falling back to a race-prone user-table read here.
         $securityVersion = $validatedGrant['security_version'] ?? null;
-        $resourceUri = OAuthResourceIndicator::fromRequest(request());
+        $resourceUri = OAuthResourceIndicator::validatedFor(request());
         $scopeIds = array_map(
             static fn ($scope): string => $scope->getIdentifier(),
             $authCodeEntity->getScopes(),

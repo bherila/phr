@@ -342,7 +342,10 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         ]))->assertUnauthorized();
 
         $this->assertNull(app(OAuthAuthorizationStateStore::class)->resourceFor($authToken));
-        $this->post('/oauth/authorize', ['auth_token' => $authToken])->assertRedirect();
+        $this->post('/oauth/authorize', [
+            'auth_token' => $authToken,
+            'resource' => 'https://unrelated.example.test/api',
+        ])->assertRedirect();
         $this->assertNull(AuthCode::query()->sole()->resource_uri);
     }
 

@@ -44,14 +44,11 @@ final class OAuthResourceIndicator
         return "{$scheme}://{$host}{$port}{$path}";
     }
 
-    public static function fromRequest(Request $request): ?string
+    public static function validatedFor(Request $request): ?string
     {
         $attribute = $request->attributes->get(self::REQUEST_ATTRIBUTE);
-        if (is_string($attribute)) {
-            return $attribute;
-        }
 
-        return self::canonicalize($request->input('resource'));
+        return is_string($attribute) ? $attribute : null;
     }
 
     public static function isAgentApi(mixed $value): bool
