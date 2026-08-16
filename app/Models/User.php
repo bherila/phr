@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Support\AgentApi\OAuthCredentialRevoker;
 use App\Traits\SerializesDatesAsLocal;
 use Bherila\GenAiLaravel\Clients\AnthropicClient;
 use Bherila\GenAiLaravel\Clients\BedrockClient;
@@ -20,7 +21,6 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Laravel\Passport\Contracts\OAuthenticatable;
 use Laravel\Passport\HasApiTokens;
-use Laravel\Passport\Passport;
 
 /**
  * @property Carbon|null $mcp_api_key_expires_at
@@ -176,30 +176,7 @@ class User extends Authenticatable implements OAuthenticatable
      */
     public function revokeOAuthTokens(): void
     {
-        $connection = config('passport.connection');
-        $passportSchema = Schema::connection(is_string($connection) ? $connection : null);
-
-        if (! $passportSchema->hasTable('oauth_access_tokens')) {
-            return;
-        }
-
-        $tokenIds = Passport::token()->newQuery()
-            ->where('user_id', $this->getAuthIdentifier())
-            ->pluck('id');
-
-        if ($tokenIds->isEmpty()) {
-            return;
-        }
-
-        if ($passportSchema->hasTable('oauth_refresh_tokens')) {
-            Passport::refreshToken()->newQuery()
-                ->whereIn('access_token_id', $tokenIds)
-                ->update(['revoked' => true]);
-        }
-
-        Passport::token()->newQuery()
-            ->whereIn('id', $tokenIds)
-            ->update(['revoked' => true]);
+        app(OAuthCredentialRevoker::class)->revokeForUserIdentifier($this->getAuthIdentifier());
     }
 
     /**

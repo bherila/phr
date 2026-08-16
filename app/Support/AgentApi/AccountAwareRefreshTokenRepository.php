@@ -25,8 +25,12 @@ class AccountAwareRefreshTokenRepository extends RefreshTokenRepository
             : User::query()->find($accessToken->user_id);
 
         if (! $user instanceof User || ! $user->canLogin()) {
-            $refreshToken->revoke();
-            $accessToken?->revoke();
+            if ($accessToken?->user_id !== null) {
+                app(OAuthCredentialRevoker::class)->revokeForUserIdentifier($accessToken->user_id);
+            } else {
+                $refreshToken->revoke();
+                $accessToken?->revoke();
+            }
 
             return true;
         }
