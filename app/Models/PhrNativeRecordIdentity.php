@@ -12,6 +12,7 @@ use Illuminate\Support\Carbon;
  * @property int $record_id
  * @property string $native_id
  * @property Carbon|null $restored_at
+ * @property int|null $restore_attempt_id
  */
 class PhrNativeRecordIdentity extends Model
 {
@@ -21,6 +22,7 @@ class PhrNativeRecordIdentity extends Model
         'record_id',
         'native_id',
         'restored_at',
+        'restore_attempt_id',
     ];
 
     protected function casts(): array
@@ -29,6 +31,7 @@ class PhrNativeRecordIdentity extends Model
             'patient_id' => 'integer',
             'record_id' => 'integer',
             'restored_at' => 'datetime',
+            'restore_attempt_id' => 'integer',
         ];
     }
 }

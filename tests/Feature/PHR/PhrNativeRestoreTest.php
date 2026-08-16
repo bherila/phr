@@ -276,6 +276,26 @@ final class PhrNativeRestoreTest extends TestCase
     {
         $owner = $this->createUser();
         $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        $healthLogId = DB::table('phr_health_logs')->insertGetId([
+            'patient_id' => $patient->id,
+            'user_id' => $owner->id,
+            'created_by_user_id' => $owner->id,
+            'name' => 'Synthetic archived health log',
+            'kind' => 'custom',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $healthLogUpdatedAt = DB::table('phr_health_logs')->where('id', $healthLogId)->value('updated_at');
+        $healthLogEntryId = DB::table('phr_health_log_entries')->insertGetId([
+            'health_log_id' => $healthLogId,
+            'patient_id' => $patient->id,
+            'user_id' => $owner->id,
+            'recorded_by_user_id' => $owner->id,
+            'occurred_at' => now(),
+            'title' => 'Synthetic archived health entry',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
         $conditionId = DB::table('phr_conditions')->insertGetId([
             'patient_id' => $patient->id,
             'user_id' => $owner->id,
@@ -293,10 +313,12 @@ final class PhrNativeRestoreTest extends TestCase
             ->value('native_id');
         $this->assertIsString($nativeId);
         DB::table('phr_conditions')->where('id', $conditionId)->delete();
+        DB::table('phr_health_log_entries')->where('id', $healthLogEntryId)->delete();
 
         $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
         $this->assertSame([], $attempt->plan_counts_json['blockers']);
         $this->assertSame(1, $attempt->plan_counts_json['tables']['phr_conditions']['create']);
+        $this->assertSame(1, $attempt->plan_counts_json['tables']['phr_health_log_entries']['create']);
         $attempt->update(['status' => PhrNativeRestoreAttempt::STATUS_PENDING]);
         app(PhrNativeRestoreService::class)->apply($attempt);
 
@@ -314,6 +336,21 @@ final class PhrNativeRestoreTest extends TestCase
                 ->where('record_table', 'phr_conditions')
                 ->where('record_id', $restoredId)
                 ->value('restored_at'),
+        );
+        $attempt->refresh();
+        $healthLogIdentity = PhrNativeRecordIdentity::query()
+            ->where('patient_id', $patient->id)
+            ->where('record_table', 'phr_health_logs')
+            ->where('record_id', $healthLogId)
+            ->sole();
+        $this->assertSame($attempt->id, $healthLogIdentity->restore_attempt_id);
+        $this->assertSame(
+            $attempt->completed_at?->toDateTimeString(),
+            $healthLogIdentity->restored_at?->toDateTimeString(),
+        );
+        $this->assertSame(
+            (string) $healthLogUpdatedAt,
+            (string) DB::table('phr_health_logs')->where('id', $healthLogId)->value('updated_at'),
         );
         @unlink($archivePath);
     }

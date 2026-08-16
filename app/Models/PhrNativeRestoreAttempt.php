@@ -39,6 +39,8 @@ class PhrNativeRestoreAttempt extends Model
 
     public const string STATUS_PROCESSING = 'restore_processing';
 
+    public const string STATUS_FINALIZING = 'restore_finalizing';
+
     public const string STATUS_FAILED = 'restore_failed';
 
     public const string STATUS_COMPLETED = 'completed';

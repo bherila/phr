@@ -11,6 +11,7 @@ use App\Models\PhrImmunization;
 use App\Models\PhrLabResult;
 use App\Models\PhrMedication;
 use App\Models\PhrNativeRecordIdentity;
+use App\Models\PhrNativeRestoreAttempt;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
@@ -214,6 +215,20 @@ class AgentApiClinicalReadTest extends TestCase
         $archivedVisitUpdatedAt = $visit->updated_at?->toDateTimeString();
 
         $this->travelTo(Carbon::parse('2026-08-16 11:00:00'));
+        $attempt = PhrNativeRestoreAttempt::query()->create([
+            'actor_user_id' => $actor->id,
+            'source_storage_disk' => 'phr_exports',
+            'source_file_size_bytes' => 1,
+            'uploaded_bytes' => 1,
+            'archive_sha256' => str_repeat('a', 64),
+            'schema_version' => 1,
+            'patient_native_id' => (string) Str::uuid(),
+            'target_patient_root_id' => $patient->id,
+            'plan_digest' => str_repeat('b', 64),
+            'plan_counts_json' => ['tables' => [], 'artifacts' => [], 'blockers' => []],
+            'status' => PhrNativeRestoreAttempt::STATUS_FINALIZING,
+            'expires_at' => now()->addDay(),
+        ]);
         foreach ([
             ['table' => 'phr_patients', 'record_id' => $patient->id],
             ['table' => 'phr_office_visits', 'record_id' => $visit->id],
@@ -223,7 +238,10 @@ class AgentApiClinicalReadTest extends TestCase
                 'record_table' => $identity['table'],
                 'record_id' => $identity['record_id'],
                 'native_id' => (string) Str::uuid(),
-                'restored_at' => now(),
+                // A graph commit is visible just before the finalizer publishes
+                // its timestamp. This sentinel must behave as newly restored.
+                'restored_at' => null,
+                'restore_attempt_id' => $attempt->id,
             ]);
         }
 
@@ -242,6 +260,10 @@ class AgentApiClinicalReadTest extends TestCase
         $this->getJson("/api/v1/patients/{$patient->id}/office-visits?updated_before=2026-08-16T10:00:00Z")
             ->assertOk()
             ->assertJsonCount(0, 'data');
+
+        PhrNativeRecordIdentity::query()
+            ->where('restore_attempt_id', $attempt->id)
+            ->update(['restored_at' => now()]);
 
         $this->assertSame($archivedPatientUpdatedAt, $patient->fresh()?->updated_at?->toDateTimeString());
         $this->assertSame($archivedVisitUpdatedAt, $visit->fresh()?->updated_at?->toDateTimeString());

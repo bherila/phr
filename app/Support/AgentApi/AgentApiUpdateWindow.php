@@ -44,7 +44,19 @@ final class AgentApiUpdateWindow
                             $patientColumn,
                             $recordIdColumn,
                             $recordTable,
-                        )->where('agent_restore_identity.restored_at', '>=', $after);
+                        )->where(function (QueryBuilder $restored) use ($after): void {
+                            $restored
+                                ->where('agent_restore_identity.restored_at', '>=', $after)
+                                // Between the graph commit and watermark commit,
+                                // restored rows are already visible. Treat that
+                                // short pending state as newer than every cursor so
+                                // a concurrent poll cannot skip the restore.
+                                ->orWhere(function (QueryBuilder $pending): void {
+                                    $pending
+                                        ->whereNotNull('agent_restore_identity.restore_attempt_id')
+                                        ->whereNull('agent_restore_identity.restored_at');
+                                });
+                        });
                     });
             });
         }
@@ -64,7 +76,15 @@ final class AgentApiUpdateWindow
                         $patientColumn,
                         $recordIdColumn,
                         $recordTable,
-                    )->where('agent_restore_identity.restored_at', '>', $before);
+                    )->where(function (QueryBuilder $restored) use ($before): void {
+                        $restored
+                            ->where('agent_restore_identity.restored_at', '>', $before)
+                            ->orWhere(function (QueryBuilder $pending): void {
+                                $pending
+                                    ->whereNotNull('agent_restore_identity.restore_attempt_id')
+                                    ->whereNull('agent_restore_identity.restored_at');
+                            });
+                    });
                 });
         }
     }
@@ -80,7 +100,6 @@ final class AgentApiUpdateWindow
             ->from('phr_native_record_identities as agent_restore_identity')
             ->where('agent_restore_identity.record_table', $recordTable)
             ->whereColumn('agent_restore_identity.patient_id', $patientColumn)
-            ->whereColumn('agent_restore_identity.record_id', $recordIdColumn)
-            ->whereNotNull('agent_restore_identity.restored_at');
+            ->whereColumn('agent_restore_identity.record_id', $recordIdColumn);
     }
 }

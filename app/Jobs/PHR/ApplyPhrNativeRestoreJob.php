@@ -42,7 +42,7 @@ final class ApplyPhrNativeRestoreJob implements ShouldQueue
     {
         $attempt = PhrNativeRestoreAttempt::query()->find($this->attemptId);
         if ($attempt === null
-            || (! in_array($attempt->status, [PhrNativeRestoreAttempt::STATUS_PENDING, PhrNativeRestoreAttempt::STATUS_PROCESSING], true)
+            || (! in_array($attempt->status, [PhrNativeRestoreAttempt::STATUS_PENDING, PhrNativeRestoreAttempt::STATUS_PROCESSING, PhrNativeRestoreAttempt::STATUS_FINALIZING], true)
                 && ! ($attempt->status === PhrNativeRestoreAttempt::STATUS_FAILED && in_array($attempt->failure_category, self::RETRYABLE_FAILURES, true)))) {
             return;
         }

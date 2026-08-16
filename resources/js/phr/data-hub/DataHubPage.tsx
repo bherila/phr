@@ -440,7 +440,7 @@ function RestorePanel({ onCompleted }: { onCompleted: () => Promise<void> }): Re
               <Button type="button" disabled={busy || confirmation !== 'RESTORE' || restore.blockers.length > 0} onClick={() => void applyRestore()}>Restore patient data</Button>
             </div>
           ) : null}
-          {['preview_pending', 'preview_processing', 'pending_restore', 'restore_processing'].includes(restore.status) ? <Button type="button" size="sm" variant="outline" className="mt-3" disabled={busy} onClick={() => void refresh()}><RefreshCw className={`size-4 ${busy ? 'animate-spin' : ''}`} />Check restore status</Button> : null}
+          {['preview_pending', 'preview_processing', 'pending_restore', 'restore_processing', 'restore_finalizing'].includes(restore.status) ? <Button type="button" size="sm" variant="outline" className="mt-3" disabled={busy} onClick={() => void refresh()}><RefreshCw className={`size-4 ${busy ? 'animate-spin' : ''}`} />Check restore status</Button> : null}
         </div>
       ) : null}
       {error ? <p role="alert" className="mt-3 text-sm text-destructive">{error}</p> : null}

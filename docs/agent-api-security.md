@@ -26,7 +26,10 @@ allow-list only after the patient id is resolved through `PhrPatientAccessServic
 Clinical list responses are cursor-bounded to 100 rows, and source/update filters are
 validated before query construction. Update windows treat a native restore's ingestion
 time as an update without rewriting the archived record's full-fidelity timestamps;
-the watermark lives only in the archive-excluded native identity ledger. The fixed
+the watermark lives only in the archive-excluded native identity ledger. Restore
+publishing uses a short two-transaction handoff: pending identities are always treated
+as new, then their ingestion timestamp and terminal restore status become visible
+atomically after the patient graph commits. The fixed
 catalog maps route slugs to the same
 model and JSON Resource classes consumed by the browser API; route input never selects
 an arbitrary class or table.

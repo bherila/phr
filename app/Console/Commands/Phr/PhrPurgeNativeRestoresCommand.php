@@ -24,6 +24,7 @@ final class PhrPurgeNativeRestoresCommand extends BasePhrCommand
                 // work cannot protect a multi-gigabyte source forever.
                 $query->whereNotIn('status', [
                     PhrNativeRestoreAttempt::STATUS_PROCESSING,
+                    PhrNativeRestoreAttempt::STATUS_FINALIZING,
                     PhrNativeRestoreAttempt::STATUS_PREVIEW_PROCESSING,
                 ])->orWhere('updated_at', '<=', now()->subHours(2));
             })
