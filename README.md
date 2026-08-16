@@ -230,8 +230,35 @@ update, then reads the canonical object back. Its output contains only artifact 
 table/id references, statuses, and aggregate counts/bytes—never keys or filenames.
 `phr_blob_migrations` protects verified legacy copies from both garbage collectors for
 the configured `PHR_BLOB_MIGRATION_ROLLBACK_DAYS` (30 by default). This command never
-deletes them; retirement is a later explicit cleanup phase after production downloads,
-DICOM viewing, exports, and the production-to-mirror verification all pass.
+deletes them. After production downloads, DICOM viewing, exports, and
+production-to-mirror verification all pass, retirement is a separate command:
+
+```bash
+php artisan phr:storage:cleanup-legacy-keys
+php artisan phr:storage:cleanup-legacy-keys --patient=123 --artifact=documents
+php artisan phr:storage:cleanup-legacy-keys --disk=phr_dicom --apply
+```
+
+Cleanup is also a dry run unless `--apply` is present. It ignores unexpired ledger
+rows, locks each canonical reference against concurrent recovery, and re-verifies the
+patient, reference, destination hash, source hash, and byte count before deleting only
+the legacy object. A mismatch fails closed and leaves the live ledger in place. Missing
+legacy bytes can be acknowledged only after the canonical side verifies; no command
+deletes a canonical destination through the migration ledger.
+
+Reconcile a patient-scoped source-evidence directory against operational document
+blobs before an insurer or provider repository is retired. The report is read-only,
+streams both sides through SHA-256, and emits only aggregate counts/bytes and internal
+`phr_documents#id` statuses—never source paths, object keys, or hashes:
+
+```bash
+php artisan phr:storage:reconcile-source-evidence --patient=123 --source=/outside/repo/evidence
+php artisan phr:storage:reconcile-source-evidence --patient=123 --source=/outside/repo/evidence --extension=pdf
+```
+
+An unmatched source file, unmatched document, missing blob, or metadata/hash mismatch
+returns a failing exit code. Source evidence stays outside this repository and every
+worktree; the command never writes to it or to the PHR database.
 
 > Two things bite when adding a local disk. Its `root` must follow the driver — a
 > filesystem path on `local`, an object-key prefix on `s3` — or every read 404s while the

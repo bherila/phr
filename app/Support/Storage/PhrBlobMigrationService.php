@@ -537,7 +537,7 @@ final class PhrBlobMigrationService
         // bytes were never removed, so the application retains a readable source.
         if ($this->fingerprint($disk, $destination) !== $sourceFingerprint) {
             try {
-                $rolledBack = $this->rollBackReference($table, $id, $column, $destination, $source);
+                $rolledBack = $this->rollBackReference($diskName, $table, $id, $column, $destination, $source);
             } catch (Throwable) {
                 return ['status' => 'rollback_failed', 'bytes' => $sourceFingerprint['size']];
             }
@@ -593,7 +593,7 @@ final class PhrBlobMigrationService
         }
 
         try {
-            $rolledBack = $this->rollBackReference($table, $id, $column, $destination, $source);
+            $rolledBack = $this->rollBackReference($diskName, $table, $id, $column, $destination, $source);
         } catch (Throwable) {
             return ['status' => 'rollback_failed', 'bytes' => $expected['size']];
         }
@@ -604,19 +604,53 @@ final class PhrBlobMigrationService
         ];
     }
 
-    private function rollBackReference(string $table, int $id, string $column, string $destination, string $source): int
-    {
-        return DB::transaction(function () use ($table, $id, $column, $destination, $source): int {
+    private function rollBackReference(
+        string $diskName,
+        string $table,
+        int $id,
+        string $column,
+        string $destination,
+        string $source,
+    ): int {
+        return DB::transaction(function () use ($diskName, $table, $id, $column, $destination, $source): int {
+            // Recovery and cleanup use the same reference-then-ledger lock order.
+            // Rechecking the retained bytes inside that boundary prevents recovery
+            // from validating before cleanup and then repointing after deletion.
+            $reference = DB::table($table)
+                ->where('id', $id)
+                ->lockForUpdate()
+                ->first(['id', 'patient_id', $column]);
+            if ($reference === null || (string) $reference->{$column} !== $destination) {
+                return 0;
+            }
+
+            $ledger = DB::table('phr_blob_migrations')
+                ->where('reference_table', $table)
+                ->where('reference_id', $id)
+                ->where('reference_column', $column)
+                ->where('storage_disk', $diskName)
+                ->where('source_key', $source)
+                ->where('destination_key', $destination)
+                ->whereNull('legacy_deleted_at')
+                ->lockForUpdate()
+                ->first();
+            if ($ledger === null
+                || (int) $ledger->patient_id !== (int) $reference->patient_id
+                || ! $this->validStoredKey($source)
+                || ! $this->legacyPatientMatches($source, (int) $reference->patient_id)
+                || $this->fingerprint(Storage::disk($diskName), $source) !== [
+                    'size' => (int) $ledger->source_size_bytes,
+                    'sha256' => (string) $ledger->source_sha256,
+                ]) {
+                return 0;
+            }
+
             $rolledBack = DB::table($table)
                 ->where('id', $id)
                 ->where($column, $destination)
                 ->update([$column => $source, 'updated_at' => now()]);
             if ($rolledBack === 1) {
-                DB::table('phr_blob_migrations')
-                    ->where('reference_table', $table)
-                    ->where('reference_id', $id)
-                    ->where('reference_column', $column)
-                    ->delete();
+                DB::table('phr_blob_migrations')->where('id', $ledger->id)->delete();
             }
 
             return $rolledBack;
