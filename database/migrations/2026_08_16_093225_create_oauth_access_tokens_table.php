@@ -18,6 +18,7 @@ return new class extends Migration
             $table->string('name')->nullable();
             $table->text('scopes')->nullable();
             $table->boolean('revoked');
+            $table->unsignedBigInteger('oauth_security_version')->nullable();
             $table->timestamps();
             $table->dateTime('expires_at')->nullable();
         });

@@ -3,6 +3,7 @@
 use App\Http\Middleware\AuditAgentApiRequest;
 use App\Http\Middleware\EnsureOAuthAuthorizationUserCanLogin;
 use App\Http\Middleware\ThrottleAgentApiAuthentication;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Auth\Middleware\Authenticate;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -46,6 +47,24 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        $exceptions->render(function (AuthenticationException $exception, Request $request) {
+            if (! $request->is('api/v1/*')) {
+                return null;
+            }
+
+            return response()->json(
+                ['message' => 'Unauthenticated.'],
+                401,
+                [
+                    'Cache-Control' => 'private, no-store',
+                    'WWW-Authenticate' => sprintf(
+                        'Bearer resource_metadata="%s"',
+                        url('/.well-known/oauth-protected-resource/api/v1'),
+                    ),
+                ],
+            );
+        });
+
         // Unauthenticated /api/* requests must render 401 JSON regardless of the
         // Accept header — never a redirect to /login, and never a 500 from resolving
         // a `login` route that may not exist. API clients treat 401 as "authentication

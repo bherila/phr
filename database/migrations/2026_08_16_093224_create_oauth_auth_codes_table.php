@@ -17,6 +17,7 @@ return new class extends Migration
             $table->foreignUuid('client_id');
             $table->text('scopes')->nullable();
             $table->boolean('revoked');
+            $table->unsignedBigInteger('oauth_security_version')->nullable();
             $table->dateTime('expires_at')->nullable();
         });
     }

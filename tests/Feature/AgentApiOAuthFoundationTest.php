@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Http\Middleware\SerializeOAuthTokenExchange;
 use App\Models\AgentApiAudit;
 use App\Models\User;
+use App\Support\AgentApi\AccountAwareAccessTokenRepository;
 use App\Support\AgentApi\AccountAwareAuthCodeRepository;
 use App\Support\AgentApi\AccountAwareRefreshTokenRepository;
 use App\Support\AgentApi\AgentApiScopes;
@@ -19,6 +20,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Laravel\Passport\AccessToken;
 use Laravel\Passport\AuthCode;
+use Laravel\Passport\Bridge\AccessTokenRepository as PassportAccessTokenRepository;
 use Laravel\Passport\Bridge\AuthCodeRepository as PassportAuthCodeRepository;
 use Laravel\Passport\Bridge\RefreshTokenRepository as PassportRefreshTokenRepository;
 use Laravel\Passport\Client;
@@ -58,6 +60,7 @@ class AgentApiOAuthFoundationTest extends TestCase
         $this->getJson('/.well-known/oauth-authorization-server')
             ->assertOk()
             ->assertHeader('Cache-Control', 'max-age=300, public')
+            ->assertHeaderMissing('Set-Cookie')
             ->assertJsonPath('grant_types_supported', ['authorization_code', 'refresh_token'])
             ->assertJsonPath('response_types_supported', ['code'])
             ->assertJsonPath('code_challenge_methods_supported', ['S256'])
@@ -179,6 +182,10 @@ class AgentApiOAuthFoundationTest extends TestCase
         parse_str((string) parse_url((string) $approval->headers->get('Location'), PHP_URL_QUERY), $redirectQuery);
         $this->assertSame('synthetic-state', $redirectQuery['state']);
         $this->assertIsString($redirectQuery['code']);
+        $this->assertSame(
+            $user->fresh()->oauth_security_version,
+            AuthCode::query()->where('user_id', $user->id)->sole()->oauth_security_version,
+        );
 
         $issued = $this->postJson('/oauth/token', [
             'grant_type' => 'authorization_code',
@@ -190,6 +197,7 @@ class AgentApiOAuthFoundationTest extends TestCase
         $this->assertSame(900, $issued['expires_in']);
         $originalAccessToken = Token::query()->where('user_id', $user->id)->sole();
         $originalRefreshToken = RefreshToken::query()->where('access_token_id', $originalAccessToken->id)->sole();
+        $this->assertSame($user->fresh()->oauth_security_version, $originalAccessToken->oauth_security_version);
 
         $this->withToken($issued['access_token'])->getJson('/api/v1/me')
             ->assertOk()
@@ -246,6 +254,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             [],
             $document['paths']['/oauth/token']['delete']['security'][0]['oauth2'],
         );
+        $this->assertArrayHasKey('429', $document['paths']['/oauth/token']['delete']['responses']);
         $this->assertSame(
             url('/.well-known/oauth-protected-resource/api/v1'),
             $capabilities['oauth']['protected_resource_metadata'],
@@ -275,7 +284,11 @@ class AgentApiOAuthFoundationTest extends TestCase
     {
         $this->get('/api/v1/me', ['Accept' => 'text/html'])
             ->assertUnauthorized()
-            ->assertHeader('Content-Type', 'application/json');
+            ->assertHeader('Content-Type', 'application/json')
+            ->assertHeader(
+                'WWW-Authenticate',
+                'Bearer resource_metadata="'.url('/.well-known/oauth-protected-resource/api/v1').'"',
+            );
 
         $this->assertDatabaseCount('agent_api_audits', 0);
     }
@@ -550,7 +563,7 @@ class AgentApiOAuthFoundationTest extends TestCase
         $this->assertDatabaseCount('oauth_access_tokens', 0);
     }
 
-    public function test_token_exchange_is_serialized_and_rechecks_account_state_after_issuance(): void
+    public function test_token_exchange_rejects_credentials_crossing_a_bulk_disable_and_reenable_race(): void
     {
         $route = Route::getRoutes()->getByName('passport.token');
         $this->assertNotNull($route);
@@ -583,14 +596,17 @@ class AgentApiOAuthFoundationTest extends TestCase
         parse_str((string) parse_url((string) $approval->headers->get('Location'), PHP_URL_QUERY), $redirectQuery);
         $this->assertIsString($redirectQuery['code']);
 
-        // Disable the account immediately after Passport persists the new
-        // refresh token but before the exchange middleware returns its response.
+        // Change the role twice through the query builder immediately after
+        // Passport persists the new refresh token. This bypasses Eloquent model
+        // events and leaves the account enabled, but its database-owned security
+        // generation must permanently invalidate the in-flight token family.
         $passportConnection = DB::connection(is_string(config('passport.connection')) ? config('passport.connection') : null);
         $baselineTransactionLevel = $passportConnection->transactionLevel();
         $issuanceTransactionLevel = $baselineTransactionLevel;
         Event::listen(RefreshTokenCreated::class, function () use ($user, $passportConnection, &$issuanceTransactionLevel): void {
             $issuanceTransactionLevel = $passportConnection->transactionLevel();
             DB::table('users')->where('id', $user->id)->update(['user_role' => '']);
+            DB::table('users')->where('id', $user->id)->update(['user_role' => 'User']);
         });
         $this->postJson('/oauth/token', [
             'grant_type' => 'authorization_code',
@@ -601,6 +617,9 @@ class AgentApiOAuthFoundationTest extends TestCase
         ])->assertBadRequest()->assertJsonPath('error', 'invalid_grant');
 
         $this->assertGreaterThan($baselineTransactionLevel, $issuanceTransactionLevel);
+        $this->assertTrue($user->fresh()->canLogin());
+        $this->assertSame(2, $user->fresh()->oauth_security_version);
+        $this->assertInstanceOf(AccountAwareAccessTokenRepository::class, app(PassportAccessTokenRepository::class));
         $token = Token::query()->where('user_id', $user->id)->sole();
         $refresh = RefreshToken::query()->where('access_token_id', $token->id)->sole();
         $this->assertTrue($token->fresh()->revoked);
@@ -635,6 +654,37 @@ class AgentApiOAuthFoundationTest extends TestCase
         $this->assertInstanceOf(AccountAwareAuthCodeRepository::class, $repository);
         $this->assertTrue($repository->isAuthCodeRevoked($authorizationCode->id));
         $this->assertTrue($authorizationCode->fresh()->revoked);
+    }
+
+    public function test_bulk_disable_and_reenable_permanently_invalidates_an_existing_refresh_family(): void
+    {
+        // User id 1 is intentionally always an administrator and cannot be disabled.
+        $this->createAdminUser();
+        $user = $this->createUser();
+        $token = Token::query()->create([
+            'id' => Str::random(80),
+            'user_id' => $user->id,
+            'client_id' => (string) Str::uuid(),
+            'scopes' => [AgentApiScopes::IDENTITY_READ],
+            'revoked' => false,
+            'oauth_security_version' => $user->oauth_security_version,
+            'expires_at' => now()->addMinutes(15),
+        ]);
+        $refresh = RefreshToken::query()->create([
+            'id' => Str::random(80),
+            'access_token_id' => $token->id,
+            'revoked' => false,
+            'expires_at' => now()->addDays(30),
+        ]);
+
+        DB::table('users')->where('id', $user->id)->update(['user_role' => '']);
+        DB::table('users')->where('id', $user->id)->update(['user_role' => 'User']);
+
+        $this->assertTrue($user->fresh()->canLogin());
+        $this->assertSame(2, $user->fresh()->oauth_security_version);
+        $this->assertTrue(app(PassportRefreshTokenRepository::class)->isRefreshTokenRevoked($refresh->id));
+        $this->assertTrue($token->fresh()->revoked);
+        $this->assertTrue($refresh->fresh()->revoked);
     }
 
     public function test_account_lifecycle_revocation_uses_passports_configured_connection(): void

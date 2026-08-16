@@ -46,7 +46,8 @@
         "responses": {
           "204": { "description": "Token family revoked" },
           "401": { "$ref": "#/components/responses/Unauthenticated" },
-          "403": { "$ref": "#/components/responses/InsufficientScope" }
+          "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
         }
       }
     }
@@ -125,7 +126,7 @@
         "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
       },
       "RateLimited": {
-        "description": "Per-user request limit exceeded",
+        "description": "Request or pre-authentication limit exceeded",
         "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
       }
     }

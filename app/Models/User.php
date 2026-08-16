@@ -25,6 +25,7 @@ use Laravel\Passport\HasApiTokens;
 /**
  * @property Carbon|null $mcp_api_key_expires_at
  * @property Carbon|null $mcp_api_key_last_used_at
+ * @property int $oauth_security_version
  */
 class User extends Authenticatable implements OAuthenticatable
 {
@@ -122,6 +123,7 @@ class User extends Authenticatable implements OAuthenticatable
             'genai_daily_quota_limit' => 'integer',
             'mcp_api_key_expires_at' => 'datetime',
             'mcp_api_key_last_used_at' => 'datetime',
+            'oauth_security_version' => 'integer',
         ];
     }
 
