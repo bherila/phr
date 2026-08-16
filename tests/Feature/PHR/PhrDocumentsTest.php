@@ -85,6 +85,10 @@ class PhrDocumentsTest extends TestCase
         $this->assertSame('January Labs', $document->title);
         $this->assertSame('manual_upload', $document->source);
         $this->assertSame('labs', $document->tags[0]);
+        $this->assertMatchesRegularExpression(
+            '#^patients/'.$patient->id.'/documents/[0-9a-f-]{36}/lab\.pdf$#',
+            (string) $document->storage_path,
+        );
         Storage::disk('phr_documents')->assertExists((string) $document->storage_path);
 
         $this->actingAs($owner)

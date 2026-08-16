@@ -5,6 +5,7 @@ namespace App\Services\PHR\DICOM;
 use App\Models\PhrDicomFile;
 use App\Models\PhrDicomInstance;
 use App\Models\PhrDicomSeries;
+use App\Support\Storage\PhrStorageKey;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
 use RuntimeException;
@@ -135,8 +136,7 @@ class VolumeCacheService
      */
     private function storageKey(PhrDicomSeries $series, int $pipelineVersion): string
     {
-        return sprintf(
-            'derived/volume-cache/patients/%d/series/%d/v%d.bin.gz',
+        return PhrStorageKey::dicomDerivedSeries(
             (int) $series->patient_id,
             (int) $series->id,
             $pipelineVersion,

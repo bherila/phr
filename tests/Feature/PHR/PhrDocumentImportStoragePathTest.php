@@ -73,6 +73,10 @@ class PhrDocumentImportStoragePathTest extends TestCase
 
         $originalPath = $stored->storage_path;
         $this->assertNotNull($originalPath);
+        $this->assertMatchesRegularExpression(
+            '#^patients/'.$patient->id.'/documents/[0-9a-f-]{36}/real\.pdf$#',
+            $originalPath,
+        );
 
         // A second pass over the same source upserts by (import_source,
         // external_id). Omitting the storage columns must leave the stored

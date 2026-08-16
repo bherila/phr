@@ -6,6 +6,7 @@ use App\Jobs\PHR\GeneratePhrNativeBackupJob;
 use App\Models\PhrNativeBackup;
 use App\Models\PhrNativeBackupAudit;
 use App\Models\PhrPatient;
+use App\Support\Storage\PhrStorageKey;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -89,7 +90,7 @@ final class PhrNativeBackupService
         try {
             $patient = PhrPatient::query()->findOrFail($backup->patient_id);
             $result = $this->archiveBuilder->build($patient);
-            $storagePath = 'phr/native-backups/'.$backup->id.'/'.Str::uuid().'.zip';
+            $storagePath = PhrStorageKey::nativeBackup((int) $patient->id, Str::uuid()->toString());
             $stream = fopen($result->path, 'rb');
             if ($stream === false) {
                 throw new NativeBackupException('temporary_storage_failed');

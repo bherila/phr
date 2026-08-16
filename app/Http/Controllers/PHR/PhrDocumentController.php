@@ -12,6 +12,7 @@ use App\Models\PhrLabResult;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatientVital;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Support\Storage\PhrStorageKey;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -392,17 +393,12 @@ class PhrDocumentController extends Controller
 
     private function storagePath(int $patientId, string $filename): string
     {
-        return 'phr/documents/patients/'.$patientId.'/'.Str::uuid().'/'.$this->safeStoredFilename($filename);
+        return PhrStorageKey::document($patientId, Str::uuid()->toString(), $filename);
     }
 
     private function safeStoredFilename(string $filename): string
     {
-        $safeName = Str::of($filename)
-            ->replaceMatches('/[^\w.\-]+/', '_')
-            ->trim('_')
-            ->toString();
-
-        return $safeName !== '' ? $safeName : 'document';
+        return PhrStorageKey::safeFilename($filename, 'document');
     }
 
     private function safeDownloadName(string $filename): string

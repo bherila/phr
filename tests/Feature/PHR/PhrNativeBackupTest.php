@@ -262,6 +262,10 @@ class PhrNativeBackupTest extends TestCase
 
         $backup = $this->generate($patient, $owner);
         $this->assertNotNull($backup->generated_at);
+        $this->assertMatchesRegularExpression(
+            '#^patients/'.$patient->id.'/exports/[0-9a-f-]{36}/phr-native-v1\.zip$#',
+            (string) $backup->storage_path,
+        );
         $this->assertTrue($backup->expires_at?->between(
             now()->addDays(7)->subMinute(),
             now()->addDays(7)->addMinute(),

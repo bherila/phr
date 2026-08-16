@@ -61,7 +61,7 @@ class PhrDicomVolumeCacheTest extends TestCase
             ->sole();
         $this->assertSame($patientId, $artifact->patient_id);
         $this->assertSame($series->instances()->firstOrFail()->upload_id, $artifact->upload_id);
-        $this->assertSame("derived/volume-cache/patients/{$patientId}/series/{$series->id}/v1.bin.gz", $artifact->r2_key);
+        $this->assertSame("patients/{$patientId}/imaging/dicom/derived/series/{$series->id}/v1.bin.gz", $artifact->r2_key);
         $this->assertSame($artifact->r2_key, $artifact->original_relative_path);
         $this->assertSame(hash('sha256', $artifact->r2_key), $artifact->original_path_hash);
         $this->assertSame('volume-cache-v1.bin.gz', $artifact->original_filename);
@@ -256,7 +256,7 @@ class PhrDicomVolumeCacheTest extends TestCase
             ->assertOk()
             ->assertJsonPath('cache.available', true);
         $signedUrl = (string) $manifestResponse->json('cache.url');
-        $this->assertStringStartsWith('http://localhost/derived/volume-cache/', $signedUrl);
+        $this->assertStringStartsWith('http://localhost/patients/', $signedUrl);
         $this->assertStringContainsString('expiration=', $signedUrl);
         $this->assertStringNotContainsString('/api/phr/patients/', $signedUrl);
 
@@ -265,7 +265,7 @@ class PhrDicomVolumeCacheTest extends TestCase
             ->assertRedirect()
             ->assertHeader('Cache-Control', 'no-store, private');
         $location = (string) $redirectResponse->headers->get('Location');
-        $this->assertStringStartsWith('http://localhost/derived/volume-cache/', $location);
+        $this->assertStringStartsWith('http://localhost/patients/', $location);
         $this->assertStringContainsString('expiration=', $location);
     }
 

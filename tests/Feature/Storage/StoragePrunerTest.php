@@ -38,7 +38,7 @@ class StoragePrunerTest extends TestCase
             BlobReferences::make()
                 ->from('phr_dicom_files', 'r2_key')
                 ->from('phr_dicom_uploads', 'r2_prefix')->asPrefix()->where('status', PhrDicomUpload::STATUS_PENDING),
-            ['phr/dicom'],
+            ['patients', 'phr/dicom'],
             $minAgeHours,
             $maxRatio,
         );
@@ -100,6 +100,21 @@ class StoragePrunerTest extends TestCase
         $this->seedOwnerPatientAndUpload();
         $this->disk()->put('phr/dicom/kept.dcm', 'aaaa');
         $this->referenceKey('phr/dicom/kept.dcm');
+        $this->ageEverything();
+
+        $plan = $this->pruner()->plan();
+
+        $this->assertSame(1, $plan->scanned);
+        $this->assertSame([], $plan->orphans);
+    }
+
+    public function test_canonical_referenced_objects_are_never_orphaned(): void
+    {
+        Storage::fake('phr_dicom');
+        $this->seedOwnerPatientAndUpload();
+        $key = 'patients/'.$this->patientId.'/imaging/dicom/uploads/fixture/kept.dcm';
+        $this->disk()->put($key, 'aaaa');
+        $this->referenceKey($key);
         $this->ageEverything();
 
         $plan = $this->pruner()->plan();

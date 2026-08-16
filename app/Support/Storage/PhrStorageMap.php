@@ -23,9 +23,10 @@ class PhrStorageMap
      * PHR spreads blobs across four disks, each with its own filesystem root:
      * `phr_dicom` (storage/app/private/phr-dicom), `phr_documents`, `phr_exports`, and the
      * GenAI staging disk still named `s3` (storage/app/private/s3-blobs).
-     * Keys additionally carry a `phr/<area>/` prefix inside their disk, inherited from the
-     * R2 key shape and retained through the migration so no stored path had to be rewritten.
-     * Sweeping one disk with another's prefixes finds nothing — hence the pairing.
+     * New durable writes use a patient-first `patients/{id}/...` hierarchy. Legacy
+     * prefixes remain listed throughout the migration and rollback window so the
+     * pruner cannot mistake pre-migration objects for garbage. Sweeping one disk with
+     * another's prefixes finds nothing — hence the disk/prefix pairing.
      *
      * There is intentionally no option to widen this at the command line. A
      * caller-supplied prefix is how the finance app's `orphans:delete --prefix=` can be
@@ -36,11 +37,9 @@ class PhrStorageMap
     public static function disks(): array
     {
         return [
-            // `derived/volume-cache` sits outside the per-upload prefix, so it needs
-            // listing explicitly or reclaimed volumes accumulate forever.
-            'phr_dicom' => ['phr/dicom', 'derived/volume-cache'],
-            'phr_documents' => ['phr/documents'],
-            'phr_exports' => ['phr/exports', 'phr/native-backups'],
+            'phr_dicom' => ['patients', 'phr/dicom', 'derived/volume-cache'],
+            'phr_documents' => ['patients', 'phr/documents'],
+            'phr_exports' => ['patients', 'phr/exports', 'phr/native-backups'],
 
             // GenAI import staging. Its only writer is PhrDocumentController::process,
             // which keys everything under genai-import/<userId>/. Scoped to that prefix

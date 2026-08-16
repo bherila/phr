@@ -305,7 +305,7 @@ class PhrDicomTest extends TestCase
             ->assertOk();
 
         $signedInstanceUrl = (string) $viewerResponse->json('studies.0.series.0.instances.0.url');
-        $this->assertStringStartsWith('dicomweb:http://localhost/phr/dicom/patients/', $signedInstanceUrl);
+        $this->assertStringStartsWith('dicomweb:http://localhost/patients/', $signedInstanceUrl);
         $this->assertStringContainsString('expiration=', $signedInstanceUrl);
         $this->assertStringNotContainsString('/api/phr/patients/', $signedInstanceUrl);
     }
@@ -472,7 +472,7 @@ class PhrDicomTest extends TestCase
         // contains traversal markers.
         $this->assertStringNotContainsString('..', $file->original_relative_path);
         $this->assertStringNotContainsString('..', $file->r2_key);
-        $this->assertStringStartsWith('phr/dicom/patients/', $file->r2_key);
+        $this->assertStringStartsWith("patients/{$patientId}/imaging/dicom/uploads/", $file->r2_key);
         $this->assertSame('etc/passwd/IM0001', $file->original_relative_path);
     }
 

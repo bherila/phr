@@ -133,6 +133,8 @@ class PhrDicomVolumeManifestTest extends TestCase
             ->assertOk();
 
         $signedInstanceUrl = (string) $signedResponse->json('instances.0.url');
+        // Stored references remain path-format agnostic throughout migration;
+        // this fixture deliberately carries a legacy key.
         $this->assertStringStartsWith('http://localhost/phr/dicom/patients/', $signedInstanceUrl);
         $this->assertStringContainsString('expiration=', $signedInstanceUrl);
         $this->assertStringNotContainsString('/api/phr/patients/', $signedInstanceUrl);
