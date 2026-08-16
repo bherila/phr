@@ -30,11 +30,10 @@ actor, route, and UTC minute, and metadata audits are pruned after 365 days by d
 Interactive clients use Authorization Code with S256 PKCE. Access tokens expire after
 15 minutes. Refresh tokens expire after 30 days and are revoked when exchanged, so a
 successful refresh rotates the credential. Password and implicit grants are disabled.
-Expired access-token parent rows are retained for 31 days because Passport refresh
-validation depends on that relationship; the daily purge must not shorten the
-advertised refresh lifetime.
-Consumed refresh rows are retained through that same window so replay revokes the
-entire stable rotation family, including any successor issued from a stolen token.
+Each rotation family has a dedicated database row used as its stable lock. Family-aware
+pruning retains that lock plus every parent and consumed refresh row while any successor
+can remain active, so long-lived clients keep the advertised refresh behavior and replay
+can revoke the entire family, including any successor issued from a stolen token.
 Deployment verifies that the persisted signing pair is matching RSA key material
 with a modulus of at least 2048 bits before the application is activated.
 

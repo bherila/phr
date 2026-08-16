@@ -2,6 +2,7 @@
 
 namespace App\Support\AgentApi;
 
+use App\Models\OAuthTokenFamily;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Laravel\Passport\Passport;
@@ -77,16 +78,26 @@ final class OAuthExchangeAccountGuard
         $issuedToken = is_string($tokenIdentifier)
             ? Passport::token()->newQuery()->find($tokenIdentifier)
             : null;
+        $familyIdentifier = $issuedToken === null
+            ? null
+            : (is_string($issuedToken->oauth_family_id) ? $issuedToken->oauth_family_id : $issuedToken->id);
+        $familyIsActive = ! is_string($familyIdentifier)
+            || ! OAuthTokenFamily::query()->whereKey($familyIdentifier)->where('revoked', true)->exists();
         $versionMatches = ! is_string($tokenIdentifier)
             || ($issuedToken !== null
                 && $issuedToken->oauth_security_version !== null
                 && (int) $issuedToken->oauth_security_version === (int) $user?->oauth_security_version);
 
-        if ($user instanceof User && $user->canLogin() && $versionMatches) {
+        if ($user instanceof User && $user->canLogin() && $versionMatches && $familyIsActive) {
             return true;
         }
 
-        app(OAuthCredentialRevoker::class)->revokeForUserIdentifier($userIdentifier);
+        $revoker = app(OAuthCredentialRevoker::class);
+        if ($user instanceof User && $user->canLogin() && $issuedToken !== null) {
+            $revoker->revokeFamilyForAccessToken($issuedToken);
+        } else {
+            $revoker->revokeForUserIdentifier($userIdentifier);
+        }
 
         return false;
     }

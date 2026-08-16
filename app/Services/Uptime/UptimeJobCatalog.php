@@ -2,7 +2,6 @@
 
 namespace App\Services\Uptime;
 
-use App\Support\AgentApi\AgentApiTokenPolicy;
 use InvalidArgumentException;
 
 final class UptimeJobCatalog
@@ -56,7 +55,7 @@ final class UptimeJobCatalog
                 'label' => 'Agent API audit retention',
                 'stale_after_seconds' => 26 * 60 * 60,
             ],
-            'passport:purge' => [
+            'phr:agent-api:prune-oauth-credentials' => [
                 'label' => 'OAuth credential cleanup',
                 'stale_after_seconds' => 26 * 60 * 60,
             ],
@@ -74,7 +73,7 @@ final class UptimeJobCatalog
             'phr:native-restores:purge' => 'phr:native-restores:purge',
             'phr:data-hub:prune-audits' => 'phr:data-hub:prune-audits',
             'phr:agent-api:prune-audits' => 'phr:agent-api:prune-audits',
-            'passport:purge' => 'passport:purge --expired --hours='.AgentApiTokenPolicy::EXPIRED_CREDENTIAL_RETENTION_HOURS,
+            'phr:agent-api:prune-oauth-credentials' => 'phr:agent-api:prune-oauth-credentials',
         ];
     }
 

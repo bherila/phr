@@ -16,7 +16,7 @@ Schedule::command('phr:uptime:run-task', ['phr:native-backups:purge'])->daily()-
 Schedule::command('phr:uptime:run-task', ['phr:native-restores:purge'])->daily()->withoutOverlapping(30);
 Schedule::command('phr:uptime:run-task', ['phr:data-hub:prune-audits'])->daily()->withoutOverlapping(30);
 Schedule::command('phr:uptime:run-task', ['phr:agent-api:prune-audits'])->daily()->withoutOverlapping(30);
-Schedule::command('phr:uptime:run-task', ['passport:purge'])->daily()->withoutOverlapping(30);
+Schedule::command('phr:uptime:run-task', ['phr:agent-api:prune-oauth-credentials'])->daily()->withoutOverlapping(30);
 Schedule::command('phr:uptime:run-task', ['genai:requeue-stale'])->everyFiveMinutes()->withoutOverlapping(10);
 Schedule::command('phr:uptime:prune', ['--days' => 30])->daily()->withoutOverlapping(10);
 

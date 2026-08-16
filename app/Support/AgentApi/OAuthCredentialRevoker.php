@@ -2,6 +2,7 @@
 
 namespace App\Support\AgentApi;
 
+use App\Models\OAuthTokenFamily;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Laravel\Passport\Passport;
@@ -21,20 +22,14 @@ final class OAuthCredentialRevoker
         $connection = config('passport.connection');
         DB::connection(is_string($connection) ? $connection : null)
             ->transaction(function () use ($accessToken): void {
-                $lockedToken = $this->lockFamilyForAccessToken($accessToken);
-                if (! $lockedToken instanceof Token) {
-                    return;
-                }
-
-                $familyIdentifier = is_string($lockedToken->oauth_family_id)
-                    ? $lockedToken->oauth_family_id
-                    : $lockedToken->id;
+                $family = $this->lockFamilyForAccessToken($accessToken);
+                $family->forceFill(['revoked' => true])->save();
                 $familyTokens = Passport::token()->newQuery()
-                    ->where('user_id', $lockedToken->user_id)
-                    ->where('client_id', $lockedToken->client_id)
-                    ->where(function ($query) use ($familyIdentifier, $lockedToken): void {
-                        $query->where('oauth_family_id', $familyIdentifier)
-                            ->orWhere('id', $lockedToken->id);
+                    ->where('user_id', $family->user_id)
+                    ->where('client_id', $family->client_id)
+                    ->where(function ($query) use ($family): void {
+                        $query->where('oauth_family_id', $family->id)
+                            ->orWhere('id', $family->id);
                     })
                     ->lockForUpdate()
                     ->get();
@@ -54,20 +49,25 @@ final class OAuthCredentialRevoker
      * disconnect all use this order so a concurrent rotation either finishes
      * first and is included in cleanup, or waits before it can issue a successor.
      */
-    public function lockFamilyForAccessToken(Token $accessToken): ?Token
+    public function lockFamilyForAccessToken(Token $accessToken): OAuthTokenFamily
     {
         $familyIdentifier = is_string($accessToken->oauth_family_id)
             ? $accessToken->oauth_family_id
             : $accessToken->id;
+        OAuthTokenFamily::query()->firstOrCreate([
+            'id' => $familyIdentifier,
+        ], [
+            'user_id' => $accessToken->user_id,
+            'client_id' => $accessToken->client_id,
+            'oauth_security_version' => $accessToken->oauth_security_version,
+            'revoked' => false,
+            'expires_at' => now()->addDays(AgentApiTokenPolicy::REFRESH_TOKEN_LIFETIME_DAYS),
+        ]);
 
-        return Passport::token()->newQuery()
+        return OAuthTokenFamily::query()
             ->whereKey($familyIdentifier)
             ->lockForUpdate()
-            ->first()
-            ?? Passport::token()->newQuery()
-                ->whereKey($accessToken->id)
-                ->lockForUpdate()
-                ->first();
+            ->firstOrFail();
     }
 
     /**
@@ -85,6 +85,12 @@ final class OAuthCredentialRevoker
 
         if ($passportSchema->hasTable('oauth_auth_codes')) {
             Passport::authCode()->newQuery()
+                ->where('user_id', $userIdentifier)
+                ->update(['revoked' => true]);
+        }
+
+        if ($passportSchema->hasTable('oauth_token_families')) {
+            OAuthTokenFamily::query()
                 ->where('user_id', $userIdentifier)
                 ->update(['revoked' => true]);
         }

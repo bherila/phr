@@ -2,6 +2,7 @@
 
 namespace App\Support\AgentApi;
 
+use App\Models\OAuthTokenFamily;
 use App\Models\User;
 use Illuminate\Contracts\Events\Dispatcher;
 use Laravel\Passport\Bridge\AccessTokenRepository;
@@ -26,13 +27,30 @@ final class AccountAwareAccessTokenRepository extends AccessTokenRepository
         $securityVersion = $validatedGrant['security_version']
             ?? ($userId === null ? null : User::query()->whereKey($userId)->value('oauth_security_version'));
         $familyIdentifier = $validatedGrant['family_identifier'] ?? $id;
+        $family = OAuthTokenFamily::query()->firstOrCreate([
+            'id' => $familyIdentifier,
+        ], [
+            'user_id' => $userId,
+            'client_id' => $accessTokenEntity->getClient()->getIdentifier(),
+            'oauth_security_version' => $securityVersion,
+            'revoked' => false,
+            'expires_at' => now()->addDays(AgentApiTokenPolicy::REFRESH_TOKEN_LIFETIME_DAYS),
+        ]);
+        $familyMatchesGrant = (string) $family->user_id === (string) $userId
+            && (string) $family->client_id === (string) $accessTokenEntity->getClient()->getIdentifier()
+            && (int) $family->oauth_security_version === (int) $securityVersion;
+        if ($familyMatchesGrant && ! $family->revoked) {
+            $family->forceFill([
+                'expires_at' => now()->addDays(AgentApiTokenPolicy::REFRESH_TOKEN_LIFETIME_DAYS),
+            ])->save();
+        }
 
         Passport::token()->forceFill([
             'id' => $id,
             'user_id' => $userId,
             'client_id' => $clientId = $accessTokenEntity->getClient()->getIdentifier(),
             'scopes' => $accessTokenEntity->getScopes(),
-            'revoked' => false,
+            'revoked' => ! $familyMatchesGrant || $family->revoked,
             'oauth_security_version' => $securityVersion,
             'oauth_family_id' => $familyIdentifier,
             'expires_at' => $accessTokenEntity->getExpiryDateTime(),
@@ -58,6 +76,13 @@ final class AccountAwareAccessTokenRepository extends AccessTokenRepository
 
         if ($token->user_id === null) {
             return false;
+        }
+
+        $familyIdentifier = is_string($token->oauth_family_id) ? $token->oauth_family_id : $token->id;
+        if (OAuthTokenFamily::query()->whereKey($familyIdentifier)->where('revoked', true)->exists()) {
+            app(OAuthCredentialRevoker::class)->revokeFamilyForAccessToken($token);
+
+            return true;
         }
 
         $user = User::query()->find($token->user_id);

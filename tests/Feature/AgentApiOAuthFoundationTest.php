@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Http\Middleware\SerializeOAuthTokenExchange;
 use App\Models\AgentApiAudit;
+use App\Models\OAuthTokenFamily;
 use App\Models\User;
 use App\Support\AgentApi\AccountAwareAccessTokenRepository;
 use App\Support\AgentApi\AccountAwareAuthCodeRepository;
@@ -810,6 +811,25 @@ class AgentApiOAuthFoundationTest extends TestCase
         // separately connected Passport database persists the successor.
         DB::table('users')->where('id', $user->id)->update(['user_role' => '']);
         DB::table('users')->where('id', $user->id)->update(['user_role' => 'User']);
+        $currentClientId = (string) Str::uuid();
+        $currentFamily = OAuthTokenFamily::query()->create([
+            'id' => Str::random(80),
+            'user_id' => $user->id,
+            'client_id' => $currentClientId,
+            'oauth_security_version' => $user->fresh()->oauth_security_version,
+            'revoked' => false,
+            'expires_at' => now()->addDays(AgentApiTokenPolicy::REFRESH_TOKEN_LIFETIME_DAYS),
+        ]);
+        $currentToken = Token::query()->create([
+            'id' => Str::random(80),
+            'user_id' => $user->id,
+            'client_id' => $currentClientId,
+            'scopes' => [AgentApiScopes::IDENTITY_READ],
+            'revoked' => false,
+            'oauth_security_version' => $user->fresh()->oauth_security_version,
+            'oauth_family_id' => $currentFamily->id,
+            'expires_at' => now()->addMinutes(15),
+        ]);
 
         $entity = new PassportAccessTokenEntity(
             (string) $user->id,
@@ -825,6 +845,9 @@ class AgentApiOAuthFoundationTest extends TestCase
         $this->assertSame($familyIdentifier, $successor->oauth_family_id);
         $this->assertFalse($guard->credentialsMayBeReturned());
         $this->assertTrue($successor->fresh()->revoked);
+        $this->assertTrue(OAuthTokenFamily::query()->findOrFail($familyIdentifier)->revoked);
+        $this->assertFalse($currentFamily->fresh()->revoked);
+        $this->assertFalse($currentToken->fresh()->revoked);
     }
 
     public function test_authorization_code_preserves_the_generation_validated_at_consent(): void
@@ -1109,7 +1132,7 @@ class AgentApiOAuthFoundationTest extends TestCase
         $this->assertDatabaseHas('agent_api_audits', ['id' => $recent->id]);
     }
 
-    public function test_scheduled_passport_purge_removes_old_expired_credentials(): void
+    public function test_scheduled_oauth_pruner_removes_closed_families(): void
     {
         $user = $this->createUser();
         $client = Client::query()->create([
@@ -1120,13 +1143,23 @@ class AgentApiOAuthFoundationTest extends TestCase
             'grant_types' => ['authorization_code', 'refresh_token'],
             'revoked' => false,
         ]);
-        $token = Token::query()->create([
+        $family = OAuthTokenFamily::query()->create([
             'id' => Str::random(80),
+            'user_id' => $user->id,
+            'client_id' => $client->id,
+            'oauth_security_version' => $user->oauth_security_version,
+            'revoked' => true,
+            'expires_at' => now()->addDays(30),
+        ]);
+        $token = Token::query()->create([
+            'id' => $family->id,
             'user_id' => $user->id,
             'client_id' => $client->id,
             'name' => null,
             'scopes' => [AgentApiScopes::IDENTITY_READ],
             'revoked' => true,
+            'oauth_security_version' => $user->oauth_security_version,
+            'oauth_family_id' => $family->id,
             'expires_at' => now()->subDays(32),
         ]);
         $refresh = RefreshToken::query()->create([
@@ -1144,31 +1177,42 @@ class AgentApiOAuthFoundationTest extends TestCase
             'expires_at' => now()->subDays(32),
         ]);
 
-        $this->artisan('phr:uptime:run-task', ['job' => 'passport:purge'])->assertSuccessful();
+        $this->artisan('phr:uptime:run-task', ['job' => 'phr:agent-api:prune-oauth-credentials'])->assertSuccessful();
 
         $this->assertDatabaseMissing('oauth_access_tokens', ['id' => $token->id]);
         $this->assertDatabaseMissing('oauth_refresh_tokens', ['id' => $refresh->id]);
         $this->assertDatabaseMissing('oauth_auth_codes', ['id' => $authorizationCode->id]);
+        $this->assertDatabaseMissing('oauth_token_families', ['id' => $family->id]);
         $this->assertDatabaseHas('uptime_runs', [
-            'job_name' => 'passport:purge',
+            'job_name' => 'phr:agent-api:prune-oauth-credentials',
             'status' => 'success',
             'exit_code' => 0,
         ]);
     }
 
-    public function test_scheduled_passport_purge_retains_parent_for_active_refresh_lifetime(): void
+    public function test_scheduled_oauth_pruner_retains_full_history_for_a_long_lived_family(): void
     {
         $user = $this->createUser();
         $clientId = (string) Str::uuid();
-        $token = Token::query()->create([
+        $family = OAuthTokenFamily::query()->create([
             'id' => Str::random(80),
+            'user_id' => $user->id,
+            'client_id' => $clientId,
+            'oauth_security_version' => $user->oauth_security_version,
+            'revoked' => false,
+            'expires_at' => now()->addDays(AgentApiTokenPolicy::REFRESH_TOKEN_LIFETIME_DAYS),
+            'created_at' => now()->subDays(90),
+            'updated_at' => now(),
+        ]);
+        $token = Token::query()->create([
+            'id' => $family->id,
             'user_id' => $user->id,
             'client_id' => $clientId,
             'scopes' => [AgentApiScopes::IDENTITY_READ],
             'revoked' => false,
             'oauth_security_version' => $user->oauth_security_version,
-            'oauth_family_id' => Str::random(80),
-            'expires_at' => now()->subDays(29),
+            'oauth_family_id' => $family->id,
+            'expires_at' => now()->subDays(89),
         ]);
         $refresh = RefreshToken::query()->create([
             'id' => Str::random(80),
@@ -1183,12 +1227,9 @@ class AgentApiOAuthFoundationTest extends TestCase
             'expires_at' => now()->addDay(),
         ]);
 
-        $this->assertGreaterThan(
-            AgentApiTokenPolicy::REFRESH_TOKEN_LIFETIME_DAYS * 24,
-            AgentApiTokenPolicy::EXPIRED_CREDENTIAL_RETENTION_HOURS,
-        );
-        $this->artisan('phr:uptime:run-task', ['job' => 'passport:purge'])->assertSuccessful();
+        $this->artisan('phr:uptime:run-task', ['job' => 'phr:agent-api:prune-oauth-credentials'])->assertSuccessful();
 
+        $this->assertDatabaseHas('oauth_token_families', ['id' => $family->id, 'revoked' => false]);
         $this->assertDatabaseHas('oauth_access_tokens', ['id' => $token->id, 'revoked' => false]);
         $this->assertDatabaseHas('oauth_refresh_tokens', ['id' => $refresh->id, 'revoked' => false]);
         $this->assertDatabaseHas('oauth_refresh_tokens', ['id' => $consumedRefresh->id, 'revoked' => true]);
