@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Support\AgentApi\OAuthCredentialRevoker;
 use App\Traits\SerializesDatesAsLocal;
 use Bherila\GenAiLaravel\Clients\AnthropicClient;
 use Bherila\GenAiLaravel\Clients\BedrockClient;
@@ -18,25 +19,38 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use Laravel\Passport\Contracts\OAuthenticatable;
+use Laravel\Passport\HasApiTokens;
 
 /**
  * @property Carbon|null $mcp_api_key_expires_at
  * @property Carbon|null $mcp_api_key_last_used_at
+ * @property int $oauth_security_version
  */
-class User extends Authenticatable
+class User extends Authenticatable implements OAuthenticatable
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, Notifiable, SerializesDatesAsLocal;
+    use HasApiTokens, HasFactory, Notifiable, SerializesDatesAsLocal;
 
     protected static function booted(): void
     {
+        static::updated(function (User $user): void {
+            if ($user->wasChanged('user_role') && ! $user->canLogin()) {
+                $user->revokeOAuthTokens();
+            }
+        });
+
         static::deleting(function (User $user): void {
+            $user->revokeOAuthTokens();
             // Data Hub audits retain operation proof but anonymize the actor when
             // a full account is removed. Neither table has clinical/free text.
             DB::table('phr_native_backup_audits')->where('actor_user_id', $user->id)->update(['actor_user_id' => null]);
             DB::table('phr_patient_deletions')->where('actor_user_id', $user->id)->update(['actor_user_id' => null]);
             if (Schema::hasTable('phr_native_restore_attempts')) {
                 DB::table('phr_native_restore_attempts')->where('actor_user_id', $user->id)->update(['actor_user_id' => null]);
+            }
+            if (Schema::hasTable('agent_api_audits')) {
+                DB::table('agent_api_audits')->where('actor_user_id', $user->id)->update(['actor_user_id' => null]);
             }
         });
     }
@@ -109,6 +123,7 @@ class User extends Authenticatable
             'genai_daily_quota_limit' => 'integer',
             'mcp_api_key_expires_at' => 'datetime',
             'mcp_api_key_last_used_at' => 'datetime',
+            'oauth_security_version' => 'integer',
         ];
     }
 
@@ -154,6 +169,16 @@ class User extends Authenticatable
             'mcp_api_key_expires_at' => null,
             'mcp_api_key_last_used_at' => null,
         ])->save();
+    }
+
+    /**
+     * Revoke every OAuth access/refresh token when this account is disabled or
+     * deleted. The table guard keeps user lifecycle operations safe before the
+     * Passport migration has run during an initial deployment.
+     */
+    public function revokeOAuthTokens(): void
+    {
+        app(OAuthCredentialRevoker::class)->revokeForUserIdentifier($this->getAuthIdentifier());
     }
 
     /**

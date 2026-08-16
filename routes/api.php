@@ -4,6 +4,8 @@ use App\Http\Controllers\Api\DevicePairingExchangeController;
 use App\Http\Controllers\Api\UserAiConfigurationController;
 use App\Http\Controllers\Api\UserAiModelsController;
 use App\Http\Controllers\Api\UserDeviceController;
+use App\Http\Controllers\Api\V1\AgentDiscoveryController;
+use App\Http\Controllers\Api\V1\AgentTokenController;
 use App\Http\Controllers\PHR\AllergyController as PHRAllergyController;
 use App\Http\Controllers\PHR\ConditionController as PHRConditionController;
 use App\Http\Controllers\PHR\DICOM\DicomFileController as PHRDicomFileController;
@@ -30,8 +32,30 @@ use App\Http\Controllers\PHR\RespiratoryEventController as PHRRespiratoryEventCo
 use App\Http\Controllers\PHR\SinusEnrollmentController as PHRSinusEnrollmentController;
 use App\Http\Controllers\PHR\SinusSettingsController as PHRSinusSettingsController;
 use App\Http\Controllers\PHR\VitalController as PHRVitalController;
+use App\Http\Middleware\AuditAgentApiRequest;
 use App\Http\Middleware\AuthenticateWebOrMcpRequest;
+use App\Http\Middleware\EnsureOAuthUserCanLogin;
+use App\Support\AgentApi\AgentApiScopes;
 use Illuminate\Support\Facades\Route;
+use Laravel\Passport\Http\Middleware\CheckToken;
+
+Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
+    Route::get('/capabilities', [AgentDiscoveryController::class, 'capabilities'])
+        ->middleware('throttle:60,1')
+        ->name('capabilities');
+
+    Route::middleware(['auth:api', AuditAgentApiRequest::class, EnsureOAuthUserCanLogin::class])->group(function (): void {
+        // Self-revocation is deliberately outside the ordinary traffic bucket. A
+        // saturated API limit must never prevent a client from disconnecting.
+        Route::delete('/oauth/token', [AgentTokenController::class, 'destroy'])
+            ->name('oauth-token.destroy');
+
+        Route::get('/me', [AgentDiscoveryController::class, 'me'])
+            ->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::IDENTITY_READ))
+            ->name('me');
+    });
+});
 
 // Per-user AI provider settings used by ParseImportJob via User::resolvedAiClient().
 // The authenticated PHR Config screen consumes these session-protected endpoints.
