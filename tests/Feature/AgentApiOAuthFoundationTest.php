@@ -9,6 +9,8 @@ use App\Support\AgentApi\AccountAwareAccessTokenRepository;
 use App\Support\AgentApi\AccountAwareAuthCodeRepository;
 use App\Support\AgentApi\AccountAwareRefreshTokenRepository;
 use App\Support\AgentApi\AgentApiScopes;
+use App\Support\AgentApi\OAuthExchangeAccountGuard;
+use DateTimeImmutable;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
@@ -20,8 +22,10 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Laravel\Passport\AccessToken;
 use Laravel\Passport\AuthCode;
+use Laravel\Passport\Bridge\AccessToken as PassportAccessTokenEntity;
 use Laravel\Passport\Bridge\AccessTokenRepository as PassportAccessTokenRepository;
 use Laravel\Passport\Bridge\AuthCodeRepository as PassportAuthCodeRepository;
+use Laravel\Passport\Bridge\Client as PassportClientEntity;
 use Laravel\Passport\Bridge\RefreshTokenRepository as PassportRefreshTokenRepository;
 use Laravel\Passport\Client;
 use Laravel\Passport\Events\RefreshTokenCreated;
@@ -211,6 +215,12 @@ class AgentApiOAuthFoundationTest extends TestCase
         $this->assertNotSame($issued['refresh_token'], $rotated['refresh_token']);
         $this->assertTrue($originalAccessToken->fresh()->revoked);
         $this->assertTrue($originalRefreshToken->fresh()->revoked);
+        $rotatedAccessToken = Token::query()
+            ->where('user_id', $user->id)
+            ->where('id', '<>', $originalAccessToken->id)
+            ->sole();
+        $this->assertSame($originalAccessToken->oauth_family_id, $rotatedAccessToken->oauth_family_id);
+        $this->assertSame($originalAccessToken->oauth_security_version, $rotatedAccessToken->oauth_security_version);
 
         Auth::forgetGuards();
         $this->withToken($issued['access_token'])->getJson('/api/v1/me')->assertUnauthorized();
@@ -228,6 +238,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             ->assertJsonPath('api_version', 'v1')
             ->assertJsonPath('limits.maximum_page_size', 100)
             ->assertJsonPath('limits.authentication_attempts_per_minute', 300)
+            ->assertJsonPath('limits.token_exchange_attempts_per_minute', 60)
             ->assertJsonPath('oauth.authorization_code_pkce', true)
             ->json();
 
@@ -318,6 +329,31 @@ class AgentApiOAuthFoundationTest extends TestCase
         $this->withToken('synthetic-invalid-disconnect-bearer')->deleteJson('/api/v1/oauth/token')->assertTooManyRequests();
     }
 
+    public function test_invalid_token_exchanges_have_a_separate_pre_authentication_limit(): void
+    {
+        config(['agent_api.token_exchange_attempts_per_minute' => 3]);
+        $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.79']);
+
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            $response = $this->postJson('/oauth/token', [
+                'grant_type' => 'refresh_token',
+                'client_id' => (string) Str::uuid(),
+                'refresh_token' => 'synthetic-invalid-refresh-token',
+            ]);
+            $this->assertNotSame(429, $response->getStatusCode());
+            $response->assertHeader('X-RateLimit-Limit', '3');
+        }
+
+        $this->postJson('/oauth/token', [
+            'grant_type' => 'refresh_token',
+            'client_id' => (string) Str::uuid(),
+            'refresh_token' => 'synthetic-invalid-refresh-token',
+        ])->assertTooManyRequests();
+
+        Passport::actingAs($this->createUser(), []);
+        $this->deleteJson('/api/v1/oauth/token')->assertNoContent();
+    }
+
     public function test_authenticated_requests_have_metadata_only_audits_even_when_scope_is_denied(): void
     {
         $user = $this->createUser();
@@ -350,6 +386,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             'http_method',
             'response_status',
             'duration_ms',
+            'sampling_key',
             'created_at',
         ], Schema::getColumnListing('agent_api_audits'));
         $this->assertStringNotContainsString(
@@ -377,11 +414,28 @@ class AgentApiOAuthFoundationTest extends TestCase
             'name' => null,
             'scopes' => [],
             'revoked' => false,
+            'oauth_family_id' => $tokenId,
             'expires_at' => now()->addMinutes(15),
         ]);
         $refresh = RefreshToken::query()->create([
             'id' => Str::random(80),
             'access_token_id' => $tokenId,
+            'revoked' => false,
+            'expires_at' => now()->addDays(30),
+        ]);
+        $successor = Token::query()->create([
+            'id' => $successorTokenId = Str::random(80),
+            'user_id' => $user->id,
+            'client_id' => $client->id,
+            'name' => null,
+            'scopes' => [],
+            'revoked' => false,
+            'oauth_family_id' => $tokenId,
+            'expires_at' => now()->addMinutes(15),
+        ]);
+        $successorRefresh = RefreshToken::query()->create([
+            'id' => Str::random(80),
+            'access_token_id' => $successorTokenId,
             'revoked' => false,
             'expires_at' => now()->addDays(30),
         ]);
@@ -398,6 +452,8 @@ class AgentApiOAuthFoundationTest extends TestCase
 
         $this->assertTrue($token->fresh()->revoked);
         $this->assertTrue($refresh->fresh()->revoked);
+        $this->assertTrue($successor->fresh()->revoked);
+        $this->assertTrue($successorRefresh->fresh()->revoked);
         $this->assertSame(hash('sha256', $tokenId), AgentApiAudit::query()->sole()->oauth_token_hash);
     }
 
@@ -417,6 +473,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             'route_name' => 'agent-api.v1.me',
             'response_status' => 429,
         ]);
+        $this->assertNotNull(AgentApiAudit::query()->where('response_status', 429)->sole()->sampling_key);
     }
 
     public function test_saturated_read_limit_does_not_block_self_revocation(): void
@@ -687,6 +744,48 @@ class AgentApiOAuthFoundationTest extends TestCase
         $this->assertTrue($refresh->fresh()->revoked);
     }
 
+    public function test_successor_token_preserves_the_generation_validated_by_its_grant(): void
+    {
+        // User id 1 is intentionally always an administrator and cannot be disabled.
+        $this->createAdminUser();
+        $user = $this->createUser();
+        $client = Client::query()->create([
+            'name' => 'Synthetic Grant Snapshot Client',
+            'secret' => null,
+            'provider' => 'users',
+            'redirect_uris' => ['https://client.example.test/callback'],
+            'grant_types' => ['refresh_token'],
+            'revoked' => false,
+        ]);
+        $familyIdentifier = Str::random(80);
+        $guard = app(OAuthExchangeAccountGuard::class);
+        $guard->recordValidatedGrant(
+            $user->id,
+            $user->fresh()->oauth_security_version,
+            $familyIdentifier,
+        );
+
+        // Simulate a users-database transition after validation but before the
+        // separately connected Passport database persists the successor.
+        DB::table('users')->where('id', $user->id)->update(['user_role' => '']);
+        DB::table('users')->where('id', $user->id)->update(['user_role' => 'User']);
+
+        $entity = new PassportAccessTokenEntity(
+            (string) $user->id,
+            [],
+            new PassportClientEntity($client->id, $client->name, $client->redirect_uris),
+        );
+        $entity->setIdentifier($tokenId = Str::random(80));
+        $entity->setExpiryDateTime(new DateTimeImmutable('+15 minutes'));
+        app(PassportAccessTokenRepository::class)->persistNewAccessToken($entity);
+
+        $successor = Token::query()->findOrFail($tokenId);
+        $this->assertSame(0, $successor->oauth_security_version);
+        $this->assertSame($familyIdentifier, $successor->oauth_family_id);
+        $this->assertFalse($guard->credentialsMayBeReturned());
+        $this->assertTrue($successor->fresh()->revoked);
+    }
+
     public function test_account_lifecycle_revocation_uses_passports_configured_connection(): void
     {
         $connection = config('database.connections.sqlite');
@@ -870,7 +969,7 @@ class AgentApiOAuthFoundationTest extends TestCase
 
     private function intervalSeconds(\DateInterval $interval): int
     {
-        $origin = new \DateTimeImmutable('@0');
+        $origin = new DateTimeImmutable('@0');
 
         return $origin->add($interval)->getTimestamp();
     }

@@ -13,14 +13,18 @@ final class ThrottleAgentApiAuthentication
 
     public function handle(Request $request, Closure $next): Response
     {
+        if ($request->isMethod('POST') && $request->is('oauth/token')) {
+            return $this->throttle->handle($request, $next, 'agent-api-token-exchange');
+        }
+
         if (! $request->is('api/v1/me', 'api/v1/oauth/token')) {
             return $next($request);
         }
 
         // This wrapper is intentionally a distinct middleware class. Laravel's
         // route priority moves ThrottleRequests behind Authenticate, while this
-        // global boundary rejects a saturated IP bucket before routing invokes
-        // Passport for another malformed or revoked bearer token.
+        // global boundary rejects saturated IP buckets before routing invokes
+        // Passport for another malformed bearer token or grant exchange.
         return $this->throttle->handle($request, $next, 'agent-api-authentication');
     }
 }

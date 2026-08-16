@@ -19,6 +19,7 @@ return new class extends Migration
             $table->text('scopes')->nullable();
             $table->boolean('revoked');
             $table->unsignedBigInteger('oauth_security_version')->nullable();
+            $table->char('oauth_family_id', 80)->nullable()->index();
             $table->timestamps();
             $table->dateTime('expires_at')->nullable();
         });

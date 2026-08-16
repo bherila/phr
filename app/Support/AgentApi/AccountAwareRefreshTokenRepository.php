@@ -32,9 +32,6 @@ class AccountAwareRefreshTokenRepository extends RefreshTokenRepository
         }
 
         $accessToken = Passport::token()->newQuery()->find($refreshToken->access_token_id);
-        if ($accessToken?->user_id !== null) {
-            $this->accountGuard->recordUserIdentifier($accessToken->user_id);
-        }
         $user = $accessToken?->user_id === null
             ? null
             : User::query()->find($accessToken->user_id);
@@ -52,6 +49,12 @@ class AccountAwareRefreshTokenRepository extends RefreshTokenRepository
 
             return true;
         }
+
+        $this->accountGuard->recordValidatedGrant(
+            $accessToken->user_id,
+            (int) $accessToken->oauth_security_version,
+            is_string($accessToken->oauth_family_id) ? $accessToken->oauth_family_id : $accessToken->id,
+        );
 
         return false;
     }

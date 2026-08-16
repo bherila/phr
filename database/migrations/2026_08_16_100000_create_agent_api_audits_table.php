@@ -22,6 +22,9 @@ return new class extends Migration
             $table->string('http_method', 10);
             $table->unsignedSmallInteger('response_status');
             $table->unsignedInteger('duration_ms');
+            // Null for ordinary events. Throttled responses use a deterministic
+            // actor/route/minute hash so the unique index is an atomic sampler.
+            $table->char('sampling_key', 64)->nullable()->unique();
             $table->dateTime('created_at')->index();
         });
     }

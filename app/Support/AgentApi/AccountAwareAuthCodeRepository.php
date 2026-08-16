@@ -43,7 +43,6 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
             return true;
         }
 
-        $this->accountGuard->recordUserIdentifier($authorizationCode->user_id);
         $user = User::query()->find($authorizationCode->user_id);
 
         if (! $user instanceof User
@@ -54,6 +53,12 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
 
             return true;
         }
+
+        $this->accountGuard->recordValidatedGrant(
+            $authorizationCode->user_id,
+            (int) $authorizationCode->oauth_security_version,
+            null,
+        );
 
         return false;
     }

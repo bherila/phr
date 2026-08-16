@@ -18,6 +18,7 @@ class AgentApiAudit extends Model
         'http_method',
         'response_status',
         'duration_ms',
+        'sampling_key',
         'created_at',
     ];
 

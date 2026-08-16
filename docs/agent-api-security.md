@@ -13,14 +13,17 @@ clinical data escaping through logs or diagnostics. The controls are short-lived
 access tokens, one-use rotating refresh tokens, explicit user consent, default-deny
 scopes, patient grant checks, bounded pagination, per-user throttling, idempotency and
 concurrency preconditions on writes, and metadata-only audit records.
+The public token endpoint has its own pre-authentication IP bucket, separate from
+the protected-resource buckets, so invalid grants cannot create unbounded parsing
+or transaction work.
 
 The agent audit table intentionally excludes request URLs, route parameters, query
 strings, request and response bodies, filenames, error messages, IP addresses, and
 user agents. It records only an opaque request UUID, actor/client/token references,
 the fixed route name, method, status, duration, and timestamp. Application and OAuth
 errors must remain generic; operational logs must never include bearer credentials or
-clinical payloads. Repeated 429 responses are sampled to one audit per actor, route,
-and minute, and metadata audits are pruned after 365 days by default.
+clinical payloads. Repeated 429 responses are atomically sampled to one audit per
+actor, route, and UTC minute, and metadata audits are pruned after 365 days by default.
 
 ## Token lifecycle
 
@@ -29,8 +32,9 @@ Interactive clients use Authorization Code with S256 PKCE. Access tokens expire 
 successful refresh rotates the credential. Password and implicit grants are disabled.
 
 The client can immediately disconnect itself with `DELETE /api/v1/oauth/token`; any
-authenticated token may revoke itself even without an identity scope. This revokes
-both the current access token and its associated refresh token. Disabling or deleting
+authenticated token may revoke itself even without an identity scope. This serializes
+against refresh rotation and revokes the presented token's entire rotation family.
+Disabling or deleting
 an account revokes all of its token families, and the bearer/refresh paths also reject
 an account that no longer has login permission. An account
 operator can also revoke a client token from the application database using Passport's

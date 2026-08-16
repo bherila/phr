@@ -59,5 +59,10 @@ class AppServiceProvider extends ServiceProvider
 
             return Limit::perMinute((int) config('agent_api.authentication_attempts_per_minute', 300))->by($key);
         });
+
+        RateLimiter::for('agent-api-token-exchange', function (Request $request): Limit {
+            return Limit::perMinute((int) config('agent_api.token_exchange_attempts_per_minute', 60))
+                ->by(hash('sha256', (string) $request->ip()));
+        });
     }
 }

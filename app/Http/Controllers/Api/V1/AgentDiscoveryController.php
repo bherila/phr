@@ -26,6 +26,7 @@ class AgentDiscoveryController extends Controller
             'limits' => [
                 'requests_per_minute' => 120,
                 'authentication_attempts_per_minute' => config('agent_api.authentication_attempts_per_minute', 300),
+                'token_exchange_attempts_per_minute' => config('agent_api.token_exchange_attempts_per_minute', 60),
                 'default_page_size' => 25,
                 'maximum_page_size' => 100,
             ],

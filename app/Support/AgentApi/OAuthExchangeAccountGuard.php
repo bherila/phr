@@ -12,9 +12,37 @@ final class OAuthExchangeAccountGuard
 
     private const string TOKEN_ATTRIBUTE = 'oauth_exchange_issued_access_token';
 
-    public function recordUserIdentifier(int|string $userIdentifier): void
+    private const string GRANT_ATTRIBUTE = 'oauth_exchange_validated_grant';
+
+    public function recordValidatedGrant(
+        int|string $userIdentifier,
+        int $securityVersion,
+        ?string $familyIdentifier,
+    ): void {
+        $request = app(Request::class);
+        $request->attributes->set(self::REQUEST_ATTRIBUTE, $userIdentifier);
+        $request->attributes->set(self::GRANT_ATTRIBUTE, [
+            'user_identifier' => (string) $userIdentifier,
+            'security_version' => $securityVersion,
+            'family_identifier' => $familyIdentifier,
+        ]);
+    }
+
+    /** @return array{security_version: int, family_identifier: string|null}|null */
+    public function validatedGrantFor(int|string $userIdentifier): ?array
     {
-        app(Request::class)->attributes->set(self::REQUEST_ATTRIBUTE, $userIdentifier);
+        $grant = app(Request::class)->attributes->get(self::GRANT_ATTRIBUTE);
+        if (! is_array($grant)
+            || ($grant['user_identifier'] ?? null) !== (string) $userIdentifier
+            || ! is_int($grant['security_version'] ?? null)
+            || (! is_string($grant['family_identifier'] ?? null) && ($grant['family_identifier'] ?? null) !== null)) {
+            return null;
+        }
+
+        return [
+            'security_version' => $grant['security_version'],
+            'family_identifier' => $grant['family_identifier'],
+        ];
     }
 
     public function recordIssuedAccessToken(string $tokenIdentifier, int|string $userIdentifier): void
@@ -38,6 +66,7 @@ final class OAuthExchangeAccountGuard
         $tokenIdentifier = $request->attributes->get(self::TOKEN_ATTRIBUTE);
         $request->attributes->remove(self::REQUEST_ATTRIBUTE);
         $request->attributes->remove(self::TOKEN_ATTRIBUTE);
+        $request->attributes->remove(self::GRANT_ATTRIBUTE);
 
         if (! is_int($userIdentifier) && ! is_string($userIdentifier)) {
             return true;

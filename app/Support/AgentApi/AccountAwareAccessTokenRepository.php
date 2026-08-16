@@ -21,17 +21,20 @@ final class AccountAwareAccessTokenRepository extends AccessTokenRepository
     public function persistNewAccessToken(AccessTokenEntityInterface $accessTokenEntity): void
     {
         $userId = $accessTokenEntity->getUserIdentifier();
-        $securityVersion = $userId === null
-            ? null
-            : User::query()->whereKey($userId)->value('oauth_security_version');
+        $id = $accessTokenEntity->getIdentifier();
+        $validatedGrant = $userId === null ? null : $this->accountGuard->validatedGrantFor($userId);
+        $securityVersion = $validatedGrant['security_version']
+            ?? ($userId === null ? null : User::query()->whereKey($userId)->value('oauth_security_version'));
+        $familyIdentifier = $validatedGrant['family_identifier'] ?? $id;
 
         Passport::token()->forceFill([
-            'id' => $id = $accessTokenEntity->getIdentifier(),
+            'id' => $id,
             'user_id' => $userId,
             'client_id' => $clientId = $accessTokenEntity->getClient()->getIdentifier(),
             'scopes' => $accessTokenEntity->getScopes(),
             'revoked' => false,
             'oauth_security_version' => $securityVersion,
+            'oauth_family_id' => $familyIdentifier,
             'expires_at' => $accessTokenEntity->getExpiryDateTime(),
         ])->save();
 

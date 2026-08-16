@@ -6,6 +6,7 @@ use App\Models\AgentApiAudit;
 use Closure;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Laravel\Passport\AccessToken;
@@ -41,7 +42,6 @@ class AuditAgentApiRequest
 
     private function record(Request $request, string $requestId, int $responseStatus, int $startedAt): void
     {
-
         $user = $request->user('api');
         $token = $user?->token();
         $attributes = $token instanceof AccessToken ? $token->toArray() : [];
@@ -51,30 +51,34 @@ class AuditAgentApiRequest
         $actorUserId = $user?->getAuthIdentifier();
         $tokenHash = is_string($tokenId) ? hash('sha256', $tokenId) : null;
 
-        // Persist at most one representative 429 per actor/route/minute. Rejected
-        // traffic remains visible without letting an authenticated flood create an
-        // unbounded audit-write and storage workload after throttling has engaged.
-        if ($responseStatus === 429 && AgentApiAudit::query()
-            ->where('actor_user_id', $actorUserId)
-            ->where('route_name', $routeName)
-            ->where('response_status', 429)
-            ->where('created_at', '>=', now()->subMinute())
-            ->exists()) {
-            return;
-        }
+        $createdAt = now();
+        $samplingKey = $responseStatus === 429
+            ? hash('sha256', implode('|', [
+                (string) $actorUserId,
+                $routeName,
+                $createdAt->clone()->utc()->format('YmdHi'),
+            ]))
+            : null;
 
-        AgentApiAudit::query()->create([
-            'request_id' => $requestId,
-            'actor_user_id' => $actorUserId,
-            'oauth_client_id' => is_string($clientId) ? $clientId : null,
-            'oauth_token_hash' => $tokenHash,
-            'event' => 'agent_api.request',
-            'route_name' => $routeName,
-            'http_method' => $request->method(),
-            'response_status' => $responseStatus,
-            'duration_ms' => max(0, (int) round((hrtime(true) - $startedAt) / 1_000_000)),
-            'created_at' => now(),
-        ]);
+        try {
+            AgentApiAudit::query()->create([
+                'request_id' => $requestId,
+                'actor_user_id' => $actorUserId,
+                'oauth_client_id' => is_string($clientId) ? $clientId : null,
+                'oauth_token_hash' => $tokenHash,
+                'event' => 'agent_api.request',
+                'route_name' => $routeName,
+                'http_method' => $request->method(),
+                'response_status' => $responseStatus,
+                'duration_ms' => max(0, (int) round((hrtime(true) - $startedAt) / 1_000_000)),
+                'sampling_key' => $samplingKey,
+                'created_at' => $createdAt,
+            ]);
+        } catch (UniqueConstraintViolationException $exception) {
+            if ($samplingKey === null || ! AgentApiAudit::query()->where('sampling_key', $samplingKey)->exists()) {
+                throw $exception;
+            }
+        }
     }
 
     private function statusFor(Throwable $exception): int
