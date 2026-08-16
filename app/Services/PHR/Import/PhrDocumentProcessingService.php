@@ -23,23 +23,25 @@ final readonly class PhrDocumentProcessingService
     public function __construct(
         private PhrPatientArtifactWriteGuard $artifactWriteGuard,
         private PhrImportJobDao $jobs,
+        private PhrImportRetryPolicy $retryPolicy,
     ) {}
 
     public function create(PhrPatient $patient, int $actorUserId, int $documentId): ImportJobMutationResult
     {
         $newStagingPath = null;
+        $obsoleteStagingPath = null;
 
         try {
             $result = $this->artifactWriteGuard->run(
                 (int) $patient->id,
-                function (PhrPatient $lockedPatient) use ($actorUserId, $documentId, &$newStagingPath): ImportJobMutationResult {
+                function (PhrPatient $lockedPatient) use ($actorUserId, $documentId, &$newStagingPath, &$obsoleteStagingPath): ImportJobMutationResult {
                     $document = PhrDocument::query()
                         ->where('patient_id', $lockedPatient->id)
                         ->findOrFail($documentId);
                     $existing = $this->jobs->findForDocument($lockedPatient, $document);
                     if ($existing instanceof GenAiImportJob) {
                         return $existing->status === 'failed'
-                            ? $this->prepareRetry($existing, $document, $newStagingPath)
+                            ? $this->prepareRetry($existing, $document, $actorUserId, $newStagingPath, $obsoleteStagingPath)
                             : new ImportJobMutationResult($existing, (int) $document->id, ImportJobMutationResult::UNCHANGED);
                     }
                     if ($document->genai_job_id !== null) {
@@ -76,21 +78,22 @@ final readonly class PhrDocumentProcessingService
             throw $exception;
         }
 
-        return $this->completeMutation($result, $newStagingPath);
+        return $this->completeMutation($result, $newStagingPath, $obsoleteStagingPath);
     }
 
-    public function retry(PhrPatient $patient, int $jobId): ImportJobMutationResult
+    public function retry(PhrPatient $patient, int $actorUserId, int $jobId): ImportJobMutationResult
     {
         $newStagingPath = null;
+        $obsoleteStagingPath = null;
 
         try {
             $result = $this->artifactWriteGuard->run(
                 (int) $patient->id,
-                function (PhrPatient $lockedPatient) use ($jobId, &$newStagingPath): ImportJobMutationResult {
+                function (PhrPatient $lockedPatient) use ($actorUserId, $jobId, &$newStagingPath, &$obsoleteStagingPath): ImportJobMutationResult {
                     $job = $this->jobs->find($lockedPatient, $jobId);
                     $document = $job->sourceDocument()->firstOrFail();
 
-                    return $this->prepareRetry($job, $document, $newStagingPath);
+                    return $this->prepareRetry($job, $document, $actorUserId, $newStagingPath, $obsoleteStagingPath);
                 },
             );
         } catch (Throwable $exception) {
@@ -99,36 +102,36 @@ final readonly class PhrDocumentProcessingService
             throw $exception;
         }
 
-        return $this->completeMutation($result, $newStagingPath);
+        return $this->completeMutation($result, $newStagingPath, $obsoleteStagingPath);
     }
 
     private function prepareRetry(
         GenAiImportJob $job,
         PhrDocument $document,
+        int $actorUserId,
         ?string &$newStagingPath,
+        ?string &$obsoleteStagingPath,
     ): ImportJobMutationResult {
-        if ($document->trashed()) {
-            throw new NotFoundHttpException;
-        }
         if (in_array($job->status, ['pending', 'processing', 'queued_tomorrow'], true)) {
             return new ImportJobMutationResult($job, (int) $document->id, ImportJobMutationResult::UNCHANGED);
         }
-        if (! $job->canRetry()) {
-            throw new ConflictHttpException('The import job cannot be retried.');
-        }
-        if ($job->results()->where('status', '!=', 'pending_review')->exists()) {
-            throw new ConflictHttpException('A reviewed import job cannot be retried.');
-        }
+        $hasReviewedResults = $job->results()->where('status', '!=', 'pending_review')->exists();
+        $this->retryPolicy->assertRetryable($job, $document, $hasReviewedResults);
 
-        if (! Storage::disk('s3')->exists($job->s3_path)) {
+        if ((int) $job->user_id !== $actorUserId || ! Storage::disk('s3')->exists($job->s3_path)) {
             $this->assertStoredDocument($document);
-            $newStagingPath ??= $this->stagingPath((int) $job->user_id, $document);
+            $newStagingPath ??= $this->stagingPath($actorUserId, $document);
             $this->copyToStaging($document, $newStagingPath);
+            $obsoleteStagingPath = $job->s3_path;
         }
 
         $job->results()->where('status', 'pending_review')->delete();
         $job->update([
             's3_path' => $newStagingPath ?? $job->s3_path,
+            'user_id' => $actorUserId,
+            'ai_configuration_id' => null,
+            'ai_provider' => null,
+            'ai_model' => null,
             'status' => 'pending',
             'error_message' => null,
             'raw_response' => null,
@@ -142,14 +145,20 @@ final readonly class PhrDocumentProcessingService
         return new ImportJobMutationResult($job->refresh(), (int) $document->id, ImportJobMutationResult::RETRIED);
     }
 
-    private function completeMutation(ImportJobMutationResult $result, ?string $newStagingPath): ImportJobMutationResult
-    {
+    private function completeMutation(
+        ImportJobMutationResult $result,
+        ?string $newStagingPath,
+        ?string $obsoleteStagingPath = null,
+    ): ImportJobMutationResult {
         if (! in_array($result->outcome, [ImportJobMutationResult::CREATED, ImportJobMutationResult::RETRIED], true)) {
             $this->deleteStagingFileIfPresent($newStagingPath);
 
             return $result;
         }
 
+        if ($obsoleteStagingPath !== null && $obsoleteStagingPath !== $newStagingPath) {
+            $this->deleteStagingFile($obsoleteStagingPath);
+        }
         $this->dispatch($result->job);
 
         return $result;

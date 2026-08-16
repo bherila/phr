@@ -6,10 +6,10 @@ use App\GenAiProcessor\Mail\GenAiJobCompleteMail;
 use App\GenAiProcessor\Mail\GenAiJobDeferredMail;
 use App\GenAiProcessor\Models\GenAiDailyQuota;
 use App\GenAiProcessor\Models\GenAiImportJob;
-use App\GenAiProcessor\Models\GenAiImportResult;
 use App\GenAiProcessor\Services\Prompts\Phr\PhrPromptTemplate;
 use App\Models\User;
 use App\Services\GenAiFileHelper;
+use App\Services\PHR\Import\PhrImportProposalDao;
 use App\Services\PHR\Import\PhrStructuredDataImporter;
 use Bherila\GenAiLaravel\Exceptions\GenAiFatalException;
 use Bherila\GenAiLaravel\Exceptions\GenAiRateLimitException;
@@ -190,7 +190,7 @@ class ParseImportJob implements ShouldQueue
             }
 
             DB::transaction(function () use ($job, $data): void {
-                $this->createPhrResults($job, $data);
+                app(PhrImportProposalDao::class)->createForJob($job, $data);
             });
 
             $job->markParsed();
@@ -373,64 +373,5 @@ class ParseImportJob implements ShouldQueue
         }
 
         return is_array($decoded) ? $decoded : null;
-    }
-
-    /**
-     * Create GenAiImportResult rows from parsed data. Mirrors the monorepo
-     * ParseImportJob::createPhrResults() exactly (the only PHR-specific branch of that
-     * method).
-     *
-     * @param  array<int|string, mixed>  $data
-     */
-    private function createPhrResults(GenAiImportJob $job, array $data): void
-    {
-        if ($job->job_type === 'phr_document') {
-            if (array_is_list($data)) {
-                throw new \UnexpectedValueException('The document import payload must be an object.');
-            }
-
-            GenAiImportResult::create([
-                'job_id' => $job->id,
-                'result_index' => 0,
-                'result_json' => json_encode($data),
-                'status' => 'pending_review',
-            ]);
-
-            return;
-        }
-
-        $records = $this->phrRecords($data);
-
-        foreach ($records as $index => $record) {
-            if (! is_array($record) || array_is_list($record)) {
-                continue;
-            }
-
-            GenAiImportResult::create([
-                'job_id' => $job->id,
-                'result_index' => $index,
-                'result_json' => json_encode($record),
-                'status' => 'pending_review',
-            ]);
-        }
-    }
-
-    /**
-     * @param  array<array-key, mixed>  $data
-     * @return array<int, mixed>
-     */
-    private function phrRecords(array $data): array
-    {
-        if (array_is_list($data)) {
-            return $data;
-        }
-
-        foreach (['records', 'lab_results', 'vitals', 'office_visits', 'medications', 'immunizations', 'conditions', 'procedures', 'allergies'] as $key) {
-            if (isset($data[$key]) && is_array($data[$key])) {
-                return array_is_list($data[$key]) ? $data[$key] : [$data[$key]];
-            }
-        }
-
-        return [$data];
     }
 }

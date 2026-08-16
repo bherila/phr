@@ -212,6 +212,7 @@ final class AgentApiStructuredImportTest extends TestCase
         $this->getJson("/api/v1/patients/{$patient->id}/imports/{$job->id}")
             ->assertOk()
             ->assertJsonPath('data.failure_code', 'processing_failed')
+            ->assertJsonPath('data.can_retry', true)
             ->assertJsonMissing(['Synthetic private provider failure.', 'Synthetic private raw response.']);
 
         Passport::actingAs($owner, [AgentApiScopes::IMPORTS_WRITE], 'api', $client);
@@ -246,6 +247,11 @@ final class AgentApiStructuredImportTest extends TestCase
         $reviewed->markSkipped();
         $client = $this->client('Synthetic Reviewed Retry Client');
 
+        Passport::actingAs($owner, [AgentApiScopes::IMPORTS_READ], 'api', $client);
+        $this->getJson("/api/v1/patients/{$patient->id}/imports/{$job->id}")
+            ->assertOk()
+            ->assertJsonPath('data.can_retry', false);
+
         Passport::actingAs($owner, [AgentApiScopes::IMPORTS_WRITE], 'api', $client);
         $this->postJson("/api/v1/patients/{$patient->id}/imports/{$job->id}/retry")->assertConflict();
 
@@ -265,11 +271,47 @@ final class AgentApiStructuredImportTest extends TestCase
         $document->delete();
         $client = $this->client('Synthetic Deleted Retry Client');
 
+        Passport::actingAs($owner, [AgentApiScopes::IMPORTS_READ], 'api', $client);
+        $this->getJson("/api/v1/patients/{$patient->id}/imports/{$job->id}")
+            ->assertOk()
+            ->assertJsonPath('data.can_retry', false);
+
         Passport::actingAs($owner, [AgentApiScopes::IMPORTS_WRITE], 'api', $client);
         $this->postJson("/api/v1/patients/{$patient->id}/imports/{$job->id}/retry")->assertNotFound();
 
         $this->assertSame('failed', $job->refresh()->status);
         Queue::assertNothingPushed();
+    }
+
+    public function test_retry_transfers_provider_ownership_and_staging_to_the_current_actor(): void
+    {
+        $owner = $this->user('retry-transfer-owner@example.test');
+        $manager = $this->user('retry-transfer-manager@example.test');
+        $patient = $this->patient($owner, 'Synthetic Retry Transfer Patient');
+        $this->grant($patient, $owner, $manager, PhrPatientUserAccess::LEVEL_MANAGER);
+        $document = $this->document($patient, $owner, 'synthetic-retry-transfer.pdf');
+        $job = $this->linkedJob($document, $owner, 'failed', [
+            'retry_count' => 1,
+            'ai_provider' => 'synthetic-old-provider',
+            'ai_model' => 'synthetic-old-model',
+        ]);
+        $oldStagingPath = $job->s3_path;
+        Storage::disk('s3')->put($oldStagingPath, 'Synthetic old staging bytes');
+        $client = $this->client('Synthetic Retry Transfer Client');
+
+        Passport::actingAs($manager, [AgentApiScopes::IMPORTS_WRITE], 'api', $client);
+        $this->postJson("/api/v1/patients/{$patient->id}/imports/{$job->id}/retry")
+            ->assertAccepted()
+            ->assertJsonPath('outcome', 'retried');
+
+        $job->refresh();
+        $this->assertSame($manager->id, $job->user_id);
+        $this->assertNotSame($oldStagingPath, $job->s3_path);
+        $this->assertNull($job->ai_provider);
+        $this->assertNull($job->ai_model);
+        Storage::disk('s3')->assertMissing($oldStagingPath);
+        Storage::disk('s3')->assertExists($job->s3_path);
+        Queue::assertPushed(ParseImportJob::class, 1);
     }
 
     public function test_scalar_import_proposal_does_not_break_other_results(): void

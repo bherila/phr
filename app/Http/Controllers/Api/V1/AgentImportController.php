@@ -12,6 +12,7 @@ use App\Models\PhrPatient;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\Import\PhrDocumentProcessingService;
 use App\Services\PHR\Import\PhrImportJobDao;
+use App\Services\PHR\Import\PhrImportRetryPolicy;
 use App\Services\PHR\Import\PhrImportReviewService;
 use App\Support\AgentApi\AgentApiCursor;
 use App\Support\AgentApi\AgentApiScopes;
@@ -27,6 +28,7 @@ final class AgentImportController extends Controller
         private PhrImportJobDao $jobs,
         private PhrDocumentProcessingService $processing,
         private PhrImportReviewService $reviews,
+        private PhrImportRetryPolicy $retryPolicy,
     ) {}
 
     public function index(Request $request, int $patient): JsonResponse
@@ -39,7 +41,7 @@ final class AgentImportController extends Controller
         $resolved = $this->readablePatient($request, $patient);
         $limit = (int) ($validated['limit'] ?? 25);
         $query = $this->jobs->forPatient($resolved)
-            ->with('sourceDocument:id,patient_id,genai_job_id')
+            ->with('sourceDocument:id,patient_id,genai_job_id,deleted_at')
             ->withCount([
                 'results',
                 'results as pending_results_count' => fn (Builder $results): Builder => $results->where('status', 'pending_review'),
@@ -71,7 +73,7 @@ final class AgentImportController extends Controller
         $resolved = $this->readablePatient($request, $patient);
         $job = $this->jobs->find($resolved, $import);
         $job->load([
-            'sourceDocument:id,patient_id,genai_job_id',
+            'sourceDocument:id,patient_id,genai_job_id,deleted_at',
             'results' => fn ($results) => $results->orderBy('result_index')->orderBy('id'),
         ])->loadCount([
             'results',
@@ -103,7 +105,7 @@ final class AgentImportController extends Controller
     public function retry(Request $request, int $patient, int $import): JsonResponse
     {
         $resolved = $this->writablePatient($request, $patient);
-        $result = $this->processing->retry($resolved, $import);
+        $result = $this->processing->retry($resolved, (int) $request->user('api')?->id, $import);
 
         return response()->json(
             $this->jobMutationPayload($resolved, $result),
@@ -162,7 +164,11 @@ final class AgentImportController extends Controller
             'job_type' => $job->job_type,
             'status' => $job->status,
             'retry_count' => $job->retry_count,
-            'can_retry' => $job->canRetry(),
+            'can_retry' => $this->retryPolicy->canRetry(
+                $job,
+                $job->sourceDocument,
+                (int) ($job->results_count ?? 0) !== (int) ($job->pending_results_count ?? 0),
+            ),
             'result_count' => (int) ($job->results_count ?? 0),
             'pending_result_count' => (int) ($job->pending_results_count ?? 0),
             'processing_tier' => $job->processing_tier,
