@@ -39,7 +39,7 @@ class PhrStorageMap
         return [
             'phr_dicom' => ['patients', 'phr/dicom', 'derived/volume-cache'],
             'phr_documents' => ['patients', 'phr/documents'],
-            'phr_exports' => ['patients', 'phr/exports', 'phr/native-backups'],
+            'phr_exports' => ['patients', 'phr/exports', 'phr/native-backups', 'phr/native-restores'],
 
             // GenAI import staging. Its only writer is PhrDocumentController::process,
             // which keys everything under genai-import/<userId>/. Scoped to that prefix
@@ -71,6 +71,9 @@ class PhrStorageMap
             // Native archives have a shorter retention policy but share the existing
             // private export disk. A live row protects its archive from quarantine.
             ->from('phr_native_backups', 'storage_path')
+
+            // Uploaded native restore sources are short-lived operational inputs.
+            ->from('phr_native_restore_attempts', 'source_storage_path')
 
             // A successful canonical-key migration deliberately retains both copies
             // for rollback. These ledger references keep either side out of generic

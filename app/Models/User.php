@@ -16,6 +16,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 /**
@@ -34,6 +35,9 @@ class User extends Authenticatable
             // a full account is removed. Neither table has clinical/free text.
             DB::table('phr_native_backup_audits')->where('actor_user_id', $user->id)->update(['actor_user_id' => null]);
             DB::table('phr_patient_deletions')->where('actor_user_id', $user->id)->update(['actor_user_id' => null]);
+            if (Schema::hasTable('phr_native_restore_attempts')) {
+                DB::table('phr_native_restore_attempts')->where('actor_user_id', $user->id)->update(['actor_user_id' => null]);
+            }
         });
     }
 

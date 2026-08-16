@@ -20,17 +20,18 @@ final class PhrNativeSnapshotService
     {
         $connection = DB::connection();
         $driver = $connection->getDriverName();
+        $alreadyInTransaction = $connection->transactionLevel() > 0;
 
         // MySQL/MariaDB applies this to the next transaction. PostgreSQL requires
         // it immediately after BEGIN. SQLite transactions already retain one read
         // snapshot after their first query. In every case, all relational rows are
         // materialized before the transaction closes and artifact streaming begins.
-        if ($driver === 'mysql') {
+        if ($driver === 'mysql' && ! $alreadyInTransaction) {
             $connection->statement('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
         }
 
-        return $connection->transaction(function () use ($connection, $driver, $patientId): array {
-            if ($driver === 'pgsql') {
+        return $connection->transaction(function () use ($connection, $driver, $patientId, $alreadyInTransaction): array {
+            if ($driver === 'pgsql' && ! $alreadyInTransaction) {
                 $connection->statement('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
             }
 
