@@ -6,20 +6,6 @@ imaging with an Explore-in-3D volume viewer, document import via GenAI extractio
 CCDA/FHIR/MyChart-zip import, CCDA/FHIR/PDF export, and Sinus Sentinel device
 ingest) served from `phr.bherila.net`. Laravel 13 + Vite + React 19.
 
-This repo was **extracted from a private monorepo** (`bherila/2025-website`) as a
-single fresh commit — see
-[bherila/2025-website#1805](https://github.com/bherila/2025-website/issues/1805) for
-the measured footprint, the coupling analysis, and the decisions that shaped the
-split. History was intentionally not carried over: the source repo is private and its
-history references tax/financial data unrelated to PHR, so starting clean avoids ever
-leaking any of that.
-
-This repository is now public. Before publication, the authorization and security
-review called out in #1805 audited `PatientAccessController`, the patient-sharing
-model, the GenAI import pipeline, and DICOM object storage; the resulting findings
-were fixed. The private-first extraction was deliberate because the coupling here is
-heavier than in the games split.
-
 ## What's here
 
 - `resources/js/phr/**` — the PHR React SPA (Miller-columns app shell, one module per
