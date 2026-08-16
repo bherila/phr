@@ -3,7 +3,9 @@
 namespace Tests\Feature\PHR;
 
 use App\Models\PhrDocument;
+use App\Models\PhrImmunization;
 use App\Models\PhrOfficeVisit;
+use App\Models\PhrPatientVital;
 use Tests\TestCase;
 
 class PhrPatientSearchTest extends TestCase
@@ -70,5 +72,43 @@ class PhrPatientSearchTest extends TestCase
             ->getJson("/api/phr/patients/{$patientId}/search?q=x")
             ->assertUnprocessable()
             ->assertJsonValidationErrors('q');
+    }
+
+    public function test_it_searches_immunizations_and_vitals(): void
+    {
+        $owner = $this->createUser();
+        $patientId = (int) $this->actingAs($owner)->postJson('/api/phr/patients', [
+            'display_name' => 'Synthetic Patient',
+        ])->assertCreated()->json('patient.id');
+
+        $immunization = PhrImmunization::query()->create([
+            'patient_id' => $patientId,
+            'user_id' => $owner->id,
+            'vaccine_name' => 'Synthetic vaccine',
+            'manufacturer' => 'Example manufacturer',
+            'administered_on' => '2030-04-15',
+        ]);
+        $vital = PhrPatientVital::query()->create([
+            'patient_id' => $patientId,
+            'user_id' => $owner->id,
+            'vital_name' => 'Synthetic vital',
+            'vital_value' => '123',
+            'unit' => 'units',
+            'observed_at' => '2030-04-16 08:00:00',
+        ]);
+
+        $this->actingAs($owner)
+            ->getJson("/api/phr/patients/{$patientId}/search?q=synthetic")
+            ->assertOk()
+            ->assertJsonFragment([
+                'id' => $immunization->id,
+                'category' => 'Immunization',
+                'module_id' => 'immunization-detail',
+            ])
+            ->assertJsonFragment([
+                'id' => $vital->id,
+                'category' => 'Vital',
+                'module_id' => 'vitals-reading-detail',
+            ]);
     }
 }
