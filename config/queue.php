@@ -43,7 +43,7 @@ return [
             // Native restore jobs may stream a large archive for up to one hour.
             // Keep the reservation window beyond that hard timeout so a second
             // worker cannot reserve the same job while the first is still live.
-            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 3660),
+            'retry_after' => max(3660, (int) env('DB_QUEUE_RETRY_AFTER', 3660)),
             'after_commit' => false,
         ],
 
