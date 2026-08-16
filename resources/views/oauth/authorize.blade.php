@@ -18,10 +18,17 @@
     </style>
 </head>
 <body>
+@inject('consent', 'App\Support\AgentApi\OAuthConsentPresenter')
 <main>
     <h1>Authorize {{ $client->name }}</h1>
     <p>This application is requesting access to your personal health record.</p>
     <p class="warning">Only continue if you recognize and trust this application. You can disconnect it later.</p>
+    @if ($client->dynamically_registered_at)
+        <p class="warning">
+            This client registered automatically. After approval, your browser returns to:
+            <strong>{{ $consent->redirectUri($request, $client) }}</strong>
+        </p>
+    @endif
     <h2>Requested permissions</h2>
     <ul>
         @foreach ($scopes as $scope)

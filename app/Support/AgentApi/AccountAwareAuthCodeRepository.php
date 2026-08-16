@@ -6,10 +6,14 @@ use App\Models\User;
 use Laravel\Passport\Bridge\AuthCodeRepository;
 use Laravel\Passport\Passport;
 use League\OAuth2\Server\Entities\AuthCodeEntityInterface;
+use League\OAuth2\Server\Exception\OAuthServerException;
 
 class AccountAwareAuthCodeRepository extends AuthCodeRepository
 {
-    public function __construct(private OAuthExchangeAccountGuard $accountGuard) {}
+    public function __construct(
+        private OAuthExchangeAccountGuard $accountGuard,
+        private OAuthDynamicClientDao $dynamicClients,
+    ) {}
 
     public function persistNewAuthCode(AuthCodeEntityInterface $authCodeEntity): void
     {
@@ -19,16 +23,32 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
         // Missing request-local state fails closed as an unusable code rather than
         // falling back to a race-prone user-table read here.
         $securityVersion = $validatedGrant['security_version'] ?? null;
+        $resourceUri = OAuthResourceIndicator::validatedFor(request());
+        $scopeIds = array_map(
+            static fn ($scope): string => $scope->getIdentifier(),
+            $authCodeEntity->getScopes(),
+        );
+        $resourceIsValid = ! in_array(AgentApiScopes::MCP_USE, $scopeIds, true)
+            || $resourceUri === OAuthResourceIndicator::agentApi();
+        $client = $this->dynamicClients->lockForAuthorization(
+            $authCodeEntity->getClient()->getIdentifier(),
+        );
+        if ($client === null) {
+            throw OAuthServerException::invalidGrant('The authorization grant is invalid.');
+        }
 
         Passport::authCode()->forceFill([
             'id' => $authCodeEntity->getIdentifier(),
             'user_id' => $userId,
             'client_id' => $authCodeEntity->getClient()->getIdentifier(),
             'scopes' => json_encode($authCodeEntity->getScopes()),
-            'revoked' => false,
+            'revoked' => ! $resourceIsValid,
             'oauth_security_version' => $securityVersion,
+            'resource_uri' => $resourceUri,
             'expires_at' => $authCodeEntity->getExpiryDateTime(),
         ])->save();
+
+        $this->dynamicClients->markAuthorized($client);
     }
 
     public function isAuthCodeRevoked(string $codeId): bool
@@ -42,6 +62,18 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
             ->first();
 
         if ($authorizationCode === null) {
+            return true;
+        }
+
+        $storedResource = is_string($authorizationCode->resource_uri)
+            ? $authorizationCode->resource_uri
+            : null;
+        $requestedResource = request()->exists('resource')
+            ? OAuthResourceIndicator::canonicalize(request()->input('resource'))
+            : $storedResource;
+        if ($requestedResource !== $storedResource) {
+            $authorizationCode->forceFill(['revoked' => true])->save();
+
             return true;
         }
 
@@ -64,6 +96,7 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
             $authorizationCode->user_id,
             (int) $authorizationCode->oauth_security_version,
             null,
+            $storedResource,
         );
 
         return false;

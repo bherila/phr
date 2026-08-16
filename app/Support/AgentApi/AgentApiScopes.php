@@ -51,6 +51,7 @@ final class AgentApiScopes
     public static function reservedDescriptions(): array
     {
         return [
+            self::MCP_USE => 'Connect through the PHR MCP server',
             self::CLINICAL_WRITE => 'Create and update clinical records you can manage',
             self::DOCUMENTS_WRITE => 'Upload and update patient documents',
             self::IMPORTS_READ => 'Read import jobs and extraction results',
@@ -59,7 +60,6 @@ final class AgentApiScopes
             self::EXPORTS_WRITE => 'Request exports and native backups',
             self::RECONCILIATION_READ => 'Preview administrative reconciliation',
             self::RECONCILIATION_WRITE => 'Apply an explicitly confirmed reconciliation',
-            self::MCP_USE => 'Connect through the PHR MCP server',
         ];
     }
 
@@ -67,5 +67,14 @@ final class AgentApiScopes
     public static function ids(): array
     {
         return array_keys(self::descriptions());
+    }
+
+    /** @return list<string> */
+    public static function parse(string $value): array
+    {
+        return array_values(array_unique(array_filter(
+            preg_split('/\s+/', trim($value)) ?: [],
+            static fn (string $scope): bool => $scope !== '',
+        )));
     }
 }

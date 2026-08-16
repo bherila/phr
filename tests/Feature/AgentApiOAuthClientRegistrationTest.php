@@ -1,0 +1,505 @@
+<?php
+
+namespace Tests\Feature;
+
+use App\Models\User;
+use App\Support\AgentApi\AgentApiScopes;
+use App\Support\AgentApi\OAuthAuthorizationStateStore;
+use App\Support\AgentApi\OAuthDynamicClientDao;
+use App\Support\AgentApi\OAuthResourceIndicator;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+use Laravel\Passport\AuthCode;
+use Laravel\Passport\Client;
+use Laravel\Passport\Token;
+use Tests\TestCase;
+
+final class AgentApiOAuthClientRegistrationTest extends TestCase
+{
+    use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $key = openssl_pkey_new([
+            'private_key_bits' => 2048,
+            'private_key_type' => OPENSSL_KEYTYPE_RSA,
+        ]);
+        $this->assertNotFalse($key);
+        $this->assertTrue(openssl_pkey_export($key, $privateKey));
+        $details = openssl_pkey_get_details($key);
+        $this->assertIsArray($details);
+        config([
+            'passport.private_key' => $privateKey,
+            'passport.public_key' => $details['key'],
+        ]);
+    }
+
+    public function test_discovery_advertises_public_registration_and_resource_indicators(): void
+    {
+        $this->getJson('/.well-known/oauth-authorization-server')
+            ->assertOk()
+            ->assertJsonPath('registration_endpoint', url('/oauth/register'))
+            ->assertJsonPath('resource_indicators_supported', true)
+            ->assertJsonPath('scopes_supported', AgentApiScopes::ids());
+
+        $this->getJson('/.well-known/oauth-protected-resource/api/v1/mcp')->assertNotFound();
+        $this->assertNotContains(AgentApiScopes::MCP_USE, AgentApiScopes::ids());
+        $this->assertArrayHasKey(AgentApiScopes::MCP_USE, AgentApiScopes::reservedDescriptions());
+    }
+
+    public function test_dynamic_registration_issues_only_a_public_bounded_client(): void
+    {
+        $response = $this->postJson('/oauth/register', [
+            'client_name' => 'Synthetic Remote Agent',
+            'redirect_uris' => [
+                'https://agent.example.test/oauth/callback',
+                'http://127.0.0.1:48731/callback',
+                'http://[::1]:48732/callback',
+            ],
+            'grant_types' => ['refresh_token', 'authorization_code'],
+            'response_types' => ['code'],
+            'token_endpoint_auth_method' => 'none',
+            'scope' => AgentApiScopes::PATIENTS_READ,
+        ])->assertCreated()
+            ->assertHeader('Cache-Control', 'no-store, private')
+            ->assertJsonMissingPath('client_secret')
+            ->assertJsonMissingPath('registration_access_token')
+            ->assertJsonPath('client_name', 'Synthetic Remote Agent')
+            ->assertJsonPath('token_endpoint_auth_method', 'none');
+
+        $client = Client::query()->findOrFail($response->json('client_id'));
+        $this->assertFalse($client->confidential());
+        $this->assertSame(['authorization_code', 'refresh_token'], $client->grant_types);
+        $this->assertSame([
+            'https://agent.example.test/oauth/callback',
+            'http://127.0.0.1:48731/callback',
+            'http://[::1]:48732/callback',
+        ], $client->redirect_uris);
+        $this->assertNotNull($client->dynamically_registered_at);
+        $this->assertSame(
+            [AgentApiScopes::PATIENTS_READ],
+            $client->scopes,
+        );
+
+        $challenge = $this->pkce()[1];
+        $user = User::factory()->create([
+            'name' => 'Synthetic Registration User',
+            'email' => 'registration-user@example.test',
+            'user_role' => 'user',
+        ]);
+        $authorization = [
+            'client_id' => $client->id,
+            'redirect_uri' => 'https://agent.example.test/oauth/callback',
+            'response_type' => 'code',
+            'scope' => AgentApiScopes::PATIENTS_READ,
+            'state' => 'synthetic-registration-state',
+            'code_challenge' => $challenge,
+            'code_challenge_method' => 'S256',
+            'resource' => OAuthResourceIndicator::agentApi(),
+        ];
+        $withoutScope = $authorization;
+        unset($withoutScope['scope']);
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query($withoutScope))
+            ->assertOk();
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+            ...$authorization,
+            'scope' => AgentApiScopes::DOCUMENTS_READ,
+        ]))->assertBadRequest()
+            ->assertJsonPath('error', 'invalid_scope');
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+            ...$authorization,
+            'scope' => [AgentApiScopes::PATIENTS_READ],
+        ]))->assertBadRequest()
+            ->assertJsonPath('error', 'invalid_scope');
+
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query($authorization))->assertOk()
+            ->assertSee('This client registered automatically')
+            ->assertSee('https://agent.example.test/oauth/callback')
+            ->assertDontSee('http://127.0.0.1:48731/callback')
+            ->assertDontSee('http://[::1]:48732/callback');
+
+        $this->post('/oauth/authorize', [
+            'auth_token' => session('authToken'),
+        ])->assertRedirect();
+        $this->assertNotNull($client->fresh()?->first_authorized_at);
+    }
+
+    public function test_dynamic_registration_omits_unsupplied_scope_metadata(): void
+    {
+        $response = $this->postJson('/oauth/register', [
+            'client_name' => 'Synthetic Unscoped Agent',
+            'redirect_uris' => ['https://agent.example.test/callback'],
+        ])->assertCreated()
+            ->assertJsonMissingPath('scope');
+
+        $client = Client::query()->findOrFail($response->json('client_id'));
+        $this->assertNull($client->scopes);
+    }
+
+    public function test_single_callback_is_displayed_when_authorization_omits_redirect_uri(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Synthetic Omitted Callback User',
+            'email' => 'omitted-callback@example.test',
+            'user_role' => 'user',
+        ]);
+        $client = $this->publicClient('Synthetic Omitted Callback Client');
+        $client->forceFill(['dynamically_registered_at' => now()])->save();
+        [, $challenge] = $this->pkce();
+
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+            'client_id' => $client->id,
+            'response_type' => 'code',
+            'scope' => AgentApiScopes::IDENTITY_READ,
+            'state' => 'synthetic-omitted-callback-state',
+            'code_challenge' => $challenge,
+            'code_challenge_method' => 'S256',
+        ]))->assertOk()
+            ->assertSee('https://agent.example.test/callback');
+    }
+
+    public function test_dynamic_registration_rejects_unsafe_or_unsupported_metadata_generically(): void
+    {
+        $valid = [
+            'client_name' => 'Synthetic Invalid Agent',
+            'redirect_uris' => ['https://agent.example.test/callback'],
+        ];
+        $this->call('POST', '/oauth/register', [], [], [], ['CONTENT_TYPE' => 'text/plain'], json_encode($valid, JSON_THROW_ON_ERROR))
+            ->assertBadRequest()->assertJsonPath('error', 'invalid_client_metadata');
+        $this->postJson('/oauth/register', [
+            ...$valid,
+            'redirect_uris' => ['http://agent.example.test/callback'],
+        ])->assertBadRequest()->assertJsonPath('error_description', 'Client metadata is invalid.');
+        $this->postJson('/oauth/register', [
+            ...$valid,
+            'redirect_uris' => ['https://agent.example.test/callback#fragment'],
+        ])->assertBadRequest();
+        $this->postJson('/oauth/register', [
+            ...$valid,
+            'grant_types' => ['authorization_code', 'client_credentials'],
+        ])->assertBadRequest();
+        $this->postJson('/oauth/register', [
+            ...$valid,
+            'scope' => AgentApiScopes::PATIENTS_READ.' unknown:scope',
+        ])->assertBadRequest();
+        $this->call(
+            'POST',
+            '/oauth/register?'.http_build_query($valid),
+            server: ['CONTENT_TYPE' => 'application/json'],
+            content: '{}',
+        )->assertBadRequest();
+        $this->assertDatabaseCount('oauth_clients', 0);
+    }
+
+    public function test_resource_indicator_persists_across_authorization_and_rotation(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Synthetic Resource User',
+            'email' => 'resource-user@example.test',
+            'user_role' => 'user',
+        ]);
+        $client = $this->publicClient('Synthetic Resource Client');
+        [$verifier, $challenge] = $this->pkce();
+
+        $query = [
+            'client_id' => $client->id,
+            'redirect_uri' => 'https://agent.example.test/callback',
+            'response_type' => 'code',
+            'scope' => AgentApiScopes::IDENTITY_READ,
+            'state' => 'synthetic-resource-state',
+            'code_challenge' => $challenge,
+            'code_challenge_method' => 'S256',
+        ];
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+            ...$query,
+            'resource' => 'https://unrelated.example.test/api',
+        ]))->assertBadRequest()->assertJsonPath('error_description', 'The requested resource is invalid.');
+
+        $approval = $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+            ...$query,
+            'resource' => OAuthResourceIndicator::agentApi().'/',
+        ]))->assertOk();
+        $this->assertNotNull($approval);
+        $authToken = session('authToken');
+        $this->assertIsString($authToken);
+        $this->travel(11)->minutes();
+        $redirect = $this->post('/oauth/authorize', [
+            'auth_token' => $authToken,
+        ])->assertRedirect();
+        $this->assertNull(app(OAuthAuthorizationStateStore::class)->resourceFor($authToken));
+        parse_str((string) parse_url((string) $redirect->headers->get('Location'), PHP_URL_QUERY), $redirectQuery);
+        $this->assertIsString($redirectQuery['code']);
+        $this->assertSame(OAuthResourceIndicator::agentApi(), AuthCode::query()->sole()->resource_uri);
+
+        $issued = $this->postJson('/oauth/token', [
+            'grant_type' => 'authorization_code',
+            'client_id' => $client->id,
+            'redirect_uri' => 'https://agent.example.test/callback',
+            'code_verifier' => $verifier,
+            'code' => $redirectQuery['code'],
+            'resource' => OAuthResourceIndicator::agentApi(),
+        ])->assertOk()->json();
+        $first = Token::query()->where('user_id', $user->id)->sole();
+        $this->assertSame(OAuthResourceIndicator::agentApi(), $first->resource_uri);
+
+        $rotated = $this->postJson('/oauth/token', [
+            'grant_type' => 'refresh_token',
+            'client_id' => $client->id,
+            'refresh_token' => $issued['refresh_token'],
+        ])->assertOk()->json();
+        $this->assertSame(
+            [OAuthResourceIndicator::agentApi(), OAuthResourceIndicator::agentApi()],
+            Token::query()->where('user_id', $user->id)->orderBy('created_at')->pluck('resource_uri')->all(),
+        );
+
+        $this->postJson('/oauth/token', [
+            'grant_type' => 'refresh_token',
+            'client_id' => $client->id,
+            'refresh_token' => $rotated['refresh_token'],
+            'resource' => 'https://unrelated.example.test/api',
+        ])->assertBadRequest()->assertJsonPath('error', 'invalid_grant');
+        $this->postJson('/oauth/token', [
+            'grant_type' => 'refresh_token',
+            'client_id' => $client->id,
+            'refresh_token' => $rotated['refresh_token'],
+            'resource' => OAuthResourceIndicator::agentApi(),
+        ])->assertBadRequest()->assertJsonPath('error', 'invalid_grant');
+    }
+
+    public function test_concurrent_approval_reads_keep_the_resource_indicator_bound(): void
+    {
+        $state = app(OAuthAuthorizationStateStore::class);
+        $state->rememberResource('synthetic-concurrent-auth-token', OAuthResourceIndicator::agentApi());
+        $sessionKey = 'oauth-resource:'.hash('sha256', 'synthetic-concurrent-auth-token');
+
+        $this->assertTrue(session()->has($sessionKey));
+
+        $this->assertSame(
+            OAuthResourceIndicator::agentApi(),
+            $state->resourceFor('synthetic-concurrent-auth-token'),
+        );
+        $this->assertSame(
+            OAuthResourceIndicator::agentApi(),
+            $state->resourceFor('synthetic-concurrent-auth-token'),
+        );
+    }
+
+    public function test_denied_consent_discards_resource_state(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Synthetic Denied Consent User',
+            'email' => 'denied-consent@example.test',
+            'user_role' => 'user',
+        ]);
+        $client = $this->publicClient('Synthetic Denied Consent Client');
+        [, $challenge] = $this->pkce();
+
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+            'client_id' => $client->id,
+            'redirect_uri' => 'https://agent.example.test/callback',
+            'response_type' => 'code',
+            'scope' => AgentApiScopes::IDENTITY_READ,
+            'state' => 'synthetic-denied-consent-state',
+            'code_challenge' => $challenge,
+            'code_challenge_method' => 'S256',
+            'resource' => OAuthResourceIndicator::agentApi(),
+        ]))->assertOk();
+        $authToken = session('authToken');
+        $this->assertIsString($authToken);
+
+        $this->delete('/oauth/authorize', ['auth_token' => $authToken])->assertRedirect();
+        $this->assertNull(app(OAuthAuthorizationStateStore::class)->resourceFor($authToken));
+    }
+
+    public function test_failed_authorization_cannot_bind_resource_to_an_existing_consent(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Synthetic Parallel Consent User',
+            'email' => 'parallel-consent@example.test',
+            'user_role' => 'user',
+        ]);
+        $client = $this->publicClient('Synthetic Parallel Consent Client');
+        [, $challenge] = $this->pkce();
+        $authorization = [
+            'client_id' => $client->id,
+            'redirect_uri' => 'https://agent.example.test/callback',
+            'response_type' => 'code',
+            'scope' => AgentApiScopes::IDENTITY_READ,
+            'state' => 'synthetic-parallel-consent-state',
+            'code_challenge' => $challenge,
+            'code_challenge_method' => 'S256',
+        ];
+
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query($authorization))->assertOk();
+        $authToken = session('authToken');
+        $this->assertIsString($authToken);
+
+        $this->get('/oauth/authorize?'.http_build_query([
+            ...$authorization,
+            'redirect_uri' => 'https://unregistered.example.test/callback',
+            'resource' => OAuthResourceIndicator::agentApi(),
+        ]))->assertUnauthorized();
+
+        $this->assertNull(app(OAuthAuthorizationStateStore::class)->resourceFor($authToken));
+        $this->post('/oauth/authorize', [
+            'auth_token' => $authToken,
+            'resource' => 'https://unrelated.example.test/api',
+        ])->assertRedirect();
+        $this->assertNull(AuthCode::query()->sole()->resource_uri);
+    }
+
+    public function test_dynamic_registration_has_a_dedicated_pre_authentication_limit(): void
+    {
+        config(['agent_api.client_registrations_per_hour' => 2]);
+        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.44']);
+        $metadata = [
+            'client_name' => 'Synthetic Limited Agent',
+            'redirect_uris' => ['https://agent.example.test/callback'],
+        ];
+
+        $this->postJson('/oauth/register', $metadata)->assertCreated();
+        $this->postJson('/oauth/register', $metadata)->assertCreated();
+        $this->postJson('/oauth/register', $metadata)->assertTooManyRequests();
+        $this->assertDatabaseCount('oauth_clients', 2);
+    }
+
+    public function test_resource_bound_authorization_code_inherits_omitted_exchange_audience(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Synthetic Missing Resource User',
+            'email' => 'missing-resource@example.test',
+            'user_role' => 'user',
+        ]);
+        $client = $this->publicClient('Synthetic Missing Resource Client');
+        [$verifier, $challenge] = $this->pkce();
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+            'client_id' => $client->id,
+            'redirect_uri' => 'https://agent.example.test/callback',
+            'response_type' => 'code',
+            'scope' => AgentApiScopes::IDENTITY_READ,
+            'state' => 'synthetic-missing-resource-state',
+            'code_challenge' => $challenge,
+            'code_challenge_method' => 'S256',
+            'resource' => OAuthResourceIndicator::agentApi(),
+        ]))->assertOk();
+        $redirect = $this->post('/oauth/authorize', [
+            'auth_token' => session('authToken'),
+        ])->assertRedirect();
+        parse_str((string) parse_url((string) $redirect->headers->get('Location'), PHP_URL_QUERY), $redirectQuery);
+
+        $this->postJson('/oauth/token', [
+            'grant_type' => 'authorization_code',
+            'client_id' => $client->id,
+            'redirect_uri' => 'https://agent.example.test/callback',
+            'code_verifier' => $verifier,
+            'code' => $redirectQuery['code'],
+        ])->assertOk();
+        $this->assertSame(
+            OAuthResourceIndicator::agentApi(),
+            Token::query()->where('user_id', $user->id)->sole()->resource_uri,
+        );
+    }
+
+    public function test_changed_authorization_code_audience_revokes_the_code(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Synthetic Changed Resource User',
+            'email' => 'changed-resource@example.test',
+            'user_role' => 'user',
+        ]);
+        $client = $this->publicClient('Synthetic Changed Resource Client');
+        [$verifier, $challenge] = $this->pkce();
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+            'client_id' => $client->id,
+            'redirect_uri' => 'https://agent.example.test/callback',
+            'response_type' => 'code',
+            'scope' => AgentApiScopes::IDENTITY_READ,
+            'state' => 'synthetic-changed-resource-state',
+            'code_challenge' => $challenge,
+            'code_challenge_method' => 'S256',
+            'resource' => OAuthResourceIndicator::agentApi(),
+        ]))->assertOk();
+        $redirect = $this->post('/oauth/authorize', [
+            'auth_token' => session('authToken'),
+        ])->assertRedirect();
+        parse_str((string) parse_url((string) $redirect->headers->get('Location'), PHP_URL_QUERY), $redirectQuery);
+
+        $exchange = [
+            'grant_type' => 'authorization_code',
+            'client_id' => $client->id,
+            'redirect_uri' => 'https://agent.example.test/callback',
+            'code_verifier' => $verifier,
+            'code' => $redirectQuery['code'],
+        ];
+        $this->postJson('/oauth/token', [
+            ...$exchange,
+            'resource' => null,
+        ])->assertBadRequest()->assertJsonPath('error', 'invalid_target');
+        $this->assertFalse(AuthCode::query()->sole()->revoked);
+        $this->postJson('/oauth/token', [
+            ...$exchange,
+            'resource' => 'https://unrelated.example.test/api',
+        ])->assertBadRequest()->assertJsonPath('error', 'invalid_grant');
+        $this->postJson('/oauth/token', [
+            ...$exchange,
+            'resource' => OAuthResourceIndicator::agentApi(),
+        ])->assertBadRequest()->assertJsonPath('error', 'invalid_grant');
+
+        $this->assertTrue(AuthCode::query()->sole()->revoked);
+        $this->assertDatabaseCount('oauth_access_tokens', 0);
+    }
+
+    public function test_credential_pruning_removes_only_unused_stale_dynamic_clients(): void
+    {
+        $stale = $this->publicClient('Synthetic Stale Dynamic Client');
+        $stale->forceFill(['dynamically_registered_at' => now()->subDays(2)])->save();
+        $recent = $this->publicClient('Synthetic Recent Dynamic Client');
+        $recent->forceFill(['dynamically_registered_at' => now()])->save();
+        $previouslyUsed = $this->publicClient('Synthetic Previously Used Dynamic Client');
+        $previouslyUsed->forceFill([
+            'dynamically_registered_at' => now()->subDays(30),
+            'first_authorized_at' => now()->subDays(29),
+        ])->save();
+        $rechecked = $this->publicClient('Synthetic Rechecked Dynamic Client');
+        $rechecked->forceFill(['dynamically_registered_at' => now()->subDays(2)])->save();
+        $anotherStale = $this->publicClient('Synthetic Another Stale Dynamic Client');
+        $anotherStale->forceFill(['dynamically_registered_at' => now()->subDays(2)])->save();
+        $static = $this->publicClient('Synthetic Static Client');
+
+        $dynamicClients = app(OAuthDynamicClientDao::class);
+        $this->assertCount(2, $dynamicClients->staleUnusedIdBatch(now()->subDay(), 2));
+        $rechecked->forceFill(['first_authorized_at' => now()])->save();
+        $this->assertNull($dynamicClients->lockUnusedForPruning($rechecked->id, now()->subDay()));
+
+        $this->artisan('phr:agent-api:prune-oauth-credentials')->assertSuccessful();
+
+        $this->assertNull($stale->fresh());
+        $this->assertNotNull($recent->fresh());
+        $this->assertNotNull($previouslyUsed->fresh());
+        $this->assertNotNull($rechecked->fresh());
+        $this->assertNull($anotherStale->fresh());
+        $this->assertNotNull($static->fresh());
+    }
+
+    private function publicClient(string $name): Client
+    {
+        return Client::query()->create([
+            'name' => $name,
+            'secret' => null,
+            'provider' => 'users',
+            'redirect_uris' => ['https://agent.example.test/callback'],
+            'grant_types' => ['authorization_code', 'refresh_token'],
+            'revoked' => false,
+        ]);
+    }
+
+    /** @return array{string, string} */
+    private function pkce(): array
+    {
+        $verifier = str_repeat('synthetic-resource-verifier-', 2);
+        $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+
+        return [$verifier, $challenge];
+    }
+}

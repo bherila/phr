@@ -251,6 +251,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             ->assertJsonPath('limits.authentication_attempts_per_minute', 300)
             ->assertJsonPath('limits.token_exchange_attempts_per_minute', 60)
             ->assertJsonPath('limits.authorization_attempts_per_minute', 30)
+            ->assertJsonPath('limits.client_registrations_per_hour', 10)
             ->assertJsonPath('oauth.authorization_code_pkce', true)
             ->json();
 

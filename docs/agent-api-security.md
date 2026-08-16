@@ -79,6 +79,15 @@ token models. If a signing key may have escaped, revoke all active OAuth tokens 
 replacing the key pair. Key replacement invalidates every outstanding access token and
 must be treated as an incident response action, not a routine deploy step.
 
+Dynamic registration is limited to public clients: the endpoint never issues a client
+secret and accepts only authorization-code plus refresh grants. Redirects must be HTTPS
+or HTTP loopback URLs and remain exact-match inputs to Passport. Registration is
+IP-throttled, bounded to small JSON requests, and unused registrations are removed after
+24 hours. MCP authorization requests require the canonical `/api/v1` resource indicator;
+the same audience is persisted on the authorization code and access-token row, checked
+again at code exchange and refresh, and never derived from a bearer token supplied by a
+different resource server.
+
 Production signing keys live only in `storage/app/private/oauth`, outside the deployed
 repository contents. Deployment creates them once when both are absent, preserves them
 on later rsyncs, rejects a partial key pair, and never prints key material.

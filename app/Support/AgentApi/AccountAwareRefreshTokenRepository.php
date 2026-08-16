@@ -89,10 +89,21 @@ class AccountAwareRefreshTokenRepository extends RefreshTokenRepository
             return true;
         }
 
+        $storedResource = is_string($accessToken->resource_uri) ? $accessToken->resource_uri : null;
+        $requestedResource = request()->exists('resource')
+            ? OAuthResourceIndicator::canonicalize(request()->input('resource'))
+            : $storedResource;
+        if ($requestedResource !== $storedResource) {
+            $revoker->revokeFamilyForAccessToken($accessToken);
+
+            return true;
+        }
+
         $this->accountGuard->recordValidatedGrant(
             $accessToken->user_id,
             (int) $accessToken->oauth_security_version,
             is_string($accessToken->oauth_family_id) ? $accessToken->oauth_family_id : $accessToken->id,
+            $storedResource,
         );
 
         return false;

@@ -158,7 +158,14 @@ clients use OAuth Authorization Code with S256 PKCE, 15-minute access tokens, an
 rotating 30-day refresh tokens. The legacy Sinus Sentinel device credentials above
 remain isolated from this scoped API.
 
-The read surface registers four independently consented scopes: `identity:read`,
+Remote public clients can register at `/oauth/register`; registrations accept only
+authorization-code/refresh grants, no client secret, and HTTPS or local-loopback
+redirects. Clients may bind authorization, token, and refresh requests to the
+`/api/v1` resource indicator. Unused dynamic registrations are pruned after one day by
+the existing OAuth credential maintenance job. The reserved `mcp:use` scope is activated
+only when the corresponding MCP transport endpoint is deployed.
+
+The read surface registers four independently consented data scopes: `identity:read`,
 `patients:read`, `clinical:read`, and `documents:read`. Patient discovery returns only
 the caller's own access level and never enumerates other grants or owner identities.
 Core clinical list/get endpoints cover office visits, procedures, immunizations,

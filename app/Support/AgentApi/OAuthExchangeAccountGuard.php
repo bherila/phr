@@ -19,6 +19,7 @@ final class OAuthExchangeAccountGuard
         int|string $userIdentifier,
         int $securityVersion,
         ?string $familyIdentifier,
+        ?string $resourceUri = null,
     ): void {
         $request = app(Request::class);
         $request->attributes->set(self::REQUEST_ATTRIBUTE, $userIdentifier);
@@ -26,23 +27,26 @@ final class OAuthExchangeAccountGuard
             'user_identifier' => (string) $userIdentifier,
             'security_version' => $securityVersion,
             'family_identifier' => $familyIdentifier,
+            'resource_uri' => $resourceUri,
         ]);
     }
 
-    /** @return array{security_version: int, family_identifier: string|null}|null */
+    /** @return array{security_version: int, family_identifier: string|null, resource_uri: string|null}|null */
     public function validatedGrantFor(int|string $userIdentifier): ?array
     {
         $grant = app(Request::class)->attributes->get(self::GRANT_ATTRIBUTE);
         if (! is_array($grant)
             || ($grant['user_identifier'] ?? null) !== (string) $userIdentifier
             || ! is_int($grant['security_version'] ?? null)
-            || (! is_string($grant['family_identifier'] ?? null) && ($grant['family_identifier'] ?? null) !== null)) {
+            || (! is_string($grant['family_identifier'] ?? null) && ($grant['family_identifier'] ?? null) !== null)
+            || (! is_string($grant['resource_uri'] ?? null) && ($grant['resource_uri'] ?? null) !== null)) {
             return null;
         }
 
         return [
             'security_version' => $grant['security_version'],
             'family_identifier' => $grant['family_identifier'],
+            'resource_uri' => $grant['resource_uri'],
         ];
     }
 

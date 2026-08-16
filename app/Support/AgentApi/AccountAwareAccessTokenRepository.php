@@ -53,6 +53,7 @@ final class AccountAwareAccessTokenRepository extends AccessTokenRepository
             'revoked' => ! $familyMatchesGrant || $family->revoked,
             'oauth_security_version' => $securityVersion,
             'oauth_family_id' => $familyIdentifier,
+            'resource_uri' => $validatedGrant['resource_uri'] ?? null,
             'expires_at' => $accessTokenEntity->getExpiryDateTime(),
         ])->save();
 
