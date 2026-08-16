@@ -6,6 +6,7 @@ use App\Support\AgentApi\AccountAwareAccessTokenRepository;
 use App\Support\AgentApi\AccountAwareAuthCodeRepository;
 use App\Support\AgentApi\AccountAwareRefreshTokenRepository;
 use App\Support\AgentApi\AgentApiScopes;
+use App\Support\AgentApi\AgentApiTokenPolicy;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
@@ -37,9 +38,9 @@ class AppServiceProvider extends ServiceProvider
     {
         Passport::loadKeysFrom(storage_path('app/private/oauth'));
         Passport::tokensCan(AgentApiScopes::descriptions());
-        Passport::tokensExpireIn(now()->addMinutes(15));
-        Passport::refreshTokensExpireIn(now()->addDays(30));
-        Passport::personalAccessTokensExpireIn(now()->addMinutes(15));
+        Passport::tokensExpireIn(now()->addMinutes(AgentApiTokenPolicy::ACCESS_TOKEN_LIFETIME_MINUTES));
+        Passport::refreshTokensExpireIn(now()->addDays(AgentApiTokenPolicy::REFRESH_TOKEN_LIFETIME_DAYS));
+        Passport::personalAccessTokensExpireIn(now()->addMinutes(AgentApiTokenPolicy::ACCESS_TOKEN_LIFETIME_MINUTES));
         Passport::authorizationView('oauth.authorize');
 
         // Authorization Code + PKCE is the supported interactive grant. Passport

@@ -9,6 +9,7 @@ use App\Support\AgentApi\AccountAwareAccessTokenRepository;
 use App\Support\AgentApi\AccountAwareAuthCodeRepository;
 use App\Support\AgentApi\AccountAwareRefreshTokenRepository;
 use App\Support\AgentApi\AgentApiScopes;
+use App\Support\AgentApi\AgentApiTokenPolicy;
 use App\Support\AgentApi\OAuthExchangeAccountGuard;
 use DateTimeImmutable;
 use Illuminate\Database\Schema\Blueprint;
@@ -1145,6 +1146,37 @@ class AgentApiOAuthFoundationTest extends TestCase
             'status' => 'success',
             'exit_code' => 0,
         ]);
+    }
+
+    public function test_scheduled_passport_purge_retains_parent_for_active_refresh_lifetime(): void
+    {
+        $user = $this->createUser();
+        $clientId = (string) Str::uuid();
+        $token = Token::query()->create([
+            'id' => Str::random(80),
+            'user_id' => $user->id,
+            'client_id' => $clientId,
+            'scopes' => [AgentApiScopes::IDENTITY_READ],
+            'revoked' => false,
+            'oauth_security_version' => $user->oauth_security_version,
+            'oauth_family_id' => Str::random(80),
+            'expires_at' => now()->subDays(29),
+        ]);
+        $refresh = RefreshToken::query()->create([
+            'id' => Str::random(80),
+            'access_token_id' => $token->id,
+            'revoked' => false,
+            'expires_at' => now()->addDay(),
+        ]);
+
+        $this->assertGreaterThan(
+            AgentApiTokenPolicy::REFRESH_TOKEN_LIFETIME_DAYS * 24,
+            AgentApiTokenPolicy::EXPIRED_CREDENTIAL_RETENTION_HOURS,
+        );
+        $this->artisan('phr:uptime:run-task', ['job' => 'passport:purge'])->assertSuccessful();
+
+        $this->assertDatabaseHas('oauth_access_tokens', ['id' => $token->id, 'revoked' => false]);
+        $this->assertDatabaseHas('oauth_refresh_tokens', ['id' => $refresh->id, 'revoked' => false]);
     }
 
     public function test_oauth_key_verifier_accepts_only_a_parseable_matching_pair(): void

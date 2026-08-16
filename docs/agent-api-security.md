@@ -30,6 +30,9 @@ actor, route, and UTC minute, and metadata audits are pruned after 365 days by d
 Interactive clients use Authorization Code with S256 PKCE. Access tokens expire after
 15 minutes. Refresh tokens expire after 30 days and are revoked when exchanged, so a
 successful refresh rotates the credential. Password and implicit grants are disabled.
+Expired access-token parent rows are retained for 31 days because Passport refresh
+validation depends on that relationship; the daily purge must not shorten the
+advertised refresh lifetime.
 
 The client can immediately disconnect itself with `DELETE /api/v1/oauth/token`; any
 authenticated token may revoke itself even without an identity scope. This serializes
