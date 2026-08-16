@@ -47,11 +47,15 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
 
         $user = User::query()->find($authorizationCode->user_id);
 
-        if (! $user instanceof User
-            || ! $user->canLogin()
-            || $authorizationCode->oauth_security_version === null
-            || (int) $authorizationCode->oauth_security_version !== (int) $user->oauth_security_version) {
+        if (! $user instanceof User || ! $user->canLogin()) {
             app(OAuthCredentialRevoker::class)->revokeForUserIdentifier($authorizationCode->user_id);
+
+            return true;
+        }
+
+        if ($authorizationCode->oauth_security_version === null
+            || (int) $authorizationCode->oauth_security_version !== (int) $user->oauth_security_version) {
+            $authorizationCode->forceFill(['revoked' => true])->save();
 
             return true;
         }

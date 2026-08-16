@@ -61,15 +61,19 @@ final class AccountAwareAccessTokenRepository extends AccessTokenRepository
         }
 
         $user = User::query()->find($token->user_id);
-        if ($user instanceof User
-            && $user->canLogin()
-            && $token->oauth_security_version !== null
-            && (int) $token->oauth_security_version === (int) $user->oauth_security_version) {
-            return false;
+        if (! $user instanceof User || ! $user->canLogin()) {
+            app(OAuthCredentialRevoker::class)->revokeForUserIdentifier($token->user_id);
+
+            return true;
         }
 
-        app(OAuthCredentialRevoker::class)->revokeForUserIdentifier($token->user_id);
+        if ($token->oauth_security_version === null
+            || (int) $token->oauth_security_version !== (int) $user->oauth_security_version) {
+            app(OAuthCredentialRevoker::class)->revokeFamilyForAccessToken($token);
 
-        return true;
+            return true;
+        }
+
+        return false;
     }
 }

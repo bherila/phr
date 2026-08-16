@@ -923,6 +923,103 @@ class AgentApiOAuthFoundationTest extends TestCase
         $this->assertFalse($currentRefresh->fresh()->revoked);
     }
 
+    public function test_stale_bearer_cleanup_does_not_revoke_a_newer_token_family(): void
+    {
+        $user = $this->createUser();
+        $clientId = (string) Str::uuid();
+        $staleToken = Token::query()->create([
+            'id' => Str::random(80),
+            'user_id' => $user->id,
+            'client_id' => $clientId,
+            'scopes' => [AgentApiScopes::IDENTITY_READ],
+            'revoked' => false,
+            'oauth_security_version' => 0,
+            'oauth_family_id' => Str::random(80),
+            'expires_at' => now()->addMinutes(15),
+        ]);
+        $staleRefresh = RefreshToken::query()->create([
+            'id' => Str::random(80),
+            'access_token_id' => $staleToken->id,
+            'revoked' => false,
+            'expires_at' => now()->addDays(30),
+        ]);
+
+        DB::table('users')->where('id', $user->id)->update(['user_role' => '']);
+        DB::table('users')->where('id', $user->id)->update(['user_role' => 'User']);
+        $currentToken = Token::query()->create([
+            'id' => Str::random(80),
+            'user_id' => $user->id,
+            'client_id' => $clientId,
+            'scopes' => [AgentApiScopes::IDENTITY_READ],
+            'revoked' => false,
+            'oauth_security_version' => $user->fresh()->oauth_security_version,
+            'oauth_family_id' => Str::random(80),
+            'expires_at' => now()->addMinutes(15),
+        ]);
+        $currentRefresh = RefreshToken::query()->create([
+            'id' => Str::random(80),
+            'access_token_id' => $currentToken->id,
+            'revoked' => false,
+            'expires_at' => now()->addDays(30),
+        ]);
+
+        $this->assertTrue(app(PassportAccessTokenRepository::class)->isAccessTokenRevoked($staleToken->id));
+        $this->assertTrue($staleToken->fresh()->revoked);
+        $this->assertTrue($staleRefresh->fresh()->revoked);
+        $this->assertFalse($currentToken->fresh()->revoked);
+        $this->assertFalse($currentRefresh->fresh()->revoked);
+    }
+
+    public function test_stale_authorization_code_cleanup_does_not_revoke_newer_credentials(): void
+    {
+        $user = $this->createUser();
+        $clientId = (string) Str::uuid();
+        $staleCode = AuthCode::query()->create([
+            'id' => Str::random(80),
+            'user_id' => $user->id,
+            'client_id' => $clientId,
+            'scopes' => json_encode([AgentApiScopes::IDENTITY_READ], JSON_THROW_ON_ERROR),
+            'revoked' => false,
+            'oauth_security_version' => 0,
+            'expires_at' => now()->addMinutes(10),
+        ]);
+
+        DB::table('users')->where('id', $user->id)->update(['user_role' => '']);
+        DB::table('users')->where('id', $user->id)->update(['user_role' => 'User']);
+        $securityVersion = $user->fresh()->oauth_security_version;
+        $currentToken = Token::query()->create([
+            'id' => Str::random(80),
+            'user_id' => $user->id,
+            'client_id' => $clientId,
+            'scopes' => [AgentApiScopes::IDENTITY_READ],
+            'revoked' => false,
+            'oauth_security_version' => $securityVersion,
+            'oauth_family_id' => Str::random(80),
+            'expires_at' => now()->addMinutes(15),
+        ]);
+        $currentRefresh = RefreshToken::query()->create([
+            'id' => Str::random(80),
+            'access_token_id' => $currentToken->id,
+            'revoked' => false,
+            'expires_at' => now()->addDays(30),
+        ]);
+        $currentCode = AuthCode::query()->create([
+            'id' => Str::random(80),
+            'user_id' => $user->id,
+            'client_id' => $clientId,
+            'scopes' => json_encode([AgentApiScopes::IDENTITY_READ], JSON_THROW_ON_ERROR),
+            'revoked' => false,
+            'oauth_security_version' => $securityVersion,
+            'expires_at' => now()->addMinutes(10),
+        ]);
+
+        $this->assertTrue(app(PassportAuthCodeRepository::class)->isAuthCodeRevoked($staleCode->id));
+        $this->assertTrue($staleCode->fresh()->revoked);
+        $this->assertFalse($currentToken->fresh()->revoked);
+        $this->assertFalse($currentRefresh->fresh()->revoked);
+        $this->assertFalse($currentCode->fresh()->revoked);
+    }
+
     public function test_account_lifecycle_revocation_uses_passports_configured_connection(): void
     {
         $connection = config('database.connections.sqlite');
