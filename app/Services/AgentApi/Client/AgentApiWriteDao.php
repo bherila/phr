@@ -79,7 +79,7 @@ final readonly class AgentApiWriteDao
         return AgentApiPayload::item($this->transport->send(
             'POST',
             "patients/{$patientId}/health-logs/{$healthLogId}/entries",
-            json: ['external_id' => $data->externalId, ...$data->attributes],
+            json: $data->toRequestPayload(),
         ), ['resource_type', 'patient_id', 'health_log_id', 'outcome', 'data']);
     }
 

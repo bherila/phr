@@ -25,4 +25,17 @@ final readonly class HealthLogEntryAppendData
             'details' => $validated['details'] ?? null,
         ]);
     }
+
+    /** @return array<string, mixed> */
+    public function toRequestPayload(): array
+    {
+        $attributes = $this->attributes;
+        if (($attributes['details'] ?? null) === []) {
+            // MCP object schemas bind an empty {} to a PHP array. Restore the
+            // declared JSON-object shape at the typed REST-client boundary.
+            $attributes['details'] = (object) [];
+        }
+
+        return ['external_id' => $this->externalId, ...$attributes];
+    }
 }

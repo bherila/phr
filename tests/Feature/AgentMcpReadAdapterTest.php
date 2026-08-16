@@ -507,15 +507,19 @@ final class AgentMcpReadAdapterTest extends TestCase
         ]);
         $this->assertFalse($log['result']['isError'] ?? true, json_encode($log, JSON_THROW_ON_ERROR));
         $logId = (int) ($log['result']['structuredContent']['data']['id'] ?? 0);
-        $entry = $this->callTool($session, 3, 'health_log_entries.append', [
+        $entryResponse = $this->callToolResponse($session, 3, 'health_log_entries.append', [
             'patient_id' => $patient->id,
             'health_log_id' => $logId,
             'external_id' => 'synthetic-mcp-entry',
             'occurred_at' => '2026-08-16T13:00:00Z',
             'title' => 'Synthetic MCP observation',
             'tags' => ['synthetic'],
+            'details' => (object) [],
         ]);
+        $entry = $entryResponse->json();
         $this->assertFalse($entry['result']['isError'] ?? true, json_encode($entry, JSON_THROW_ON_ERROR));
+        $entryWirePayload = json_decode($entryResponse->getContent(), false, flags: JSON_THROW_ON_ERROR);
+        $this->assertIsObject($entryWirePayload->result->structuredContent->data->details);
         $listed = $this->callTool($session, 4, 'health_log_entries.list', [
             'patient_id' => $patient->id,
             'health_log_id' => $logId,
@@ -591,12 +595,21 @@ final class AgentMcpReadAdapterTest extends TestCase
      */
     private function callTool(string $session, int $id, string $name, array $arguments): array
     {
+        return $this->callToolResponse($session, $id, $name, $arguments)->json();
+    }
+
+    /**
+     * @param  array<string, mixed>  $arguments
+     * @return TestResponse<Response>
+     */
+    private function callToolResponse(string $session, int $id, string $name, array $arguments): TestResponse
+    {
         return $this->mcpPost([
             'jsonrpc' => '2.0',
             'id' => $id,
             'method' => 'tools/call',
             'params' => ['name' => $name, 'arguments' => $arguments],
-        ], $session)->assertOk()->json();
+        ], $session)->assertOk();
     }
 
     private function initializeSession(): string

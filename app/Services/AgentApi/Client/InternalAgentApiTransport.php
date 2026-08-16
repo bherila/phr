@@ -125,11 +125,31 @@ final class InternalAgentApiTransport implements AgentApiTransport
         }
 
         try {
-            $decoded = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
+            $decoded = json_decode($content, false, 512, JSON_THROW_ON_ERROR);
         } catch (JsonException) {
             return null;
         }
 
-        return is_array($decoded) && ! array_is_list($decoded) ? $decoded : null;
+        if (! is_object($decoded)) {
+            return null;
+        }
+
+        return array_map($this->preserveJsonShape(...), get_object_vars($decoded));
+    }
+
+    private function preserveJsonShape(mixed $value): mixed
+    {
+        if (is_object($value)) {
+            $properties = get_object_vars($value);
+
+            return $properties === []
+                ? $value
+                : array_map($this->preserveJsonShape(...), $properties);
+        }
+        if (is_array($value)) {
+            return array_map($this->preserveJsonShape(...), $value);
+        }
+
+        return $value;
     }
 }
