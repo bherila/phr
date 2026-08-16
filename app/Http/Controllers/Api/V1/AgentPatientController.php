@@ -6,14 +6,13 @@ use App\Http\Controllers\Controller;
 use App\Models\PhrPatient;
 use App\Services\PHR\Access\AgentPatientPresenter;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Support\AgentApi\AgentApiCursor;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Pagination\Cursor;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
-use Illuminate\Validation\ValidationException;
 
 final class AgentPatientController extends Controller
 {
@@ -42,7 +41,7 @@ final class AgentPatientController extends Controller
         $limit = (int) ($validated['limit'] ?? 25);
         $page = $query
             ->orderBy('id')
-            ->cursorPaginate($limit, ['*'], 'cursor', $this->cursor($validated));
+            ->cursorPaginate($limit, ['*'], 'cursor', AgentApiCursor::decode($this->encodedCursor($validated)));
 
         return response()->json([
             'data' => $page->getCollection()
@@ -93,17 +92,8 @@ final class AgentPatientController extends Controller
     }
 
     /** @param array<string, mixed> $validated */
-    private function cursor(array $validated): ?Cursor
+    private function encodedCursor(array $validated): ?string
     {
-        if (! isset($validated['cursor'])) {
-            return null;
-        }
-
-        $cursor = Cursor::fromEncoded((string) $validated['cursor']);
-        if ($cursor === null) {
-            throw ValidationException::withMessages(['cursor' => 'The cursor is invalid.']);
-        }
-
-        return $cursor;
+        return isset($validated['cursor']) ? (string) $validated['cursor'] : null;
     }
 }

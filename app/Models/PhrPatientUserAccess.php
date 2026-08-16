@@ -22,6 +22,9 @@ class PhrPatientUserAccess extends Model
 {
     use SerializesDatesAsLocal;
 
+    /** @var list<string> */
+    protected $touches = ['patient'];
+
     public const string LEVEL_OWNER = 'owner';
 
     public const string LEVEL_MANAGER = 'manager';

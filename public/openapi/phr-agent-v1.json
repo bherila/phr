@@ -276,7 +276,7 @@
           "level": { "type": ["string", "null"], "enum": ["owner", "manager", "viewer", null] },
           "is_owner": { "type": "boolean" },
           "can_write": { "type": "boolean" },
-          "granted_at": { "type": ["string", "null"], "format": "date-time" }
+          "granted_at": { "$ref": "#/components/schemas/LocalDateTime" }
         },
         "additionalProperties": false
       },
@@ -289,9 +289,9 @@
           "relationship": { "type": ["string", "null"] },
           "birth_date": { "type": ["string", "null"], "format": "date" },
           "sex_at_birth": { "type": ["string", "null"] },
-          "archived_at": { "type": ["string", "null"], "format": "date-time" },
-          "created_at": { "type": ["string", "null"], "format": "date-time" },
-          "updated_at": { "type": ["string", "null"], "format": "date-time" },
+          "archived_at": { "$ref": "#/components/schemas/LocalDateTime" },
+          "created_at": { "$ref": "#/components/schemas/LocalDateTime" },
+          "updated_at": { "$ref": "#/components/schemas/LocalDateTime" },
           "access": { "$ref": "#/components/schemas/PatientAccess" },
           "notes": { "type": ["string", "null"], "description": "Present only in patients.get responses." }
         },
@@ -306,6 +306,11 @@
           "next_cursor": { "type": ["string", "null"] }
         },
         "additionalProperties": false
+      },
+      "LocalDateTime": {
+        "description": "Application-local datetime in the existing PHR JSON wire format; no timezone offset is implied.",
+        "type": ["string", "null"],
+        "pattern": "^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$"
       },
       "PatientListResponse": {
         "type": "object",
@@ -328,8 +333,8 @@
         "properties": {
           "id": { "type": "integer" },
           "patient_id": { "type": "integer" },
-          "created_at": { "type": ["string", "null"], "format": "date-time" },
-          "updated_at": { "type": ["string", "null"], "format": "date-time" }
+          "created_at": { "$ref": "#/components/schemas/LocalDateTime" },
+          "updated_at": { "$ref": "#/components/schemas/LocalDateTime" }
         },
         "additionalProperties": true
       },

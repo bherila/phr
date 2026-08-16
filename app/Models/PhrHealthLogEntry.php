@@ -31,6 +31,9 @@ class PhrHealthLogEntry extends Model
 
     use SerializesDatesAsLocal;
 
+    /** @var list<string> */
+    protected $touches = ['healthLog'];
+
     protected $fillable = [
         'health_log_id',
         'patient_id',

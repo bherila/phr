@@ -19,6 +19,7 @@ use App\Models\User;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Laravel\Passport\Passport;
 use Tests\TestCase;
 
@@ -130,6 +131,71 @@ class AgentApiClinicalReadTest extends TestCase
         Passport::actingAs($actor, [AgentApiScopes::IDENTITY_READ]);
         $this->getJson('/api/v1/patients')->assertForbidden();
         $this->getJson("/api/v1/patients/{$patient->id}/office-visits")->assertForbidden();
+    }
+
+    public function test_patient_update_windows_advance_when_the_callers_grant_changes(): void
+    {
+        $owner = $this->user('window-owner@example.test');
+        $actor = $this->user('window-reader@example.test');
+        $this->travelTo(Carbon::parse('2026-08-16 10:00:00'));
+        $patient = $this->patient($owner, 'Synthetic Grant Window Patient');
+        $this->travelTo(Carbon::parse('2026-08-16 11:00:00'));
+        $grant = PhrPatientUserAccess::query()->create([
+            'patient_id' => $patient->id,
+            'user_id' => $actor->id,
+            'access_level' => PhrPatientUserAccess::LEVEL_VIEWER,
+            'granted_by_user_id' => $owner->id,
+            'granted_at' => now(),
+        ]);
+
+        Passport::actingAs($actor, [AgentApiScopes::PATIENTS_READ]);
+        $this->getJson('/api/v1/patients?updated_after=2026-08-16T10:30:00Z')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $patient->id)
+            ->assertJsonPath('data.0.access.level', PhrPatientUserAccess::LEVEL_VIEWER);
+
+        $this->travelTo(Carbon::parse('2026-08-16 12:00:00'));
+        $grant->update(['access_level' => PhrPatientUserAccess::LEVEL_MANAGER]);
+        $this->getJson('/api/v1/patients?updated_after=2026-08-16T11:30:00Z')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.access.level', PhrPatientUserAccess::LEVEL_MANAGER)
+            ->assertJsonPath('data.0.access.can_write', true);
+
+        $this->travelBack();
+    }
+
+    public function test_health_log_update_windows_advance_when_entries_mutate(): void
+    {
+        $actor = $this->user('health-window-reader@example.test');
+        $patient = $this->patient($actor, 'Synthetic Health Window Patient');
+        $this->travelTo(Carbon::parse('2026-08-16 10:00:00'));
+        $healthLog = PhrHealthLog::query()->create([
+            'patient_id' => $patient->id,
+            'user_id' => $actor->id,
+            'created_by_user_id' => $actor->id,
+            'name' => 'Synthetic Window Log',
+            'kind' => PhrHealthLog::KIND_CUSTOM,
+        ]);
+        $this->travelTo(Carbon::parse('2026-08-16 11:00:00'));
+        PhrHealthLogEntry::query()->create([
+            'health_log_id' => $healthLog->id,
+            'patient_id' => $patient->id,
+            'user_id' => $actor->id,
+            'recorded_by_user_id' => $actor->id,
+            'occurred_at' => now(),
+            'title' => 'Synthetic window entry',
+        ]);
+
+        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_READ]);
+        $this->getJson("/api/v1/patients/{$patient->id}/health-logs?updated_after=2026-08-16T10:30:00Z")
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $healthLog->id)
+            ->assertJsonPath('data.0.entries_count', 1);
+
+        $this->travelBack();
     }
 
     public function test_all_declared_core_clinical_resources_share_the_existing_serializers(): void
@@ -284,6 +350,15 @@ class AgentApiClinicalReadTest extends TestCase
 
         $this->getJson("/api/v1/patients/{$patient->id}/office-visits?limit=101")->assertUnprocessable();
         $this->getJson("/api/v1/patients/{$patient->id}/office-visits?cursor=not-a-cursor")->assertUnprocessable();
+        $hostileCursor = rtrim(strtr(base64_encode(json_encode([
+            'id' => ['not-scalar'],
+            '_pointsToNextItems' => true,
+        ], JSON_THROW_ON_ERROR)), '+/', '-_'), '=');
+        $this->getJson("/api/v1/patients/{$patient->id}/office-visits?cursor=".urlencode($hostileCursor))
+            ->assertUnprocessable();
+        Passport::actingAs($actor, [AgentApiScopes::PATIENTS_READ]);
+        $this->getJson('/api/v1/patients?cursor='.urlencode($hostileCursor))->assertUnprocessable();
+        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_READ]);
         $this->getJson("/api/v1/patients/{$patient->id}/health-logs?import_source=source-a")->assertUnprocessable();
         $this->getJson("/api/v1/patients/{$patient->id}/unknown-resource")->assertNotFound();
         $this->getJson("/api/v1/patients/{$patient->id}/office-visits/{$hiddenVisit->id}")->assertNotFound();
@@ -317,6 +392,14 @@ class AgentApiClinicalReadTest extends TestCase
             'should-never-be-persisted',
             json_encode($audit->getAttributes(), JSON_THROW_ON_ERROR),
         );
+
+        $this->getJson("/api/v1/patients/{$patient->id}/office-visits?limit=101")
+            ->assertUnprocessable();
+        $this->assertSame(422, AgentApiAudit::query()->latest('id')->value('response_status'));
+
+        $this->getJson("/api/v1/patients/{$patient->id}/office-visits/999999")
+            ->assertNotFound();
+        $this->assertSame(404, AgentApiAudit::query()->latest('id')->value('response_status'));
     }
 
     private function user(string $email): User
