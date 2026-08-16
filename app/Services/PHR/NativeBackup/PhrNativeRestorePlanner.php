@@ -5,6 +5,7 @@ namespace App\Services\PHR\NativeBackup;
 use App\Models\PhrDocument;
 use App\Models\PhrNativeRecordIdentity;
 use App\Models\PhrPatient;
+use App\Models\PhrPatientUserAccess;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
@@ -15,8 +16,12 @@ final class PhrNativeRestorePlanner
         private readonly PhrNativeRecordProjector $projector,
     ) {}
 
-    public function plan(PhrNativeRestoreArchive $archive, int $actorUserId, bool $restoreAccessGrants): PhrNativeRestorePlan
-    {
+    public function plan(
+        PhrNativeRestoreArchive $archive,
+        int $actorUserId,
+        bool $restoreAccessGrants,
+        bool $lockCurrentRows = false,
+    ): PhrNativeRestorePlan {
         $patientNativeId = (string) $archive->manifest['patientNativeId'];
         $rootRecords = iterator_to_array($archive->records('phr_patients'), false);
         $root = $rootRecords[0] ?? throw new NativeRestoreException('invalid_archive');
@@ -63,7 +68,7 @@ final class PhrNativeRestorePlanner
             }
             $actorIds[$ownerNativeId] = $actorUserId;
             try {
-                foreach ($this->snapshotService->rows($targetPatientId) as $table => $rows) {
+                foreach ($this->snapshotService->rows($targetPatientId, $lockCurrentRows) as $table => $rows) {
                     $definition = PhrNativeBackupCatalog::included()[$table];
                     foreach ($rows as $row) {
                         // Records created after the archive have no v1 identity yet
@@ -96,12 +101,20 @@ final class PhrNativeRestorePlanner
                 $isShare = false;
                 if ($table === 'phr_patient_user_access') {
                     $grantActorNativeId = (string) ($record['relationships']['user_id']['nativeId'] ?? '');
+                    $accessLevel = $record['attributes']['access_level'] ?? null;
                     $isShare = $grantActorNativeId !== $ownerNativeId;
                     if ($isShare) {
                         $shareCount++;
                     }
                     if ($isShare && ! $restoreAccessGrants) {
                         $action = 'omit';
+                    }
+                    $validAccessLevel = $isShare
+                        ? in_array($accessLevel, [PhrPatientUserAccess::LEVEL_MANAGER, PhrPatientUserAccess::LEVEL_VIEWER], true)
+                        : $accessLevel === PhrPatientUserAccess::LEVEL_OWNER;
+                    if (! $validAccessLevel && $action !== 'omit') {
+                        $recordBlocked = true;
+                        $blockers[] = 'invalid_access_grant';
                     }
                 }
 

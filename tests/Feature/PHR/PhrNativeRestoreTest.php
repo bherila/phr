@@ -10,6 +10,7 @@ use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Services\PHR\NativeBackup\NativeRestoreException;
 use App\Services\PHR\NativeBackup\PhrNativeBackupService;
+use App\Services\PHR\NativeBackup\PhrNativeRecordCodec;
 use App\Services\PHR\NativeBackup\PhrNativeRestoreService;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
@@ -31,6 +32,14 @@ final class PhrNativeRestoreTest extends TestCase
         Storage::fake('phr_dicom');
         Storage::fake('phr_exports');
         Queue::fake();
+    }
+
+    public function test_queue_retry_window_exceeds_native_restore_timeouts(): void
+    {
+        $retryAfter = (int) config('queue.connections.database.retry_after');
+
+        $this->assertGreaterThan((new PreviewPhrNativeRestoreJob(1))->timeout, $retryAfter);
+        $this->assertGreaterThan((new ApplyPhrNativeRestoreJob(1))->timeout, $retryAfter);
     }
 
     public function test_owner_can_preview_restore_into_empty_database_apply_and_reimport_idempotently(): void
@@ -396,6 +405,101 @@ final class PhrNativeRestoreTest extends TestCase
         @unlink($extraPath);
     }
 
+    public function test_file_backed_document_without_its_artifact_fails_closed(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        $bytes = 'synthetic required document bytes';
+        Storage::disk('phr_documents')->put('fixtures/required-document.bin', $bytes);
+        PhrDocument::query()->create([
+            'patient_id' => $patient->id,
+            'user_id' => $owner->id,
+            'title' => 'Synthetic required document',
+            'document_type' => 'other',
+            'storage_disk' => PhrDocument::STORAGE_DISK,
+            'storage_path' => 'fixtures/required-document.bin',
+            'byte_size' => strlen($bytes),
+            'file_hash' => hash('sha256', $bytes),
+            'source' => 'manual_upload',
+        ]);
+        $archivePath = $this->archiveCopy($patient, (int) $owner->id);
+        $zip = new ZipArchive;
+        $this->assertTrue($zip->open($archivePath));
+        $manifest = json_decode((string) $zip->getFromName('manifest.json'), true, flags: JSON_THROW_ON_ERROR);
+        $artifact = collect($manifest['artifacts'])->firstWhere('kind', 'document');
+        $this->assertIsArray($artifact);
+        $this->assertTrue($zip->deleteName((string) $artifact['path']));
+        $manifest['artifacts'] = array_values(array_filter(
+            $manifest['artifacts'],
+            static fn (array $candidate): bool => $candidate['path'] !== $artifact['path'],
+        ));
+        $this->assertTrue($zip->deleteName('manifest.json'));
+        $this->assertTrue($zip->addFromString('manifest.json', json_encode($manifest, JSON_THROW_ON_ERROR)));
+        $zip->close();
+
+        $attempt = app(PhrNativeRestoreService::class)->createPreview($this->upload($archivePath), (int) $owner->id, false);
+        try {
+            app(PhrNativeRestoreService::class)->preview($attempt);
+            $this->fail('A file-backed document must retain its artifact.');
+        } catch (NativeRestoreException $exception) {
+            $this->assertSame('invalid_archive', $exception->failureCategory);
+        }
+        $this->assertSame('invalid_archive', $attempt->refresh()->failure_category);
+        @unlink($archivePath);
+    }
+
+    public function test_non_owner_share_cannot_be_restored_with_owner_access(): void
+    {
+        $owner = $this->createUser();
+        $reviewer = $this->createUser();
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        PhrPatientUserAccess::query()->create([
+            'patient_id' => $patient->id,
+            'user_id' => $reviewer->id,
+            'access_level' => PhrPatientUserAccess::LEVEL_VIEWER,
+            'granted_by_user_id' => $owner->id,
+            'granted_at' => now(),
+        ]);
+        $archivePath = $this->archiveCopy($patient, (int) $owner->id);
+        $this->mutateTableRecords($archivePath, 'phr_patient_user_access', static function (array $record): array {
+            if (($record['attributes']['access_level'] ?? null) === PhrPatientUserAccess::LEVEL_VIEWER) {
+                $record['attributes']['access_level'] = PhrPatientUserAccess::LEVEL_OWNER;
+            }
+
+            return $record;
+        });
+
+        $attempt = $this->readyAttempt($archivePath, (int) $owner->id, true);
+        $this->assertContains('invalid_access_grant', $attempt->plan_counts_json['blockers']);
+        $this->assertSame(1, $attempt->plan_counts_json['tables']['phr_patient_user_access']['block']);
+        @unlink($archivePath);
+    }
+
+    public function test_apply_dispatch_failure_moves_the_attempt_to_a_terminal_state(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        $archivePath = $this->archiveCopy($patient, (int) $owner->id);
+        $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
+        Queue::getFacadeRoot()->beforePushing(static function (object $job): void {
+            if ($job instanceof ApplyPhrNativeRestoreJob) {
+                throw new \RuntimeException('Synthetic queue outage.');
+            }
+        });
+
+        $queued = app(PhrNativeRestoreService::class)->queue(
+            $attempt,
+            (int) $owner->id,
+            (string) $attempt->plan_digest,
+            false,
+        );
+
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_FAILED, $queued->status);
+        $this->assertSame('restore_queue_failed', $queued->failure_category);
+        $this->assertNotNull($queued->completed_at);
+        @unlink($archivePath);
+    }
+
     public function test_source_cleanup_failure_cannot_reverse_a_committed_restore(): void
     {
         $owner = $this->createUser();
@@ -507,6 +611,31 @@ final class PhrNativeRestoreTest extends TestCase
     private function upload(string $path): UploadedFile
     {
         return new UploadedFile($path, 'synthetic-native.zip', 'application/zip', null, true);
+    }
+
+    /** @param \Closure(array<string, mixed>): array<string, mixed> $mutate */
+    private function mutateTableRecords(string $archivePath, string $table, \Closure $mutate): void
+    {
+        $zip = new ZipArchive;
+        $this->assertTrue($zip->open($archivePath));
+        $manifest = json_decode((string) $zip->getFromName('manifest.json'), true, flags: JSON_THROW_ON_ERROR);
+        $entry = $manifest['tables'][$table];
+        $records = [];
+        foreach (array_filter(explode("\n", (string) $zip->getFromName($entry['path']))) as $line) {
+            $record = $mutate(json_decode($line, true, flags: JSON_THROW_ON_ERROR));
+            $record['contentHash'] = hash('sha256', PhrNativeRecordCodec::canonicalJson([
+                'attributes' => $record['attributes'],
+                'relationships' => $record['relationships'],
+            ]));
+            $records[] = PhrNativeRecordCodec::canonicalJson($record);
+        }
+        $encoded = implode("\n", $records)."\n";
+        $manifest['tables'][$table]['sha256'] = hash('sha256', $encoded);
+        $this->assertTrue($zip->deleteName($entry['path']));
+        $this->assertTrue($zip->addFromString($entry['path'], $encoded));
+        $this->assertTrue($zip->deleteName('manifest.json'));
+        $this->assertTrue($zip->addFromString('manifest.json', json_encode($manifest, JSON_THROW_ON_ERROR)));
+        $zip->close();
     }
 
     private function readyAttempt(string $archivePath, int $ownerId, bool $restoreAccessGrants = false): PhrNativeRestoreAttempt

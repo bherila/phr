@@ -253,7 +253,15 @@ final class PhrNativeRestoreService
             return $current;
         });
 
-        ApplyPhrNativeRestoreJob::dispatch((int) $queued->id);
+        try {
+            ApplyPhrNativeRestoreJob::dispatch((int) $queued->id);
+        } catch (Throwable) {
+            $queued->update([
+                'status' => PhrNativeRestoreAttempt::STATUS_FAILED,
+                'failure_category' => 'restore_queue_failed',
+                'completed_at' => now(),
+            ]);
+        }
 
         return $queued->refresh();
     }
@@ -288,7 +296,12 @@ final class PhrNativeRestoreService
                         if ($lockedAttempt->target_patient_root_id !== null) {
                             DB::table('phr_patients')->where('id', $lockedAttempt->target_patient_root_id)->lockForUpdate()->first();
                         }
-                        $plan = $this->planner->plan($archive, (int) $lockedAttempt->actor_user_id, (bool) $lockedAttempt->restore_access_grants);
+                        $plan = $this->planner->plan(
+                            $archive,
+                            (int) $lockedAttempt->actor_user_id,
+                            (bool) $lockedAttempt->restore_access_grants,
+                            lockCurrentRows: true,
+                        );
                         if (! hash_equals($lockedAttempt->plan_digest, $plan->digest) || $plan->blockers !== []) {
                             throw new NativeRestoreException('preview_changed');
                         }

@@ -280,6 +280,7 @@ const RESTORE_MESSAGES: Record<string, string> = {
   artifact_conflict: 'A stored file with this identity differs from the archive.',
   artifact_write_failed: 'A source file could not be written. No patient records were committed.',
   current_identity_missing: 'Current data is missing required stable identity metadata.',
+  invalid_access_grant: 'An archived access grant has an invalid role for its mapped account.',
   invalid_archive: 'This file is not a valid phr-native-v1 archive.',
   invalid_upload: 'The selected archive could not be uploaded.',
   invalid_upload_chunk: 'An archive chunk exceeded the configured upload limit.',
@@ -289,6 +290,7 @@ const RESTORE_MESSAGES: Record<string, string> = {
   preview_queue_failed: 'Archive validation could not be queued. Upload the archive again.',
   record_conflict: 'A current record with the same stable identity has different content.',
   relationship_missing: 'The archive contains a relationship that cannot be resolved.',
+  restore_queue_failed: 'The restore could not be queued. Upload the archive and preview it again.',
   restore_blocked: 'Resolve every blocker before restoring.',
   restore_busy: 'Another restore of this archive is in progress. Try again shortly.',
   size_limit: 'The archive exceeds the configured restore size limit.',
@@ -319,6 +321,20 @@ function RestorePanel({ onCompleted }: { onCompleted: () => Promise<void> }): Re
       })
       .catch((caught: unknown) => setError(restoreMessage(caught)))
   }, [])
+
+  function selectArchive(next: File | null): void {
+    setArchive(next)
+    setRestore(null)
+    setConfirmation('')
+    setError(null)
+  }
+
+  function selectRestoreShares(next: boolean): void {
+    setRestoreShares(next)
+    setRestore(null)
+    setConfirmation('')
+    setError(null)
+  }
 
   async function preview(): Promise<void> {
     if (!archive) return
@@ -401,12 +417,12 @@ function RestorePanel({ onCompleted }: { onCompleted: () => Promise<void> }): Re
       <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
         <label className="text-sm font-medium">
           Native backup archive
-          <input type="file" accept=".zip,application/zip" className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm" onChange={(event) => setArchive(event.target.files?.[0] ?? null)} />
+          <input type="file" accept=".zip,application/zip" className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm" onChange={(event) => selectArchive(event.target.files?.[0] ?? null)} />
         </label>
         <Button type="button" disabled={busy || archive === null} onClick={() => void preview()}><Upload className="size-4" />{busy ? 'Checking…' : 'Preview restore'}</Button>
       </div>
       <label className="mt-3 flex items-start gap-2 text-sm">
-        <input type="checkbox" checked={restoreShares} onChange={(event) => setRestoreShares(event.target.checked)} />
+        <input type="checkbox" checked={restoreShares} onChange={(event) => selectRestoreShares(event.target.checked)} />
         Include archived shares when every opaque user identity can be mapped. Owner access is always restored.
       </label>
 

@@ -16,7 +16,7 @@ final class PhrNativeSnapshotService
      *
      * @return array<string, Collection<int, \stdClass>>
      */
-    public function rows(int $patientId): array
+    public function rows(int $patientId, bool $lockForUpdate = false): array
     {
         $connection = DB::connection();
         $driver = $connection->getDriverName();
@@ -30,23 +30,26 @@ final class PhrNativeSnapshotService
             $connection->statement('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
         }
 
-        return $connection->transaction(function () use ($connection, $driver, $patientId, $alreadyInTransaction): array {
+        return $connection->transaction(function () use ($connection, $driver, $patientId, $alreadyInTransaction, $lockForUpdate): array {
             if ($driver === 'pgsql' && ! $alreadyInTransaction) {
                 $connection->statement('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
             }
 
-            return $this->materializeRows($patientId);
+            return $this->materializeRows($patientId, $lockForUpdate);
         });
     }
 
     /** @return array<string, Collection<int, \stdClass>> */
-    private function materializeRows(int $patientId): array
+    private function materializeRows(int $patientId, bool $lockForUpdate): array
     {
-        $originalFiles = DB::table('phr_dicom_files')
+        $originalFilesQuery = DB::table('phr_dicom_files')
             ->where('patient_id', $patientId)
             ->whereIn('file_kind', [PhrDicomFile::KIND_DICOM, PhrDicomFile::KIND_DICOMDIR])
-            ->orderBy('id')
-            ->get();
+            ->orderBy('id');
+        if ($lockForUpdate) {
+            $originalFilesQuery->lockForUpdate();
+        }
+        $originalFiles = $originalFilesQuery->get();
         $originalFileIds = $originalFiles->pluck('id')->map(static fn ($id): int => (int) $id)->all();
         $originalUploadIds = $originalFiles->pluck('upload_id')->map(static fn ($id): int => (int) $id)->unique()->all();
 
@@ -54,6 +57,9 @@ final class PhrNativeSnapshotService
         foreach (PhrNativeBackupCatalog::included() as $table => $definition) {
             $patientColumn = $definition['patient_column'];
             $query = DB::table($table)->where($patientColumn, $patientId)->orderBy('id');
+            if ($lockForUpdate && $table !== 'phr_dicom_files') {
+                $query->lockForUpdate();
+            }
 
             $rows[$table] = match ($table) {
                 'phr_dicom_files' => $originalFiles,

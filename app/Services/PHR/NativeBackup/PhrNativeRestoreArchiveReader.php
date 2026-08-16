@@ -365,7 +365,17 @@ final class PhrNativeRestoreArchiveReader
                 throw new NativeRestoreException('archive_hash_mismatch');
             }
         }
-        if (array_diff_key($artifactRecords['phr_dicom_files'], $seenRecords) !== []) {
+        $fileBackedDocuments = array_filter(
+            $artifactRecords['phr_documents'],
+            static function (array $attributes): bool {
+                $fileHash = $attributes['file_hash'] ?? null;
+
+                return (int) ($attributes['byte_size'] ?? 0) > 0
+                    || (is_string($fileHash) && $fileHash !== '');
+            },
+        );
+        if (array_diff_key($fileBackedDocuments, $seenRecords) !== []
+            || array_diff_key($artifactRecords['phr_dicom_files'], $seenRecords) !== []) {
             throw new NativeRestoreException('invalid_archive');
         }
     }

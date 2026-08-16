@@ -330,7 +330,10 @@ The deploy owns two cPanel account cron entries, keyed independently by the stab
 five minutes. The scheduler launches the three PHR maintenance schedules; the
 `flock`-protected worker drains only `genai-imports` and `phr-exports`, then exits when
 the queues are empty. It retains the 240-second run window and 300-second job timeout,
-with a fixed 256 MB worker safety ceiling. Installation preserves every cron entry
+with a fixed 256 MB worker safety ceiling. Native restore jobs declare their own
+3,600-second timeout; the database queue reservation window defaults to 3,660 seconds,
+and deployment refuses a shorter value so a live restore cannot be reserved twice.
+Installation preserves every cron entry
 carrying neither PHR tag and rolls the account crontab back if verification fails.
 Five minutes is the scheduler's production resolution: do not add an every-minute task
 without also changing the managed cPanel cron cadence.

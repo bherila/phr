@@ -269,6 +269,26 @@ describe('DataHubPage', () => {
     expect(await screen.findByRole('button', { name: 'Check restore status' })).toBeInTheDocument()
   })
 
+  it('invalidates a ready restore when the archive or archived-share choice changes', async () => {
+    render(<DataHubPage />)
+    const archiveInput = await screen.findByLabelText('Native backup archive')
+    const first = new File(['synthetic archive one'], 'synthetic-one.zip', { type: 'application/zip' })
+    fireEvent.change(archiveInput, { target: { files: [first] } })
+    fireEvent.click(screen.getByRole('button', { name: 'Preview restore' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Check restore status' }))
+    expect(await screen.findByRole('button', { name: 'Restore patient data' })).toBeInTheDocument()
+
+    const second = new File(['synthetic archive two'], 'synthetic-two.zip', { type: 'application/zip' })
+    fireEvent.change(archiveInput, { target: { files: [second] } })
+    expect(screen.queryByRole('button', { name: 'Restore patient data' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Preview restore' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Check restore status' }))
+    expect(await screen.findByRole('button', { name: 'Restore patient data' })).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText(/Include archived shares/))
+    expect(screen.queryByRole('button', { name: 'Restore patient data' })).not.toBeInTheDocument()
+  })
+
   it('renders native backup failures in the native backup panel', async () => {
     mockPost.mockRejectedValueOnce(new Error('Synthetic backup failure'))
     render(<DataHubPage />)
