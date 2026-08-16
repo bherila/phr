@@ -23,6 +23,7 @@ class ProcedureResource extends JsonResource
             'import_source' => $procedure->import_source,
             'external_id' => $procedure->external_id,
             'source_document_id' => $procedure->source_document_id,
+            'review_status' => $procedure->review_status,
             'name' => $procedure->name,
             'cpt_code' => $procedure->cpt_code,
             'snomed_code' => $procedure->snomed_code,

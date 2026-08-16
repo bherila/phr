@@ -15,6 +15,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $import_source
  * @property string|null $external_id
  * @property int|null $source_document_id
+ * @property string $review_status
  * @property Carbon|null $visit_date
  * @property Carbon|null $visit_started_at
  * @property Carbon|null $visit_ended_at
@@ -43,6 +44,7 @@ class PhrOfficeVisit extends Model
         'import_source',
         'external_id',
         'source_document_id',
+        'review_status',
         'visit_date',
         'visit_started_at',
         'visit_ended_at',

@@ -12,5 +12,7 @@ final readonly class AgentMcpToolDefinition
         public string $title,
         public string $description,
         public array|Closure $handler,
+        public bool $readOnly = true,
+        public bool $idempotent = true,
     ) {}
 }

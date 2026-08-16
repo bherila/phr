@@ -34,6 +34,17 @@ catalog maps route slugs to the same
 model and JSON Resource classes consumed by the browser API; route input never selects
 an arbitrary class or table.
 
+Clinical mutations require the separate `clinical:write` scope plus owner/manager
+access. The first write surface is a fixed office-visit/procedure allow-list. Its
+Laravel validation rules are shared with browser CRUD, while a typed command and write
+DAO keep REST and MCP payload handling out of the persistence service. Stable external
+IDs are stored under `agent-client:<OAuth client UUID>` so another client cannot claim
+the same identity. Source-document IDs are resolved inside the target patient boundary.
+Every mutable record exposes an opaque HMAC version derived from all stored attributes;
+changed writes require an exact version, while an exact replay returns `unchanged`
+before the conflict check. The HMAC prevents low-entropy clinical values from being
+tested offline and catches same-second changes that timestamp-only concurrency misses.
+
 Unified search uses a second fixed catalog of searchable columns and emits only a
 concise record envelope; it never serializes raw clinical text. EOB responses likewise
 omit raw parser payloads, member and tax identifiers, check numbers, and actor ids.

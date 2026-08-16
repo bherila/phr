@@ -2,6 +2,7 @@
 
 namespace App\Support\AgentApi;
 
+use App\Contracts\PHR\ClinicalDataRules;
 use App\Http\Resources\PHR\AllergyResource;
 use App\Http\Resources\PHR\ConditionResource;
 use App\Http\Resources\PHR\HealthLogResource;
@@ -20,6 +21,8 @@ use App\Models\PhrMedication;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatientVital;
 use App\Models\PhrProcedure;
+use App\Support\PHR\Validation\OfficeVisitDataRules;
+use App\Support\PHR\Validation\ProcedureDataRules;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -38,6 +41,7 @@ final class AgentClinicalResourceCatalog
      *     model: class-string<Model>,
      *     resource: class-string<JsonResource>,
      *     provenance: bool,
+     *     write_rules?: class-string<ClinicalDataRules>,
      *     health_log_aggregates?: bool
      * }>
      */
@@ -46,11 +50,13 @@ final class AgentClinicalResourceCatalog
             'model' => PhrOfficeVisit::class,
             'resource' => OfficeVisitResource::class,
             'provenance' => true,
+            'write_rules' => OfficeVisitDataRules::class,
         ],
         'procedures' => [
             'model' => PhrProcedure::class,
             'resource' => ProcedureResource::class,
             'provenance' => true,
+            'write_rules' => ProcedureDataRules::class,
         ],
         'immunizations' => [
             'model' => PhrImmunization::class,
@@ -96,11 +102,21 @@ final class AgentClinicalResourceCatalog
         return array_keys(self::DEFINITIONS);
     }
 
+    /** @return list<string> */
+    public static function writableIds(): array
+    {
+        return array_keys(array_filter(
+            self::DEFINITIONS,
+            static fn (array $definition): bool => isset($definition['write_rules']),
+        ));
+    }
+
     /**
      * @return array{
      *     model: class-string<Model>,
      *     resource: class-string<JsonResource>,
      *     provenance: bool,
+     *     write_rules?: class-string<ClinicalDataRules>,
      *     health_log_aggregates?: bool
      * }|null
      */

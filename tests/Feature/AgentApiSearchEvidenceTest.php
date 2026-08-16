@@ -75,7 +75,9 @@ class AgentApiSearchEvidenceTest extends TestCase
             ->assertJsonPath('data.0.resource_type', 'allergies')
             ->assertJsonPath('data.0.id', $allergy->id);
         $this->getJson("/api/v1/patients/{$patient->id}/timeline?review_status=confirmed")
-            ->assertOk()->assertJsonCount(0, 'data');
+            ->assertOk()->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.resource_type', 'office-visits')
+            ->assertJsonPath('data.0.id', $visit->id);
         $this->getJson("/api/v1/patients/{$patient->id}/timeline?code=description")
             ->assertOk()->assertJsonCount(0, 'data');
         $this->getJson("/api/v1/patients/{$patient->id}/timeline?source=synthetic")

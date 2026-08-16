@@ -4,6 +4,7 @@ namespace App\Services\Mcp;
 
 use App\Models\PhrDocument;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
+use App\Support\AgentApi\AgentClinicalWriteSchemaCatalog;
 use App\Support\AgentApi\AgentRecordSearchCatalog;
 use Mcp\Capability\Discovery\DocBlockParser;
 use Mcp\Capability\Discovery\HandlerResolver;
@@ -40,6 +41,12 @@ final class AgentMcpInputSchemaFactory
                 );
             } else {
                 unset($schema['properties']['archived']);
+            }
+        }
+
+        foreach (AgentClinicalResourceCatalog::writableIds() as $resource) {
+            if ($definition->name === str_replace('-', '_', $resource).'.upsert') {
+                $schema['properties']['data'] = AgentClinicalWriteSchemaCatalog::data($resource);
             }
         }
 

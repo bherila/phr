@@ -259,6 +259,27 @@
           "422": { "$ref": "#/components/responses/InvalidRequest" },
           "429": { "$ref": "#/components/responses/RateLimited" }
         }
+      },
+      "put": {
+        "operationId": "clinical.upsert",
+        "summary": "Idempotently create or update an office visit or procedure",
+        "description": "Stable external IDs are namespaced to the authenticated OAuth client. A changed existing record requires its current opaque version; an already-applied retry remains safe with a stale version.",
+        "security": [{ "oauth2": ["clinical:write"] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/PatientId" },
+          { "$ref": "#/components/parameters/WritableClinicalResource" }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalUpsertRequest" } } } },
+        "responses": {
+          "200": { "description": "Existing record updated or desired state already present", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalUpsertResponse" } } } },
+          "201": { "description": "Record created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalUpsertResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/InvalidRequest" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
       }
     },
     "/patients/{patient}/{resource}/{record}": {
@@ -358,6 +379,7 @@
               "identity:read": "Read account identity and granted scopes",
               "patients:read": "List and read patients you can access",
               "clinical:read": "Read clinical records for patients you can access",
+              "clinical:write": "Create and update clinical records you can manage",
               "documents:read": "Read document metadata and download authorized files",
               "mcp:use": "Connect through the PHR MCP server"
             }
@@ -389,6 +411,12 @@
           "type": "string",
           "enum": ["office-visits", "procedures", "immunizations", "medications", "conditions", "allergies", "lab-results", "vitals", "health-logs"]
         }
+      },
+      "WritableClinicalResource": {
+        "name": "resource",
+        "in": "path",
+        "required": true,
+        "schema": { "type": "string", "enum": ["office-visits", "procedures"] }
       },
       "Limit": {
         "name": "limit",
@@ -422,7 +450,7 @@
       "Facility": { "name": "facility", "in": "query", "schema": { "type": "string", "maxLength": 200 } },
       "Code": { "name": "code", "in": "query", "schema": { "type": "string", "maxLength": 100 } },
       "Source": { "name": "source", "in": "query", "schema": { "type": "string", "maxLength": 100 } },
-      "ReviewStatus": { "name": "review_status", "in": "query", "description": "Matches condition/allergy verification_status; other types cannot match this filter.", "schema": { "type": "string", "maxLength": 50 } },
+      "ReviewStatus": { "name": "review_status", "in": "query", "description": "Matches office-visit/procedure review_status or condition/allergy verification_status; other types cannot match this filter.", "schema": { "type": "string", "maxLength": 50 } },
       "ImportSource": {
         "name": "import_source",
         "in": "query",
@@ -445,7 +473,7 @@
     "schemas": {
       "Capabilities": {
         "type": "object",
-        "required": ["api_version", "openapi_url", "mcp_url", "oauth", "scopes", "limits", "operations", "clinical_resources", "list_filters"],
+        "required": ["api_version", "openapi_url", "mcp_url", "oauth", "scopes", "limits", "operations", "clinical_resources", "writable_clinical_resources", "list_filters"],
         "properties": {
           "api_version": { "const": "v1" },
           "openapi_url": { "type": "string", "format": "uri" },
@@ -455,6 +483,7 @@
           "limits": { "type": "object", "additionalProperties": { "type": "integer" } },
           "operations": { "type": "object", "additionalProperties": { "$ref": "#/components/schemas/Operation" } },
           "clinical_resources": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+          "writable_clinical_resources": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
           "list_filters": { "type": "object", "additionalProperties": { "type": "array", "items": { "type": "string" } } }
         },
         "additionalProperties": false
@@ -564,7 +593,8 @@
           "id": { "type": "integer" },
           "patient_id": { "type": "integer" },
           "created_at": { "$ref": "#/components/schemas/LocalDateTime" },
-          "updated_at": { "$ref": "#/components/schemas/LocalDateTime" }
+          "updated_at": { "$ref": "#/components/schemas/LocalDateTime" },
+          "version": { "type": "string", "pattern": "^[a-f0-9]{64}$", "description": "Present on agent-writable resource types and required to change an existing record." }
         },
         "additionalProperties": true
       },
@@ -585,6 +615,89 @@
         "properties": {
           "resource_type": { "type": "string" },
           "patient_id": { "type": "integer" },
+          "data": { "$ref": "#/components/schemas/ClinicalRecord" }
+        },
+        "additionalProperties": false
+      },
+      "ClinicalUpsertRequest": {
+        "type": "object",
+        "required": ["external_id", "source_document_id", "review_status", "expected_version", "data"],
+        "properties": {
+          "external_id": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "source_document_id": { "type": ["integer", "null"], "minimum": 1 },
+          "review_status": { "type": "string", "enum": ["pending_review", "confirmed"] },
+          "expected_version": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
+          "data": {
+            "description": "Resource-specific fields; unknown and invalid fields are rejected.",
+            "oneOf": [
+              { "$ref": "#/components/schemas/OfficeVisitUpsertData" },
+              { "$ref": "#/components/schemas/ProcedureUpsertData" }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "OfficeVisitUpsertData": {
+        "type": "object",
+        "properties": {
+          "visit_date": { "type": ["string", "null"], "format": "date" },
+          "visit_started_at": { "type": ["string", "null"], "format": "date-time" },
+          "visit_ended_at": { "type": ["string", "null"], "format": "date-time" },
+          "visit_type": { "type": ["string", "null"], "maxLength": 100 },
+          "provider_name": { "type": ["string", "null"], "maxLength": 255 },
+          "provider_specialty": { "type": ["string", "null"], "maxLength": 100 },
+          "facility_name": { "type": ["string", "null"], "maxLength": 255 },
+          "chief_complaint": { "type": ["string", "null"], "maxLength": 10000 },
+          "assessment": { "type": ["string", "null"], "maxLength": 10000 },
+          "plan": { "type": ["string", "null"], "maxLength": 10000 },
+          "subjective": { "type": ["string", "null"], "maxLength": 10000 },
+          "objective": { "type": ["string", "null"], "maxLength": 10000 },
+          "icd10_codes": { "$ref": "#/components/schemas/ClinicalCodes" },
+          "cpt_codes": { "$ref": "#/components/schemas/ClinicalCodes" }
+        },
+        "additionalProperties": false
+      },
+      "ProcedureUpsertData": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "maxLength": 255 },
+          "cpt_code": { "type": ["string", "null"], "maxLength": 20 },
+          "snomed_code": { "type": ["string", "null"], "maxLength": 50 },
+          "performed_at": { "type": ["string", "null"], "format": "date-time" },
+          "performed_on": { "type": ["string", "null"], "format": "date" },
+          "performer_name": { "type": ["string", "null"], "maxLength": 255 },
+          "performer_specialty": { "type": ["string", "null"], "maxLength": 100 },
+          "facility_name": { "type": ["string", "null"], "maxLength": 255 },
+          "status": { "type": "string", "enum": ["preparation", "in_progress", "completed", "cancelled", "entered_in_error"] },
+          "reason": { "type": ["string", "null"], "maxLength": 10000 },
+          "outcome": { "type": ["string", "null"], "maxLength": 10000 },
+          "notes": { "type": ["string", "null"], "maxLength": 10000 },
+          "raw_text": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      },
+      "ClinicalCodes": {
+        "type": ["array", "null"],
+        "maxItems": 100,
+        "items": {
+          "type": "object",
+          "required": ["code", "description"],
+          "properties": {
+            "code": { "type": "string", "maxLength": 20 },
+            "description": { "type": "string", "maxLength": 255 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "ClinicalUpsertResponse": {
+        "type": "object",
+        "required": ["resource_type", "patient_id", "outcome", "version", "data"],
+        "properties": {
+          "resource_type": { "type": "string", "enum": ["office-visits", "procedures"] },
+          "patient_id": { "type": "integer" },
+          "outcome": { "type": "string", "enum": ["created", "updated", "unchanged"] },
+          "version": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
           "data": { "$ref": "#/components/schemas/ClinicalRecord" }
         },
         "additionalProperties": false
@@ -702,6 +815,10 @@
       },
       "RateLimited": {
         "description": "Request or pre-authentication limit exceeded",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "Conflict": {
+        "description": "Existing record changed; fetch it and retry with its current version",
         "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
       },
       "NotFound": {

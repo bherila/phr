@@ -17,36 +17,30 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Testing\TestResponse;
+use Laravel\Passport\Client;
 use Laravel\Passport\Passport;
 use Symfony\Component\HttpFoundation\Response;
+use Tests\Concerns\ConfiguresPassportKeys;
 use Tests\TestCase;
 
 final class AgentMcpReadAdapterTest extends TestCase
 {
+    use ConfiguresPassportKeys;
     use RefreshDatabase;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        $key = openssl_pkey_new([
-            'private_key_bits' => 2048,
-            'private_key_type' => OPENSSL_KEYTYPE_RSA,
-        ]);
-        $this->assertNotFalse($key);
-        $this->assertTrue(openssl_pkey_export($key, $privateKey));
-        $details = openssl_pkey_get_details($key);
-        $this->assertIsArray($details);
-        config([
-            'passport.private_key' => $privateKey,
-            'passport.public_key' => $details['key'],
-        ]);
+        $this->configurePassportKeys();
     }
 
     public function test_discovery_and_openapi_activate_mcp_atomically(): void
     {
         $this->assertContains(AgentApiScopes::MCP_USE, AgentApiScopes::ids());
         $this->assertArrayNotHasKey(AgentApiScopes::MCP_USE, AgentApiScopes::reservedDescriptions());
+        $this->assertContains(AgentApiScopes::CLINICAL_WRITE, AgentApiScopes::ids());
+        $this->assertArrayNotHasKey(AgentApiScopes::CLINICAL_WRITE, AgentApiScopes::reservedDescriptions());
 
         $this->getJson('/.well-known/oauth-protected-resource/api/v1/mcp')
             ->assertOk()
@@ -157,10 +151,17 @@ final class AgentMcpReadAdapterTest extends TestCase
             'office_visits.list', 'procedures.get', 'eobs.list', 'documents.get'] as $name) {
             $this->assertContains($name, $toolNames);
         }
-        $this->assertCount(14 + (count(AgentClinicalResourceCatalog::ids()) * 2), $toolNames);
+        $this->assertCount(
+            14 + (count(AgentClinicalResourceCatalog::ids()) * 2) + count(AgentClinicalResourceCatalog::writableIds()),
+            $toolNames,
+        );
         foreach ($tools as $tool) {
-            $this->assertTrue($tool['annotations']['readOnlyHint'] ?? false);
+            $this->assertSame(
+                ! str_ends_with((string) $tool['name'], '.upsert'),
+                $tool['annotations']['readOnlyHint'] ?? null,
+            );
             $this->assertFalse($tool['annotations']['destructiveHint'] ?? true);
+            $this->assertTrue($tool['annotations']['idempotentHint'] ?? false);
             $this->assertFalse($tool['inputSchema']['additionalProperties'] ?? true);
             $this->assertSame('object', $tool['outputSchema']['type'] ?? null);
         }
@@ -180,6 +181,13 @@ final class AgentMcpReadAdapterTest extends TestCase
         $this->assertArrayNotHasKey(
             'import_source',
             $toolsByName->get('health_logs.list')['inputSchema']['properties'] ?? [],
+        );
+        $this->assertSame(
+            ['name'],
+            $toolsByName->get('procedures.upsert')['inputSchema']['properties']['data']['required'] ?? null,
+        );
+        $this->assertFalse(
+            $toolsByName->get('office_visits.upsert')['inputSchema']['properties']['data']['additionalProperties'] ?? true,
         );
 
         $visible = $this->callTool($session, 3, 'office_visits.list', [
@@ -226,6 +234,69 @@ final class AgentMcpReadAdapterTest extends TestCase
         );
         $this->assertStringNotContainsString(
             'Synthetic Scope Marker Never Persist',
+            json_encode(AgentApiAudit::query()->get()->toArray(), JSON_THROW_ON_ERROR),
+        );
+    }
+
+    public function test_mcp_clinical_upsert_uses_the_typed_rest_write_boundary(): void
+    {
+        $actor = $this->user('mcp-writer@example.test');
+        $patient = $this->patient($actor, 'Synthetic MCP Write Patient');
+        $client = Client::query()->create([
+            'name' => 'Synthetic MCP Writer',
+            'secret' => null,
+            'provider' => 'users',
+            'redirect_uris' => ['https://client.example.test/callback'],
+            'grant_types' => ['authorization_code', 'refresh_token'],
+            'revoked' => false,
+        ]);
+        Passport::actingAs($actor, [
+            AgentApiScopes::MCP_USE,
+            AgentApiScopes::CLINICAL_WRITE,
+        ], 'api', $client);
+
+        $session = $this->initializeSession();
+        $created = $this->callTool($session, 2, 'procedures.upsert', [
+            'patient_id' => $patient->id,
+            'external_id' => 'synthetic-mcp-procedure-001',
+            'source_document_id' => null,
+            'review_status' => 'pending_review',
+            'expected_version' => null,
+            'data' => [
+                'name' => 'Synthetic MCP procedure',
+                'performed_on' => '2026-01-18',
+                'status' => 'completed',
+            ],
+        ]);
+        $this->assertFalse($created['result']['isError'] ?? true);
+        $this->assertSame('created', $created['result']['structuredContent']['outcome'] ?? null);
+        $this->assertSame(
+            'agent-client:'.$client->id,
+            $created['result']['structuredContent']['data']['import_source'] ?? null,
+        );
+        $this->assertDatabaseCount('phr_procedures', 1);
+        $this->assertDatabaseHas('agent_api_audits', [
+            'route_name' => 'agent-api.v1.clinical.procedures.upsert',
+            'response_status' => 201,
+        ]);
+
+        Passport::actingAs($actor, [AgentApiScopes::MCP_USE], 'api', $client);
+        $deniedSession = $this->initializeSession();
+        $denied = $this->callTool($deniedSession, 3, 'procedures.upsert', [
+            'patient_id' => $patient->id,
+            'external_id' => 'synthetic-mcp-denied',
+            'source_document_id' => null,
+            'review_status' => 'pending_review',
+            'expected_version' => null,
+            'data' => ['name' => 'Synthetic denied procedure'],
+        ]);
+        $this->assertTrue($denied['result']['isError'] ?? false);
+        $this->assertSame(
+            'This connection lacks the required permission.',
+            $denied['result']['content'][0]['text'] ?? null,
+        );
+        $this->assertStringNotContainsString(
+            'Synthetic denied procedure',
             json_encode(AgentApiAudit::query()->get()->toArray(), JSON_THROW_ON_ERROR),
         );
     }

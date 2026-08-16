@@ -36,7 +36,7 @@ final class AgentRecordSearchCatalog
             'summary' => ['chief_complaint', 'visit_type', 'provider_name'],
             'q' => ['chief_complaint', 'visit_type', 'provider_name', 'facility_name', 'assessment', 'plan'],
             'provider' => ['provider_name'], 'facility' => ['facility_name'],
-            'codes' => [], 'code_arrays' => ['icd10_codes', 'cpt_codes'], 'sources' => ['import_source'], 'review' => [],
+            'codes' => [], 'code_arrays' => ['icd10_codes', 'cpt_codes'], 'sources' => ['import_source'], 'review' => ['review_status'],
             'source_document' => true,
         ],
         'procedures' => [
@@ -44,7 +44,7 @@ final class AgentRecordSearchCatalog
             'event' => ['performed_at', 'performed_on', 'created_at'],
             'summary' => ['name'], 'q' => ['name', 'reason', 'outcome', 'notes', 'performer_name', 'facility_name'],
             'provider' => ['performer_name'], 'facility' => ['facility_name'],
-            'codes' => ['cpt_code', 'snomed_code'], 'code_arrays' => [], 'sources' => ['import_source'], 'review' => [],
+            'codes' => ['cpt_code', 'snomed_code'], 'code_arrays' => [], 'sources' => ['import_source'], 'review' => ['review_status'],
             'source_document' => true,
         ],
         'immunizations' => [

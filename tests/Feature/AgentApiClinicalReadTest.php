@@ -24,29 +24,19 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 use Laravel\Passport\Passport;
+use Tests\Concerns\ConfiguresPassportKeys;
 use Tests\TestCase;
 
 class AgentApiClinicalReadTest extends TestCase
 {
+    use ConfiguresPassportKeys;
     use RefreshDatabase;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        $key = openssl_pkey_new([
-            'private_key_bits' => 2048,
-            'private_key_type' => OPENSSL_KEYTYPE_RSA,
-        ]);
-        $this->assertNotFalse($key);
-        $this->assertTrue(openssl_pkey_export($key, $privateKey));
-        $details = openssl_pkey_get_details($key);
-        $this->assertIsArray($details);
-
-        config([
-            'passport.private_key' => $privateKey,
-            'passport.public_key' => $details['key'],
-        ]);
+        $this->configurePassportKeys();
     }
 
     public function test_patient_discovery_is_bounded_and_exposes_only_the_callers_access_metadata(): void

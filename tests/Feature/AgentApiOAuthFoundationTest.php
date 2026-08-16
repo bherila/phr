@@ -283,6 +283,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             'documents.download_access.create',
             'documents.download',
             'clinical.list',
+            'clinical.upsert',
             'clinical.get',
             'mcp.exchange',
             'mcp.session.delete',
@@ -307,6 +308,10 @@ class AgentApiOAuthFoundationTest extends TestCase
         $this->assertSame(
             [AgentApiScopes::DOCUMENTS_READ],
             $document['paths']['/patients/{patient}/documents']['get']['security'][0]['oauth2'],
+        );
+        $this->assertSame(
+            [AgentApiScopes::CLINICAL_WRITE],
+            $document['paths']['/patients/{patient}/{resource}']['put']['security'][0]['oauth2'],
         );
         foreach (['storage_path', 'storage_disk', 'file_hash', 'extracted_text', 'user_id', 'genai_job_id'] as $forbidden) {
             $this->assertArrayNotHasKey($forbidden, $document['components']['schemas']['DocumentMetadata']['properties']);

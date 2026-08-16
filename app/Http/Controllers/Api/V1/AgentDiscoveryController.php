@@ -43,6 +43,7 @@ class AgentDiscoveryController extends Controller
                 'patients.get' => ['available' => true, 'scope' => AgentApiScopes::PATIENTS_READ],
                 'clinical.list' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
                 'clinical.get' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
+                'clinical.upsert' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_WRITE],
                 'records.search' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
                 'timeline.list' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
                 'eobs.list' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
@@ -60,6 +61,7 @@ class AgentDiscoveryController extends Controller
                 'oauth.disconnect' => ['available' => true, 'scope' => null],
             ],
             'clinical_resources' => AgentClinicalResourceCatalog::ids(),
+            'writable_clinical_resources' => AgentClinicalResourceCatalog::writableIds(),
             'list_filters' => [
                 'common' => ['limit', 'cursor', 'updated_after', 'updated_before'],
                 'clinical_provenance' => ['import_source', 'source_document_id'],
