@@ -158,14 +158,18 @@ clients use OAuth Authorization Code with S256 PKCE, 15-minute access tokens, an
 rotating 30-day refresh tokens. The legacy Sinus Sentinel device credentials above
 remain isolated from this scoped API.
 
-The initial read surface registers three independently consented scopes:
-`identity:read`, `patients:read`, and `clinical:read`. Patient discovery returns only
+The read surface registers four independently consented scopes: `identity:read`,
+`patients:read`, `clinical:read`, and `documents:read`. Patient discovery returns only
 the caller's own access level and never enumerates other grants or owner identities.
 Core clinical list/get endpoints cover office visits, procedures, immunizations,
 medications, conditions, allergies, labs, vitals, and health logs. Lists use opaque
 cursor pagination (25 records by default, 100 maximum), support update-window filters,
 and preserve import/source-document provenance through the same JSON Resources used by
-the browser API. Every protected response is private and non-cacheable.
+the browser API. Unified search and timeline endpoints return a separate concise
+projection across those resources. EOBs, EOB lines, and typed evidence links remain
+under `clinical:read`; document metadata and one-minute authorized downloads require
+the separate `documents:read` scope. Every protected response is private and
+non-cacheable.
 
 See [`docs/agent-api-security.md`](docs/agent-api-security.md) for the threat model,
 PHI-safe audit boundary, signing-key deployment, and revocation procedures.

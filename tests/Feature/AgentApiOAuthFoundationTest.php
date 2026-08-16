@@ -265,18 +265,34 @@ class AgentApiOAuthFoundationTest extends TestCase
             AgentApiScopes::ids(),
             array_keys($capabilities['scopes']),
         );
+        $operationIds = [
+            'capabilities.get',
+            'identity.get',
+            'patients.list',
+            'patients.get',
+            'records.search',
+            'timeline.list',
+            'eobs.list',
+            'eobs.get',
+            'eob_lines.list',
+            'eob_lines.get',
+            'evidence.links',
+            'documents.list',
+            'documents.get',
+            'documents.download_access.create',
+            'documents.download',
+            'clinical.list',
+            'clinical.get',
+            'oauth.disconnect',
+        ];
         $this->assertSame(
-            [
-                'capabilities.get',
-                'identity.get',
-                'patients.list',
-                'patients.get',
-                'clinical.list',
-                'clinical.get',
-                'oauth.disconnect',
-            ],
+            $operationIds,
             collect($document['paths'])->flatMap(fn (array $path): array => array_column($path, 'operationId'))->values()->all(),
         );
+        foreach ($operationIds as $operationId) {
+            $this->assertArrayHasKey($operationId, $capabilities['operations']);
+            $this->assertTrue($capabilities['operations'][$operationId]['available']);
+        }
         $this->assertSame(
             [AgentApiScopes::IDENTITY_READ],
             $document['paths']['/me']['get']['security'][0]['oauth2'],
@@ -285,6 +301,16 @@ class AgentApiOAuthFoundationTest extends TestCase
             [],
             $document['paths']['/oauth/token']['delete']['security'][0]['oauth2'],
         );
+        $this->assertSame(
+            [AgentApiScopes::DOCUMENTS_READ],
+            $document['paths']['/patients/{patient}/documents']['get']['security'][0]['oauth2'],
+        );
+        foreach (['storage_path', 'storage_disk', 'file_hash', 'extracted_text', 'user_id', 'genai_job_id'] as $forbidden) {
+            $this->assertArrayNotHasKey($forbidden, $document['components']['schemas']['DocumentMetadata']['properties']);
+        }
+        foreach (['raw_text', 'parsed_data', 'member'.'_id', 'provider_tin', 'check_number', 'user_id'] as $forbidden) {
+            $this->assertArrayNotHasKey($forbidden, $document['components']['schemas']['Eob']['properties']);
+        }
         $this->assertArrayNotHasKey('format', $document['components']['schemas']['LocalDateTime']);
         $this->assertSame(
             '^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$',

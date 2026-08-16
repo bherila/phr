@@ -81,6 +81,157 @@
         }
       }
     },
+    "/patients/{patient}/records/search": {
+      "get": {
+        "operationId": "records.search",
+        "summary": "Search concise records across core clinical resource types",
+        "security": [{ "oauth2": ["clinical:read"] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/Limit" },
+          { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/ResourceTypes" },
+          { "$ref": "#/components/parameters/SearchQuery" }, { "$ref": "#/components/parameters/DateFrom" },
+          { "$ref": "#/components/parameters/DateTo" }, { "$ref": "#/components/parameters/Provider" },
+          { "$ref": "#/components/parameters/Facility" }, { "$ref": "#/components/parameters/Code" },
+          { "$ref": "#/components/parameters/Source" }, { "$ref": "#/components/parameters/ReviewStatus" },
+          { "$ref": "#/components/parameters/UpdatedAfter" }, { "$ref": "#/components/parameters/UpdatedBefore" }
+        ],
+        "responses": {
+          "200": { "description": "A stable cursor-bounded cross-resource page", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordSearchResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/patients/{patient}/timeline": {
+      "get": {
+        "operationId": "timeline.list",
+        "summary": "List the patient timeline using the unified record projection",
+        "security": [{ "oauth2": ["clinical:read"] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/Limit" },
+          { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/ResourceTypes" },
+          { "$ref": "#/components/parameters/SearchQuery" }, { "$ref": "#/components/parameters/DateFrom" },
+          { "$ref": "#/components/parameters/DateTo" }, { "$ref": "#/components/parameters/Provider" },
+          { "$ref": "#/components/parameters/Facility" }, { "$ref": "#/components/parameters/Code" },
+          { "$ref": "#/components/parameters/Source" }, { "$ref": "#/components/parameters/ReviewStatus" },
+          { "$ref": "#/components/parameters/UpdatedAfter" }, { "$ref": "#/components/parameters/UpdatedBefore" }
+        ],
+        "responses": {
+          "200": { "description": "A stable cursor-bounded timeline page", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RecordSearchResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/patients/{patient}/eobs": {
+      "get": {
+        "operationId": "eobs.list", "summary": "List explanation-of-benefit records without raw parser payloads",
+        "security": [{ "oauth2": ["clinical:read"] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/Limit" },
+          { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/UpdatedAfter" },
+          { "$ref": "#/components/parameters/UpdatedBefore" }, { "$ref": "#/components/parameters/ImportSource" },
+          { "$ref": "#/components/parameters/SourceDocumentId" }, { "$ref": "#/components/parameters/DateFrom" },
+          { "$ref": "#/components/parameters/DateTo" }, { "name": "claim_type", "in": "query", "schema": { "type": "string", "maxLength": 30 } }
+        ],
+        "responses": { "200": { "description": "Bounded EOB page", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EobListResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/patients/{patient}/eobs/{eob}": {
+      "get": {
+        "operationId": "eobs.get", "summary": "Get one explanation-of-benefit record",
+        "security": [{ "oauth2": ["clinical:read"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/EobId" }],
+        "responses": { "200": { "description": "EOB", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EobResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/patients/{patient}/eobs/{eob}/lines": {
+      "get": {
+        "operationId": "eob_lines.list", "summary": "List bounded EOB service lines without raw parser payloads",
+        "security": [{ "oauth2": ["clinical:read"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/EobId" },
+          { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" },
+          { "$ref": "#/components/parameters/UpdatedAfter" }, { "$ref": "#/components/parameters/UpdatedBefore" }],
+        "responses": { "200": { "description": "Bounded EOB-line page", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EobLineListResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/patients/{patient}/eobs/{eob}/lines/{line}": {
+      "get": {
+        "operationId": "eob_lines.get", "summary": "Get one EOB service line",
+        "security": [{ "oauth2": ["clinical:read"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/EobId" }, { "$ref": "#/components/parameters/LineId" }],
+        "responses": { "200": { "description": "EOB line", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EobLineResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/patients/{patient}/evidence-links": {
+      "get": {
+        "operationId": "evidence.links", "summary": "List typed evidence links from one patient-scoped record",
+        "security": [{ "oauth2": ["clinical:read"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" },
+          { "name": "resource_type", "in": "query", "required": true, "description": "Document sources additionally require documents:read; other sources require clinical:read only.", "schema": { "type": "string", "enum": ["document", "eob", "office-visit", "procedure"] } },
+          { "name": "resource_id", "in": "query", "required": true, "schema": { "type": "integer", "minimum": 1 } },
+          { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" }],
+        "responses": { "200": { "description": "Bounded evidence-link page", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EvidenceLinksResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/patients/{patient}/documents": {
+      "get": {
+        "operationId": "documents.list", "summary": "List privacy-minimized document metadata",
+        "security": [{ "oauth2": ["documents:read"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/Limit" },
+          { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/UpdatedAfter" },
+          { "$ref": "#/components/parameters/UpdatedBefore" }, { "$ref": "#/components/parameters/DateFrom" },
+          { "$ref": "#/components/parameters/DateTo" }, { "name": "document_type", "in": "query", "schema": { "type": "string" } },
+          { "name": "source", "in": "query", "schema": { "type": "string" } }, { "name": "tag", "in": "query", "schema": { "type": "string", "maxLength": 100 } }],
+        "responses": { "200": { "description": "Bounded document page", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentListResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/patients/{patient}/documents/{document}": {
+      "get": {
+        "operationId": "documents.get", "summary": "Get privacy-minimized document metadata",
+        "security": [{ "oauth2": ["documents:read"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/DocumentId" }],
+        "responses": { "200": { "description": "Document metadata", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/patients/{patient}/documents/{document}/download-access": {
+      "post": {
+        "operationId": "documents.download_access.create", "summary": "Create a one-minute signed download URL that still requires OAuth",
+        "security": [{ "oauth2": ["documents:read"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/DocumentId" }],
+        "responses": { "200": { "description": "Short-lived download access", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DownloadAccess" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/patients/{patient}/documents/{document}/file": {
+      "get": {
+        "operationId": "documents.download", "summary": "Download document bytes using OAuth plus an unexpired signature",
+        "security": [{ "oauth2": ["documents:read"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/DocumentId" },
+          { "name": "expires", "in": "query", "required": true, "schema": { "type": "integer" } },
+          { "name": "signature", "in": "query", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Document bytes", "content": { "application/octet-stream": { "schema": { "type": "string", "format": "binary" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
     "/patients/{patient}/{resource}": {
       "get": {
         "operationId": "clinical.list",
@@ -159,7 +310,8 @@
             "scopes": {
               "identity:read": "Read account identity and granted scopes",
               "patients:read": "List and read patients you can access",
-              "clinical:read": "Read clinical records for patients you can access"
+              "clinical:read": "Read clinical records for patients you can access",
+              "documents:read": "Read document metadata and download authorized files"
             }
           }
         }
@@ -178,6 +330,9 @@
         "required": true,
         "schema": { "type": "integer", "minimum": 1 }
       },
+      "EobId": { "name": "eob", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
+      "LineId": { "name": "line", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
+      "DocumentId": { "name": "document", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
       "ClinicalResource": {
         "name": "resource",
         "in": "path",
@@ -207,6 +362,19 @@
         "in": "query",
         "schema": { "type": "string", "format": "date-time" }
       },
+      "ResourceTypes": {
+        "name": "resource_type[]", "in": "query", "style": "form", "explode": true,
+        "schema": { "type": "array", "minItems": 1, "maxItems": 9, "uniqueItems": true,
+          "items": { "type": "string", "enum": ["office-visits", "procedures", "immunizations", "medications", "conditions", "allergies", "lab-results", "vitals", "health-logs"] } }
+      },
+      "SearchQuery": { "name": "q", "in": "query", "schema": { "type": "string", "maxLength": 200 } },
+      "DateFrom": { "name": "date_from", "in": "query", "schema": { "type": "string", "format": "date" } },
+      "DateTo": { "name": "date_to", "in": "query", "schema": { "type": "string", "format": "date" } },
+      "Provider": { "name": "provider", "in": "query", "schema": { "type": "string", "maxLength": 200 } },
+      "Facility": { "name": "facility", "in": "query", "schema": { "type": "string", "maxLength": 200 } },
+      "Code": { "name": "code", "in": "query", "schema": { "type": "string", "maxLength": 100 } },
+      "Source": { "name": "source", "in": "query", "schema": { "type": "string", "maxLength": 100 } },
+      "ReviewStatus": { "name": "review_status", "in": "query", "description": "Matches condition/allergy verification_status; other types cannot match this filter.", "schema": { "type": "string", "maxLength": 50 } },
       "ImportSource": {
         "name": "import_source",
         "in": "query",
@@ -359,6 +527,102 @@
         },
         "additionalProperties": false
       },
+      "RecordSummary": {
+        "type": "object",
+        "required": ["resource_type", "id", "patient_id", "event_at", "updated_at", "summary", "provider", "facility", "codes", "source", "review_status", "source_document_id"],
+        "properties": {
+          "resource_type": { "type": "string" }, "id": { "type": "integer" }, "patient_id": { "type": "integer" },
+          "event_at": { "type": "string", "format": "date-time" }, "updated_at": { "type": ["string", "null"], "format": "date-time" },
+          "summary": { "type": ["string", "null"] }, "provider": { "type": ["string", "null"] },
+          "facility": { "type": ["string", "null"] }, "codes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+          "source": { "type": ["string", "null"] }, "review_status": { "type": ["string", "null"] },
+          "source_document_id": { "type": ["integer", "null"] }
+        },
+        "additionalProperties": false
+      },
+      "RecordSearchResponse": {
+        "type": "object", "required": ["view", "patient_id", "data", "pagination"],
+        "properties": { "view": { "type": "string", "enum": ["search", "timeline"] }, "patient_id": { "type": "integer" },
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/RecordSummary" } },
+          "pagination": { "$ref": "#/components/schemas/Pagination" } },
+        "additionalProperties": false
+      },
+      "Eob": {
+        "type": "object",
+        "description": "Privacy-minimized EOB metadata. Raw text, parser data, member identifiers, tax identifiers, check numbers, and user identifiers are never returned.",
+        "required": ["id", "patient_id", "source_document_id", "import_source", "external_id", "claim_type", "lines_count", "created_at", "updated_at"],
+        "properties": {
+          "id": { "type": "integer" }, "patient_id": { "type": "integer" }, "source_document_id": { "type": ["integer", "null"] },
+          "import_source": { "type": "string" }, "external_id": { "type": ["string", "null"], "description": "Null when the internal deduplication key embeds a source-document content hash." }, "claim_number": { "type": ["string", "null"] },
+          "claim_type": { "type": "string" }, "administrator": { "type": ["string", "null"] }, "carrier": { "type": ["string", "null"] },
+          "plan_name": { "type": ["string", "null"] }, "provider_name": { "type": ["string", "null"] },
+          "submission_date": { "type": ["string", "null"], "format": "date" }, "print_date": { "type": ["string", "null"], "format": "date" },
+          "processed_date": { "type": ["string", "null"], "format": "date" },
+          "total_accepted_fee": { "type": ["string", "null"] }, "total_charges": { "type": ["string", "null"] },
+          "total_provider_discount": { "type": ["string", "null"] }, "total_ineligible_amount": { "type": ["string", "null"] },
+          "total_deductible_applied": { "type": ["string", "null"] }, "total_copay_applied": { "type": ["string", "null"] },
+          "total_benefit_percent": { "type": ["string", "null"] }, "total_carrier_payment": { "type": ["string", "null"] },
+          "total_plan_payment": { "type": ["string", "null"] }, "total_patient_responsibility": { "type": ["string", "null"] },
+          "lines_count": { "type": "integer" }, "created_at": { "type": ["string", "null"], "format": "date-time" },
+          "updated_at": { "type": ["string", "null"], "format": "date-time" }
+        }, "additionalProperties": false
+      },
+      "EobLine": {
+        "type": "object", "description": "EOB line without raw parser payloads.",
+        "required": ["id", "eob_id", "patient_id", "line_number", "procedure_code", "code_type", "created_at", "updated_at"],
+        "properties": {
+          "id": { "type": "integer" }, "eob_id": { "type": "integer" }, "patient_id": { "type": "integer" },
+          "line_number": { "type": "integer" }, "procedure_code": { "type": "string" }, "revenue_code": { "type": ["string", "null"] },
+          "code_type": { "type": "string" }, "description": { "type": ["string", "null"] },
+          "service_start": { "type": ["string", "null"], "format": "date" }, "service_end": { "type": ["string", "null"], "format": "date" },
+          "accepted_fee": { "type": ["string", "null"] }, "total_charges": { "type": ["string", "null"] },
+          "provider_discount": { "type": ["string", "null"] }, "ineligible_amount": { "type": ["string", "null"] },
+          "deductible_applied": { "type": ["string", "null"] }, "copay_applied": { "type": ["string", "null"] },
+          "benefit_percent": { "type": ["string", "null"] }, "carrier_payment": { "type": ["string", "null"] },
+          "plan_payment": { "type": ["string", "null"] }, "patient_responsibility": { "type": ["string", "null"] },
+          "created_at": { "type": ["string", "null"], "format": "date-time" }, "updated_at": { "type": ["string", "null"], "format": "date-time" }
+        }, "additionalProperties": false
+      },
+      "EobListResponse": { "type": "object", "required": ["resource_type", "patient_id", "data", "pagination"], "properties": {
+        "resource_type": { "const": "eob" }, "patient_id": { "type": "integer" }, "data": { "type": "array", "items": { "$ref": "#/components/schemas/Eob" } },
+        "pagination": { "$ref": "#/components/schemas/Pagination" } }, "additionalProperties": false },
+      "EobResponse": { "type": "object", "required": ["resource_type", "patient_id", "data"], "properties": {
+        "resource_type": { "const": "eob" }, "patient_id": { "type": "integer" }, "data": { "$ref": "#/components/schemas/Eob" } }, "additionalProperties": false },
+      "EobLineListResponse": { "type": "object", "required": ["resource_type", "patient_id", "data", "pagination"], "properties": {
+        "resource_type": { "const": "eob-line" }, "patient_id": { "type": "integer" }, "data": { "type": "array", "items": { "$ref": "#/components/schemas/EobLine" } },
+        "pagination": { "$ref": "#/components/schemas/Pagination" } }, "additionalProperties": false },
+      "EobLineResponse": { "type": "object", "required": ["resource_type", "patient_id", "data"], "properties": {
+        "resource_type": { "const": "eob-line" }, "patient_id": { "type": "integer" }, "data": { "$ref": "#/components/schemas/EobLine" } }, "additionalProperties": false },
+      "EvidenceLinksResponse": {
+        "type": "object", "required": ["patient_id", "source", "data", "pagination"], "properties": {
+          "patient_id": { "type": "integer" },
+          "source": { "type": "object", "required": ["resource_type", "id"], "properties": { "resource_type": { "type": "string" }, "id": { "type": "integer" } }, "additionalProperties": false },
+          "data": { "type": "array", "items": { "type": "object", "required": ["target_type", "target_id"], "properties": {
+            "target_type": { "type": "string" }, "target_id": { "type": "integer" } }, "additionalProperties": false } },
+          "pagination": { "$ref": "#/components/schemas/Pagination" }
+        }, "additionalProperties": false
+      },
+      "DocumentMetadata": {
+        "type": "object", "description": "Document metadata without storage keys, hashes, extracted text, or user identifiers.",
+        "required": ["id", "patient_id", "title", "document_type", "observed_at", "original_filename", "mime_type", "byte_size", "summary", "source", "tags", "import_source", "external_id", "imported_at", "processing_state", "has_file", "created_at", "updated_at"],
+        "properties": {
+          "id": { "type": "integer" }, "patient_id": { "type": "integer" }, "title": { "type": ["string", "null"] },
+          "document_type": { "type": "string" }, "observed_at": { "type": ["string", "null"], "format": "date-time" },
+          "original_filename": { "type": ["string", "null"] }, "mime_type": { "type": ["string", "null"] }, "byte_size": { "type": "integer" },
+          "summary": { "type": ["string", "null"] }, "source": { "type": ["string", "null"] }, "tags": { "type": "array", "items": { "type": "string" } },
+          "import_source": { "type": ["string", "null"] }, "external_id": { "type": ["string", "null"], "description": "Null when the internal deduplication key embeds a source-document content hash." },
+          "imported_at": { "type": ["string", "null"], "format": "date-time" }, "processing_state": { "type": "string" }, "has_file": { "type": "boolean" },
+          "created_at": { "type": ["string", "null"], "format": "date-time" }, "updated_at": { "type": ["string", "null"], "format": "date-time" }
+        }, "additionalProperties": false
+      },
+      "DocumentListResponse": { "type": "object", "required": ["resource_type", "patient_id", "data", "pagination"], "properties": {
+        "resource_type": { "const": "document" }, "patient_id": { "type": "integer" }, "data": { "type": "array", "items": { "$ref": "#/components/schemas/DocumentMetadata" } },
+        "pagination": { "$ref": "#/components/schemas/Pagination" } }, "additionalProperties": false },
+      "DocumentResponse": { "type": "object", "required": ["resource_type", "patient_id", "data"], "properties": {
+        "resource_type": { "const": "document" }, "patient_id": { "type": "integer" }, "data": { "$ref": "#/components/schemas/DocumentMetadata" } }, "additionalProperties": false },
+      "DownloadAccess": { "type": "object", "required": ["document_id", "expires_at", "download_url"], "properties": {
+        "document_id": { "type": "integer" }, "expires_at": { "type": "string", "format": "date-time" }, "download_url": { "type": "string", "format": "uri" } },
+        "additionalProperties": false },
       "Error": {
         "type": "object",
         "properties": { "message": { "type": "string" } },
