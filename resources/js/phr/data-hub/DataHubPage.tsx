@@ -20,6 +20,7 @@ import {
   type PatientDeletionPreview,
   PatientDeletionPreviewResponseSchema,
   PatientDeletionResponseSchema,
+  PatientDeletionsResponseSchema,
 } from './dataHub'
 
 const CLINICAL_CATEGORIES: DataHubCategoryKey[] = [
@@ -50,6 +51,7 @@ const FILE_CATEGORIES: DataHubCategoryKey[] = [
 
 const DELETION_MESSAGES: Record<string, string> = {
   active_shares_unacknowledged: 'Confirm that active shares will be revoked before deleting.',
+  clinical_export_in_progress: 'A clinical export is still being generated. Wait for it to finish, then preview again.',
   dispatch_failed: 'Storage cleanup could not be queued. Retry the cleanup.',
   dicom_upload_in_progress: 'A DICOM upload is still in progress. Finish or cancel it, then preview again.',
   invalid_storage_reference: 'A stored-file reference needs administrator attention before deletion.',
@@ -291,15 +293,19 @@ export default function DataHubPage(): ReactElement {
   const [backupErrors, setBackupErrors] = useState<Record<number, string>>({})
   const [deletionPreviews, setDeletionPreviews] = useState<Record<number, PatientDeletionPreview>>({})
   const [deletionErrors, setDeletionErrors] = useState<Record<number, string>>({})
-  const [deletionResult, setDeletionResult] = useState<PatientDeletion | null>(null)
-  const [deletionStatusError, setDeletionStatusError] = useState<string | null>(null)
+  const [deletionResults, setDeletionResults] = useState<PatientDeletion[]>([])
+  const [deletionStatusErrors, setDeletionStatusErrors] = useState<Record<number, string>>({})
 
   const loadInventory = useCallback(async (): Promise<void> => {
     setLoading(true)
     setLoadError(null)
     try {
-      const raw: unknown = await fetchWrapper.get('/api/phr/data-hub')
-      setInventory(DataHubResponseSchema.parse(raw))
+      const [rawInventory, rawDeletions]: [unknown, unknown] = await Promise.all([
+        fetchWrapper.get('/api/phr/data-hub'),
+        fetchWrapper.get('/api/phr/data-hub/deletions'),
+      ])
+      setInventory(DataHubResponseSchema.parse(rawInventory))
+      setDeletionResults(PatientDeletionsResponseSchema.parse(rawDeletions).deletions)
     } catch (caught) {
       setLoadError(errorMessage(caught))
     } finally {
@@ -334,6 +340,19 @@ export default function DataHubPage(): ReactElement {
       const next = { ...current }
       if (message) next[patientId] = message
       else delete next[patientId]
+      return next
+    })
+  }
+
+  function upsertDeletion(deletion: PatientDeletion): void {
+    setDeletionResults((current) => [deletion, ...current.filter((item) => item.id !== deletion.id)])
+  }
+
+  function setDeletionStatusError(deletionId: number, message?: string): void {
+    setDeletionStatusErrors((current) => {
+      const next = { ...current }
+      if (message) next[deletionId] = message
+      else delete next[deletionId]
       return next
     })
   }
@@ -430,34 +449,40 @@ export default function DataHubPage(): ReactElement {
         ...current,
         owned_patients: current.owned_patients.filter((item) => item.id !== patientId),
       } : current)
-      setDeletionResult(deletion)
-      setDeletionStatusError(null)
+      upsertDeletion(deletion)
+      setDeletionStatusError(deletion.id)
     } catch (caught) {
-      setDeletionError(patientId, deletionMessage(caught))
+      const category = errorMessage(caught)
+      if (category === 'preview_changed') {
+        setDeletionPreviews((current) => {
+          const next = { ...current }
+          delete next[patientId]
+          return next
+        })
+      }
+      setDeletionError(patientId, deletionMessage(category))
     } finally {
       setBusyPatientId(null)
     }
   }
 
-  async function refreshDeletion(): Promise<void> {
-    if (!deletionResult) return
-    setDeletionStatusError(null)
+  async function refreshDeletion(deletionId: number): Promise<void> {
+    setDeletionStatusError(deletionId)
     try {
-      const raw: unknown = await fetchWrapper.get(`/api/phr/data-hub/deletions/${deletionResult.id}`)
-      setDeletionResult(PatientDeletionResponseSchema.parse(raw).deletion)
+      const raw: unknown = await fetchWrapper.get(`/api/phr/data-hub/deletions/${deletionId}`)
+      upsertDeletion(PatientDeletionResponseSchema.parse(raw).deletion)
     } catch (caught) {
-      setDeletionStatusError(deletionMessage(caught))
+      setDeletionStatusError(deletionId, deletionMessage(caught))
     }
   }
 
-  async function retryDeletion(): Promise<void> {
-    if (!deletionResult) return
-    setDeletionStatusError(null)
+  async function retryDeletion(deletionId: number): Promise<void> {
+    setDeletionStatusError(deletionId)
     try {
-      const raw: unknown = await fetchWrapper.post(`/api/phr/data-hub/deletions/${deletionResult.id}/retry`, {})
-      setDeletionResult(PatientDeletionResponseSchema.parse(raw).deletion)
+      const raw: unknown = await fetchWrapper.post(`/api/phr/data-hub/deletions/${deletionId}/retry`, {})
+      upsertDeletion(PatientDeletionResponseSchema.parse(raw).deletion)
     } catch (caught) {
-      setDeletionStatusError(deletionMessage(caught))
+      setDeletionStatusError(deletionId, deletionMessage(caught))
     }
   }
 
@@ -486,21 +511,21 @@ export default function DataHubPage(): ReactElement {
             <Button type="button" variant="outline" size="sm" onClick={() => void loadInventory()}>Retry</Button>
           </div>
         ) : null}
-        {deletionResult ? (
-          <section role="status" className="mt-4 rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
-            <p>Patient database data was deleted. Storage cleanup: {DELETION_STATUS_LABELS[deletionResult.status]}.</p>
-            {deletionResult.failure_category ? <p role="alert" className="mt-1 text-destructive">{deletionMessage(deletionResult.failure_category)}</p> : null}
-            {deletionStatusError ? <p role="alert" className="mt-1 text-destructive">{deletionStatusError}</p> : null}
+        {deletionResults.map((deletion) => (
+          <section key={deletion.id} role="status" className="mt-4 rounded-md border border-emerald-500/30 bg-emerald-500/5 p-3 text-sm">
+            <p>Patient database data was deleted. Storage cleanup: {DELETION_STATUS_LABELS[deletion.status]}.</p>
+            {deletion.failure_category ? <p role="alert" className="mt-1 text-destructive">{deletionMessage(deletion.failure_category)}</p> : null}
+            {deletionStatusErrors[deletion.id] ? <p role="alert" className="mt-1 text-destructive">{deletionStatusErrors[deletion.id]}</p> : null}
             <div className="mt-2 flex gap-2">
-              {deletionResult.status === 'cleanup_failed' ? (
-                <Button type="button" size="sm" variant="outline" onClick={() => void retryDeletion()}>Retry storage cleanup</Button>
+              {deletion.status === 'cleanup_failed' ? (
+                <Button type="button" size="sm" variant="outline" onClick={() => void retryDeletion(deletion.id)}>Retry storage cleanup</Button>
               ) : null}
-              {deletionResult.status !== 'completed' ? (
-                <Button type="button" size="sm" variant="outline" onClick={() => void refreshDeletion()}>Check cleanup status</Button>
+              {deletion.status !== 'completed' ? (
+                <Button type="button" size="sm" variant="outline" onClick={() => void refreshDeletion(deletion.id)}>Check cleanup status</Button>
               ) : null}
             </div>
           </section>
-        ) : null}
+        ))}
 
         {!loading && inventory?.owned_patients.length === 0 ? (
           <div className="mt-6 rounded-lg border border-dashed border-border p-10 text-center">
@@ -513,7 +538,7 @@ export default function DataHubPage(): ReactElement {
         <div className="mt-6 space-y-5">
           {inventory?.owned_patients.map((patient) => (
             <PatientCard
-              key={patient.id}
+              key={`${patient.id}:${deletionPreviews[patient.id]?.preview_digest ?? 'no-preview'}`}
               patient={patient}
               {...(exports[patient.id] ? { currentExport: exports[patient.id] } : {})}
               {...(backups[patient.id] ? { currentBackup: backups[patient.id] } : {})}

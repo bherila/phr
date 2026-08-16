@@ -5,6 +5,7 @@ namespace App\Services\PHR\Export;
 use App\Jobs\PHR\GeneratePhrExportJob;
 use App\Models\PhrExport;
 use App\Models\PhrPatient;
+use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
 use App\Support\Storage\PhrStorageKey;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -20,6 +21,7 @@ class PhrExportService
         private PhrCcdaExporter $ccdaExporter,
         private PhrPdfSummaryRenderer $pdfSummaryRenderer,
         private PhrExportArchiveBuilder $archiveBuilder,
+        private PhrPatientArtifactWriteGuard $artifactWriteGuard,
     ) {}
 
     /**
@@ -28,16 +30,16 @@ class PhrExportService
     public function createQueuedExport(PhrPatient $patient, int $requestedByUserId, array $formats): PhrExport
     {
         $formats = $this->normalizeFormats($formats);
-        $export = PhrExport::create([
-            'patient_id' => $patient->id,
-            'user_id' => $patient->owner_user_id,
+        $export = $this->artifactWriteGuard->run((int) $patient->id, fn (PhrPatient $lockedPatient): PhrExport => PhrExport::create([
+            'patient_id' => $lockedPatient->id,
+            'user_id' => $lockedPatient->owner_user_id,
             'requested_by_user_id' => $requestedByUserId,
             'format' => $this->singleOutputFormat($formats),
             'formats_json' => $formats,
             'status' => PhrExport::STATUS_PENDING,
             'storage_disk' => 'phr_exports',
             'expires_at' => now()->addDays((int) config('phr.exports_retention_days', 30)),
-        ]);
+        ]));
 
         GeneratePhrExportJob::dispatch($export->id);
 
@@ -49,39 +51,49 @@ class PhrExportService
         $export->update(['status' => PhrExport::STATUS_PROCESSING, 'error_message' => null]);
 
         $tempPath = null;
+        $storagePath = null;
         try {
             $patient = PhrPatient::query()->findOrFail($export->patient_id);
             $formats = $this->normalizeFormats($export->formats_json ?: [$export->format]);
             [$filename, $tempPath] = $this->buildExportFile($patient, $formats);
             $storagePath = PhrStorageKey::export((int) $patient->id, Str::uuid()->toString(), $filename);
-
-            $stream = fopen($tempPath, 'rb');
-            if ($stream === false) {
-                throw new \RuntimeException("Unable to read generated export at {$tempPath}");
-            }
-
-            try {
-                $stored = Storage::disk('phr_exports')->put($storagePath, $stream);
-            } finally {
-                fclose($stream);
-            }
-
-            if (! $stored) {
-                throw new \RuntimeException('Unable to store generated PHR export.');
-            }
-
             $fileSize = filesize($tempPath);
+            $export = $this->artifactWriteGuard->run((int) $patient->id, function () use ($export, $tempPath, $storagePath, $formats, $filename, $fileSize): PhrExport {
+                $current = PhrExport::query()->whereKey($export->id)->lockForUpdate()->firstOrFail();
+                $stream = fopen($tempPath, 'rb');
+                if ($stream === false) {
+                    throw new \RuntimeException('Unable to read generated export.');
+                }
+                try {
+                    $stored = Storage::disk('phr_exports')->put($storagePath, $stream);
+                } finally {
+                    fclose($stream);
+                }
+                if (! $stored) {
+                    throw new \RuntimeException('Unable to store generated PHR export.');
+                }
 
-            $export->update([
-                'format' => $this->singleOutputFormat($formats),
-                'filename' => $filename,
-                'storage_path' => $storagePath,
-                'file_size_bytes' => $fileSize === false ? null : $fileSize,
-                'status' => PhrExport::STATUS_READY,
-                'generated_at' => now(),
-            ]);
+                $current->update([
+                    'format' => $this->singleOutputFormat($formats),
+                    'filename' => $filename,
+                    'storage_path' => $storagePath,
+                    'file_size_bytes' => $fileSize === false ? null : $fileSize,
+                    'status' => PhrExport::STATUS_READY,
+                    'generated_at' => now(),
+                ]);
+
+                return $current;
+            });
         } catch (\Throwable $exception) {
-            $export->update([
+            if ($storagePath !== null) {
+                try {
+                    Storage::disk('phr_exports')->delete($storagePath);
+                } catch (\Throwable) {
+                    // Preserve the original generation failure.
+                }
+            }
+            $current = PhrExport::query()->find($export->id);
+            $current?->update([
                 'status' => PhrExport::STATUS_FAILED,
                 'error_message' => $exception->getMessage(),
             ]);

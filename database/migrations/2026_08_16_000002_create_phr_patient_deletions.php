@@ -58,8 +58,9 @@ return new class extends Migration
         Schema::dropIfExists('phr_patient_deletion_artifacts');
         Schema::dropIfExists('phr_patient_deletions');
 
-        Schema::table('phr_native_backup_audits', function (Blueprint $table): void {
-            $table->unsignedBigInteger('actor_user_id')->nullable(false)->change();
-        });
+        // Actor anonymization is intentionally irreversible. Restoring the old
+        // NOT NULL constraint would make rollback fail as soon as any user had
+        // been deleted after this migration, so the compatible schema remains
+        // nullable even when the Phase 3 tables are rolled back.
     }
 };

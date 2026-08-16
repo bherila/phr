@@ -117,6 +117,7 @@ export const PatientDeletionSchema = z.object({
 
 export const PatientDeletionPreviewResponseSchema = z.object({ deletion_preview: PatientDeletionPreviewSchema })
 export const PatientDeletionResponseSchema = z.object({ deletion: PatientDeletionSchema })
+export const PatientDeletionsResponseSchema = z.object({ deletions: z.array(PatientDeletionSchema) })
 export type PatientDeletionPreview = z.infer<typeof PatientDeletionPreviewSchema>
 export type PatientDeletion = z.infer<typeof PatientDeletionSchema>
 

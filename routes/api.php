@@ -67,6 +67,7 @@ Route::middleware(['web', 'auth'])
     ->name('phr.')
     ->group(function (): void {
         Route::get('/data-hub', [PhrDataHubController::class, 'index'])->name('data-hub.index');
+        Route::get('/data-hub/deletions', [PhrPatientDeletionController::class, 'index'])->name('data-hub.deletions.index');
         Route::get('/data-hub/patients/{patient}/deletion-preview', [PhrPatientDeletionController::class, 'preview'])->whereNumber('patient')->name('data-hub.deletions.preview');
         Route::get('/data-hub/deletions/{deletion}', [PhrPatientDeletionController::class, 'show'])->whereNumber('deletion')->name('data-hub.deletions.show');
         Route::post('/data-hub/deletions/{deletion}/retry', [PhrPatientDeletionController::class, 'retry'])->whereNumber('deletion')->name('data-hub.deletions.retry');

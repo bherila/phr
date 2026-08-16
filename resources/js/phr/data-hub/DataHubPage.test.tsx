@@ -121,6 +121,7 @@ beforeEach(() => {
   mockDelete.mockReset()
   mockGet.mockImplementation(async (url: string) => {
     if (url === '/api/phr/data-hub') return inventoryPayload()
+    if (url === '/api/phr/data-hub/deletions') return { deletions: [] }
     if (url === '/api/phr/patients/42/exports') return { exports: [readyExport] }
     if (url === '/api/phr/patients/42/native-backups') return { backups: [readyBackup] }
     if (url === '/api/phr/data-hub/patients/42/deletion-preview') return { deletion_preview: deletionPreview }
@@ -251,5 +252,36 @@ describe('DataHubPage', () => {
     await waitFor(() => {
       expect(mockPost).toHaveBeenCalledWith('/api/phr/data-hub/deletions/18/retry', {})
     })
+  })
+
+  it('restores unfinished cleanup controls from the actor deletion list after reload', async () => {
+    mockGet.mockImplementation(async (url: string) => {
+      if (url === '/api/phr/data-hub') return inventoryPayload()
+      if (url === '/api/phr/data-hub/deletions') {
+        return { deletions: [{ ...acceptedDeletion, status: 'cleanup_failed', failure_category: 'queue_failure' }] }
+      }
+      throw new Error(`Unexpected GET ${url}`)
+    })
+
+    render(<DataHubPage />)
+
+    expect(await screen.findByText(/Storage cleanup: failed/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Retry storage cleanup' })).toBeInTheDocument()
+  })
+
+  it('discards a stale preview when the commit reports preview_changed', async () => {
+    mockDelete.mockRejectedValueOnce('preview_changed')
+    render(<DataHubPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Preview deletion' }))
+    await screen.findByText(/3 database rows/)
+    fireEvent.change(screen.getByLabelText('Type DELETE to delete Synthetic Record Owner'), { target: { value: 'DELETE' } })
+    fireEvent.click(screen.getByLabelText('I understand active shares will be revoked.'))
+    fireEvent.click(screen.getByRole('button', { name: 'Permanently delete patient data' }))
+
+    const previewAgain = await screen.findByRole('button', { name: 'Preview deletion' })
+    expect(screen.getByText(/patient data changed/i)).toBeInTheDocument()
+    fireEvent.click(previewAgain)
+    expect(await screen.findByLabelText('Type DELETE to delete Synthetic Record Owner')).toHaveValue('')
+    expect(screen.getByLabelText('I understand active shares will be revoked.')).not.toBeChecked()
   })
 })

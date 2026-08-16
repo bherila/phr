@@ -6,6 +6,7 @@ use App\Jobs\PHR\GeneratePhrNativeBackupJob;
 use App\Models\PhrNativeBackup;
 use App\Models\PhrNativeBackupAudit;
 use App\Models\PhrPatient;
+use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
 use App\Support\Storage\PhrStorageKey;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -17,7 +18,10 @@ final class PhrNativeBackupService
     // lost after commit cannot block this patient from requesting a backup forever.
     private const int ACTIVE_BACKUP_LEASE_MINUTES = 15;
 
-    public function __construct(private readonly PhrNativeArchiveBuilder $archiveBuilder) {}
+    public function __construct(
+        private readonly PhrNativeArchiveBuilder $archiveBuilder,
+        private readonly PhrPatientArtifactWriteGuard $artifactWriteGuard,
+    ) {}
 
     public function createQueuedBackup(PhrPatient $patient, int $requestedByUserId): PhrNativeBackup
     {
@@ -90,33 +94,21 @@ final class PhrNativeBackupService
             $patient = PhrPatient::query()->findOrFail($backup->patient_id);
             $result = $this->archiveBuilder->build($patient);
             $storagePath = PhrStorageKey::nativeBackup((int) $patient->id, Str::uuid()->toString());
-            $stream = fopen($result->path, 'rb');
-            if ($stream === false) {
-                throw new NativeBackupException('temporary_storage_failed');
-            }
-
-            try {
-                $stored = Storage::disk($backup->storage_disk)->put($storagePath, $stream);
-            } finally {
-                fclose($stream);
-            }
-
-            if (! $stored) {
-                throw new NativeBackupException('output_storage_failed');
-            }
-
-            // Patient deletion takes the same patient-row lock before cleaning archive
-            // bytes. Whichever operation wins is therefore complete: deletion sees this
-            // path, or generation notices the deleted aggregate and removes its new file.
-            $readyBackup = DB::transaction(function () use ($backup, $storagePath, $result): ?PhrNativeBackup {
-                $patientExists = PhrPatient::query()
-                    ->whereKey($backup->patient_id)
-                    ->lockForUpdate()
-                    ->first() !== null;
-                $current = PhrNativeBackup::query()->whereKey($backup->id)->lockForUpdate()->first();
-
-                if (! $patientExists || $current === null) {
-                    return null;
+            // Publish the archive only while holding the same aggregate-root lock as
+            // deletion. Preparation happens outside the lock; no durable bytes do.
+            $readyBackup = $this->artifactWriteGuard->run((int) $patient->id, function () use ($backup, $storagePath, $result): PhrNativeBackup {
+                $current = PhrNativeBackup::query()->whereKey($backup->id)->lockForUpdate()->firstOrFail();
+                $stream = fopen($result->path, 'rb');
+                if ($stream === false) {
+                    throw new NativeBackupException('temporary_storage_failed');
+                }
+                try {
+                    $stored = Storage::disk($current->storage_disk)->put($storagePath, $stream);
+                } finally {
+                    fclose($stream);
+                }
+                if (! $stored) {
+                    throw new NativeBackupException('output_storage_failed');
                 }
 
                 $current->update([
@@ -132,14 +124,6 @@ final class PhrNativeBackupService
 
                 return $current;
             });
-            if ($readyBackup === null) {
-                if (! Storage::disk($backup->storage_disk)->delete($storagePath)) {
-                    throw new NativeBackupException('output_cleanup_failed');
-                }
-                $storagePath = null;
-
-                throw new NativeBackupException('patient_deleted');
-            }
 
             $backup = $readyBackup;
             $this->audit($backup, 'succeeded', null);

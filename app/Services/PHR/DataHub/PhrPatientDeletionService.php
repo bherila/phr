@@ -4,6 +4,7 @@ namespace App\Services\PHR\DataHub;
 
 use App\Jobs\PHR\CleanupDeletedPhrPatientArtifactsJob;
 use App\Models\PhrDicomUpload;
+use App\Models\PhrExport;
 use App\Models\PhrNativeBackup;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientDeletion;
@@ -22,7 +23,7 @@ use Throwable;
  */
 final class PhrPatientDeletionService
 {
-    private const int ACTIVE_BACKUP_LEASE_MINUTES = 15;
+    private const int ACTIVE_ARTIFACT_LEASE_MINUTES = 15;
 
     /** @var list<string> */
     private const array ALLOWED_DISKS = ['phr_documents', 'phr_dicom', 'phr_exports'];
@@ -138,12 +139,22 @@ final class PhrPatientDeletionService
             // exact-key cleanup ledger cannot miss an in-flight object.
             $blockers[] = 'dicom_upload_in_progress';
         }
+        if (PhrExport::query()
+            ->where('patient_id', $patientId)
+            ->where('status', PhrExport::STATUS_PROCESSING)
+            ->where(function ($query): void {
+                $query->whereNull('updated_at')
+                    ->orWhere('updated_at', '>', now()->subMinutes(self::ACTIVE_ARTIFACT_LEASE_MINUTES));
+            })
+            ->exists()) {
+            $blockers[] = 'clinical_export_in_progress';
+        }
         if (PhrNativeBackup::query()
             ->where('patient_id', $patientId)
             ->where('status', PhrNativeBackup::STATUS_PROCESSING)
             ->where(function ($query): void {
                 $query->whereNull('updated_at')
-                    ->orWhere('updated_at', '>', now()->subMinutes(self::ACTIVE_BACKUP_LEASE_MINUTES));
+                    ->orWhere('updated_at', '>', now()->subMinutes(self::ACTIVE_ARTIFACT_LEASE_MINUTES));
             })
             ->exists()) {
             $blockers[] = 'native_backup_in_progress';

@@ -20,6 +20,23 @@ class PhrPatientDeletionController extends Controller
         private readonly PhrPatientDeletionPresenter $presenter,
     ) {}
 
+    public function index(Request $request): JsonResponse
+    {
+        $deletions = PhrPatientDeletion::query()
+            ->where('actor_user_id', (int) $request->user()?->id)
+            ->whereIn('status', [
+                PhrPatientDeletion::STATUS_PENDING,
+                PhrPatientDeletion::STATUS_PROCESSING,
+                PhrPatientDeletion::STATUS_FAILED,
+            ])
+            ->latest('id')
+            ->get()
+            ->map(fn (PhrPatientDeletion $deletion): array => $this->presenter->payload($deletion))
+            ->values();
+
+        return $this->privateJson(['deletions' => $deletions]);
+    }
+
     public function preview(Request $request, int $patient): JsonResponse
     {
         $resolved = $this->accessService->ownedPatient($patient, (int) $request->user()?->id);

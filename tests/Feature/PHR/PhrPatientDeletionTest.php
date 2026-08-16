@@ -5,6 +5,7 @@ namespace Tests\Feature\PHR;
 use App\Jobs\PHR\CleanupDeletedPhrPatientArtifactsJob;
 use App\Models\PhrDicomUpload;
 use App\Models\PhrDocument;
+use App\Models\PhrExport;
 use App\Models\PhrNativeBackup;
 use App\Models\PhrNativeBackupAudit;
 use App\Models\PhrPatient;
@@ -12,8 +13,10 @@ use App\Models\PhrPatientDeletion;
 use App\Models\PhrPatientDeletionArtifact;
 use App\Models\PhrPatientUserAccess;
 use App\Models\User;
+use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
 use App\Services\PHR\DataHub\PhrPatientDeletionCleanupService;
 use App\Services\PHR\NativeBackup\PhrNativeBackupCatalog;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -70,6 +73,15 @@ class PhrPatientDeletionTest extends TestCase
         ]);
         Storage::disk('phr_documents')->assertExists($key);
         Queue::assertPushed(CleanupDeletedPhrPatientArtifactsJob::class, fn ($job): bool => $job->deletionId === $deletionId);
+        $this->actingAs($owner)
+            ->getJson('/api/phr/data-hub/deletions')
+            ->assertOk()
+            ->assertJsonCount(1, 'deletions')
+            ->assertJsonPath('deletions.0.id', $deletionId);
+        $this->actingAs($this->createUser())
+            ->getJson('/api/phr/data-hub/deletions')
+            ->assertOk()
+            ->assertJsonCount(0, 'deletions');
 
         app(PhrPatientDeletionCleanupService::class)->cleanup($deletionId);
 
@@ -80,6 +92,10 @@ class PhrPatientDeletionTest extends TestCase
             'status' => PhrPatientDeletion::STATUS_COMPLETED,
             'failure_category' => null,
         ]);
+        $this->actingAs($owner)
+            ->getJson('/api/phr/data-hub/deletions')
+            ->assertOk()
+            ->assertJsonCount(0, 'deletions');
         $this->actingAs($owner)
             ->getJson("/api/phr/data-hub/deletions/{$deletionId}")
             ->assertOk()
@@ -274,6 +290,51 @@ class PhrPatientDeletionTest extends TestCase
             ->getJson("/api/phr/data-hub/patients/{$patient->id}/deletion-preview")
             ->assertOk()
             ->assertJsonCount(0, 'deletion_preview.blockers');
+    }
+
+    public function test_active_clinical_export_blocks_until_its_writer_lease_expires(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $export = PhrExport::query()->create([
+            'patient_id' => $patient->id,
+            'user_id' => $owner->id,
+            'requested_by_user_id' => $owner->id,
+            'format' => 'ccda',
+            'formats_json' => ['ccda'],
+            'status' => PhrExport::STATUS_PROCESSING,
+            'storage_disk' => 'phr_exports',
+        ]);
+
+        $this->actingAs($owner)
+            ->getJson("/api/phr/data-hub/patients/{$patient->id}/deletion-preview")
+            ->assertOk()
+            ->assertJsonPath('deletion_preview.blockers.0', 'clinical_export_in_progress');
+
+        DB::table('phr_exports')->where('id', $export->id)->update([
+            'updated_at' => now()->subMinutes(16),
+        ]);
+        $this->actingAs($owner)
+            ->getJson("/api/phr/data-hub/patients/{$patient->id}/deletion-preview")
+            ->assertOk()
+            ->assertJsonCount(0, 'deletion_preview.blockers');
+    }
+
+    public function test_artifact_write_guard_never_invokes_a_writer_after_patient_deletion(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $patient->delete();
+        $writerCalled = false;
+
+        try {
+            app(PhrPatientArtifactWriteGuard::class)->run((int) $patient->id, function () use (&$writerCalled): void {
+                $writerCalled = true;
+            });
+            $this->fail('A deleted aggregate must not enter its durable artifact writer.');
+        } catch (ModelNotFoundException) {
+            $this->assertFalse($writerCalled);
+            $this->assertDatabaseMissing('phr_patients', ['id' => $patient->id]);
+            $this->assertDatabaseHas('users', ['id' => $owner->id]);
+        }
     }
 
     public function test_cleanup_fails_closed_when_a_key_is_referenced_again_or_its_work_row_is_tampered(): void
