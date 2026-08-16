@@ -211,18 +211,23 @@ final class AgentApiClinicalWriteTest extends TestCase
             AgentClinicalResourceCatalog::writableIds(),
             $capabilities['writable_clinical_resources'],
         );
-        $this->assertSame(
-            AgentApiScopes::CLINICAL_WRITE,
-            $capabilities['operations']['clinical.upsert']['scope'],
-        );
-        $this->assertSame(
-            AgentClinicalResourceCatalog::writableIds(),
-            $contract['components']['parameters']['WritableClinicalResource']['schema']['enum'],
-        );
         foreach ([
-            'office-visits' => 'OfficeVisitUpsertData',
-            'procedures' => 'ProcedureUpsertData',
-        ] as $resource => $schemaName) {
+            'office-visits' => ['data_schema' => 'OfficeVisitUpsertData', 'request_schema' => 'OfficeVisitUpsertRequest'],
+            'procedures' => ['data_schema' => 'ProcedureUpsertData', 'request_schema' => 'ProcedureUpsertRequest'],
+        ] as $resource => $contractNames) {
+            $operation = AgentClinicalResourceCatalog::upsertOperationId($resource);
+            $this->assertSame(
+                AgentApiScopes::CLINICAL_WRITE,
+                $capabilities['operations'][$operation]['scope'],
+            );
+            $this->assertSame(
+                '#/components/schemas/'.$contractNames['request_schema'],
+                $contract['paths']["/patients/{patient}/{$resource}"]['put']['requestBody']['content']['application/json']['schema']['$ref'],
+            );
+            $this->assertSame(
+                '#/components/schemas/'.$contractNames['data_schema'],
+                $contract['components']['schemas'][$contractNames['request_schema']]['allOf'][1]['properties']['data']['$ref'],
+            );
             $definition = AgentClinicalResourceCatalog::definition($resource);
             $ruleClass = $definition['write_rules'] ?? null;
             $this->assertIsString($ruleClass);
@@ -236,7 +241,7 @@ final class AgentApiClinicalWriteTest extends TestCase
             );
             $this->assertSame(
                 $validatedFields,
-                array_keys($contract['components']['schemas'][$schemaName]['properties']),
+                array_keys($contract['components']['schemas'][$contractNames['data_schema']]['properties']),
             );
         }
     }

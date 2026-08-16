@@ -22,6 +22,7 @@ const VISIT = {
   objective: null,
   icd10_codes: [],
   cpt_codes: [],
+  review_status: 'pending_review',
   eobs: [],
   related_services: [
     {
@@ -67,6 +68,7 @@ describe('OfficeVisitDetail', () => {
     render(<OfficeVisitDetail patientId={42} recordId="18" onDrill={onDrill} />)
 
     expect(await screen.findByRole('heading', { name: 'Related services' })).toBeInTheDocument()
+    expect(screen.getByText('pending review')).toBeInTheDocument()
     expect(screen.getByText('Example imaging service')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Related imaging studies' })).toBeInTheDocument()
 

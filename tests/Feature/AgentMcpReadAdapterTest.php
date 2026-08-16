@@ -160,7 +160,10 @@ final class AgentMcpReadAdapterTest extends TestCase
                 ! str_ends_with((string) $tool['name'], '.upsert'),
                 $tool['annotations']['readOnlyHint'] ?? null,
             );
-            $this->assertFalse($tool['annotations']['destructiveHint'] ?? true);
+            $this->assertSame(
+                str_ends_with((string) $tool['name'], '.upsert'),
+                $tool['annotations']['destructiveHint'] ?? null,
+            );
             $this->assertTrue($tool['annotations']['idempotentHint'] ?? false);
             $this->assertFalse($tool['inputSchema']['additionalProperties'] ?? true);
             $this->assertSame('object', $tool['outputSchema']['type'] ?? null);

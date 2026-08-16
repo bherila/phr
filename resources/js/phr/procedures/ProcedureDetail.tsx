@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import EncounterEobLinks from '@/phr/clinical/EncounterEobLinks'
+import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { PhrNotFoundColumn } from '@/phr/miller'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { type PhrProcedure, PhrProcedureResponseSchema } from '@/phr/types'
@@ -74,7 +75,10 @@ export default function ProcedureDetail({ patientId, recordId }: ProcedureDetail
       {procedure && (
         <>
           <section className="rounded-lg border border-border bg-card p-4">
-            <h2 className="text-lg font-semibold text-card-foreground">{procedure.name}</h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-lg font-semibold text-card-foreground">{procedure.name}</h2>
+              {reviewStatusBadge(procedure.review_status)}
+            </div>
             <p className="mt-1 text-sm text-muted-foreground">Procedure #{procedure.id}</p>
             <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
               <div>

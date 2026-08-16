@@ -111,6 +111,17 @@ final class AgentClinicalResourceCatalog
         ));
     }
 
+    public static function upsertOperationId(string $resource): string
+    {
+        return str_replace('-', '_', $resource).'.upsert';
+    }
+
+    /** @return list<string> */
+    public static function writableOperationIds(): array
+    {
+        return array_map(self::upsertOperationId(...), self::writableIds());
+    }
+
     /**
      * @return array{
      *     model: class-string<Model>,

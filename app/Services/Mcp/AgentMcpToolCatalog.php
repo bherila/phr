@@ -45,14 +45,14 @@ final class AgentMcpToolCatalog
         }
 
         foreach (AgentClinicalResourceCatalog::writableIds() as $resource) {
-            $toolName = str_replace('-', '_', $resource);
             $title = ucwords(str_replace('-', ' ', $resource));
             $definitions[] = new AgentMcpToolDefinition(
-                "{$toolName}.upsert",
+                AgentClinicalResourceCatalog::upsertOperationId($resource),
                 "Upsert {$title}",
                 "Idempotently create or update one {$title} record through the versioned REST API.",
                 $writes->clinicalUpsertHandler($resource),
                 readOnly: false,
+                destructive: true,
             );
         }
 

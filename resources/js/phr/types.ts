@@ -547,6 +547,9 @@ export const PhrOfficeVisitImagingStudyLinkResponseSchema = z.object({
   imaging_study: PhrOfficeVisitImagingStudySchema,
 })
 
+export const PhrReviewStatusSchema = z.enum(['pending_review', 'confirmed'])
+export type PhrReviewStatus = z.infer<typeof PhrReviewStatusSchema>
+
 export const PhrOfficeVisitSchema = z.object({
   id: z.number(),
   patient_id: z.number(),
@@ -565,6 +568,7 @@ export const PhrOfficeVisitSchema = z.object({
   objective: nullableString,
   icd10_codes: z.array(z.record(z.string(), z.string())).nullable(),
   cpt_codes: z.array(z.record(z.string(), z.string())).nullable(),
+  review_status: PhrReviewStatusSchema,
   eobs: z.array(PhrEobSummarySchema).default([]),
   related_services: z.array(PhrOfficeVisitRelatedServiceSchema).default([]),
   imaging_studies: z.array(PhrOfficeVisitImagingStudySchema).default([]),
@@ -681,6 +685,7 @@ export const PhrProcedureSchema = z.object({
   outcome: nullableString,
   notes: nullableString,
   raw_text: nullableString,
+  review_status: PhrReviewStatusSchema,
   eobs: z.array(PhrEobSummarySchema).default([]),
   created_at: nullableString,
   updated_at: nullableString,

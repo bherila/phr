@@ -71,6 +71,7 @@ function makeProcedure(overrides: Record<string, unknown> = {}) {
     outcome: null,
     notes: null,
     raw_text: null,
+    review_status: 'confirmed',
     created_at: null,
     updated_at: null,
     ...overrides,
@@ -96,6 +97,7 @@ function makeOfficeVisit(overrides: Record<string, unknown> = {}) {
     objective: null,
     icd10_codes: [],
     cpt_codes: [],
+    review_status: 'pending_review',
     created_at: null,
     updated_at: null,
     ...overrides,
@@ -640,6 +642,7 @@ describe('PHR page mounts', () => {
     const allFilter = await screen.findByRole('button', { name: /^all 4$/i })
     expect(allFilter).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText('Follow-up')).toBeInTheDocument()
+    expect(screen.getByText('pending review')).toBeInTheDocument()
     expect(screen.getByText('Example vaccine')).toBeInTheDocument()
     expect(screen.queryByText('Allergen extract preparation')).not.toBeInTheDocument()
     expect(screen.queryByText('Dental restoration')).not.toBeInTheDocument()

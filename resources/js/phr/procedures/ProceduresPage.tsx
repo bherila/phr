@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useClinicalCrud } from '@/phr/clinical/crud'
-import { classBadge, codeChip } from '@/phr/clinical/ui'
+import { classBadge, codeChip, reviewStatusBadge } from '@/phr/clinical/ui'
 import type { PhrListPageProps } from '@/phr/miller'
 import { compactPayload, zodErrorMessage } from '@/phr/shared'
 import {
@@ -310,6 +310,7 @@ export default function ProceduresPage({ patientId, onDrill }: PhrListPageProps)
                         {codeChip('CPT', procedure.cpt_code)}
                         {codeChip('SNOMED', procedure.snomed_code)}
                         {classBadge(procedure.status, STATUS_CLASS)}
+                        {reviewStatusBadge(procedure.review_status)}
                       </div>
                       <div className="mt-2 text-sm text-muted-foreground">
                         {[

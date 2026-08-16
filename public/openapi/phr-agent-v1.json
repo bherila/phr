@@ -259,26 +259,39 @@
           "422": { "$ref": "#/components/responses/InvalidRequest" },
           "429": { "$ref": "#/components/responses/RateLimited" }
         }
-      },
+      }
+    },
+    "/patients/{patient}/office-visits": {
       "put": {
-        "operationId": "clinical.upsert",
-        "summary": "Idempotently create or update an office visit or procedure",
+        "operationId": "office_visits.upsert",
+        "summary": "Idempotently create or update an office visit",
         "description": "Stable external IDs are namespaced to the authenticated OAuth client. A changed existing record requires its current opaque version; an already-applied retry remains safe with a stale version.",
         "security": [{ "oauth2": ["clinical:write"] }],
-        "parameters": [
-          { "$ref": "#/components/parameters/PatientId" },
-          { "$ref": "#/components/parameters/WritableClinicalResource" }
-        ],
-        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalUpsertRequest" } } } },
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OfficeVisitUpsertRequest" } } } },
         "responses": {
           "200": { "description": "Existing record updated or desired state already present", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalUpsertResponse" } } } },
           "201": { "description": "Record created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalUpsertResponse" } } } },
-          "401": { "$ref": "#/components/responses/Unauthenticated" },
-          "403": { "$ref": "#/components/responses/InsufficientScope" },
-          "404": { "$ref": "#/components/responses/NotFound" },
-          "409": { "$ref": "#/components/responses/Conflict" },
-          "422": { "$ref": "#/components/responses/InvalidRequest" },
-          "429": { "$ref": "#/components/responses/RateLimited" }
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/patients/{patient}/procedures": {
+      "put": {
+        "operationId": "procedures.upsert",
+        "summary": "Idempotently create or update a procedure",
+        "description": "Stable external IDs are namespaced to the authenticated OAuth client. A changed existing record requires its current opaque version; an already-applied retry remains safe with a stale version.",
+        "security": [{ "oauth2": ["clinical:write"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProcedureUpsertRequest" } } } },
+        "responses": {
+          "200": { "description": "Existing record updated or desired state already present", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalUpsertResponse" } } } },
+          "201": { "description": "Record created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalUpsertResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" }
         }
       }
     },
@@ -308,7 +321,7 @@
       "post": {
         "operationId": "mcp.exchange",
         "summary": "Exchange MCP Streamable HTTP JSON-RPC messages",
-        "description": "Read-only MCP tools are thin adapters over the REST operations in this specification. Request bodies are limited to 262144 bytes. Tool calls additionally require each underlying REST operation's scope.",
+        "description": "MCP tools are thin adapters over the REST operations in this specification. Request bodies are limited to 262144 bytes. Tool calls additionally require each underlying REST operation's scope.",
         "security": [{ "oauth2": ["mcp:use"] }],
         "parameters": [
           { "name": "Mcp-Session-Id", "in": "header", "required": false, "schema": { "type": "string", "format": "uuid" } },
@@ -411,12 +424,6 @@
           "type": "string",
           "enum": ["office-visits", "procedures", "immunizations", "medications", "conditions", "allergies", "lab-results", "vitals", "health-logs"]
         }
-      },
-      "WritableClinicalResource": {
-        "name": "resource",
-        "in": "path",
-        "required": true,
-        "schema": { "type": "string", "enum": ["office-visits", "procedures"] }
       },
       "Limit": {
         "name": "limit",
@@ -619,23 +626,29 @@
         },
         "additionalProperties": false
       },
-      "ClinicalUpsertRequest": {
+      "ClinicalUpsertMetadata": {
         "type": "object",
-        "required": ["external_id", "source_document_id", "review_status", "expected_version", "data"],
+        "required": ["external_id", "source_document_id", "review_status", "expected_version"],
         "properties": {
           "external_id": { "type": "string", "minLength": 1, "maxLength": 255 },
           "source_document_id": { "type": ["integer", "null"], "minimum": 1 },
           "review_status": { "type": "string", "enum": ["pending_review", "confirmed"] },
-          "expected_version": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" },
-          "data": {
-            "description": "Resource-specific fields; unknown and invalid fields are rejected.",
-            "oneOf": [
-              { "$ref": "#/components/schemas/OfficeVisitUpsertData" },
-              { "$ref": "#/components/schemas/ProcedureUpsertData" }
-            ]
-          }
-        },
-        "additionalProperties": false
+          "expected_version": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" }
+        }
+      },
+      "OfficeVisitUpsertRequest": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ClinicalUpsertMetadata" },
+          { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/OfficeVisitUpsertData" } } }
+        ],
+        "unevaluatedProperties": false
+      },
+      "ProcedureUpsertRequest": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ClinicalUpsertMetadata" },
+          { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/ProcedureUpsertData" } } }
+        ],
+        "unevaluatedProperties": false
       },
       "OfficeVisitUpsertData": {
         "type": "object",

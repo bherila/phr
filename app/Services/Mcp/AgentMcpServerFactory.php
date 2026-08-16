@@ -53,7 +53,7 @@ final class AgentMcpServerFactory
                 description: $definition->description,
                 annotations: new ToolAnnotations(
                     readOnlyHint: $definition->readOnly,
-                    destructiveHint: false,
+                    destructiveHint: $definition->destructive,
                     idempotentHint: $definition->idempotent,
                     openWorldHint: false,
                 ),
