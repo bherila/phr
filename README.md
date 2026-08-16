@@ -215,6 +215,24 @@ separate SHA-256 reconciliation has matched its authoritative files to PHR docum
 blobs. Disaster-recovery mirrors copy the complete operational tree and are never a
 normal migration source.
 
+Legacy keys move through a guarded, resumable command. It is a dry run unless
+`--apply` is present, and it can be narrowed to a patient, disk, or artifact class:
+
+```bash
+php artisan phr:storage:migrate-keys
+php artisan phr:storage:migrate-keys --patient=123 --artifact=documents
+php artisan phr:storage:migrate-keys --disk=phr_dicom --apply
+```
+
+The command resolves each exact stored reference, hashes the source, refuses a
+different destination object, copies and verifies before a compare-and-swap database
+update, then reads the canonical object back. Its output contains only artifact classes,
+table/id references, statuses, and aggregate counts/bytes—never keys or filenames.
+`phr_blob_migrations` protects verified legacy copies from both garbage collectors for
+the configured `PHR_BLOB_MIGRATION_ROLLBACK_DAYS` (30 by default). This command never
+deletes them; retirement is a later explicit cleanup phase after production downloads,
+DICOM viewing, exports, and the production-to-mirror verification all pass.
+
 > Two things bite when adding a local disk. Its `root` must follow the driver — a
 > filesystem path on `local`, an object-key prefix on `s3` — or every read 404s while the
 > config still looks right. And its directory needs an rsync `--exclude` in

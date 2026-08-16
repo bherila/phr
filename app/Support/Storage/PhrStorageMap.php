@@ -72,6 +72,12 @@ class PhrStorageMap
             // private export disk. A live row protects its archive from quarantine.
             ->from('phr_native_backups', 'storage_path')
 
+            // A successful canonical-key migration deliberately retains both copies
+            // for rollback. These ledger references keep either side out of generic
+            // quarantine until the separate cleanup phase marks the legacy copy gone.
+            ->from('phr_blob_migrations', 'source_key')->where('legacy_deleted_at', null)
+            ->from('phr_blob_migrations', 'destination_key')->where('legacy_deleted_at', null)
+
             // Staging for GenAI imports, on the disk named `s3`. Empty in production today,
             // but the column exists and must be honoured rather than assumed dead.
             //
