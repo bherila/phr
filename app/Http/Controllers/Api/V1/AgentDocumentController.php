@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\PhrDocument;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Support\AgentApi\AgentApiCursor;
+use App\Support\AgentApi\AgentApiExternalId;
 use App\Support\AgentApi\AgentApiUpdateWindow;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -194,7 +195,8 @@ final class AgentDocumentController extends Controller
             'mime_type' => $document->mime_type, 'byte_size' => $document->byte_size,
             'summary' => $document->summary, 'source' => $document->source,
             'tags' => $document->tags ?? [], 'import_source' => $document->import_source,
-            'external_id' => $document->external_id, 'imported_at' => $document->imported_at?->toIso8601String(),
+            'external_id' => AgentApiExternalId::withoutDocumentHash($document->external_id),
+            'imported_at' => $document->imported_at?->toIso8601String(),
             'processing_state' => $document->genai_job_id === null
                 ? 'not_requested'
                 : $document->genAiJob->status,

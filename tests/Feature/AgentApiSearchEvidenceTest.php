@@ -158,7 +158,11 @@ class AgentApiSearchEvidenceTest extends TestCase
         $patient = $this->patient($actor, 'Synthetic Document Patient');
         $hiddenPatient = $this->patient($other, 'Synthetic Hidden Document Patient');
         $document = $this->document($patient, $actor, 'patient/'.$patient->id.'/synthetic.pdf');
-        $document->update(['tags' => ['Cardiology']]);
+        $documentHash = str_repeat('c', 64);
+        $document->update([
+            'tags' => ['Cardiology'],
+            'external_id' => 'eob:meritain:'.$documentHash,
+        ]);
         Storage::disk(PhrDocument::STORAGE_DISK)->put((string) $document->storage_path, 'synthetic-file-bytes');
         $hidden = $this->document($hiddenPatient, $other, 'patient/'.$hiddenPatient->id.'/hidden.pdf');
 
@@ -171,6 +175,8 @@ class AgentApiSearchEvidenceTest extends TestCase
         foreach (['storage_path', 'storage_disk', 'file_hash', 'extracted_text', 'user_id', 'genai_job_id'] as $forbidden) {
             $this->assertStringNotContainsString($forbidden, $encoded);
         }
+        $this->assertNull($metadata['data']['external_id']);
+        $this->assertStringNotContainsString($documentHash, $encoded);
         $this->getJson("/api/v1/patients/{$patient->id}/documents?tag=cardiology")
             ->assertOk()->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.id', $document->id);

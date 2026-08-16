@@ -10,6 +10,7 @@ use App\Models\PhrOfficeVisit;
 use App\Models\PhrProcedure;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Support\AgentApi\AgentApiCursor;
+use App\Support\AgentApi\AgentApiExternalId;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentApiUpdateWindow;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
@@ -177,7 +178,8 @@ final class AgentEvidenceController extends Controller
         return [
             'id' => $eob->id, 'patient_id' => $eob->patient_id,
             'source_document_id' => $eob->source_document_id,
-            'import_source' => $eob->import_source, 'external_id' => $this->publicEobExternalId($eob->external_id),
+            'import_source' => $eob->import_source,
+            'external_id' => AgentApiExternalId::withoutDocumentHash($eob->external_id),
             'claim_number' => $eob->claim_number, 'claim_type' => $eob->claim_type,
             'administrator' => $eob->administrator, 'carrier' => $eob->carrier, 'plan_name' => $eob->plan_name,
             'provider_name' => $eob->provider_name,
@@ -195,16 +197,6 @@ final class AgentEvidenceController extends Controller
             'lines_count' => (int) ($eob->lines_count ?? 0),
             'created_at' => $eob->created_at?->toIso8601String(), 'updated_at' => $eob->updated_at?->toIso8601String(),
         ];
-    }
-
-    private function publicEobExternalId(string $externalId): ?string
-    {
-        // Meritain's internal deduplication key embeds the source PDF SHA-256.
-        // It is not an interoperability identifier and must not cross the
-        // separately consented document boundary through clinical:read.
-        return preg_match('/^eob:meritain:[a-f0-9]{64}$/iD', $externalId) === 1
-            ? null
-            : $externalId;
     }
 
     /** @return array<string, mixed> */

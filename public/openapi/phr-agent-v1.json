@@ -610,7 +610,7 @@
           "document_type": { "type": "string" }, "observed_at": { "type": ["string", "null"], "format": "date-time" },
           "original_filename": { "type": ["string", "null"] }, "mime_type": { "type": ["string", "null"] }, "byte_size": { "type": "integer" },
           "summary": { "type": ["string", "null"] }, "source": { "type": ["string", "null"] }, "tags": { "type": "array", "items": { "type": "string" } },
-          "import_source": { "type": ["string", "null"] }, "external_id": { "type": ["string", "null"] },
+          "import_source": { "type": ["string", "null"] }, "external_id": { "type": ["string", "null"], "description": "Null when the internal deduplication key embeds a source-document content hash." },
           "imported_at": { "type": ["string", "null"], "format": "date-time" }, "processing_state": { "type": "string" }, "has_file": { "type": "boolean" },
           "created_at": { "type": ["string", "null"], "format": "date-time" }, "updated_at": { "type": ["string", "null"], "format": "date-time" }
         }, "additionalProperties": false
