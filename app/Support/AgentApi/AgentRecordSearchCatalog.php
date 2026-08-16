@@ -25,7 +25,7 @@ final class AgentRecordSearchCatalog
     /**
      * @var array<string, array{
      *   model: class-string<Model>, event: non-empty-list<string>, summary: non-empty-list<string>,
-     *   q: list<string>, provider: list<string>, facility: list<string>, codes: list<string>,
+     *   q: list<string>, provider: list<string>, facility: list<string>, codes: list<string>, code_arrays: list<string>,
      *   sources: list<string>, review: list<string>, source_document: bool
      * }>
      */
@@ -36,7 +36,7 @@ final class AgentRecordSearchCatalog
             'summary' => ['chief_complaint', 'visit_type', 'provider_name'],
             'q' => ['chief_complaint', 'visit_type', 'provider_name', 'facility_name', 'assessment', 'plan'],
             'provider' => ['provider_name'], 'facility' => ['facility_name'],
-            'codes' => ['icd10_codes', 'cpt_codes'], 'sources' => ['import_source'], 'review' => [],
+            'codes' => [], 'code_arrays' => ['icd10_codes', 'cpt_codes'], 'sources' => ['import_source'], 'review' => [],
             'source_document' => true,
         ],
         'procedures' => [
@@ -44,7 +44,7 @@ final class AgentRecordSearchCatalog
             'event' => ['performed_at', 'performed_on', 'created_at'],
             'summary' => ['name'], 'q' => ['name', 'reason', 'outcome', 'notes', 'performer_name', 'facility_name'],
             'provider' => ['performer_name'], 'facility' => ['facility_name'],
-            'codes' => ['cpt_code', 'snomed_code'], 'sources' => ['import_source'], 'review' => [],
+            'codes' => ['cpt_code', 'snomed_code'], 'code_arrays' => [], 'sources' => ['import_source'], 'review' => [],
             'source_document' => true,
         ],
         'immunizations' => [
@@ -52,7 +52,7 @@ final class AgentRecordSearchCatalog
             'event' => ['administered_on', 'created_at'],
             'summary' => ['vaccine_name'], 'q' => ['vaccine_name', 'manufacturer', 'administered_by', 'facility_name', 'notes'],
             'provider' => ['administered_by'], 'facility' => ['facility_name'],
-            'codes' => ['cvx_code'], 'sources' => ['import_source'], 'review' => [],
+            'codes' => ['cvx_code'], 'code_arrays' => [], 'sources' => ['import_source'], 'review' => [],
             'source_document' => true,
         ],
         'medications' => [
@@ -60,40 +60,40 @@ final class AgentRecordSearchCatalog
             'event' => ['started_on', 'created_at'],
             'summary' => ['name'], 'q' => ['name', 'dose', 'frequency', 'prescriber_name', 'reason_for_use'],
             'provider' => ['prescriber_name'], 'facility' => [],
-            'codes' => ['rxnorm_code'], 'sources' => ['import_source'], 'review' => [],
+            'codes' => ['rxnorm_code'], 'code_arrays' => [], 'sources' => ['import_source'], 'review' => [],
             'source_document' => true,
         ],
         'conditions' => [
             'model' => PhrCondition::class,
             'event' => ['onset_date', 'created_at'],
             'summary' => ['name'], 'q' => ['name', 'notes'], 'provider' => [], 'facility' => [],
-            'codes' => ['icd10_code', 'snomed_code'], 'sources' => ['import_source'],
+            'codes' => ['icd10_code', 'snomed_code'], 'code_arrays' => [], 'sources' => ['import_source'],
             'review' => ['verification_status'], 'source_document' => true,
         ],
         'allergies' => [
             'model' => PhrAllergy::class,
             'event' => ['created_at'],
             'summary' => ['substance'], 'q' => ['substance', 'reaction', 'notes'], 'provider' => [], 'facility' => [],
-            'codes' => ['rxnorm_code', 'snomed_code'], 'sources' => ['import_source'],
+            'codes' => ['rxnorm_code', 'snomed_code'], 'code_arrays' => [], 'sources' => ['import_source'],
             'review' => ['verification_status'], 'source_document' => true,
         ],
         'lab-results' => [
             'model' => PhrLabResult::class,
             'event' => ['result_datetime', 'collection_datetime', 'created_at'],
             'summary' => ['analyte', 'test_name'], 'q' => ['analyte', 'test_name', 'result_comment', 'message_from_provider'],
-            'provider' => ['ordering_provider'], 'facility' => ['resulting_lab'], 'codes' => [],
+            'provider' => ['ordering_provider'], 'facility' => ['resulting_lab'], 'codes' => [], 'code_arrays' => [],
             'sources' => ['source', 'import_source'], 'review' => [], 'source_document' => true,
         ],
         'vitals' => [
             'model' => PhrPatientVital::class,
             'event' => ['observed_at', 'vital_date', 'created_at'],
-            'summary' => ['vital_name'], 'q' => ['vital_name', 'notes'], 'provider' => [], 'facility' => [], 'codes' => [],
+            'summary' => ['vital_name'], 'q' => ['vital_name', 'notes'], 'provider' => [], 'facility' => [], 'codes' => [], 'code_arrays' => [],
             'sources' => ['source', 'import_source'], 'review' => [], 'source_document' => true,
         ],
         'health-logs' => [
             'model' => PhrHealthLog::class,
             'event' => ['created_at'],
-            'summary' => ['name'], 'q' => ['name', 'description', 'kind'], 'provider' => [], 'facility' => [], 'codes' => [],
+            'summary' => ['name'], 'q' => ['name', 'description', 'kind'], 'provider' => [], 'facility' => [], 'codes' => [], 'code_arrays' => [],
             'sources' => [], 'review' => [], 'source_document' => false,
         ],
     ];

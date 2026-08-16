@@ -178,7 +178,7 @@
         "operationId": "evidence.links", "summary": "List typed evidence links from one patient-scoped record",
         "security": [{ "oauth2": ["clinical:read"] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" },
-          { "name": "resource_type", "in": "query", "required": true, "schema": { "type": "string", "enum": ["document", "eob", "office-visit", "procedure"] } },
+          { "name": "resource_type", "in": "query", "required": true, "description": "Document sources additionally require documents:read; other sources require clinical:read only.", "schema": { "type": "string", "enum": ["document", "eob", "office-visit", "procedure"] } },
           { "name": "resource_id", "in": "query", "required": true, "schema": { "type": "integer", "minimum": 1 } },
           { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" }],
         "responses": { "200": { "description": "Bounded evidence-link page", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EvidenceLinksResponse" } } } },

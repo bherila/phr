@@ -18,7 +18,7 @@ use Illuminate\Validation\Rule;
 /**
  * @phpstan-type SearchDefinition array{
  *   model: class-string<Model>, event: non-empty-list<string>, summary: non-empty-list<string>,
- *   q: list<string>, provider: list<string>, facility: list<string>, codes: list<string>,
+ *   q: list<string>, provider: list<string>, facility: list<string>, codes: list<string>, code_arrays: list<string>,
  *   sources: list<string>, review: list<string>, source_document: bool
  * }
  * @phpstan-type RecordCursor array{event_at: string, resource_type: string, id: int}
@@ -162,15 +162,12 @@ final class AgentRecordSearchController extends Controller
         if (isset($validated['date_to'])) {
             $query->whereRaw("{$eventExpression} <= ?", [Carbon::parse((string) $validated['date_to'])->endOfDay()->toDateTimeString()]);
         }
-        foreach (['q', 'provider', 'facility', 'code', 'source', 'review_status'] as $filter) {
+        foreach (['q', 'provider', 'facility'] as $filter) {
             if (! isset($validated[$filter])) {
                 continue;
             }
-            $key = match ($filter) {
-                'code' => 'codes', 'source' => 'sources', 'review_status' => 'review', default => $filter,
-            };
             /** @var list<string> $columns */
-            $columns = $definition[$key];
+            $columns = $definition[$filter];
             if ($columns === []) {
                 $query->whereRaw('1 = 0');
 
@@ -192,6 +189,68 @@ final class AgentRecordSearchController extends Controller
                 }
             });
         }
+        foreach (['source' => 'sources', 'review_status' => 'review'] as $filter => $key) {
+            if (! isset($validated[$filter])) {
+                continue;
+            }
+            $columns = $definition[$key];
+            if ($columns === []) {
+                $query->whereRaw('1 = 0');
+
+                continue;
+            }
+            $value = mb_strtolower((string) $validated[$filter]);
+            $query->where(function (Builder $matches) use ($columns, $value): void {
+                foreach ($columns as $index => $column) {
+                    $method = $index === 0 ? 'whereRaw' : 'orWhereRaw';
+                    $matches->{$method}('LOWER('.$matches->getModel()->qualifyColumn($column).') = ?', [$value]);
+                }
+            });
+        }
+        if (isset($validated['code'])) {
+            $this->applyCodeFilter($query, $definition, mb_strtolower((string) $validated['code']));
+        }
+    }
+
+    /**
+     * @param  Builder<Model>  $query
+     * @param  SearchDefinition  $definition
+     */
+    private function applyCodeFilter(Builder $query, array $definition, string $code): void
+    {
+        if ($definition['codes'] === [] && $definition['code_arrays'] === []) {
+            $query->whereRaw('1 = 0');
+
+            return;
+        }
+        $query->where(function (Builder $matches) use ($definition, $code): void {
+            $hasPredicate = false;
+            foreach ($definition['codes'] as $column) {
+                $method = $hasPredicate ? 'orWhereRaw' : 'whereRaw';
+                $matches->{$method}('LOWER('.$matches->getModel()->qualifyColumn($column).') = ?', [$code]);
+                $hasPredicate = true;
+            }
+            foreach ($definition['code_arrays'] as $column) {
+                $method = $hasPredicate ? 'orWhereRaw' : 'whereRaw';
+                $qualified = $matches->getModel()->qualifyColumn($column);
+                if ($matches->getModel()->getConnection()->getDriverName() === 'sqlite') {
+                    $matches->{$method}(
+                        "EXISTS (SELECT 1 FROM json_each({$qualified}) AS agent_codes WHERE LOWER(json_extract(agent_codes.value, '$.code')) = ?)",
+                        [$code],
+                    );
+                } else {
+                    $escapedCode = str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $code);
+                    // Restrict JSON_SEARCH to array-element code fields. LOWER
+                    // keeps the exact comparison case-insensitive, while the
+                    // explicit escape character prevents wildcard broadening.
+                    $matches->{$method}(
+                        "JSON_SEARCH(LOWER({$qualified}), 'one', ?, '!', '$[*].code') IS NOT NULL",
+                        [$escapedCode],
+                    );
+                }
+                $hasPredicate = true;
+            }
+        });
     }
 
     /**
@@ -232,7 +291,7 @@ final class AgentRecordSearchController extends Controller
             return null;
         };
         $codes = [];
-        foreach ($definition['codes'] as $column) {
+        foreach (array_merge($definition['codes'], $definition['code_arrays']) as $column) {
             $value = $record->getAttribute($column);
             $values = is_array($value) ? $value : [$value];
             foreach ($values as $item) {

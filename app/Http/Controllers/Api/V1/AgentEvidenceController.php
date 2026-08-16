@@ -10,6 +10,7 @@ use App\Models\PhrOfficeVisit;
 use App\Models\PhrProcedure;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Support\AgentApi\AgentApiCursor;
+use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentApiUpdateWindow;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use App\Support\AgentApi\AgentEvidenceCursor;
@@ -89,6 +90,9 @@ final class AgentEvidenceController extends Controller
         $patientId = $this->patientId($request, $patient);
         $sourceType = (string) $validated['resource_type'];
         $sourceId = (int) $validated['resource_id'];
+        if ($sourceType === 'document') {
+            abort_unless($request->user('api')?->tokenCan(AgentApiScopes::DOCUMENTS_READ), 403);
+        }
         $this->assertSourceExists($sourceType, $sourceId, $patientId);
         $cursor = AgentEvidenceCursor::decode(isset($validated['cursor']) ? (string) $validated['cursor'] : null);
         $limit = (int) ($validated['limit'] ?? 25);

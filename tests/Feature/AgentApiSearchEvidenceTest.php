@@ -51,6 +51,11 @@ class AgentApiSearchEvidenceTest extends TestCase
             'substance' => 'Synthetic allergen', 'verification_status' => 'provisional',
             'import_source' => 'synthetic-source',
         ]);
+        PhrAllergy::query()->create([
+            'patient_id' => $patient->id, 'user_id' => $actor->id,
+            'substance' => 'Synthetic second allergen', 'verification_status' => 'unconfirmed',
+            'import_source' => 'synthetic-source',
+        ]);
 
         Passport::actingAs($actor, [AgentApiScopes::CLINICAL_READ]);
         $filtered = $this->getJson("/api/v1/patients/{$patient->id}/records/search?provider=Synthetic%20Clinician&code=Z00.00")
@@ -67,6 +72,12 @@ class AgentApiSearchEvidenceTest extends TestCase
             ->assertOk()->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.resource_type', 'allergies')
             ->assertJsonPath('data.0.id', $allergy->id);
+        $this->getJson("/api/v1/patients/{$patient->id}/timeline?review_status=confirmed")
+            ->assertOk()->assertJsonCount(0, 'data');
+        $this->getJson("/api/v1/patients/{$patient->id}/timeline?code=description")
+            ->assertOk()->assertJsonCount(0, 'data');
+        $this->getJson("/api/v1/patients/{$patient->id}/timeline?source=synthetic")
+            ->assertOk()->assertJsonCount(0, 'data');
 
         $first = $this->getJson("/api/v1/patients/{$patient->id}/timeline?limit=1")
             ->assertOk()->assertJsonPath('pagination.has_more', true)->json();
@@ -122,6 +133,11 @@ class AgentApiSearchEvidenceTest extends TestCase
         $links = $this->getJson("/api/v1/patients/{$patient->id}/evidence-links?resource_type=eob&resource_id={$eob->id}&limit=2")
             ->assertOk()->assertJsonPath('pagination.has_more', true)->json();
         $this->assertIsString($links['pagination']['next_cursor']);
+        $this->getJson("/api/v1/patients/{$patient->id}/evidence-links?resource_type=document&resource_id={$document->id}")
+            ->assertForbidden();
+        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_READ, AgentApiScopes::DOCUMENTS_READ]);
+        $this->getJson("/api/v1/patients/{$patient->id}/evidence-links?resource_type=document&resource_id={$document->id}")
+            ->assertOk();
         $this->getJson("/api/v1/patients/{$patient->id}/eobs/{$hiddenEob->id}")->assertNotFound();
         $this->getJson("/api/v1/patients/{$hiddenPatient->id}/eobs")->assertNotFound();
     }
