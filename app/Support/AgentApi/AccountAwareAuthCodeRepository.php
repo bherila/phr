@@ -37,6 +37,12 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
             'resource_uri' => $resourceUri,
             'expires_at' => $authCodeEntity->getExpiryDateTime(),
         ])->save();
+
+        Passport::client()->newQuery()
+            ->whereKey($authCodeEntity->getClient()->getIdentifier())
+            ->whereNotNull('dynamically_registered_at')
+            ->whereNull('first_authorized_at')
+            ->update(['first_authorized_at' => now()]);
     }
 
     public function isAuthCodeRevoked(string $codeId): bool

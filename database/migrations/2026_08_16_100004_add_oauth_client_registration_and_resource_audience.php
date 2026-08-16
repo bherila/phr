@@ -10,6 +10,12 @@ return new class extends Migration
     {
         Schema::table('oauth_clients', function (Blueprint $table): void {
             $table->timestamp('dynamically_registered_at')->nullable()->index();
+            $table->timestamp('first_authorized_at')->nullable();
+            // Passport already treats a nullable `scopes` attribute as the
+            // client's allow-list. Null preserves existing/static clients'
+            // unrestricted behavior; dynamic registrations persist the exact
+            // scope metadata they advertised so authorization cannot exceed it.
+            $table->text('scopes')->nullable();
         });
         Schema::table('oauth_auth_codes', function (Blueprint $table): void {
             $table->string('resource_uri')->nullable();
@@ -30,7 +36,7 @@ return new class extends Migration
         });
         Schema::table('oauth_clients', function (Blueprint $table): void {
             $table->dropIndex(['dynamically_registered_at']);
-            $table->dropColumn('dynamically_registered_at');
+            $table->dropColumn(['dynamically_registered_at', 'first_authorized_at', 'scopes']);
         });
     }
 

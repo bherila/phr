@@ -77,6 +77,10 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'http://[::1]:48732/callback',
         ], $client->redirect_uris);
         $this->assertNotNull($client->dynamically_registered_at);
+        $this->assertSame(
+            [AgentApiScopes::MCP_USE, AgentApiScopes::PATIENTS_READ],
+            $client->scopes,
+        );
 
         $challenge = $this->pkce()[1];
         $user = User::factory()->create([
@@ -84,7 +88,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'email' => 'registration-user@example.test',
             'user_role' => 'user',
         ]);
-        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+        $authorization = [
             'client_id' => $client->id,
             'redirect_uri' => 'https://agent.example.test/oauth/callback',
             'response_type' => 'code',
@@ -93,9 +97,23 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'code_challenge' => $challenge,
             'code_challenge_method' => 'S256',
             'resource' => OAuthResourceIndicator::agentApi(),
-        ]))->assertOk()
+        ];
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+            ...$authorization,
+            'scope' => AgentApiScopes::DOCUMENTS_READ,
+        ]))->assertBadRequest()
+            ->assertJsonPath('error', 'invalid_scope');
+
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query($authorization))->assertOk()
             ->assertSee('This client registered automatically')
-            ->assertSee('https://agent.example.test/oauth/callback');
+            ->assertSee('https://agent.example.test/oauth/callback')
+            ->assertDontSee('http://127.0.0.1:48731/callback')
+            ->assertDontSee('http://[::1]:48732/callback');
+
+        $this->post('/oauth/authorize', [
+            'auth_token' => session('authToken'),
+        ])->assertRedirect();
+        $this->assertNotNull($client->fresh()?->first_authorized_at);
     }
 
     public function test_dynamic_registration_rejects_unsafe_or_unsupported_metadata_generically(): void
@@ -242,12 +260,18 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         $stale->forceFill(['dynamically_registered_at' => now()->subDays(2)])->save();
         $recent = $this->publicClient('Synthetic Recent Dynamic Client');
         $recent->forceFill(['dynamically_registered_at' => now()])->save();
+        $previouslyUsed = $this->publicClient('Synthetic Previously Used Dynamic Client');
+        $previouslyUsed->forceFill([
+            'dynamically_registered_at' => now()->subDays(30),
+            'first_authorized_at' => now()->subDays(29),
+        ])->save();
         $static = $this->publicClient('Synthetic Static Client');
 
         $this->artisan('phr:agent-api:prune-oauth-credentials')->assertSuccessful();
 
         $this->assertNull($stale->fresh());
         $this->assertNotNull($recent->fresh());
+        $this->assertNotNull($previouslyUsed->fresh());
         $this->assertNotNull($static->fresh());
     }
 

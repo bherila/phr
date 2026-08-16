@@ -39,8 +39,11 @@ final class OAuthDynamicClientRegistrationController extends Controller
         if ($grantTypes !== ['authorization_code', 'refresh_token']) {
             return $this->invalid();
         }
+        $requestedScopes = null;
         if (isset($metadata['scope'])) {
-            $requestedScopes = preg_split('/\s+/', trim((string) $metadata['scope'])) ?: [];
+            $requestedScopes = array_values(array_unique(
+                preg_split('/\s+/', trim((string) $metadata['scope'])) ?: [],
+            ));
             if (array_diff($requestedScopes, AgentApiScopes::ids()) !== []) {
                 return $this->invalid();
             }
@@ -68,7 +71,10 @@ final class OAuthDynamicClientRegistrationController extends Controller
             $redirectUris,
             confidential: false,
         );
-        $client->forceFill(['dynamically_registered_at' => now()])->save();
+        $client->forceFill([
+            'dynamically_registered_at' => now(),
+            'scopes' => $requestedScopes,
+        ])->save();
 
         return response()->json([
             'client_id' => $client->id,
@@ -78,7 +84,7 @@ final class OAuthDynamicClientRegistrationController extends Controller
             'grant_types' => ['authorization_code', 'refresh_token'],
             'response_types' => ['code'],
             'token_endpoint_auth_method' => 'none',
-            'scope' => isset($metadata['scope']) ? trim((string) $metadata['scope']) : null,
+            'scope' => $requestedScopes === null ? null : implode(' ', $requestedScopes),
         ], 201, [
             'Cache-Control' => 'no-store',
             'Pragma' => 'no-cache',

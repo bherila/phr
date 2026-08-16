@@ -25,7 +25,7 @@
     @if ($client->dynamically_registered_at)
         <p class="warning">
             This client registered automatically. After approval, your browser returns to:
-            <strong>{{ implode(', ', $client->redirect_uris) }}</strong>
+            <strong>{{ $request->query('redirect_uri') }}</strong>
         </p>
     @endif
     <h2>Requested permissions</h2>

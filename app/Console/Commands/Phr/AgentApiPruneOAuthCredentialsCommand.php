@@ -45,6 +45,7 @@ final class AgentApiPruneOAuthCredentialsCommand extends BasePhrCommand
                 $unusedClients = Passport::client()->newQuery()
                     ->whereNotNull('dynamically_registered_at')
                     ->where('dynamically_registered_at', '<=', now()->subDay())
+                    ->whereNull('first_authorized_at')
                     ->whereDoesntHave('authCodes')
                     ->whereDoesntHave('tokens')
                     ->get();

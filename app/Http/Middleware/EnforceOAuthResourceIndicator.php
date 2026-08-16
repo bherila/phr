@@ -8,6 +8,7 @@ use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Laravel\Passport\Passport;
 use Symfony\Component\HttpFoundation\Response;
 
 final class EnforceOAuthResourceIndicator
@@ -17,6 +18,13 @@ final class EnforceOAuthResourceIndicator
         if ($request->isMethod('GET') && $request->routeIs('passport.authorizations.authorize')) {
             $resource = $request->query('resource');
             $scopes = preg_split('/\s+/', trim((string) $request->query('scope', ''))) ?: [];
+            $clientId = $request->query('client_id');
+            $client = is_string($clientId) ? Passport::client()->newQuery()->find($clientId) : null;
+            if ($client !== null
+                && $client->dynamically_registered_at !== null
+                && array_filter($scopes, static fn (string $scope): bool => ! $client->hasScope($scope)) !== []) {
+                return $this->invalidScope();
+            }
             if (($resource !== null && ! OAuthResourceIndicator::isAgentApi($resource))
                 || (in_array(AgentApiScopes::MCP_USE, $scopes, true) && $resource === null)) {
                 return $this->invalidResource();
@@ -60,6 +68,17 @@ final class EnforceOAuthResourceIndicator
         return new JsonResponse([
             'error' => 'invalid_target',
             'error_description' => 'The requested resource is invalid.',
+        ], 400, [
+            'Cache-Control' => 'no-store',
+            'Pragma' => 'no-cache',
+        ]);
+    }
+
+    private function invalidScope(): JsonResponse
+    {
+        return new JsonResponse([
+            'error' => 'invalid_scope',
+            'error_description' => 'The requested scope is invalid for this client.',
         ], 400, [
             'Cache-Control' => 'no-store',
             'Pragma' => 'no-cache',
