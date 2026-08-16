@@ -8,9 +8,11 @@ use App\GenAiProcessor\Models\GenAiImportJob;
 use App\GenAiProcessor\Models\GenAiImportResult;
 use App\Models\AgentApiAudit;
 use App\Models\PhrDocument;
+use App\Models\PhrHealthLog;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
+use App\Models\PhrRespiratoryEvent;
 use App\Models\User;
 use App\Services\AgentApi\Client\InternalAgentApiTransport;
 use App\Support\AgentApi\AgentApiScopes;
@@ -161,14 +163,19 @@ final class AgentMcpReadAdapterTest extends TestCase
         $toolNames = array_column($tools, 'name');
         foreach (['capabilities.get', 'patients.list', 'records.search', 'timeline.list',
             'office_visits.list', 'procedures.get', 'eobs.list', 'documents.get', 'documents.upload',
-            'imports.list', 'imports.get', 'imports.create', 'imports.review', 'imports.retry'] as $name) {
+            'imports.list', 'imports.get', 'imports.create', 'imports.review', 'imports.retry',
+            'health_logs.create', 'health_log_entries.list', 'health_log_entries.get',
+            'health_log_entries.append', 'respiratory_events.list', 'respiratory_events.ingest'] as $name) {
             $this->assertContains($name, $toolNames);
         }
         $this->assertCount(
-            20 + (count(AgentClinicalResourceCatalog::ids()) * 2) + count(AgentClinicalResourceCatalog::writableIds()),
+            26 + (count(AgentClinicalResourceCatalog::ids()) * 2) + count(AgentClinicalResourceCatalog::writableIds()),
             $toolNames,
         );
-        $writeTools = ['documents.upload', 'imports.create', 'imports.review', 'imports.retry'];
+        $writeTools = [
+            'documents.upload', 'imports.create', 'imports.review', 'imports.retry',
+            'health_logs.create', 'health_log_entries.append', 'respiratory_events.ingest',
+        ];
         foreach ($tools as $tool) {
             $this->assertSame(
                 ! str_ends_with((string) $tool['name'], '.upsert') && ! in_array($tool['name'], $writeTools, true),
@@ -217,6 +224,14 @@ final class AgentMcpReadAdapterTest extends TestCase
         );
         $this->assertFalse(
             $toolsByName->get('office_visits.upsert')['inputSchema']['properties']['data']['additionalProperties'] ?? true,
+        );
+        $this->assertSame(
+            PhrHealthLog::KINDS,
+            $toolsByName->get('health_logs.create')['inputSchema']['properties']['kind']['enum'] ?? null,
+        );
+        $this->assertSame(
+            PhrRespiratoryEvent::EVENT_TYPES,
+            $toolsByName->get('respiratory_events.ingest')['inputSchema']['properties']['events']['items']['properties']['event_type']['enum'] ?? null,
         );
 
         $visible = $this->callTool($session, 3, 'office_visits.list', [
@@ -463,6 +478,70 @@ final class AgentMcpReadAdapterTest extends TestCase
             'Synthetic MCP proposal',
             json_encode(AgentApiAudit::query()->get()->toArray(), JSON_THROW_ON_ERROR),
         );
+    }
+
+    public function test_mcp_health_and_device_tools_use_the_typed_rest_workflow(): void
+    {
+        $actor = $this->user('mcp-health-device@example.test');
+        $patient = $this->patient($actor, 'Synthetic MCP Health Device Patient');
+        $client = Client::query()->create([
+            'name' => 'Synthetic MCP Health Device Client',
+            'secret' => null,
+            'provider' => 'users',
+            'redirect_uris' => ['https://client.example.test/callback'],
+            'grant_types' => ['authorization_code', 'refresh_token'],
+            'revoked' => false,
+        ]);
+        Passport::actingAs($actor, [
+            AgentApiScopes::MCP_USE,
+            AgentApiScopes::CLINICAL_READ,
+            AgentApiScopes::CLINICAL_WRITE,
+        ], 'api', $client);
+
+        $session = $this->initializeSession();
+        $log = $this->callTool($session, 2, 'health_logs.create', [
+            'patient_id' => $patient->id,
+            'external_id' => 'synthetic-mcp-log',
+            'name' => 'Synthetic MCP journal',
+            'kind' => 'symptom',
+        ]);
+        $this->assertFalse($log['result']['isError'] ?? true, json_encode($log, JSON_THROW_ON_ERROR));
+        $logId = (int) ($log['result']['structuredContent']['data']['id'] ?? 0);
+        $entry = $this->callTool($session, 3, 'health_log_entries.append', [
+            'patient_id' => $patient->id,
+            'health_log_id' => $logId,
+            'external_id' => 'synthetic-mcp-entry',
+            'occurred_at' => '2026-08-16T13:00:00Z',
+            'title' => 'Synthetic MCP observation',
+            'tags' => ['synthetic'],
+        ]);
+        $this->assertFalse($entry['result']['isError'] ?? true, json_encode($entry, JSON_THROW_ON_ERROR));
+        $listed = $this->callTool($session, 4, 'health_log_entries.list', [
+            'patient_id' => $patient->id,
+            'health_log_id' => $logId,
+        ]);
+        $this->assertSame(
+            'Synthetic MCP observation',
+            $listed['result']['structuredContent']['data'][0]['title'] ?? null,
+        );
+
+        $ingested = $this->callTool($session, 5, 'respiratory_events.ingest', [
+            'patient_id' => $patient->id,
+            'events' => [[
+                'client_event_uuid' => 'synthetic-mcp-respiratory',
+                'event_type' => 'cough',
+                'occurred_at' => '2026-08-16T13:05:00Z',
+                'source' => 'desktop-mac',
+            ]],
+        ]);
+        $this->assertFalse($ingested['result']['isError'] ?? true, json_encode($ingested, JSON_THROW_ON_ERROR));
+        $this->assertSame('accepted', $ingested['result']['structuredContent']['results'][0]['status'] ?? null);
+        $this->assertDatabaseCount('phr_health_log_entries', 1);
+        $this->assertDatabaseCount('phr_respiratory_events', 1);
+        $this->assertDatabaseHas('agent_api_audits', [
+            'route_name' => 'agent-api.v1.respiratory-events.batch',
+            'response_status' => 200,
+        ]);
     }
 
     public function test_mcp_sessions_are_isolated_by_oauth_token(): void

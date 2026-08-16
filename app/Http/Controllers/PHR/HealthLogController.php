@@ -9,6 +9,7 @@ use App\Http\Resources\PHR\HealthLogResource;
 use App\Models\PhrHealthLog;
 use App\Models\PhrPatient;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Services\PHR\HealthLog\PhrHealthLogDao;
 use App\Services\PHR\HealthLog\PhrHealthLogService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,19 +20,14 @@ class HealthLogController extends Controller
     public function __construct(
         private PhrPatientAccessService $accessService,
         private PhrHealthLogService $healthLogService,
+        private PhrHealthLogDao $healthLogs,
     ) {}
 
     public function index(Request $request, int $patient): JsonResponse
     {
         $userId = (int) $request->user()?->id;
         $resolvedPatient = $this->accessService->accessiblePatient($patient, $userId);
-        $healthLogs = PhrHealthLog::query()
-            ->where('patient_id', $resolvedPatient->id)
-            ->withCount('entries')
-            ->withMax('entries as latest_entry_at', 'occurred_at')
-            ->orderBy('archived_at')
-            ->orderBy('name')
-            ->get()
+        $healthLogs = $this->healthLogs->logs($resolvedPatient->id)
             ->map(fn (PhrHealthLog $healthLog): array => $this->payload($healthLog))
             ->values();
 
@@ -53,11 +49,7 @@ class HealthLogController extends Controller
     public function show(Request $request, int $patient, int $healthLog): JsonResponse
     {
         $resolvedPatient = $this->accessiblePatient($request, $patient);
-        $resolvedLog = PhrHealthLog::query()
-            ->where('patient_id', $resolvedPatient->id)
-            ->withCount('entries')
-            ->withMax('entries as latest_entry_at', 'occurred_at')
-            ->findOrFail($healthLog);
+        $resolvedLog = $this->healthLogs->log($resolvedPatient->id, $healthLog, true);
 
         return response()->json(['health_log' => $this->payload($resolvedLog)]);
     }
@@ -91,9 +83,7 @@ class HealthLogController extends Controller
 
     private function resolveHealthLog(PhrPatient $patient, int $healthLog): PhrHealthLog
     {
-        return PhrHealthLog::query()
-            ->where('patient_id', $patient->id)
-            ->findOrFail($healthLog);
+        return $this->healthLogs->log($patient->id, $healthLog);
     }
 
     /** @return array<string, mixed> */

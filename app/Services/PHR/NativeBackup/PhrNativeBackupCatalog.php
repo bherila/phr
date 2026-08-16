@@ -173,6 +173,10 @@ final class PhrNativeBackupCatalog
     public static function excluded(): array
     {
         return [
+            'agent_api_mutation_identities' => [
+                'patient_column' => 'patient_id',
+                'because' => 'OAuth-client retry ledger; restored clinical rows receive fresh integration identities.',
+            ],
             'phr_exports' => [
                 'patient_column' => 'patient_id',
                 'because' => 'Generated interoperability output is reproducible and keeps its existing contract.',

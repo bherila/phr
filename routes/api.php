@@ -9,10 +9,12 @@ use App\Http\Controllers\Api\V1\AgentClinicalWriteController;
 use App\Http\Controllers\Api\V1\AgentDiscoveryController;
 use App\Http\Controllers\Api\V1\AgentDocumentController;
 use App\Http\Controllers\Api\V1\AgentEvidenceController;
+use App\Http\Controllers\Api\V1\AgentHealthLogController;
 use App\Http\Controllers\Api\V1\AgentImportController;
 use App\Http\Controllers\Api\V1\AgentMcpController;
 use App\Http\Controllers\Api\V1\AgentPatientController;
 use App\Http\Controllers\Api\V1\AgentRecordSearchController;
+use App\Http\Controllers\Api\V1\AgentRespiratoryEventController;
 use App\Http\Controllers\Api\V1\AgentTokenController;
 use App\Http\Controllers\PHR\AllergyController as PHRAllergyController;
 use App\Http\Controllers\PHR\ClinicalEobController as PHRClinicalEobController;
@@ -148,6 +150,25 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         Route::post('/patients/{patient}/imports/{import}/results/{result}/review', [AgentImportController::class, 'review'])
             ->whereNumber(['patient', 'import', 'result'])->middleware('throttle:agent-api')
             ->middleware(CheckToken::using(AgentApiScopes::IMPORTS_WRITE))->name('imports.results.review');
+
+        Route::post('/patients/{patient}/health-logs', [AgentHealthLogController::class, 'store'])
+            ->whereNumber('patient')->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))->name('health-logs.store');
+        Route::get('/patients/{patient}/health-logs/{healthLog}/entries', [AgentHealthLogController::class, 'entries'])
+            ->whereNumber(['patient', 'healthLog'])->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))->name('health-log-entries.index');
+        Route::post('/patients/{patient}/health-logs/{healthLog}/entries', [AgentHealthLogController::class, 'append'])
+            ->whereNumber(['patient', 'healthLog'])->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))->name('health-log-entries.store');
+        Route::get('/patients/{patient}/health-logs/{healthLog}/entries/{entry}', [AgentHealthLogController::class, 'entry'])
+            ->whereNumber(['patient', 'healthLog', 'entry'])->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))->name('health-log-entries.show');
+        Route::get('/patients/{patient}/respiratory-events', [AgentRespiratoryEventController::class, 'index'])
+            ->whereNumber('patient')->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))->name('respiratory-events.index');
+        Route::post('/patients/{patient}/respiratory-events/batch', [AgentRespiratoryEventController::class, 'batch'])
+            ->whereNumber('patient')->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))->name('respiratory-events.batch');
 
         Route::get('/patients/{patient}/{resource}', [AgentClinicalReadController::class, 'index'])
             ->whereNumber('patient')

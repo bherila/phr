@@ -206,6 +206,57 @@ final class AgentApiReadDao
         ));
     }
 
+    public function healthLogEntries(
+        int $patientId,
+        int $healthLogId,
+        int $limit = 25,
+        ?string $cursor = null,
+        ?string $updatedAfter = null,
+        ?string $updatedBefore = null,
+        ?string $occurredAfter = null,
+        ?string $occurredBefore = null,
+    ): AgentApiPayload {
+        return $this->page("patients/{$patientId}/health-logs/{$healthLogId}/entries", [
+            'limit' => $limit,
+            'cursor' => $cursor,
+            'updated_after' => $updatedAfter,
+            'updated_before' => $updatedBefore,
+            'occurred_after' => $occurredAfter,
+            'occurred_before' => $occurredBefore,
+        ]);
+    }
+
+    public function healthLogEntry(int $patientId, int $healthLogId, int $entryId): AgentApiPayload
+    {
+        return $this->item(
+            "patients/{$patientId}/health-logs/{$healthLogId}/entries/{$entryId}",
+            ['resource_type', 'patient_id', 'health_log_id', 'data'],
+        );
+    }
+
+    public function respiratoryEvents(
+        int $patientId,
+        int $limit = 25,
+        ?string $cursor = null,
+        ?string $updatedAfter = null,
+        ?string $updatedBefore = null,
+        ?string $occurredAfter = null,
+        ?string $occurredBefore = null,
+        ?string $eventType = null,
+        bool $includeFalsePositives = false,
+    ): AgentApiPayload {
+        return $this->page("patients/{$patientId}/respiratory-events", [
+            'limit' => $limit,
+            'cursor' => $cursor,
+            'updated_after' => $updatedAfter,
+            'updated_before' => $updatedBefore,
+            'occurred_after' => $occurredAfter,
+            'occurred_before' => $occurredBefore,
+            'event_type' => $eventType,
+            'include_false_positives' => $includeFalsePositives,
+        ]);
+    }
+
     /**
      * @param  array<string, scalar|list<scalar>|null>  $query
      * @param  list<string>  $required

@@ -198,6 +198,16 @@ staging, queue, review, and clinical-import services; MCP tools call those versi
 operations through typed DAOs. API failures expose only a stable `processing_failed`
 code, never provider messages or raw model output.
 
+Health-log automation uses `clinical:read`/`clinical:write` without creating a parallel
+clinical model. Agents can create logs, append entries, and page nested entries through
+the same request rules, resources, patient-access service, and health-log service as the
+browser. Required external IDs are scoped to the OAuth client and retained only as
+keyed one-way digests in a small idempotency DAO; exact retries are no-ops and changed
+payloads conflict. Respiratory-event list and batch operations likewise share the Sinus
+Sentinel service and its per-event accepted/duplicate/rejected validation semantics. MCP exposes
+these REST operations as `health_logs.create`, `health_log_entries.list/get/append`, and
+`respiratory_events.list/ingest`.
+
 `clinical:write` currently enables idempotent `PUT` upserts for office visits and
 procedures. Each stable external ID is namespaced to the OAuth client (the client itself is
 the import source), so two integrations cannot overwrite one another. New records carry an

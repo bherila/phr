@@ -8,7 +8,7 @@ class StoreRespiratoryEventBatchRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return auth()->check();
+        return $this->user() !== null || $this->user('api') !== null;
     }
 
     /**

@@ -45,6 +45,21 @@ changed writes require an exact version, while an exact replay returns `unchange
 before the conflict check. The HMAC prevents low-entropy clinical values from being
 tested offline and catches same-second changes that timestamp-only concurrency misses.
 
+Health-log creation and entry append use the same `clinical:write` and patient-grant
+boundary. They delegate to the browser's validation and health-log service through a
+typed DAO. Their retry ledger stores only domain-separated HMAC external-ID/request
+digests, an OAuth client UUID, and a target row reference—never the caller's raw
+identifier or clinical payload. A patient row lock serializes concurrent first writes;
+an exact retry returns the existing row, while a changed payload or deleted target
+conflicts. The ledger cascades with patient deletion and is intentionally operational,
+not part of a native patient archive.
+
+Respiratory-event automation delegates to the same service used by the paired-device
+routes. The service owns the fixed event/source allow-lists, per-event validation,
+patient-scoped duplicate lookup, and accepted/duplicate/rejected results. OAuth routes
+add ordinary agent scopes, bounded cursor reads, audit metadata, and no-store headers;
+they do not weaken or replace the legacy device credential boundary.
+
 Unified search uses a second fixed catalog of searchable columns and emits only a
 concise record envelope; it never serializes raw clinical text. EOB responses likewise
 omit raw parser payloads, member and tax identifiers, check numbers, and actor ids.
