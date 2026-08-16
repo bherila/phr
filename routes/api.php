@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\AgentDiscoveryController;
 use App\Http\Controllers\Api\V1\AgentPatientController;
 use App\Http\Controllers\Api\V1\AgentTokenController;
 use App\Http\Controllers\PHR\AllergyController as PHRAllergyController;
+use App\Http\Controllers\PHR\ClinicalEobController as PHRClinicalEobController;
 use App\Http\Controllers\PHR\ConditionController as PHRConditionController;
 use App\Http\Controllers\PHR\DICOM\DicomFileController as PHRDicomFileController;
 use App\Http\Controllers\PHR\DICOM\DicomStudyController as PHRDicomStudyController;
@@ -159,6 +160,8 @@ Route::middleware(['web', 'auth'])
         Route::get('/patients/{patient}/office-visits', [PHROfficeVisitController::class, 'index'])->whereNumber('patient')->name('patients.office-visits.index');
         Route::post('/patients/{patient}/office-visits', [PHROfficeVisitController::class, 'store'])->whereNumber('patient')->name('patients.office-visits.store');
         Route::get('/patients/{patient}/office-visits/{visit}', [PHROfficeVisitController::class, 'show'])->whereNumber(['patient', 'visit'])->name('patients.office-visits.show');
+        Route::post('/patients/{patient}/office-visits/{visit}/eobs/{eob}', [PHRClinicalEobController::class, 'linkOfficeVisit'])->whereNumber(['patient', 'visit', 'eob'])->name('patients.office-visits.eobs.store');
+        Route::delete('/patients/{patient}/office-visits/{visit}/eobs/{eob}', [PHRClinicalEobController::class, 'unlinkOfficeVisit'])->whereNumber(['patient', 'visit', 'eob'])->name('patients.office-visits.eobs.destroy');
         Route::patch('/patients/{patient}/office-visits/{visit}', [PHROfficeVisitController::class, 'update'])->whereNumber(['patient', 'visit'])->name('patients.office-visits.update');
         Route::delete('/patients/{patient}/office-visits/{visit}', [PHROfficeVisitController::class, 'destroy'])->whereNumber(['patient', 'visit'])->name('patients.office-visits.destroy');
         Route::get('/patients/{patient}/medications', [PHRMedicationController::class, 'index'])->whereNumber('patient')->name('patients.medications.index');
@@ -174,6 +177,8 @@ Route::middleware(['web', 'auth'])
         Route::get('/patients/{patient}/procedures', [PHRProcedureController::class, 'index'])->whereNumber('patient')->name('patients.procedures.index');
         Route::post('/patients/{patient}/procedures', [PHRProcedureController::class, 'store'])->whereNumber('patient')->name('patients.procedures.store');
         Route::get('/patients/{patient}/procedures/{procedure}', [PHRProcedureController::class, 'show'])->whereNumber(['patient', 'procedure'])->name('patients.procedures.show');
+        Route::post('/patients/{patient}/procedures/{procedure}/eobs/{eob}', [PHRClinicalEobController::class, 'linkProcedure'])->whereNumber(['patient', 'procedure', 'eob'])->name('patients.procedures.eobs.store');
+        Route::delete('/patients/{patient}/procedures/{procedure}/eobs/{eob}', [PHRClinicalEobController::class, 'unlinkProcedure'])->whereNumber(['patient', 'procedure', 'eob'])->name('patients.procedures.eobs.destroy');
         Route::patch('/patients/{patient}/procedures/{procedure}', [PHRProcedureController::class, 'update'])->whereNumber(['patient', 'procedure'])->name('patients.procedures.update');
         Route::delete('/patients/{patient}/procedures/{procedure}', [PHRProcedureController::class, 'destroy'])->whereNumber(['patient', 'procedure'])->name('patients.procedures.destroy');
         Route::get('/patients/{patient}/immunizations', [PHRImmunizationController::class, 'index'])->whereNumber('patient')->name('patients.immunizations.index');
@@ -181,6 +186,7 @@ Route::middleware(['web', 'auth'])
         Route::get('/patients/{patient}/immunizations/{immunization}', [PHRImmunizationController::class, 'show'])->whereNumber(['patient', 'immunization'])->name('patients.immunizations.show');
         Route::patch('/patients/{patient}/immunizations/{immunization}', [PHRImmunizationController::class, 'update'])->whereNumber(['patient', 'immunization'])->name('patients.immunizations.update');
         Route::delete('/patients/{patient}/immunizations/{immunization}', [PHRImmunizationController::class, 'destroy'])->whereNumber(['patient', 'immunization'])->name('patients.immunizations.destroy');
+        Route::get('/patients/{patient}/eobs', [PHRClinicalEobController::class, 'index'])->whereNumber('patient')->name('patients.eobs.index');
         Route::get('/patients/{patient}/allergies', [PHRAllergyController::class, 'index'])->whereNumber('patient')->name('patients.allergies.index');
         Route::post('/patients/{patient}/allergies', [PHRAllergyController::class, 'store'])->whereNumber('patient')->name('patients.allergies.store');
         Route::get('/patients/{patient}/allergies/{allergy}', [PHRAllergyController::class, 'show'])->whereNumber(['patient', 'allergy'])->name('patients.allergies.show');

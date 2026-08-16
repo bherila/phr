@@ -36,6 +36,10 @@ class ProcedureResource extends JsonResource
             'outcome' => $procedure->outcome,
             'notes' => $procedure->notes,
             'raw_text' => $procedure->raw_text,
+            'eobs' => $this->whenLoaded(
+                'eobs',
+                fn () => EobSummaryResource::collection($procedure->eobs)->resolve(),
+            ),
             'created_at' => $procedure->created_at?->toDateTimeString(),
             'updated_at' => $procedure->updated_at?->toDateTimeString(),
         ];

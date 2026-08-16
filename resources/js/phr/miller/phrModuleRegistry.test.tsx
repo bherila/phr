@@ -70,8 +70,8 @@ const EXPECTED_MODULE_METADATA: Partial<Record<PhrModuleId, ExpectedModuleMetada
   'vitals-trend': { category: 'Clinical', keywords: ['vitals', 'blood pressure', 'weight', 'height'] },
   imaging: { category: 'Documents & Imaging', keywords: ['imaging', 'radiology', 'xray', 'mri', 'ct'] },
   'imaging-study-detail': { category: 'Documents & Imaging', keywords: ['imaging', 'radiology', 'xray', 'mri', 'ct'] },
-  'office-visits': { category: 'Clinical', keywords: ['visits', 'appointments', 'encounters', 'allergy shots', 'injections', 'immunotherapy'] },
-  'office-visit-detail': { category: 'Clinical', keywords: ['visits', 'appointments', 'encounters', 'allergy shots', 'injections', 'immunotherapy'] },
+  'office-visits': { category: 'Clinical', keywords: ['visits', 'appointments', 'encounters', 'allergy shots', 'injections', 'immunotherapy', 'immunizations', 'vaccines'] },
+  'office-visit-detail': { category: 'Clinical', keywords: ['visits', 'appointments', 'encounters', 'allergy shots', 'injections', 'immunotherapy', 'immunizations', 'vaccines'] },
   medications: { category: 'Clinical', keywords: ['medications', 'prescriptions', 'drugs', 'rx'] },
   'medication-detail': { category: 'Clinical', keywords: ['medications', 'prescriptions', 'drugs', 'rx'] },
   conditions: { category: 'Clinical', keywords: ['conditions', 'diagnoses', 'problems'] },
@@ -116,6 +116,7 @@ describe('phrModuleRegistry', () => {
 
   it('registers data-rich list columns and visual detail columns with wider layouts', () => {
     expect(phrModuleRegistry['health-log'].size).toBe('full')
+    expect(phrModuleRegistry['office-visits'].size).toBe('full')
     expect(phrModuleRegistry.labs.size).toBe('wide')
     expect(phrModuleRegistry.vitals.size).toBe('wide')
     expect(phrModuleRegistry.documents.size).toBe('full')
