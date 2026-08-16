@@ -59,6 +59,17 @@ declared private document disk, rejects missing bytes, forces attachment disposi
 and applies no-store, sandbox, and content-sniffing protections. The signature is not
 a bearer credential, and the bearer token alone cannot call the unsigned file route.
 
+Document creation separately requires `documents:write` plus owner/manager access. The
+browser and agent controllers share one upload service, validation request, canonical
+storage-key builder, and patient artifact write lock. Agent uploads require a stable
+external ID namespaced to the OAuth client. Inside the patient lock, an exact identity
+and hash is an unchanged retry, a changed hash for the identity conflicts, and a second
+identity with the same hash in that client namespace resolves to the existing document without
+writing another blob. A composite patient/source/hash index supports that bounded
+deduplication lookup. MCP materializes its size-limited base64 input only for the
+duration of the internal multipart REST subrequest and removes the temporary file in a
+finally block; larger uploads stay on the ordinary multipart endpoint.
+
 The agent audit table intentionally excludes request URLs, route parameters, query
 strings, request and response bodies, filenames, error messages, IP addresses, and
 user agents. It records only an opaque request UUID, actor/client/token references,

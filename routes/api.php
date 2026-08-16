@@ -119,6 +119,9 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         Route::get('/patients/{patient}/documents', [AgentDocumentController::class, 'index'])
             ->whereNumber('patient')->middleware('throttle:agent-api')
             ->middleware(CheckToken::using(AgentApiScopes::DOCUMENTS_READ))->name('documents.index');
+        Route::post('/patients/{patient}/documents', [AgentDocumentController::class, 'store'])
+            ->whereNumber('patient')->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::DOCUMENTS_WRITE))->name('documents.store');
         Route::get('/patients/{patient}/documents/{document}', [AgentDocumentController::class, 'show'])
             ->whereNumber(['patient', 'document'])->middleware('throttle:agent-api')
             ->middleware(CheckToken::using(AgentApiScopes::DOCUMENTS_READ))->name('documents.show');

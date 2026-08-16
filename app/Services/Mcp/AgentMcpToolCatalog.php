@@ -25,6 +25,13 @@ final class AgentMcpToolCatalog
             $this->method('documents.list', 'List documents', 'List document metadata without returning file contents.', $reads, 'documentsList'),
             $this->method('documents.get', 'Get document', 'Get document metadata without returning file contents.', $reads, 'documentsGet'),
             $this->method('documents.download_access.create', 'Create document download access', 'Create short-lived, OAuth-bound download access for one authorized document.', $reads, 'documentsDownloadAccessCreate'),
+            new AgentMcpToolDefinition(
+                'documents.upload',
+                'Upload document',
+                'Idempotently upload a small document through the versioned REST API. Use the multipart REST endpoint for larger files.',
+                [$writes, 'documentsUpload'],
+                readOnly: false,
+            ),
         ];
 
         foreach (AgentClinicalResourceCatalog::ids() as $resource) {

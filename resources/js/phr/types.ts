@@ -382,6 +382,9 @@ export const PhrAccessGrantDetailResponseSchema = z.object({
   access: PhrAccessGrantSchema,
 })
 
+export const PhrDocumentTypeSchema = z.enum(['lab_report', 'office_visit_note', 'clinical_questionnaire', 'patient_symptom_log', 'discharge_summary', 'imaging_report', 'prescription', 'medical_necessity_letter', 'prior_authorization', 'insurance', 'consent', 'care_correspondence', 'other'])
+export const PhrDocumentSourceSchema = z.enum(['manual_upload', 'agent_upload', 'genai_import', 'fhir_import', 'ccda_import', 'mychart_zip'])
+
 export const PhrDocumentSchema = z.object({
   id: z.number(),
   patient_id: z.number(),
@@ -389,14 +392,14 @@ export const PhrDocumentSchema = z.object({
   uploaded_by_user_id: z.number().nullable(),
   genai_job_id: z.number().nullable(),
   title: nullableString,
-  document_type: z.enum(['lab_report', 'office_visit_note', 'clinical_questionnaire', 'patient_symptom_log', 'discharge_summary', 'imaging_report', 'prescription', 'medical_necessity_letter', 'prior_authorization', 'insurance', 'consent', 'care_correspondence', 'other']),
+  document_type: PhrDocumentTypeSchema,
   observed_at: nullableString,
   original_filename: nullableString,
   mime_type: nullableString,
   byte_size: z.number(),
   file_hash: nullableString,
   summary: nullableString,
-  source: z.enum(['manual_upload', 'genai_import', 'fhir_import', 'ccda_import', 'mychart_zip']).nullable(),
+  source: PhrDocumentSourceSchema.nullable(),
   tags: z.array(z.string()),
   imported_at: nullableString,
   created_at: nullableString,
@@ -423,7 +426,7 @@ export const PhrDocumentResponseSchema = z.object({
 
 export const PhrDocumentMetadataFormSchema = z.object({
   title: z.string().trim().max(255).optional(),
-  document_type: z.enum(['lab_report', 'office_visit_note', 'clinical_questionnaire', 'patient_symptom_log', 'discharge_summary', 'imaging_report', 'prescription', 'medical_necessity_letter', 'prior_authorization', 'insurance', 'consent', 'care_correspondence', 'other']),
+  document_type: PhrDocumentTypeSchema,
   observed_at: z.string().trim().optional(),
   summary: z.string().trim().max(20000).optional(),
   tags: z.array(z.string().trim().min(1).max(50)).max(30),

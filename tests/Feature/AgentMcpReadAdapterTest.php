@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\DataTransferObjects\AgentApi\DocumentUploadData;
 use App\Models\AgentApiAudit;
 use App\Models\PhrDocument;
 use App\Models\PhrOfficeVisit;
@@ -16,6 +17,7 @@ use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Laravel\Passport\Client;
 use Laravel\Passport\Passport;
@@ -41,6 +43,8 @@ final class AgentMcpReadAdapterTest extends TestCase
         $this->assertArrayNotHasKey(AgentApiScopes::MCP_USE, AgentApiScopes::reservedDescriptions());
         $this->assertContains(AgentApiScopes::CLINICAL_WRITE, AgentApiScopes::ids());
         $this->assertArrayNotHasKey(AgentApiScopes::CLINICAL_WRITE, AgentApiScopes::reservedDescriptions());
+        $this->assertContains(AgentApiScopes::DOCUMENTS_WRITE, AgentApiScopes::ids());
+        $this->assertArrayNotHasKey(AgentApiScopes::DOCUMENTS_WRITE, AgentApiScopes::reservedDescriptions());
 
         $this->getJson('/.well-known/oauth-protected-resource/api/v1/mcp')
             ->assertOk()
@@ -148,16 +152,16 @@ final class AgentMcpReadAdapterTest extends TestCase
         $this->assertIsArray($tools);
         $toolNames = array_column($tools, 'name');
         foreach (['capabilities.get', 'patients.list', 'records.search', 'timeline.list',
-            'office_visits.list', 'procedures.get', 'eobs.list', 'documents.get'] as $name) {
+            'office_visits.list', 'procedures.get', 'eobs.list', 'documents.get', 'documents.upload'] as $name) {
             $this->assertContains($name, $toolNames);
         }
         $this->assertCount(
-            14 + (count(AgentClinicalResourceCatalog::ids()) * 2) + count(AgentClinicalResourceCatalog::writableIds()),
+            15 + (count(AgentClinicalResourceCatalog::ids()) * 2) + count(AgentClinicalResourceCatalog::writableIds()),
             $toolNames,
         );
         foreach ($tools as $tool) {
             $this->assertSame(
-                ! str_ends_with((string) $tool['name'], '.upsert'),
+                ! str_ends_with((string) $tool['name'], '.upsert') && $tool['name'] !== 'documents.upload',
                 $tool['annotations']['readOnlyHint'] ?? null,
             );
             $this->assertSame(
@@ -176,6 +180,14 @@ final class AgentMcpReadAdapterTest extends TestCase
         $this->assertSame(
             PhrDocument::DOCUMENT_TYPES,
             $toolsByName->get('documents.list')['inputSchema']['properties']['document_type']['enum'] ?? null,
+        );
+        $this->assertSame(
+            PhrDocument::DOCUMENT_TYPES,
+            $toolsByName->get('documents.upload')['inputSchema']['properties']['document_type']['enum'] ?? null,
+        );
+        $this->assertSame(
+            DocumentUploadData::MCP_MAX_BASE64_CHARACTERS,
+            $toolsByName->get('documents.upload')['inputSchema']['properties']['content_base64']['maxLength'] ?? null,
         );
         $this->assertArrayNotHasKey(
             'archived',
@@ -300,6 +312,53 @@ final class AgentMcpReadAdapterTest extends TestCase
         );
         $this->assertStringNotContainsString(
             'Synthetic denied procedure',
+            json_encode(AgentApiAudit::query()->get()->toArray(), JSON_THROW_ON_ERROR),
+        );
+    }
+
+    public function test_mcp_document_upload_uses_the_typed_multipart_rest_boundary(): void
+    {
+        Storage::fake(PhrDocument::STORAGE_DISK);
+        $actor = $this->user('mcp-document-writer@example.test');
+        $patient = $this->patient($actor, 'Synthetic MCP Document Patient');
+        $client = Client::query()->create([
+            'name' => 'Synthetic MCP Document Writer',
+            'secret' => null,
+            'provider' => 'users',
+            'redirect_uris' => ['https://client.example.test/callback'],
+            'grant_types' => ['authorization_code', 'refresh_token'],
+            'revoked' => false,
+        ]);
+        Passport::actingAs($actor, [
+            AgentApiScopes::MCP_USE,
+            AgentApiScopes::DOCUMENTS_WRITE,
+        ], 'api', $client);
+
+        $session = $this->initializeSession();
+        $created = $this->callTool($session, 2, 'documents.upload', [
+            'patient_id' => $patient->id,
+            'external_id' => 'synthetic-mcp-document-001',
+            'filename' => 'synthetic.pdf',
+            'content_base64' => base64_encode('%PDF-1.4 synthetic MCP document'),
+            'title' => 'Synthetic MCP document',
+            'document_type' => 'lab_report',
+            'observed_at' => '2026-08-16 12:00:00',
+            'summary' => null,
+            'tags' => ['synthetic'],
+        ]);
+
+        $this->assertFalse($created['result']['isError'] ?? true);
+        $this->assertSame('created', $created['result']['structuredContent']['outcome'] ?? null);
+        $this->assertSame('agent-client:'.$client->id, $created['result']['structuredContent']['data']['import_source'] ?? null);
+        $document = PhrDocument::query()->sole();
+        $this->assertIsString($document->storage_path);
+        Storage::disk(PhrDocument::STORAGE_DISK)->assertExists($document->storage_path);
+        $this->assertDatabaseHas('agent_api_audits', [
+            'route_name' => 'agent-api.v1.documents.store',
+            'response_status' => 201,
+        ]);
+        $this->assertStringNotContainsString(
+            'synthetic MCP document',
             json_encode(AgentApiAudit::query()->get()->toArray(), JSON_THROW_ON_ERROR),
         );
     }

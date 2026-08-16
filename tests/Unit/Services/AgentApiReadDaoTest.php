@@ -3,6 +3,8 @@
 namespace Tests\Unit\Services;
 
 use App\DataTransferObjects\AgentApi\ClinicalUpsertData;
+use App\DataTransferObjects\AgentApi\DocumentUploadData;
+use App\Services\AgentApi\Client\AgentApiMultipart;
 use App\Services\AgentApi\Client\AgentApiReadDao;
 use App\Services\AgentApi\Client\AgentApiTransport;
 use App\Services\AgentApi\Client\AgentApiTransportResponse;
@@ -86,6 +88,35 @@ final class AgentApiReadDaoTest extends TestCase
             'data' => ['name' => 'Synthetic typed procedure'],
         ], $transport->json);
     }
+
+    public function test_write_dao_builds_a_typed_multipart_document_upload(): void
+    {
+        $transport = new RecordingAgentApiTransport(new AgentApiTransportResponse(201, [
+            'resource_type' => 'document',
+            'patient_id' => 7,
+            'outcome' => 'created',
+            'data' => ['id' => 12],
+        ]));
+        $dao = new AgentApiWriteDao($transport);
+        $command = DocumentUploadData::fromBase64([
+            'external_id' => 'synthetic-document-id',
+            'filename' => 'synthetic.pdf',
+            'content_base64' => base64_encode('%PDF-1.4 synthetic'),
+            'title' => null,
+            'document_type' => 'lab_report',
+            'observed_at' => null,
+            'summary' => null,
+            'tags' => ['synthetic'],
+        ]);
+
+        $payload = $dao->documentUpload(7, $command)->toArray();
+
+        $this->assertSame('created', $payload['outcome']);
+        $this->assertSame('POST', $transport->method);
+        $this->assertSame('patients/7/documents', $transport->path);
+        $this->assertSame('synthetic-document-id', $transport->multipart?->fields['external_id']);
+        $this->assertSame('%PDF-1.4 synthetic', $transport->multipart?->files['file']->contents);
+    }
 }
 
 final class RecordingAgentApiTransport implements AgentApiTransport
@@ -100,14 +131,22 @@ final class RecordingAgentApiTransport implements AgentApiTransport
     /** @var array<string, mixed>|null */
     public ?array $json = null;
 
+    public ?AgentApiMultipart $multipart = null;
+
     public function __construct(private readonly AgentApiTransportResponse $response) {}
 
-    public function send(string $method, string $path, array $query = [], ?array $json = null): AgentApiTransportResponse
-    {
+    public function send(
+        string $method,
+        string $path,
+        array $query = [],
+        ?array $json = null,
+        ?AgentApiMultipart $multipart = null,
+    ): AgentApiTransportResponse {
         $this->method = $method;
         $this->path = $path;
         $this->query = $query;
         $this->json = $json;
+        $this->multipart = $multipart;
 
         return $this->response;
     }

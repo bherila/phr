@@ -198,6 +198,21 @@
         "responses": { "200": { "description": "Bounded document page", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentListResponse" } } } },
           "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
           "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      },
+      "post": {
+        "operationId": "documents.upload",
+        "summary": "Idempotently upload a patient document",
+        "description": "The external identifier is namespaced to the OAuth client. Exact retries do not rewrite bytes, changed bytes for the same identifier conflict, and same-client content-hash duplicates return the existing document.",
+        "security": [{ "oauth2": ["documents:write"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
+        "requestBody": { "required": true, "content": { "multipart/form-data": { "schema": { "$ref": "#/components/schemas/DocumentUploadRequest" } } } },
+        "responses": {
+          "200": { "description": "Exact retry or same-client content duplicate", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentUploadResponse" } } } },
+          "201": { "description": "Document created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentUploadResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" }
+        }
       }
     },
     "/patients/{patient}/documents/{document}": {
@@ -394,6 +409,7 @@
               "clinical:read": "Read clinical records for patients you can access",
               "clinical:write": "Create and update clinical records you can manage",
               "documents:read": "Read document metadata and download authorized files",
+              "documents:write": "Upload patient documents",
               "mcp:use": "Connect through the PHR MCP server"
             }
           }
@@ -808,6 +824,30 @@
         "pagination": { "$ref": "#/components/schemas/Pagination" } }, "additionalProperties": false },
       "DocumentResponse": { "type": "object", "required": ["resource_type", "patient_id", "data"], "properties": {
         "resource_type": { "const": "document" }, "patient_id": { "type": "integer" }, "data": { "$ref": "#/components/schemas/DocumentMetadata" } }, "additionalProperties": false },
+      "DocumentUploadRequest": {
+        "type": "object",
+        "required": ["external_id", "file", "document_type"],
+        "properties": {
+          "external_id": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^[^\\p{C}]+$" },
+          "file": { "type": "string", "format": "binary", "maxLength": 52428800, "description": "PDF, image, text, or HTML; at most 50 MiB." },
+          "title": { "type": ["string", "null"], "maxLength": 255 },
+          "document_type": { "type": "string", "enum": ["lab_report", "office_visit_note", "clinical_questionnaire", "patient_symptom_log", "discharge_summary", "imaging_report", "prescription", "medical_necessity_letter", "prior_authorization", "insurance", "consent", "care_correspondence", "other"] },
+          "observed_at": { "anyOf": [{ "type": "string", "format": "date" }, { "type": "string", "format": "date-time" }, { "type": "null" }] },
+          "summary": { "type": ["string", "null"], "maxLength": 20000 },
+          "tags": { "type": ["array", "null"], "maxItems": 30, "items": { "type": "string", "maxLength": 50 }, "uniqueItems": true }
+        },
+        "additionalProperties": false
+      },
+      "DocumentUploadResponse": {
+        "type": "object",
+        "required": ["resource_type", "patient_id", "outcome", "data"],
+        "properties": {
+          "resource_type": { "const": "document" }, "patient_id": { "type": "integer" },
+          "outcome": { "type": "string", "enum": ["created", "unchanged", "duplicate"] },
+          "data": { "$ref": "#/components/schemas/DocumentMetadata" }
+        },
+        "additionalProperties": false
+      },
       "DownloadAccess": { "type": "object", "required": ["document_id", "expires_at", "download_url"], "properties": {
         "document_id": { "type": "integer" }, "expires_at": { "type": "string", "format": "date-time" }, "download_url": { "type": "string", "format": "uri" } },
         "additionalProperties": false },
@@ -831,7 +871,7 @@
         "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
       },
       "Conflict": {
-        "description": "Existing record changed; fetch it and retry with its current version",
+        "description": "The supplied stable identity conflicts with existing state, or a mutable record requires its current version",
         "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
       },
       "NotFound": {

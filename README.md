@@ -170,7 +170,7 @@ The official PHP MCP SDK serves Streamable HTTP at `/api/v1/mcp`. An MCP client 
 indicator, and completes the same browser-based PKCE flow as any other remote client.
 The fixed tool catalog maps one-to-one onto typed REST client DAOs; it includes patient
 discovery, unified search/timeline, each core clinical resource, EOB evidence, document
-metadata/download access, and safe office-visit/procedure upserts. MCP handlers do not query models. They issue cookie-free internal
+metadata/download/upload access, and safe office-visit/procedure upserts. MCP handlers do not query models. They issue cookie-free internal
 REST subrequests so the existing scope middleware, patient grants, validation, serializers,
 rate limits, and metadata-only audits remain authoritative.
 
@@ -181,7 +181,7 @@ default; explicitly allow trusted origins with the comma-separated
 `AGENT_API_MCP_ALLOWED_ORIGINS` setting. Direct native MCP clients do not need CORS.
 
 The API registers independently consented data scopes: `identity:read`, `patients:read`,
-`clinical:read`, `clinical:write`, and `documents:read`. Patient discovery returns only
+`clinical:read`, `clinical:write`, `documents:read`, and `documents:write`. Patient discovery returns only
 the caller's own access level and never enumerates other grants or owner identities.
 Core clinical list/get endpoints cover office visits, procedures, immunizations,
 medications, conditions, allergies, labs, vitals, and health logs. Lists use opaque
@@ -192,6 +192,15 @@ projection across those resources. EOBs, EOB lines, and typed evidence links rem
 under `clinical:read`; document metadata and one-minute authorized downloads require
 the separate `documents:read` scope. Every protected response is private and
 non-cacheable.
+
+`documents:write` accepts the same PDF/image/text/HTML multipart uploads and 50 MiB
+ceiling as the browser. A required external ID is namespaced to the OAuth client; exact
+retries are byte-preserving no-ops, changed content under the same identity conflicts,
+and a same-client content-hash duplicate returns the existing document. Provenance is
+recorded as `agent_upload`, and the response includes the current processing state.
+`documents.upload` exposes the same REST operation through MCP using base64 for small
+files only (180,000 encoded characters); clients should use multipart REST for larger
+documents.
 
 `clinical:write` currently enables idempotent `PUT` upserts for office visits and
 procedures. Each stable external ID is namespaced to the OAuth client (the client itself is

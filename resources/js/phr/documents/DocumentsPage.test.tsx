@@ -63,6 +63,17 @@ beforeEach(() => {
 })
 
 describe('DocumentsPage', () => {
+  it('preserves and labels documents uploaded by an authorized agent', async () => {
+    mockGet.mockResolvedValue({
+      documents: [makeDocument({ source: 'agent_upload' })],
+      can_manage: true,
+    })
+
+    render(<DocumentsPage patientId={42} />)
+
+    expect((await screen.findAllByText('Agent Upload')).length).toBeGreaterThan(0)
+  })
+
   it('uses a container query for the internal pane layout', async () => {
     render(<DocumentsPage patientId={42} />)
 

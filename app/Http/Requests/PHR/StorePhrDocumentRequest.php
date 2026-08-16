@@ -3,6 +3,7 @@
 namespace App\Http\Requests\PHR;
 
 use App\Models\PhrDocument;
+use App\Support\PHR\PhrDocumentUploadLimits;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -19,7 +20,7 @@ class StorePhrDocumentRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'file' => ['required', 'file', 'max:51200', 'mimes:pdf,png,jpg,jpeg,gif,webp,tif,tiff,txt,html,htm'],
+            'file' => ['required', 'file', 'max:'.PhrDocumentUploadLimits::MAX_KILOBYTES, 'mimes:pdf,png,jpg,jpeg,gif,webp,tif,tiff,txt,html,htm'],
             'title' => ['nullable', 'string', 'max:255'],
             'document_type' => ['required', 'string', Rule::in(PhrDocument::DOCUMENT_TYPES)],
             'observed_at' => ['nullable', 'date'],
