@@ -4,7 +4,9 @@ use App\Http\Controllers\Api\DevicePairingExchangeController;
 use App\Http\Controllers\Api\UserAiConfigurationController;
 use App\Http\Controllers\Api\UserAiModelsController;
 use App\Http\Controllers\Api\UserDeviceController;
+use App\Http\Controllers\Api\V1\AgentClinicalReadController;
 use App\Http\Controllers\Api\V1\AgentDiscoveryController;
+use App\Http\Controllers\Api\V1\AgentPatientController;
 use App\Http\Controllers\Api\V1\AgentTokenController;
 use App\Http\Controllers\PHR\AllergyController as PHRAllergyController;
 use App\Http\Controllers\PHR\ConditionController as PHRConditionController;
@@ -35,7 +37,9 @@ use App\Http\Controllers\PHR\VitalController as PHRVitalController;
 use App\Http\Middleware\AuditAgentApiRequest;
 use App\Http\Middleware\AuthenticateWebOrMcpRequest;
 use App\Http\Middleware\EnsureOAuthUserCanLogin;
+use App\Http\Middleware\PreventAgentApiResponseCaching;
 use App\Support\AgentApi\AgentApiScopes;
+use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use Illuminate\Support\Facades\Route;
 use Laravel\Passport\Http\Middleware\CheckToken;
 
@@ -44,7 +48,12 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         ->middleware('throttle:60,1')
         ->name('capabilities');
 
-    Route::middleware(['auth:api', AuditAgentApiRequest::class, EnsureOAuthUserCanLogin::class])->group(function (): void {
+    Route::middleware([
+        'auth:api',
+        AuditAgentApiRequest::class,
+        EnsureOAuthUserCanLogin::class,
+        PreventAgentApiResponseCaching::class,
+    ])->group(function (): void {
         // Self-revocation is deliberately outside the ordinary traffic bucket. A
         // saturated API limit must never prevent a client from disconnecting.
         Route::delete('/oauth/token', [AgentTokenController::class, 'destroy'])
@@ -54,6 +63,29 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
             ->middleware('throttle:agent-api')
             ->middleware(CheckToken::using(AgentApiScopes::IDENTITY_READ))
             ->name('me');
+
+        Route::get('/patients', [AgentPatientController::class, 'index'])
+            ->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::PATIENTS_READ))
+            ->name('patients.index');
+        Route::get('/patients/{patient}', [AgentPatientController::class, 'show'])
+            ->whereNumber('patient')
+            ->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::PATIENTS_READ))
+            ->name('patients.show');
+
+        Route::get('/patients/{patient}/{resource}', [AgentClinicalReadController::class, 'index'])
+            ->whereNumber('patient')
+            ->whereIn('resource', AgentClinicalResourceCatalog::ids())
+            ->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))
+            ->name('clinical.index');
+        Route::get('/patients/{patient}/{resource}/{record}', [AgentClinicalReadController::class, 'show'])
+            ->whereNumber(['patient', 'record'])
+            ->whereIn('resource', AgentClinicalResourceCatalog::ids())
+            ->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))
+            ->name('clinical.show');
     });
 });
 

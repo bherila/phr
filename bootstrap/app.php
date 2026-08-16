@@ -10,6 +10,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\ThrottleRequests;
+use Symfony\Component\HttpFoundation\Response;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -47,6 +48,16 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        $exceptions->respond(function (Response $response, Throwable $exception, Request $request): Response {
+            if ($request->is('api/v1/*') && ! $request->is('api/v1/capabilities')) {
+                $response->headers->set('Cache-Control', 'private, no-store, max-age=0');
+                $response->headers->set('Pragma', 'no-cache');
+                $response->headers->set('X-Content-Type-Options', 'nosniff');
+            }
+
+            return $response;
+        });
+
         $exceptions->render(function (AuthenticationException $exception, Request $request) {
             if (! $request->is('api/v1/*')) {
                 return null;

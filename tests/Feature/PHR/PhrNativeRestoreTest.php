@@ -5,6 +5,7 @@ namespace Tests\Feature\PHR;
 use App\Jobs\PHR\ApplyPhrNativeRestoreJob;
 use App\Jobs\PHR\PreviewPhrNativeRestoreJob;
 use App\Models\PhrDocument;
+use App\Models\PhrNativeRecordIdentity;
 use App\Models\PhrNativeRestoreAttempt;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
@@ -161,6 +162,13 @@ final class PhrNativeRestoreTest extends TestCase
             'patient_id' => $attempt->target_patient_root_id,
             'user_id' => $reviewer->id,
         ]);
+        $this->assertGreaterThan(
+            0,
+            PhrNativeRecordIdentity::query()
+                ->where('patient_id', $attempt->target_patient_root_id)
+                ->whereNotNull('restored_at')
+                ->count(),
+        );
         $restoredDocument = PhrDocument::withTrashed()->where('patient_id', $attempt->target_patient_root_id)->sole();
         $this->assertSame($documentBytes, Storage::disk(PhrDocument::STORAGE_DISK)->get((string) $restoredDocument->storage_path));
         $restoredDicom = DB::table('phr_dicom_files')->where('patient_id', $attempt->target_patient_root_id)->sole();
@@ -268,6 +276,26 @@ final class PhrNativeRestoreTest extends TestCase
     {
         $owner = $this->createUser();
         $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        $healthLogId = DB::table('phr_health_logs')->insertGetId([
+            'patient_id' => $patient->id,
+            'user_id' => $owner->id,
+            'created_by_user_id' => $owner->id,
+            'name' => 'Synthetic archived health log',
+            'kind' => 'custom',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $healthLogUpdatedAt = DB::table('phr_health_logs')->where('id', $healthLogId)->value('updated_at');
+        $healthLogEntryId = DB::table('phr_health_log_entries')->insertGetId([
+            'health_log_id' => $healthLogId,
+            'patient_id' => $patient->id,
+            'user_id' => $owner->id,
+            'recorded_by_user_id' => $owner->id,
+            'occurred_at' => now(),
+            'title' => 'Synthetic archived health entry',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
         $conditionId = DB::table('phr_conditions')->insertGetId([
             'patient_id' => $patient->id,
             'user_id' => $owner->id,
@@ -285,10 +313,12 @@ final class PhrNativeRestoreTest extends TestCase
             ->value('native_id');
         $this->assertIsString($nativeId);
         DB::table('phr_conditions')->where('id', $conditionId)->delete();
+        DB::table('phr_health_log_entries')->where('id', $healthLogEntryId)->delete();
 
         $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
         $this->assertSame([], $attempt->plan_counts_json['blockers']);
         $this->assertSame(1, $attempt->plan_counts_json['tables']['phr_conditions']['create']);
+        $this->assertSame(1, $attempt->plan_counts_json['tables']['phr_health_log_entries']['create']);
         $attempt->update(['status' => PhrNativeRestoreAttempt::STATUS_PENDING]);
         app(PhrNativeRestoreService::class)->apply($attempt);
 
@@ -300,6 +330,28 @@ final class PhrNativeRestoreTest extends TestCase
             'record_id' => $restoredId,
             'native_id' => $nativeId,
         ]);
+        $this->assertNotNull(
+            PhrNativeRecordIdentity::query()
+                ->where('patient_id', $patient->id)
+                ->where('record_table', 'phr_conditions')
+                ->where('record_id', $restoredId)
+                ->value('restored_at'),
+        );
+        $attempt->refresh();
+        $healthLogIdentity = PhrNativeRecordIdentity::query()
+            ->where('patient_id', $patient->id)
+            ->where('record_table', 'phr_health_logs')
+            ->where('record_id', $healthLogId)
+            ->sole();
+        $this->assertSame($attempt->id, $healthLogIdentity->restore_attempt_id);
+        $this->assertSame(
+            $attempt->completed_at?->toDateTimeString(),
+            $healthLogIdentity->restored_at?->toDateTimeString(),
+        );
+        $this->assertSame(
+            (string) $healthLogUpdatedAt,
+            (string) DB::table('phr_health_logs')->where('id', $healthLogId)->value('updated_at'),
+        );
         @unlink($archivePath);
     }
 
@@ -318,6 +370,40 @@ final class PhrNativeRestoreTest extends TestCase
         $this->assertNull($attempt->refresh()->source_storage_path);
         $this->assertSame(PhrNativeRestoreAttempt::STATUS_FAILED, $attempt->status);
         $this->assertSame('preview_expired', $attempt->failure_category);
+        @unlink($archivePath);
+    }
+
+    public function test_purge_publishes_a_stale_finalizing_watermark_before_expiring_its_source(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        $archivePath = $this->archiveCopy($patient, (int) $owner->id);
+        $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
+        $storedPath = (string) $attempt->source_storage_path;
+        $identity = PhrNativeRecordIdentity::query()
+            ->where('patient_id', $patient->id)
+            ->where('record_table', 'phr_patients')
+            ->where('record_id', $patient->id)
+            ->sole();
+        $identity->update([
+            'restore_attempt_id' => $attempt->id,
+            'restored_at' => null,
+        ]);
+        $attempt->update([
+            'status' => PhrNativeRestoreAttempt::STATUS_FINALIZING,
+            'expires_at' => now()->subMinute(),
+        ]);
+        DB::table('phr_native_restore_attempts')->where('id', $attempt->id)->update([
+            'updated_at' => now()->subHours(3),
+        ]);
+
+        $this->artisan('phr:native-restores:purge')->assertSuccessful();
+
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_COMPLETED, $attempt->refresh()->status);
+        $this->assertNotNull($attempt->completed_at);
+        $this->assertNotNull($identity->refresh()->restored_at);
+        $this->assertNull($attempt->source_storage_path);
+        Storage::disk('phr_exports')->assertMissing($storedPath);
         @unlink($archivePath);
     }
 

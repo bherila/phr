@@ -268,77 +268,98 @@ final class PhrNativeRestoreService
 
     public function apply(PhrNativeRestoreAttempt $attempt): PhrNativeRestoreAttempt
     {
-        $attempt->update([
-            'status' => PhrNativeRestoreAttempt::STATUS_PROCESSING,
-            'failure_category' => null,
-            'completed_at' => null,
-        ]);
         $written = new PhrNativeRestoreWrittenArtifacts;
+        $graphCommitted = $attempt->status === PhrNativeRestoreAttempt::STATUS_FINALIZING;
         try {
-            if ($attempt->actor_user_id === null
-                || $attempt->source_storage_path === null
-                || $attempt->archive_sha256 === null
-                || $attempt->patient_native_id === null
-                || $attempt->plan_digest === null
-                || $attempt->expires_at->isPast()) {
-                throw new NativeRestoreException('preview_expired');
-            }
-            $archive = $this->reader->openFromStorage($attempt->source_storage_disk, $attempt->source_storage_path);
-            if (! hash_equals($attempt->archive_sha256, $archive->sha256)) {
-                throw new NativeRestoreException('archive_changed');
-            }
+            if (! $graphCommitted) {
+                $attempt->update([
+                    'status' => PhrNativeRestoreAttempt::STATUS_PROCESSING,
+                    'failure_category' => null,
+                    'completed_at' => null,
+                ]);
+                if ($attempt->actor_user_id === null
+                    || $attempt->source_storage_path === null
+                    || $attempt->archive_sha256 === null
+                    || $attempt->patient_native_id === null
+                    || $attempt->plan_digest === null
+                    || $attempt->expires_at->isPast()) {
+                    throw new NativeRestoreException('preview_expired');
+                }
+                $archive = $this->reader->openFromStorage($attempt->source_storage_disk, $attempt->source_storage_path);
+                if (! hash_equals($attempt->archive_sha256, $archive->sha256)) {
+                    throw new NativeRestoreException('archive_changed');
+                }
 
-            try {
-                Cache::lock('phr-native-restore:'.hash('sha256', $attempt->patient_native_id), 3660)->block(30, function () use ($attempt, $archive, $written): void {
-                    DB::transaction(function () use ($attempt, $archive, $written): void {
-                        $lockedAttempt = PhrNativeRestoreAttempt::query()->whereKey($attempt->id)->lockForUpdate()->firstOrFail();
-                        DB::table('users')->where('id', $lockedAttempt->actor_user_id)->lockForUpdate()->first();
-                        if ($lockedAttempt->target_patient_root_id !== null) {
-                            DB::table('phr_patients')->where('id', $lockedAttempt->target_patient_root_id)->lockForUpdate()->first();
-                        }
-                        $plan = $this->planner->plan(
-                            $archive,
-                            (int) $lockedAttempt->actor_user_id,
-                            (bool) $lockedAttempt->restore_access_grants,
-                            lockCurrentRows: true,
-                        );
-                        if (! hash_equals($lockedAttempt->plan_digest, $plan->digest) || $plan->blockers !== []) {
-                            throw new NativeRestoreException('preview_changed');
-                        }
+                try {
+                    Cache::lock('phr-native-restore:'.hash('sha256', $attempt->patient_native_id), 3660)->block(30, function () use ($attempt, $archive, $written, &$graphCommitted): void {
+                        DB::transaction(function () use ($attempt, $archive, $written): void {
+                            $lockedAttempt = PhrNativeRestoreAttempt::query()->whereKey($attempt->id)->lockForUpdate()->firstOrFail();
+                            DB::table('users')->where('id', $lockedAttempt->actor_user_id)->lockForUpdate()->first();
+                            if ($lockedAttempt->target_patient_root_id !== null) {
+                                DB::table('phr_patients')->where('id', $lockedAttempt->target_patient_root_id)->lockForUpdate()->first();
+                            }
+                            $plan = $this->planner->plan(
+                                $archive,
+                                (int) $lockedAttempt->actor_user_id,
+                                (bool) $lockedAttempt->restore_access_grants,
+                                lockCurrentRows: true,
+                            );
+                            if (! hash_equals($lockedAttempt->plan_digest, $plan->digest) || $plan->blockers !== []) {
+                                throw new NativeRestoreException('preview_changed');
+                            }
 
-                        $patientId = $this->applyPlan($archive, $plan, $written);
-                        $lockedAttempt->update([
-                            'target_patient_root_id' => $patientId,
-                            'status' => PhrNativeRestoreAttempt::STATUS_COMPLETED,
-                            'failure_category' => null,
-                            'completed_at' => now(),
-                        ]);
-                    }, 3);
-                });
-            } catch (LockTimeoutException) {
-                throw new NativeRestoreException('restore_busy');
+                            $patientId = $this->applyPlan($archive, $plan, $written, (int) $lockedAttempt->id);
+                            $lockedAttempt->update([
+                                'target_patient_root_id' => $patientId,
+                                // Keep the attempt visibly non-terminal until a
+                                // second transaction publishes the ingestion
+                                // watermark. Pending identities remain included in
+                                // update windows during this brief boundary.
+                                'status' => PhrNativeRestoreAttempt::STATUS_FINALIZING,
+                                'failure_category' => null,
+                                'completed_at' => null,
+                            ]);
+                        }, 3);
+                        $graphCommitted = true;
+                        $this->finalizeRestore((int) $attempt->id);
+                    });
+                } catch (LockTimeoutException) {
+                    throw new NativeRestoreException('restore_busy');
+                }
+            } else {
+                // A retry after the graph transaction committed must only publish
+                // its pending watermarks; replaying artifact writes could corrupt
+                // an otherwise successful restore.
+                $this->finalizeRestore((int) $attempt->id);
             }
         } catch (Throwable $exception) {
-            foreach (array_reverse($written->items) as [$disk, $path]) {
-                try {
-                    Storage::disk($disk)->delete($path);
-                } catch (Throwable) {
-                    // The fixed failure category remains safe; the source keys are
-                    // never copied into logs or audit metadata.
+            if (! $graphCommitted) {
+                foreach (array_reverse($written->items) as [$disk, $path]) {
+                    try {
+                        Storage::disk($disk)->delete($path);
+                    } catch (Throwable) {
+                        // The fixed failure category remains safe; the source keys are
+                        // never copied into logs or audit metadata.
+                    }
                 }
+                $category = $exception instanceof NativeRestoreException ? $exception->failureCategory : 'internal_error';
+                try {
+                    $attempt->update([
+                        'status' => PhrNativeRestoreAttempt::STATUS_FAILED,
+                        'failure_category' => $category,
+                        'completed_at' => now(),
+                    ]);
+                } catch (Throwable) {
+                    // The worker will invoke markQueueFailure if even the fixed audit
+                    // update cannot be persisted.
+                }
+
+                throw new NativeRestoreException($category);
             }
-            $category = $exception instanceof NativeRestoreException ? $exception->failureCategory : 'internal_error';
-            try {
-                $attempt->update([
-                    'status' => PhrNativeRestoreAttempt::STATUS_FAILED,
-                    'failure_category' => $category,
-                    'completed_at' => now(),
-                ]);
-            } catch (Throwable) {
-                // The worker will invoke markQueueFailure if even the fixed audit
-                // update cannot be persisted.
-            }
-            throw new NativeRestoreException($category);
+
+            // The patient graph is already durable. Preserve its artifacts and
+            // finalizing status so the queue can retry only the atomic watermark.
+            throw new NativeRestoreException('internal_error');
         }
 
         // Source retention cleanup is deliberately outside the graph transaction
@@ -357,9 +378,24 @@ final class PhrNativeRestoreService
 
     public function markQueueFailure(int $attemptId): void
     {
+        $attempt = PhrNativeRestoreAttempt::query()->find($attemptId);
+        if ($attempt?->status === PhrNativeRestoreAttempt::STATUS_FINALIZING) {
+            // The graph is already durable; exhausting the worker must not
+            // strand its identities in the pending-watermark state or relabel
+            // it terminal before publication. The purger retries this handoff.
+            $this->finalizePendingRestore($attemptId);
+
+            return;
+        }
+
         PhrNativeRestoreAttempt::query()
             ->whereKey($attemptId)
-            ->whereIn('status', [PhrNativeRestoreAttempt::STATUS_PENDING, PhrNativeRestoreAttempt::STATUS_PROCESSING, PhrNativeRestoreAttempt::STATUS_FAILED])
+            ->whereIn('status', [
+                PhrNativeRestoreAttempt::STATUS_PENDING,
+                PhrNativeRestoreAttempt::STATUS_PROCESSING,
+                PhrNativeRestoreAttempt::STATUS_FINALIZING,
+                PhrNativeRestoreAttempt::STATUS_FAILED,
+            ])
             ->update([
                 'status' => PhrNativeRestoreAttempt::STATUS_FAILED,
                 'failure_category' => 'queue_failed',
@@ -368,8 +404,23 @@ final class PhrNativeRestoreService
             ]);
     }
 
-    private function applyPlan(PhrNativeRestoreArchive $archive, PhrNativeRestorePlan $plan, PhrNativeRestoreWrittenArtifacts $written): int
+    public function finalizePendingRestore(int $attemptId): bool
     {
+        try {
+            $this->finalizeRestore($attemptId);
+
+            return true;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    private function applyPlan(
+        PhrNativeRestoreArchive $archive,
+        PhrNativeRestorePlan $plan,
+        PhrNativeRestoreWrittenArtifacts $written,
+        int $restoreAttemptId,
+    ): int {
         $newIds = [];
         if ($plan->targetPatientId !== null) {
             foreach (PhrNativeRecordIdentity::query()->where('patient_id', $plan->targetPatientId)->get() as $identity) {
@@ -438,10 +489,17 @@ final class PhrNativeRestoreService
                         'record_table' => $table,
                         'record_id' => $newId,
                         'native_id' => $nativeId,
+                        'restored_at' => null,
+                        'restore_attempt_id' => $restoreAttemptId,
                     ]);
                 } else {
-                    $identity->update(['record_id' => $newId]);
+                    $identity->update([
+                        'record_id' => $newId,
+                        'restored_at' => null,
+                        'restore_attempt_id' => $restoreAttemptId,
+                    ]);
                 }
+                $this->markRestoredApiParent($table, $data, $patientId, $restoreAttemptId);
 
                 if (is_array($artifact)) {
                     $disk = $table === 'phr_documents' ? PhrDocument::STORAGE_DISK : 'phr_dicom';
@@ -463,6 +521,56 @@ final class PhrNativeRestoreService
         }
 
         return $patientId;
+    }
+
+    /** @param array<string, mixed> $data */
+    private function markRestoredApiParent(string $table, array $data, int $patientId, int $restoreAttemptId): void
+    {
+        $parent = match ($table) {
+            'phr_patient_user_access' => ['phr_patients', $patientId],
+            'phr_health_log_entries' => ['phr_health_logs', (int) ($data['health_log_id'] ?? 0)],
+            default => null,
+        };
+        if ($parent === null || $parent[1] < 1) {
+            return;
+        }
+
+        PhrNativeRecordIdentity::query()
+            ->where('patient_id', $patientId)
+            ->where('record_table', $parent[0])
+            ->where('record_id', $parent[1])
+            ->update([
+                'restored_at' => null,
+                'restore_attempt_id' => $restoreAttemptId,
+            ]);
+    }
+
+    private function finalizeRestore(int $attemptId): void
+    {
+        DB::transaction(function () use ($attemptId): void {
+            $attempt = PhrNativeRestoreAttempt::query()->whereKey($attemptId)->lockForUpdate()->firstOrFail();
+            if ($attempt->status === PhrNativeRestoreAttempt::STATUS_COMPLETED) {
+                return;
+            }
+            if ($attempt->status !== PhrNativeRestoreAttempt::STATUS_FINALIZING) {
+                throw new NativeRestoreException('internal_error');
+            }
+
+            // This is deliberately sampled after the patient graph transaction
+            // committed. Publishing it atomically with terminal status means the
+            // timestamp never predates visibility; until then, the null watermark
+            // plus restore_attempt_id is treated as pending/new by incremental reads.
+            $visibleAt = now();
+            PhrNativeRecordIdentity::query()
+                ->where('restore_attempt_id', $attemptId)
+                ->whereNull('restored_at')
+                ->update(['restored_at' => $visibleAt]);
+            $attempt->update([
+                'status' => PhrNativeRestoreAttempt::STATUS_COMPLETED,
+                'failure_category' => null,
+                'completed_at' => $visibleAt,
+            ]);
+        }, 3);
     }
 
     /**

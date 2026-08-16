@@ -100,7 +100,7 @@ export const NativeRestoreSchema = z.object({
   id: z.number().int().positive(),
   format: z.literal('phr-native-v1'),
   schema_version: z.literal(1).nullable(),
-  status: z.enum(['uploading', 'preview_pending', 'preview_processing', 'preview_ready', 'pending_restore', 'restore_processing', 'restore_failed', 'completed']),
+  status: z.enum(['uploading', 'preview_pending', 'preview_processing', 'preview_ready', 'pending_restore', 'restore_processing', 'restore_finalizing', 'restore_failed', 'completed']),
   source_file_size_bytes: z.number().int().positive(),
   uploaded_bytes: z.number().int().nonnegative(),
   chunk_size_bytes: z.number().int().positive(),

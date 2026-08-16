@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Support\AgentApi\AgentApiScopes;
+use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Laravel\Passport\AccessToken;
@@ -33,7 +34,17 @@ class AgentDiscoveryController extends Controller
             ],
             'operations' => [
                 'identity.get' => ['available' => true, 'scope' => AgentApiScopes::IDENTITY_READ],
+                'patients.list' => ['available' => true, 'scope' => AgentApiScopes::PATIENTS_READ],
+                'patients.get' => ['available' => true, 'scope' => AgentApiScopes::PATIENTS_READ],
+                'clinical.list' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
+                'clinical.get' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
                 'oauth.disconnect' => ['available' => true, 'scope' => null],
+            ],
+            'clinical_resources' => AgentClinicalResourceCatalog::ids(),
+            'list_filters' => [
+                'common' => ['limit', 'cursor', 'updated_after', 'updated_before'],
+                'clinical_provenance' => ['import_source', 'source_document_id'],
+                'archival' => ['archived'],
             ],
         ])->withHeaders([
             'Cache-Control' => 'public, max-age=300',

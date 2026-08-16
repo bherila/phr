@@ -21,7 +21,7 @@ final class ThrottleAgentApiAuthentication
             return $this->throttle->handle($request, $next, 'agent-api-token-exchange');
         }
 
-        if (! $request->is('api/v1/me', 'api/v1/oauth/token')) {
+        if (! $request->is('api/v1/*') || $request->is('api/v1/capabilities')) {
             return $next($request);
         }
 

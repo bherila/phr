@@ -266,7 +266,15 @@ class AgentApiOAuthFoundationTest extends TestCase
             array_keys($capabilities['scopes']),
         );
         $this->assertSame(
-            ['capabilities.get', 'identity.get', 'oauth.disconnect'],
+            [
+                'capabilities.get',
+                'identity.get',
+                'patients.list',
+                'patients.get',
+                'clinical.list',
+                'clinical.get',
+                'oauth.disconnect',
+            ],
             collect($document['paths'])->flatMap(fn (array $path): array => array_column($path, 'operationId'))->values()->all(),
         );
         $this->assertSame(
@@ -276,6 +284,11 @@ class AgentApiOAuthFoundationTest extends TestCase
         $this->assertSame(
             [],
             $document['paths']['/oauth/token']['delete']['security'][0]['oauth2'],
+        );
+        $this->assertArrayNotHasKey('format', $document['components']['schemas']['LocalDateTime']);
+        $this->assertSame(
+            '^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$',
+            $document['components']['schemas']['LocalDateTime']['pattern'],
         );
         $this->assertArrayHasKey('429', $document['paths']['/oauth/token']['delete']['responses']);
         $this->assertArrayHasKey('429', $document['paths']['/capabilities']['get']['responses']);

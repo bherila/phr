@@ -6,9 +6,11 @@ use App\Models\AgentApiAudit;
 use Closure;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Auth\AuthenticationException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Laravel\Passport\AccessToken;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
@@ -86,6 +88,8 @@ class AuditAgentApiRequest
         return match (true) {
             $exception instanceof AuthenticationException => 401,
             $exception instanceof AuthorizationException => 403,
+            $exception instanceof ModelNotFoundException => 404,
+            $exception instanceof ValidationException => $exception->status,
             $exception instanceof HttpExceptionInterface => $exception->getStatusCode(),
             default => 500,
         };

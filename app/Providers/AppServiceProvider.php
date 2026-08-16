@@ -55,7 +55,11 @@ class AppServiceProvider extends ServiceProvider
         });
 
         RateLimiter::for('agent-api-authentication', function (Request $request): Limit {
-            $endpoint = $request->method().':'.$request->path();
+            // This global limiter runs before routing, so normalize numeric path
+            // parameters ourselves. Otherwise an attacker can reset the budget
+            // merely by changing a patient or record id in the URL.
+            $normalizedPath = preg_replace('#(?<=/)\d+(?=/|$)#', '{id}', $request->path());
+            $endpoint = $request->method().':'.($normalizedPath ?? $request->path());
             $key = hash('sha256', (string) $request->ip()).':'.$endpoint;
 
             return Limit::perMinute((int) config('agent_api.authentication_attempts_per_minute', 300))->by($key);
