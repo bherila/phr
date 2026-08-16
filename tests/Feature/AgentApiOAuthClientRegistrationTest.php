@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use App\Support\AgentApi\AgentApiScopes;
+use App\Support\AgentApi\OAuthAuthorizationStateStore;
 use App\Support\AgentApi\OAuthDynamicClientDao;
 use App\Support\AgentApi\OAuthResourceIndicator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -216,6 +217,21 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         $this->assertSame(
             [OAuthResourceIndicator::agentApi(), OAuthResourceIndicator::agentApi()],
             Token::query()->where('user_id', $user->id)->orderBy('created_at')->pluck('resource_uri')->all(),
+        );
+    }
+
+    public function test_concurrent_approval_reads_keep_the_resource_indicator_bound(): void
+    {
+        $state = app(OAuthAuthorizationStateStore::class);
+        $state->rememberResource('synthetic-concurrent-auth-token', OAuthResourceIndicator::agentApi());
+
+        $this->assertSame(
+            OAuthResourceIndicator::agentApi(),
+            $state->resourceFor('synthetic-concurrent-auth-token'),
+        );
+        $this->assertSame(
+            OAuthResourceIndicator::agentApi(),
+            $state->resourceFor('synthetic-concurrent-auth-token'),
         );
     }
 

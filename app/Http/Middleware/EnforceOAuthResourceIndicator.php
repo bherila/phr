@@ -55,7 +55,7 @@ final class EnforceOAuthResourceIndicator
 
         if ($request->routeIs('passport.authorizations.approve', 'passport.authorizations.deny')) {
             $authToken = $request->input('auth_token');
-            $resource = is_string($authToken) ? $this->authorizationState->pullResource($authToken) : null;
+            $resource = is_string($authToken) ? $this->authorizationState->resourceFor($authToken) : null;
             if (is_string($resource)) {
                 $request->attributes->set(OAuthResourceIndicator::REQUEST_ATTRIBUTE, $resource);
             }

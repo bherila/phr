@@ -22,9 +22,11 @@ final readonly class OAuthAuthorizationStateStore
         );
     }
 
-    public function pullResource(string $authToken): ?string
+    public function resourceFor(string $authToken): ?string
     {
-        $resource = $this->cache->pull($this->key($authToken));
+        // Consent submissions can overlap before Passport consumes its session
+        // token. Keep every valid submission bound to the original audience.
+        $resource = $this->cache->get($this->key($authToken));
 
         return is_string($resource) ? $resource : null;
     }
