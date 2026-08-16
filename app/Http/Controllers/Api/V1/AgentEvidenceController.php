@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
@@ -38,11 +39,12 @@ final class AgentEvidenceController extends Controller
                 $query->where($filter, $validated[$filter]);
             }
         }
+        $eobDate = 'DATE(COALESCE(phr_eobs.processed_date, phr_eobs.submission_date, phr_eobs.print_date))';
         if (isset($validated['date_from'])) {
-            $query->whereDate('processed_date', '>=', $validated['date_from']);
+            $query->whereRaw("{$eobDate} >= ?", [Carbon::parse((string) $validated['date_from'])->toDateString()]);
         }
         if (isset($validated['date_to'])) {
-            $query->whereDate('processed_date', '<=', $validated['date_to']);
+            $query->whereRaw("{$eobDate} <= ?", [Carbon::parse((string) $validated['date_to'])->toDateString()]);
         }
 
         return $this->modelPage($request, $patientId, 'eob', $query, $validated, fn (PhrEob $eob): array => $this->eobPayload($eob));
@@ -175,7 +177,7 @@ final class AgentEvidenceController extends Controller
         return [
             'id' => $eob->id, 'patient_id' => $eob->patient_id,
             'source_document_id' => $eob->source_document_id,
-            'import_source' => $eob->import_source, 'external_id' => $eob->external_id,
+            'import_source' => $eob->import_source, 'external_id' => $this->publicEobExternalId($eob->external_id),
             'claim_number' => $eob->claim_number, 'claim_type' => $eob->claim_type,
             'administrator' => $eob->administrator, 'carrier' => $eob->carrier, 'plan_name' => $eob->plan_name,
             'provider_name' => $eob->provider_name,
@@ -193,6 +195,16 @@ final class AgentEvidenceController extends Controller
             'lines_count' => (int) ($eob->lines_count ?? 0),
             'created_at' => $eob->created_at?->toIso8601String(), 'updated_at' => $eob->updated_at?->toIso8601String(),
         ];
+    }
+
+    private function publicEobExternalId(string $externalId): ?string
+    {
+        // Meritain's internal deduplication key embeds the source PDF SHA-256.
+        // It is not an interoperability identifier and must not cross the
+        // separately consented document boundary through clinical:read.
+        return preg_match('/^eob:meritain:[a-f0-9]{64}$/iD', $externalId) === 1
+            ? null
+            : $externalId;
     }
 
     /** @return array<string, mixed> */

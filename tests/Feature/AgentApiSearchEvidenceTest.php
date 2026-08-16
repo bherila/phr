@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\GenAiProcessor\Models\GenAiImportJob;
 use App\Models\PhrAllergy;
 use App\Models\PhrDocument;
 use App\Models\PhrEob;
@@ -13,6 +14,7 @@ use App\Models\PhrProcedure;
 use App\Models\User;
 use App\Support\AgentApi\AgentApiScopes;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
@@ -106,7 +108,8 @@ class AgentApiSearchEvidenceTest extends TestCase
         $eob = PhrEob::query()->create([
             'patient_id' => $patient->id, 'user_id' => $actor->id,
             'source_document_id' => $document->id, 'import_source' => 'synthetic-eob',
-            'external_id' => 'synthetic-claim', 'claim_number' => 'SYNTHETIC-001',
+            'external_id' => 'eob:meritain:'.str_repeat('a', 64), 'claim_number' => 'SYNTHETIC-001',
+            'submission_date' => '2026-08-10',
             'raw_text' => 'Synthetic raw parser payload', 'parsed_data' => ['secret' => 'synthetic'],
         ]);
         $line = PhrEobLine::query()->create([
@@ -123,11 +126,16 @@ class AgentApiSearchEvidenceTest extends TestCase
 
         Passport::actingAs($actor, [AgentApiScopes::CLINICAL_READ]);
         $response = $this->getJson("/api/v1/patients/{$patient->id}/eobs/{$eob->id}")
-            ->assertOk()->assertJsonPath('data.lines_count', 1)->json();
+            ->assertOk()->assertJsonPath('data.lines_count', 1)
+            ->assertJsonPath('data.external_id', null)->json();
         $encoded = json_encode($response, JSON_THROW_ON_ERROR);
         foreach (['raw_text', 'parsed_data', 'member'.'_id', 'provider_tin', 'check_number', 'user_id'] as $forbidden) {
             $this->assertStringNotContainsString($forbidden, $encoded);
         }
+        $this->assertStringNotContainsString(str_repeat('a', 64), $encoded);
+        $this->getJson("/api/v1/patients/{$patient->id}/eobs?date_from=2026-08-10&date_to=2026-08-10")
+            ->assertOk()->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $eob->id);
         $this->getJson("/api/v1/patients/{$patient->id}/eobs/{$eob->id}/lines/{$line->id}")
             ->assertOk()->assertJsonPath('data.procedure_code', 'D0000');
         $links = $this->getJson("/api/v1/patients/{$patient->id}/evidence-links?resource_type=eob&resource_id={$eob->id}&limit=2")
@@ -150,6 +158,7 @@ class AgentApiSearchEvidenceTest extends TestCase
         $patient = $this->patient($actor, 'Synthetic Document Patient');
         $hiddenPatient = $this->patient($other, 'Synthetic Hidden Document Patient');
         $document = $this->document($patient, $actor, 'patient/'.$patient->id.'/synthetic.pdf');
+        $document->update(['tags' => ['Cardiology']]);
         Storage::disk(PhrDocument::STORAGE_DISK)->put((string) $document->storage_path, 'synthetic-file-bytes');
         $hidden = $this->document($hiddenPatient, $other, 'patient/'.$hiddenPatient->id.'/hidden.pdf');
 
@@ -162,6 +171,9 @@ class AgentApiSearchEvidenceTest extends TestCase
         foreach (['storage_path', 'storage_disk', 'file_hash', 'extracted_text', 'user_id', 'genai_job_id'] as $forbidden) {
             $this->assertStringNotContainsString($forbidden, $encoded);
         }
+        $this->getJson("/api/v1/patients/{$patient->id}/documents?tag=cardiology")
+            ->assertOk()->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $document->id);
         $access = $this->postJson("/api/v1/patients/{$patient->id}/documents/{$document->id}/download-access")
             ->assertOk()->json();
         $this->assertTrue(URL::hasValidSignature(request()->create($access['download_url'])));
@@ -174,6 +186,31 @@ class AgentApiSearchEvidenceTest extends TestCase
         $unsigned = "/api/v1/patients/{$patient->id}/documents/{$document->id}/file";
         $this->get($unsigned)->assertForbidden();
         $this->getJson("/api/v1/patients/{$patient->id}/documents/{$hidden->id}")->assertNotFound();
+    }
+
+    public function test_document_update_windows_include_linked_processing_job_transitions(): void
+    {
+        $actor = $this->user('document-window-reader@example.test');
+        $patient = $this->patient($actor, 'Synthetic Document Window Patient');
+        $this->travelTo(Carbon::parse('2026-08-16 10:00:00'));
+        $job = GenAiImportJob::query()->create([
+            'user_id' => $actor->id, 'job_type' => 'phr_document',
+            'file_hash' => str_repeat('b', 64), 'original_filename' => 'synthetic-window.pdf',
+            's3_path' => 'synthetic/window.pdf', 'file_size_bytes' => 10, 'status' => 'pending',
+        ]);
+        $document = $this->document($patient, $actor, 'patient/'.$patient->id.'/window.pdf');
+        $document->update(['genai_job_id' => $job->id]);
+
+        $this->travelTo(Carbon::parse('2026-08-16 11:00:00'));
+        $job->update(['status' => 'processing']);
+        Passport::actingAs($actor, [AgentApiScopes::DOCUMENTS_READ]);
+        $this->getJson("/api/v1/patients/{$patient->id}/documents?updated_after=2026-08-16T10:30:00Z")
+            ->assertOk()->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $document->id)
+            ->assertJsonPath('data.0.processing_state', 'processing');
+        $this->getJson("/api/v1/patients/{$patient->id}/documents?updated_before=2026-08-16T10:30:00Z")
+            ->assertOk()->assertJsonCount(0, 'data');
+        $this->travelBack();
     }
 
     private function user(string $email): User

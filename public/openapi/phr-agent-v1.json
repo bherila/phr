@@ -553,7 +553,7 @@
         "required": ["id", "patient_id", "source_document_id", "import_source", "external_id", "claim_type", "lines_count", "created_at", "updated_at"],
         "properties": {
           "id": { "type": "integer" }, "patient_id": { "type": "integer" }, "source_document_id": { "type": ["integer", "null"] },
-          "import_source": { "type": "string" }, "external_id": { "type": "string" }, "claim_number": { "type": ["string", "null"] },
+          "import_source": { "type": "string" }, "external_id": { "type": ["string", "null"], "description": "Null when the internal deduplication key embeds a source-document content hash." }, "claim_number": { "type": ["string", "null"] },
           "claim_type": { "type": "string" }, "administrator": { "type": ["string", "null"] }, "carrier": { "type": ["string", "null"] },
           "plan_name": { "type": ["string", "null"] }, "provider_name": { "type": ["string", "null"] },
           "submission_date": { "type": ["string", "null"], "format": "date" }, "print_date": { "type": ["string", "null"], "format": "date" },

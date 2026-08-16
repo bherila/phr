@@ -7,8 +7,10 @@ use App\Models\PhrDocument;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Support\AgentApi\AgentApiCursor;
 use App\Support\AgentApi\AgentApiUpdateWindow;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Validation\Rule;
@@ -33,7 +35,7 @@ final class AgentDocumentController extends Controller
         ]);
         $patientId = $this->patientId($request, $patient);
         $query = PhrDocument::query()->where('patient_id', $patientId)->with('genAiJob:id,status');
-        AgentApiUpdateWindow::apply($query, $validated, $query->getModel()->qualifyColumn('patient_id'));
+        $this->applyUpdateWindow($query, $validated);
         foreach (['document_type', 'source'] as $filter) {
             if (isset($validated[$filter])) {
                 $query->where($filter, $validated[$filter]);
@@ -46,11 +48,19 @@ final class AgentDocumentController extends Controller
             $query->whereDate('observed_at', '<=', $validated['date_to']);
         }
         if (isset($validated['tag'])) {
-            // JSON containment is not portable between the SQLite test suite and
-            // MariaDB for case-folded values. Browser writes normalize tags, and
-            // this exact JSON predicate remains parameterized and index-bounded by
-            // patient before evaluation.
-            $query->whereJsonContains('tags', (string) $validated['tag']);
+            $tag = mb_strtolower((string) $validated['tag']);
+            if ($query->getModel()->getConnection()->getDriverName() === 'sqlite') {
+                $query->whereRaw(
+                    'EXISTS (SELECT 1 FROM json_each(phr_documents.tags) AS agent_tags WHERE LOWER(agent_tags.value) = ?)',
+                    [$tag],
+                );
+            } else {
+                $escapedTag = str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $tag);
+                $query->whereRaw(
+                    "JSON_SEARCH(LOWER(phr_documents.tags), 'one', ?, '!', '$[*]') IS NOT NULL",
+                    [$escapedTag],
+                );
+            }
         }
         $limit = (int) ($validated['limit'] ?? 25);
         $page = $query->orderBy('id')->cursorPaginate(
@@ -141,6 +151,36 @@ final class AgentDocumentController extends Controller
             && Storage::disk(PhrDocument::STORAGE_DISK)->exists($document->storage_path),
             404,
         );
+    }
+
+    /**
+     * A document's processing_state is owned by its related GenAI job. Treat
+     * that timestamp as part of the document's effective update watermark so
+     * polling clients cannot miss a state transition that did not touch the
+     * document row. Native-restore ingestion remains part of the document-side
+     * window through AgentApiUpdateWindow.
+     *
+     * @param  Builder<PhrDocument>  $query
+     * @param  array<string, mixed>  $validated
+     */
+    private function applyUpdateWindow(Builder $query, array $validated): void
+    {
+        $patientColumn = $query->getModel()->qualifyColumn('patient_id');
+        if (isset($validated['updated_after'])) {
+            $after = Carbon::parse((string) $validated['updated_after'])->utc();
+            $query->where(function (Builder $window) use ($after, $patientColumn): void {
+                AgentApiUpdateWindow::apply($window, ['updated_after' => $after], $patientColumn);
+                $window->orWhereHas('genAiJob', fn (Builder $job): Builder => $job->where('updated_at', '>=', $after));
+            });
+        }
+        if (isset($validated['updated_before'])) {
+            $before = Carbon::parse((string) $validated['updated_before'])->utc();
+            AgentApiUpdateWindow::apply($query, ['updated_before' => $before], $patientColumn);
+            $query->where(function (Builder $window) use ($before): void {
+                $window->whereNull('genai_job_id')
+                    ->orWhereHas('genAiJob', fn (Builder $job): Builder => $job->where('updated_at', '<=', $before));
+            });
+        }
     }
 
     /** @return array<string, mixed> */
