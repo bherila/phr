@@ -28,8 +28,8 @@ return new class extends Migration
             $table->boolean('restore_access_grants')->default(false);
             $table->string('status', 32);
             $table->string('failure_category', 64)->nullable();
-            $table->timestamp('expires_at');
-            $table->timestamp('completed_at')->nullable();
+            $table->dateTime('expires_at');
+            $table->dateTime('completed_at')->nullable();
             $table->timestamps();
 
             $table->index(['actor_user_id', 'status'], 'phr_native_restores_actor_status_idx');

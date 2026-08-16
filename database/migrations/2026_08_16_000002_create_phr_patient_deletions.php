@@ -25,8 +25,8 @@ return new class extends Migration
             $table->unsignedBigInteger('artifact_bytes');
             $table->string('status', 32);
             $table->string('failure_category', 64)->nullable();
-            $table->timestamp('deleted_at');
-            $table->timestamp('completed_at')->nullable();
+            $table->dateTime('deleted_at');
+            $table->dateTime('completed_at')->nullable();
             $table->timestamps();
 
             $table->index(['actor_user_id', 'created_at'], 'phr_patient_deletions_actor_created_idx');
@@ -43,7 +43,7 @@ return new class extends Migration
             $table->unsignedBigInteger('expected_bytes')->nullable();
             $table->unsignedInteger('attempt_count')->default(0);
             $table->string('status', 24)->default('pending');
-            $table->timestamp('last_attempt_at')->nullable();
+            $table->dateTime('last_attempt_at')->nullable();
             $table->timestamps();
 
             $table->unique(

@@ -20,9 +20,13 @@ return new class extends Migration
             $table->string('destination_key', 1024);
             $table->unsignedBigInteger('source_size_bytes');
             $table->char('source_sha256', 64);
-            $table->timestamp('migrated_at');
-            $table->timestamp('retain_until');
-            $table->timestamp('legacy_deleted_at')->nullable();
+            // cPanel's MariaDB configuration rejects consecutive non-null
+            // TIMESTAMP columns because it assigns an invalid implicit zero
+            // default to the second one. These are application timestamps, so
+            // DATETIME preserves the intended values without server defaults.
+            $table->dateTime('migrated_at');
+            $table->dateTime('retain_until');
+            $table->dateTime('legacy_deleted_at')->nullable();
             $table->timestamps();
 
             $table->unique(
