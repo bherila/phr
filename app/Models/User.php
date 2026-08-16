@@ -20,6 +20,7 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Laravel\Passport\Contracts\OAuthenticatable;
 use Laravel\Passport\HasApiTokens;
+use Laravel\Passport\Passport;
 
 /**
  * @property Carbon|null $mcp_api_key_expires_at
@@ -32,7 +33,14 @@ class User extends Authenticatable implements OAuthenticatable
 
     protected static function booted(): void
     {
+        static::updated(function (User $user): void {
+            if ($user->wasChanged('user_role') && ! $user->canLogin()) {
+                $user->revokeOAuthTokens();
+            }
+        });
+
         static::deleting(function (User $user): void {
+            $user->revokeOAuthTokens();
             // Data Hub audits retain operation proof but anonymize the actor when
             // a full account is removed. Neither table has clinical/free text.
             DB::table('phr_native_backup_audits')->where('actor_user_id', $user->id)->update(['actor_user_id' => null]);
@@ -159,6 +167,36 @@ class User extends Authenticatable implements OAuthenticatable
             'mcp_api_key_expires_at' => null,
             'mcp_api_key_last_used_at' => null,
         ])->save();
+    }
+
+    /**
+     * Revoke every OAuth access/refresh token when this account is disabled or
+     * deleted. The table guard keeps user lifecycle operations safe before the
+     * Passport migration has run during an initial deployment.
+     */
+    public function revokeOAuthTokens(): void
+    {
+        if (! Schema::hasTable('oauth_access_tokens')) {
+            return;
+        }
+
+        $tokenIds = Passport::token()->newQuery()
+            ->where('user_id', $this->getAuthIdentifier())
+            ->pluck('id');
+
+        if ($tokenIds->isEmpty()) {
+            return;
+        }
+
+        if (Schema::hasTable('oauth_refresh_tokens')) {
+            Passport::refreshToken()->newQuery()
+                ->whereIn('access_token_id', $tokenIds)
+                ->update(['revoked' => true]);
+        }
+
+        Passport::token()->newQuery()
+            ->whereIn('id', $tokenIds)
+            ->update(['revoked' => true]);
     }
 
     /**

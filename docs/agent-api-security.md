@@ -27,8 +27,11 @@ Interactive clients use Authorization Code with S256 PKCE. Access tokens expire 
 15 minutes. Refresh tokens expire after 30 days and are revoked when exchanged, so a
 successful refresh rotates the credential. Password and implicit grants are disabled.
 
-The client can immediately disconnect itself with `DELETE /api/v1/oauth/token`; this
-revokes both the current access token and its associated refresh token. An account
+The client can immediately disconnect itself with `DELETE /api/v1/oauth/token`; any
+authenticated token may revoke itself even without an identity scope. This revokes
+both the current access token and its associated refresh token. Disabling or deleting
+an account revokes all of its token families, and the bearer/refresh paths also reject
+an account that no longer has login permission. An account
 operator can also revoke a client token from the application database using Passport's
 token models. If a signing key may have escaped, revoke all active OAuth tokens before
 replacing the key pair. Key replacement invalidates every outstanding access token and

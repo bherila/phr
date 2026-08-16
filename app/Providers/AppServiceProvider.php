@@ -2,11 +2,13 @@
 
 namespace App\Providers;
 
+use App\Support\AgentApi\AccountAwareRefreshTokenRepository;
 use App\Support\AgentApi\AgentApiScopes;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Laravel\Passport\Bridge\RefreshTokenRepository;
 use Laravel\Passport\Passport;
 
 class AppServiceProvider extends ServiceProvider
@@ -19,6 +21,7 @@ class AppServiceProvider extends ServiceProvider
         // Registration runs before package providers boot, so this prevents the
         // unused device-code routes and grant from being registered at all.
         Passport::$deviceCodeGrantEnabled = false;
+        $this->app->bind(RefreshTokenRepository::class, AccountAwareRefreshTokenRepository::class);
     }
 
     /**

@@ -30,7 +30,7 @@ class AgentDiscoveryController extends Controller
             ],
             'operations' => [
                 'identity.get' => ['available' => true, 'scope' => AgentApiScopes::IDENTITY_READ],
-                'oauth.disconnect' => ['available' => true, 'scope' => AgentApiScopes::IDENTITY_READ],
+                'oauth.disconnect' => ['available' => true, 'scope' => null],
                 'patients.list' => ['available' => false, 'scope' => AgentApiScopes::PATIENTS_READ],
                 'patients.get' => ['available' => false, 'scope' => AgentApiScopes::PATIENTS_READ],
                 'records.search' => ['available' => false, 'scope' => AgentApiScopes::CLINICAL_READ],

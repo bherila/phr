@@ -3,12 +3,16 @@
 namespace Tests\Feature;
 
 use App\Models\AgentApiAudit;
+use App\Models\User;
+use App\Support\AgentApi\AccountAwareRefreshTokenRepository;
 use App\Support\AgentApi\AgentApiScopes;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Laravel\Passport\AccessToken;
+use Laravel\Passport\Bridge\RefreshTokenRepository as PassportRefreshTokenRepository;
 use Laravel\Passport\Client;
 use Laravel\Passport\Passport;
 use Laravel\Passport\RefreshToken;
@@ -130,6 +134,8 @@ class AgentApiOAuthFoundationTest extends TestCase
             'code' => $redirectQuery['code'],
         ])->assertOk()->json();
         $this->assertSame(900, $issued['expires_in']);
+        $originalAccessToken = Token::query()->where('user_id', $user->id)->sole();
+        $originalRefreshToken = RefreshToken::query()->where('access_token_id', $originalAccessToken->id)->sole();
 
         $this->withToken($issued['access_token'])->getJson('/api/v1/me')
             ->assertOk()
@@ -141,6 +147,8 @@ class AgentApiOAuthFoundationTest extends TestCase
             'refresh_token' => $issued['refresh_token'],
         ])->assertOk()->json();
         $this->assertNotSame($issued['refresh_token'], $rotated['refresh_token']);
+        $this->assertTrue($originalAccessToken->fresh()->revoked);
+        $this->assertTrue($originalRefreshToken->fresh()->revoked);
 
         Auth::forgetGuards();
         $this->withToken($issued['access_token'])->getJson('/api/v1/me')->assertUnauthorized();
@@ -262,7 +270,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             'user_id' => $user->id,
             'client_id' => $client->id,
             'name' => null,
-            'scopes' => [AgentApiScopes::IDENTITY_READ],
+            'scopes' => [AgentApiScopes::PATIENTS_READ],
             'revoked' => false,
             'expires_at' => now()->addMinutes(15),
         ]);
@@ -273,12 +281,12 @@ class AgentApiOAuthFoundationTest extends TestCase
             'expires_at' => now()->addDays(30),
         ]);
 
-        Passport::actingAs($user, [AgentApiScopes::IDENTITY_READ], 'api', $client);
+        Passport::actingAs($user, [AgentApiScopes::PATIENTS_READ], 'api', $client);
         $user->withAccessToken(new AccessToken([
             'oauth_access_token_id' => $tokenId,
             'oauth_client_id' => $client->id,
             'oauth_user_id' => (string) $user->id,
-            'oauth_scopes' => [AgentApiScopes::IDENTITY_READ],
+            'oauth_scopes' => [AgentApiScopes::PATIENTS_READ],
         ]));
         Auth::guard('api')->setUser($user);
 
@@ -298,7 +306,98 @@ class AgentApiOAuthFoundationTest extends TestCase
         }
 
         $this->getJson('/api/v1/me')->assertTooManyRequests();
-        $this->assertDatabaseCount('agent_api_audits', 120);
+        $this->assertDatabaseCount('agent_api_audits', 121);
+        $this->assertDatabaseHas('agent_api_audits', [
+            'route_name' => 'agent-api.v1.me',
+            'response_status' => 429,
+        ]);
+    }
+
+    public function test_disabled_accounts_cannot_use_bearer_or_refresh_tokens(): void
+    {
+        // User id 1 is intentionally always an administrator and cannot be disabled.
+        $this->createAdminUser();
+        $user = $this->createUser();
+        $client = Client::query()->create([
+            'name' => 'Synthetic Disabled Account Client',
+            'secret' => null,
+            'provider' => 'users',
+            'redirect_uris' => ['https://client.example.test/callback'],
+            'grant_types' => ['authorization_code', 'refresh_token'],
+            'revoked' => false,
+        ]);
+        $token = Token::query()->create([
+            'id' => Str::random(80),
+            'user_id' => $user->id,
+            'client_id' => $client->id,
+            'name' => null,
+            'scopes' => [AgentApiScopes::IDENTITY_READ],
+            'revoked' => false,
+            'expires_at' => now()->addMinutes(15),
+        ]);
+        $refresh = RefreshToken::query()->create([
+            'id' => Str::random(80),
+            'access_token_id' => $token->id,
+            'revoked' => false,
+            'expires_at' => now()->addDays(30),
+        ]);
+
+        Passport::actingAs($user, [AgentApiScopes::IDENTITY_READ], 'api', $client);
+        $this->getJson('/api/v1/me')->assertOk();
+
+        $user->forceFill(['user_role' => ''])->save();
+        $this->assertFalse($user->canLogin());
+        $this->assertSame(1, Passport::token()->newQuery()->where('user_id', $user->id)->count());
+        $this->assertTrue($token->fresh()->revoked);
+        $this->assertTrue($refresh->fresh()->revoked);
+
+        Passport::actingAs($user->fresh(), [AgentApiScopes::IDENTITY_READ], 'api', $client);
+        $this->getJson('/api/v1/me')->assertUnauthorized();
+        $this->assertDatabaseHas('agent_api_audits', [
+            'actor_user_id' => $user->id,
+            'route_name' => 'agent-api.v1.me',
+            'response_status' => 401,
+        ]);
+    }
+
+    public function test_refresh_repository_fails_closed_when_account_was_disabled_outside_eloquent(): void
+    {
+        // User id 1 is intentionally always an administrator and cannot be disabled.
+        $this->createAdminUser();
+        $user = $this->createUser();
+        $client = Client::query()->create([
+            'name' => 'Synthetic Refresh Guard Client',
+            'secret' => null,
+            'provider' => 'users',
+            'redirect_uris' => ['https://client.example.test/callback'],
+            'grant_types' => ['authorization_code', 'refresh_token'],
+            'revoked' => false,
+        ]);
+        $token = Token::query()->create([
+            'id' => Str::random(80),
+            'user_id' => $user->id,
+            'client_id' => $client->id,
+            'name' => null,
+            'scopes' => [AgentApiScopes::IDENTITY_READ],
+            'revoked' => false,
+            'expires_at' => now()->addMinutes(15),
+        ]);
+        $refresh = RefreshToken::query()->create([
+            'id' => Str::random(80),
+            'access_token_id' => $token->id,
+            'revoked' => false,
+            'expires_at' => now()->addDays(30),
+        ]);
+
+        DB::table('users')->where('id', $user->id)->update(['user_role' => '']);
+        $this->assertFalse(User::query()->findOrFail($user->id)->canLogin());
+        $this->assertSame($user->id, $token->fresh()->user_id);
+
+        $repository = app(PassportRefreshTokenRepository::class);
+        $this->assertInstanceOf(AccountAwareRefreshTokenRepository::class, $repository);
+        $this->assertTrue($repository->isRefreshTokenRevoked($refresh->id));
+        $this->assertTrue($token->fresh()->revoked);
+        $this->assertTrue($refresh->fresh()->revoked);
     }
 
     private function intervalSeconds(\DateInterval $interval): int

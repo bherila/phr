@@ -6,7 +6,7 @@
     "description": "Versioned OAuth API for authorized PHR automation clients. Responses containing personal data are private and non-cacheable."
   },
   "servers": [
-    { "url": "https://phr.bherila.net/api/v1" }
+    { "url": "/api/v1" }
   ],
   "paths": {
     "/capabilities": {
@@ -26,7 +26,7 @@
       "get": {
         "operationId": "identity.get",
         "summary": "Get the authorized identity and granted scopes",
-        "security": [{ "oauth2": ["identity:read"] }],
+        "security": [{ "oauth2": [] }],
         "responses": {
           "200": {
             "description": "Authorized identity",
@@ -58,9 +58,9 @@
         "description": "OAuth 2.1 Authorization Code with S256 PKCE. Access tokens expire after 15 minutes and refresh tokens rotate on use.",
         "flows": {
           "authorizationCode": {
-            "authorizationUrl": "https://phr.bherila.net/oauth/authorize",
-            "tokenUrl": "https://phr.bherila.net/oauth/token",
-            "refreshUrl": "https://phr.bherila.net/oauth/token",
+            "authorizationUrl": "/oauth/authorize",
+            "tokenUrl": "/oauth/token",
+            "refreshUrl": "/oauth/token",
             "scopes": {
               "identity:read": "Read account identity and granted scopes",
               "patients:read": "List and read accessible patients",
@@ -99,7 +99,7 @@
         "required": ["available", "scope"],
         "properties": {
           "available": { "type": "boolean" },
-          "scope": { "type": "string" }
+          "scope": { "type": ["string", "null"] }
         },
         "additionalProperties": false
       },

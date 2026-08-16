@@ -1,9 +1,11 @@
 <?php
 
+use App\Http\Middleware\AuditAgentApiRequest;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Middleware\ThrottleRequests;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -13,6 +15,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Agent API audits must wrap throttling so rejected 429 attempts retain the
+        // same metadata-only evidence as successful authenticated requests.
+        $middleware->prependToPriorityList(ThrottleRequests::class, AuditAgentApiRequest::class);
+
         // PHR respiratory-events / Sinus Sentinel device ingest authenticates via bearer
         // token (AuthenticateWebOrMcpRequest) and carries no session/CSRF token. These
         // routes still sit in the `web` group for session support, so exempt the write

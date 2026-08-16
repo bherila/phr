@@ -34,6 +34,7 @@ use App\Http\Controllers\PHR\SinusSettingsController as PHRSinusSettingsControll
 use App\Http\Controllers\PHR\VitalController as PHRVitalController;
 use App\Http\Middleware\AuditAgentApiRequest;
 use App\Http\Middleware\AuthenticateWebOrMcpRequest;
+use App\Http\Middleware\EnsureOAuthUserCanLogin;
 use App\Support\AgentApi\AgentApiScopes;
 use Illuminate\Support\Facades\Route;
 use Laravel\Passport\Http\Middleware\CheckToken;
@@ -43,12 +44,11 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         ->middleware('throttle:60,1')
         ->name('capabilities');
 
-    Route::middleware(['auth:api', AuditAgentApiRequest::class, 'throttle:agent-api'])->group(function (): void {
+    Route::middleware(['auth:api', AuditAgentApiRequest::class, EnsureOAuthUserCanLogin::class, 'throttle:agent-api'])->group(function (): void {
         Route::get('/me', [AgentDiscoveryController::class, 'me'])
             ->middleware(CheckToken::using(AgentApiScopes::IDENTITY_READ))
             ->name('me');
         Route::delete('/oauth/token', [AgentTokenController::class, 'destroy'])
-            ->middleware(CheckToken::using(AgentApiScopes::IDENTITY_READ))
             ->name('oauth-token.destroy');
     });
 });
