@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Services\AgentApi\Client\AgentApiTransport;
+use App\Services\AgentApi\Client\InternalAgentApiTransport;
 use App\Support\AgentApi\AccountAwareAccessTokenRepository;
 use App\Support\AgentApi\AccountAwareAuthCodeRepository;
 use App\Support\AgentApi\AccountAwareRefreshTokenRepository;
@@ -26,6 +28,7 @@ class AppServiceProvider extends ServiceProvider
         // Registration runs before package providers boot, so this prevents the
         // unused device-code routes and grant from being registered at all.
         Passport::$deviceCodeGrantEnabled = false;
+        $this->app->bind(AgentApiTransport::class, InternalAgentApiTransport::class);
         $this->app->bind(AccessTokenRepository::class, AccountAwareAccessTokenRepository::class);
         $this->app->bind(AuthCodeRepository::class, AccountAwareAuthCodeRepository::class);
         $this->app->bind(RefreshTokenRepository::class, AccountAwareRefreshTokenRepository::class);

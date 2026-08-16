@@ -16,6 +16,7 @@ class AgentDiscoveryController extends Controller
         return response()->json([
             'api_version' => 'v1',
             'openapi_url' => url('/openapi/phr-agent-v1.json'),
+            'mcp_url' => url('/api/v1/mcp'),
             'oauth' => [
                 'authorization_server_metadata' => url('/.well-known/oauth-authorization-server'),
                 'protected_resource_metadata' => url('/.well-known/oauth-protected-resource/api/v1'),
@@ -30,6 +31,8 @@ class AgentDiscoveryController extends Controller
                 'token_exchange_attempts_per_minute' => config('agent_api.token_exchange_attempts_per_minute', 60),
                 'authorization_attempts_per_minute' => config('agent_api.authorization_attempts_per_minute', 30),
                 'client_registrations_per_hour' => config('agent_api.client_registrations_per_hour', 10),
+                'mcp_max_body_bytes' => config('agent_api.mcp_max_body_bytes', 262_144),
+                'mcp_session_ttl_seconds' => config('agent_api.mcp_session_ttl_seconds', 1800),
                 'default_page_size' => 25,
                 'maximum_page_size' => 100,
             ],
@@ -51,6 +54,9 @@ class AgentDiscoveryController extends Controller
                 'documents.get' => ['available' => true, 'scope' => AgentApiScopes::DOCUMENTS_READ],
                 'documents.download_access.create' => ['available' => true, 'scope' => AgentApiScopes::DOCUMENTS_READ],
                 'documents.download' => ['available' => true, 'scope' => AgentApiScopes::DOCUMENTS_READ],
+                'mcp.connect' => ['available' => true, 'scope' => AgentApiScopes::MCP_USE],
+                'mcp.exchange' => ['available' => true, 'scope' => AgentApiScopes::MCP_USE],
+                'mcp.session.delete' => ['available' => true, 'scope' => AgentApiScopes::MCP_USE],
                 'oauth.disconnect' => ['available' => true, 'scope' => null],
             ],
             'clinical_resources' => AgentClinicalResourceCatalog::ids(),

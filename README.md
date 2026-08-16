@@ -152,7 +152,8 @@ lost.
 
 The versioned agent surface begins at `/api/v1`. Public discovery is available at
 `/.well-known/oauth-authorization-server`, `/.well-known/oauth-protected-resource`,
-and `/api/v1/capabilities`; its OpenAPI 3.1 contract is
+`/.well-known/oauth-protected-resource/api/v1/mcp`, and `/api/v1/capabilities`;
+its OpenAPI 3.1 contract is
 [`public/openapi/phr-agent-v1.json`](public/openapi/phr-agent-v1.json). Interactive
 clients use OAuth Authorization Code with S256 PKCE, 15-minute access tokens, and
 rotating 30-day refresh tokens. The legacy Sinus Sentinel device credentials above
@@ -162,8 +163,22 @@ Remote public clients can register at `/oauth/register`; registrations accept on
 authorization-code/refresh grants, no client secret, and HTTPS or local-loopback
 redirects. Clients may bind authorization, token, and refresh requests to the
 `/api/v1` resource indicator. Unused dynamic registrations are pruned after one day by
-the existing OAuth credential maintenance job. The reserved `mcp:use` scope is activated
-only when the corresponding MCP transport endpoint is deployed.
+the existing OAuth credential maintenance job.
+
+The official PHP MCP SDK serves Streamable HTTP at `/api/v1/mcp`. An MCP client requests
+`mcp:use` plus only the REST data scopes it needs, uses the canonical `/api/v1` resource
+indicator, and completes the same browser-based PKCE flow as any other remote client.
+The fixed read-only tool catalog maps one-to-one onto the REST client; it includes patient
+discovery, unified search/timeline, each core clinical resource, EOB evidence, and document
+metadata/download access. MCP handlers do not query models. They issue cookie-free internal
+REST subrequests so the existing scope middleware, patient grants, validation, serializers,
+rate limits, and metadata-only audits remain authoritative.
+
+MCP request bodies default to a 256 KiB ceiling and protocol sessions expire after 30
+minutes. Sessions are namespaced by an irreversible access-token hash and retain protocol
+negotiation only, not tool arguments or results. Cross-origin browser calls are disabled by
+default; explicitly allow trusted origins with the comma-separated
+`AGENT_API_MCP_ALLOWED_ORIGINS` setting. Direct native MCP clients do not need CORS.
 
 The read surface registers four independently consented data scopes: `identity:read`,
 `patients:read`, `clinical:read`, and `documents:read`. Patient discovery returns only

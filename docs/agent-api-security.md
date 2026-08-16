@@ -88,6 +88,21 @@ the same audience is persisted on the authorization code and access-token row, c
 again at code exchange and refresh, and never derived from a bearer token supplied by a
 different resource server.
 
+The MCP Streamable HTTP endpoint adds `mcp:use` as an independent connection scope;
+every tool call still passes through the underlying REST route's narrower data scope.
+Its fixed tool catalog delegates to a typed DAO and cookie-free internal REST transport,
+so it reuses route validation, patient authorization, serializers, throttles, and audit
+middleware instead of becoming a second clinical implementation. The scoped request
+context is restored after each subrequest. Browser session cookies are never copied.
+
+The transport keeps the SDK's CORS, DNS-rebinding, and protocol-version protections,
+uses a 256 KiB request ceiling, and accepts cross-origin browser requests only from an
+explicit configuration allow-list. MCP sessions expire after 30 minutes and use an
+irreversible token-derived cache namespace, preventing a session UUID from crossing token
+boundaries. Session state contains protocol negotiation only. The SDK receives a null
+logger because its debug logger includes tool arguments and results; application logs and
+default traces therefore cannot acquire clinical payloads through the MCP layer.
+
 Production signing keys live only in `storage/app/private/oauth`, outside the deployed
 repository contents. Deployment creates them once when both are absent, preserves them
 on later rsyncs, rejects a partial key pair, and never prints key material.

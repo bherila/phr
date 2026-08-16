@@ -43,9 +43,11 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             ->assertJsonPath('resource_indicators_supported', true)
             ->assertJsonPath('scopes_supported', AgentApiScopes::ids());
 
-        $this->getJson('/.well-known/oauth-protected-resource/api/v1/mcp')->assertNotFound();
-        $this->assertNotContains(AgentApiScopes::MCP_USE, AgentApiScopes::ids());
-        $this->assertArrayHasKey(AgentApiScopes::MCP_USE, AgentApiScopes::reservedDescriptions());
+        $this->getJson('/.well-known/oauth-protected-resource/api/v1/mcp')
+            ->assertOk()
+            ->assertJsonPath('resource', url('/api/v1'));
+        $this->assertContains(AgentApiScopes::MCP_USE, AgentApiScopes::ids());
+        $this->assertArrayNotHasKey(AgentApiScopes::MCP_USE, AgentApiScopes::reservedDescriptions());
     }
 
     public function test_dynamic_registration_issues_only_a_public_bounded_client(): void
@@ -123,6 +125,34 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'auth_token' => session('authToken'),
         ])->assertRedirect();
         $this->assertNotNull($client->fresh()?->first_authorized_at);
+    }
+
+    public function test_mcp_authorization_requires_the_canonical_resource_indicator(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Synthetic MCP Authorization User',
+            'email' => 'mcp-authorization@example.test',
+            'user_role' => 'user',
+        ]);
+        $client = $this->publicClient('Synthetic MCP Authorization Client');
+        [, $challenge] = $this->pkce();
+        $authorization = [
+            'client_id' => $client->id,
+            'redirect_uri' => 'https://agent.example.test/callback',
+            'response_type' => 'code',
+            'scope' => AgentApiScopes::MCP_USE.' '.AgentApiScopes::PATIENTS_READ,
+            'state' => 'synthetic-mcp-resource-state',
+            'code_challenge' => $challenge,
+            'code_challenge_method' => 'S256',
+        ];
+
+        $this->actingAs($user)->getJson('/oauth/authorize?'.http_build_query($authorization))
+            ->assertBadRequest()
+            ->assertJsonPath('error', 'invalid_target');
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+            ...$authorization,
+            'resource' => OAuthResourceIndicator::agentApi(),
+        ]))->assertOk();
     }
 
     public function test_dynamic_registration_omits_unsupplied_scope_metadata(): void

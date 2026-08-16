@@ -283,6 +283,53 @@
         }
       }
     },
+    "/mcp": {
+      "post": {
+        "operationId": "mcp.exchange",
+        "summary": "Exchange MCP Streamable HTTP JSON-RPC messages",
+        "description": "Read-only MCP tools are thin adapters over the REST operations in this specification. Request bodies are limited to 262144 bytes. Tool calls additionally require each underlying REST operation's scope.",
+        "security": [{ "oauth2": ["mcp:use"] }],
+        "parameters": [
+          { "name": "Mcp-Session-Id", "in": "header", "required": false, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "Mcp-Protocol-Version", "in": "header", "required": false, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "oneOf": [
+            { "$ref": "#/components/schemas/McpJsonRpcMessage" },
+            { "type": "array", "minItems": 1, "items": { "$ref": "#/components/schemas/McpJsonRpcMessage" } }
+          ] } } }
+        },
+        "responses": {
+          "200": { "description": "MCP JSON-RPC response or event stream", "headers": { "Mcp-Session-Id": { "schema": { "type": "string", "format": "uuid" } } }, "content": {
+            "application/json": { "schema": { "oneOf": [{ "$ref": "#/components/schemas/McpJsonRpcMessage" }, { "type": "array", "items": { "$ref": "#/components/schemas/McpJsonRpcMessage" } }] } },
+            "text/event-stream": { "schema": { "type": "string" } }
+          } },
+          "202": { "description": "MCP notification accepted" },
+          "400": { "$ref": "#/components/responses/InvalidRequest" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "413": { "description": "MCP request body exceeds the configured size limit" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      },
+      "delete": {
+        "operationId": "mcp.session.delete",
+        "summary": "End an MCP session",
+        "security": [{ "oauth2": ["mcp:use"] }],
+        "parameters": [
+          { "name": "Mcp-Session-Id", "in": "header", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "Mcp-Protocol-Version", "in": "header", "required": false, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "MCP session ended" },
+          "400": { "$ref": "#/components/responses/InvalidRequest" },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
     "/oauth/token": {
       "delete": {
         "operationId": "oauth.disconnect",
@@ -311,7 +358,8 @@
               "identity:read": "Read account identity and granted scopes",
               "patients:read": "List and read patients you can access",
               "clinical:read": "Read clinical records for patients you can access",
-              "documents:read": "Read document metadata and download authorized files"
+              "documents:read": "Read document metadata and download authorized files",
+              "mcp:use": "Connect through the PHR MCP server"
             }
           }
         }
@@ -397,10 +445,11 @@
     "schemas": {
       "Capabilities": {
         "type": "object",
-        "required": ["api_version", "openapi_url", "oauth", "scopes", "limits", "operations", "clinical_resources", "list_filters"],
+        "required": ["api_version", "openapi_url", "mcp_url", "oauth", "scopes", "limits", "operations", "clinical_resources", "list_filters"],
         "properties": {
           "api_version": { "const": "v1" },
           "openapi_url": { "type": "string", "format": "uri" },
+          "mcp_url": { "type": "string", "format": "uri" },
           "oauth": { "type": "object", "additionalProperties": true },
           "scopes": { "type": "object", "additionalProperties": { "type": "string" } },
           "limits": { "type": "object", "additionalProperties": { "type": "integer" } },
@@ -418,6 +467,19 @@
           "scope": { "type": ["string", "null"] }
         },
         "additionalProperties": false
+      },
+      "McpJsonRpcMessage": {
+        "type": "object",
+        "required": ["jsonrpc"],
+        "properties": {
+          "jsonrpc": { "const": "2.0" },
+          "id": { "type": ["integer", "string", "null"] },
+          "method": { "type": "string" },
+          "params": { "type": "object", "additionalProperties": true },
+          "result": {},
+          "error": { "type": "object", "additionalProperties": true }
+        },
+        "additionalProperties": true
       },
       "IdentityResponse": {
         "type": "object",
