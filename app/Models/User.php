@@ -176,7 +176,10 @@ class User extends Authenticatable implements OAuthenticatable
      */
     public function revokeOAuthTokens(): void
     {
-        if (! Schema::hasTable('oauth_access_tokens')) {
+        $connection = config('passport.connection');
+        $passportSchema = Schema::connection(is_string($connection) ? $connection : null);
+
+        if (! $passportSchema->hasTable('oauth_access_tokens')) {
             return;
         }
 
@@ -188,7 +191,7 @@ class User extends Authenticatable implements OAuthenticatable
             return;
         }
 
-        if (Schema::hasTable('oauth_refresh_tokens')) {
+        if ($passportSchema->hasTable('oauth_refresh_tokens')) {
             Passport::refreshToken()->newQuery()
                 ->whereIn('access_token_id', $tokenIds)
                 ->update(['revoked' => true]);

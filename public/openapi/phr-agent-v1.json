@@ -26,7 +26,7 @@
       "get": {
         "operationId": "identity.get",
         "summary": "Get the authorized identity and granted scopes",
-        "security": [{ "oauth2": [] }],
+        "security": [{ "oauth2": ["identity:read"] }],
         "responses": {
           "200": {
             "description": "Authorized identity",
@@ -42,7 +42,7 @@
       "delete": {
         "operationId": "oauth.disconnect",
         "summary": "Immediately revoke the current access token and its refresh token",
-        "security": [{ "oauth2": ["identity:read"] }],
+        "security": [{ "oauth2": [] }],
         "responses": {
           "204": { "description": "Token family revoked" },
           "401": { "$ref": "#/components/responses/Unauthenticated" },

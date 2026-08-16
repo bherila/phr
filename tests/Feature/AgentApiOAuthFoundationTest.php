@@ -6,6 +6,7 @@ use App\Models\AgentApiAudit;
 use App\Models\User;
 use App\Support\AgentApi\AccountAwareRefreshTokenRepository;
 use App\Support\AgentApi\AgentApiScopes;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -58,6 +59,9 @@ class AgentApiOAuthFoundationTest extends TestCase
             ->assertOk()
             ->assertJsonPath('resource', url('/api/v1'))
             ->assertJsonPath('authorization_servers.0', url('/'));
+        $this->getJson('/.well-known/oauth-protected-resource/api/v1')
+            ->assertOk()
+            ->assertJsonPath('resource', url('/api/v1'));
 
         $this->assertTrue(Passport::$revokeRefreshTokenAfterUse);
         $this->assertFalse(Passport::$implicitGrantEnabled);
@@ -182,6 +186,18 @@ class AgentApiOAuthFoundationTest extends TestCase
         $this->assertSame(
             ['capabilities.get', 'identity.get', 'oauth.disconnect'],
             collect($document['paths'])->flatMap(fn (array $path): array => array_column($path, 'operationId'))->values()->all(),
+        );
+        $this->assertSame(
+            [AgentApiScopes::IDENTITY_READ],
+            $document['paths']['/me']['get']['security'][0]['oauth2'],
+        );
+        $this->assertSame(
+            [],
+            $document['paths']['/oauth/token']['delete']['security'][0]['oauth2'],
+        );
+        $this->assertSame(
+            url('/.well-known/oauth-protected-resource/api/v1'),
+            $capabilities['oauth']['protected_resource_metadata'],
         );
     }
 
@@ -398,6 +414,56 @@ class AgentApiOAuthFoundationTest extends TestCase
         $this->assertTrue($repository->isRefreshTokenRevoked($refresh->id));
         $this->assertTrue($token->fresh()->revoked);
         $this->assertTrue($refresh->fresh()->revoked);
+    }
+
+    public function test_account_lifecycle_revocation_uses_passports_configured_connection(): void
+    {
+        $connection = config('database.connections.sqlite');
+        $this->assertIsArray($connection);
+        config([
+            'database.connections.passport_test' => [...$connection, 'database' => ':memory:'],
+            'passport.connection' => 'passport_test',
+        ]);
+        $schema = Schema::connection('passport_test');
+        $schema->create('oauth_access_tokens', function (Blueprint $table): void {
+            $table->char('id', 80)->primary();
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->uuid('client_id');
+            $table->string('name')->nullable();
+            $table->text('scopes')->nullable();
+            $table->boolean('revoked');
+            $table->timestamps();
+            $table->dateTime('expires_at')->nullable();
+        });
+        $schema->create('oauth_refresh_tokens', function (Blueprint $table): void {
+            $table->char('id', 80)->primary();
+            $table->char('access_token_id', 80)->index();
+            $table->boolean('revoked');
+            $table->dateTime('expires_at')->nullable();
+        });
+
+        $user = $this->createUser();
+        $token = Passport::token()->newQuery()->create([
+            'id' => Str::random(80),
+            'user_id' => $user->id,
+            'client_id' => (string) Str::uuid(),
+            'scopes' => [AgentApiScopes::IDENTITY_READ],
+            'revoked' => false,
+            'expires_at' => now()->addMinutes(15),
+        ]);
+        $refresh = Passport::refreshToken()->newQuery()->create([
+            'id' => Str::random(80),
+            'access_token_id' => $token->id,
+            'revoked' => false,
+            'expires_at' => now()->addDays(30),
+        ]);
+
+        $user->revokeOAuthTokens();
+
+        $this->assertTrue($token->fresh()->revoked);
+        $this->assertTrue($refresh->fresh()->revoked);
+        $this->assertDatabaseHas('oauth_access_tokens', ['id' => $token->id, 'revoked' => true], 'passport_test');
+        $this->assertDatabaseHas('oauth_refresh_tokens', ['id' => $refresh->id, 'revoked' => true], 'passport_test');
     }
 
     private function intervalSeconds(\DateInterval $interval): int

@@ -17,7 +17,7 @@ class AgentDiscoveryController extends Controller
             'openapi_url' => url('/openapi/phr-agent-v1.json'),
             'oauth' => [
                 'authorization_server_metadata' => url('/.well-known/oauth-authorization-server'),
-                'protected_resource_metadata' => url('/.well-known/oauth-protected-resource'),
+                'protected_resource_metadata' => url('/.well-known/oauth-protected-resource/api/v1'),
                 'authorization_code_pkce' => true,
                 'refresh_token_rotation' => true,
                 'access_token_ttl_seconds' => 900,

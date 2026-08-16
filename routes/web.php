@@ -14,6 +14,8 @@ use Illuminate\Support\Facades\Route;
 Route::get('/.well-known/oauth-authorization-server', [OAuthMetadataController::class, 'authorizationServer'])
     ->name('oauth.metadata.authorization-server');
 Route::get('/.well-known/oauth-protected-resource', [OAuthMetadataController::class, 'protectedResource'])
+    ->name('oauth.metadata.protected-resource-root');
+Route::get('/.well-known/oauth-protected-resource/api/v1', [OAuthMetadataController::class, 'protectedResource'])
     ->name('oauth.metadata.protected-resource');
 
 Route::get('/login', function () {
