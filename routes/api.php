@@ -205,6 +205,8 @@ Route::middleware(['web', 'auth'])
         Route::get('/patients/{patient}/office-visits/{visit}', [PHROfficeVisitController::class, 'show'])->whereNumber(['patient', 'visit'])->name('patients.office-visits.show');
         Route::post('/patients/{patient}/office-visits/{visit}/eobs/{eob}', [PHRClinicalEobController::class, 'linkOfficeVisit'])->whereNumber(['patient', 'visit', 'eob'])->name('patients.office-visits.eobs.store');
         Route::delete('/patients/{patient}/office-visits/{visit}/eobs/{eob}', [PHRClinicalEobController::class, 'unlinkOfficeVisit'])->whereNumber(['patient', 'visit', 'eob'])->name('patients.office-visits.eobs.destroy');
+        Route::post('/patients/{patient}/office-visits/{visit}/imaging-studies/{study}', [PHROfficeVisitController::class, 'linkImagingStudy'])->whereNumber(['patient', 'visit', 'study'])->name('patients.office-visits.imaging-studies.store');
+        Route::delete('/patients/{patient}/office-visits/{visit}/imaging-studies/{study}', [PHROfficeVisitController::class, 'unlinkImagingStudy'])->whereNumber(['patient', 'visit', 'study'])->name('patients.office-visits.imaging-studies.destroy');
         Route::patch('/patients/{patient}/office-visits/{visit}', [PHROfficeVisitController::class, 'update'])->whereNumber(['patient', 'visit'])->name('patients.office-visits.update');
         Route::delete('/patients/{patient}/office-visits/{visit}', [PHROfficeVisitController::class, 'destroy'])->whereNumber(['patient', 'visit'])->name('patients.office-visits.destroy');
         Route::get('/patients/{patient}/medications', [PHRMedicationController::class, 'index'])->whereNumber('patient')->name('patients.medications.index');

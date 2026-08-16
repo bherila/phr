@@ -2,6 +2,9 @@
 
 namespace App\Http\Resources\PHR;
 
+use App\Models\PhrDicomStudy;
+use App\Models\PhrEob;
+use App\Models\PhrEobLine;
 use App\Models\PhrOfficeVisit;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -41,6 +44,33 @@ class OfficeVisitResource extends JsonResource
                 'eobs',
                 fn () => EobSummaryResource::collection($visit->eobs)->resolve(),
             ),
+            'imaging_studies' => $visit->relationLoaded('imagingStudies')
+                ? $visit->imagingStudies
+                    ->map(fn (PhrDicomStudy $study): array => [
+                        'id' => $study->id,
+                        'study_date' => $study->study_date?->toDateString(),
+                        'description' => $study->description,
+                        'modalities' => $study->modalities,
+                        'accession_number' => $study->accession_number,
+                    ])
+                    ->values()
+                    ->all()
+                : [],
+            'related_services' => $visit->relationLoaded('eobs')
+                ? $visit->eobs
+                    ->flatMap(fn (PhrEob $eob) => $eob->relationLoaded('lines') ? $eob->lines : collect())
+                    ->sortBy(fn (PhrEobLine $line): string => sprintf('%s-%010d', $line->service_start?->toDateString() ?? '', $line->id))
+                    ->map(fn (PhrEobLine $line): array => [
+                        'id' => $line->id,
+                        'procedure_code' => $line->procedure_code,
+                        'code_type' => $line->code_type,
+                        'description' => $line->description,
+                        'service_start' => $line->service_start?->toDateString(),
+                        'service_end' => $line->service_end?->toDateString(),
+                    ])
+                    ->values()
+                    ->all()
+                : [],
             'created_at' => $visit->created_at?->toDateTimeString(),
             'updated_at' => $visit->updated_at?->toDateTimeString(),
         ];

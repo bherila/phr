@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Controllers\PHR\Concerns\HandlesClinicalResourceRequests;
 use App\Http\Requests\PHR\StoreOfficeVisitRequest;
 use App\Http\Resources\PHR\OfficeVisitResource;
+use App\Models\PhrDicomStudy;
 use App\Models\PhrOfficeVisit;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use Illuminate\Database\Eloquent\Builder;
@@ -36,7 +37,7 @@ class OfficeVisitController extends Controller
         $resolvedPatient = $this->accessService->accessiblePatient($patient, $userId);
         $resolvedVisit = PhrOfficeVisit::query()
             ->where('patient_id', $resolvedPatient->id)
-            ->with('eobs.lines')
+            ->with(['eobs.lines', 'imagingStudies'])
             ->findOrFail($visit);
 
         return response()->json([
@@ -48,6 +49,42 @@ class OfficeVisitController extends Controller
     public function update(StoreOfficeVisitRequest $request, int $patient, int $visit): JsonResponse
     {
         return $this->updateClinicalResource($request, $patient, $visit);
+    }
+
+    public function linkImagingStudy(Request $request, int $patient, int $visit, int $study): JsonResponse
+    {
+        $userId = (int) $request->user()?->id;
+        $resolvedPatient = $this->accessService->writablePatient($patient, $userId);
+        $resolvedVisit = PhrOfficeVisit::query()
+            ->where('patient_id', $resolvedPatient->id)
+            ->findOrFail($visit);
+        $resolvedStudy = PhrDicomStudy::query()
+            ->where('patient_id', $resolvedPatient->id)
+            ->findOrFail($study);
+
+        $resolvedVisit->imagingStudies()->syncWithoutDetaching([
+            $resolvedStudy->id => ['patient_id' => $resolvedPatient->id],
+        ]);
+
+        return response()->json([
+            'imaging_study' => $this->imagingStudyPayload($resolvedStudy),
+        ], 201);
+    }
+
+    public function unlinkImagingStudy(Request $request, int $patient, int $visit, int $study): Response
+    {
+        $userId = (int) $request->user()?->id;
+        $resolvedPatient = $this->accessService->writablePatient($patient, $userId);
+        $resolvedVisit = PhrOfficeVisit::query()
+            ->where('patient_id', $resolvedPatient->id)
+            ->findOrFail($visit);
+        $resolvedStudy = PhrDicomStudy::query()
+            ->where('patient_id', $resolvedPatient->id)
+            ->findOrFail($study);
+
+        $resolvedVisit->imagingStudies()->detach($resolvedStudy->id);
+
+        return response()->noContent();
     }
 
     public function destroy(Request $request, int $patient, int $visit): Response
@@ -81,6 +118,20 @@ class OfficeVisitController extends Controller
     protected function resourceKey(): string
     {
         return 'office_visit';
+    }
+
+    /**
+     * @return array{id: int, study_date: string|null, description: string|null, modalities: string|null, accession_number: string|null}
+     */
+    private function imagingStudyPayload(PhrDicomStudy $study): array
+    {
+        return [
+            'id' => $study->id,
+            'study_date' => $study->study_date?->toDateString(),
+            'description' => $study->description,
+            'modalities' => $study->modalities,
+            'accession_number' => $study->accession_number,
+        ];
     }
 
     /**

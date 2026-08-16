@@ -99,4 +99,12 @@ class PhrOfficeVisit extends Model
             ->withPivot('patient_id')
             ->withTimestamps();
     }
+
+    /** @return BelongsToMany<PhrDicomStudy, $this> */
+    public function imagingStudies(): BelongsToMany
+    {
+        return $this->belongsToMany(PhrDicomStudy::class, 'phr_office_visit_dicom_studies', 'office_visit_id', 'dicom_study_id')
+            ->withPivot('patient_id')
+            ->withTimestamps();
+    }
 }

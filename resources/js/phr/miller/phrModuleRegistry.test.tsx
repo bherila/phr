@@ -116,7 +116,7 @@ describe('phrModuleRegistry', () => {
 
   it('registers data-rich list columns and visual detail columns with wider layouts', () => {
     expect(phrModuleRegistry['health-log'].size).toBe('full')
-    expect(phrModuleRegistry['office-visits'].size).toBe('full')
+    expect(phrModuleRegistry['office-visits'].size).toBeUndefined()
     expect(phrModuleRegistry.labs.size).toBe('wide')
     expect(phrModuleRegistry.vitals.size).toBe('wide')
     expect(phrModuleRegistry.documents.size).toBe('full')

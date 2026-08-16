@@ -507,6 +507,31 @@ export const PhrEobLinkResponseSchema = z.object({
   eob: PhrEobSummarySchema,
 })
 
+export const PhrOfficeVisitRelatedServiceSchema = z.object({
+  id: z.number(),
+  procedure_code: z.string(),
+  code_type: z.string(),
+  description: nullableString,
+  service_start: nullableString,
+  service_end: nullableString,
+})
+
+export type PhrOfficeVisitRelatedService = z.infer<typeof PhrOfficeVisitRelatedServiceSchema>
+
+export const PhrOfficeVisitImagingStudySchema = z.object({
+  id: z.number(),
+  study_date: nullableString,
+  description: nullableString,
+  modalities: nullableString,
+  accession_number: nullableString,
+})
+
+export type PhrOfficeVisitImagingStudy = z.infer<typeof PhrOfficeVisitImagingStudySchema>
+
+export const PhrOfficeVisitImagingStudyLinkResponseSchema = z.object({
+  imaging_study: PhrOfficeVisitImagingStudySchema,
+})
+
 export const PhrOfficeVisitSchema = z.object({
   id: z.number(),
   patient_id: z.number(),
@@ -526,6 +551,8 @@ export const PhrOfficeVisitSchema = z.object({
   icd10_codes: z.array(z.record(z.string(), z.string())).nullable(),
   cpt_codes: z.array(z.record(z.string(), z.string())).nullable(),
   eobs: z.array(PhrEobSummarySchema).default([]),
+  related_services: z.array(PhrOfficeVisitRelatedServiceSchema).default([]),
+  imaging_studies: z.array(PhrOfficeVisitImagingStudySchema).default([]),
   created_at: nullableString,
   updated_at: nullableString,
 })
