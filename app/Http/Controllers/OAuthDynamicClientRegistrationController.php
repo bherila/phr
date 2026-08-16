@@ -18,7 +18,7 @@ final class OAuthDynamicClientRegistrationController extends Controller
             return $this->invalid('Client registration requires a bounded JSON request.');
         }
 
-        $validator = Validator::make($request->all(), [
+        $validator = Validator::make($request->json()->all(), [
             'client_name' => ['required', 'string', 'min:1', 'max:100'],
             'redirect_uris' => ['required', 'array', 'min:1', 'max:10'],
             'redirect_uris.*' => ['required', 'string', 'max:2048'],

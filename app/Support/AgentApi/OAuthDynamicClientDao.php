@@ -32,7 +32,7 @@ final class OAuthDynamicClientDao
     }
 
     /** @return list<string> */
-    public function staleUnusedIds(DateTimeInterface $registeredBefore): array
+    public function staleUnusedIdBatch(DateTimeInterface $registeredBefore, int $limit): array
     {
         return Passport::client()->newQuery()
             ->whereNotNull('dynamically_registered_at')
@@ -40,6 +40,8 @@ final class OAuthDynamicClientDao
             ->whereNull('first_authorized_at')
             ->whereDoesntHave('authCodes')
             ->whereDoesntHave('tokens')
+            ->orderBy('id')
+            ->limit($limit)
             ->pluck('id')
             ->map(static fn (mixed $id): string => (string) $id)
             ->all();

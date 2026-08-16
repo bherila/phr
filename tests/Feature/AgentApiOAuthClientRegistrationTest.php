@@ -183,6 +183,12 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             ...$valid,
             'scope' => AgentApiScopes::PATIENTS_READ.' unknown:scope',
         ])->assertBadRequest();
+        $this->call(
+            'POST',
+            '/oauth/register?'.http_build_query($valid),
+            server: ['CONTENT_TYPE' => 'application/json'],
+            content: '{}',
+        )->assertBadRequest();
         $this->assertDatabaseCount('oauth_clients', 0);
     }
 
@@ -216,10 +222,12 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         ]))->assertOk();
         $this->assertNotNull($approval);
         $authToken = session('authToken');
+        $this->assertIsString($authToken);
         $this->travel(11)->minutes();
         $redirect = $this->post('/oauth/authorize', [
             'auth_token' => $authToken,
         ])->assertRedirect();
+        $this->assertNull(app(OAuthAuthorizationStateStore::class)->resourceFor($authToken));
         parse_str((string) parse_url((string) $redirect->headers->get('Location'), PHP_URL_QUERY), $redirectQuery);
         $this->assertIsString($redirectQuery['code']);
         $this->assertSame(OAuthResourceIndicator::agentApi(), AuthCode::query()->sole()->resource_uri);
@@ -275,6 +283,33 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             OAuthResourceIndicator::agentApi(),
             $state->resourceFor('synthetic-concurrent-auth-token'),
         );
+    }
+
+    public function test_denied_consent_discards_resource_state(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Synthetic Denied Consent User',
+            'email' => 'denied-consent@example.test',
+            'user_role' => 'user',
+        ]);
+        $client = $this->publicClient('Synthetic Denied Consent Client');
+        [, $challenge] = $this->pkce();
+
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+            'client_id' => $client->id,
+            'redirect_uri' => 'https://agent.example.test/callback',
+            'response_type' => 'code',
+            'scope' => AgentApiScopes::IDENTITY_READ,
+            'state' => 'synthetic-denied-consent-state',
+            'code_challenge' => $challenge,
+            'code_challenge_method' => 'S256',
+            'resource' => OAuthResourceIndicator::agentApi(),
+        ]))->assertOk();
+        $authToken = session('authToken');
+        $this->assertIsString($authToken);
+
+        $this->delete('/oauth/authorize', ['auth_token' => $authToken])->assertRedirect();
+        $this->assertNull(app(OAuthAuthorizationStateStore::class)->resourceFor($authToken));
     }
 
     public function test_failed_authorization_cannot_bind_resource_to_an_existing_consent(): void
@@ -396,6 +431,11 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         ];
         $this->postJson('/oauth/token', [
             ...$exchange,
+            'resource' => null,
+        ])->assertBadRequest()->assertJsonPath('error', 'invalid_target');
+        $this->assertFalse(AuthCode::query()->sole()->revoked);
+        $this->postJson('/oauth/token', [
+            ...$exchange,
             'resource' => 'https://unrelated.example.test/api',
         ])->assertBadRequest()->assertJsonPath('error', 'invalid_grant');
         $this->postJson('/oauth/token', [
@@ -420,10 +460,12 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         ])->save();
         $rechecked = $this->publicClient('Synthetic Rechecked Dynamic Client');
         $rechecked->forceFill(['dynamically_registered_at' => now()->subDays(2)])->save();
+        $anotherStale = $this->publicClient('Synthetic Another Stale Dynamic Client');
+        $anotherStale->forceFill(['dynamically_registered_at' => now()->subDays(2)])->save();
         $static = $this->publicClient('Synthetic Static Client');
 
         $dynamicClients = app(OAuthDynamicClientDao::class);
-        $this->assertContains($rechecked->id, $dynamicClients->staleUnusedIds(now()->subDay()));
+        $this->assertCount(2, $dynamicClients->staleUnusedIdBatch(now()->subDay(), 2));
         $rechecked->forceFill(['first_authorized_at' => now()])->save();
         $this->assertNull($dynamicClients->lockUnusedForPruning($rechecked->id, now()->subDay()));
 
@@ -433,6 +475,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         $this->assertNotNull($recent->fresh());
         $this->assertNotNull($previouslyUsed->fresh());
         $this->assertNotNull($rechecked->fresh());
+        $this->assertNull($anotherStale->fresh());
         $this->assertNotNull($static->fresh());
     }
 

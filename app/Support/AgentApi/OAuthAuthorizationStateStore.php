@@ -34,6 +34,11 @@ final readonly class OAuthAuthorizationStateStore
         return is_string($resource) ? $resource : null;
     }
 
+    public function forgetResource(string $authToken): void
+    {
+        $this->session->forget($this->key($authToken));
+    }
+
     private function key(string $authToken): string
     {
         return 'oauth-resource:'.hash('sha256', $authToken);

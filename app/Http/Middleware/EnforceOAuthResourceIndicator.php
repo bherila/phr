@@ -53,6 +53,10 @@ final class EnforceOAuthResourceIndicator
                     OAuthResourceIndicator::agentApi(),
                 );
             }
+            if ($previousAuthToken !== null
+                && ($authToken === null || ! hash_equals($previousAuthToken, $authToken))) {
+                $this->authorizationState->forgetResource($previousAuthToken);
+            }
 
             return $response;
         }
@@ -63,11 +67,20 @@ final class EnforceOAuthResourceIndicator
             if (is_string($resource)) {
                 $request->attributes->set(OAuthResourceIndicator::REQUEST_ATTRIBUTE, $resource);
             }
+
+            try {
+                return $next($request);
+            } finally {
+                if (is_string($authToken)
+                    && $this->authorizationState->currentApprovalToken() !== $authToken) {
+                    $this->authorizationState->forgetResource($authToken);
+                }
+            }
         }
 
         if ($request->routeIs('passport.token')) {
             $resource = $request->input('resource');
-            if ($resource !== null && OAuthResourceIndicator::canonicalize($resource) === null) {
+            if ($request->exists('resource') && OAuthResourceIndicator::canonicalize($resource) === null) {
                 return $this->invalidResource();
             }
         }
