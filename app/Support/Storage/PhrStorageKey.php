@@ -93,8 +93,12 @@ final class PhrStorageKey
         $safe = Str::of($basename)
             ->replaceMatches('/[^\pL\pN._-]+/u', '_')
             ->trim('._-')
-            ->limit(180, '')
             ->toString();
+
+        // Production uses local filesystems as well as object stores. Limit bytes,
+        // not Unicode code points, so one path component remains below common
+        // filesystem limits even when every character is multi-byte.
+        $safe = rtrim(mb_strcut($safe, 0, 180, 'UTF-8'), '._-');
 
         if ($safe !== '') {
             return $safe;

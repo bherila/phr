@@ -85,6 +85,14 @@ class PhrStorageKeyTest extends TestCase
         PhrStorageKey::dicomObject(PhrStorageKey::dicomUpload(41, self::UUID), '../IMAGE0001.dcm');
     }
 
+    public function test_safe_filenames_are_limited_by_bytes_for_local_filesystems(): void
+    {
+        $filename = PhrStorageKey::safeFilename(str_repeat('診', 100).'.pdf');
+
+        $this->assertLessThanOrEqual(180, strlen($filename));
+        $this->assertTrue(mb_check_encoding($filename, 'UTF-8'));
+    }
+
     public function test_gc_sweeps_canonical_and_legacy_namespaces_during_rollout(): void
     {
         $this->assertSame(['patients', 'phr/dicom', 'derived/volume-cache'], PhrStorageMap::disks()['phr_dicom']);
