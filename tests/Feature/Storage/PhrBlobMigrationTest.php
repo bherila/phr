@@ -289,6 +289,55 @@ class PhrBlobMigrationTest extends TestCase
         $this->assertDatabaseMissing('phr_blob_migrations', ['reference_id' => $document->id]);
     }
 
+    public function test_recovery_rechecks_retained_source_after_waiting_for_cleanup_lock(): void
+    {
+        Storage::fake('phr_documents');
+        [$owner, $patient] = $this->ownerAndPatient();
+        $bytes = 'synthetic cleanup race source';
+        $legacyKey = "phr/documents/patients/{$patient->id}/legacy/cleanup-race.pdf";
+        Storage::disk('phr_documents')->put($legacyKey, $bytes);
+        $document = $this->document($patient, $owner, $legacyKey, $bytes);
+        $this->artisan('phr:storage:migrate-keys', ['--artifact' => 'documents', '--apply' => true])
+            ->assertSuccessful();
+        $canonicalKey = (string) $document->refresh()->storage_path;
+        $state = new class
+        {
+            public bool $sourceAvailable = true;
+
+            public int $sourceReads = 0;
+        };
+
+        $disk = $this->callbackDisk(
+            fn (string $key): bool => $key === $canonicalKey || ($key === $legacyKey && $state->sourceAvailable),
+            function (string $key) use ($legacyKey, $bytes, $state): mixed {
+                if ($key === $legacyKey) {
+                    $state->sourceReads++;
+                    // Simulate cleanup completing after recovery's optimistic
+                    // precheck but before recovery acquires the reference lock.
+                    $state->sourceAvailable = false;
+
+                    return $this->stream($bytes);
+                }
+
+                return $this->stream('synthetic unreadable destination');
+            },
+            fn (): bool => throw new \LogicException('Recovery must not copy objects.'),
+            fn (): bool => throw new \LogicException('Recovery must not delete objects.'),
+        );
+        Storage::set('phr_documents', $disk);
+
+        $this->artisan('phr:storage:migrate-keys', ['--artifact' => 'documents', '--apply' => true])
+            ->expectsOutputToContain("reference=phr_documents#{$document->id} status=stale_reference")
+            ->assertFailed();
+
+        $this->assertSame(1, $state->sourceReads);
+        $this->assertSame($canonicalKey, $document->refresh()->storage_path);
+        $this->assertDatabaseHas('phr_blob_migrations', [
+            'reference_id' => $document->id,
+            'legacy_deleted_at' => null,
+        ]);
+    }
+
     public function test_migrates_exports_native_backups_and_both_dicom_artifact_classes(): void
     {
         Storage::fake('phr_documents');

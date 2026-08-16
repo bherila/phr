@@ -32,7 +32,8 @@ final class PhrSourceReconciliationService
         ?callable $reporter = null,
     ): PhrSourceReconciliationSummary {
         $summary = new PhrSourceReconciliationSummary;
-        $sourceHashes = $this->sourceHashes($sourceDirectory, $extensions, $summary);
+        $normalizedExtensions = $this->normalizeExtensions($extensions);
+        $sourceHashes = $this->sourceHashes($sourceDirectory, $normalizedExtensions, $summary);
         /** @var array<string, true> $verifiedDocumentHashes */
         $verifiedDocumentHashes = [];
 
@@ -40,8 +41,11 @@ final class PhrSourceReconciliationService
             ->where('patient_id', $patientId)
             ->whereNotNull('storage_path')
             ->orderBy('id')
-            ->chunkById(100, function ($documents) use ($reporter, $sourceHashes, $summary, &$verifiedDocumentHashes): void {
+            ->chunkById(100, function ($documents) use ($normalizedExtensions, $reporter, $sourceHashes, $summary, &$verifiedDocumentHashes): void {
                 foreach ($documents as $document) {
+                    if (! $this->documentMatchesExtensions($document, $normalizedExtensions)) {
+                        continue;
+                    }
                     $summary->documents++;
                     $status = $this->documentStatus($document, $sourceHashes, $summary, $verifiedDocumentHashes);
                     if ($reporter !== null) {
@@ -82,14 +86,6 @@ final class PhrSourceReconciliationService
             throw new RuntimeException('The source evidence directory is not readable.');
         }
 
-        $normalizedExtensions = array_values(array_unique(array_map(
-            static fn (string $extension): string => strtolower(ltrim($extension, '.')),
-            $extensions,
-        )));
-        if (in_array('', $normalizedExtensions, true)) {
-            throw new RuntimeException('Source extensions must not be empty.');
-        }
-
         /** @var array<string, array{count: int, bytes: int}> $hashes */
         $hashes = [];
         try {
@@ -103,8 +99,8 @@ final class PhrSourceReconciliationService
                 if (! $file->isFile()) {
                     continue;
                 }
-                if ($normalizedExtensions !== []
-                    && ! in_array(strtolower($file->getExtension()), $normalizedExtensions, true)) {
+                if ($extensions !== []
+                    && ! in_array(strtolower($file->getExtension()), $extensions, true)) {
                     continue;
                 }
 
@@ -122,6 +118,36 @@ final class PhrSourceReconciliationService
         }
 
         return $hashes;
+    }
+
+    /** @param list<string> $extensions
+     * @return list<string>
+     */
+    private function normalizeExtensions(array $extensions): array
+    {
+        $normalized = array_values(array_unique(array_map(
+            static fn (string $extension): string => strtolower(ltrim($extension, '.')),
+            $extensions,
+        )));
+        if (in_array('', $normalized, true)) {
+            throw new RuntimeException('Source extensions must not be empty.');
+        }
+
+        return $normalized;
+    }
+
+    /** @param list<string> $extensions */
+    private function documentMatchesExtensions(object $document, array $extensions): bool
+    {
+        if ($extensions === []) {
+            return true;
+        }
+
+        $filename = is_string($document->original_filename) && $document->original_filename !== ''
+            ? $document->original_filename
+            : (string) $document->storage_path;
+
+        return in_array(strtolower(pathinfo($filename, PATHINFO_EXTENSION)), $extensions, true);
     }
 
     /**

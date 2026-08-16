@@ -64,10 +64,13 @@ class PhrSourceReconciliationTest extends TestCase
         [$owner, $patient] = $this->ownerAndPatient();
         $bytes = 'synthetic complete evidence';
         file_put_contents($this->sourceDirectory.'/evidence.pdf', $bytes);
-        file_put_contents($this->sourceDirectory.'/operator-notes.txt', 'not part of the selected evidence set');
+        $ignoredBytes = 'not part of the selected evidence set';
+        file_put_contents($this->sourceDirectory.'/operator-notes.txt', $ignoredBytes);
         $document = $this->document($owner, $patient, 'patients/1/documents/synthetic/evidence.pdf', $bytes);
+        $ignoredDocument = $this->document($owner, $patient, 'patients/1/documents/synthetic/operator-notes.txt', $ignoredBytes);
 
         $summary = app(PhrSourceReconciliationService::class)->run($patient->id, $this->sourceDirectory, ['.PDF']);
+        $this->assertSame(1, $summary->documents);
         $this->assertSame(1, $summary->sourceMatched);
         $this->assertSame(0, $summary->sourceUnmatched);
 
@@ -78,6 +81,7 @@ class PhrSourceReconciliationTest extends TestCase
         ])
             ->expectsOutputToContain("reference=phr_documents#{$document->id} status=matched")
             ->expectsOutputToContain('source_files=1')
+            ->doesntExpectOutputToContain("reference=phr_documents#{$ignoredDocument->id}")
             ->assertSuccessful();
     }
 
@@ -149,7 +153,7 @@ class PhrSourceReconciliationTest extends TestCase
             'uploaded_by_user_id' => $owner->id,
             'title' => 'Synthetic reconciliation document',
             'document_type' => 'other',
-            'original_filename' => 'synthetic.pdf',
+            'original_filename' => basename($key),
             'storage_disk' => PhrDocument::STORAGE_DISK,
             'storage_path' => $key,
             'mime_type' => 'application/pdf',
