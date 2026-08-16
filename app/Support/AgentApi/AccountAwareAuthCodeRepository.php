@@ -65,11 +65,13 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
             return true;
         }
 
-        $requestedResource = request()->input('resource');
-        $requestedResource = $requestedResource === null
-            ? null
-            : OAuthResourceIndicator::canonicalize($requestedResource);
-        if ($requestedResource !== $authorizationCode->resource_uri) {
+        $storedResource = is_string($authorizationCode->resource_uri)
+            ? $authorizationCode->resource_uri
+            : null;
+        $requestedResource = request()->exists('resource')
+            ? OAuthResourceIndicator::canonicalize(request()->input('resource'))
+            : $storedResource;
+        if ($requestedResource !== $storedResource) {
             $authorizationCode->forceFill(['revoked' => true])->save();
 
             return true;
@@ -94,7 +96,7 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
             $authorizationCode->user_id,
             (int) $authorizationCode->oauth_security_version,
             null,
-            is_string($authorizationCode->resource_uri) ? $authorizationCode->resource_uri : null,
+            $storedResource,
         );
 
         return false;

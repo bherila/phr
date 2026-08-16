@@ -326,7 +326,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         $this->assertDatabaseCount('oauth_clients', 2);
     }
 
-    public function test_resource_bound_authorization_code_cannot_be_exchanged_without_its_audience(): void
+    public function test_resource_bound_authorization_code_inherits_omitted_exchange_audience(): void
     {
         $user = User::factory()->create([
             'name' => 'Synthetic Missing Resource User',
@@ -356,9 +356,11 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'redirect_uri' => 'https://agent.example.test/callback',
             'code_verifier' => $verifier,
             'code' => $redirectQuery['code'],
-        ])->assertBadRequest()->assertJsonPath('error', 'invalid_grant');
-        $this->assertTrue(AuthCode::query()->sole()->revoked);
-        $this->assertDatabaseCount('oauth_access_tokens', 0);
+        ])->assertOk();
+        $this->assertSame(
+            OAuthResourceIndicator::agentApi(),
+            Token::query()->where('user_id', $user->id)->sole()->resource_uri,
+        );
     }
 
     public function test_changed_authorization_code_audience_revokes_the_code(): void
