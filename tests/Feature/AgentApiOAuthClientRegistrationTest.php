@@ -235,15 +235,28 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         $first = Token::query()->where('user_id', $user->id)->sole();
         $this->assertSame(OAuthResourceIndicator::agentApi(), $first->resource_uri);
 
-        $this->postJson('/oauth/token', [
+        $rotated = $this->postJson('/oauth/token', [
             'grant_type' => 'refresh_token',
             'client_id' => $client->id,
             'refresh_token' => $issued['refresh_token'],
-        ])->assertOk();
+        ])->assertOk()->json();
         $this->assertSame(
             [OAuthResourceIndicator::agentApi(), OAuthResourceIndicator::agentApi()],
             Token::query()->where('user_id', $user->id)->orderBy('created_at')->pluck('resource_uri')->all(),
         );
+
+        $this->postJson('/oauth/token', [
+            'grant_type' => 'refresh_token',
+            'client_id' => $client->id,
+            'refresh_token' => $rotated['refresh_token'],
+            'resource' => 'https://unrelated.example.test/api',
+        ])->assertBadRequest()->assertJsonPath('error', 'invalid_grant');
+        $this->postJson('/oauth/token', [
+            'grant_type' => 'refresh_token',
+            'client_id' => $client->id,
+            'refresh_token' => $rotated['refresh_token'],
+            'resource' => OAuthResourceIndicator::agentApi(),
+        ])->assertBadRequest()->assertJsonPath('error', 'invalid_grant');
     }
 
     public function test_concurrent_approval_reads_keep_the_resource_indicator_bound(): void
@@ -344,6 +357,50 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'code_verifier' => $verifier,
             'code' => $redirectQuery['code'],
         ])->assertBadRequest()->assertJsonPath('error', 'invalid_grant');
+        $this->assertTrue(AuthCode::query()->sole()->revoked);
+        $this->assertDatabaseCount('oauth_access_tokens', 0);
+    }
+
+    public function test_changed_authorization_code_audience_revokes_the_code(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Synthetic Changed Resource User',
+            'email' => 'changed-resource@example.test',
+            'user_role' => 'user',
+        ]);
+        $client = $this->publicClient('Synthetic Changed Resource Client');
+        [$verifier, $challenge] = $this->pkce();
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+            'client_id' => $client->id,
+            'redirect_uri' => 'https://agent.example.test/callback',
+            'response_type' => 'code',
+            'scope' => AgentApiScopes::IDENTITY_READ,
+            'state' => 'synthetic-changed-resource-state',
+            'code_challenge' => $challenge,
+            'code_challenge_method' => 'S256',
+            'resource' => OAuthResourceIndicator::agentApi(),
+        ]))->assertOk();
+        $redirect = $this->post('/oauth/authorize', [
+            'auth_token' => session('authToken'),
+        ])->assertRedirect();
+        parse_str((string) parse_url((string) $redirect->headers->get('Location'), PHP_URL_QUERY), $redirectQuery);
+
+        $exchange = [
+            'grant_type' => 'authorization_code',
+            'client_id' => $client->id,
+            'redirect_uri' => 'https://agent.example.test/callback',
+            'code_verifier' => $verifier,
+            'code' => $redirectQuery['code'],
+        ];
+        $this->postJson('/oauth/token', [
+            ...$exchange,
+            'resource' => 'https://unrelated.example.test/api',
+        ])->assertBadRequest()->assertJsonPath('error', 'invalid_grant');
+        $this->postJson('/oauth/token', [
+            ...$exchange,
+            'resource' => OAuthResourceIndicator::agentApi(),
+        ])->assertBadRequest()->assertJsonPath('error', 'invalid_grant');
+
         $this->assertTrue(AuthCode::query()->sole()->revoked);
         $this->assertDatabaseCount('oauth_access_tokens', 0);
     }

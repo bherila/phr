@@ -67,7 +67,7 @@ final class EnforceOAuthResourceIndicator
 
         if ($request->routeIs('passport.token')) {
             $resource = $request->input('resource');
-            if ($resource !== null && ! OAuthResourceIndicator::isAgentApi($resource)) {
+            if ($resource !== null && OAuthResourceIndicator::canonicalize($resource) === null) {
                 return $this->invalidResource();
             }
         }
