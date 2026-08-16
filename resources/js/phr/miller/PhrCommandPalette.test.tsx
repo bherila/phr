@@ -148,6 +148,6 @@ describe('PhrCommandPalette', () => {
 
     fireEvent.keyDown(window, { key: 'k', metaKey: true })
 
-    expect(screen.getByPlaceholderText(/jump to a PHR module/i)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText(/search visits, clinicians, notes, studies, and documents/i)).toBeInTheDocument()
   })
 })

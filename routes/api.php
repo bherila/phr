@@ -33,6 +33,7 @@ use App\Http\Controllers\PHR\PhrGenAiImportController;
 use App\Http\Controllers\PHR\PhrNativeBackupController;
 use App\Http\Controllers\PHR\PhrNativeRestoreController;
 use App\Http\Controllers\PHR\PhrPatientDeletionController;
+use App\Http\Controllers\PHR\PhrPatientSearchController;
 use App\Http\Controllers\PHR\ProcedureController as PHRProcedureController;
 use App\Http\Controllers\PHR\RespiratoryEventController as PHRRespiratoryEventController;
 use App\Http\Controllers\PHR\SinusEnrollmentController as PHRSinusEnrollmentController;
@@ -181,6 +182,7 @@ Route::middleware(['web', 'auth'])
         Route::get('/patients', [PHRPatientController::class, 'index'])->name('patients.index');
         Route::post('/patients', [PHRPatientController::class, 'store'])->name('patients.store');
         Route::get('/patients/{patient}', [PHRPatientController::class, 'show'])->whereNumber('patient')->name('patients.show');
+        Route::get('/patients/{patient}/search', [PhrPatientSearchController::class, 'index'])->whereNumber('patient')->name('patients.search');
         Route::patch('/patients/{patient}', [PHRPatientController::class, 'update'])->whereNumber('patient')->name('patients.update');
         Route::delete('/patients/{patient}', [PHRPatientController::class, 'destroy'])->whereNumber('patient')->name('patients.destroy');
         Route::get('/patients/{patient}/lab-results', [PHRLabResultController::class, 'index'])->whereNumber('patient')->name('patients.lab-results.index');

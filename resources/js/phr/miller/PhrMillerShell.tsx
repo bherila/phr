@@ -9,6 +9,7 @@ import { patientUrl, phrSectionUrl } from '@/lib/phrRouteBuilder'
 import { PhrCommandPalette, usePhrCommandPaletteShortcut } from './PhrCommandPalette'
 import { PhrDockHomeView } from './PhrDockHomeView'
 import { PHR_MODULE_IDS_SET, type PhrModuleId, type PhrModuleMeta, phrModuleRegistry, type PhrShellState } from './phrModuleRegistry'
+import { PhrPatientSearchPalette } from './PhrPatientSearchPalette'
 
 const LOADING = <div role="status" aria-live="polite" className="p-8 text-sm text-muted-foreground">Loading…</div>
 
@@ -101,16 +102,26 @@ export function PhrMillerShell({ initialPatientId, backUrl }: PhrMillerShellProp
       className="flex h-full flex-col"
       onPatientChange={handlePatientChange}
       onSectionChange={handleSectionChange}
+      onSearch={() => setPaletteOpen(true)}
     >
       <div className="min-h-0 flex-1 overflow-hidden">
         <Suspense fallback={LOADING}>{shell}</Suspense>
       </div>
-      <PhrCommandPalette
-        open={paletteOpen}
-        onClose={() => setPaletteOpen(false)}
-        onDrill={pushColumn}
-        registry={phrModuleRegistry}
-      />
+      {patientId === undefined ? (
+        <PhrCommandPalette
+          open={paletteOpen}
+          onClose={() => setPaletteOpen(false)}
+          onDrill={pushColumn}
+          registry={phrModuleRegistry}
+        />
+      ) : (
+        <PhrPatientSearchPalette
+          open={paletteOpen}
+          patientId={patientId}
+          onClose={() => setPaletteOpen(false)}
+          onDrill={pushColumn}
+        />
+      )}
     </PhrNavbar>
   )
 }

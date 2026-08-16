@@ -135,6 +135,21 @@ export const PhrDicomStudySchema = z.object({
 
 export type PhrDicomStudy = z.infer<typeof PhrDicomStudySchema>
 
+export const PhrPatientSearchResultSchema = z.object({
+  id: z.number(),
+  category: z.string(),
+  label: z.string(),
+  description: nullableString,
+  date: nullableString,
+  module_id: z.string(),
+})
+
+export type PhrPatientSearchResult = z.infer<typeof PhrPatientSearchResultSchema>
+
+export const PhrPatientSearchResponseSchema = z.object({
+  results: z.array(PhrPatientSearchResultSchema),
+})
+
 export const PhrDicomSkippedFileSchema = z.object({
   path: z.string(),
   reason: z.string(),
