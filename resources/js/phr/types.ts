@@ -483,6 +483,30 @@ export type PhrVitalFormData = z.infer<typeof PhrVitalFormSchema>
 
 // ── Office Visits ──────────────────────────────────────────────────────────────
 
+export const PhrEobSummarySchema = z.object({
+  id: z.number(),
+  claim_number: nullableString,
+  claim_type: z.string(),
+  provider_name: nullableString,
+  administrator: nullableString,
+  service_start: nullableString,
+  service_end: nullableString,
+  processed_date: nullableString,
+  source_document_id: z.number().nullable(),
+  source_document_url: nullableString,
+})
+
+export type PhrEobSummary = z.infer<typeof PhrEobSummarySchema>
+
+export const PhrEobSearchResponseSchema = z.object({
+  eobs: z.array(PhrEobSummarySchema),
+  can_manage: z.boolean().default(false),
+})
+
+export const PhrEobLinkResponseSchema = z.object({
+  eob: PhrEobSummarySchema,
+})
+
 export const PhrOfficeVisitSchema = z.object({
   id: z.number(),
   patient_id: z.number(),
@@ -501,6 +525,7 @@ export const PhrOfficeVisitSchema = z.object({
   objective: nullableString,
   icd10_codes: z.array(z.record(z.string(), z.string())).nullable(),
   cpt_codes: z.array(z.record(z.string(), z.string())).nullable(),
+  eobs: z.array(PhrEobSummarySchema).default([]),
   created_at: nullableString,
   updated_at: nullableString,
 })
@@ -514,6 +539,7 @@ export const PhrOfficeVisitsResponseSchema = z.object({
 
 export const PhrOfficeVisitResponseSchema = z.object({
   office_visit: PhrOfficeVisitSchema,
+  can_manage: z.boolean().default(false),
 })
 
 // ── Medications ───────────────────────────────────────────────────────────────
@@ -613,6 +639,7 @@ export const PhrProcedureSchema = z.object({
   outcome: nullableString,
   notes: nullableString,
   raw_text: nullableString,
+  eobs: z.array(PhrEobSummarySchema).default([]),
   created_at: nullableString,
   updated_at: nullableString,
 })
@@ -621,6 +648,7 @@ export type PhrProcedure = z.infer<typeof PhrProcedureSchema>
 
 export const PhrProcedureResponseSchema = z.object({
   procedure: PhrProcedureSchema,
+  can_manage: z.boolean().default(false),
 })
 
 export const PhrProceduresResponseSchema = z.object({

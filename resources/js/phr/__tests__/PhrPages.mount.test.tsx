@@ -77,6 +77,55 @@ function makeProcedure(overrides: Record<string, unknown> = {}) {
   }
 }
 
+function makeOfficeVisit(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 8101,
+    patient_id: PATIENT_ID,
+    user_id: 2,
+    visit_date: '2026-06-01',
+    visit_started_at: null,
+    visit_ended_at: null,
+    visit_type: 'Follow-up',
+    provider_name: 'Example clinician',
+    provider_specialty: null,
+    facility_name: 'Example clinic',
+    chief_complaint: null,
+    assessment: null,
+    plan: null,
+    subjective: null,
+    objective: null,
+    icd10_codes: [],
+    cpt_codes: [],
+    created_at: null,
+    updated_at: null,
+    ...overrides,
+  }
+}
+
+function makeImmunization(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 8201,
+    patient_id: PATIENT_ID,
+    user_id: 2,
+    vaccine_name: 'Example vaccine',
+    cvx_code: null,
+    manufacturer: 'Example manufacturer',
+    lot_number: null,
+    administered_on: '2026-07-04',
+    dose_number: 2,
+    series_doses: 2,
+    site: null,
+    route: null,
+    administered_by: 'Example clinician',
+    facility_name: null,
+    notes: null,
+    raw_text: null,
+    created_at: null,
+    updated_at: null,
+    ...overrides,
+  }
+}
+
 beforeEach(() => {
   mockGet.mockClear()
   mockPost.mockClear()
@@ -565,9 +614,9 @@ describe('PHR page mounts', () => {
     expect(document.body).toBeTruthy()
   })
 
-  it('makes allergy shot administrations discoverable from Visits without showing extract preparation', async () => {
+  it('combines visit-like records in a filterable timeline with cadence labels', async () => {
     mockGet.mockImplementation(async (url: string) => {
-      if (url.includes('/office-visits')) return { office_visits: [], can_manage: true }
+      if (url.includes('/office-visits')) return { office_visits: [makeOfficeVisit()], can_manage: true }
       if (url.includes('/procedures')) {
         return {
           procedures: [
@@ -579,25 +628,38 @@ describe('PHR page mounts', () => {
           can_manage: true,
         }
       }
+      if (url.includes('/immunizations')) {
+        return { immunizations: [makeImmunization()], can_manage: true }
+      }
       return {}
     })
 
     const onDrill = jest.fn()
     render(<OfficeVisitsPage patientId={PATIENT_ID} onDrill={onDrill} />)
 
-    const allergyShotsTab = await screen.findByRole('tab', { name: /allergy shots 2/i })
-    expect(screen.getByText(/2 administration records/i)).toBeInTheDocument()
+    const allFilter = await screen.findByRole('button', { name: /^all 4$/i })
+    expect(allFilter).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('Follow-up')).toBeInTheDocument()
+    expect(screen.getByText('Example vaccine')).toBeInTheDocument()
+    expect(screen.queryByText('Allergen extract preparation')).not.toBeInTheDocument()
+    expect(screen.queryByText('Dental restoration')).not.toBeInTheDocument()
 
-    fireEvent.click(allergyShotsTab)
+    const allergyShotsFilter = screen.getByRole('button', { name: /allergy shots 2/i })
+    fireEvent.click(allergyShotsFilter)
 
     expect(screen.getByText('Multiple allergy injections')).toBeInTheDocument()
     expect(screen.getByText('Single allergy injection')).toBeInTheDocument()
-    expect(screen.queryByText('Allergen extract preparation')).not.toBeInTheDocument()
-    expect(screen.queryByText('Dental restoration')).not.toBeInTheDocument()
-    expect(screen.getByText(/CPT 95165.*excluded/i)).toBeInTheDocument()
+    expect(screen.getByText('45 days since previous allergy shot')).toBeInTheDocument()
+    expect(screen.queryByText('Follow-up')).not.toBeInTheDocument()
+    expect(screen.queryByText('Example vaccine')).not.toBeInTheDocument()
+    expect(screen.getByText(/Allergen extract preparation is excluded/i)).toBeInTheDocument()
 
     fireEvent.click(screen.getByText('Multiple allergy injections'))
     expect(onDrill).toHaveBeenCalledWith({ id: 'procedure-detail', instance: '7002' })
+
+    fireEvent.click(screen.getByRole('button', { name: /immunizations 1/i }))
+    fireEvent.click(screen.getByText('Example vaccine'))
+    expect(onDrill).toHaveBeenCalledWith({ id: 'immunization-detail', instance: '8201' })
   })
 
   it('renders condition actions including GenAI import handoff', async () => {

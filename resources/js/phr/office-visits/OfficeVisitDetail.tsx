@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react'
 import { useEffect, useState } from 'react'
 
+import EncounterEobLinks from '@/phr/clinical/EncounterEobLinks'
 import { PhrNotFoundColumn } from '@/phr/miller'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { type PhrOfficeVisit, PhrOfficeVisitResponseSchema } from '@/phr/types'
@@ -36,6 +37,7 @@ export default function OfficeVisitDetail({ patientId, recordId }: OfficeVisitDe
   const [notFound, setNotFound] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [canManage, setCanManage] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -44,6 +46,8 @@ export default function OfficeVisitDetail({ patientId, recordId }: OfficeVisitDe
       setBusy(true)
       setError(null)
       setNotFound(false)
+      setVisit(null)
+      setCanManage(false)
 
       try {
         const result = await fetchPhrDetail(
@@ -54,6 +58,7 @@ export default function OfficeVisitDetail({ patientId, recordId }: OfficeVisitDe
         if (cancelled) return
 
         setVisit(result.data?.office_visit ?? null)
+        setCanManage(result.data?.can_manage ?? false)
         setNotFound(result.notFound)
       } catch (caught) {
         if (!cancelled) {
@@ -85,60 +90,72 @@ export default function OfficeVisitDetail({ patientId, recordId }: OfficeVisitDe
       )}
       {busy && <p className="text-sm text-muted-foreground">Loading...</p>}
       {visit && (
-        <section className="rounded-lg border border-border bg-card p-4">
-          <h2 className="text-lg font-semibold text-card-foreground">{detailValue(visit.visit_type, 'Office Visit')}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Visit #{visit.id}</p>
-          <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-            <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Visit date</dt>
-              <dd className="text-card-foreground">{detailValue(visit.visit_date)}</dd>
+        <>
+          <section className="rounded-lg border border-border bg-card p-4">
+            <h2 className="text-lg font-semibold text-card-foreground">{detailValue(visit.visit_type, 'Office Visit')}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Visit #{visit.id}</p>
+            <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Visit date</dt>
+                <dd className="text-card-foreground">{detailValue(visit.visit_date)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Start time</dt>
+                <dd className="text-card-foreground">{detailValue(visit.visit_started_at)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">End time</dt>
+                <dd className="text-card-foreground">{detailValue(visit.visit_ended_at)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Provider</dt>
+                <dd className="text-card-foreground">{detailValue(visit.provider_name)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Specialty</dt>
+                <dd className="text-card-foreground">{detailValue(visit.provider_specialty)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Facility</dt>
+                <dd className="text-card-foreground">{detailValue(visit.facility_name)}</dd>
+              </div>
+            </dl>
+            <div className="mt-4 grid gap-3 border-t border-border pt-4 text-sm">
+              <div>
+                <h3 className="font-medium text-card-foreground">Chief complaint</h3>
+                <p className="mt-1 text-muted-foreground">{detailValue(visit.chief_complaint, 'No complaint recorded.')}</p>
+              </div>
+              <div>
+                <h3 className="font-medium text-card-foreground">Subjective</h3>
+                <p className="mt-1 text-muted-foreground">{detailValue(visit.subjective, 'Not recorded.')}</p>
+              </div>
+              <div>
+                <h3 className="font-medium text-card-foreground">Objective</h3>
+                <p className="mt-1 text-muted-foreground">{detailValue(visit.objective, 'Not recorded.')}</p>
+              </div>
+              <div>
+                <h3 className="font-medium text-card-foreground">Assessment</h3>
+                <p className="mt-1 text-muted-foreground">{detailValue(visit.assessment, 'Not recorded.')}</p>
+              </div>
+              <div>
+                <h3 className="font-medium text-card-foreground">Plan</h3>
+                <p className="mt-1 text-muted-foreground">{detailValue(visit.plan, 'Not recorded.')}</p>
+              </div>
+              {renderCodeList('ICD-10 codes', visit.icd10_codes)}
+              {renderCodeList('CPT codes', visit.cpt_codes)}
             </div>
-            <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Start time</dt>
-              <dd className="text-card-foreground">{detailValue(visit.visit_started_at)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">End time</dt>
-              <dd className="text-card-foreground">{detailValue(visit.visit_ended_at)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Provider</dt>
-              <dd className="text-card-foreground">{detailValue(visit.provider_name)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Specialty</dt>
-              <dd className="text-card-foreground">{detailValue(visit.provider_specialty)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Facility</dt>
-              <dd className="text-card-foreground">{detailValue(visit.facility_name)}</dd>
-            </div>
-          </dl>
-          <div className="mt-4 grid gap-3 border-t border-border pt-4 text-sm">
-            <div>
-              <h3 className="font-medium text-card-foreground">Chief complaint</h3>
-              <p className="mt-1 text-muted-foreground">{detailValue(visit.chief_complaint, 'No complaint recorded.')}</p>
-            </div>
-            <div>
-              <h3 className="font-medium text-card-foreground">Subjective</h3>
-              <p className="mt-1 text-muted-foreground">{detailValue(visit.subjective, 'Not recorded.')}</p>
-            </div>
-            <div>
-              <h3 className="font-medium text-card-foreground">Objective</h3>
-              <p className="mt-1 text-muted-foreground">{detailValue(visit.objective, 'Not recorded.')}</p>
-            </div>
-            <div>
-              <h3 className="font-medium text-card-foreground">Assessment</h3>
-              <p className="mt-1 text-muted-foreground">{detailValue(visit.assessment, 'Not recorded.')}</p>
-            </div>
-            <div>
-              <h3 className="font-medium text-card-foreground">Plan</h3>
-              <p className="mt-1 text-muted-foreground">{detailValue(visit.plan, 'Not recorded.')}</p>
-            </div>
-            {renderCodeList('ICD-10 codes', visit.icd10_codes)}
-            {renderCodeList('CPT codes', visit.cpt_codes)}
-          </div>
-        </section>
+          </section>
+          <EncounterEobLinks
+            key={`${patientId}-${recordId}`}
+            patientId={patientId}
+            recordType="office-visits"
+            recordId={recordId}
+            serviceDate={visit.visit_date}
+            eobs={visit.eobs}
+            canManage={canManage}
+            onChange={(eobs) => setVisit((current) => current ? { ...current, eobs } : current)}
+          />
+        </>
       )}
     </div>
   )

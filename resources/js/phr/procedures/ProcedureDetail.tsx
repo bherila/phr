@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import EncounterEobLinks from '@/phr/clinical/EncounterEobLinks'
 import { PhrNotFoundColumn } from '@/phr/miller'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { type PhrProcedure, PhrProcedureResponseSchema } from '@/phr/types'
@@ -18,6 +19,7 @@ export default function ProcedureDetail({ patientId, recordId }: ProcedureDetail
   const [notFound, setNotFound] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [canManage, setCanManage] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -26,6 +28,8 @@ export default function ProcedureDetail({ patientId, recordId }: ProcedureDetail
       setBusy(true)
       setError(null)
       setNotFound(false)
+      setProcedure(null)
+      setCanManage(false)
 
       try {
         const result = await fetchPhrDetail(
@@ -36,6 +40,7 @@ export default function ProcedureDetail({ patientId, recordId }: ProcedureDetail
         if (cancelled) return
 
         setProcedure(result.data?.procedure ?? null)
+        setCanManage(result.data?.can_manage ?? false)
         setNotFound(result.notFound)
       } catch (caught) {
         if (!cancelled) {
@@ -67,58 +72,70 @@ export default function ProcedureDetail({ patientId, recordId }: ProcedureDetail
       )}
       {busy && <p className="text-sm text-muted-foreground">Loading...</p>}
       {procedure && (
-        <section className="rounded-lg border border-border bg-card p-4">
-          <h2 className="text-lg font-semibold text-card-foreground">{procedure.name}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">Procedure #{procedure.id}</p>
-          <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
-            <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Performed at</dt>
-              <dd className="text-card-foreground">{detailValue(procedure.performed_at)}</dd>
+        <>
+          <section className="rounded-lg border border-border bg-card p-4">
+            <h2 className="text-lg font-semibold text-card-foreground">{procedure.name}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Procedure #{procedure.id}</p>
+            <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Performed at</dt>
+                <dd className="text-card-foreground">{detailValue(procedure.performed_at)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Performed on</dt>
+                <dd className="text-card-foreground">{detailValue(procedure.performed_on)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Provider</dt>
+                <dd className="text-card-foreground">{detailValue(procedure.performer_name)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Specialty</dt>
+                <dd className="text-card-foreground">{detailValue(procedure.performer_specialty)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Facility</dt>
+                <dd className="text-card-foreground">{detailValue(procedure.facility_name)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Status</dt>
+                <dd className="text-card-foreground">{detailValue(procedure.status)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">CPT</dt>
+                <dd className="text-card-foreground">{detailValue(procedure.cpt_code)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">SNOMED</dt>
+                <dd className="text-card-foreground">{detailValue(procedure.snomed_code)}</dd>
+              </div>
+            </dl>
+            <div className="mt-4 grid gap-3 border-t border-border pt-4 text-sm">
+              <div>
+                <h3 className="font-medium text-card-foreground">Reason</h3>
+                <p className="mt-1 text-muted-foreground">{detailValue(procedure.reason, 'No reason documented.')}</p>
+              </div>
+              <div>
+                <h3 className="font-medium text-card-foreground">Outcome / complications</h3>
+                <p className="mt-1 text-muted-foreground">{detailValue(procedure.outcome, 'No complications documented.')}</p>
+              </div>
+              <div>
+                <h3 className="font-medium text-card-foreground">Notes</h3>
+                <p className="mt-1 text-muted-foreground">{detailValue(procedure.notes, 'No notes recorded.')}</p>
+              </div>
             </div>
-            <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Performed on</dt>
-              <dd className="text-card-foreground">{detailValue(procedure.performed_on)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Provider</dt>
-              <dd className="text-card-foreground">{detailValue(procedure.performer_name)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Specialty</dt>
-              <dd className="text-card-foreground">{detailValue(procedure.performer_specialty)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Facility</dt>
-              <dd className="text-card-foreground">{detailValue(procedure.facility_name)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Status</dt>
-              <dd className="text-card-foreground">{detailValue(procedure.status)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">CPT</dt>
-              <dd className="text-card-foreground">{detailValue(procedure.cpt_code)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">SNOMED</dt>
-              <dd className="text-card-foreground">{detailValue(procedure.snomed_code)}</dd>
-            </div>
-          </dl>
-          <div className="mt-4 grid gap-3 border-t border-border pt-4 text-sm">
-            <div>
-              <h3 className="font-medium text-card-foreground">Reason</h3>
-              <p className="mt-1 text-muted-foreground">{detailValue(procedure.reason, 'No reason documented.')}</p>
-            </div>
-            <div>
-              <h3 className="font-medium text-card-foreground">Outcome / complications</h3>
-              <p className="mt-1 text-muted-foreground">{detailValue(procedure.outcome, 'No complications documented.')}</p>
-            </div>
-            <div>
-              <h3 className="font-medium text-card-foreground">Notes</h3>
-              <p className="mt-1 text-muted-foreground">{detailValue(procedure.notes, 'No notes recorded.')}</p>
-            </div>
-          </div>
-        </section>
+          </section>
+          <EncounterEobLinks
+            key={`${patientId}-${recordId}`}
+            patientId={patientId}
+            recordType="procedures"
+            recordId={recordId}
+            serviceDate={(procedure.performed_at ?? procedure.performed_on)?.slice(0, 10) ?? null}
+            eobs={procedure.eobs}
+            canManage={canManage}
+            onChange={(eobs) => setProcedure((current) => current ? { ...current, eobs } : current)}
+          />
+        </>
       )}
     </div>
   )
