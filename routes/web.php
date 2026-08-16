@@ -30,8 +30,6 @@ Route::withoutMiddleware([
         ->name('oauth.metadata.protected-resource-root');
     Route::get('/.well-known/oauth-protected-resource/api/v1', [OAuthMetadataController::class, 'protectedResource'])
         ->name('oauth.metadata.protected-resource');
-    Route::get('/.well-known/oauth-protected-resource/api/v1/mcp', [OAuthMetadataController::class, 'protectedResource'])
-        ->name('oauth.metadata.protected-resource-mcp');
     Route::post('/oauth/register', OAuthDynamicClientRegistrationController::class)
         ->middleware('throttle:agent-api-client-registration')
         ->name('oauth.clients.register');

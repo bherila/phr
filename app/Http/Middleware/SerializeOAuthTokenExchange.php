@@ -15,13 +15,19 @@ final class SerializeOAuthTokenExchange
 
     public function handle(Request $request, Closure $next): Response
     {
-        if (! $request->routeIs('passport.token')) {
+        $isTokenExchange = $request->routeIs('passport.token');
+        $isAuthorizationApproval = $request->routeIs('passport.authorizations.approve');
+        if (! $isTokenExchange && ! $isAuthorizationApproval) {
             return $next($request);
         }
 
         $connection = config('passport.connection');
         $response = DB::connection(is_string($connection) ? $connection : null)
             ->transaction(fn (): Response => $next($request), 1);
+
+        if (! $isTokenExchange) {
+            return $response;
+        }
 
         $accountIsActive = $this->accountGuard->credentialsMayBeReturned();
         if (! $accountIsActive && $response->isSuccessful()) {

@@ -6,10 +6,14 @@ use App\Models\User;
 use Laravel\Passport\Bridge\AuthCodeRepository;
 use Laravel\Passport\Passport;
 use League\OAuth2\Server\Entities\AuthCodeEntityInterface;
+use League\OAuth2\Server\Exception\OAuthServerException;
 
 class AccountAwareAuthCodeRepository extends AuthCodeRepository
 {
-    public function __construct(private OAuthExchangeAccountGuard $accountGuard) {}
+    public function __construct(
+        private OAuthExchangeAccountGuard $accountGuard,
+        private OAuthDynamicClientDao $dynamicClients,
+    ) {}
 
     public function persistNewAuthCode(AuthCodeEntityInterface $authCodeEntity): void
     {
@@ -26,6 +30,12 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
         );
         $resourceIsValid = ! in_array(AgentApiScopes::MCP_USE, $scopeIds, true)
             || $resourceUri === OAuthResourceIndicator::agentApi();
+        $client = $this->dynamicClients->lockForAuthorization(
+            $authCodeEntity->getClient()->getIdentifier(),
+        );
+        if ($client === null) {
+            throw OAuthServerException::invalidGrant('The authorization grant is invalid.');
+        }
 
         Passport::authCode()->forceFill([
             'id' => $authCodeEntity->getIdentifier(),
@@ -38,11 +48,7 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
             'expires_at' => $authCodeEntity->getExpiryDateTime(),
         ])->save();
 
-        Passport::client()->newQuery()
-            ->whereKey($authCodeEntity->getClient()->getIdentifier())
-            ->whereNotNull('dynamically_registered_at')
-            ->whereNull('first_authorized_at')
-            ->update(['first_authorized_at' => now()]);
+        $this->dynamicClients->markAuthorized($client);
     }
 
     public function isAuthCodeRevoked(string $codeId): bool

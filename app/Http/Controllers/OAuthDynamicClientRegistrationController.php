@@ -76,7 +76,7 @@ final class OAuthDynamicClientRegistrationController extends Controller
             'scopes' => $requestedScopes,
         ])->save();
 
-        return response()->json([
+        $responseMetadata = [
             'client_id' => $client->id,
             'client_id_issued_at' => $client->created_at?->getTimestamp(),
             'client_name' => $client->name,
@@ -84,8 +84,12 @@ final class OAuthDynamicClientRegistrationController extends Controller
             'grant_types' => ['authorization_code', 'refresh_token'],
             'response_types' => ['code'],
             'token_endpoint_auth_method' => 'none',
-            'scope' => $requestedScopes === null ? null : implode(' ', $requestedScopes),
-        ], 201, [
+        ];
+        if ($requestedScopes !== null) {
+            $responseMetadata['scope'] = implode(' ', $requestedScopes);
+        }
+
+        return response()->json($responseMetadata, 201, [
             'Cache-Control' => 'no-store',
             'Pragma' => 'no-cache',
             'X-Content-Type-Options' => 'nosniff',

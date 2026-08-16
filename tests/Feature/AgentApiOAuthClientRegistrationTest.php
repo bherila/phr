@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use App\Support\AgentApi\AgentApiScopes;
+use App\Support\AgentApi\OAuthDynamicClientDao;
 use App\Support\AgentApi\OAuthResourceIndicator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Passport\AuthCode;
@@ -33,7 +34,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         ]);
     }
 
-    public function test_discovery_advertises_public_registration_resource_indicators_and_mcp_scope(): void
+    public function test_discovery_advertises_public_registration_and_resource_indicators(): void
     {
         $this->getJson('/.well-known/oauth-authorization-server')
             ->assertOk()
@@ -41,11 +42,9 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             ->assertJsonPath('resource_indicators_supported', true)
             ->assertJsonPath('scopes_supported', AgentApiScopes::ids());
 
-        $this->getJson('/.well-known/oauth-protected-resource/api/v1/mcp')
-            ->assertOk()
-            ->assertJsonPath('resource', OAuthResourceIndicator::agentApi())
-            ->assertJsonPath('scopes_supported', AgentApiScopes::ids());
-        $this->assertContains(AgentApiScopes::MCP_USE, AgentApiScopes::ids());
+        $this->getJson('/.well-known/oauth-protected-resource/api/v1/mcp')->assertNotFound();
+        $this->assertNotContains(AgentApiScopes::MCP_USE, AgentApiScopes::ids());
+        $this->assertArrayHasKey(AgentApiScopes::MCP_USE, AgentApiScopes::reservedDescriptions());
     }
 
     public function test_dynamic_registration_issues_only_a_public_bounded_client(): void
@@ -60,7 +59,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'grant_types' => ['refresh_token', 'authorization_code'],
             'response_types' => ['code'],
             'token_endpoint_auth_method' => 'none',
-            'scope' => AgentApiScopes::MCP_USE.' '.AgentApiScopes::PATIENTS_READ,
+            'scope' => AgentApiScopes::PATIENTS_READ,
         ])->assertCreated()
             ->assertHeader('Cache-Control', 'no-store, private')
             ->assertJsonMissingPath('client_secret')
@@ -78,7 +77,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         ], $client->redirect_uris);
         $this->assertNotNull($client->dynamically_registered_at);
         $this->assertSame(
-            [AgentApiScopes::MCP_USE, AgentApiScopes::PATIENTS_READ],
+            [AgentApiScopes::PATIENTS_READ],
             $client->scopes,
         );
 
@@ -92,7 +91,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'client_id' => $client->id,
             'redirect_uri' => 'https://agent.example.test/oauth/callback',
             'response_type' => 'code',
-            'scope' => AgentApiScopes::MCP_USE,
+            'scope' => AgentApiScopes::PATIENTS_READ,
             'state' => 'synthetic-registration-state',
             'code_challenge' => $challenge,
             'code_challenge_method' => 'S256',
@@ -120,6 +119,18 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         $this->assertNotNull($client->fresh()?->first_authorized_at);
     }
 
+    public function test_dynamic_registration_omits_unsupplied_scope_metadata(): void
+    {
+        $response = $this->postJson('/oauth/register', [
+            'client_name' => 'Synthetic Unscoped Agent',
+            'redirect_uris' => ['https://agent.example.test/callback'],
+        ])->assertCreated()
+            ->assertJsonMissingPath('scope');
+
+        $client = Client::query()->findOrFail($response->json('client_id'));
+        $this->assertNull($client->scopes);
+    }
+
     public function test_dynamic_registration_rejects_unsafe_or_unsupported_metadata_generically(): void
     {
         $valid = [
@@ -142,12 +153,12 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         ])->assertBadRequest();
         $this->postJson('/oauth/register', [
             ...$valid,
-            'scope' => AgentApiScopes::MCP_USE.' unknown:scope',
+            'scope' => AgentApiScopes::PATIENTS_READ.' unknown:scope',
         ])->assertBadRequest();
         $this->assertDatabaseCount('oauth_clients', 0);
     }
 
-    public function test_mcp_scope_requires_and_persists_the_agent_api_resource_across_rotation(): void
+    public function test_resource_indicator_persists_across_authorization_and_rotation(): void
     {
         $user = User::factory()->create([
             'name' => 'Synthetic Resource User',
@@ -161,13 +172,11 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'client_id' => $client->id,
             'redirect_uri' => 'https://agent.example.test/callback',
             'response_type' => 'code',
-            'scope' => AgentApiScopes::MCP_USE.' '.AgentApiScopes::IDENTITY_READ,
+            'scope' => AgentApiScopes::IDENTITY_READ,
             'state' => 'synthetic-resource-state',
             'code_challenge' => $challenge,
             'code_challenge_method' => 'S256',
         ];
-        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query($query))
-            ->assertBadRequest()->assertJsonPath('error', 'invalid_target');
         $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
             ...$query,
             'resource' => 'https://unrelated.example.test/api',
@@ -238,7 +247,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'client_id' => $client->id,
             'redirect_uri' => 'https://agent.example.test/callback',
             'response_type' => 'code',
-            'scope' => AgentApiScopes::MCP_USE,
+            'scope' => AgentApiScopes::IDENTITY_READ,
             'state' => 'synthetic-missing-resource-state',
             'code_challenge' => $challenge,
             'code_challenge_method' => 'S256',
@@ -271,13 +280,21 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'dynamically_registered_at' => now()->subDays(30),
             'first_authorized_at' => now()->subDays(29),
         ])->save();
+        $rechecked = $this->publicClient('Synthetic Rechecked Dynamic Client');
+        $rechecked->forceFill(['dynamically_registered_at' => now()->subDays(2)])->save();
         $static = $this->publicClient('Synthetic Static Client');
+
+        $dynamicClients = app(OAuthDynamicClientDao::class);
+        $this->assertContains($rechecked->id, $dynamicClients->staleUnusedIds(now()->subDay()));
+        $rechecked->forceFill(['first_authorized_at' => now()])->save();
+        $this->assertNull($dynamicClients->lockUnusedForPruning($rechecked->id, now()->subDay()));
 
         $this->artisan('phr:agent-api:prune-oauth-credentials')->assertSuccessful();
 
         $this->assertNull($stale->fresh());
         $this->assertNotNull($recent->fresh());
         $this->assertNotNull($previouslyUsed->fresh());
+        $this->assertNotNull($rechecked->fresh());
         $this->assertNotNull($static->fresh());
     }
 

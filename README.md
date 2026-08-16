@@ -160,13 +160,13 @@ remain isolated from this scoped API.
 
 Remote public clients can register at `/oauth/register`; registrations accept only
 authorization-code/refresh grants, no client secret, and HTTPS or local-loopback
-redirects. MCP clients request the `mcp:use` scope and bind authorization, token, and
-refresh requests to the `/api/v1` resource indicator. Unused dynamic registrations are
-pruned after one day by the existing OAuth credential maintenance job.
+redirects. Clients may bind authorization, token, and refresh requests to the
+`/api/v1` resource indicator. Unused dynamic registrations are pruned after one day by
+the existing OAuth credential maintenance job. The reserved `mcp:use` scope is activated
+only when the corresponding MCP transport endpoint is deployed.
 
 The read surface registers four independently consented data scopes: `identity:read`,
-`patients:read`, `clinical:read`, and `documents:read`, plus the `mcp:use` transport
-scope. Patient discovery returns only
+`patients:read`, `clinical:read`, and `documents:read`. Patient discovery returns only
 the caller's own access level and never enumerates other grants or owner identities.
 Core clinical list/get endpoints cover office visits, procedures, immunizations,
 medications, conditions, allergies, labs, vitals, and health logs. Lists use opaque
