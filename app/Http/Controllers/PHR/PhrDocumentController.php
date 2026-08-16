@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\PHR;
 
 use App\DataTransferObjects\PHR\DocumentUploadData;
-use App\DataTransferObjects\PHR\ImportJobMutationResult;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\PHR\StorePhrDocumentRequest;
 use App\Http\Requests\PHR\UpdatePhrDocumentRequest;
@@ -147,7 +146,7 @@ class PhrDocumentController extends Controller
             'status' => $result->job->status,
             'outcome' => $result->outcome,
             'document' => $this->payload($resolvedDocument->refresh()),
-        ], $result->outcome === ImportJobMutationResult::CREATED ? 202 : 200);
+        ], $result->wasQueued() ? 202 : 200);
     }
 
     public function download(Request $request, PhrDocument $document): StreamedResponse

@@ -27,31 +27,34 @@ final readonly class PhrDocumentProcessingService
 
     public function create(PhrPatient $patient, int $actorUserId, int $documentId): ImportJobMutationResult
     {
-        $result = $this->artifactWriteGuard->run(
-            (int) $patient->id,
-            function (PhrPatient $lockedPatient) use ($actorUserId, $documentId): ImportJobMutationResult {
-                $document = PhrDocument::query()
-                    ->where('patient_id', $lockedPatient->id)
-                    ->findOrFail($documentId);
-                $existing = $this->jobs->findForDocument($lockedPatient, $document);
-                if ($existing instanceof GenAiImportJob) {
-                    return new ImportJobMutationResult($existing, (int) $document->id, ImportJobMutationResult::UNCHANGED);
-                }
-                if ($document->genai_job_id !== null) {
-                    throw new ConflictHttpException('The document references an unavailable import job.');
-                }
+        $newStagingPath = null;
 
-                $this->assertStoredDocument($document);
-                $stagingPath = $this->stagingPath($actorUserId, $document);
+        try {
+            $result = $this->artifactWriteGuard->run(
+                (int) $patient->id,
+                function (PhrPatient $lockedPatient) use ($actorUserId, $documentId, &$newStagingPath): ImportJobMutationResult {
+                    $document = PhrDocument::query()
+                        ->where('patient_id', $lockedPatient->id)
+                        ->findOrFail($documentId);
+                    $existing = $this->jobs->findForDocument($lockedPatient, $document);
+                    if ($existing instanceof GenAiImportJob) {
+                        return $existing->status === 'failed'
+                            ? $this->prepareRetry($existing, $document, $newStagingPath)
+                            : new ImportJobMutationResult($existing, (int) $document->id, ImportJobMutationResult::UNCHANGED);
+                    }
+                    if ($document->genai_job_id !== null) {
+                        throw new ConflictHttpException('The document references an unavailable import job.');
+                    }
 
-                try {
-                    $this->copyToStaging($document, $stagingPath);
+                    $this->assertStoredDocument($document);
+                    $newStagingPath ??= $this->stagingPath($actorUserId, $document);
+                    $this->copyToStaging($document, $newStagingPath);
                     $job = GenAiImportJob::query()->create([
                         'user_id' => $actorUserId,
                         'job_type' => 'phr_document',
-                        'file_hash' => $document->file_hash ?? hash('sha256', $stagingPath),
+                        'file_hash' => $document->file_hash ?? hash('sha256', $newStagingPath),
                         'original_filename' => $document->original_filename ?? 'document',
-                        's3_path' => $stagingPath,
+                        's3_path' => $newStagingPath,
                         'mime_type' => $document->mime_type,
                         'file_size_bytes' => $document->byte_size,
                         'context_json' => json_encode([
@@ -63,59 +66,91 @@ final readonly class PhrDocumentProcessingService
                         'status' => 'pending',
                     ]);
                     $document->update(['genai_job_id' => $job->id]);
-                } catch (Throwable $exception) {
-                    $this->deleteStagingFile($stagingPath);
 
-                    throw $exception;
-                }
+                    return new ImportJobMutationResult($job, (int) $document->id, ImportJobMutationResult::CREATED);
+                },
+            );
+        } catch (Throwable $exception) {
+            $this->deleteStagingFileIfPresent($newStagingPath);
 
-                return new ImportJobMutationResult($job, (int) $document->id, ImportJobMutationResult::CREATED);
-            },
-        );
-
-        if ($result->outcome === ImportJobMutationResult::CREATED) {
-            $this->dispatch($result->job);
+            throw $exception;
         }
 
-        return $result;
+        return $this->completeMutation($result, $newStagingPath);
     }
 
     public function retry(PhrPatient $patient, int $jobId): ImportJobMutationResult
     {
-        $result = $this->artifactWriteGuard->run(
-            (int) $patient->id,
-            function (PhrPatient $lockedPatient) use ($jobId): ImportJobMutationResult {
-                $job = $this->jobs->find($lockedPatient, $jobId);
-                $document = $job->sourceDocument()->firstOrFail();
-                if (in_array($job->status, ['pending', 'processing', 'queued_tomorrow'], true)) {
-                    return new ImportJobMutationResult($job, (int) $document->id, ImportJobMutationResult::UNCHANGED);
-                }
-                if (! $job->canRetry()) {
-                    throw new ConflictHttpException('The import job cannot be retried.');
-                }
-                if ($job->results()->where('status', '!=', 'pending_review')->exists()) {
-                    throw new ConflictHttpException('A reviewed import job cannot be retried.');
-                }
+        $newStagingPath = null;
 
-                $job->results()->where('status', 'pending_review')->delete();
-                $job->update([
-                    'status' => 'pending',
-                    'error_message' => null,
-                    'raw_response' => null,
-                    'scheduled_for' => null,
-                    'parsed_at' => null,
-                    'input_tokens' => null,
-                    'output_tokens' => null,
-                    'processing_tier' => null,
-                ]);
+        try {
+            $result = $this->artifactWriteGuard->run(
+                (int) $patient->id,
+                function (PhrPatient $lockedPatient) use ($jobId, &$newStagingPath): ImportJobMutationResult {
+                    $job = $this->jobs->find($lockedPatient, $jobId);
+                    $document = $job->sourceDocument()->firstOrFail();
 
-                return new ImportJobMutationResult($job->refresh(), (int) $document->id, ImportJobMutationResult::RETRIED);
-            },
-        );
+                    return $this->prepareRetry($job, $document, $newStagingPath);
+                },
+            );
+        } catch (Throwable $exception) {
+            $this->deleteStagingFileIfPresent($newStagingPath);
 
-        if ($result->outcome === ImportJobMutationResult::RETRIED) {
-            $this->dispatch($result->job);
+            throw $exception;
         }
+
+        return $this->completeMutation($result, $newStagingPath);
+    }
+
+    private function prepareRetry(
+        GenAiImportJob $job,
+        PhrDocument $document,
+        ?string &$newStagingPath,
+    ): ImportJobMutationResult {
+        if ($document->trashed()) {
+            throw new NotFoundHttpException;
+        }
+        if (in_array($job->status, ['pending', 'processing', 'queued_tomorrow'], true)) {
+            return new ImportJobMutationResult($job, (int) $document->id, ImportJobMutationResult::UNCHANGED);
+        }
+        if (! $job->canRetry()) {
+            throw new ConflictHttpException('The import job cannot be retried.');
+        }
+        if ($job->results()->where('status', '!=', 'pending_review')->exists()) {
+            throw new ConflictHttpException('A reviewed import job cannot be retried.');
+        }
+
+        if (! Storage::disk('s3')->exists($job->s3_path)) {
+            $this->assertStoredDocument($document);
+            $newStagingPath ??= $this->stagingPath((int) $job->user_id, $document);
+            $this->copyToStaging($document, $newStagingPath);
+        }
+
+        $job->results()->where('status', 'pending_review')->delete();
+        $job->update([
+            's3_path' => $newStagingPath ?? $job->s3_path,
+            'status' => 'pending',
+            'error_message' => null,
+            'raw_response' => null,
+            'scheduled_for' => null,
+            'parsed_at' => null,
+            'input_tokens' => null,
+            'output_tokens' => null,
+            'processing_tier' => null,
+        ]);
+
+        return new ImportJobMutationResult($job->refresh(), (int) $document->id, ImportJobMutationResult::RETRIED);
+    }
+
+    private function completeMutation(ImportJobMutationResult $result, ?string $newStagingPath): ImportJobMutationResult
+    {
+        if (! in_array($result->outcome, [ImportJobMutationResult::CREATED, ImportJobMutationResult::RETRIED], true)) {
+            $this->deleteStagingFileIfPresent($newStagingPath);
+
+            return $result;
+        }
+
+        $this->dispatch($result->job);
 
         return $result;
     }
@@ -182,6 +217,13 @@ final readonly class PhrDocumentProcessingService
         } catch (Throwable) {
             // Preserve the original write failure. The storage pruner remains
             // the fallback for an unreachable random staging key.
+        }
+    }
+
+    private function deleteStagingFileIfPresent(?string $stagingPath): void
+    {
+        if ($stagingPath !== null) {
+            $this->deleteStagingFile($stagingPath);
         }
     }
 }

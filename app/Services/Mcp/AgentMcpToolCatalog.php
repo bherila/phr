@@ -55,6 +55,7 @@ final class AgentMcpToolCatalog
                 'Safely retry a failed import job that has retry capacity.',
                 [$writes, 'importsRetry'],
                 readOnly: false,
+                destructive: true,
             ),
         ];
 

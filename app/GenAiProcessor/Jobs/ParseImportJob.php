@@ -385,6 +385,10 @@ class ParseImportJob implements ShouldQueue
     private function createPhrResults(GenAiImportJob $job, array $data): void
     {
         if ($job->job_type === 'phr_document') {
+            if (array_is_list($data)) {
+                throw new \UnexpectedValueException('The document import payload must be an object.');
+            }
+
             GenAiImportResult::create([
                 'job_id' => $job->id,
                 'result_index' => 0,
@@ -398,6 +402,10 @@ class ParseImportJob implements ShouldQueue
         $records = $this->phrRecords($data);
 
         foreach ($records as $index => $record) {
+            if (! is_array($record) || array_is_list($record)) {
+                continue;
+            }
+
             GenAiImportResult::create([
                 'job_id' => $job->id,
                 'result_index' => $index,

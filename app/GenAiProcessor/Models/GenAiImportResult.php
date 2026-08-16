@@ -40,7 +40,9 @@ class GenAiImportResult extends Model
             return [];
         }
 
-        return json_decode($this->result_json, true) ?? [];
+        $decoded = json_decode($this->result_json, true);
+
+        return is_array($decoded) && ($decoded === [] || ! array_is_list($decoded)) ? $decoded : [];
     }
 
     public function markImported(): void

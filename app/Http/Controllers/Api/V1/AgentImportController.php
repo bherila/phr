@@ -97,8 +97,7 @@ final class AgentImportController extends Controller
             (int) $request->validated('document_id'),
         );
 
-        return response()->json($this->jobMutationPayload($resolved, $result),
-            $result->outcome === ImportJobMutationResult::CREATED ? 202 : 200);
+        return response()->json($this->jobMutationPayload($resolved, $result), $result->wasQueued() ? 202 : 200);
     }
 
     public function retry(Request $request, int $patient, int $import): JsonResponse
@@ -108,7 +107,7 @@ final class AgentImportController extends Controller
 
         return response()->json(
             $this->jobMutationPayload($resolved, $result),
-            $result->outcome === ImportJobMutationResult::RETRIED ? 202 : 200,
+            $result->wasQueued() ? 202 : 200,
         );
     }
 

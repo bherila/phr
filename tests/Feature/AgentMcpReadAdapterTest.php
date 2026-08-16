@@ -175,7 +175,7 @@ final class AgentMcpReadAdapterTest extends TestCase
                 $tool['annotations']['readOnlyHint'] ?? null,
             );
             $this->assertSame(
-                str_ends_with((string) $tool['name'], '.upsert') || $tool['name'] === 'imports.review',
+                str_ends_with((string) $tool['name'], '.upsert') || in_array($tool['name'], ['imports.review', 'imports.retry'], true),
                 $tool['annotations']['destructiveHint'] ?? null,
             );
             $this->assertTrue($tool['annotations']['idempotentHint'] ?? false);

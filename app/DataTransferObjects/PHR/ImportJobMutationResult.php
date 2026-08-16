@@ -17,4 +17,9 @@ final readonly class ImportJobMutationResult
         public int $documentId,
         public string $outcome,
     ) {}
+
+    public function wasQueued(): bool
+    {
+        return in_array($this->outcome, [self::CREATED, self::RETRIED], true);
+    }
 }

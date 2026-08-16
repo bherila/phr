@@ -204,6 +204,7 @@ final class AgentApiStructuredImportTest extends TestCase
             'error_message' => 'Synthetic private provider failure.',
             'raw_response' => 'Synthetic private raw response.',
         ]);
+        $missingStagingPath = $job->s3_path;
         $proposal = $this->proposal($job, 0, ['analyte' => 'Synthetic stale proposal']);
         $client = $this->client('Synthetic Retry Client');
 
@@ -222,6 +223,8 @@ final class AgentApiStructuredImportTest extends TestCase
         $job->refresh();
         $this->assertNull($job->error_message);
         $this->assertNull($job->raw_response);
+        $this->assertNotSame($missingStagingPath, $job->s3_path);
+        Storage::disk('s3')->assertExists($job->s3_path);
         Queue::assertPushed(ParseImportJob::class, 1);
 
         $this->postJson("/api/v1/patients/{$patient->id}/imports/{$job->id}/retry")
@@ -251,6 +254,44 @@ final class AgentApiStructuredImportTest extends TestCase
             'status' => 'skipped',
         ]);
         Queue::assertNothingPushed();
+    }
+
+    public function test_failed_import_for_a_deleted_document_cannot_be_retried(): void
+    {
+        $owner = $this->user('deleted-retry-owner@example.test');
+        $patient = $this->patient($owner, 'Synthetic Deleted Retry Patient');
+        $document = $this->document($patient, $owner, 'synthetic-deleted-retry.pdf');
+        $job = $this->linkedJob($document, $owner, 'failed', ['retry_count' => 1]);
+        $document->delete();
+        $client = $this->client('Synthetic Deleted Retry Client');
+
+        Passport::actingAs($owner, [AgentApiScopes::IMPORTS_WRITE], 'api', $client);
+        $this->postJson("/api/v1/patients/{$patient->id}/imports/{$job->id}/retry")->assertNotFound();
+
+        $this->assertSame('failed', $job->refresh()->status);
+        Queue::assertNothingPushed();
+    }
+
+    public function test_scalar_import_proposal_does_not_break_other_results(): void
+    {
+        $owner = $this->user('scalar-result-owner@example.test');
+        $patient = $this->patient($owner, 'Synthetic Scalar Result Patient');
+        $document = $this->document($patient, $owner, 'synthetic-scalar-result.pdf');
+        $job = $this->linkedJob($document, $owner, 'parsed');
+        GenAiImportResult::query()->create([
+            'job_id' => $job->id,
+            'result_index' => 0,
+            'result_json' => json_encode('Synthetic malformed proposal', JSON_THROW_ON_ERROR),
+            'status' => 'pending_review',
+        ]);
+        $this->proposal($job, 1, ['analyte' => 'Synthetic valid proposal']);
+        $client = $this->client('Synthetic Scalar Result Client');
+
+        Passport::actingAs($owner, [AgentApiScopes::IMPORTS_READ], 'api', $client);
+        $this->getJson("/api/v1/patients/{$patient->id}/imports/{$job->id}")
+            ->assertOk()
+            ->assertJsonPath('data.results.0.data', [])
+            ->assertJsonPath('data.results.1.data.analyte', 'Synthetic valid proposal');
     }
 
     private function user(string $email): User
