@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import type { MillerDrillTarget } from '@/components/ui/miller'
 import EncounterEobLinks from '@/phr/clinical/EncounterEobLinks'
+import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { PhrNotFoundColumn } from '@/phr/miller'
 import type { PhrModuleId } from '@/phr/miller/phrModuleRegistry'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
@@ -109,7 +110,10 @@ export default function OfficeVisitDetail({ patientId, recordId, onDrill }: Offi
       {visit && (
         <>
           <section className="rounded-lg border border-border bg-card p-4">
-            <h2 className="text-lg font-semibold text-card-foreground">{detailValue(visit.visit_type, 'Office Visit')}</h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-lg font-semibold text-card-foreground">{detailValue(visit.visit_type, 'Office Visit')}</h2>
+              {reviewStatusBadge(visit.review_status)}
+            </div>
             <p className="mt-1 text-sm text-muted-foreground">Visit #{visit.id}</p>
             <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
               <div>

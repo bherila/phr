@@ -26,6 +26,7 @@ class OfficeVisitResource extends JsonResource
             'import_source' => $visit->import_source,
             'external_id' => $visit->external_id,
             'source_document_id' => $visit->source_document_id,
+            'review_status' => $visit->review_status,
             'visit_date' => $visit->visit_date?->toDateString(),
             'visit_started_at' => $visit->visit_started_at?->toDateTimeString(),
             'visit_ended_at' => $visit->visit_ended_at?->toDateTimeString(),

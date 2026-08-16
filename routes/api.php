@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\UserAiConfigurationController;
 use App\Http\Controllers\Api\UserAiModelsController;
 use App\Http\Controllers\Api\UserDeviceController;
 use App\Http\Controllers\Api\V1\AgentClinicalReadController;
+use App\Http\Controllers\Api\V1\AgentClinicalWriteController;
 use App\Http\Controllers\Api\V1\AgentDiscoveryController;
 use App\Http\Controllers\Api\V1\AgentDocumentController;
 use App\Http\Controllers\Api\V1\AgentEvidenceController;
@@ -134,6 +135,14 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
             ->middleware('throttle:agent-api')
             ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))
             ->name('clinical.index');
+        foreach (AgentClinicalResourceCatalog::writableIds() as $writableResource) {
+            Route::put("/patients/{patient}/{$writableResource}", [AgentClinicalWriteController::class, 'upsert'])
+                ->defaults('resource', $writableResource)
+                ->whereNumber('patient')
+                ->middleware('throttle:agent-api')
+                ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))
+                ->name('clinical.'.str_replace('-', '_', $writableResource).'.upsert');
+        }
         Route::get('/patients/{patient}/{resource}/{record}', [AgentClinicalReadController::class, 'show'])
             ->whereNumber(['patient', 'record'])
             ->whereIn('resource', AgentClinicalResourceCatalog::ids())

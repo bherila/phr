@@ -2,10 +2,12 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Contracts\PHR\ClinicalDataRules;
 use App\Http\Controllers\Controller;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Support\AgentApi\AgentApiCursor;
 use App\Support\AgentApi\AgentApiUpdateWindow;
+use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -16,7 +18,10 @@ use Illuminate\Validation\Rule;
 
 final class AgentClinicalReadController extends Controller
 {
-    public function __construct(private PhrPatientAccessService $accessService) {}
+    public function __construct(
+        private PhrPatientAccessService $accessService,
+        private AgentClinicalRecordVersion $versions,
+    ) {}
 
     public function index(Request $request, int $patient, string $resource): JsonResponse
     {
@@ -45,7 +50,12 @@ final class AgentClinicalReadController extends Controller
             'resource_type' => $resource,
             'patient_id' => $resolvedPatient->id,
             'data' => $page->getCollection()
-                ->map(fn (Model $record): array => $this->resourcePayload($resourceClass, $record, $request))
+                ->map(fn (Model $record): array => $this->resourcePayload(
+                    $resourceClass,
+                    $record,
+                    $request,
+                    isset($definition['write_rules']),
+                ))
                 ->values(),
             'pagination' => [
                 'limit' => $limit,
@@ -73,7 +83,12 @@ final class AgentClinicalReadController extends Controller
         return response()->json([
             'resource_type' => $resource,
             'patient_id' => $resolvedPatient->id,
-            'data' => $this->resourcePayload($definition['resource'], $resolved, $request),
+            'data' => $this->resourcePayload(
+                $definition['resource'],
+                $resolved,
+                $request,
+                isset($definition['write_rules']),
+            ),
         ]);
     }
 
@@ -82,6 +97,7 @@ final class AgentClinicalReadController extends Controller
      *     model: class-string<Model>,
      *     resource: class-string<JsonResource>,
      *     provenance: bool,
+     *     write_rules?: class-string<ClinicalDataRules>,
      *     health_log_aggregates?: bool
      * }
      */
@@ -142,8 +158,17 @@ final class AgentClinicalReadController extends Controller
      * @param  class-string<JsonResource>  $resourceClass
      * @return array<string, mixed>
      */
-    private function resourcePayload(string $resourceClass, Model $record, Request $request): array
-    {
-        return (new $resourceClass($record))->resolve($request);
+    private function resourcePayload(
+        string $resourceClass,
+        Model $record,
+        Request $request,
+        bool $includeVersion,
+    ): array {
+        $payload = (new $resourceClass($record))->resolve($request);
+        if ($includeVersion) {
+            $payload['version'] = $this->versions->for($record);
+        }
+
+        return $payload;
     }
 }

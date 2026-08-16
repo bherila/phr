@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
+import { reviewStatusBadge } from '@/phr/clinical/ui'
 import type { PhrListPageProps, PhrModuleId } from '@/phr/miller'
 import { compactPayload, errorMessage } from '@/phr/shared'
 import {
@@ -32,6 +33,7 @@ interface EncounterEvent {
   subtitle: string
   detail?: string | null
   badge: string
+  reviewStatus?: PhrOfficeVisit['review_status']
   drillId: PhrModuleId
 }
 
@@ -102,6 +104,7 @@ function eventsFromRecords(
     subtitle: [visit.provider_name, visit.facility_name].filter(Boolean).join(' · ') || 'Provider or facility not recorded',
     detail: visit.chief_complaint ? `CC: ${visit.chief_complaint}` : visit.assessment,
     badge: 'Office Visit',
+    reviewStatus: visit.review_status,
     drillId: 'office-visit-detail',
   }))
 
@@ -116,6 +119,7 @@ function eventsFromRecords(
       title: allergyShotLabel(procedure),
       subtitle: [procedure.performer_name, procedure.facility_name].filter(Boolean).join(' · ') || 'Provider or facility not recorded',
       badge: `CPT ${procedure.cpt_code}`,
+      reviewStatus: procedure.review_status,
       drillId: 'procedure-detail',
     }))
 
@@ -317,7 +321,10 @@ export default function OfficeVisitsPage({ patientId, onDrill }: PhrListPageProp
                         <p className="mt-1 text-sm text-muted-foreground">{event.subtitle}</p>
                         {event.detail && <p className="mt-2 text-sm text-foreground">{event.detail}</p>}
                       </div>
-                      <span className="w-fit rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">{event.badge}</span>
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        <span className="w-fit rounded-full bg-muted px-2 py-1 text-xs font-medium text-muted-foreground">{event.badge}</span>
+                        {event.reviewStatus && reviewStatusBadge(event.reviewStatus)}
+                      </div>
                     </div>
                   </button>
                 </li>

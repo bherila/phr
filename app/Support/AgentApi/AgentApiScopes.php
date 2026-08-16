@@ -37,6 +37,7 @@ final class AgentApiScopes
             self::IDENTITY_READ => 'Read your account identity and granted scopes',
             self::PATIENTS_READ => 'List and read patients you can access',
             self::CLINICAL_READ => 'Read clinical records for patients you can access',
+            self::CLINICAL_WRITE => 'Create and update clinical records you can manage',
             self::DOCUMENTS_READ => 'Read document metadata and download authorized files',
             self::MCP_USE => 'Connect through the PHR MCP server',
         ];
@@ -52,7 +53,6 @@ final class AgentApiScopes
     public static function reservedDescriptions(): array
     {
         return [
-            self::CLINICAL_WRITE => 'Create and update clinical records you can manage',
             self::DOCUMENTS_WRITE => 'Upload and update patient documents',
             self::IMPORTS_READ => 'Read import jobs and extraction results',
             self::IMPORTS_WRITE => 'Create and review import jobs',

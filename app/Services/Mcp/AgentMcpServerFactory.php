@@ -15,7 +15,8 @@ final class AgentMcpServerFactory
     public function __construct(
         private readonly CacheRepository $cache,
         private readonly AgentMcpToolCatalog $catalog,
-        private readonly AgentMcpReadTools $tools,
+        private readonly AgentMcpReadTools $reads,
+        private readonly AgentMcpWriteTools $writes,
         private readonly AgentMcpInputSchemaFactory $schemas,
     ) {}
 
@@ -25,10 +26,10 @@ final class AgentMcpServerFactory
             ->setServerInfo(
                 name: 'PHR Agent API',
                 version: 'v1',
-                description: 'Read authorized personal health records through the versioned PHR REST API.',
+                description: 'Read and safely update authorized personal health records through the versioned PHR REST API.',
                 websiteUrl: url('/'),
             )
-            ->setInstructions('Use list operations with bounded limits and cursors. Request document download access only when file contents are explicitly needed.')
+            ->setInstructions('Use list operations with bounded limits and cursors. Upserts require stable external IDs and the current opaque version before changing an existing record. Request document download access only when file contents are explicitly needed.')
             ->setPaginationLimit(100)
             // Sessions contain protocol negotiation state, never tool arguments or
             // results. A token-derived cache namespace prevents possession of a
@@ -44,18 +45,18 @@ final class AgentMcpServerFactory
             ->setContainer(app())
             ->setLazyLoading(false);
 
-        $annotations = new ToolAnnotations(
-            readOnlyHint: true,
-            destructiveHint: false,
-            openWorldHint: false,
-        );
-        foreach ($this->catalog->definitions($this->tools) as $definition) {
+        foreach ($this->catalog->definitions($this->reads, $this->writes) as $definition) {
             $builder->addTool(
                 handler: $definition->handler,
                 name: $definition->name,
                 title: $definition->title,
                 description: $definition->description,
-                annotations: $annotations,
+                annotations: new ToolAnnotations(
+                    readOnlyHint: $definition->readOnly,
+                    destructiveHint: $definition->destructive,
+                    idempotentHint: $definition->idempotent,
+                    openWorldHint: false,
+                ),
                 inputSchema: $this->schemas->for($definition),
                 outputSchema: ['type' => 'object', 'additionalProperties' => true],
             );

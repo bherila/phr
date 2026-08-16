@@ -168,9 +168,9 @@ the existing OAuth credential maintenance job.
 The official PHP MCP SDK serves Streamable HTTP at `/api/v1/mcp`. An MCP client requests
 `mcp:use` plus only the REST data scopes it needs, uses the canonical `/api/v1` resource
 indicator, and completes the same browser-based PKCE flow as any other remote client.
-The fixed read-only tool catalog maps one-to-one onto the REST client; it includes patient
-discovery, unified search/timeline, each core clinical resource, EOB evidence, and document
-metadata/download access. MCP handlers do not query models. They issue cookie-free internal
+The fixed tool catalog maps one-to-one onto typed REST client DAOs; it includes patient
+discovery, unified search/timeline, each core clinical resource, EOB evidence, document
+metadata/download access, and safe office-visit/procedure upserts. MCP handlers do not query models. They issue cookie-free internal
 REST subrequests so the existing scope middleware, patient grants, validation, serializers,
 rate limits, and metadata-only audits remain authoritative.
 
@@ -180,8 +180,8 @@ negotiation only, not tool arguments or results. Cross-origin browser calls are 
 default; explicitly allow trusted origins with the comma-separated
 `AGENT_API_MCP_ALLOWED_ORIGINS` setting. Direct native MCP clients do not need CORS.
 
-The read surface registers four independently consented data scopes: `identity:read`,
-`patients:read`, `clinical:read`, and `documents:read`. Patient discovery returns only
+The API registers independently consented data scopes: `identity:read`, `patients:read`,
+`clinical:read`, `clinical:write`, and `documents:read`. Patient discovery returns only
 the caller's own access level and never enumerates other grants or owner identities.
 Core clinical list/get endpoints cover office visits, procedures, immunizations,
 medications, conditions, allergies, labs, vitals, and health logs. Lists use opaque
@@ -192,6 +192,15 @@ projection across those resources. EOBs, EOB lines, and typed evidence links rem
 under `clinical:read`; document metadata and one-minute authorized downloads require
 the separate `documents:read` scope. Every protected response is private and
 non-cacheable.
+
+`clinical:write` currently enables idempotent `PUT` upserts for office visits and
+procedures. Each stable external ID is namespaced to the OAuth client (the client itself is
+the import source), so two integrations cannot overwrite one another. New records carry an
+explicit `pending_review` or `confirmed` status and may link only to an active source
+document belonging to the same patient. Updating a changed record requires the opaque HMAC
+version returned by the REST read API; exact retries are no-ops even when they repeat the
+pre-update version. MCP exposes the same behavior as `office_visits.upsert` and
+`procedures.upsert` through the typed write DAO.
 
 See [`docs/agent-api-security.md`](docs/agent-api-security.md) for the threat model,
 PHI-safe audit boundary, signing-key deployment, and revocation procedures.

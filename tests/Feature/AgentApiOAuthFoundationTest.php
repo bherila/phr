@@ -11,6 +11,7 @@ use App\Support\AgentApi\AccountAwareAuthCodeRepository;
 use App\Support\AgentApi\AccountAwareRefreshTokenRepository;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentApiTokenPolicy;
+use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use App\Support\AgentApi\OAuthExchangeAccountGuard;
 use DateTimeImmutable;
 use Illuminate\Database\Schema\Blueprint;
@@ -283,6 +284,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             'documents.download_access.create',
             'documents.download',
             'clinical.list',
+            ...AgentClinicalResourceCatalog::writableOperationIds(),
             'clinical.get',
             'mcp.exchange',
             'mcp.session.delete',
@@ -307,6 +309,10 @@ class AgentApiOAuthFoundationTest extends TestCase
         $this->assertSame(
             [AgentApiScopes::DOCUMENTS_READ],
             $document['paths']['/patients/{patient}/documents']['get']['security'][0]['oauth2'],
+        );
+        $this->assertSame(
+            [AgentApiScopes::CLINICAL_WRITE],
+            $document['paths']['/patients/{patient}/office-visits']['put']['security'][0]['oauth2'],
         );
         foreach (['storage_path', 'storage_disk', 'file_hash', 'extracted_text', 'user_id', 'genai_job_id'] as $forbidden) {
             $this->assertArrayNotHasKey($forbidden, $document['components']['schemas']['DocumentMetadata']['properties']);
