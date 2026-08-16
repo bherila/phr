@@ -25,6 +25,7 @@ class AgentDiscoveryController extends Controller
             'scopes' => AgentApiScopes::descriptions(),
             'limits' => [
                 'requests_per_minute' => 120,
+                'authentication_attempts_per_minute' => config('agent_api.authentication_attempts_per_minute', 300),
                 'default_page_size' => 25,
                 'maximum_page_size' => 100,
             ],

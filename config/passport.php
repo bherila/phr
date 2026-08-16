@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\EnforceOAuthPkce;
+use App\Http\Middleware\EnsureOAuthAuthorizationUserCanLogin;
 use App\Http\Middleware\OAuthAuthorizationSecurityHeaders;
 use App\Http\Middleware\SerializeOAuthTokenExchange;
 
@@ -21,6 +22,7 @@ return [
 
     'middleware' => [
         EnforceOAuthPkce::class,
+        EnsureOAuthAuthorizationUserCanLogin::class,
         SerializeOAuthTokenExchange::class,
         OAuthAuthorizationSecurityHeaders::class,
     ],

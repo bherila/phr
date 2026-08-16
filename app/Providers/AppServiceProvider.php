@@ -49,5 +49,12 @@ class AppServiceProvider extends ServiceProvider
 
             return Limit::perMinute(120)->by($key);
         });
+
+        RateLimiter::for('agent-api-authentication', function (Request $request): Limit {
+            $endpoint = $request->method().':'.$request->path();
+            $key = hash('sha256', (string) $request->ip()).':'.$endpoint;
+
+            return Limit::perMinute((int) config('agent_api.authentication_attempts_per_minute', 300))->by($key);
+        });
     }
 }

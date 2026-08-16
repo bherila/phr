@@ -103,6 +103,43 @@ class AgentApiOAuthFoundationTest extends TestCase
             ->assertHeaderMissing('Location');
     }
 
+    public function test_disabled_browser_session_cannot_issue_a_new_authorization_code(): void
+    {
+        // User id 1 is intentionally always an administrator and cannot be disabled.
+        $this->createAdminUser();
+        $user = $this->createUser();
+        $client = Client::query()->create([
+            'name' => 'Synthetic Disabled Consent Client',
+            'secret' => null,
+            'provider' => 'users',
+            'redirect_uris' => ['https://client.example.test/callback'],
+            'grant_types' => ['authorization_code'],
+            'revoked' => false,
+        ]);
+        $verifier = str_repeat('disabled-consent-', 3);
+        $challenge = rtrim(strtr(base64_encode(hash('sha256', $verifier, true)), '+/', '-_'), '=');
+
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+            'client_id' => $client->id,
+            'redirect_uri' => 'https://client.example.test/callback',
+            'response_type' => 'code',
+            'scope' => AgentApiScopes::IDENTITY_READ,
+            'state' => 'synthetic-disabled-consent-state',
+            'code_challenge' => $challenge,
+            'code_challenge_method' => 'S256',
+        ]))->assertOk();
+
+        DB::table('users')->where('id', $user->id)->update(['user_role' => '']);
+
+        $this->post('/oauth/authorize', [
+            'auth_token' => session('authToken'),
+        ])->assertForbidden()
+            ->assertHeader('X-Frame-Options', 'DENY')
+            ->assertHeader('Content-Security-Policy', "frame-ancestors 'none'")
+            ->assertJsonPath('error', 'access_denied');
+        $this->assertDatabaseCount('oauth_auth_codes', 0);
+    }
+
     public function test_public_client_completes_pkce_refresh_rotation_and_immediate_revocation(): void
     {
         $user = $this->createUser([
@@ -182,6 +219,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             ->assertHeader('Cache-Control', 'max-age=300, public')
             ->assertJsonPath('api_version', 'v1')
             ->assertJsonPath('limits.maximum_page_size', 100)
+            ->assertJsonPath('limits.authentication_attempts_per_minute', 300)
             ->assertJsonPath('oauth.authorization_code_pkce', true)
             ->json();
 
@@ -240,6 +278,31 @@ class AgentApiOAuthFoundationTest extends TestCase
             ->assertHeader('Content-Type', 'application/json');
 
         $this->assertDatabaseCount('agent_api_audits', 0);
+    }
+
+    public function test_invalid_bearer_attempts_are_bounded_before_authentication_per_route(): void
+    {
+        config(['agent_api.authentication_attempts_per_minute' => 3]);
+        $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.77']);
+
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            $this->withToken('synthetic-invalid-bearer')->getJson('/api/v1/me')
+                ->assertUnauthorized()
+                ->assertHeader('X-RateLimit-Limit', '3');
+        }
+        $this->withToken('synthetic-invalid-bearer')->getJson('/api/v1/me')->assertTooManyRequests();
+
+        // The disconnect route has an independent pre-authentication bucket, so
+        // abusive read traffic cannot prevent a valid client from disconnecting.
+        Passport::actingAs($this->createUser(), []);
+        $this->deleteJson('/api/v1/oauth/token')->assertNoContent();
+
+        Auth::forgetGuards();
+        $this->withServerVariables(['REMOTE_ADDR' => '203.0.113.78']);
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            $this->withToken('synthetic-invalid-disconnect-bearer')->deleteJson('/api/v1/oauth/token')->assertUnauthorized();
+        }
+        $this->withToken('synthetic-invalid-disconnect-bearer')->deleteJson('/api/v1/oauth/token')->assertTooManyRequests();
     }
 
     public function test_authenticated_requests_have_metadata_only_audits_even_when_scope_is_denied(): void
