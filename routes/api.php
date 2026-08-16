@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\V1\AgentClinicalReadController;
 use App\Http\Controllers\Api\V1\AgentDiscoveryController;
 use App\Http\Controllers\Api\V1\AgentDocumentController;
 use App\Http\Controllers\Api\V1\AgentEvidenceController;
+use App\Http\Controllers\Api\V1\AgentMcpController;
 use App\Http\Controllers\Api\V1\AgentPatientController;
 use App\Http\Controllers\Api\V1\AgentRecordSearchController;
 use App\Http\Controllers\Api\V1\AgentTokenController;
@@ -52,6 +53,9 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
     Route::get('/capabilities', [AgentDiscoveryController::class, 'capabilities'])
         ->middleware('throttle:60,1')
         ->name('capabilities');
+    Route::options('/mcp', AgentMcpController::class)
+        ->middleware('throttle:60,1')
+        ->name('mcp.options');
 
     Route::middleware([
         'auth:api',
@@ -68,6 +72,11 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
             ->middleware('throttle:agent-api')
             ->middleware(CheckToken::using(AgentApiScopes::IDENTITY_READ))
             ->name('me');
+
+        Route::match(['POST', 'DELETE'], '/mcp', AgentMcpController::class)
+            ->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::MCP_USE))
+            ->name('mcp');
 
         Route::get('/patients', [AgentPatientController::class, 'index'])
             ->middleware('throttle:agent-api')

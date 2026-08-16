@@ -284,6 +284,8 @@ class AgentApiOAuthFoundationTest extends TestCase
             'documents.download',
             'clinical.list',
             'clinical.get',
+            'mcp.exchange',
+            'mcp.session.delete',
             'oauth.disconnect',
         ];
         $this->assertSame(
