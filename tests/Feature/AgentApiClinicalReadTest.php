@@ -10,6 +10,7 @@ use App\Models\PhrHealthLogEntry;
 use App\Models\PhrImmunization;
 use App\Models\PhrLabResult;
 use App\Models\PhrMedication;
+use App\Models\PhrNativeRecordIdentity;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
@@ -20,6 +21,7 @@ use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 use Laravel\Passport\Passport;
 use Tests\TestCase;
 
@@ -198,6 +200,54 @@ class AgentApiClinicalReadTest extends TestCase
         $this->travelBack();
     }
 
+    public function test_update_windows_use_restore_ingestion_time_without_rewriting_archived_timestamps(): void
+    {
+        $actor = $this->user('restore-window-reader@example.test');
+        $this->travelTo(Carbon::parse('2026-08-16 09:00:00'));
+        $patient = $this->patient($actor, 'Synthetic Restored Window Patient');
+        $visit = PhrOfficeVisit::query()->create([
+            'patient_id' => $patient->id,
+            'user_id' => $actor->id,
+            'visit_type' => 'synthetic-restored',
+        ]);
+        $archivedPatientUpdatedAt = $patient->updated_at?->toDateTimeString();
+        $archivedVisitUpdatedAt = $visit->updated_at?->toDateTimeString();
+
+        $this->travelTo(Carbon::parse('2026-08-16 11:00:00'));
+        foreach ([
+            ['table' => 'phr_patients', 'record_id' => $patient->id],
+            ['table' => 'phr_office_visits', 'record_id' => $visit->id],
+        ] as $identity) {
+            PhrNativeRecordIdentity::query()->create([
+                'patient_id' => $patient->id,
+                'record_table' => $identity['table'],
+                'record_id' => $identity['record_id'],
+                'native_id' => (string) Str::uuid(),
+                'restored_at' => now(),
+            ]);
+        }
+
+        Passport::actingAs($actor, [AgentApiScopes::PATIENTS_READ, AgentApiScopes::CLINICAL_READ]);
+        $this->getJson('/api/v1/patients?updated_after=2026-08-16T10:00:00Z')
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $patient->id);
+        $this->getJson("/api/v1/patients/{$patient->id}/office-visits?updated_after=2026-08-16T10:00:00Z")
+            ->assertOk()
+            ->assertJsonCount(1, 'data')
+            ->assertJsonPath('data.0.id', $visit->id);
+        $this->getJson('/api/v1/patients?updated_before=2026-08-16T10:00:00Z')
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+        $this->getJson("/api/v1/patients/{$patient->id}/office-visits?updated_before=2026-08-16T10:00:00Z")
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+
+        $this->assertSame($archivedPatientUpdatedAt, $patient->fresh()?->updated_at?->toDateTimeString());
+        $this->assertSame($archivedVisitUpdatedAt, $visit->fresh()?->updated_at?->toDateTimeString());
+        $this->travelBack();
+    }
+
     public function test_all_declared_core_clinical_resources_share_the_existing_serializers(): void
     {
         $actor = $this->user('clinical-reader@example.test');
@@ -348,8 +398,15 @@ class AgentApiClinicalReadTest extends TestCase
         )->assertOk()->assertJsonCount(1, 'data')->json();
         $this->assertNotSame($first['data'][0]['id'], $second['data'][0]['id']);
 
-        $this->getJson("/api/v1/patients/{$patient->id}/office-visits?limit=101")->assertUnprocessable();
-        $this->getJson("/api/v1/patients/{$patient->id}/office-visits?cursor=not-a-cursor")->assertUnprocessable();
+        $this->getJson("/api/v1/patients/{$patient->id}/office-visits?limit=101")
+            ->assertUnprocessable()
+            ->assertHeader('Cache-Control', 'max-age=0, no-store, private');
+        $this->getJson("/api/v1/patients/{$patient->id}/office-visits?cursor=not-a-cursor")
+            ->assertUnprocessable()
+            ->assertHeader('Cache-Control', 'max-age=0, no-store, private');
+        $emptyCursor = rtrim(strtr(base64_encode('{}'), '+/', '-_'), '=');
+        $this->getJson("/api/v1/patients/{$patient->id}/office-visits?cursor=".urlencode($emptyCursor))
+            ->assertUnprocessable();
         $hostileCursor = rtrim(strtr(base64_encode(json_encode([
             'id' => ['not-scalar'],
             '_pointsToNextItems' => true,
@@ -360,7 +417,9 @@ class AgentApiClinicalReadTest extends TestCase
         $this->getJson('/api/v1/patients?cursor='.urlencode($hostileCursor))->assertUnprocessable();
         Passport::actingAs($actor, [AgentApiScopes::CLINICAL_READ]);
         $this->getJson("/api/v1/patients/{$patient->id}/health-logs?import_source=source-a")->assertUnprocessable();
-        $this->getJson("/api/v1/patients/{$patient->id}/unknown-resource")->assertNotFound();
+        $this->getJson("/api/v1/patients/{$patient->id}/unknown-resource")
+            ->assertNotFound()
+            ->assertHeader('Cache-Control', 'max-age=0, no-store, private');
         $this->getJson("/api/v1/patients/{$patient->id}/office-visits/{$hiddenVisit->id}")->assertNotFound();
         $this->getJson("/api/v1/patients/{$hiddenPatient->id}/office-visits")->assertNotFound();
     }

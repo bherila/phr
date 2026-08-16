@@ -5,13 +5,13 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Support\AgentApi\AgentApiCursor;
+use App\Support\AgentApi\AgentApiUpdateWindow;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
 
 final class AgentClinicalReadController extends Controller
@@ -27,6 +27,7 @@ final class AgentClinicalReadController extends Controller
         $modelClass = $definition['model'];
 
         $query = $modelClass::query()->where('patient_id', $resolvedPatient->id);
+        AgentApiUpdateWindow::apply($query, $validated, $query->getModel()->qualifyColumn('patient_id'));
         $this->applyFilters($query, $validated, $definition['provenance'], $resource);
         if ($definition['health_log_aggregates'] ?? false) {
             $query
@@ -115,12 +116,6 @@ final class AgentClinicalReadController extends Controller
      */
     private function applyFilters(Builder $query, array $validated, bool $supportsProvenance, string $resource): void
     {
-        if (isset($validated['updated_after'])) {
-            $query->where('updated_at', '>=', Carbon::parse((string) $validated['updated_after'])->utc());
-        }
-        if (isset($validated['updated_before'])) {
-            $query->where('updated_at', '<=', Carbon::parse((string) $validated['updated_before'])->utc());
-        }
         if ($supportsProvenance && isset($validated['import_source'])) {
             $query->where('import_source', $validated['import_source']);
         }

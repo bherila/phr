@@ -24,7 +24,10 @@ the owner's user id and every grant except the caller's fixed access metadata. T
 separate `clinical:read` scope permits list/get access to the fixed core-resource
 allow-list only after the patient id is resolved through `PhrPatientAccessService`.
 Clinical list responses are cursor-bounded to 100 rows, and source/update filters are
-validated before query construction. The fixed catalog maps route slugs to the same
+validated before query construction. Update windows treat a native restore's ingestion
+time as an update without rewriting the archived record's full-fidelity timestamps;
+the watermark lives only in the archive-excluded native identity ledger. The fixed
+catalog maps route slugs to the same
 model and JSON Resource classes consumed by the browser API; route input never selects
 an arbitrary class or table.
 

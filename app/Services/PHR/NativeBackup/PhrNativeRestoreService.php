@@ -371,6 +371,7 @@ final class PhrNativeRestoreService
     private function applyPlan(PhrNativeRestoreArchive $archive, PhrNativeRestorePlan $plan, PhrNativeRestoreWrittenArtifacts $written): int
     {
         $newIds = [];
+        $restoredAt = now();
         if ($plan->targetPatientId !== null) {
             foreach (PhrNativeRecordIdentity::query()->where('patient_id', $plan->targetPatientId)->get() as $identity) {
                 $newIds[(string) $identity->record_table][(string) $identity->native_id] = (int) $identity->record_id;
@@ -438,9 +439,13 @@ final class PhrNativeRestoreService
                         'record_table' => $table,
                         'record_id' => $newId,
                         'native_id' => $nativeId,
+                        'restored_at' => $restoredAt,
                     ]);
                 } else {
-                    $identity->update(['record_id' => $newId]);
+                    $identity->update([
+                        'record_id' => $newId,
+                        'restored_at' => $restoredAt,
+                    ]);
                 }
 
                 if (is_array($artifact)) {

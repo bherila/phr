@@ -7,11 +7,10 @@ use App\Models\PhrPatient;
 use App\Services\PHR\Access\AgentPatientPresenter;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Support\AgentApi\AgentApiCursor;
-use Illuminate\Database\Eloquent\Builder;
+use App\Support\AgentApi\AgentApiUpdateWindow;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
 use Illuminate\Validation\Rule;
 
 final class AgentPatientController extends Controller
@@ -30,7 +29,7 @@ final class AgentPatientController extends Controller
                 $relation->getQuery()->where('user_id', $userId);
             }]);
 
-        $this->applyUpdatedFilters($query, $validated);
+        AgentApiUpdateWindow::apply($query, $validated, 'phr_patients.id');
         $archived = (string) ($validated['archived'] ?? 'include');
         if ($archived === 'exclude') {
             $query->whereNull('archived_at');
@@ -75,20 +74,6 @@ final class AgentPatientController extends Controller
             'updated_before' => ['sometimes', 'date', 'after_or_equal:updated_after'],
             'archived' => ['sometimes', Rule::in(['include', 'exclude', 'only'])],
         ];
-    }
-
-    /**
-     * @param  Builder<PhrPatient>  $query
-     * @param  array<string, mixed>  $validated
-     */
-    private function applyUpdatedFilters(Builder $query, array $validated): void
-    {
-        if (isset($validated['updated_after'])) {
-            $query->where('updated_at', '>=', Carbon::parse((string) $validated['updated_after'])->utc());
-        }
-        if (isset($validated['updated_before'])) {
-            $query->where('updated_at', '<=', Carbon::parse((string) $validated['updated_before'])->utc());
-        }
     }
 
     /** @param array<string, mixed> $validated */

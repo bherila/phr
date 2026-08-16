@@ -5,6 +5,7 @@ namespace Tests\Feature\PHR;
 use App\Jobs\PHR\ApplyPhrNativeRestoreJob;
 use App\Jobs\PHR\PreviewPhrNativeRestoreJob;
 use App\Models\PhrDocument;
+use App\Models\PhrNativeRecordIdentity;
 use App\Models\PhrNativeRestoreAttempt;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
@@ -161,6 +162,13 @@ final class PhrNativeRestoreTest extends TestCase
             'patient_id' => $attempt->target_patient_root_id,
             'user_id' => $reviewer->id,
         ]);
+        $this->assertGreaterThan(
+            0,
+            PhrNativeRecordIdentity::query()
+                ->where('patient_id', $attempt->target_patient_root_id)
+                ->whereNotNull('restored_at')
+                ->count(),
+        );
         $restoredDocument = PhrDocument::withTrashed()->where('patient_id', $attempt->target_patient_root_id)->sole();
         $this->assertSame($documentBytes, Storage::disk(PhrDocument::STORAGE_DISK)->get((string) $restoredDocument->storage_path));
         $restoredDicom = DB::table('phr_dicom_files')->where('patient_id', $attempt->target_patient_root_id)->sole();
@@ -300,6 +308,13 @@ final class PhrNativeRestoreTest extends TestCase
             'record_id' => $restoredId,
             'native_id' => $nativeId,
         ]);
+        $this->assertNotNull(
+            PhrNativeRecordIdentity::query()
+                ->where('patient_id', $patient->id)
+                ->where('record_table', 'phr_conditions')
+                ->where('record_id', $restoredId)
+                ->value('restored_at'),
+        );
         @unlink($archivePath);
     }
 
