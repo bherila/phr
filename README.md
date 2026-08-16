@@ -193,6 +193,28 @@ production. GenAI staging can return to an object store with `S3_DISK_DRIVER=s3`
 corresponding AWS settings. Object keys are identical with either driver, so switching
 drivers needs no database rewrite.
 
+Durable PHR objects use patient-first relative keys on their respective disks:
+
+```text
+patients/{patient_id}/documents/{object_uuid}/{safe_original_filename}
+patients/{patient_id}/imaging/dicom/uploads/{upload_uuid}/{original_relative_path}
+patients/{patient_id}/imaging/dicom/derived/series/{series_id}/v{pipeline_version}.bin.gz
+patients/{patient_id}/exports/{export_uuid}/{filename}
+```
+
+Stored database paths are authoritative and path-format agnostic, so legacy keys remain
+readable during migration. The garbage collector covers both namespaces until the
+rollback window and an explicit cleanup are complete. EOB attachments use their linked
+`phr_documents` blob rather than a second EOB-specific store.
+
+Operational blobs are not the source-evidence archive: original provider bundles,
+imaging containers, recordings, and insurer repositories remain separate evidence.
+Structured clinical and EOB rows remain in the database, while exports and derived
+volumes are reproducible artifacts. Never retire an external source repository until a
+separate SHA-256 reconciliation has matched its authoritative files to PHR document
+blobs. Disaster-recovery mirrors copy the complete operational tree and are never a
+normal migration source.
+
 > Two things bite when adding a local disk. Its `root` must follow the driver — a
 > filesystem path on `local`, an object-key prefix on `s3` — or every read 404s while the
 > config still looks right. And its directory needs an rsync `--exclude` in

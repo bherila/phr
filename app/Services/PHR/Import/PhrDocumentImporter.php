@@ -5,6 +5,7 @@ namespace App\Services\PHR\Import;
 use App\GenAiProcessor\Models\GenAiImportJob;
 use App\Models\PhrDocument;
 use App\Models\PhrPatient;
+use App\Support\Storage\PhrStorageKey;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -202,12 +203,7 @@ class PhrDocumentImporter
 
     private function documentStoragePath(int $patientId, string $filename): string
     {
-        $safeName = Str::of($filename)
-            ->replaceMatches('/[^\w.\-]+/', '_')
-            ->trim('_')
-            ->toString();
-
-        return 'phr/documents/patients/'.$patientId.'/'.Str::uuid().'/'.($safeName !== '' ? $safeName : 'document');
+        return PhrStorageKey::document($patientId, Str::uuid()->toString(), $filename);
     }
 
     private function mimeType(string $path): ?string

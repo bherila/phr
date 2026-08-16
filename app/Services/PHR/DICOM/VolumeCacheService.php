@@ -5,6 +5,7 @@ namespace App\Services\PHR\DICOM;
 use App\Models\PhrDicomFile;
 use App\Models\PhrDicomInstance;
 use App\Models\PhrDicomSeries;
+use App\Support\Storage\PhrStorageKey;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
 use RuntimeException;
@@ -20,10 +21,17 @@ class VolumeCacheService
 
     public function artifact(PhrDicomSeries $series): ?PhrDicomFile
     {
+        $canonicalKey = $this->storageKey($series, $this->pipelineVersion());
+
         return PhrDicomFile::query()
             ->where('patient_id', $series->patient_id)
             ->where('file_kind', PhrDicomFile::KIND_DERIVED_VOLUME)
-            ->where('r2_key', $this->storageKey($series, $this->pipelineVersion()))
+            ->whereIn('r2_key', [
+                $canonicalKey,
+                $this->legacyStorageKey($series, $this->pipelineVersion()),
+            ])
+            // Prefer the canonical row if a partially completed rollout left both.
+            ->orderByRaw('CASE WHEN r2_key = ? THEN 0 ELSE 1 END', [$canonicalKey])
             ->first();
     }
 
@@ -57,11 +65,9 @@ class VolumeCacheService
             ->firstOrFail();
         $originalPathHash = hash('sha256', $storageKey);
 
-        return PhrDicomFile::query()->updateOrCreate([
-            'upload_id' => $firstInstance->upload_id,
-            'original_path_hash' => $originalPathHash,
-        ], [
+        $values = [
             'patient_id' => $series->patient_id,
+            'upload_id' => $firstInstance->upload_id,
             'file_kind' => PhrDicomFile::KIND_DERIVED_VOLUME,
             'r2_key' => $storageKey,
             'original_relative_path' => $storageKey,
@@ -74,6 +80,24 @@ class VolumeCacheService
                 'series_id' => $series->id,
                 'pipeline_version' => $pipelineVersion,
             ],
+        ];
+
+        // Re-generating a legacy current-version cache is also a safe lazy
+        // migration: the canonical bytes are durable before its existing row is
+        // repointed, and the legacy object remains available for rollback.
+        $existing = $this->artifact($series);
+        if ($existing !== null) {
+            $existing->fill([
+                ...$values,
+                'original_path_hash' => $originalPathHash,
+            ])->save();
+
+            return $existing->refresh();
+        }
+
+        return PhrDicomFile::query()->create([
+            ...$values,
+            'original_path_hash' => $originalPathHash,
         ]);
     }
 
@@ -134,6 +158,18 @@ class VolumeCacheService
      * cannot collide across tenants.
      */
     private function storageKey(PhrDicomSeries $series, int $pipelineVersion): string
+    {
+        return PhrStorageKey::dicomDerivedSeries(
+            (int) $series->patient_id,
+            (int) $series->id,
+            $pipelineVersion,
+        );
+    }
+
+    /**
+     * Immediate pre-canonical key shape retained for reads during migration.
+     */
+    private function legacyStorageKey(PhrDicomSeries $series, int $pipelineVersion): string
     {
         return sprintf(
             'derived/volume-cache/patients/%d/series/%d/v%d.bin.gz',

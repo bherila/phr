@@ -8,6 +8,7 @@ use App\Models\PhrDicomSeries;
 use App\Models\PhrDicomStudy;
 use App\Models\PhrDicomUpload;
 use App\Models\PhrPatient;
+use App\Support\Storage\PhrStorageKey;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -80,7 +81,7 @@ class DicomUploadProcessor
      */
     public function openUpload(PhrPatient $patient, int $uploadedByUserId, ?string $rootName): PhrDicomUpload
     {
-        $storagePrefix = sprintf('phr/dicom/patients/%d/uploads/%s', $patient->id, Str::uuid()->toString());
+        $storagePrefix = PhrStorageKey::dicomUpload((int) $patient->id, Str::uuid()->toString());
 
         return PhrDicomUpload::create([
             'patient_id' => $patient->id,
@@ -673,7 +674,7 @@ class DicomUploadProcessor
 
     private function storageKey(string $storagePrefix, string $relativePath): string
     {
-        return $storagePrefix.'/'.$relativePath;
+        return PhrStorageKey::dicomObject($storagePrefix, $relativePath);
     }
 
     /**

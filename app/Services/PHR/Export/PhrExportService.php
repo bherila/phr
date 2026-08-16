@@ -5,6 +5,7 @@ namespace App\Services\PHR\Export;
 use App\Jobs\PHR\GeneratePhrExportJob;
 use App\Models\PhrExport;
 use App\Models\PhrPatient;
+use App\Support\Storage\PhrStorageKey;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
@@ -52,7 +53,7 @@ class PhrExportService
             $patient = PhrPatient::query()->findOrFail($export->patient_id);
             $formats = $this->normalizeFormats($export->formats_json ?: [$export->format]);
             [$filename, $tempPath] = $this->buildExportFile($patient, $formats);
-            $storagePath = 'phr/exports/patients/'.$patient->id.'/'.Str::uuid().'/'.$filename;
+            $storagePath = PhrStorageKey::export((int) $patient->id, Str::uuid()->toString(), $filename);
 
             $stream = fopen($tempPath, 'rb');
             if ($stream === false) {

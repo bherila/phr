@@ -119,6 +119,10 @@ class PhrExportTest extends TestCase
         $export = PhrExport::query()->where('patient_id', $patient->id)->sole();
         $this->assertSame(PhrExport::STATUS_READY, $export->status);
         $this->assertNotNull($export->storage_path);
+        $this->assertMatchesRegularExpression(
+            '#^patients/'.$patient->id.'/exports/[0-9a-f-]{36}/patient-'.$patient->id.'-[0-9]{8}\.zip$#',
+            $export->storage_path,
+        );
         Storage::disk('phr_exports')->assertExists($export->storage_path);
 
         $zip = new ZipArchive;
