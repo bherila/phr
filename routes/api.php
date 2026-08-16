@@ -44,12 +44,16 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         ->middleware('throttle:60,1')
         ->name('capabilities');
 
-    Route::middleware(['auth:api', AuditAgentApiRequest::class, EnsureOAuthUserCanLogin::class, 'throttle:agent-api'])->group(function (): void {
-        Route::get('/me', [AgentDiscoveryController::class, 'me'])
-            ->middleware(CheckToken::using(AgentApiScopes::IDENTITY_READ))
-            ->name('me');
+    Route::middleware(['auth:api', AuditAgentApiRequest::class, EnsureOAuthUserCanLogin::class])->group(function (): void {
+        // Self-revocation is deliberately outside the ordinary traffic bucket. A
+        // saturated API limit must never prevent a client from disconnecting.
         Route::delete('/oauth/token', [AgentTokenController::class, 'destroy'])
             ->name('oauth-token.destroy');
+
+        Route::get('/me', [AgentDiscoveryController::class, 'me'])
+            ->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::IDENTITY_READ))
+            ->name('me');
     });
 });
 

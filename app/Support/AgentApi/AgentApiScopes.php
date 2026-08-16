@@ -35,6 +35,19 @@ final class AgentApiScopes
     {
         return [
             self::IDENTITY_READ => 'Read your account identity and granted scopes',
+        ];
+    }
+
+    /**
+     * Reserved names document the intended least-privilege split, but are not
+     * registered with Passport until the corresponding operation ships. This
+     * prevents old refresh tokens from silently gaining future capabilities.
+     *
+     * @return array<string, string>
+     */
+    public static function reservedDescriptions(): array
+    {
+        return [
             self::PATIENTS_READ => 'List and read patients you can access',
             self::CLINICAL_READ => 'Read clinical records for patients you can access',
             self::CLINICAL_WRITE => 'Create and update clinical records you can manage',

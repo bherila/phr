@@ -10,6 +10,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Laravel\Passport\AccessToken;
@@ -286,7 +287,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             'user_id' => $user->id,
             'client_id' => $client->id,
             'name' => null,
-            'scopes' => [AgentApiScopes::PATIENTS_READ],
+            'scopes' => [],
             'revoked' => false,
             'expires_at' => now()->addMinutes(15),
         ]);
@@ -297,12 +298,12 @@ class AgentApiOAuthFoundationTest extends TestCase
             'expires_at' => now()->addDays(30),
         ]);
 
-        Passport::actingAs($user, [AgentApiScopes::PATIENTS_READ], 'api', $client);
+        Passport::actingAs($user, [], 'api', $client);
         $user->withAccessToken(new AccessToken([
             'oauth_access_token_id' => $tokenId,
             'oauth_client_id' => $client->id,
             'oauth_user_id' => (string) $user->id,
-            'oauth_scopes' => [AgentApiScopes::PATIENTS_READ],
+            'oauth_scopes' => [],
         ]));
         Auth::guard('api')->setUser($user);
 
@@ -321,12 +322,26 @@ class AgentApiOAuthFoundationTest extends TestCase
             $this->getJson('/api/v1/me')->assertOk();
         }
 
-        $this->getJson('/api/v1/me')->assertTooManyRequests();
+        for ($request = 1; $request <= 11; $request++) {
+            $this->getJson('/api/v1/me')->assertTooManyRequests();
+        }
         $this->assertDatabaseCount('agent_api_audits', 121);
         $this->assertDatabaseHas('agent_api_audits', [
             'route_name' => 'agent-api.v1.me',
             'response_status' => 429,
         ]);
+    }
+
+    public function test_saturated_read_limit_does_not_block_self_revocation(): void
+    {
+        Passport::actingAs($this->createUser(), [AgentApiScopes::IDENTITY_READ]);
+
+        for ($request = 1; $request <= 120; $request++) {
+            $this->getJson('/api/v1/me')->assertOk();
+        }
+
+        $this->getJson('/api/v1/me')->assertTooManyRequests();
+        $this->deleteJson('/api/v1/oauth/token')->assertNoContent();
     }
 
     public function test_disabled_accounts_cannot_use_bearer_or_refresh_tokens(): void
@@ -464,6 +479,72 @@ class AgentApiOAuthFoundationTest extends TestCase
         $this->assertTrue($refresh->fresh()->revoked);
         $this->assertDatabaseHas('oauth_access_tokens', ['id' => $token->id, 'revoked' => true], 'passport_test');
         $this->assertDatabaseHas('oauth_refresh_tokens', ['id' => $refresh->id, 'revoked' => true], 'passport_test');
+    }
+
+    public function test_agent_api_audits_are_pruned_on_the_configured_retention_window(): void
+    {
+        config(['agent_api.audit_retention_days' => 30]);
+        AgentApiAudit::query()->create($this->auditAttributes(now()->subDays(31)));
+        $recent = AgentApiAudit::query()->create($this->auditAttributes(now()->subDays(29)));
+
+        $this->artisan('phr:agent-api:prune-audits')->assertSuccessful();
+
+        $this->assertDatabaseCount('agent_api_audits', 1);
+        $this->assertDatabaseHas('agent_api_audits', ['id' => $recent->id]);
+    }
+
+    public function test_oauth_key_verifier_accepts_only_a_parseable_matching_pair(): void
+    {
+        $directory = storage_path('framework/testing/oauth-'.Str::uuid());
+        File::ensureDirectoryExists($directory, 0700);
+        Passport::loadKeysFrom($directory);
+
+        [$privateKey, $publicKey] = $this->keyPair();
+        file_put_contents($directory.'/oauth-private.key', $privateKey);
+        file_put_contents($directory.'/oauth-public.key', $publicKey);
+        $this->artisan('phr:agent-api:verify-oauth-keys')->assertSuccessful();
+
+        [, $otherPublicKey] = $this->keyPair();
+        file_put_contents($directory.'/oauth-public.key', $otherPublicKey);
+        $this->artisan('phr:agent-api:verify-oauth-keys')->assertFailed();
+
+        file_put_contents($directory.'/oauth-private.key', 'invalid synthetic key');
+        $this->artisan('phr:agent-api:verify-oauth-keys')->assertFailed();
+
+        File::deleteDirectory($directory);
+        Passport::loadKeysFrom(storage_path('app/private/oauth'));
+    }
+
+    /** @return array<string, mixed> */
+    private function auditAttributes(\DateTimeInterface $createdAt): array
+    {
+        return [
+            'request_id' => (string) Str::uuid(),
+            'actor_user_id' => null,
+            'oauth_client_id' => null,
+            'oauth_token_hash' => null,
+            'event' => 'agent_api.request',
+            'route_name' => 'agent-api.v1.me',
+            'http_method' => 'GET',
+            'response_status' => 200,
+            'duration_ms' => 1,
+            'created_at' => $createdAt,
+        ];
+    }
+
+    /** @return array{string, string} */
+    private function keyPair(): array
+    {
+        $key = openssl_pkey_new([
+            'private_key_bits' => 2048,
+            'private_key_type' => OPENSSL_KEYTYPE_RSA,
+        ]);
+        $this->assertNotFalse($key);
+        $this->assertTrue(openssl_pkey_export($key, $privateKey));
+        $details = openssl_pkey_get_details($key);
+        $this->assertIsArray($details);
+
+        return [$privateKey, $details['key']];
     }
 
     private function intervalSeconds(\DateInterval $interval): int

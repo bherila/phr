@@ -19,7 +19,8 @@ strings, request and response bodies, filenames, error messages, IP addresses, a
 user agents. It records only an opaque request UUID, actor/client/token references,
 the fixed route name, method, status, duration, and timestamp. Application and OAuth
 errors must remain generic; operational logs must never include bearer credentials or
-clinical payloads.
+clinical payloads. Repeated 429 responses are sampled to one audit per actor, route,
+and minute, and metadata audits are pruned after 365 days by default.
 
 ## Token lifecycle
 

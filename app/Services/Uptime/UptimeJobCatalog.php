@@ -51,6 +51,10 @@ final class UptimeJobCatalog
                 'label' => 'Data Hub audit retention',
                 'stale_after_seconds' => 26 * 60 * 60,
             ],
+            'phr:agent-api:prune-audits' => [
+                'label' => 'Agent API audit retention',
+                'stale_after_seconds' => 26 * 60 * 60,
+            ],
         ];
     }
 
@@ -64,6 +68,7 @@ final class UptimeJobCatalog
             'phr:native-backups:purge' => 'phr:native-backups:purge',
             'phr:native-restores:purge' => 'phr:native-restores:purge',
             'phr:data-hub:prune-audits' => 'phr:data-hub:prune-audits',
+            'phr:agent-api:prune-audits' => 'phr:agent-api:prune-audits',
         ];
     }
 

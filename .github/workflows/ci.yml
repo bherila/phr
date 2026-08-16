@@ -375,7 +375,8 @@ jobs:
              else \
                echo 'OAuth signing key pair is incomplete; refusing to rotate it automatically.' >&2; \
                exit 1; \
-             fi"
+             fi && \
+             /opt/cpanel/ea-php85/root/usr/bin/php artisan phr:agent-api:verify-oauth-keys"
 
       - name: Run artisan migrate, config clear/cache on server
         run: |

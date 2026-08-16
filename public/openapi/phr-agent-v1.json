@@ -62,19 +62,7 @@
             "tokenUrl": "/oauth/token",
             "refreshUrl": "/oauth/token",
             "scopes": {
-              "identity:read": "Read account identity and granted scopes",
-              "patients:read": "List and read accessible patients",
-              "clinical:read": "Read authorized clinical records",
-              "clinical:write": "Create and update authorized clinical records",
-              "documents:read": "Read document metadata and download authorized files",
-              "documents:write": "Upload and update patient documents",
-              "imports:read": "Read import jobs and extraction results",
-              "imports:write": "Create and review import jobs",
-              "exports:read": "Read export and backup status and download results",
-              "exports:write": "Request exports and native backups",
-              "reconciliation:read": "Preview administrative reconciliation",
-              "reconciliation:write": "Apply confirmed reconciliation",
-              "mcp:use": "Connect through the PHR MCP server"
+              "identity:read": "Read account identity and granted scopes"
             }
           }
         }
