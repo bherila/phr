@@ -4,6 +4,7 @@ namespace Tests\Unit\Services;
 
 use App\DataTransferObjects\AgentApi\ClinicalUpsertData;
 use App\DataTransferObjects\AgentApi\DocumentUploadData;
+use App\DataTransferObjects\AgentApi\ImportReviewData;
 use App\Services\AgentApi\Client\AgentApiMultipart;
 use App\Services\AgentApi\Client\AgentApiReadDao;
 use App\Services\AgentApi\Client\AgentApiTransport;
@@ -116,6 +117,50 @@ final class AgentApiReadDaoTest extends TestCase
         $this->assertSame('patients/7/documents', $transport->path);
         $this->assertSame('synthetic-document-id', $transport->multipart?->fields['external_id']);
         $this->assertSame('%PDF-1.4 synthetic', $transport->multipart?->files['file']->contents);
+    }
+
+    public function test_read_dao_builds_typed_import_queries(): void
+    {
+        $transport = new RecordingAgentApiTransport(new AgentApiTransportResponse(200, [
+            'resource_type' => 'import_job',
+            'patient_id' => 7,
+            'data' => [],
+            'pagination' => ['limit' => 10, 'has_more' => false, 'next_cursor' => null],
+        ]));
+
+        $payload = (new AgentApiReadDao($transport))->imports(7, 10, 'synthetic-cursor', 'failed')->toArray();
+
+        $this->assertSame('import_job', $payload['resource_type']);
+        $this->assertSame('GET', $transport->method);
+        $this->assertSame('patients/7/imports', $transport->path);
+        $this->assertSame([
+            'limit' => 10,
+            'cursor' => 'synthetic-cursor',
+            'status' => 'failed',
+        ], $transport->query);
+    }
+
+    public function test_write_dao_builds_typed_import_review(): void
+    {
+        $transport = new RecordingAgentApiTransport(new AgentApiTransportResponse(200, [
+            'resource_type' => 'import_result',
+            'patient_id' => 7,
+            'job_id' => 12,
+            'outcome' => 'accepted',
+            'import' => ['created' => 1, 'updated' => 0, 'skipped' => 0, 'documents' => 0],
+            'data' => ['id' => 15, 'status' => 'imported'],
+        ]));
+        $review = ImportReviewData::make('accept', ['analyte' => 'Synthetic corrected result']);
+
+        $payload = (new AgentApiWriteDao($transport))->importReview(7, 12, 15, $review)->toArray();
+
+        $this->assertSame('accepted', $payload['outcome']);
+        $this->assertSame('POST', $transport->method);
+        $this->assertSame('patients/7/imports/12/results/15/review', $transport->path);
+        $this->assertSame([
+            'action' => 'accept',
+            'payload' => ['analyte' => 'Synthetic corrected result'],
+        ], $transport->json);
     }
 }
 

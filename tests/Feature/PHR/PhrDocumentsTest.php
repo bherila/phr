@@ -177,7 +177,7 @@ class PhrDocumentsTest extends TestCase
     /**
      * The real S3 adapter hands the stream to a Guzzle PSR-7 wrapper whose
      * destructor closes the underlying resource before put() returns, so the
-     * controller's cleanup must tolerate an already-closed stream. Storage::fake
+     * shared processing service must tolerate an already-closed stream. Storage::fake
      * uses the local adapter, which leaves the stream open — this wrapper
      * restores the production behaviour the fake hides.
      */

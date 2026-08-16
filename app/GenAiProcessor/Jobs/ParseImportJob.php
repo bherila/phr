@@ -138,7 +138,10 @@ class ParseImportJob implements ShouldQueue
                 try {
                     Mail::to($user->email)->send(new GenAiJobDeferredMail($job));
                 } catch (\Throwable $mailEx) {
-                    Log::warning('Failed to send deferred mail', ['job_id' => $job->id, 'error' => $mailEx->getMessage()]);
+                    Log::warning('Failed to send deferred mail', [
+                        'job_id' => $job->id,
+                        'exception' => $mailEx::class,
+                    ]);
                 }
 
                 return;
@@ -200,22 +203,25 @@ class ParseImportJob implements ShouldQueue
             try {
                 Mail::to($user->email)->send(new GenAiJobCompleteMail($job));
             } catch (\Throwable $mailEx) {
-                Log::warning('Failed to send completion mail', ['job_id' => $job->id, 'error' => $mailEx->getMessage()]);
+                Log::warning('Failed to send completion mail', [
+                    'job_id' => $job->id,
+                    'exception' => $mailEx::class,
+                ]);
             }
         } catch (GenAiRateLimitException $e) {
             $job->markFailed('API rate limit exceeded. Please wait and try again.');
-        } catch (GenAiFatalException $e) {
+        } catch (GenAiFatalException) {
             $job->update([
                 'status' => 'failed',
-                'error_message' => $e->getMessage(),
+                'error_message' => 'The configured AI provider rejected the import request.',
                 'retry_count' => GenAiImportJob::MAX_RETRIES,
             ]);
         } catch (\Throwable $e) {
             Log::error('ParseImportJob: unexpected error', [
                 'job_id' => $job->id,
-                'error' => $e->getMessage(),
+                'exception' => $e::class,
             ]);
-            $job->markFailed('An unexpected error occurred: '.$e->getMessage());
+            $job->markFailed('An unexpected import error occurred.');
         } finally {
             if (is_resource($fileStream)) {
                 fclose($fileStream);

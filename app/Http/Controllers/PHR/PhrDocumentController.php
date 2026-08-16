@@ -3,8 +3,7 @@
 namespace App\Http\Controllers\PHR;
 
 use App\DataTransferObjects\PHR\DocumentUploadData;
-use App\GenAiProcessor\Jobs\ParseImportJob;
-use App\GenAiProcessor\Models\GenAiImportJob;
+use App\DataTransferObjects\PHR\ImportJobMutationResult;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\PHR\StorePhrDocumentRequest;
 use App\Http\Requests\PHR\UpdatePhrDocumentRequest;
@@ -14,8 +13,8 @@ use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatientVital;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\Documents\PhrDocumentUploadService;
+use App\Services\PHR\Import\PhrDocumentProcessingService;
 use App\Support\PHR\PhrDocumentTags;
-use App\Support\Storage\PhrStorageKey;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -28,6 +27,7 @@ class PhrDocumentController extends Controller
     public function __construct(
         private PhrPatientAccessService $accessService,
         private PhrDocumentUploadService $documentUploads,
+        private PhrDocumentProcessingService $documentProcessing,
     ) {}
 
     public function index(Request $request, int $patient): JsonResponse
@@ -139,51 +139,15 @@ class PhrDocumentController extends Controller
     {
         $userId = (int) $request->user()?->id;
         $resolvedPatient = $this->accessService->writablePatient($patient, $userId);
-        $resolvedDocument = PhrDocument::query()
-            ->where('patient_id', $resolvedPatient->id)
-            ->findOrFail($document);
-
-        abort_unless($resolvedDocument->storage_path !== null, 404);
-        $sourceDisk = Storage::disk($resolvedDocument->storage_disk);
-        abort_unless($sourceDisk->exists($resolvedDocument->storage_path), 404);
-
-        $s3Key = 'genai-import/'.$userId.'/'.Str::uuid().'/'.$this->safeStoredFilename($resolvedDocument->original_filename ?? 'document');
-        $stream = $sourceDisk->readStream($resolvedDocument->storage_path);
-        abort_unless(is_resource($stream), 404);
-
-        try {
-            $stored = Storage::disk('s3')->put($s3Key, $stream);
-        } finally {
-            $this->closeStreamIfStillOpen($stream);
-        }
-
-        abort_unless($stored, 503, 'GenAI staging storage is not available.');
-
-        $job = GenAiImportJob::query()->create([
-            'user_id' => $userId,
-            'job_type' => 'phr_document',
-            'file_hash' => $resolvedDocument->file_hash ?? hash('sha256', $s3Key),
-            'original_filename' => $resolvedDocument->original_filename ?? 'document',
-            's3_path' => $s3Key,
-            'mime_type' => $resolvedDocument->mime_type,
-            'file_size_bytes' => $resolvedDocument->byte_size,
-            'context_json' => json_encode([
-                'patient_id' => $resolvedPatient->id,
-                'document_id' => $resolvedDocument->id,
-                'document_type' => $resolvedDocument->document_type,
-                'filename_hint' => $resolvedDocument->original_filename,
-            ]),
-            'status' => 'pending',
-        ]);
-
-        $resolvedDocument->update(['genai_job_id' => $job->id]);
-        ParseImportJob::dispatch($job->id);
+        $result = $this->documentProcessing->create($resolvedPatient, $userId, $document);
+        $resolvedDocument = PhrDocument::query()->findOrFail($result->documentId);
 
         return response()->json([
-            'job_id' => $job->id,
-            'status' => $job->status,
+            'job_id' => $result->job->id,
+            'status' => $result->job->status,
+            'outcome' => $result->outcome,
             'document' => $this->payload($resolvedDocument->refresh()),
-        ], 202);
+        ], $result->outcome === ImportJobMutationResult::CREATED ? 202 : 200);
     }
 
     public function download(Request $request, PhrDocument $document): StreamedResponse
@@ -321,25 +285,6 @@ class PhrDocumentController extends Controller
         $trimmed = trim($value);
 
         return $trimmed === '' ? null : $trimmed;
-    }
-
-    /**
-     * Flysystem adapters may close a stream passed to put() — the S3 adapter's
-     * Guzzle PSR-7 wrapper closes the underlying resource on destruct — and
-     * fclose() on a closed resource throws a TypeError on PHP 8+. is_resource()
-     * returns false for closed resources, so this guard is load-bearing; it is
-     * locked by PhrDocumentsTest::test_process_succeeds_when_the_staging_disk_closes_the_stream.
-     */
-    private function closeStreamIfStillOpen(mixed $stream): void
-    {
-        if (is_resource($stream)) {
-            fclose($stream);
-        }
-    }
-
-    private function safeStoredFilename(string $filename): string
-    {
-        return PhrStorageKey::safeFilename($filename, 'document');
     }
 
     private function safeDownloadName(string $filename): string
