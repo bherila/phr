@@ -68,4 +68,13 @@ final class AgentApiScopes
     {
         return array_keys(self::descriptions());
     }
+
+    /** @return list<string> */
+    public static function parse(string $value): array
+    {
+        return array_values(array_unique(array_filter(
+            preg_split('/\s+/', trim($value)) ?: [],
+            static fn (string $scope): bool => $scope !== '',
+        )));
+    }
 }

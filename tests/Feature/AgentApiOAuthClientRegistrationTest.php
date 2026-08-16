@@ -107,6 +107,11 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'scope' => AgentApiScopes::DOCUMENTS_READ,
         ]))->assertBadRequest()
             ->assertJsonPath('error', 'invalid_scope');
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+            ...$authorization,
+            'scope' => [AgentApiScopes::PATIENTS_READ],
+        ]))->assertBadRequest()
+            ->assertJsonPath('error', 'invalid_scope');
 
         $this->actingAs($user)->get('/oauth/authorize?'.http_build_query($authorization))->assertOk()
             ->assertSee('This client registered automatically')
@@ -212,7 +217,6 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'grant_type' => 'refresh_token',
             'client_id' => $client->id,
             'refresh_token' => $issued['refresh_token'],
-            'resource' => OAuthResourceIndicator::agentApi().'/',
         ])->assertOk();
         $this->assertSame(
             [OAuthResourceIndicator::agentApi(), OAuthResourceIndicator::agentApi()],
@@ -224,6 +228,9 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
     {
         $state = app(OAuthAuthorizationStateStore::class);
         $state->rememberResource('synthetic-concurrent-auth-token', OAuthResourceIndicator::agentApi());
+        $sessionKey = 'oauth-resource:'.hash('sha256', 'synthetic-concurrent-auth-token');
+
+        $this->assertTrue(session()->has($sessionKey));
 
         $this->assertSame(
             OAuthResourceIndicator::agentApi(),

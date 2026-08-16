@@ -41,10 +41,8 @@ final class OAuthDynamicClientRegistrationController extends Controller
         }
         $requestedScopes = null;
         if (isset($metadata['scope'])) {
-            $requestedScopes = array_values(array_unique(
-                preg_split('/\s+/', trim((string) $metadata['scope'])) ?: [],
-            ));
-            if (array_diff($requestedScopes, AgentApiScopes::ids()) !== []) {
+            $requestedScopes = AgentApiScopes::parse((string) $metadata['scope']);
+            if ($requestedScopes === [] || array_diff($requestedScopes, AgentApiScopes::ids()) !== []) {
                 return $this->invalid();
             }
         }

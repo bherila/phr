@@ -19,10 +19,11 @@ final class EnforceOAuthResourceIndicator
     {
         if ($request->isMethod('GET') && $request->routeIs('passport.authorizations.authorize')) {
             $resource = $request->query('resource');
-            $scopes = array_values(array_filter(
-                preg_split('/\s+/', trim((string) $request->query('scope', ''))) ?: [],
-                static fn (string $scope): bool => $scope !== '',
-            ));
+            $scopeInput = $request->query('scope', '');
+            if (! is_string($scopeInput)) {
+                return $this->invalidScope();
+            }
+            $scopes = AgentApiScopes::parse($scopeInput);
             $clientId = $request->query('client_id');
             $client = is_string($clientId) ? Passport::client()->newQuery()->find($clientId) : null;
             if ($client !== null

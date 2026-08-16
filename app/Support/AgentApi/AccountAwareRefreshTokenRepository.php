@@ -89,11 +89,10 @@ class AccountAwareRefreshTokenRepository extends RefreshTokenRepository
             return true;
         }
 
-        $requestedResource = request()->input('resource');
-        $requestedResource = $requestedResource === null
-            ? null
-            : OAuthResourceIndicator::canonicalize($requestedResource);
         $storedResource = is_string($accessToken->resource_uri) ? $accessToken->resource_uri : null;
+        $requestedResource = request()->exists('resource')
+            ? OAuthResourceIndicator::canonicalize(request()->input('resource'))
+            : $storedResource;
         if ($requestedResource !== $storedResource) {
             $revoker->revokeFamilyForAccessToken($accessToken);
 
