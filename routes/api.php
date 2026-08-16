@@ -6,7 +6,10 @@ use App\Http\Controllers\Api\UserAiModelsController;
 use App\Http\Controllers\Api\UserDeviceController;
 use App\Http\Controllers\Api\V1\AgentClinicalReadController;
 use App\Http\Controllers\Api\V1\AgentDiscoveryController;
+use App\Http\Controllers\Api\V1\AgentDocumentController;
+use App\Http\Controllers\Api\V1\AgentEvidenceController;
 use App\Http\Controllers\Api\V1\AgentPatientController;
+use App\Http\Controllers\Api\V1\AgentRecordSearchController;
 use App\Http\Controllers\Api\V1\AgentTokenController;
 use App\Http\Controllers\PHR\AllergyController as PHRAllergyController;
 use App\Http\Controllers\PHR\ClinicalEobController as PHRClinicalEobController;
@@ -74,6 +77,46 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
             ->middleware('throttle:agent-api')
             ->middleware(CheckToken::using(AgentApiScopes::PATIENTS_READ))
             ->name('patients.show');
+
+        Route::get('/patients/{patient}/records/search', [AgentRecordSearchController::class, 'search'])
+            ->whereNumber('patient')
+            ->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))
+            ->name('records.search');
+        Route::get('/patients/{patient}/timeline', [AgentRecordSearchController::class, 'timeline'])
+            ->whereNumber('patient')
+            ->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))
+            ->name('timeline.index');
+
+        Route::get('/patients/{patient}/eobs', [AgentEvidenceController::class, 'eobs'])
+            ->whereNumber('patient')->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))->name('eobs.index');
+        Route::get('/patients/{patient}/eobs/{eob}', [AgentEvidenceController::class, 'eob'])
+            ->whereNumber(['patient', 'eob'])->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))->name('eobs.show');
+        Route::get('/patients/{patient}/eobs/{eob}/lines', [AgentEvidenceController::class, 'eobLines'])
+            ->whereNumber(['patient', 'eob'])->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))->name('eob-lines.index');
+        Route::get('/patients/{patient}/eobs/{eob}/lines/{line}', [AgentEvidenceController::class, 'eobLine'])
+            ->whereNumber(['patient', 'eob', 'line'])->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))->name('eob-lines.show');
+        Route::get('/patients/{patient}/evidence-links', [AgentEvidenceController::class, 'links'])
+            ->whereNumber('patient')->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))->name('evidence.links');
+
+        Route::get('/patients/{patient}/documents', [AgentDocumentController::class, 'index'])
+            ->whereNumber('patient')->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::DOCUMENTS_READ))->name('documents.index');
+        Route::get('/patients/{patient}/documents/{document}', [AgentDocumentController::class, 'show'])
+            ->whereNumber(['patient', 'document'])->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::DOCUMENTS_READ))->name('documents.show');
+        Route::post('/patients/{patient}/documents/{document}/download-access', [AgentDocumentController::class, 'createDownloadAccess'])
+            ->whereNumber(['patient', 'document'])->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::DOCUMENTS_READ))->name('documents.download-access');
+        Route::get('/patients/{patient}/documents/{document}/file', [AgentDocumentController::class, 'file'])
+            ->whereNumber(['patient', 'document'])->middleware(['throttle:agent-api', 'signed'])
+            ->middleware(CheckToken::using(AgentApiScopes::DOCUMENTS_READ))->name('documents.file');
 
         Route::get('/patients/{patient}/{resource}', [AgentClinicalReadController::class, 'index'])
             ->whereNumber('patient')

@@ -34,6 +34,20 @@ catalog maps route slugs to the same
 model and JSON Resource classes consumed by the browser API; route input never selects
 an arbitrary class or table.
 
+Unified search uses a second fixed catalog of searchable columns and emits only a
+concise record envelope; it never serializes raw clinical text. EOB responses likewise
+omit raw parser payloads, member and tax identifiers, check numbers, and actor ids.
+Evidence links are resolved from direct patient-scoped columns and fixed pivot tables,
+not from a client-selected table or join.
+
+Document metadata has an independent `documents:read` scope and omits storage paths,
+storage disks, content hashes, extracted text, and actor/job identifiers. Downloading
+bytes requires both a current bearer token with that scope and a one-minute signed URL
+created for the same patient-scoped document. The file route pins storage to the
+declared private document disk, rejects missing bytes, forces attachment disposition,
+and applies no-store, sandbox, and content-sniffing protections. The signature is not
+a bearer credential, and the bearer token alone cannot call the unsigned file route.
+
 The agent audit table intentionally excludes request URLs, route parameters, query
 strings, request and response bodies, filenames, error messages, IP addresses, and
 user agents. It records only an opaque request UUID, actor/client/token references,
