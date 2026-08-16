@@ -268,6 +268,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             $document['paths']['/oauth/token']['delete']['security'][0]['oauth2'],
         );
         $this->assertArrayHasKey('429', $document['paths']['/oauth/token']['delete']['responses']);
+        $this->assertArrayHasKey('429', $document['paths']['/capabilities']['get']['responses']);
         $this->assertSame(
             url('/.well-known/oauth-protected-resource/api/v1'),
             $capabilities['oauth']['protected_resource_metadata'],
@@ -873,6 +874,53 @@ class AgentApiOAuthFoundationTest extends TestCase
 
         $this->assertTrue(app(PassportRefreshTokenRepository::class)->isRefreshTokenRevoked($refresh->id));
         $this->assertTrue($refresh->fresh()->revoked);
+    }
+
+    public function test_stale_refresh_cleanup_does_not_revoke_a_newer_token_family(): void
+    {
+        $user = $this->createUser();
+        $clientId = (string) Str::uuid();
+        $staleToken = Token::query()->create([
+            'id' => Str::random(80),
+            'user_id' => $user->id,
+            'client_id' => $clientId,
+            'scopes' => [AgentApiScopes::IDENTITY_READ],
+            'revoked' => false,
+            'oauth_security_version' => 0,
+            'oauth_family_id' => Str::random(80),
+            'expires_at' => now()->addMinutes(15),
+        ]);
+        $staleRefresh = RefreshToken::query()->create([
+            'id' => Str::random(80),
+            'access_token_id' => $staleToken->id,
+            'revoked' => false,
+            'expires_at' => now()->addDays(30),
+        ]);
+
+        DB::table('users')->where('id', $user->id)->update(['user_role' => '']);
+        DB::table('users')->where('id', $user->id)->update(['user_role' => 'User']);
+        $currentToken = Token::query()->create([
+            'id' => Str::random(80),
+            'user_id' => $user->id,
+            'client_id' => $clientId,
+            'scopes' => [AgentApiScopes::IDENTITY_READ],
+            'revoked' => false,
+            'oauth_security_version' => $user->fresh()->oauth_security_version,
+            'oauth_family_id' => Str::random(80),
+            'expires_at' => now()->addMinutes(15),
+        ]);
+        $currentRefresh = RefreshToken::query()->create([
+            'id' => Str::random(80),
+            'access_token_id' => $currentToken->id,
+            'revoked' => false,
+            'expires_at' => now()->addDays(30),
+        ]);
+
+        $this->assertTrue(app(PassportRefreshTokenRepository::class)->isRefreshTokenRevoked($staleRefresh->id));
+        $this->assertTrue($staleToken->fresh()->revoked);
+        $this->assertTrue($staleRefresh->fresh()->revoked);
+        $this->assertFalse($currentToken->fresh()->revoked);
+        $this->assertFalse($currentRefresh->fresh()->revoked);
     }
 
     public function test_account_lifecycle_revocation_uses_passports_configured_connection(): void

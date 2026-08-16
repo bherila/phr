@@ -18,7 +18,8 @@
           "200": {
             "description": "Server capabilities",
             "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Capabilities" } } }
-          }
+          },
+          "429": { "$ref": "#/components/responses/RateLimited" }
         }
       }
     },

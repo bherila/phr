@@ -36,17 +36,21 @@ class AccountAwareRefreshTokenRepository extends RefreshTokenRepository
             ? null
             : User::query()->find($accessToken->user_id);
 
-        if (! $user instanceof User
-            || ! $user->canLogin()
-            || $accessToken->revoked
-            || $accessToken->oauth_security_version === null
-            || (int) $accessToken->oauth_security_version !== (int) $user->oauth_security_version) {
+        if (! $user instanceof User || ! $user->canLogin()) {
             if ($accessToken?->user_id !== null) {
                 app(OAuthCredentialRevoker::class)->revokeForUserIdentifier($accessToken->user_id);
             } else {
                 $refreshToken->revoke();
                 $accessToken?->revoke();
             }
+
+            return true;
+        }
+
+        if ($accessToken->revoked
+            || $accessToken->oauth_security_version === null
+            || (int) $accessToken->oauth_security_version !== (int) $user->oauth_security_version) {
+            app(OAuthCredentialRevoker::class)->revokeFamilyForAccessToken($accessToken);
 
             return true;
         }
