@@ -380,16 +380,12 @@ final class PhrNativeRestoreService
     {
         $attempt = PhrNativeRestoreAttempt::query()->find($attemptId);
         if ($attempt?->status === PhrNativeRestoreAttempt::STATUS_FINALIZING) {
-            try {
-                // The graph is already durable; exhausting the worker must not
-                // strand its identities in the pending-watermark state.
-                $this->finalizeRestore($attemptId);
+            // The graph is already durable; exhausting the worker must not
+            // strand its identities in the pending-watermark state or relabel
+            // it terminal before publication. The purger retries this handoff.
+            $this->finalizePendingRestore($attemptId);
 
-                return;
-            } catch (Throwable) {
-                // Fall through to the fixed terminal failure marker if the
-                // database cannot publish the watermark even in failed().
-            }
+            return;
         }
 
         PhrNativeRestoreAttempt::query()
@@ -406,6 +402,17 @@ final class PhrNativeRestoreService
                 'completed_at' => now(),
                 'updated_at' => now(),
             ]);
+    }
+
+    public function finalizePendingRestore(int $attemptId): bool
+    {
+        try {
+            $this->finalizeRestore($attemptId);
+
+            return true;
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     private function applyPlan(

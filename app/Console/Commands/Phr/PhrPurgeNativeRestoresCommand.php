@@ -3,6 +3,7 @@
 namespace App\Console\Commands\Phr;
 
 use App\Models\PhrNativeRestoreAttempt;
+use App\Services\PHR\NativeBackup\PhrNativeRestoreService;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Support\Facades\Storage;
@@ -12,7 +13,7 @@ use Throwable;
 #[Description('Delete expired native restore source archives while retaining metadata-only audit rows')]
 final class PhrPurgeNativeRestoresCommand extends BasePhrCommand
 {
-    public function handle(): int
+    public function handle(PhrNativeRestoreService $restoreService): int
     {
         $purged = 0;
         $failed = 0;
@@ -29,9 +30,17 @@ final class PhrPurgeNativeRestoresCommand extends BasePhrCommand
                 ])->orWhere('updated_at', '<=', now()->subHours(2));
             })
             ->orderBy('id')
-            ->chunkById(100, function ($attempts) use (&$purged, &$failed): void {
+            ->chunkById(100, function ($attempts) use (&$purged, &$failed, $restoreService): void {
                 foreach ($attempts as $attempt) {
                     try {
+                        if ($attempt->status === PhrNativeRestoreAttempt::STATUS_FINALIZING) {
+                            if (! $restoreService->finalizePendingRestore((int) $attempt->id)) {
+                                $failed++;
+
+                                continue;
+                            }
+                            $attempt->refresh();
+                        }
                         if (! Storage::disk($attempt->source_storage_disk)->delete((string) $attempt->source_storage_path)) {
                             $failed++;
 

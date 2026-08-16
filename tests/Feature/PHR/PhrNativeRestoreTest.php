@@ -373,6 +373,40 @@ final class PhrNativeRestoreTest extends TestCase
         @unlink($archivePath);
     }
 
+    public function test_purge_publishes_a_stale_finalizing_watermark_before_expiring_its_source(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        $archivePath = $this->archiveCopy($patient, (int) $owner->id);
+        $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
+        $storedPath = (string) $attempt->source_storage_path;
+        $identity = PhrNativeRecordIdentity::query()
+            ->where('patient_id', $patient->id)
+            ->where('record_table', 'phr_patients')
+            ->where('record_id', $patient->id)
+            ->sole();
+        $identity->update([
+            'restore_attempt_id' => $attempt->id,
+            'restored_at' => null,
+        ]);
+        $attempt->update([
+            'status' => PhrNativeRestoreAttempt::STATUS_FINALIZING,
+            'expires_at' => now()->subMinute(),
+        ]);
+        DB::table('phr_native_restore_attempts')->where('id', $attempt->id)->update([
+            'updated_at' => now()->subHours(3),
+        ]);
+
+        $this->artisan('phr:native-restores:purge')->assertSuccessful();
+
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_COMPLETED, $attempt->refresh()->status);
+        $this->assertNotNull($attempt->completed_at);
+        $this->assertNotNull($identity->refresh()->restored_at);
+        $this->assertNull($attempt->source_storage_path);
+        Storage::disk('phr_exports')->assertMissing($storedPath);
+        @unlink($archivePath);
+    }
+
     public function test_object_storage_failure_rolls_back_the_entire_patient_graph(): void
     {
         $owner = $this->createUser();
