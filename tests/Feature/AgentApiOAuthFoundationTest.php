@@ -149,7 +149,7 @@ class AgentApiOAuthFoundationTest extends TestCase
         $this->assertDatabaseCount('oauth_auth_codes', 0);
     }
 
-    public function test_public_client_completes_pkce_refresh_rotation_and_immediate_revocation(): void
+    public function test_public_client_completes_pkce_rotation_and_detects_refresh_reuse(): void
     {
         $user = $this->createUser([
             'name' => 'Synthetic OAuth User',
@@ -226,8 +226,16 @@ class AgentApiOAuthFoundationTest extends TestCase
 
         Auth::forgetGuards();
         $this->withToken($issued['access_token'])->getJson('/api/v1/me')->assertUnauthorized();
-        Auth::forgetGuards();
-        $this->withToken($rotated['access_token'])->deleteJson('/api/v1/oauth/token')->assertNoContent();
+
+        $this->postJson('/oauth/token', [
+            'grant_type' => 'refresh_token',
+            'client_id' => $client->id,
+            'refresh_token' => $issued['refresh_token'],
+        ])->assertBadRequest()->assertJsonPath('error', 'invalid_grant');
+        $rotatedRefreshToken = RefreshToken::query()->where('access_token_id', $rotatedAccessToken->id)->sole();
+        $this->assertTrue($rotatedAccessToken->fresh()->revoked);
+        $this->assertTrue($rotatedRefreshToken->fresh()->revoked);
+
         Auth::forgetGuards();
         $this->withToken($rotated['access_token'])->getJson('/api/v1/me')->assertUnauthorized();
     }
@@ -1101,7 +1109,7 @@ class AgentApiOAuthFoundationTest extends TestCase
         $this->assertDatabaseHas('agent_api_audits', ['id' => $recent->id]);
     }
 
-    public function test_scheduled_passport_purge_removes_revoked_credentials(): void
+    public function test_scheduled_passport_purge_removes_old_expired_credentials(): void
     {
         $user = $this->createUser();
         $client = Client::query()->create([
@@ -1119,13 +1127,13 @@ class AgentApiOAuthFoundationTest extends TestCase
             'name' => null,
             'scopes' => [AgentApiScopes::IDENTITY_READ],
             'revoked' => true,
-            'expires_at' => now()->addMinutes(15),
+            'expires_at' => now()->subDays(32),
         ]);
         $refresh = RefreshToken::query()->create([
             'id' => Str::random(80),
             'access_token_id' => $token->id,
             'revoked' => true,
-            'expires_at' => now()->addDays(30),
+            'expires_at' => now()->subDays(32),
         ]);
         $authorizationCode = AuthCode::query()->create([
             'id' => Str::random(80),
@@ -1133,7 +1141,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             'client_id' => $client->id,
             'scopes' => json_encode([AgentApiScopes::IDENTITY_READ], JSON_THROW_ON_ERROR),
             'revoked' => true,
-            'expires_at' => now()->addMinutes(10),
+            'expires_at' => now()->subDays(32),
         ]);
 
         $this->artisan('phr:uptime:run-task', ['job' => 'passport:purge'])->assertSuccessful();
@@ -1168,6 +1176,12 @@ class AgentApiOAuthFoundationTest extends TestCase
             'revoked' => false,
             'expires_at' => now()->addDay(),
         ]);
+        $consumedRefresh = RefreshToken::query()->create([
+            'id' => Str::random(80),
+            'access_token_id' => $token->id,
+            'revoked' => true,
+            'expires_at' => now()->addDay(),
+        ]);
 
         $this->assertGreaterThan(
             AgentApiTokenPolicy::REFRESH_TOKEN_LIFETIME_DAYS * 24,
@@ -1177,6 +1191,7 @@ class AgentApiOAuthFoundationTest extends TestCase
 
         $this->assertDatabaseHas('oauth_access_tokens', ['id' => $token->id, 'revoked' => false]);
         $this->assertDatabaseHas('oauth_refresh_tokens', ['id' => $refresh->id, 'revoked' => false]);
+        $this->assertDatabaseHas('oauth_refresh_tokens', ['id' => $consumedRefresh->id, 'revoked' => true]);
     }
 
     public function test_oauth_key_verifier_accepts_only_a_parseable_matching_pair(): void

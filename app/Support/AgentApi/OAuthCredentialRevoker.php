@@ -2,6 +2,7 @@
 
 namespace App\Support\AgentApi;
 
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Laravel\Passport\Passport;
 use Laravel\Passport\Token;
@@ -17,28 +18,56 @@ final class OAuthCredentialRevoker
      */
     public function revokeFamilyForAccessToken(Token $accessToken): void
     {
+        $connection = config('passport.connection');
+        DB::connection(is_string($connection) ? $connection : null)
+            ->transaction(function () use ($accessToken): void {
+                $lockedToken = $this->lockFamilyForAccessToken($accessToken);
+                if (! $lockedToken instanceof Token) {
+                    return;
+                }
+
+                $familyIdentifier = is_string($lockedToken->oauth_family_id)
+                    ? $lockedToken->oauth_family_id
+                    : $lockedToken->id;
+                $familyTokens = Passport::token()->newQuery()
+                    ->where('user_id', $lockedToken->user_id)
+                    ->where('client_id', $lockedToken->client_id)
+                    ->where(function ($query) use ($familyIdentifier, $lockedToken): void {
+                        $query->where('oauth_family_id', $familyIdentifier)
+                            ->orWhere('id', $lockedToken->id);
+                    })
+                    ->lockForUpdate()
+                    ->get();
+                $familyTokenIds = $familyTokens->pluck('id');
+
+                Passport::refreshToken()->newQuery()
+                    ->whereIn('access_token_id', $familyTokenIds)
+                    ->update(['revoked' => true]);
+                Passport::token()->newQuery()
+                    ->whereIn('id', $familyTokenIds)
+                    ->update(['revoked' => true]);
+            }, 1);
+    }
+
+    /**
+     * Lock the stable family root before any refresh row. Refresh, replay, and
+     * disconnect all use this order so a concurrent rotation either finishes
+     * first and is included in cleanup, or waits before it can issue a successor.
+     */
+    public function lockFamilyForAccessToken(Token $accessToken): ?Token
+    {
         $familyIdentifier = is_string($accessToken->oauth_family_id)
             ? $accessToken->oauth_family_id
             : $accessToken->id;
-        $familyTokenIds = Passport::token()->newQuery()
-            ->where('user_id', $accessToken->user_id)
-            ->where('client_id', $accessToken->client_id)
-            ->where(function ($query) use ($familyIdentifier, $accessToken): void {
-                $query->where('oauth_family_id', $familyIdentifier)
-                    ->orWhere('id', $accessToken->id);
-            })
-            ->pluck('id');
 
-        if ($familyTokenIds->isEmpty()) {
-            return;
-        }
-
-        Passport::refreshToken()->newQuery()
-            ->whereIn('access_token_id', $familyTokenIds)
-            ->update(['revoked' => true]);
-        Passport::token()->newQuery()
-            ->whereIn('id', $familyTokenIds)
-            ->update(['revoked' => true]);
+        return Passport::token()->newQuery()
+            ->whereKey($familyIdentifier)
+            ->lockForUpdate()
+            ->first()
+            ?? Passport::token()->newQuery()
+                ->whereKey($accessToken->id)
+                ->lockForUpdate()
+                ->first();
     }
 
     /**

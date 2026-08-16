@@ -74,7 +74,7 @@ final class UptimeJobCatalog
             'phr:native-restores:purge' => 'phr:native-restores:purge',
             'phr:data-hub:prune-audits' => 'phr:data-hub:prune-audits',
             'phr:agent-api:prune-audits' => 'phr:agent-api:prune-audits',
-            'passport:purge' => 'passport:purge --hours='.AgentApiTokenPolicy::EXPIRED_CREDENTIAL_RETENTION_HOURS,
+            'passport:purge' => 'passport:purge --expired --hours='.AgentApiTokenPolicy::EXPIRED_CREDENTIAL_RETENTION_HOURS,
         ];
     }
 

@@ -33,6 +33,8 @@ successful refresh rotates the credential. Password and implicit grants are disa
 Expired access-token parent rows are retained for 31 days because Passport refresh
 validation depends on that relationship; the daily purge must not shorten the
 advertised refresh lifetime.
+Consumed refresh rows are retained through that same window so replay revokes the
+entire stable rotation family, including any successor issued from a stolen token.
 
 The client can immediately disconnect itself with `DELETE /api/v1/oauth/token`; any
 authenticated token may revoke itself even without an identity scope. This serializes
