@@ -608,7 +608,7 @@ export const phrModuleRegistry: Record<PhrModuleId, PhrRegistryEntry> = {
   'vitals-trend': makeDetailModule(VITALS_TREND_MODULE, VitalsTrend, 'wide'),
   imaging: makeListModule(IMAGING_MODULE, ImagingPage),
   'imaging-study-detail': makeDetailModule(IMAGING_STUDY_DETAIL_MODULE, ImagingStudyDetail),
-  'office-visits': makeListModule(OFFICE_VISITS_MODULE, OfficeVisitsPage, 'full'),
+  'office-visits': makeListModule(OFFICE_VISITS_MODULE, OfficeVisitsPage),
   'office-visit-detail': makeDetailModule(OFFICE_VISIT_DETAIL_MODULE, OfficeVisitDetail),
   medications: makeListModule(MEDICATIONS_MODULE, MedicationsPage),
   'medication-detail': makeDetailModule(MEDICATION_DETAIL_MODULE, MedicationDetail),

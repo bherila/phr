@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\PHR;
 
+use App\Models\PhrDicomStudy;
 use App\Models\PhrDocument;
 use App\Models\PhrEob;
 use App\Models\PhrEobLine;
@@ -106,8 +107,14 @@ class ClinicalEobLinksApiTest extends TestCase
         $eob = $this->eob($patientId, $owner->id, 'EXAMPLE-004');
         $this->line($eob, '2030-04-15', null);
         $visit->eobs()->attach($eob->id, ['patient_id' => $patientId]);
+        $study = PhrDicomStudy::query()->create([
+            'patient_id' => $patientId,
+            'study_instance_uid' => '1.2.840.10008.20300415.2',
+            'study_date' => '2030-04-15',
+        ]);
 
         $link = "/api/phr/patients/{$patientId}/office-visits/{$visit->id}/eobs/{$eob->id}";
+        $imagingLink = "/api/phr/patients/{$patientId}/office-visits/{$visit->id}/imaging-studies/{$study->id}";
         $this->actingAs($viewer)
             ->getJson("/api/phr/patients/{$patientId}/office-visits/{$visit->id}")
             ->assertOk()
@@ -115,6 +122,59 @@ class ClinicalEobLinksApiTest extends TestCase
             ->assertJsonPath('office_visit.eobs.0.id', $eob->id);
         $this->actingAs($viewer)->postJson($link)->assertForbidden();
         $this->actingAs($viewer)->deleteJson($link)->assertForbidden();
+        $this->actingAs($viewer)->postJson($imagingLink)->assertForbidden();
+        $this->actingAs($viewer)->deleteJson($imagingLink)->assertForbidden();
+    }
+
+    public function test_it_links_imaging_studies_and_exposes_related_services_on_a_visit(): void
+    {
+        $owner = $this->createUser();
+        $patientId = (int) $this->actingAs($owner)->postJson('/api/phr/patients', [
+            'display_name' => 'Example Patient',
+        ])->assertCreated()->json('patient.id');
+
+        $visit = PhrOfficeVisit::query()->create([
+            'patient_id' => $patientId,
+            'user_id' => $owner->id,
+            'visit_date' => '2030-04-15',
+            'visit_type' => 'Example visit',
+        ]);
+        $study = PhrDicomStudy::query()->create([
+            'patient_id' => $patientId,
+            'study_instance_uid' => '1.2.840.10008.20300415.1',
+            'study_date' => '2030-04-15',
+            'description' => 'Example imaging study',
+            'modalities' => 'CT',
+        ]);
+        $eob = $this->eob($patientId, $owner->id, 'EXAMPLE-005');
+        PhrEobLine::query()->create([
+            'eob_id' => $eob->id,
+            'patient_id' => $patientId,
+            'line_number' => 1,
+            'procedure_code' => 'D0000',
+            'code_type' => 'CDT',
+            'description' => 'Example imaging service',
+            'service_start' => '2030-04-15',
+        ]);
+        $visit->eobs()->attach($eob->id, ['patient_id' => $patientId]);
+
+        $link = "/api/phr/patients/{$patientId}/office-visits/{$visit->id}/imaging-studies/{$study->id}";
+        $this->actingAs($owner)->postJson($link)
+            ->assertCreated()
+            ->assertJsonPath('imaging_study.id', $study->id);
+        $this->actingAs($owner)->postJson($link)->assertCreated();
+        self::assertDatabaseCount('phr_office_visit_dicom_studies', 1);
+
+        $this->actingAs($owner)
+            ->getJson("/api/phr/patients/{$patientId}/office-visits/{$visit->id}")
+            ->assertOk()
+            ->assertJsonPath('office_visit.imaging_studies.0.id', $study->id)
+            ->assertJsonPath('office_visit.imaging_studies.0.description', 'Example imaging study')
+            ->assertJsonPath('office_visit.related_services.0.procedure_code', 'D0000')
+            ->assertJsonPath('office_visit.related_services.0.description', 'Example imaging service');
+
+        $this->actingAs($owner)->deleteJson($link)->assertNoContent();
+        self::assertDatabaseCount('phr_office_visit_dicom_studies', 0);
     }
 
     private function eob(int $patientId, int $userId, string $claimNumber, ?int $documentId = null): PhrEob

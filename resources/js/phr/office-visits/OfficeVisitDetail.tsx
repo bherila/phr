@@ -1,14 +1,19 @@
+import { Film, ReceiptText } from 'lucide-react'
 import type { ReactElement } from 'react'
 import { useEffect, useState } from 'react'
 
+import { Button } from '@/components/ui/button'
+import type { MillerDrillTarget } from '@/components/ui/miller'
 import EncounterEobLinks from '@/phr/clinical/EncounterEobLinks'
 import { PhrNotFoundColumn } from '@/phr/miller'
+import type { PhrModuleId } from '@/phr/miller/phrModuleRegistry'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
-import { type PhrOfficeVisit, PhrOfficeVisitResponseSchema } from '@/phr/types'
+import { type PhrOfficeVisit, type PhrOfficeVisitRelatedService, PhrOfficeVisitResponseSchema } from '@/phr/types'
 
 interface OfficeVisitDetailProps {
   patientId: number
   recordId: string
+  onDrill?: (target: MillerDrillTarget<PhrModuleId>) => void
 }
 
 function detailValue(value: string | null | undefined, fallback = 'Not recorded'): string {
@@ -32,12 +37,24 @@ function renderCodeList(label: string, codes: Array<Record<string, string>> | nu
   )
 }
 
-export default function OfficeVisitDetail({ patientId, recordId }: OfficeVisitDetailProps) {
+function serviceLabel(service: PhrOfficeVisitRelatedService): string {
+  return service.description ?? `${service.code_type} ${service.procedure_code}`
+}
+
+function serviceDateLabel(service: PhrOfficeVisitRelatedService): string | null {
+  if (!service.service_start) return null
+  return service.service_end && service.service_end !== service.service_start
+    ? `${service.service_start}–${service.service_end}`
+    : service.service_start
+}
+
+export default function OfficeVisitDetail({ patientId, recordId, onDrill }: OfficeVisitDetailProps) {
   const [visit, setVisit] = useState<PhrOfficeVisit | null>(null)
   const [notFound, setNotFound] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [canManage, setCanManage] = useState(false)
+  const [refreshNonce, setRefreshNonce] = useState(0)
 
   useEffect(() => {
     let cancelled = false
@@ -75,7 +92,7 @@ export default function OfficeVisitDetail({ patientId, recordId }: OfficeVisitDe
     return () => {
       cancelled = true
     }
-  }, [patientId, recordId])
+  }, [patientId, recordId, refreshNonce])
 
   if (notFound) {
     return <PhrNotFoundColumn />
@@ -153,8 +170,80 @@ export default function OfficeVisitDetail({ patientId, recordId }: OfficeVisitDe
             serviceDate={visit.visit_date}
             eobs={visit.eobs}
             canManage={canManage}
-            onChange={(eobs) => setVisit((current) => current ? { ...current, eobs } : current)}
+            onChange={(eobs) => {
+              setVisit((current) => current ? { ...current, eobs } : current)
+              setRefreshNonce((current) => current + 1)
+            }}
           />
+          <section className="rounded-lg border border-border bg-card p-4">
+            <div>
+              <h2 className="flex items-center gap-2 font-semibold text-card-foreground">
+                <ReceiptText className="size-4 text-primary" />
+                Related services
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Procedures and services reported on the EOBs linked to this visit.
+              </p>
+            </div>
+            {visit.related_services.length === 0 ? (
+              <p className="mt-4 text-sm text-muted-foreground">No related services are available.</p>
+            ) : (
+              <ul className="mt-4 divide-y divide-border rounded-md border border-border">
+                {visit.related_services.map((service) => {
+                  const date = serviceDateLabel(service)
+
+                  return (
+                    <li key={service.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-card-foreground">{serviceLabel(service)}</p>
+                        <p className="text-xs text-muted-foreground">{service.code_type} {service.procedure_code}</p>
+                      </div>
+                      {date && <span className="text-xs text-muted-foreground">{date}</span>}
+                    </li>
+                  )
+                })}
+              </ul>
+            )}
+          </section>
+          <section className="rounded-lg border border-border bg-card p-4">
+            <div>
+              <h2 className="flex items-center gap-2 font-semibold text-card-foreground">
+                <Film className="size-4 text-primary" />
+                Related imaging studies
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Imaging explicitly associated with this visit.
+              </p>
+            </div>
+            {visit.imaging_studies.length === 0 ? (
+              <p className="mt-4 text-sm text-muted-foreground">No imaging studies are linked to this visit.</p>
+            ) : (
+              <ul className="mt-4 space-y-2">
+                {visit.imaging_studies.map((study) => (
+                  <li key={study.id}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-auto w-full justify-start px-3 py-2 text-left"
+                      onClick={() => onDrill?.({ id: 'imaging-study-detail', instance: String(study.id) })}
+                    >
+                      <Film className="size-4 shrink-0 text-primary" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">
+                          {study.description ?? 'Imaging study'}
+                        </span>
+                        <span className="block text-xs text-muted-foreground">
+                          {[study.study_date, study.modalities, study.accession_number ? `Accession ${study.accession_number}` : null]
+                            .filter(Boolean)
+                            .join(' · ') || 'Study details available'}
+                        </span>
+                      </span>
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
         </>
       )}
     </div>
