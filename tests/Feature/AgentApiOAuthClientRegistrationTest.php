@@ -98,6 +98,10 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'code_challenge_method' => 'S256',
             'resource' => OAuthResourceIndicator::agentApi(),
         ];
+        $withoutScope = $authorization;
+        unset($withoutScope['scope']);
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query($withoutScope))
+            ->assertOk();
         $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
             ...$authorization,
             'scope' => AgentApiScopes::DOCUMENTS_READ,
@@ -174,8 +178,10 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'resource' => OAuthResourceIndicator::agentApi().'/',
         ]))->assertOk();
         $this->assertNotNull($approval);
+        $authToken = session('authToken');
+        $this->travel(11)->minutes();
         $redirect = $this->post('/oauth/authorize', [
-            'auth_token' => session('authToken'),
+            'auth_token' => $authToken,
         ])->assertRedirect();
         parse_str((string) parse_url((string) $redirect->headers->get('Location'), PHP_URL_QUERY), $redirectQuery);
         $this->assertIsString($redirectQuery['code']);

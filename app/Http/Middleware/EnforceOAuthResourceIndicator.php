@@ -3,21 +3,26 @@
 namespace App\Http\Middleware;
 
 use App\Support\AgentApi\AgentApiScopes;
+use App\Support\AgentApi\OAuthAuthorizationStateStore;
 use App\Support\AgentApi\OAuthResourceIndicator;
 use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Laravel\Passport\Passport;
 use Symfony\Component\HttpFoundation\Response;
 
 final class EnforceOAuthResourceIndicator
 {
+    public function __construct(private OAuthAuthorizationStateStore $authorizationState) {}
+
     public function handle(Request $request, Closure $next): Response
     {
         if ($request->isMethod('GET') && $request->routeIs('passport.authorizations.authorize')) {
             $resource = $request->query('resource');
-            $scopes = preg_split('/\s+/', trim((string) $request->query('scope', ''))) ?: [];
+            $scopes = array_values(array_filter(
+                preg_split('/\s+/', trim((string) $request->query('scope', ''))) ?: [],
+                static fn (string $scope): bool => $scope !== '',
+            ));
             $clientId = $request->query('client_id');
             $client = is_string($clientId) ? Passport::client()->newQuery()->find($clientId) : null;
             if ($client !== null
@@ -39,7 +44,10 @@ final class EnforceOAuthResourceIndicator
             $response = $next($request);
             $authToken = $request->session()->get('authToken');
             if (is_string($authToken) && $resource !== null) {
-                Cache::put($this->cacheKey($authToken), OAuthResourceIndicator::agentApi(), now()->addMinutes(10));
+                $this->authorizationState->rememberResource(
+                    $authToken,
+                    OAuthResourceIndicator::agentApi(),
+                );
             }
 
             return $response;
@@ -47,7 +55,7 @@ final class EnforceOAuthResourceIndicator
 
         if ($request->routeIs('passport.authorizations.approve', 'passport.authorizations.deny')) {
             $authToken = $request->input('auth_token');
-            $resource = is_string($authToken) ? Cache::pull($this->cacheKey($authToken)) : null;
+            $resource = is_string($authToken) ? $this->authorizationState->pullResource($authToken) : null;
             if (is_string($resource)) {
                 $request->attributes->set(OAuthResourceIndicator::REQUEST_ATTRIBUTE, $resource);
             }
@@ -83,10 +91,5 @@ final class EnforceOAuthResourceIndicator
             'Cache-Control' => 'no-store',
             'Pragma' => 'no-cache',
         ]);
-    }
-
-    private function cacheKey(string $authToken): string
-    {
-        return 'oauth-resource:'.hash('sha256', $authToken);
     }
 }
