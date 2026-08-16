@@ -10,6 +10,8 @@ use Laravel\Passport\Passport;
 #[Description('Validate that the persistent Passport signing keys parse and match')]
 final class AgentApiVerifyOAuthKeysCommand extends BasePhrCommand
 {
+    private const int MINIMUM_RSA_BITS = 2048;
+
     public function handle(): int
     {
         $privatePath = Passport::keyPath('oauth-private.key');
@@ -35,6 +37,10 @@ final class AgentApiVerifyOAuthKeysCommand extends BasePhrCommand
         $publicDetails = openssl_pkey_get_details($publicKey);
         if (! is_array($privateDetails)
             || ! is_array($publicDetails)
+            || $privateDetails['type'] !== OPENSSL_KEYTYPE_RSA
+            || $publicDetails['type'] !== OPENSSL_KEYTYPE_RSA
+            || $privateDetails['bits'] < self::MINIMUM_RSA_BITS
+            || $publicDetails['bits'] < self::MINIMUM_RSA_BITS
             || ! hash_equals((string) $privateDetails['key'], (string) $publicDetails['key'])) {
             return $this->invalidPair();
         }

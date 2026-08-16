@@ -1194,7 +1194,7 @@ class AgentApiOAuthFoundationTest extends TestCase
         $this->assertDatabaseHas('oauth_refresh_tokens', ['id' => $consumedRefresh->id, 'revoked' => true]);
     }
 
-    public function test_oauth_key_verifier_accepts_only_a_parseable_matching_pair(): void
+    public function test_oauth_key_verifier_accepts_only_a_strong_matching_rsa_pair(): void
     {
         $directory = storage_path('framework/testing/oauth-'.Str::uuid());
         File::ensureDirectoryExists($directory, 0700);
@@ -1207,6 +1207,16 @@ class AgentApiOAuthFoundationTest extends TestCase
 
         [, $otherPublicKey] = $this->keyPair();
         file_put_contents($directory.'/oauth-public.key', $otherPublicKey);
+        $this->artisan('phr:agent-api:verify-oauth-keys')->assertFailed();
+
+        [$weakPrivateKey, $weakPublicKey] = $this->keyPair(1024);
+        file_put_contents($directory.'/oauth-private.key', $weakPrivateKey);
+        file_put_contents($directory.'/oauth-public.key', $weakPublicKey);
+        $this->artisan('phr:agent-api:verify-oauth-keys')->assertFailed();
+
+        [$ecPrivateKey, $ecPublicKey] = $this->ellipticCurveKeyPair();
+        file_put_contents($directory.'/oauth-private.key', $ecPrivateKey);
+        file_put_contents($directory.'/oauth-public.key', $ecPublicKey);
         $this->artisan('phr:agent-api:verify-oauth-keys')->assertFailed();
 
         file_put_contents($directory.'/oauth-private.key', 'invalid synthetic key');
@@ -1234,11 +1244,26 @@ class AgentApiOAuthFoundationTest extends TestCase
     }
 
     /** @return array{string, string} */
-    private function keyPair(): array
+    private function keyPair(int $bits = 2048): array
     {
         $key = openssl_pkey_new([
-            'private_key_bits' => 2048,
+            'private_key_bits' => $bits,
             'private_key_type' => OPENSSL_KEYTYPE_RSA,
+        ]);
+        $this->assertNotFalse($key);
+        $this->assertTrue(openssl_pkey_export($key, $privateKey));
+        $details = openssl_pkey_get_details($key);
+        $this->assertIsArray($details);
+
+        return [$privateKey, $details['key']];
+    }
+
+    /** @return array{string, string} */
+    private function ellipticCurveKeyPair(): array
+    {
+        $key = openssl_pkey_new([
+            'curve_name' => 'prime256v1',
+            'private_key_type' => OPENSSL_KEYTYPE_EC,
         ]);
         $this->assertNotFalse($key);
         $this->assertTrue(openssl_pkey_export($key, $privateKey));
