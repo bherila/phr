@@ -17,7 +17,10 @@ use Throwable;
 
 final readonly class PhrDocumentUploadService
 {
-    public function __construct(private PhrPatientArtifactWriteGuard $artifactWriteGuard) {}
+    public function __construct(
+        private PhrPatientArtifactWriteGuard $artifactWriteGuard,
+        private PhrDocumentIdentityDao $identities,
+    ) {}
 
     public function upload(PhrPatient $patient, int $actorUserId, DocumentUploadData $data): DocumentUploadResult
     {
@@ -31,13 +34,15 @@ final readonly class PhrDocumentUploadService
             throw new UnprocessableEntityHttpException('The uploaded file could not be hashed.');
         }
 
-        $originalName = PhrStorageKey::safeFilename($data->file->getClientOriginalName(), 'document');
+        // Preserve user-facing metadata exactly as the browser upload did before
+        // this shared service existed. PhrStorageKey sanitizes only the path copy.
+        $originalName = $data->file->getClientOriginalName() ?: 'document';
         $byteSize = (int) ($data->file->getSize() ?: 0);
 
         return $this->artifactWriteGuard->run(
             (int) $patient->id,
             function (PhrPatient $lockedPatient) use ($actorUserId, $byteSize, $data, $hash, $originalName, $realPath): DocumentUploadResult {
-                $existing = $this->existingIdentity($lockedPatient, $data);
+                $existing = $this->identities->find($lockedPatient, $data);
                 if ($existing instanceof PhrDocument) {
                     if ($existing->trashed()
                         || ! is_string($existing->file_hash)
@@ -49,9 +54,12 @@ final readonly class PhrDocumentUploadService
                     return new DocumentUploadResult($existing, DocumentUploadResult::UNCHANGED);
                 }
 
-                $duplicate = $this->duplicateHash($lockedPatient, $data, $hash);
+                $duplicate = $this->identities->findDuplicate($lockedPatient, $data, $hash);
                 if ($duplicate instanceof PhrDocument && $this->hasStoredFile($duplicate)) {
-                    return new DocumentUploadResult($duplicate, DocumentUploadResult::DUPLICATE);
+                    // Do not report success for a second stable identity unless it
+                    // can be durably reserved. A conflict prevents both duplicate
+                    // bytes and a later changed upload from appearing idempotent.
+                    throw new ConflictHttpException('The document content already exists in this client namespace.');
                 }
 
                 $storagePath = PhrStorageKey::document(
@@ -107,32 +115,6 @@ final readonly class PhrDocumentUploadService
                 }
             },
         );
-    }
-
-    private function existingIdentity(PhrPatient $patient, DocumentUploadData $data): ?PhrDocument
-    {
-        if ($data->importSource === null || $data->externalId === null) {
-            return null;
-        }
-
-        return PhrDocument::withTrashed()
-            ->where('patient_id', $patient->id)
-            ->where('import_source', $data->importSource)
-            ->where('external_id', $data->externalId)
-            ->first();
-    }
-
-    private function duplicateHash(PhrPatient $patient, DocumentUploadData $data, string $hash): ?PhrDocument
-    {
-        if ($data->importSource === null) {
-            return null;
-        }
-
-        return PhrDocument::query()
-            ->where('patient_id', $patient->id)
-            ->where('import_source', $data->importSource)
-            ->where('file_hash', $hash)
-            ->first();
     }
 
     private function hasStoredFile(PhrDocument $document): bool

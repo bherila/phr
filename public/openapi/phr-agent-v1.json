@@ -202,12 +202,12 @@
       "post": {
         "operationId": "documents.upload",
         "summary": "Idempotently upload a patient document",
-        "description": "The external identifier is namespaced to the OAuth client. Exact retries do not rewrite bytes, changed bytes for the same identifier conflict, and same-client content-hash duplicates return the existing document.",
+        "description": "The external identifier is namespaced to the OAuth client. Exact retries do not rewrite bytes, while changed bytes for the same identifier and same-client content-hash duplicates conflict.",
         "security": [{ "oauth2": ["documents:write"] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
         "requestBody": { "required": true, "content": { "multipart/form-data": { "schema": { "$ref": "#/components/schemas/DocumentUploadRequest" } } } },
         "responses": {
-          "200": { "description": "Exact retry or same-client content duplicate", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentUploadResponse" } } } },
+          "200": { "description": "Exact retry", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentUploadResponse" } } } },
           "201": { "description": "Document created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentUploadResponse" } } } },
           "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
           "404": { "$ref": "#/components/responses/NotFound" }, "409": { "$ref": "#/components/responses/Conflict" },
@@ -843,8 +843,17 @@
         "required": ["resource_type", "patient_id", "outcome", "data"],
         "properties": {
           "resource_type": { "const": "document" }, "patient_id": { "type": "integer" },
-          "outcome": { "type": "string", "enum": ["created", "unchanged", "duplicate"] },
-          "data": { "$ref": "#/components/schemas/DocumentMetadata" }
+          "outcome": { "type": "string", "enum": ["created", "unchanged"] },
+          "data": { "oneOf": [{ "$ref": "#/components/schemas/DocumentMutationReceipt" }, { "$ref": "#/components/schemas/DocumentMetadata" }], "description": "Full metadata is returned only when the token also has documents:read; otherwise this is a mutation-safe receipt." }
+        },
+        "additionalProperties": false
+      },
+      "DocumentMutationReceipt": {
+        "type": "object",
+        "required": ["id", "patient_id", "processing_state"],
+        "properties": {
+          "id": { "type": "integer" }, "patient_id": { "type": "integer" },
+          "processing_state": { "type": "string", "enum": ["not_requested", "pending", "processing", "parsed", "imported", "failed", "queued_tomorrow"] }
         },
         "additionalProperties": false
       },

@@ -24,7 +24,7 @@ class PhrDocumentsTest extends TestCase
         $patient = $this->createPatient($owner);
 
         $response = $this->actingAs($owner)->post("/api/phr/patients/{$patient->id}/documents", [
-            'file' => UploadedFile::fake()->createWithContent('approval.pdf', '%PDF-1.4 approval'),
+            'file' => UploadedFile::fake()->createWithContent('approval note (final).pdf', '%PDF-1.4 approval'),
             'title' => 'Dupixent Prior Authorization',
             'document_type' => 'prior_authorization',
             'tags' => ['prior-authorization', 'dupixent'],
@@ -33,9 +33,13 @@ class PhrDocumentsTest extends TestCase
         $response
             ->assertCreated()
             ->assertJsonPath('document.document_type', 'prior_authorization')
+            ->assertJsonPath('document.original_filename', 'approval note (final).pdf')
             ->assertJsonPath('document.tags.0', 'prior-authorization');
 
-        $this->assertSame('prior_authorization', PhrDocument::query()->where('patient_id', $patient->id)->sole()->document_type);
+        $document = PhrDocument::query()->where('patient_id', $patient->id)->sole();
+        $this->assertSame('prior_authorization', $document->document_type);
+        $this->assertStringNotContainsString(' ', (string) $document->storage_path);
+        $this->assertStringEndsWith('.pdf', (string) $document->storage_path);
     }
 
     public function test_owner_can_upload_a_medical_necessity_letter(): void

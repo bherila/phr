@@ -17,7 +17,7 @@ final readonly class AgentDocumentUploadPayload
         )->toArray();
         if ($payload['resource_type'] !== 'document'
             || ! is_int($payload['patient_id'])
-            || ! in_array($payload['outcome'], ['created', 'unchanged', 'duplicate'], true)
+            || ! in_array($payload['outcome'], ['created', 'unchanged'], true)
             || ! is_array($payload['data'])
             || array_is_list($payload['data'])) {
             throw new ToolCallException('The PHR API returned an invalid response.');

@@ -195,9 +195,11 @@ non-cacheable.
 
 `documents:write` accepts the same PDF/image/text/HTML multipart uploads and 50 MiB
 ceiling as the browser. A required external ID is namespaced to the OAuth client; exact
-retries are byte-preserving no-ops, changed content under the same identity conflicts,
-and a same-client content-hash duplicate returns the existing document. Provenance is
+retries are byte-preserving no-ops, while changed content under the same identity and
+same-client content-hash duplicates conflict without writing another row or blob. Provenance is
 recorded as `agent_upload`, and the response includes the current processing state.
+Tokens with `documents:write` alone receive only a mutation-safe ID/status receipt;
+full document metadata additionally requires `documents:read`.
 `documents.upload` exposes the same REST operation through MCP using base64 for small
 files only (180,000 encoded characters); clients should use multipart REST for larger
 documents.

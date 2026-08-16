@@ -63,12 +63,15 @@ Document creation separately requires `documents:write` plus owner/manager acces
 browser and agent controllers share one upload service, validation request, canonical
 storage-key builder, and patient artifact write lock. Agent uploads require a stable
 external ID namespaced to the OAuth client. Inside the patient lock, an exact identity
-and hash is an unchanged retry, a changed hash for the identity conflicts, and a second
-identity with the same hash in that client namespace resolves to the existing document without
-writing another blob. A composite patient/source/hash index supports that bounded
+and hash is an unchanged retry, while a changed hash for the identity or a second
+identity with the same hash in that client namespace conflicts without writing another
+row or blob. A composite patient/source/hash index supports that bounded
 deduplication lookup. MCP materializes its size-limited base64 input only for the
 duration of the internal multipart REST subrequest and removes the temporary file in a
 finally block; larger uploads stay on the ordinary multipart endpoint.
+Upload responses also preserve scope separation: write-only tokens receive an opaque
+document ID and processing state, while title, summary, dates, tags, filenames, and
+other document metadata remain behind `documents:read`.
 
 The agent audit table intentionally excludes request URLs, route parameters, query
 strings, request and response bodies, filenames, error messages, IP addresses, and

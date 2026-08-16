@@ -12,6 +12,7 @@ use App\Services\PHR\Documents\PhrDocumentUploadService;
 use App\Support\AgentApi\AgentApiClientIdentity;
 use App\Support\AgentApi\AgentApiCursor;
 use App\Support\AgentApi\AgentApiExternalId;
+use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentApiUpdateWindow;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -119,7 +120,9 @@ final class AgentDocumentController extends Controller
             'resource_type' => 'document',
             'patient_id' => $resolvedPatient->id,
             'outcome' => $result->outcome,
-            'data' => $this->payload($result->document),
+            'data' => $request->user('api')?->tokenCan(AgentApiScopes::DOCUMENTS_READ)
+                ? $this->payload($result->document)
+                : $this->mutationReceipt($result->document),
         ], $result->outcome === DocumentUploadResult::CREATED ? 201 : 200);
     }
 
@@ -233,12 +236,27 @@ final class AgentDocumentController extends Controller
             'tags' => $document->tags ?? [], 'import_source' => $document->import_source,
             'external_id' => AgentApiExternalId::withoutDocumentHash($document->external_id),
             'imported_at' => $document->imported_at?->toIso8601String(),
-            'processing_state' => $document->genai_job_id === null
-                ? 'not_requested'
-                : $document->genAiJob->status,
+            'processing_state' => $this->processingState($document),
             'has_file' => $document->storage_path !== null,
             'created_at' => $document->created_at?->toIso8601String(),
             'updated_at' => $document->updated_at?->toIso8601String(),
         ];
+    }
+
+    /** @return array{id: int, patient_id: int, processing_state: string} */
+    private function mutationReceipt(PhrDocument $document): array
+    {
+        return [
+            'id' => (int) $document->id,
+            'patient_id' => (int) $document->patient_id,
+            'processing_state' => $this->processingState($document),
+        ];
+    }
+
+    private function processingState(PhrDocument $document): string
+    {
+        return $document->genai_job_id === null
+            ? 'not_requested'
+            : $document->genAiJob->status;
     }
 }

@@ -10,8 +10,6 @@ final readonly class DocumentUploadResult
 
     public const string UNCHANGED = 'unchanged';
 
-    public const string DUPLICATE = 'duplicate';
-
     public function __construct(
         public PhrDocument $document,
         public string $outcome,

@@ -189,6 +189,10 @@ final class AgentMcpReadAdapterTest extends TestCase
             DocumentUploadData::MCP_MAX_BASE64_CHARACTERS,
             $toolsByName->get('documents.upload')['inputSchema']['properties']['content_base64']['maxLength'] ?? null,
         );
+        $this->assertSame(
+            ['patient_id', 'external_id', 'filename', 'content_base64', 'document_type'],
+            $toolsByName->get('documents.upload')['inputSchema']['required'] ?? null,
+        );
         $this->assertArrayNotHasKey(
             'archived',
             $toolsByName->get('office_visits.list')['inputSchema']['properties'] ?? [],
@@ -340,17 +344,18 @@ final class AgentMcpReadAdapterTest extends TestCase
             'external_id' => 'synthetic-mcp-document-001',
             'filename' => 'synthetic.pdf',
             'content_base64' => base64_encode('%PDF-1.4 synthetic MCP document'),
-            'title' => 'Synthetic MCP document',
             'document_type' => 'lab_report',
-            'observed_at' => '2026-08-16 12:00:00',
-            'summary' => null,
-            'tags' => ['synthetic'],
         ]);
 
         $this->assertFalse($created['result']['isError'] ?? true);
         $this->assertSame('created', $created['result']['structuredContent']['outcome'] ?? null);
-        $this->assertSame('agent-client:'.$client->id, $created['result']['structuredContent']['data']['import_source'] ?? null);
+        $this->assertSame(
+            ['id', 'patient_id', 'processing_state'],
+            array_keys($created['result']['structuredContent']['data'] ?? []),
+        );
         $document = PhrDocument::query()->sole();
+        $this->assertSame('agent-client:'.$client->id, $document->import_source);
+        $this->assertSame([], $document->tags);
         $this->assertIsString($document->storage_path);
         Storage::disk(PhrDocument::STORAGE_DISK)->assertExists($document->storage_path);
         $this->assertDatabaseHas('agent_api_audits', [

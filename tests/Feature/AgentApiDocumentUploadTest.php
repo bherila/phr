@@ -34,7 +34,10 @@ final class AgentApiDocumentUploadTest extends TestCase
         $actor = $this->user('document-writer@example.test');
         $patient = $this->patient($actor, 'Synthetic Document Upload Patient');
         $client = $this->client('Synthetic Document Writer');
-        Passport::actingAs($actor, [AgentApiScopes::DOCUMENTS_WRITE], 'api', $client);
+        Passport::actingAs($actor, [
+            AgentApiScopes::DOCUMENTS_READ,
+            AgentApiScopes::DOCUMENTS_WRITE,
+        ], 'api', $client);
 
         $created = $this->postUpload($patient, 'synthetic-document-001', '%PDF-1.4 synthetic first')
             ->assertCreated()
@@ -61,9 +64,7 @@ final class AgentApiDocumentUploadTest extends TestCase
         $this->assertCount(1, Storage::disk(PhrDocument::STORAGE_DISK)->allFiles());
 
         $this->postUpload($patient, 'synthetic-document-002', '%PDF-1.4 synthetic first')
-            ->assertOk()
-            ->assertJsonPath('outcome', 'duplicate')
-            ->assertJsonPath('data.id', $created['data']['id']);
+            ->assertConflict();
         $this->assertDatabaseCount('phr_documents', 1);
 
         $this->postUpload($patient, 'synthetic-document-001', '%PDF-1.4 synthetic changed')
@@ -74,6 +75,43 @@ final class AgentApiDocumentUploadTest extends TestCase
         $auditJson = json_encode(AgentApiAudit::query()->get()->toArray(), JSON_THROW_ON_ERROR);
         $this->assertStringNotContainsString('synthetic first', $auditJson);
         $this->assertStringNotContainsString('synthetic-document-001', $auditJson);
+    }
+
+    public function test_write_only_scope_returns_a_safe_receipt_for_existing_documents(): void
+    {
+        $owner = $this->user('document-receipt-owner@example.test');
+        $manager = $this->user('document-receipt-manager@example.test');
+        $patient = $this->patient($owner, 'Synthetic Write Receipt Patient');
+        PhrPatientUserAccess::query()->create([
+            'patient_id' => $patient->id,
+            'user_id' => $manager->id,
+            'access_level' => PhrPatientUserAccess::LEVEL_MANAGER,
+            'granted_by_user_id' => $owner->id,
+            'granted_at' => now(),
+        ]);
+        $client = $this->client('Synthetic Shared Receipt Client');
+
+        Passport::actingAs($owner, [
+            AgentApiScopes::DOCUMENTS_READ,
+            AgentApiScopes::DOCUMENTS_WRITE,
+        ], 'api', $client);
+        $documentId = $this->postUpload($patient, 'synthetic-private-metadata')
+            ->assertCreated()
+            ->json('data.id');
+        $this->assertIsInt($documentId);
+
+        Passport::actingAs($manager, [AgentApiScopes::DOCUMENTS_WRITE], 'api', $client);
+        $response = $this->postUpload($patient, 'synthetic-private-metadata')
+            ->assertOk()
+            ->assertJsonPath('data.id', $documentId)
+            ->assertJsonPath('data.patient_id', $patient->id)
+            ->assertJsonPath('data.processing_state', 'not_requested')
+            ->assertJsonCount(3, 'data');
+        foreach (['title', 'summary', 'observed_at', 'tags', 'external_id', 'original_filename'] as $privateField) {
+            $response->assertJsonMissingPath('data.'.$privateField);
+        }
+
+        $this->postUpload($patient, 'synthetic-private-content-alias')->assertConflict();
     }
 
     public function test_upload_requires_its_own_scope_and_a_writable_patient(): void
