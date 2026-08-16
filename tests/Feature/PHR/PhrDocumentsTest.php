@@ -174,10 +174,43 @@ class PhrDocumentsTest extends TestCase
         Queue::assertPushed(ParseImportJob::class, fn (ParseImportJob $queuedJob): bool => $queuedJob->jobId === $job->id);
     }
 
+    public function test_process_with_genai_retries_a_retryable_failed_job(): void
+    {
+        Storage::fake('phr_documents');
+        Storage::fake('s3');
+        Queue::fake();
+
+        $owner = $this->createUser();
+        $patient = $this->createPatient($owner);
+        $document = $this->createStoredDocument($patient, $owner, 'source/retry.pdf', '%PDF-1.4 retry');
+
+        $this->actingAs($owner)
+            ->postJson("/api/phr/patients/{$patient->id}/documents/{$document->id}/process")
+            ->assertAccepted();
+
+        $job = GenAiImportJob::query()->sole();
+        $job->update([
+            'status' => 'failed',
+            'retry_count' => 1,
+            'error_message' => 'Synthetic transient failure.',
+        ]);
+
+        $this->actingAs($owner)
+            ->postJson("/api/phr/patients/{$patient->id}/documents/{$document->id}/process")
+            ->assertAccepted()
+            ->assertJsonPath('job_id', $job->id)
+            ->assertJsonPath('status', 'pending')
+            ->assertJsonPath('outcome', 'retried');
+
+        $this->assertSame(1, GenAiImportJob::query()->count());
+        $this->assertNull($job->refresh()->error_message);
+        Queue::assertPushed(ParseImportJob::class, 2);
+    }
+
     /**
      * The real S3 adapter hands the stream to a Guzzle PSR-7 wrapper whose
      * destructor closes the underlying resource before put() returns, so the
-     * controller's cleanup must tolerate an already-closed stream. Storage::fake
+     * shared processing service must tolerate an already-closed stream. Storage::fake
      * uses the local adapter, which leaves the stream open — this wrapper
      * restores the production behaviour the fake hides.
      */

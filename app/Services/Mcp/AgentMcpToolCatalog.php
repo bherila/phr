@@ -32,6 +32,31 @@ final class AgentMcpToolCatalog
                 [$writes, 'documentsUpload'],
                 readOnly: false,
             ),
+            $this->method('imports.list', 'List imports', 'List bounded import-job status for an accessible patient.', $reads, 'importsList'),
+            $this->method('imports.get', 'Get import', 'Inspect one import job and its proposed structured records.', $reads, 'importsGet'),
+            new AgentMcpToolDefinition(
+                'imports.create',
+                'Create import',
+                'Idempotently enqueue structured extraction for a stored patient document.',
+                [$writes, 'importsCreate'],
+                readOnly: false,
+            ),
+            new AgentMcpToolDefinition(
+                'imports.review',
+                'Review import proposal',
+                'Accept or reject one proposed record through the versioned REST workflow.',
+                [$writes, 'importsReview'],
+                readOnly: false,
+                destructive: true,
+            ),
+            new AgentMcpToolDefinition(
+                'imports.retry',
+                'Retry import',
+                'Safely retry a failed import job that has retry capacity.',
+                [$writes, 'importsRetry'],
+                readOnly: false,
+                destructive: true,
+            ),
         ];
 
         foreach (AgentClinicalResourceCatalog::ids() as $resource) {

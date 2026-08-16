@@ -74,7 +74,7 @@ final readonly class AgentApiPayload
             401 => 'The PHR API authorization is no longer valid.',
             403 => 'This connection lacks the required permission.',
             404 => 'The requested PHR resource was not found.',
-            409 => 'The PHR API rejected the request because the record changed.',
+            409 => 'The PHR API rejected the request because its current state conflicts.',
             422 => 'The PHR API rejected one or more request values.',
             429 => 'The PHR API rate limit was reached. Retry later.',
             default => 'The PHR API request could not be completed.',

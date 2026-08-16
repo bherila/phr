@@ -4,6 +4,7 @@ namespace App\Services\Mcp;
 
 use App\DataTransferObjects\AgentApi\ClinicalUpsertData;
 use App\DataTransferObjects\AgentApi\DocumentUploadData;
+use App\DataTransferObjects\AgentApi\ImportReviewData;
 use App\Services\AgentApi\Client\AgentApiWriteDao;
 use Closure;
 use Mcp\Capability\Attribute\Schema;
@@ -67,5 +68,41 @@ final readonly class AgentMcpWriteTools
         }
 
         return $this->api->documentUpload($patient_id, $command)->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function importsCreate(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $document_id,
+    ): array {
+        return $this->api->importCreate($patient_id, $document_id)->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function importsRetry(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $import_id,
+    ): array {
+        return $this->api->importRetry($patient_id, $import_id)->toArray();
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $payload
+     * @return array<string, mixed>
+     */
+    public function importsReview(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $import_id,
+        #[Schema(minimum: 1)] int $result_id,
+        #[Schema(enum: ['accept', 'reject'])] string $action,
+        #[Schema(type: 'object')] ?array $payload = null,
+    ): array {
+        try {
+            $review = ImportReviewData::make($action, $payload);
+        } catch (\InvalidArgumentException) {
+            throw new ToolCallException('The import review request is invalid.');
+        }
+
+        return $this->api->importReview($patient_id, $import_id, $result_id, $review)->toArray();
     }
 }

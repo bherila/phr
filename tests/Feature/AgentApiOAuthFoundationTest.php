@@ -286,6 +286,11 @@ class AgentApiOAuthFoundationTest extends TestCase
             'documents.get',
             'documents.download_access.create',
             'documents.download',
+            'imports.list',
+            'imports.create',
+            'imports.get',
+            'imports.retry',
+            'imports.review',
             'clinical.list',
             ...AgentClinicalResourceCatalog::writableOperationIds(),
             'clinical.get',
@@ -318,6 +323,18 @@ class AgentApiOAuthFoundationTest extends TestCase
             $document['paths']['/patients/{patient}/documents']['post']['security'][0]['oauth2'],
         );
         $this->assertSame(
+            [AgentApiScopes::IMPORTS_READ],
+            $document['paths']['/patients/{patient}/imports']['get']['security'][0]['oauth2'],
+        );
+        $this->assertSame(
+            [AgentApiScopes::IMPORTS_WRITE],
+            $document['paths']['/patients/{patient}/imports']['post']['security'][0]['oauth2'],
+        );
+        $this->assertSame(
+            [AgentApiScopes::IMPORTS_WRITE],
+            $document['paths']['/patients/{patient}/imports/{import}/results/{result}/review']['post']['security'][0]['oauth2'],
+        );
+        $this->assertSame(
             PhrDocumentUploadLimits::MAX_BYTES,
             $capabilities['limits']['maximum_document_upload_bytes'],
         );
@@ -335,6 +352,10 @@ class AgentApiOAuthFoundationTest extends TestCase
         );
         foreach (['storage_path', 'storage_disk', 'file_hash', 'extracted_text', 'user_id', 'genai_job_id'] as $forbidden) {
             $this->assertArrayNotHasKey($forbidden, $document['components']['schemas']['DocumentMetadata']['properties']);
+        }
+        foreach (['original_filename', 's3_path', 'error_message', 'raw_response', 'ai_provider', 'ai_model', 'input_tokens', 'output_tokens'] as $forbidden) {
+            $this->assertArrayNotHasKey($forbidden, $document['components']['schemas']['ImportJobMetadata']['properties']);
+            $this->assertArrayNotHasKey($forbidden, $document['components']['schemas']['ImportJobDetail']['properties']);
         }
         foreach (['raw_text', 'parsed_data', 'member'.'_id', 'provider_tin', 'check_number', 'user_id'] as $forbidden) {
             $this->assertArrayNotHasKey($forbidden, $document['components']['schemas']['Eob']['properties']);

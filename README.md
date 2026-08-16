@@ -190,6 +190,14 @@ full document metadata additionally requires `documents:read`.
 files only (180,000 encoded characters); clients should use multipart REST for larger
 documents.
 
+`imports:write` can idempotently enqueue structured extraction for an already stored
+document, retry a failed job within the existing retry ceiling, and accept or reject
+individual proposals. `imports:read` separately gates bounded job enumeration and the
+extracted proposal payloads. Browser processing and external clients share the same
+staging, queue, review, and clinical-import services; MCP tools call those versioned REST
+operations through typed DAOs. API failures expose only a stable `processing_failed`
+code, never provider messages or raw model output.
+
 `clinical:write` currently enables idempotent `PUT` upserts for office visits and
 procedures. Each stable external ID is namespaced to the OAuth client (the client itself is
 the import source), so two integrations cannot overwrite one another. New records carry an

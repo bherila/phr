@@ -3,6 +3,9 @@
 namespace Tests\Feature;
 
 use App\DataTransferObjects\AgentApi\DocumentUploadData;
+use App\GenAiProcessor\Jobs\ParseImportJob;
+use App\GenAiProcessor\Models\GenAiImportJob;
+use App\GenAiProcessor\Models\GenAiImportResult;
 use App\Models\AgentApiAudit;
 use App\Models\PhrDocument;
 use App\Models\PhrOfficeVisit;
@@ -16,6 +19,7 @@ use App\Support\AgentApi\AgentRecordSearchCatalog;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
@@ -45,6 +49,10 @@ final class AgentMcpReadAdapterTest extends TestCase
         $this->assertArrayNotHasKey(AgentApiScopes::CLINICAL_WRITE, AgentApiScopes::reservedDescriptions());
         $this->assertContains(AgentApiScopes::DOCUMENTS_WRITE, AgentApiScopes::ids());
         $this->assertArrayNotHasKey(AgentApiScopes::DOCUMENTS_WRITE, AgentApiScopes::reservedDescriptions());
+        $this->assertContains(AgentApiScopes::IMPORTS_READ, AgentApiScopes::ids());
+        $this->assertContains(AgentApiScopes::IMPORTS_WRITE, AgentApiScopes::ids());
+        $this->assertArrayNotHasKey(AgentApiScopes::IMPORTS_READ, AgentApiScopes::reservedDescriptions());
+        $this->assertArrayNotHasKey(AgentApiScopes::IMPORTS_WRITE, AgentApiScopes::reservedDescriptions());
 
         $this->getJson('/.well-known/oauth-protected-resource/api/v1/mcp')
             ->assertOk()
@@ -152,20 +160,22 @@ final class AgentMcpReadAdapterTest extends TestCase
         $this->assertIsArray($tools);
         $toolNames = array_column($tools, 'name');
         foreach (['capabilities.get', 'patients.list', 'records.search', 'timeline.list',
-            'office_visits.list', 'procedures.get', 'eobs.list', 'documents.get', 'documents.upload'] as $name) {
+            'office_visits.list', 'procedures.get', 'eobs.list', 'documents.get', 'documents.upload',
+            'imports.list', 'imports.get', 'imports.create', 'imports.review', 'imports.retry'] as $name) {
             $this->assertContains($name, $toolNames);
         }
         $this->assertCount(
-            15 + (count(AgentClinicalResourceCatalog::ids()) * 2) + count(AgentClinicalResourceCatalog::writableIds()),
+            20 + (count(AgentClinicalResourceCatalog::ids()) * 2) + count(AgentClinicalResourceCatalog::writableIds()),
             $toolNames,
         );
+        $writeTools = ['documents.upload', 'imports.create', 'imports.review', 'imports.retry'];
         foreach ($tools as $tool) {
             $this->assertSame(
-                ! str_ends_with((string) $tool['name'], '.upsert') && $tool['name'] !== 'documents.upload',
+                ! str_ends_with((string) $tool['name'], '.upsert') && ! in_array($tool['name'], $writeTools, true),
                 $tool['annotations']['readOnlyHint'] ?? null,
             );
             $this->assertSame(
-                str_ends_with((string) $tool['name'], '.upsert'),
+                str_ends_with((string) $tool['name'], '.upsert') || in_array($tool['name'], ['imports.review', 'imports.retry'], true),
                 $tool['annotations']['destructiveHint'] ?? null,
             );
             $this->assertTrue($tool['annotations']['idempotentHint'] ?? false);
@@ -287,7 +297,7 @@ final class AgentMcpReadAdapterTest extends TestCase
                 'status' => 'completed',
             ],
         ]);
-        $this->assertFalse($created['result']['isError'] ?? true);
+        $this->assertFalse($created['result']['isError'] ?? true, json_encode($created, JSON_THROW_ON_ERROR));
         $this->assertSame('created', $created['result']['structuredContent']['outcome'] ?? null);
         $this->assertSame(
             'agent-client:'.$client->id,
@@ -364,6 +374,93 @@ final class AgentMcpReadAdapterTest extends TestCase
         ]);
         $this->assertStringNotContainsString(
             'synthetic MCP document',
+            json_encode(AgentApiAudit::query()->get()->toArray(), JSON_THROW_ON_ERROR),
+        );
+    }
+
+    public function test_mcp_import_tools_use_the_typed_rest_workflow(): void
+    {
+        Storage::fake(PhrDocument::STORAGE_DISK);
+        Storage::fake('s3');
+        Queue::fake();
+        $actor = $this->user('mcp-import-writer@example.test');
+        $patient = $this->patient($actor, 'Synthetic MCP Import Patient');
+        $path = "patients/{$patient->id}/documents/synthetic/import.pdf";
+        Storage::disk(PhrDocument::STORAGE_DISK)->put($path, '%PDF-1.4 synthetic MCP import');
+        $document = PhrDocument::query()->create([
+            'patient_id' => $patient->id,
+            'user_id' => $actor->id,
+            'uploaded_by_user_id' => $actor->id,
+            'title' => 'Synthetic MCP import',
+            'document_type' => 'lab_report',
+            'original_filename' => 'synthetic-import.pdf',
+            'storage_disk' => PhrDocument::STORAGE_DISK,
+            'storage_path' => $path,
+            'mime_type' => 'application/pdf',
+            'byte_size' => 29,
+            'file_hash' => hash('sha256', '%PDF-1.4 synthetic MCP import'),
+            'source' => 'manual_upload',
+        ]);
+        $client = Client::query()->create([
+            'name' => 'Synthetic MCP Import Writer',
+            'secret' => null,
+            'provider' => 'users',
+            'redirect_uris' => ['https://client.example.test/callback'],
+            'grant_types' => ['authorization_code', 'refresh_token'],
+            'revoked' => false,
+        ]);
+        Passport::actingAs($actor, [
+            AgentApiScopes::MCP_USE,
+            AgentApiScopes::IMPORTS_READ,
+            AgentApiScopes::IMPORTS_WRITE,
+        ], 'api', $client);
+
+        $session = $this->initializeSession();
+        $created = $this->callTool($session, 2, 'imports.create', [
+            'patient_id' => $patient->id,
+            'document_id' => $document->id,
+        ]);
+        $this->assertFalse($created['result']['isError'] ?? true);
+        $this->assertSame('created', $created['result']['structuredContent']['outcome'] ?? null);
+        $job = GenAiImportJob::query()->sole();
+        Queue::assertPushed(ParseImportJob::class, 1);
+
+        $job->update(['status' => 'parsed', 'parsed_at' => now()]);
+        $proposal = GenAiImportResult::query()->create([
+            'job_id' => $job->id,
+            'result_index' => 0,
+            'result_json' => json_encode(['analyte' => 'Synthetic MCP proposal'], JSON_THROW_ON_ERROR),
+            'status' => 'pending_review',
+            'produced_by' => 'synthetic',
+        ]);
+        $shown = $this->callTool($session, 3, 'imports.get', [
+            'patient_id' => $patient->id,
+            'import_id' => $job->id,
+        ]);
+        $this->assertSame(
+            'Synthetic MCP proposal',
+            $shown['result']['structuredContent']['data']['results'][0]['data']['analyte'] ?? null,
+        );
+
+        $reviewed = $this->callTool($session, 4, 'imports.review', [
+            'patient_id' => $patient->id,
+            'import_id' => $job->id,
+            'result_id' => $proposal->id,
+            'action' => 'reject',
+        ]);
+        $this->assertFalse($reviewed['result']['isError'] ?? true, json_encode($reviewed, JSON_THROW_ON_ERROR));
+        $this->assertSame('rejected', $reviewed['result']['structuredContent']['outcome'] ?? null);
+        $this->assertSame(
+            'Synthetic MCP proposal',
+            $reviewed['result']['structuredContent']['data']['data']['analyte'] ?? null,
+        );
+        $this->assertSame('skipped', $proposal->refresh()->status);
+        $this->assertDatabaseHas('agent_api_audits', [
+            'route_name' => 'agent-api.v1.imports.results.review',
+            'response_status' => 200,
+        ]);
+        $this->assertStringNotContainsString(
+            'Synthetic MCP proposal',
             json_encode(AgentApiAudit::query()->get()->toArray(), JSON_THROW_ON_ERROR),
         );
     }

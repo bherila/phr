@@ -220,6 +220,24 @@ final class AgentMcpReadTools
         return $this->api->documentDownloadAccess($patient_id, $document_id)->toArray();
     }
 
+    /** @return array<string, mixed> */
+    public function importsList(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1, maximum: 100)] int $limit = 25,
+        #[Schema(maxLength: 2048)] ?string $cursor = null,
+        #[Schema(enum: ['pending', 'processing', 'parsed', 'imported', 'failed', 'queued_tomorrow'])] ?string $status = null,
+    ): array {
+        return $this->api->imports($patient_id, $limit, $cursor, $status)->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function importsGet(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $import_id,
+    ): array {
+        return $this->api->import($patient_id, $import_id)->toArray();
+    }
+
     /**
      * @param  list<string>|null  $resourceTypes
      * @return array<string, mixed>

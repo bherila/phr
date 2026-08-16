@@ -73,6 +73,15 @@ Upload responses also preserve scope separation: write-only tokens receive an op
 document ID and processing state, while title, summary, dates, tags, filenames, and
 other document metadata remain behind `documents:read`.
 
+Structured imports retain the same scope split. `imports:write` permits queueing,
+bounded retries, and terminal proposal decisions but does not reveal extracted data;
+`imports:read` is required to list jobs or inspect proposals. A failed job is represented
+by a stable failure code rather than its stored provider error or raw response. Retry
+clears stale, unreviewed output before redispatch and refuses exhausted or already
+reviewed jobs. Import creation reuses the browser staging service, pins document reads
+to the owned document disk, cleans unpublished staging bytes on failure, and relies on
+the existing pending-job recovery command if queue dispatch is temporarily unavailable.
+
 The agent audit table intentionally excludes request URLs, route parameters, query
 strings, request and response bodies, filenames, error messages, IP addresses, and
 user agents. It records only an opaque request UUID, actor/client/token references,

@@ -185,6 +185,27 @@ final class AgentApiReadDao
         return AgentApiPayload::from($response, ['document_id', 'expires_at', 'download_url']);
     }
 
+    public function imports(
+        int $patientId,
+        int $limit = 25,
+        ?string $cursor = null,
+        ?string $status = null,
+    ): AgentImportPayload {
+        return AgentImportPayload::page($this->transport->send(
+            'GET',
+            "patients/{$patientId}/imports",
+            AgentApiQuery::present(compact('limit', 'cursor', 'status')),
+        ));
+    }
+
+    public function import(int $patientId, int $importId): AgentImportPayload
+    {
+        return AgentImportPayload::item($this->transport->send(
+            'GET',
+            "patients/{$patientId}/imports/{$importId}",
+        ));
+    }
+
     /**
      * @param  array<string, scalar|list<scalar>|null>  $query
      * @param  list<string>  $required

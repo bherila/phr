@@ -4,12 +4,15 @@ namespace Tests\Feature\PHR\GenAi;
 
 use App\GenAiProcessor\Jobs\ParseImportJob;
 use App\GenAiProcessor\Models\GenAiImportJob;
+use App\GenAiProcessor\Models\GenAiImportResult;
 use App\Models\User;
+use App\Services\PHR\Import\PhrImportProposalDao;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Queue;
 use RuntimeException;
 use Tests\TestCase;
+use UnexpectedValueException;
 
 class GenAiQueueRecoveryTest extends TestCase
 {
@@ -127,6 +130,27 @@ class GenAiQueueRecoveryTest extends TestCase
         $this->assertSame('failed', $job->refresh()->status);
         $this->assertSame(1, $job->retry_count);
         $this->assertSame('Unsupported job type: unsupported', $job->error_message);
+    }
+
+    public function test_proposal_dao_keeps_valid_mixed_results_but_rejects_an_entirely_malformed_set(): void
+    {
+        $user = $this->createUser();
+        $mixed = $this->createJob($user, 'processing', ['job_type' => 'phr_lab_result']);
+        $malformed = $this->createJob($user, 'processing', ['job_type' => 'phr_lab_result']);
+        $proposals = app(PhrImportProposalDao::class);
+
+        $this->assertSame(1, $proposals->createForJob($mixed, [
+            'records' => ['Synthetic malformed proposal', ['analyte' => 'Synthetic valid proposal']],
+        ]));
+        $this->assertSame(1, $mixed->results()->count());
+        $this->assertSame(1, GenAiImportResult::query()->where('job_id', $mixed->id)->sole()->result_index);
+
+        try {
+            $proposals->createForJob($malformed, ['records' => ['Synthetic malformed proposal']]);
+            $this->fail('An entirely malformed proposal set was accepted.');
+        } catch (UnexpectedValueException) {
+            $this->assertSame(0, $malformed->results()->count());
+        }
     }
 
     /**

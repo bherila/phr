@@ -247,6 +247,62 @@
           "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
       }
     },
+    "/patients/{patient}/imports": {
+      "get": {
+        "operationId": "imports.list", "summary": "List structured import jobs",
+        "security": [{ "oauth2": ["imports:read"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/Limit" },
+          { "$ref": "#/components/parameters/Cursor" }, { "name": "status", "in": "query", "schema": { "$ref": "#/components/schemas/ImportJobStatus" } }],
+        "responses": { "200": { "description": "Bounded import-job page", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImportJobListResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      },
+      "post": {
+        "operationId": "imports.create", "summary": "Idempotently enqueue structured extraction for a stored document",
+        "security": [{ "oauth2": ["imports:write"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImportCreateRequest" } } } },
+        "responses": { "200": { "description": "The document already has an import job", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImportJobMutationResponse" } } } },
+          "202": { "description": "Import job accepted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImportJobMutationResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/patients/{patient}/imports/{import}": {
+      "get": {
+        "operationId": "imports.get", "summary": "Inspect an import job and its proposed records",
+        "security": [{ "oauth2": ["imports:read"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/ImportId" }],
+        "responses": { "200": { "description": "Import job with proposals", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImportJobResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/patients/{patient}/imports/{import}/retry": {
+      "post": {
+        "operationId": "imports.retry", "summary": "Safely retry a failed import job",
+        "security": [{ "oauth2": ["imports:write"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/ImportId" }],
+        "responses": { "200": { "description": "The job is already queued or running", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImportJobMutationResponse" } } } },
+          "202": { "description": "Retry accepted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImportJobMutationResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "409": { "$ref": "#/components/responses/Conflict" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/patients/{patient}/imports/{import}/results/{result}/review": {
+      "post": {
+        "operationId": "imports.review", "summary": "Accept or reject one proposed import record",
+        "description": "Write-only tokens receive a mutation-safe result receipt. Full extracted proposal data additionally requires imports:read.",
+        "security": [{ "oauth2": ["imports:write"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/ImportId" }, { "$ref": "#/components/parameters/ImportResultId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImportReviewRequest" } } } },
+        "responses": { "200": { "description": "Review applied or safely unchanged", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImportReviewResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
     "/patients/{patient}/{resource}": {
       "get": {
         "operationId": "clinical.list",
@@ -410,6 +466,8 @@
               "clinical:write": "Create and update clinical records you can manage",
               "documents:read": "Read document metadata and download authorized files",
               "documents:write": "Upload patient documents",
+              "imports:read": "Read import jobs and extraction results",
+              "imports:write": "Create and review import jobs",
               "mcp:use": "Connect through the PHR MCP server"
             }
           }
@@ -432,6 +490,8 @@
       "EobId": { "name": "eob", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
       "LineId": { "name": "line", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
       "DocumentId": { "name": "document", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
+      "ImportId": { "name": "import", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
+      "ImportResultId": { "name": "result", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
       "ClinicalResource": {
         "name": "resource",
         "in": "path",
@@ -857,6 +917,63 @@
         },
         "additionalProperties": false
       },
+      "ImportJobStatus": { "type": "string", "enum": ["pending", "processing", "parsed", "imported", "failed", "queued_tomorrow"] },
+      "ImportResultStatus": { "type": "string", "enum": ["pending_review", "imported", "skipped"] },
+      "ImportJobMetadata": {
+        "type": "object",
+        "required": ["id", "document_id", "job_type", "status", "retry_count", "can_retry", "result_count", "pending_result_count", "processing_tier", "scheduled_for", "parsed_at", "failure_code", "created_at", "updated_at"],
+        "properties": {
+          "id": { "type": "integer" }, "document_id": { "type": ["integer", "null"] }, "job_type": { "type": "string" },
+          "status": { "$ref": "#/components/schemas/ImportJobStatus" }, "retry_count": { "type": "integer" }, "can_retry": { "type": "boolean" },
+          "result_count": { "type": "integer" }, "pending_result_count": { "type": "integer" }, "processing_tier": { "type": ["string", "null"] },
+          "scheduled_for": { "type": ["string", "null"], "format": "date" }, "parsed_at": { "type": ["string", "null"], "format": "date-time" },
+          "failure_code": { "type": ["string", "null"], "enum": ["processing_failed", null] },
+          "created_at": { "type": ["string", "null"], "format": "date-time" }, "updated_at": { "type": ["string", "null"], "format": "date-time" }
+        }, "additionalProperties": false
+      },
+      "ImportResultReceipt": { "type": "object", "required": ["id", "status"], "properties": {
+        "id": { "type": "integer" }, "status": { "$ref": "#/components/schemas/ImportResultStatus" } }, "additionalProperties": false },
+      "ImportResult": { "type": "object", "required": ["id", "status", "result_index", "produced_by", "data", "imported_at", "created_at", "updated_at"], "properties": {
+        "id": { "type": "integer" }, "status": { "$ref": "#/components/schemas/ImportResultStatus" },
+        "result_index": { "type": "integer" }, "produced_by": { "type": ["string", "null"] }, "data": { "type": "object", "additionalProperties": true },
+        "imported_at": { "type": ["string", "null"], "format": "date-time" }, "created_at": { "type": ["string", "null"], "format": "date-time" },
+        "updated_at": { "type": ["string", "null"], "format": "date-time" }
+      }, "additionalProperties": false },
+      "ImportJobListResponse": { "type": "object", "required": ["resource_type", "patient_id", "data", "pagination"], "properties": {
+        "resource_type": { "const": "import_job" }, "patient_id": { "type": "integer" }, "data": { "type": "array", "items": { "$ref": "#/components/schemas/ImportJobMetadata" } },
+        "pagination": { "$ref": "#/components/schemas/Pagination" } }, "additionalProperties": false },
+      "ImportJobDetail": { "type": "object",
+        "required": ["id", "document_id", "job_type", "status", "retry_count", "can_retry", "result_count", "pending_result_count", "processing_tier", "scheduled_for", "parsed_at", "failure_code", "created_at", "updated_at", "results"],
+        "properties": {
+          "id": { "type": "integer" }, "document_id": { "type": ["integer", "null"] }, "job_type": { "type": "string" },
+          "status": { "$ref": "#/components/schemas/ImportJobStatus" }, "retry_count": { "type": "integer" }, "can_retry": { "type": "boolean" },
+          "result_count": { "type": "integer" }, "pending_result_count": { "type": "integer" }, "processing_tier": { "type": ["string", "null"] },
+          "scheduled_for": { "type": ["string", "null"], "format": "date" }, "parsed_at": { "type": ["string", "null"], "format": "date-time" },
+          "failure_code": { "type": ["string", "null"], "enum": ["processing_failed", null] },
+          "created_at": { "type": ["string", "null"], "format": "date-time" }, "updated_at": { "type": ["string", "null"], "format": "date-time" },
+          "results": { "type": "array", "items": { "$ref": "#/components/schemas/ImportResult" } }
+        }, "additionalProperties": false
+      },
+      "ImportJobResponse": { "type": "object", "required": ["resource_type", "patient_id", "data"], "properties": {
+        "resource_type": { "const": "import_job" }, "patient_id": { "type": "integer" }, "data": { "$ref": "#/components/schemas/ImportJobDetail" }
+      }, "additionalProperties": false },
+      "ImportCreateRequest": { "type": "object", "required": ["document_id"], "properties": {
+        "document_id": { "type": "integer", "minimum": 1 } }, "additionalProperties": false },
+      "ImportJobMutationReceipt": { "type": "object", "required": ["id", "document_id", "status"], "properties": {
+        "id": { "type": "integer" }, "document_id": { "type": "integer" }, "status": { "$ref": "#/components/schemas/ImportJobStatus" } }, "additionalProperties": false },
+      "ImportJobMutationResponse": { "type": "object", "required": ["resource_type", "patient_id", "outcome", "data"], "properties": {
+        "resource_type": { "const": "import_job" }, "patient_id": { "type": "integer" }, "outcome": { "type": "string", "enum": ["created", "unchanged", "retried"] },
+        "data": { "$ref": "#/components/schemas/ImportJobMutationReceipt" } }, "additionalProperties": false },
+      "ImportReviewRequest": { "type": "object", "required": ["action"], "properties": {
+        "action": { "type": "string", "enum": ["accept", "reject"] }, "payload": { "type": "object", "additionalProperties": true,
+          "description": "Optional corrected proposal for accept only; prohibited for reject." } }, "additionalProperties": false },
+      "ImportCounts": { "type": "object", "required": ["created", "updated", "skipped", "documents"], "properties": {
+        "created": { "type": "integer" }, "updated": { "type": "integer" }, "skipped": { "type": "integer" }, "documents": { "type": "integer" } }, "additionalProperties": false },
+      "ImportReviewResponse": { "type": "object", "required": ["resource_type", "patient_id", "job_id", "outcome", "import", "data"], "properties": {
+        "resource_type": { "const": "import_result" }, "patient_id": { "type": "integer" }, "job_id": { "type": "integer" },
+        "outcome": { "type": "string", "enum": ["accepted", "rejected", "unchanged"] }, "import": { "$ref": "#/components/schemas/ImportCounts" },
+        "data": { "oneOf": [{ "$ref": "#/components/schemas/ImportResultReceipt" }, { "$ref": "#/components/schemas/ImportResult" }] }
+      }, "additionalProperties": false },
       "DownloadAccess": { "type": "object", "required": ["document_id", "expires_at", "download_url"], "properties": {
         "document_id": { "type": "integer" }, "expires_at": { "type": "string", "format": "date-time" }, "download_url": { "type": "string", "format": "uri" } },
         "additionalProperties": false },

@@ -2,10 +2,12 @@
 
 namespace App\GenAiProcessor\Models;
 
+use App\Models\PhrDocument;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
@@ -96,8 +98,7 @@ class GenAiImportJob extends Model
                 } catch (\Throwable $e) {
                     Log::warning('Failed to delete S3 file for GenAI job during model delete', [
                         'job_id' => $job->id,
-                        's3_path' => $job->s3_path,
-                        'error' => $e->getMessage(),
+                        'exception' => $e::class,
                     ]);
                 }
             }
@@ -118,6 +119,12 @@ class GenAiImportJob extends Model
     public function results(): HasMany
     {
         return $this->hasMany(GenAiImportResult::class, 'job_id');
+    }
+
+    /** @return HasOne<PhrDocument, $this> */
+    public function sourceDocument(): HasOne
+    {
+        return $this->hasOne(PhrDocument::class, 'genai_job_id')->withTrashed();
     }
 
     /**

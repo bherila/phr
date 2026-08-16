@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\V1\AgentClinicalWriteController;
 use App\Http\Controllers\Api\V1\AgentDiscoveryController;
 use App\Http\Controllers\Api\V1\AgentDocumentController;
 use App\Http\Controllers\Api\V1\AgentEvidenceController;
+use App\Http\Controllers\Api\V1\AgentImportController;
 use App\Http\Controllers\Api\V1\AgentMcpController;
 use App\Http\Controllers\Api\V1\AgentPatientController;
 use App\Http\Controllers\Api\V1\AgentRecordSearchController;
@@ -131,6 +132,22 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         Route::get('/patients/{patient}/documents/{document}/file', [AgentDocumentController::class, 'file'])
             ->whereNumber(['patient', 'document'])->middleware(['throttle:agent-api', 'signed'])
             ->middleware(CheckToken::using(AgentApiScopes::DOCUMENTS_READ))->name('documents.file');
+
+        Route::get('/patients/{patient}/imports', [AgentImportController::class, 'index'])
+            ->whereNumber('patient')->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::IMPORTS_READ))->name('imports.index');
+        Route::post('/patients/{patient}/imports', [AgentImportController::class, 'store'])
+            ->whereNumber('patient')->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::IMPORTS_WRITE))->name('imports.store');
+        Route::get('/patients/{patient}/imports/{import}', [AgentImportController::class, 'show'])
+            ->whereNumber(['patient', 'import'])->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::IMPORTS_READ))->name('imports.show');
+        Route::post('/patients/{patient}/imports/{import}/retry', [AgentImportController::class, 'retry'])
+            ->whereNumber(['patient', 'import'])->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::IMPORTS_WRITE))->name('imports.retry');
+        Route::post('/patients/{patient}/imports/{import}/results/{result}/review', [AgentImportController::class, 'review'])
+            ->whereNumber(['patient', 'import', 'result'])->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::IMPORTS_WRITE))->name('imports.results.review');
 
         Route::get('/patients/{patient}/{resource}', [AgentClinicalReadController::class, 'index'])
             ->whereNumber('patient')

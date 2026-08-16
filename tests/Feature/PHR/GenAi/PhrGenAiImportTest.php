@@ -77,6 +77,32 @@ class PhrGenAiImportTest extends TestCase
         $this->assertSame('pending_review', $result->refresh()->status);
     }
 
+    public function test_manager_can_accept_an_import_created_by_another_authorized_user(): void
+    {
+        $owner = $this->createUser();
+        $manager = $this->createUser();
+        $patient = $this->createPatient($owner);
+        PhrPatientUserAccess::create([
+            'patient_id' => $patient->id,
+            'user_id' => $manager->id,
+            'access_level' => PhrPatientUserAccess::LEVEL_MANAGER,
+            'granted_by_user_id' => $owner->id,
+            'granted_at' => now(),
+        ]);
+        $job = $this->createJob($owner, $patient, 'phr_lab_result');
+        $result = $this->createResult($job, [
+            'external_id' => 'synthetic-manager-lab',
+            'analyte' => 'Synthetic manager analyte',
+        ]);
+
+        $this->actingAs($manager)
+            ->postJson("/api/phr/genai/jobs/{$job->id}/results/{$result->id}/accept")
+            ->assertOk()
+            ->assertJsonPath('outcome', 'accepted');
+
+        $this->assertSame('Synthetic manager analyte', PhrLabResult::query()->sole()->analyte);
+    }
+
     public function test_accepting_phr_document_bundle_imports_nested_records_without_duplicates(): void
     {
         $owner = $this->createUser();
