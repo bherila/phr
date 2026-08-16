@@ -89,6 +89,19 @@ transaction; exact document, DICOM, export, native-backup, and migration-ledger 
 then move through durable retryable cleanup rows. A storage failure reports
 `cleanup_failed` without pretending cleanup completed or restoring accessible rows.
 
+The Data Hub also accepts a re-uploaded `phr-native-v1` ZIP for restore. The browser
+uploads authenticated 8 MiB chunks so the existing cPanel request ceiling does not cap
+the 20 GiB archive contract. A queued read-only pass then performs integrity and conflict validation before any patient mutation: the
+plan reports fixed create/skip/block counts for records and source artifacts, and
+requires typing `RESTORE` with the unchanged plan digest. Missing stable identities
+are created, byte-identical identities are skipped, and any differing identity blocks
+the whole transaction—version 1 never merges or overwrites fields. The owner grant is
+the patient ownership invariant; non-owner shares remain omitted unless separately
+selected and every opaque actor identity can be mapped to an existing account. Apply
+runs on the queue, remaps database IDs atomically, streams original files, and removes
+partial object writes if the database transaction rolls back. Only schema version 1 is
+accepted; future versions fail closed rather than receiving a best-effort import.
+
 Data Hub audit policy is explicit: successful metadata-only events are retained for
 2,555 days (seven years) and durable operation failures for 365 days. Read-only
 previews and pre-mutation refusals/no-ops are not persisted as audit events. Pending
@@ -96,6 +109,9 @@ cleanup work is never pruned. Full user-account deletion anonymizes `actor_user_
 patient root id, applicable schema/checksum or preview digest, counts, timestamps,
 outcome, and fixed failure category. `phr:data-hub:prune-audits` runs daily through the monitored scheduler; the
 windows are configurable with `PHR_DATA_HUB_AUDIT_*_RETENTION_DAYS`.
+Uploaded restore sources are short-lived operational copies, defaulting to seven days;
+`phr:native-restores:purge` clears expired source bytes while retaining the applicable
+metadata-only audit event.
 
 ## Auth
 
@@ -314,7 +330,10 @@ The deploy owns two cPanel account cron entries, keyed independently by the stab
 five minutes. The scheduler launches the three PHR maintenance schedules; the
 `flock`-protected worker drains only `genai-imports` and `phr-exports`, then exits when
 the queues are empty. It retains the 240-second run window and 300-second job timeout,
-with a fixed 256 MB worker safety ceiling. Installation preserves every cron entry
+with a fixed 256 MB worker safety ceiling. Native restore jobs declare their own
+3,600-second timeout; the database queue reservation window has an enforced 3,660-second
+minimum, and deployment refuses a shorter effective value so a live restore cannot be reserved twice.
+Installation preserves every cron entry
 carrying neither PHR tag and rolls the account crontab back if verification fails.
 Five minutes is the scheduler's production resolution: do not add an every-minute task
 without also changing the managed cPanel cron cadence.

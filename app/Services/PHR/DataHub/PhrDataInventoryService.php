@@ -106,7 +106,7 @@ final class PhrDataInventoryService
                 'operations' => [
                     'clinical_export' => ['eligible' => true, 'status' => 'available', 'format' => 'ccda'],
                     'native_backup' => ['eligible' => true, 'status' => 'available'],
-                    'restore' => ['eligible' => true, 'status' => 'planned'],
+                    'restore' => ['eligible' => true, 'status' => 'available'],
                     'aggregate_delete' => ['eligible' => true, 'status' => 'available'],
                 ],
             ];

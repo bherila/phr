@@ -1,4 +1,4 @@
-import { Archive, Database, Download, HardDrive, RefreshCw, RotateCcw, ShieldCheck, Trash2, Users } from 'lucide-react'
+import { Archive, Database, Download, HardDrive, RefreshCw, RotateCcw, ShieldCheck, Trash2, Upload, Users } from 'lucide-react'
 import type { ReactElement } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
@@ -15,6 +15,9 @@ import {
   type NativeBackup,
   NativeBackupResponseSchema,
   NativeBackupsResponseSchema,
+  type NativeRestore,
+  NativeRestoreResponseSchema,
+  NativeRestoresResponseSchema,
   type OwnedPatientInventory,
   type PatientDeletion,
   type PatientDeletionPreview,
@@ -221,9 +224,7 @@ function PatientCard({ patient, currentExport, currentBackup, busy, exportError,
           {backupError ? <p role="alert" className="mt-2 text-xs text-destructive">{backupError}</p> : null}
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-2 lg:col-span-2">
-          <PlannedAction icon={<RotateCcw className="size-4" />} label="Dry-run restore" phase="Phase 4" />
-          <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3">
+        <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 lg:col-span-2">
             <div className="flex items-center gap-2 text-sm font-medium"><Trash2 className="size-4" />Safe aggregate deletion</div>
             <p className="mt-1 text-xs text-muted-foreground">Preview database rows, active shares, and exclusively owned files before committing.</p>
             {!deletionPreview ? (
@@ -265,20 +266,185 @@ function PatientCard({ patient, currentExport, currentBackup, busy, exportError,
               </div>
             )}
             {deletionError ? <p role="alert" className="mt-2 text-xs text-destructive">{deletionError}</p> : null}
-          </div>
         </div>
       </section>
     </article>
   )
 }
 
-function PlannedAction({ icon, label, phase }: { icon: ReactElement, label: string, phase: string }): ReactElement {
+const RESTORE_MESSAGES: Record<string, string> = {
+  actor_mapping_missing: 'A required user reference cannot be mapped safely. Restore the archive with the original account mappings available.',
+  ambiguous_patient_identity: 'The patient identity is ambiguous and needs administrator attention.',
+  archive_changed: 'The uploaded archive changed after preview. Upload it again.',
+  archive_hash_mismatch: 'The archive failed integrity verification.',
+  artifact_conflict: 'A stored file with this identity differs from the archive.',
+  artifact_write_failed: 'A source file could not be written. No patient records were committed.',
+  current_identity_missing: 'Current data is missing required stable identity metadata.',
+  invalid_access_grant: 'An archived access grant has an invalid role for its mapped account.',
+  invalid_archive: 'This file is not a valid phr-native-v1 archive.',
+  invalid_upload: 'The selected archive could not be uploaded.',
+  invalid_upload_chunk: 'An archive chunk exceeded the configured upload limit.',
+  patient_not_owned: 'This archive maps to a patient profile owned by another account.',
+  preview_changed: 'Current data changed after the dry run. Upload the archive to preview again.',
+  preview_expired: 'This restore preview expired. Upload the archive again.',
+  preview_queue_failed: 'Archive validation could not be queued. Upload the archive again.',
+  record_conflict: 'A current record with the same stable identity has different content.',
+  relationship_missing: 'The archive contains a relationship that cannot be resolved.',
+  restore_queue_failed: 'The restore could not be queued. Upload the archive and preview it again.',
+  restore_blocked: 'Resolve every blocker before restoring.',
+  restore_busy: 'Another restore of this archive is in progress. Try again shortly.',
+  size_limit: 'The archive exceeds the configured restore size limit.',
+  source_storage_failed: 'The archive upload could not be stored. Try again.',
+  unsupported_schema: 'This archive schema version is not supported.',
+  upload_incomplete: 'The archive upload is incomplete.',
+  upload_state_invalid: 'The archive upload sequence changed. Start the upload again.',
+}
+
+function restoreMessage(value: unknown): string {
+  const message = errorMessage(value)
+  return RESTORE_MESSAGES[message] ?? message
+}
+
+function RestorePanel({ onCompleted }: { onCompleted: () => Promise<void> }): ReactElement {
+  const [archive, setArchive] = useState<File | null>(null)
+  const [restoreShares, setRestoreShares] = useState(false)
+  const [confirmation, setConfirmation] = useState('')
+  const [restore, setRestore] = useState<NativeRestore | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    void fetchWrapper.get('/api/phr/data-hub/native-restores')
+      .then((raw: unknown) => {
+        const latest = NativeRestoresResponseSchema.parse(raw).restores[0]
+        if (latest) setRestore(latest)
+      })
+      .catch((caught: unknown) => setError(restoreMessage(caught)))
+  }, [])
+
+  function selectArchive(next: File | null): void {
+    setArchive(next)
+    setRestore(null)
+    setConfirmation('')
+    setError(null)
+  }
+
+  function selectRestoreShares(next: boolean): void {
+    setRestoreShares(next)
+    setRestore(null)
+    setConfirmation('')
+    setError(null)
+  }
+
+  async function preview(): Promise<void> {
+    if (!archive) return
+    setBusy(true)
+    setError(null)
+    try {
+      const startedRaw: unknown = await fetchWrapper.post('/api/phr/data-hub/native-restores/uploads', {
+        source_file_size_bytes: archive.size,
+        restore_access_grants: restoreShares,
+      })
+      let current = NativeRestoreResponseSchema.parse(startedRaw).restore
+      setRestore(current)
+      for (let offset = 0; offset < archive.size; offset += current.chunk_size_bytes) {
+        const form = new FormData()
+        form.append('offset', String(offset))
+        form.append('chunk', archive.slice(offset, Math.min(offset + current.chunk_size_bytes, archive.size)), 'chunk.bin')
+        const chunkRaw: unknown = await fetchWrapper.post(`/api/phr/data-hub/native-restores/${current.id}/chunks`, form)
+        current = NativeRestoreResponseSchema.parse(chunkRaw).restore
+        setRestore(current)
+      }
+      const queuedRaw: unknown = await fetchWrapper.post(`/api/phr/data-hub/native-restores/${current.id}/preview`, {})
+      setRestore(NativeRestoreResponseSchema.parse(queuedRaw).restore)
+      setConfirmation('')
+    } catch (caught) {
+      setError(restoreMessage(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function applyRestore(): Promise<void> {
+    if (!restore || !restore.plan_digest) return
+    setBusy(true)
+    setError(null)
+    try {
+      const raw: unknown = await fetchWrapper.post(`/api/phr/data-hub/native-restores/${restore.id}/apply`, {
+        confirmation: 'RESTORE',
+        plan_digest: restore.plan_digest,
+        restore_access_grants: restore.restore_access_grants,
+      })
+      setRestore(NativeRestoreResponseSchema.parse(raw).restore)
+    } catch (caught) {
+      setError(restoreMessage(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function refresh(): Promise<void> {
+    if (!restore) return
+    setBusy(true)
+    setError(null)
+    try {
+      const raw: unknown = await fetchWrapper.get(`/api/phr/data-hub/native-restores/${restore.id}`)
+      const next = NativeRestoreResponseSchema.parse(raw).restore
+      setRestore(next)
+      if (next.status === 'completed') await onCompleted()
+    } catch (caught) {
+      setError(restoreMessage(caught))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const totals = restore ? Object.values(restore.tables).reduce(
+    (sum, counts) => ({ create: sum.create + counts.create, skip: sum.skip + counts.skip, block: sum.block + counts.block }),
+    { create: 0, skip: 0, block: 0 },
+  ) : null
+  const ready = restore?.status === 'preview_ready'
+
   return (
-    <div className="rounded-md border border-border bg-muted/30 p-3">
-      <div className="flex items-center gap-2 text-sm font-medium">{icon}{label}</div>
-      <p className="mt-1 text-xs text-muted-foreground">Owner eligible · planned for {phase}</p>
-      <Button type="button" size="sm" variant="outline" className="mt-3" disabled>Not yet available</Button>
-    </div>
+    <section className="mt-6 rounded-lg border border-violet-500/30 bg-violet-500/5 p-5" aria-labelledby="native-restore-heading">
+      <div className="flex items-start gap-3">
+        <RotateCcw className="mt-0.5 size-5 text-violet-700 dark:text-violet-300" />
+        <div>
+          <h2 id="native-restore-heading" className="font-semibold">Dry-run native restore</h2>
+          <p className="mt-1 text-sm text-muted-foreground">Upload one phr-native-v1 patient archive. The dry run creates no patient data and blocks every non-identical conflict.</p>
+        </div>
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+        <label className="text-sm font-medium">
+          Native backup archive
+          <input type="file" accept=".zip,application/zip" className="mt-1 block w-full rounded-md border border-input bg-background px-3 py-2 text-sm" onChange={(event) => selectArchive(event.target.files?.[0] ?? null)} />
+        </label>
+        <Button type="button" disabled={busy || archive === null} onClick={() => void preview()}><Upload className="size-4" />{busy ? 'Checking…' : 'Preview restore'}</Button>
+      </div>
+      <label className="mt-3 flex items-start gap-2 text-sm">
+        <input type="checkbox" checked={restoreShares} onChange={(event) => selectRestoreShares(event.target.checked)} />
+        Include archived shares when every opaque user identity can be mapped. Owner access is always restored.
+      </label>
+
+      {restore && totals ? (
+        <div className="mt-4 rounded-md border border-border bg-background/70 p-3 text-sm">
+          <p role="status">Status: <span className="font-medium">{restore.status.replaceAll('_', ' ')}</span>{restore.target ? ` · target: ${restore.target.replaceAll('_', ' ')}` : ''}</p>
+          {restore.status === 'uploading' ? <p className="mt-1 text-muted-foreground">Uploaded {formatBytes(restore.uploaded_bytes)} of {formatBytes(restore.source_file_size_bytes)}.</p> : null}
+          <p className="mt-1 text-muted-foreground">Records: {totals.create} create, {totals.skip} skip, {totals.block} block. Files: {restore.artifacts.create} create, {restore.artifacts.skip} skip, {restore.artifacts.block} block ({formatBytes(restore.artifacts.bytes)}).</p>
+          <p className="mt-1 text-muted-foreground">Archived non-owner shares: {restore.access_grant_count}; {restore.restore_access_grants ? 'explicitly included' : 'not selected'}.</p>
+          {restore.blockers.length > 0 ? <ul role="alert" className="mt-2 list-disc pl-5 text-destructive">{restore.blockers.map((blocker) => <li key={blocker}>{restoreMessage(blocker)}</li>)}</ul> : null}
+          {restore.failure_category ? <p role="alert" className="mt-2 text-destructive">{restoreMessage(restore.failure_category)}</p> : null}
+          {ready ? (
+            <div className="mt-3 flex flex-wrap items-end gap-2">
+              <label className="text-sm font-medium">Type RESTORE to confirm<input className="mt-1 block rounded-md border border-input bg-background px-3 py-2" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label>
+              <Button type="button" disabled={busy || confirmation !== 'RESTORE' || restore.blockers.length > 0} onClick={() => void applyRestore()}>Restore patient data</Button>
+            </div>
+          ) : null}
+          {['preview_pending', 'preview_processing', 'pending_restore', 'restore_processing'].includes(restore.status) ? <Button type="button" size="sm" variant="outline" className="mt-3" disabled={busy} onClick={() => void refresh()}><RefreshCw className={`size-4 ${busy ? 'animate-spin' : ''}`} />Check restore status</Button> : null}
+        </div>
+      ) : null}
+      {error ? <p role="alert" className="mt-3 text-sm text-destructive">{error}</p> : null}
+    </section>
   )
 }
 
@@ -503,6 +669,8 @@ export default function DataHubPage(): ReactElement {
           <ShieldCheck className="mt-0.5 size-4 shrink-0 text-sky-700 dark:text-sky-300" />
           <p>Only patient owners can export, back up, restore, or delete an aggregate. Shared records are listed separately without exposing their inventory.</p>
         </div>
+
+        <RestorePanel onCompleted={loadInventory} />
 
         {loading ? <p role="status" aria-live="polite" className="mt-6 text-sm text-muted-foreground">Loading private inventory…</p> : null}
         {loadError ? (

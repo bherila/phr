@@ -97,6 +97,6 @@ class PhrStorageKeyTest extends TestCase
     {
         $this->assertSame(['patients', 'phr/dicom', 'derived/volume-cache'], PhrStorageMap::disks()['phr_dicom']);
         $this->assertSame(['patients', 'phr/documents'], PhrStorageMap::disks()['phr_documents']);
-        $this->assertSame(['patients', 'phr/exports', 'phr/native-backups'], PhrStorageMap::disks()['phr_exports']);
+        $this->assertSame(['patients', 'phr/exports', 'phr/native-backups', 'phr/native-restores'], PhrStorageMap::disks()['phr_exports']);
     }
 }

@@ -87,6 +87,11 @@ final class PhrStorageKey
         return self::export($patientId, $exportUuid, 'phr-native-v1.zip');
     }
 
+    public static function nativeRestoreSource(string $restoreUuid): string
+    {
+        return sprintf('phr/native-restores/%s/phr-native-v1.zip', self::uuid($restoreUuid));
+    }
+
     public static function safeFilename(string $filename, string $fallback = 'artifact'): string
     {
         $basename = basename(str_replace('\\', '/', str_replace("\0", '', $filename)));
