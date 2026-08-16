@@ -1,6 +1,6 @@
 'use client'
 
-import { ArrowLeft, Database, Settings } from 'lucide-react'
+import { ArrowLeft, Command, Database, Search, Settings } from 'lucide-react'
 import { type MouseEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -34,6 +34,7 @@ interface PhrNavbarProps {
   backUrl?: string
   onPatientChange?: (patientId: number) => void
   onSectionChange?: (section: PhrSection) => void
+  onSearch?: () => void
 }
 
 const DEFAULT_BACK_URL = 'https://bherila.net'
@@ -46,6 +47,7 @@ export default function PhrNavbar({
   backUrl = DEFAULT_BACK_URL,
   onPatientChange,
   onSectionChange,
+  onSearch,
 }: PhrNavbarProps) {
   const [patients, setPatients] = useState<PhrPatient[]>([])
   const [searchValue, setSearchValue] = useState('')
@@ -122,46 +124,60 @@ export default function PhrNavbar({
           </span>
 
           {patientId !== undefined && (
-            <Combobox
-              onValueChange={(value) => {
-                if (typeof value === 'number') {
-                  const selectedPatient = patients.find((patient) => patient.id === value)
-                  if (selectedPatient) {
-                    handlePatientSelect(selectedPatient)
+            <>
+              <Combobox
+                onValueChange={(value) => {
+                  if (typeof value === 'number') {
+                    const selectedPatient = patients.find((patient) => patient.id === value)
+                    if (selectedPatient) {
+                      handlePatientSelect(selectedPatient)
+                    }
                   }
-                }
-              }}
-              open={isComboboxOpen}
-              onOpenChange={setIsComboboxOpen}
-            >
-              <ComboboxInput
-                placeholder="Search patients…"
-                aria-label={`Selected patient: ${currentPatient?.display_name ?? patientId}`}
-                className="h-8 min-w-[200px]"
-                value={isComboboxOpen ? searchValue : (currentPatient?.display_name ?? String(patientId))}
-                onChange={(event) => setSearchValue(event.target.value)}
-                onFocus={() => {
-                  setIsComboboxOpen(true)
-                  setSearchValue('')
                 }}
-              />
-              <ComboboxContent align="start" className="w-72">
-                <ComboboxList>
-                  {filteredPatients.map((patient) => (
-                    <ComboboxItem
-                      key={patient.id}
-                      value={patient.id}
-                      className={cn(patient.id === patientId && 'bg-accent font-medium')}
-                    >
-                      {patient.display_name || `Patient ${patient.id}`}
-                    </ComboboxItem>
-                  ))}
-                  {filteredPatients.length === 0 && searchValue && (
-                    <div className="py-2 text-center text-sm text-muted-foreground">No patients found</div>
-                  )}
-                </ComboboxList>
-              </ComboboxContent>
-            </Combobox>
+                open={isComboboxOpen}
+                onOpenChange={setIsComboboxOpen}
+              >
+                <ComboboxInput
+                  placeholder="Search patients…"
+                  aria-label={`Selected patient: ${currentPatient?.display_name ?? patientId}`}
+                  className="h-8 min-w-[200px]"
+                  value={isComboboxOpen ? searchValue : (currentPatient?.display_name ?? String(patientId))}
+                  onChange={(event) => setSearchValue(event.target.value)}
+                  onFocus={() => {
+                    setIsComboboxOpen(true)
+                    setSearchValue('')
+                  }}
+                />
+                <ComboboxContent align="start" className="w-72">
+                  <ComboboxList>
+                    {filteredPatients.map((patient) => (
+                      <ComboboxItem
+                        key={patient.id}
+                        value={patient.id}
+                        className={cn(patient.id === patientId && 'bg-accent font-medium')}
+                      >
+                        {patient.display_name || `Patient ${patient.id}`}
+                      </ComboboxItem>
+                    ))}
+                    {filteredPatients.length === 0 && searchValue && (
+                      <div className="py-2 text-center text-sm text-muted-foreground">No patients found</div>
+                    )}
+                  </ComboboxList>
+                </ComboboxContent>
+              </Combobox>
+              {onSearch && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="ml-1 h-8 min-w-52 justify-start gap-2 text-muted-foreground"
+                  onClick={onSearch}
+                >
+                  <Search className="size-4" />
+                  <span className="flex-1 text-left">Search this patient…</span>
+                  <span className="flex items-center gap-0.5 text-xs"><Command className="size-3" />K</span>
+                </Button>
+              )}
+            </>
           )}
 
           <NavigationMenu viewport={false} className="ml-auto">
