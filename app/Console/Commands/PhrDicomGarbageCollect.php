@@ -8,6 +8,8 @@ use App\Services\PHR\DICOM\DicomUploadProcessor;
 use App\Support\Storage\PhrStorageMap;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Throwable;
 
 class PhrDicomGarbageCollect extends Command
@@ -134,6 +136,15 @@ class PhrDicomGarbageCollect extends Command
                 ->whereIn('r2_key', $keyBatch)
                 ->pluck('r2_key')
                 ->all());
+            if (Schema::hasTable('phr_blob_migrations')) {
+                foreach (DB::table('phr_blob_migrations')
+                    ->where('storage_disk', DicomUploadProcessor::DISK)
+                    ->whereNull('legacy_deleted_at')
+                    ->whereIn('source_key', $keyBatch)
+                    ->pluck('source_key') as $protectedLegacyKey) {
+                    $knownSet[(string) $protectedLegacyKey] = true;
+                }
+            }
 
             foreach ($keyBatch as $key) {
                 if (isset($knownSet[$key])) {

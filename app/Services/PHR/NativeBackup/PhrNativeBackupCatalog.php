@@ -178,6 +178,10 @@ final class PhrNativeBackupCatalog
                 'patient_column' => 'patient_id',
                 'because' => 'Mappings are materialized as each record nativeId and recreated beside restored rows.',
             ],
+            'phr_blob_migrations' => [
+                'patient_column' => 'patient_id',
+                'because' => 'Operational rollout and rollback ledger; restored blobs are written directly to canonical keys.',
+            ],
         ];
     }
 
