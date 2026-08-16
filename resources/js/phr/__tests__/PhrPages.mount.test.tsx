@@ -53,6 +53,30 @@ function makePatient() {
   }
 }
 
+function makeProcedure(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 7001,
+    patient_id: PATIENT_ID,
+    user_id: 2,
+    name: 'Allergy immunotherapy administration',
+    cpt_code: '95117',
+    snomed_code: null,
+    performed_at: null,
+    performed_on: '2026-06-15',
+    performer_name: 'Allergy clinic',
+    performer_specialty: null,
+    facility_name: null,
+    status: 'completed',
+    reason: null,
+    outcome: null,
+    notes: null,
+    raw_text: null,
+    created_at: null,
+    updated_at: null,
+    ...overrides,
+  }
+}
+
 beforeEach(() => {
   mockGet.mockClear()
   mockPost.mockClear()
@@ -70,6 +94,7 @@ beforeEach(() => {
     if (url.includes('/dicom/studies')) return { studies: [] }
     if (url.includes('/access')) return { access_grants: [] }
     if (url.includes('/conditions')) return { conditions: [], can_manage: true }
+    if (url.includes('/office-visits')) return { office_visits: [], can_manage: true }
     if (url.includes('/procedures')) return { procedures: [], can_manage: true }
     if (url.includes('/immunizations')) return { immunizations: [], can_manage: true }
     if (url.includes('/allergies')) return { allergies: [], can_manage: true }
@@ -538,6 +563,41 @@ describe('PHR page mounts', () => {
     render(<OfficeVisitsPage patientId={PATIENT_ID} />)
     render(<ProceduresPage patientId={PATIENT_ID} />)
     expect(document.body).toBeTruthy()
+  })
+
+  it('makes allergy shot administrations discoverable from Visits without showing extract preparation', async () => {
+    mockGet.mockImplementation(async (url: string) => {
+      if (url.includes('/office-visits')) return { office_visits: [], can_manage: true }
+      if (url.includes('/procedures')) {
+        return {
+          procedures: [
+            makeProcedure({ id: 7001, cpt_code: '95115', performed_on: '2026-05-01' }),
+            makeProcedure({ id: 7002, cpt_code: '95117', performed_on: '2026-06-15' }),
+            makeProcedure({ id: 7003, name: 'Allergen extract preparation', cpt_code: '95165', performed_on: '2026-06-15' }),
+            makeProcedure({ id: 7004, name: 'Dental restoration', cpt_code: 'D2392', performed_on: '2026-04-01' }),
+          ],
+          can_manage: true,
+        }
+      }
+      return {}
+    })
+
+    const onDrill = jest.fn()
+    render(<OfficeVisitsPage patientId={PATIENT_ID} onDrill={onDrill} />)
+
+    const allergyShotsTab = await screen.findByRole('tab', { name: /allergy shots 2/i })
+    expect(screen.getByText(/2 administration records/i)).toBeInTheDocument()
+
+    fireEvent.click(allergyShotsTab)
+
+    expect(screen.getByText('Multiple allergy injections')).toBeInTheDocument()
+    expect(screen.getByText('Single allergy injection')).toBeInTheDocument()
+    expect(screen.queryByText('Allergen extract preparation')).not.toBeInTheDocument()
+    expect(screen.queryByText('Dental restoration')).not.toBeInTheDocument()
+    expect(screen.getByText(/CPT 95165.*excluded/i)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('Multiple allergy injections'))
+    expect(onDrill).toHaveBeenCalledWith({ id: 'procedure-detail', instance: '7002' })
   })
 
   it('renders condition actions including GenAI import handoff', async () => {

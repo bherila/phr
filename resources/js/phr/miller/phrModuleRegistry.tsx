@@ -163,10 +163,10 @@ const IMAGING_MODULE = {
 
 const OFFICE_VISITS_MODULE = {
   id: 'office-visits',
-  label: 'Office Visits',
+  label: 'Visits',
   shortLabel: 'Visits',
   category: 'Clinical',
-  keywords: ['visits', 'appointments', 'encounters'],
+  keywords: ['visits', 'appointments', 'encounters', 'allergy shots', 'injections', 'immunotherapy'],
 } satisfies PhrModuleDefinition
 
 const MEDICATIONS_MODULE = {
