@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\DevicePairingController;
+use App\Http\Controllers\OAuthDynamicClientRegistrationController;
 use App\Http\Controllers\OAuthLoginController;
 use App\Http\Controllers\OAuthMetadataController;
 use App\Http\Controllers\OhifViewerController;
@@ -29,6 +30,11 @@ Route::withoutMiddleware([
         ->name('oauth.metadata.protected-resource-root');
     Route::get('/.well-known/oauth-protected-resource/api/v1', [OAuthMetadataController::class, 'protectedResource'])
         ->name('oauth.metadata.protected-resource');
+    Route::get('/.well-known/oauth-protected-resource/api/v1/mcp', [OAuthMetadataController::class, 'protectedResource'])
+        ->name('oauth.metadata.protected-resource-mcp');
+    Route::post('/oauth/register', OAuthDynamicClientRegistrationController::class)
+        ->middleware('throttle:agent-api-client-registration')
+        ->name('oauth.clients.register');
 });
 
 Route::get('/login', function () {

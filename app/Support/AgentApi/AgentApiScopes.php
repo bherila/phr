@@ -38,6 +38,7 @@ final class AgentApiScopes
             self::PATIENTS_READ => 'List and read patients you can access',
             self::CLINICAL_READ => 'Read clinical records for patients you can access',
             self::DOCUMENTS_READ => 'Read document metadata and download authorized files',
+            self::MCP_USE => 'Connect through the PHR MCP server',
         ];
     }
 
@@ -59,7 +60,6 @@ final class AgentApiScopes
             self::EXPORTS_WRITE => 'Request exports and native backups',
             self::RECONCILIATION_READ => 'Preview administrative reconciliation',
             self::RECONCILIATION_WRITE => 'Apply an explicitly confirmed reconciliation',
-            self::MCP_USE => 'Connect through the PHR MCP server',
         ];
     }
 

@@ -13,11 +13,13 @@ class OAuthMetadataController extends Controller
             'issuer' => url('/'),
             'authorization_endpoint' => url('/oauth/authorize'),
             'token_endpoint' => url('/oauth/token'),
+            'registration_endpoint' => url('/oauth/register'),
             'grant_types_supported' => ['authorization_code', 'refresh_token'],
             'response_types_supported' => ['code'],
             'code_challenge_methods_supported' => ['S256'],
             'token_endpoint_auth_methods_supported' => ['none', 'client_secret_basic', 'client_secret_post'],
             'scopes_supported' => AgentApiScopes::ids(),
+            'resource_indicators_supported' => true,
         ]);
     }
 

@@ -311,7 +311,8 @@
               "identity:read": "Read account identity and granted scopes",
               "patients:read": "List and read patients you can access",
               "clinical:read": "Read clinical records for patients you can access",
-              "documents:read": "Read document metadata and download authorized files"
+              "documents:read": "Read document metadata and download authorized files",
+              "mcp:use": "Connect through the PHR MCP server"
             }
           }
         }

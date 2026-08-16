@@ -15,8 +15,8 @@ final class AgentApiPruneOAuthCredentialsCommand extends BasePhrCommand
     public function handle(): int
     {
         $connection = config('passport.connection');
-        $deletedFamilies = DB::connection(is_string($connection) ? $connection : null)
-            ->transaction(function (): int {
+        [$deletedFamilies, $deletedClients] = DB::connection(is_string($connection) ? $connection : null)
+            ->transaction(function (): array {
                 $families = OAuthTokenFamily::query()
                     ->where('revoked', true)
                     ->orWhere('expires_at', '<=', now())
@@ -42,10 +42,20 @@ final class AgentApiPruneOAuthCredentialsCommand extends BasePhrCommand
                     ->orWhere('expires_at', '<=', now())
                     ->delete();
 
-                return $families->count();
+                $unusedClients = Passport::client()->newQuery()
+                    ->whereNotNull('dynamically_registered_at')
+                    ->where('dynamically_registered_at', '<=', now()->subDay())
+                    ->whereDoesntHave('authCodes')
+                    ->whereDoesntHave('tokens')
+                    ->get();
+                foreach ($unusedClients as $client) {
+                    $client->delete();
+                }
+
+                return [$families->count(), $unusedClients->count()];
             }, 1);
 
-        $this->info("Pruned {$deletedFamilies} closed OAuth token family/families.");
+        $this->info("Pruned {$deletedFamilies} closed OAuth token family/families and {$deletedClients} unused dynamic client(s).");
 
         return self::SUCCESS;
     }
