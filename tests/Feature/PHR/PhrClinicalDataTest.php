@@ -403,7 +403,8 @@ class PhrClinicalDataTest extends TestCase
 
         $this->actingAs($manager)->getJson("/api/phr/patients/{$patientId}/allergies/{$allergyId}")
             ->assertOk()
-            ->assertJsonPath('allergy.substance', 'Sulfa');
+            ->assertJsonPath('allergy.substance', 'Sulfa')
+            ->assertJsonPath('can_manage', true);
 
         $this->actingAs($manager)->patchJson("/api/phr/patients/{$patientId}/allergies/{$allergyId}", [
             'clinical_status' => 'inactive',
@@ -437,7 +438,8 @@ class PhrClinicalDataTest extends TestCase
 
         $this->actingAs($viewer)->getJson("/api/phr/patients/{$patientId}/conditions/{$conditionId}")
             ->assertOk()
-            ->assertJsonPath('condition.name', 'Asthma');
+            ->assertJsonPath('condition.name', 'Asthma')
+            ->assertJsonPath('can_manage', false);
 
         $this->actingAs($viewer)->patchJson("/api/phr/patients/{$patientId}/conditions/{$conditionId}", [
             'clinical_status' => 'resolved',
