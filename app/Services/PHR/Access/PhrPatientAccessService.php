@@ -6,13 +6,28 @@ use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\Relation;
 
 class PhrPatientAccessService
 {
+    /** @return Builder<PhrPatient> */
+    public function accessiblePatientsQuery(int $userId): Builder
+    {
+        return PhrPatient::query()->accessibleBy($userId);
+    }
+
+    public function accessiblePatientWithCurrentGrant(int $patientId, int $userId): PhrPatient
+    {
+        return $this->accessiblePatientsQuery($userId)
+            ->with(['accessGrants' => function (Relation $relation) use ($userId): void {
+                $relation->getQuery()->where('user_id', $userId);
+            }])
+            ->findOrFail($patientId);
+    }
+
     public function accessiblePatient(int $patientId, int $userId): PhrPatient
     {
-        return PhrPatient::query()
-            ->accessibleBy($userId)
+        return $this->accessiblePatientsQuery($userId)
             ->with(['accessGrants.user'])
             ->findOrFail($patientId);
     }

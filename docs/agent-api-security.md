@@ -16,6 +16,17 @@ concurrency preconditions on writes, and metadata-only audit records.
 The public authorization and token endpoints have dedicated pre-authentication IP
 buckets, separate from each other and from protected-resource buckets, so invalid
 requests cannot create unbounded session, parsing, or transaction work.
+Protected-resource pre-authentication buckets normalize numeric patient and record
+path segments, preventing identifier changes from creating fresh parsing budgets.
+
+Patient discovery deliberately has its own `patients:read` scope. Its response omits
+the owner's user id and every grant except the caller's fixed access metadata. The
+separate `clinical:read` scope permits list/get access to the fixed core-resource
+allow-list only after the patient id is resolved through `PhrPatientAccessService`.
+Clinical list responses are cursor-bounded to 100 rows, and source/update filters are
+validated before query construction. The fixed catalog maps route slugs to the same
+model and JSON Resource classes consumed by the browser API; route input never selects
+an arbitrary class or table.
 
 The agent audit table intentionally excludes request URLs, route parameters, query
 strings, request and response bodies, filenames, error messages, IP addresses, and
