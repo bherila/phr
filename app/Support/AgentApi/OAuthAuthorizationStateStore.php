@@ -13,6 +13,13 @@ final readonly class OAuthAuthorizationStateStore
 {
     public function __construct(private Session $session) {}
 
+    public function currentApprovalToken(): ?string
+    {
+        $authToken = $this->session->get('authToken');
+
+        return is_string($authToken) ? $authToken : null;
+    }
+
     public function rememberResource(string $authToken, string $resource): void
     {
         $this->session->put($this->key($authToken), $resource);

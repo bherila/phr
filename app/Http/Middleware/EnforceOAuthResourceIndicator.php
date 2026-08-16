@@ -42,9 +42,12 @@ final class EnforceOAuthResourceIndicator
                 );
             }
 
+            $previousAuthToken = $this->authorizationState->currentApprovalToken();
             $response = $next($request);
-            $authToken = $request->session()->get('authToken');
-            if (is_string($authToken) && $resource !== null) {
+            $authToken = $this->authorizationState->currentApprovalToken();
+            if (is_string($authToken)
+                && ($previousAuthToken === null || ! hash_equals($previousAuthToken, $authToken))
+                && $resource !== null) {
                 $this->authorizationState->rememberResource(
                     $authToken,
                     OAuthResourceIndicator::agentApi(),

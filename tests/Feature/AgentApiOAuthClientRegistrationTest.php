@@ -137,6 +137,28 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         $this->assertNull($client->scopes);
     }
 
+    public function test_single_callback_is_displayed_when_authorization_omits_redirect_uri(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Synthetic Omitted Callback User',
+            'email' => 'omitted-callback@example.test',
+            'user_role' => 'user',
+        ]);
+        $client = $this->publicClient('Synthetic Omitted Callback Client');
+        $client->forceFill(['dynamically_registered_at' => now()])->save();
+        [, $challenge] = $this->pkce();
+
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+            'client_id' => $client->id,
+            'response_type' => 'code',
+            'scope' => AgentApiScopes::IDENTITY_READ,
+            'state' => 'synthetic-omitted-callback-state',
+            'code_challenge' => $challenge,
+            'code_challenge_method' => 'S256',
+        ]))->assertOk()
+            ->assertSee('https://agent.example.test/callback');
+    }
+
     public function test_dynamic_registration_rejects_unsafe_or_unsupported_metadata_generically(): void
     {
         $valid = [
@@ -240,6 +262,40 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             OAuthResourceIndicator::agentApi(),
             $state->resourceFor('synthetic-concurrent-auth-token'),
         );
+    }
+
+    public function test_failed_authorization_cannot_bind_resource_to_an_existing_consent(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Synthetic Parallel Consent User',
+            'email' => 'parallel-consent@example.test',
+            'user_role' => 'user',
+        ]);
+        $client = $this->publicClient('Synthetic Parallel Consent Client');
+        [, $challenge] = $this->pkce();
+        $authorization = [
+            'client_id' => $client->id,
+            'redirect_uri' => 'https://agent.example.test/callback',
+            'response_type' => 'code',
+            'scope' => AgentApiScopes::IDENTITY_READ,
+            'state' => 'synthetic-parallel-consent-state',
+            'code_challenge' => $challenge,
+            'code_challenge_method' => 'S256',
+        ];
+
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query($authorization))->assertOk();
+        $authToken = session('authToken');
+        $this->assertIsString($authToken);
+
+        $this->get('/oauth/authorize?'.http_build_query([
+            ...$authorization,
+            'redirect_uri' => 'https://unregistered.example.test/callback',
+            'resource' => OAuthResourceIndicator::agentApi(),
+        ]))->assertUnauthorized();
+
+        $this->assertNull(app(OAuthAuthorizationStateStore::class)->resourceFor($authToken));
+        $this->post('/oauth/authorize', ['auth_token' => $authToken])->assertRedirect();
+        $this->assertNull(AuthCode::query()->sole()->resource_uri);
     }
 
     public function test_dynamic_registration_has_a_dedicated_pre_authentication_limit(): void
