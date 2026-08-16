@@ -137,12 +137,20 @@ class PhrDicomGarbageCollect extends Command
                 ->pluck('r2_key')
                 ->all());
             if (Schema::hasTable('phr_blob_migrations')) {
-                foreach (DB::table('phr_blob_migrations')
+                $protectedMigrations = DB::table('phr_blob_migrations')
                     ->where('storage_disk', DicomUploadProcessor::DISK)
                     ->whereNull('legacy_deleted_at')
-                    ->whereIn('source_key', $keyBatch)
-                    ->pluck('source_key') as $protectedLegacyKey) {
-                    $knownSet[(string) $protectedLegacyKey] = true;
+                    ->where(function ($query) use ($keyBatch): void {
+                        $query->whereIn('source_key', $keyBatch)
+                            ->orWhereIn('destination_key', $keyBatch);
+                    })
+                    ->get(['source_key', 'destination_key']);
+                foreach ($protectedMigrations as $migration) {
+                    foreach ([(string) $migration->source_key, (string) $migration->destination_key] as $protectedKey) {
+                        if (in_array($protectedKey, $keyBatch, true)) {
+                            $knownSet[$protectedKey] = true;
+                        }
+                    }
                 }
             }
 

@@ -96,11 +96,20 @@ final class PhrBlobMigrationService
 
                 $source = (string) $row->storage_path;
                 if ($this->isCanonical($source, $patientId, 'documents')) {
-                    $emit('documents', 'phr_documents', $id, 'already_canonical', 0);
+                    $result = $this->verifyCanonicalReference(
+                        $apply,
+                        $patientId,
+                        'phr_documents',
+                        'phr_documents',
+                        $id,
+                        'storage_path',
+                        $source,
+                    );
+                    $emit('documents', 'phr_documents', $id, $result['status'], $result['bytes']);
 
                     continue;
                 }
-                if ($this->isCanonicalNamespace($source)) {
+                if ($this->isCanonicalNamespace($source) || ! $this->legacyPatientMatches($source, $patientId)) {
                     $emit('documents', 'phr_documents', $id, 'invalid_reference', 0);
 
                     continue;
@@ -146,11 +155,20 @@ final class PhrBlobMigrationService
 
                 $source = (string) $row->storage_path;
                 if ($this->isCanonical($source, $patientId, 'exports')) {
-                    $emit('exports', 'phr_exports', $id, 'already_canonical', 0);
+                    $result = $this->verifyCanonicalReference(
+                        $apply,
+                        $patientId,
+                        'phr_exports',
+                        'phr_exports',
+                        $id,
+                        'storage_path',
+                        $source,
+                    );
+                    $emit('exports', 'phr_exports', $id, $result['status'], $result['bytes']);
 
                     continue;
                 }
-                if ($this->isCanonicalNamespace($source)) {
+                if ($this->isCanonicalNamespace($source) || ! $this->legacyPatientMatches($source, $patientId)) {
                     $emit('exports', 'phr_exports', $id, 'invalid_reference', 0);
 
                     continue;
@@ -196,11 +214,20 @@ final class PhrBlobMigrationService
 
                 $source = (string) $row->storage_path;
                 if ($this->isCanonical($source, $patientId, 'exports')) {
-                    $emit('native-backups', 'phr_native_backups', $id, 'already_canonical', 0);
+                    $result = $this->verifyCanonicalReference(
+                        $apply,
+                        $patientId,
+                        'phr_exports',
+                        'phr_native_backups',
+                        $id,
+                        'storage_path',
+                        $source,
+                    );
+                    $emit('native-backups', 'phr_native_backups', $id, $result['status'], $result['bytes']);
 
                     continue;
                 }
-                if ($this->isCanonicalNamespace($source)) {
+                if ($this->isCanonicalNamespace($source) || ! $this->legacyPatientMatches($source, $patientId)) {
                     $emit('native-backups', 'phr_native_backups', $id, 'invalid_reference', 0);
 
                     continue;
@@ -249,11 +276,20 @@ final class PhrBlobMigrationService
                 $source = (string) $file->r2_key;
                 $canonicalArea = $derived ? 'imaging/dicom/derived' : 'imaging/dicom/uploads';
                 if ($this->isCanonical($source, $patientId, $canonicalArea)) {
-                    $emit($artifact, 'phr_dicom_files', $id, 'already_canonical', 0);
+                    $result = $this->verifyCanonicalReference(
+                        $apply,
+                        $patientId,
+                        'phr_dicom',
+                        'phr_dicom_files',
+                        $id,
+                        'r2_key',
+                        $source,
+                    );
+                    $emit($artifact, 'phr_dicom_files', $id, $result['status'], $result['bytes']);
 
                     continue;
                 }
-                if ($this->isCanonicalNamespace($source)) {
+                if ($this->isCanonicalNamespace($source) || ! $this->legacyPatientMatches($source, $patientId)) {
                     $emit($artifact, 'phr_dicom_files', $id, 'invalid_reference', 0);
 
                     continue;
@@ -500,21 +536,11 @@ final class PhrBlobMigrationService
         // failure rolls the reference back with another compare-and-swap; legacy
         // bytes were never removed, so the application retains a readable source.
         if ($this->fingerprint($disk, $destination) !== $sourceFingerprint) {
-            $rolledBack = DB::transaction(function () use ($table, $id, $column, $destination, $source): int {
-                $rolledBack = DB::table($table)
-                    ->where('id', $id)
-                    ->where($column, $destination)
-                    ->update([$column => $source, 'updated_at' => now()]);
-                if ($rolledBack === 1) {
-                    DB::table('phr_blob_migrations')
-                        ->where('reference_table', $table)
-                        ->where('reference_id', $id)
-                        ->where('reference_column', $column)
-                        ->delete();
-                }
-
-                return $rolledBack;
-            });
+            try {
+                $rolledBack = $this->rollBackReference($table, $id, $column, $destination, $source);
+            } catch (Throwable) {
+                return ['status' => 'rollback_failed', 'bytes' => $sourceFingerprint['size']];
+            }
 
             return [
                 'status' => $rolledBack === 1 ? 'readback_failed' : 'rollback_failed',
@@ -523,6 +549,78 @@ final class PhrBlobMigrationService
         }
 
         return ['status' => $reuse ? 'migrated_reuse' : 'migrated', 'bytes' => $sourceFingerprint['size']];
+    }
+
+    /** @return array{status: string, bytes: int} */
+    private function verifyCanonicalReference(
+        bool $apply,
+        int $patientId,
+        string $diskName,
+        string $table,
+        int $id,
+        string $column,
+        string $destination,
+    ): array {
+        $ledger = DB::table('phr_blob_migrations')
+            ->where('patient_id', $patientId)
+            ->where('reference_table', $table)
+            ->where('reference_id', $id)
+            ->where('reference_column', $column)
+            ->where('destination_key', $destination)
+            ->whereNull('legacy_deleted_at')
+            ->first();
+        if ($ledger === null) {
+            return ['status' => 'already_canonical', 'bytes' => 0];
+        }
+
+        $expected = [
+            'size' => (int) $ledger->source_size_bytes,
+            'sha256' => (string) $ledger->source_sha256,
+        ];
+        $disk = Storage::disk($diskName);
+        if ($this->fingerprint($disk, $destination) === $expected) {
+            return ['status' => 'verified_canonical', 'bytes' => $expected['size']];
+        }
+
+        $source = (string) $ledger->source_key;
+        if (! $this->validStoredKey($source)
+            || ! $this->legacyPatientMatches($source, $patientId)
+            || $this->fingerprint($disk, $source) !== $expected) {
+            return ['status' => 'recovery_source_mismatch', 'bytes' => $expected['size']];
+        }
+        if (! $apply) {
+            return ['status' => 'recovery_planned', 'bytes' => $expected['size']];
+        }
+
+        try {
+            $rolledBack = $this->rollBackReference($table, $id, $column, $destination, $source);
+        } catch (Throwable) {
+            return ['status' => 'rollback_failed', 'bytes' => $expected['size']];
+        }
+
+        return [
+            'status' => $rolledBack === 1 ? 'recovered_legacy' : 'stale_reference',
+            'bytes' => $expected['size'],
+        ];
+    }
+
+    private function rollBackReference(string $table, int $id, string $column, string $destination, string $source): int
+    {
+        return DB::transaction(function () use ($table, $id, $column, $destination, $source): int {
+            $rolledBack = DB::table($table)
+                ->where('id', $id)
+                ->where($column, $destination)
+                ->update([$column => $source, 'updated_at' => now()]);
+            if ($rolledBack === 1) {
+                DB::table('phr_blob_migrations')
+                    ->where('reference_table', $table)
+                    ->where('reference_id', $id)
+                    ->where('reference_column', $column)
+                    ->delete();
+            }
+
+            return $rolledBack;
+        });
     }
 
     /** @return array{size: int, sha256: string}|null */
@@ -569,6 +667,22 @@ final class PhrBlobMigrationService
     private function isCanonicalNamespace(string $key): bool
     {
         return str_starts_with($key, 'patients/');
+    }
+
+    private function legacyPatientMatches(string $key, int $patientId): bool
+    {
+        foreach ([
+            '#^phr/documents/patients/(\d+)(?:/|$)#',
+            '#^phr/exports/patients/(\d+)(?:/|$)#',
+            '#^phr/dicom/patients/(\d+)(?:/|$)#',
+            '#^derived/volume-cache/patients/(\d+)(?:/|$)#',
+        ] as $pattern) {
+            if (preg_match($pattern, $key, $matches) === 1) {
+                return (int) $matches[1] === $patientId;
+            }
+        }
+
+        return true;
     }
 
     private function validStoredKey(string $key): bool

@@ -24,9 +24,9 @@ final class PhrBlobMigrationSummary
         $this->bytes += max(0, $bytes);
 
         match ($status) {
-            'planned', 'planned_reuse' => $this->planned++,
-            'migrated', 'migrated_reuse' => $this->migrated++,
-            'already_canonical' => $this->alreadyCanonical++,
+            'planned', 'planned_reuse', 'recovery_planned' => $this->planned++,
+            'migrated', 'migrated_reuse', 'recovered_legacy' => $this->migrated++,
+            'already_canonical', 'verified_canonical' => $this->alreadyCanonical++,
             'active_upload' => $this->skipped++,
             default => $this->failed++,
         };

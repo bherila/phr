@@ -77,7 +77,7 @@ class PhrBlobMigrationTest extends TestCase
         $this->assertSame($bytes, $response->streamedContent());
 
         $this->artisan('phr:storage:migrate-keys', ['--artifact' => 'documents', '--apply' => true])
-            ->expectsOutputToContain("reference=phr_documents#{$document->id} status=already_canonical")
+            ->expectsOutputToContain("reference=phr_documents#{$document->id} status=verified_canonical")
             ->assertSuccessful();
         $this->assertCount(2, Storage::disk('phr_documents')->allFiles());
     }
@@ -260,6 +260,35 @@ class PhrBlobMigrationTest extends TestCase
         $this->assertDatabaseMissing('phr_blob_migrations', ['reference_id' => $document->id]);
     }
 
+    public function test_rerun_recovers_a_ledger_backed_canonical_reference_with_failed_readback(): void
+    {
+        Storage::fake('phr_documents');
+        [$owner, $patient] = $this->ownerAndPatient();
+        $bytes = 'synthetic crash recovery source';
+        $legacyKey = "phr/documents/patients/{$patient->id}/legacy/crash-recovery.pdf";
+        Storage::disk('phr_documents')->put($legacyKey, $bytes);
+        $document = $this->document($patient, $owner, $legacyKey, $bytes);
+
+        $this->artisan('phr:storage:migrate-keys', ['--artifact' => 'documents', '--apply' => true])
+            ->assertSuccessful();
+        $canonicalKey = (string) $document->refresh()->storage_path;
+        Storage::disk('phr_documents')->put($canonicalKey, 'unreadable-after-commit simulation');
+
+        $this->artisan('phr:storage:migrate-keys', ['--artifact' => 'documents'])
+            ->expectsOutputToContain("reference=phr_documents#{$document->id} status=recovery_planned")
+            ->doesntExpectOutputToContain('crash-recovery.pdf')
+            ->assertSuccessful();
+        $this->assertSame($canonicalKey, $document->refresh()->storage_path);
+
+        $this->artisan('phr:storage:migrate-keys', ['--artifact' => 'documents', '--apply' => true])
+            ->expectsOutputToContain("reference=phr_documents#{$document->id} status=recovered_legacy")
+            ->assertSuccessful();
+
+        $this->assertSame($legacyKey, $document->refresh()->storage_path);
+        $this->assertSame($bytes, Storage::disk('phr_documents')->get($legacyKey));
+        $this->assertDatabaseMissing('phr_blob_migrations', ['reference_id' => $document->id]);
+    }
+
     public function test_migrates_exports_native_backups_and_both_dicom_artifact_classes(): void
     {
         Storage::fake('phr_documents');
@@ -340,6 +369,7 @@ class PhrBlobMigrationTest extends TestCase
         $this->assertStringStartsWith("patients/{$patient->id}/exports/", (string) $backup->refresh()->storage_path);
         $this->assertStringStartsWith("patients/{$patient->id}/imaging/dicom/uploads/", (string) $upload->refresh()->r2_prefix);
         $this->assertStringStartsWith($upload->r2_prefix.'/', (string) $dicom->refresh()->r2_key);
+        $canonicalDicomKey = (string) $dicom->r2_key;
         $this->assertSame(
             "patients/{$patient->id}/imaging/dicom/derived/series/{$series->id}/v1.bin.gz",
             $derived->refresh()->r2_key,
@@ -365,6 +395,13 @@ class PhrBlobMigrationTest extends TestCase
             Storage::disk(DicomUploadProcessor::DISK)->assertExists($legacy);
         }
 
+        // Simulate an operator rollback of one reference while its ledger remains.
+        // The hourly collector must retain both verified sides during the window.
+        $dicom->update(['r2_key' => $dicomKey]);
+        $this->artisan('phr:dicom:gc')->assertSuccessful();
+        Storage::disk(DicomUploadProcessor::DISK)->assertExists($dicomKey);
+        Storage::disk(DicomUploadProcessor::DISK)->assertExists($canonicalDicomKey);
+
         // The scheduled collector must honor the rollback ledger rather than
         // deleting repointed legacy objects as apparent orphans.
         $this->artisan('phr:dicom:gc')->assertSuccessful();
@@ -383,10 +420,15 @@ class PhrBlobMigrationTest extends TestCase
         $foreignKey = "patients/{$otherPatient->id}/documents/018f1f3a-6d18-7f42-a780-5dd94c10f312/synthetic.pdf";
         Storage::disk('phr_documents')->put($foreignKey, 'synthetic bytes');
         $document = $this->document($patient, $owner, $foreignKey, 'synthetic bytes');
+        $foreignLegacyKey = "phr/documents/patients/{$otherPatient->id}/legacy/synthetic-legacy.pdf";
+        Storage::disk('phr_documents')->put($foreignLegacyKey, 'synthetic legacy bytes');
+        $legacyDocument = $this->document($patient, $owner, $foreignLegacyKey, 'synthetic legacy bytes');
         $this->artisan('phr:storage:migrate-keys', ['--artifact' => 'documents', '--apply' => true])
             ->expectsOutputToContain("reference=phr_documents#{$document->id} status=invalid_reference")
+            ->expectsOutputToContain("reference=phr_documents#{$legacyDocument->id} status=invalid_reference")
             ->assertFailed();
         $this->assertSame($foreignKey, $document->refresh()->storage_path);
+        $this->assertSame($foreignLegacyKey, $legacyDocument->refresh()->storage_path);
 
         $upload = PhrDicomUpload::create([
             'patient_id' => $patient->id,
