@@ -156,7 +156,20 @@ function AllergiesTable({
                     onClick={() => onDrill?.({ id: 'allergy-detail', instance: String(allergy.id) })}
                   >
                     <td className="px-4 py-3">
-                      <div className="font-medium text-card-foreground">{allergy.substance}</div>
+                      {onDrill ? (
+                        <button
+                          type="button"
+                          className="rounded-sm text-left font-medium text-card-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            onDrill({ id: 'allergy-detail', instance: String(allergy.id) })
+                          }}
+                        >
+                          {allergy.substance}
+                        </button>
+                      ) : (
+                        <div className="font-medium text-card-foreground">{allergy.substance}</div>
+                      )}
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         {allergy.category && (
                           <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">

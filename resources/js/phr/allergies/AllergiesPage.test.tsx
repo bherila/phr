@@ -42,9 +42,13 @@ describe('AllergiesPage', () => {
     const onDrill = jest.fn()
     render(<AllergiesPage patientId={42} onDrill={onDrill} />)
 
-    fireEvent.click(await screen.findByText('Synthetic allergen'))
+    const detailButton = await screen.findByRole('button', { name: 'Synthetic allergen' })
+    detailButton.focus()
+    expect(detailButton).toHaveFocus()
+    fireEvent.click(detailButton)
 
     expect(onDrill).toHaveBeenCalledWith({ id: 'allergy-detail', instance: '17' })
+    expect(onDrill).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('button', { name: /edit allergy/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /delete allergy/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('columnheader', { name: 'Actions' })).not.toBeInTheDocument()
