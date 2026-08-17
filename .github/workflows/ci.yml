@@ -92,6 +92,9 @@ jobs:
       - name: Test cPanel cron installer
         run: bash .github/scripts/configure-phr-scheduler.test.sh
 
+      - name: Test agent mutation digest key installer
+        run: bash .github/scripts/configure-agent-mutation-digest-key.test.sh
+
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
         with:
@@ -360,6 +363,13 @@ jobs:
             composer.json \
             composer.lock \
             ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:~/phr-laravel/
+
+      - name: Create or verify persistent agent mutation digest key
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes \
+            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
+            "PHR_ENV_FILE=\$HOME/phr-laravel/.env /opt/cpanel/ea-php85/root/usr/bin/php" \
+            < scripts/configure-agent-mutation-digest-key.php
 
       - name: Create or verify persistent OAuth signing keys
         run: |

@@ -238,6 +238,63 @@ final class AgentMcpReadTools
         return $this->api->import($patient_id, $import_id)->toArray();
     }
 
+    /** @return array<string, mixed> */
+    public function healthLogEntriesList(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $health_log_id,
+        #[Schema(minimum: 1, maximum: 100)] int $limit = 25,
+        #[Schema(maxLength: 2048)] ?string $cursor = null,
+        #[Schema(format: 'date-time')] ?string $updated_after = null,
+        #[Schema(format: 'date-time')] ?string $updated_before = null,
+        #[Schema(format: 'date-time')] ?string $occurred_after = null,
+        #[Schema(format: 'date-time')] ?string $occurred_before = null,
+    ): array {
+        return $this->api->healthLogEntries(
+            $patient_id,
+            $health_log_id,
+            $limit,
+            $cursor,
+            $updated_after,
+            $updated_before,
+            $occurred_after,
+            $occurred_before,
+        )->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function healthLogEntriesGet(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $health_log_id,
+        #[Schema(minimum: 1)] int $entry_id,
+    ): array {
+        return $this->api->healthLogEntry($patient_id, $health_log_id, $entry_id)->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function respiratoryEventsList(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1, maximum: 100)] int $limit = 25,
+        #[Schema(maxLength: 2048)] ?string $cursor = null,
+        #[Schema(format: 'date-time')] ?string $updated_after = null,
+        #[Schema(format: 'date-time')] ?string $updated_before = null,
+        #[Schema(format: 'date-time')] ?string $occurred_after = null,
+        #[Schema(format: 'date-time')] ?string $occurred_before = null,
+        ?string $event_type = null,
+        bool $include_false_positives = false,
+    ): array {
+        return $this->api->respiratoryEvents(
+            $patient_id,
+            $limit,
+            $cursor,
+            $updated_after,
+            $updated_before,
+            $occurred_after,
+            $occurred_before,
+            $event_type,
+            $include_false_positives,
+        )->toArray();
+    }
+
     /**
      * @param  list<string>|null  $resourceTypes
      * @return array<string, mixed>

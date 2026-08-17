@@ -3,6 +3,7 @@
 namespace App\Services\PHR\HealthLog\Data;
 
 use App\Models\PhrHealthLogEntry;
+use App\Support\AgentApi\AgentApiJson;
 use Spatie\TypeScriptTransformer\Attributes\LiteralTypeScriptType;
 use Spatie\TypeScriptTransformer\Attributes\TypeScript;
 
@@ -11,7 +12,7 @@ readonly class HealthLogEntryData
 {
     /**
      * @param  list<string>  $tags
-     * @param  array<string, mixed>|null  $details
+     * @param  array<string, mixed>|object|null  $details
      */
     public function __construct(
         public int $id,
@@ -26,7 +27,7 @@ readonly class HealthLogEntryData
         #[LiteralTypeScriptType('Array<string>')]
         public array $tags,
         #[LiteralTypeScriptType('Record<string, unknown> | null')]
-        public ?array $details,
+        public array|object|null $details,
         public ?string $created_at,
         public ?string $updated_at,
     ) {}
@@ -44,10 +45,19 @@ readonly class HealthLogEntryData
             notes: $entry->notes,
             intensity: $entry->intensity,
             tags: $entry->tags ?? [],
-            details: $entry->details,
+            details: self::details($entry),
             created_at: $entry->created_at?->toDateTimeString(),
             updated_at: $entry->updated_at?->toDateTimeString(),
         );
+    }
+
+    /** @return array<string, mixed>|object|null */
+    private static function details(PhrHealthLogEntry $entry): array|object|null
+    {
+        $raw = $entry->getRawOriginal('details');
+        $details = is_string($raw) ? AgentApiJson::decodeValue($raw) : $entry->details;
+
+        return is_array($details) || is_object($details) ? $details : null;
     }
 
     /** @return array<string, mixed> */

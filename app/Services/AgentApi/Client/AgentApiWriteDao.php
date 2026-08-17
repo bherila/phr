@@ -4,7 +4,10 @@ namespace App\Services\AgentApi\Client;
 
 use App\DataTransferObjects\AgentApi\ClinicalUpsertData;
 use App\DataTransferObjects\AgentApi\DocumentUploadData;
+use App\DataTransferObjects\AgentApi\HealthLogCreateData;
+use App\DataTransferObjects\AgentApi\HealthLogEntryAppendData;
 use App\DataTransferObjects\AgentApi\ImportReviewData;
+use App\DataTransferObjects\AgentApi\RespiratoryEventBatchData;
 
 /** Typed data-access boundary for reusable v1 REST mutations. */
 final readonly class AgentApiWriteDao
@@ -57,5 +60,35 @@ final readonly class AgentApiWriteDao
             "patients/{$patientId}/imports/{$importId}/results/{$resultId}/review",
             json: $data->toRequestPayload(),
         ), 'import_result');
+    }
+
+    public function healthLogCreate(int $patientId, HealthLogCreateData $data): AgentApiPayload
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'POST',
+            "patients/{$patientId}/health-logs",
+            json: ['external_id' => $data->externalId, ...$data->attributes],
+        ), ['resource_type', 'patient_id', 'outcome', 'data']);
+    }
+
+    public function healthLogEntryAppend(
+        int $patientId,
+        int $healthLogId,
+        HealthLogEntryAppendData $data,
+    ): AgentApiPayload {
+        return AgentApiPayload::item($this->transport->send(
+            'POST',
+            "patients/{$patientId}/health-logs/{$healthLogId}/entries",
+            json: $data->toRequestPayload(),
+        ), ['resource_type', 'patient_id', 'health_log_id', 'outcome', 'data']);
+    }
+
+    public function respiratoryEventsIngest(int $patientId, RespiratoryEventBatchData $data): AgentApiPayload
+    {
+        return AgentApiPayload::from($this->transport->send(
+            'POST',
+            "patients/{$patientId}/respiratory-events/batch",
+            json: $data->toRequestPayload(),
+        ), ['resource_type', 'patient_id', 'results']);
     }
 }

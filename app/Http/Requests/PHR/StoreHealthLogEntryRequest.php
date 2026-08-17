@@ -2,10 +2,17 @@
 
 namespace App\Http\Requests\PHR;
 
+use App\Http\Requests\Concerns\RejectsUnknownInputFields;
+use App\Rules\JsonList;
+use App\Rules\JsonObject;
+use App\Support\AgentApi\AgentApiJson;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Validator;
 
 class StoreHealthLogEntryRequest extends FormRequest
 {
+    use RejectsUnknownInputFields;
+
     /**
      * Determine if the user is authorized to make this request.
      */
@@ -36,6 +43,33 @@ class StoreHealthLogEntryRequest extends FormRequest
         ];
     }
 
+    /** @return list<callable(Validator): void> */
+    public function after(): array
+    {
+        return [function (Validator $validator): void {
+            $this->rejectUnknownInputFields($validator, $this->rules());
+            $payload = $this->rawJsonPayload();
+            if ($payload === null || ! property_exists($payload, 'details')) {
+                return;
+            }
+            if ($payload->details !== null && ! is_object($payload->details)) {
+                $validator->errors()->add('details', 'The details field must be a JSON object.');
+            }
+        }];
+    }
+
+    /** @return array<string, mixed> */
+    public function validatedEntryData(): array
+    {
+        $validated = $this->validated();
+        $payload = $this->rawJsonPayload();
+        if ($payload !== null && property_exists($payload, 'details')) {
+            $validated['details'] = AgentApiJson::preserveShape($payload->details);
+        }
+
+        return $validated;
+    }
+
     /** @return array<string, mixed> */
     protected function healthLogEntryRules(bool $updating): array
     {
@@ -44,9 +78,24 @@ class StoreHealthLogEntryRequest extends FormRequest
             'title' => ['nullable', 'string', 'max:255'],
             'notes' => ['nullable', 'string', 'max:10000'],
             'intensity' => ['nullable', 'integer', 'between:0,10'],
-            'tags' => ['nullable', 'array', 'max:20'],
+            'tags' => ['nullable', 'array', JsonList::fromRequest($this, 'tags'), 'max:20'],
             'tags.*' => ['string', 'max:50', 'distinct'],
-            'details' => ['nullable', 'array', 'max:50'],
+            'details' => [
+                'nullable',
+                'array',
+                ...($this->isJson() ? [] : [new JsonObject]),
+                'max:50',
+            ],
         ];
+    }
+
+    private function rawJsonPayload(): ?object
+    {
+        if (! $this->isJson()) {
+            return null;
+        }
+        $payload = AgentApiJson::decodeRaw($this->getContent());
+
+        return is_object($payload) ? $payload : null;
     }
 }

@@ -2,13 +2,18 @@
 
 namespace App\Http\Requests\PHR;
 
+use App\Http\Requests\Concerns\RejectsUnknownInputFields;
+use App\Rules\JsonList;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Validator;
 
 class StoreRespiratoryEventBatchRequest extends FormRequest
 {
+    use RejectsUnknownInputFields;
+
     public function authorize(): bool
     {
-        return auth()->check();
+        return $this->user() !== null || $this->user('api') !== null;
     }
 
     /**
@@ -35,9 +40,15 @@ class StoreRespiratoryEventBatchRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'events' => ['required', 'array', 'min:1', 'max:500'],
+            'events' => ['required', 'array', JsonList::fromRequest($this, 'events'), 'min:1', 'max:500'],
             'events.*' => ['array'],
         ];
+    }
+
+    /** @return list<callable(Validator): void> */
+    public function after(): array
+    {
+        return [fn (Validator $validator) => $this->rejectUnknownInputFields($validator, $this->rules())];
     }
 
     /**

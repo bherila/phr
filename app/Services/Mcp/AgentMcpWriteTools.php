@@ -4,16 +4,23 @@ namespace App\Services\Mcp;
 
 use App\DataTransferObjects\AgentApi\ClinicalUpsertData;
 use App\DataTransferObjects\AgentApi\DocumentUploadData;
+use App\DataTransferObjects\AgentApi\HealthLogCreateData;
+use App\DataTransferObjects\AgentApi\HealthLogEntryAppendData;
 use App\DataTransferObjects\AgentApi\ImportReviewData;
+use App\DataTransferObjects\AgentApi\RespiratoryEventBatchData;
 use App\Services\AgentApi\Client\AgentApiWriteDao;
 use Closure;
 use Mcp\Capability\Attribute\Schema;
 use Mcp\Exception\ToolCallException;
+use Mcp\Server\RequestContext;
 
 /** Thin MCP mutation handlers over the typed REST write DAO. */
 final readonly class AgentMcpWriteTools
 {
-    public function __construct(private AgentApiWriteDao $api) {}
+    public function __construct(
+        private AgentApiWriteDao $api,
+        private AgentMcpRequestArguments $requestArguments,
+    ) {}
 
     public function clinicalUpsertHandler(string $resource): Closure
     {
@@ -104,5 +111,72 @@ final readonly class AgentMcpWriteTools
         }
 
         return $this->api->importReview($patient_id, $import_id, $result_id, $review)->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function healthLogsCreate(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minLength: 1, maxLength: 255, pattern: '^[^\\p{C}]+$')] string $external_id,
+        #[Schema(minLength: 1, maxLength: 120)] string $name,
+        string $kind,
+        #[Schema(maxLength: 1000)] ?string $description = null,
+        #[Schema(format: 'date-time')] ?string $archived_at = null,
+    ): array {
+        return $this->api->healthLogCreate($patient_id, HealthLogCreateData::fromValidated([
+            'external_id' => $external_id,
+            'name' => $name,
+            'kind' => $kind,
+            'description' => $description,
+            'archived_at' => $archived_at,
+        ]))->toArray();
+    }
+
+    /**
+     * @param  list<string>  $tags
+     * @param  array<string, mixed>|null  $details
+     * @return array<string, mixed>
+     */
+    public function healthLogEntriesAppend(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $health_log_id,
+        #[Schema(minLength: 1, maxLength: 255, pattern: '^[^\\p{C}]+$')] string $external_id,
+        #[Schema(format: 'date-time')] string $occurred_at,
+        RequestContext $context,
+        #[Schema(maxLength: 255)] ?string $title = null,
+        #[Schema(maxLength: 10000)] ?string $notes = null,
+        #[Schema(minimum: 0, maximum: 10)] ?int $intensity = null,
+        #[Schema(items: ['type' => 'string', 'maxLength' => 50], maxItems: 20, uniqueItems: true)] array $tags = [],
+        #[Schema(type: 'object')] ?array $details = null,
+    ): array {
+        return $this->api->healthLogEntryAppend(
+            $patient_id,
+            $health_log_id,
+            HealthLogEntryAppendData::fromValidated([
+                'external_id' => $external_id,
+                'occurred_at' => $occurred_at,
+                'title' => $title,
+                'notes' => $notes,
+                'intensity' => $intensity,
+                'tags' => $tags,
+                'details' => $this->requestArguments->value($context, 'details', $details),
+            ]),
+        )->toArray();
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $events
+     * @return array<string, mixed>
+     */
+    public function respiratoryEventsIngest(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(type: 'array', minItems: 1, maxItems: 500, items: ['type' => 'object'])] array $events,
+    ): array {
+        try {
+            $batch = RespiratoryEventBatchData::from($events);
+        } catch (\InvalidArgumentException) {
+            throw new ToolCallException('The respiratory event batch is invalid.');
+        }
+
+        return $this->api->respiratoryEventsIngest($patient_id, $batch)->toArray();
     }
 }

@@ -10,12 +10,14 @@ use Illuminate\Validation\ValidationException;
 
 class PhrHealthLogService
 {
+    public function __construct(private PhrHealthLogDao $dao) {}
+
     /** @param array<string, mixed> $attributes */
     public function createLog(PhrPatient $patient, int $actorId, array $attributes): PhrHealthLog
     {
         $this->ensureNameIsUnique($patient->id, (string) $attributes['name']);
 
-        $healthLog = PhrHealthLog::query()->create([
+        $healthLog = $this->dao->createLog([
             ...$attributes,
             'patient_id' => $patient->id,
             'user_id' => $patient->owner_user_id,
@@ -32,11 +34,9 @@ class PhrHealthLogService
         string $kind = PhrHealthLog::KIND_CUSTOM,
         ?string $description = null,
     ): PhrHealthLog {
-        $healthLog = PhrHealthLog::query()->firstOrCreate(
-            [
-                'patient_id' => $patient->id,
-                'name' => $name,
-            ],
+        $healthLog = $this->dao->firstOrCreateLog(
+            $patient->id,
+            $name,
             [
                 'user_id' => $patient->owner_user_id,
                 'created_by_user_id' => $actorId,
@@ -69,7 +69,7 @@ class PhrHealthLogService
     ): PhrHealthLogEntry {
         $this->ensureLogBelongsToPatient($healthLog, $patient);
 
-        return PhrHealthLogEntry::query()->create([
+        return $this->dao->createEntry([
             ...$attributes,
             'health_log_id' => $healthLog->id,
             'patient_id' => $patient->id,
@@ -95,15 +95,7 @@ class PhrHealthLogService
 
     private function ensureNameIsUnique(int $patientId, string $name, ?int $ignoreLogId = null): void
     {
-        $query = PhrHealthLog::query()
-            ->where('patient_id', $patientId)
-            ->where('name', $name);
-
-        if ($ignoreLogId !== null) {
-            $query->whereKeyNot($ignoreLogId);
-        }
-
-        if ($query->exists()) {
+        if ($this->dao->nameExists($patientId, $name, $ignoreLogId)) {
             throw ValidationException::withMessages([
                 'name' => 'A health log with this name already exists for the patient.',
             ]);
@@ -112,9 +104,6 @@ class PhrHealthLogService
 
     private function withEntrySummary(PhrHealthLog $healthLog): PhrHealthLog
     {
-        return PhrHealthLog::query()
-            ->withCount('entries')
-            ->withMax('entries as latest_entry_at', 'occurred_at')
-            ->findOrFail($healthLog->id);
+        return $this->dao->refreshWithEntrySummary($healthLog);
     }
 }

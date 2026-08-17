@@ -53,6 +53,7 @@
             "composer install",
             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
             "@php artisan key:generate",
+            "@php scripts/configure-agent-mutation-digest-key.php",
             "@php artisan migrate --force",
             "pnpm install",
             "pnpm run build"

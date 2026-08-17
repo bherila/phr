@@ -5,8 +5,11 @@ namespace App\Services\Mcp;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Http\Request;
 use Laravel\Passport\AccessToken;
+use Mcp\Capability\Registry;
+use Mcp\Capability\Registry\ReferenceHandler;
 use Mcp\Schema\ToolAnnotations;
 use Mcp\Server;
+use Mcp\Server\Handler\Request\CallToolHandler;
 use Mcp\Server\Session\Psr16SessionStore;
 use Psr\Log\NullLogger;
 
@@ -18,10 +21,14 @@ final class AgentMcpServerFactory
         private readonly AgentMcpReadTools $reads,
         private readonly AgentMcpWriteTools $writes,
         private readonly AgentMcpInputSchemaFactory $schemas,
+        private readonly AgentMcpRequestArguments $requestArguments,
     ) {}
 
     public function make(Request $request): Server
     {
+        $logger = new NullLogger;
+        $registry = new Registry(logger: $logger);
+        $referenceHandler = new ReferenceHandler(app());
         $builder = Server::builder()
             ->setServerInfo(
                 name: 'PHR Agent API',
@@ -41,8 +48,18 @@ final class AgentMcpServerFactory
             ))
             // The SDK's debug logger includes tool arguments and results. A null
             // logger is mandatory here because both can contain health records.
-            ->setLogger(new NullLogger)
+            ->setLogger($logger)
             ->setContainer(app())
+            ->setRegistry($registry)
+            ->setReferenceHandler($referenceHandler)
+            // Register first so the protocol selects the shape-aware validator
+            // before the SDK's default CallToolHandler.
+            ->addRequestHandler(new CallToolHandler(
+                $registry,
+                $referenceHandler,
+                $logger,
+                new AgentMcpSchemaValidator($logger, $this->requestArguments),
+            ))
             ->setLazyLoading(false);
 
         foreach ($this->catalog->definitions($this->reads, $this->writes) as $definition) {

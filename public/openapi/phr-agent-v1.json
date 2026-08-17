@@ -303,6 +303,95 @@
           "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
       }
     },
+    "/patients/{patient}/health-logs": {
+      "post": {
+        "operationId": "health_logs.create",
+        "summary": "Idempotently create a patient health log",
+        "security": [{ "oauth2": ["clinical:write"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HealthLogCreateRequest" } } } },
+        "responses": {
+          "200": { "description": "Exact retry", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HealthLogMutationResponse" } } } },
+          "201": { "description": "Health log created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HealthLogMutationResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/patients/{patient}/health-logs/{healthLog}/entries": {
+      "get": {
+        "operationId": "health_log_entries.list",
+        "summary": "List bounded entries for one health log",
+        "security": [{ "oauth2": ["clinical:read"] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/HealthLogId" },
+          { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" },
+          { "$ref": "#/components/parameters/UpdatedAfter" }, { "$ref": "#/components/parameters/UpdatedBefore" },
+          { "name": "occurred_after", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "occurred_before", "in": "query", "schema": { "type": "string", "format": "date-time" } }
+        ],
+        "responses": { "200": { "description": "Bounded health-log-entry page", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HealthLogEntryListResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      },
+      "post": {
+        "operationId": "health_log_entries.append",
+        "summary": "Idempotently append a health log entry",
+        "security": [{ "oauth2": ["clinical:write"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/HealthLogId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HealthLogEntryAppendRequest" } } } },
+        "responses": {
+          "200": { "description": "Exact retry", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HealthLogEntryMutationResponse" } } } },
+          "201": { "description": "Entry appended", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HealthLogEntryMutationResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/patients/{patient}/health-logs/{healthLog}/entries/{entry}": {
+      "get": {
+        "operationId": "health_log_entries.get",
+        "summary": "Get one health log entry",
+        "security": [{ "oauth2": ["clinical:read"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/HealthLogId" }, { "$ref": "#/components/parameters/HealthLogEntryId" }],
+        "responses": { "200": { "description": "Health log entry", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HealthLogEntryResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/patients/{patient}/respiratory-events": {
+      "get": {
+        "operationId": "respiratory_events.list",
+        "summary": "List bounded respiratory device events",
+        "security": [{ "oauth2": ["clinical:read"] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" },
+          { "$ref": "#/components/parameters/UpdatedAfter" }, { "$ref": "#/components/parameters/UpdatedBefore" },
+          { "name": "occurred_after", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "occurred_before", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "event_type", "in": "query", "schema": { "$ref": "#/components/schemas/RespiratoryEventType" } },
+          { "name": "include_false_positives", "in": "query", "schema": { "type": "boolean", "default": false } }
+        ],
+        "responses": { "200": { "description": "Bounded respiratory-event page", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RespiratoryEventListResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/patients/{patient}/respiratory-events/batch": {
+      "post": {
+        "operationId": "respiratory_events.ingest",
+        "summary": "Idempotently ingest a respiratory device event batch",
+        "description": "Uses the same per-event validation and duplicate semantics as the Sinus Sentinel device endpoint.",
+        "security": [{ "oauth2": ["clinical:write"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RespiratoryEventBatchRequest" } } } },
+        "responses": { "200": { "description": "Per-event accepted, duplicate, or rejected results", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RespiratoryEventBatchResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
     "/patients/{patient}/{resource}": {
       "get": {
         "operationId": "clinical.list",
@@ -492,6 +581,8 @@
       "DocumentId": { "name": "document", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
       "ImportId": { "name": "import", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
       "ImportResultId": { "name": "result", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
+      "HealthLogId": { "name": "healthLog", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
+      "HealthLogEntryId": { "name": "entry", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
       "ClinicalResource": {
         "name": "resource",
         "in": "path",
@@ -973,6 +1064,109 @@
         "resource_type": { "const": "import_result" }, "patient_id": { "type": "integer" }, "job_id": { "type": "integer" },
         "outcome": { "type": "string", "enum": ["accepted", "rejected", "unchanged"] }, "import": { "$ref": "#/components/schemas/ImportCounts" },
         "data": { "oneOf": [{ "$ref": "#/components/schemas/ImportResultReceipt" }, { "$ref": "#/components/schemas/ImportResult" }] }
+      }, "additionalProperties": false },
+      "HealthLog": {
+        "type": "object",
+        "required": ["id", "patient_id", "user_id", "created_by_user_id", "name", "kind", "description", "archived_at", "entries_count", "latest_entry_at", "created_at", "updated_at"],
+        "properties": {
+          "id": { "type": "integer" }, "patient_id": { "type": "integer" }, "user_id": { "type": "integer" },
+          "created_by_user_id": { "type": ["integer", "null"] }, "name": { "type": "string" },
+          "kind": { "type": "string", "enum": ["meal", "snack", "symptom", "custom"] },
+          "description": { "type": ["string", "null"] }, "archived_at": { "type": ["string", "null"], "format": "date-time" },
+          "entries_count": { "type": "integer" }, "latest_entry_at": { "type": ["string", "null"], "format": "date-time" },
+          "created_at": { "type": ["string", "null"], "format": "date-time" }, "updated_at": { "type": ["string", "null"], "format": "date-time" }
+        }, "additionalProperties": false
+      },
+      "HealthLogCreateRequest": {
+        "type": "object", "required": ["external_id", "name", "kind"],
+        "properties": {
+          "external_id": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^[^\\p{C}]+$" },
+          "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "kind": { "type": "string", "enum": ["meal", "snack", "symptom", "custom"] },
+          "description": { "type": ["string", "null"], "maxLength": 1000 },
+          "archived_at": { "type": ["string", "null"], "format": "date-time" }
+        }, "additionalProperties": false
+      },
+      "HealthLogMutationResponse": { "type": "object", "required": ["resource_type", "patient_id", "outcome", "data"], "properties": {
+        "resource_type": { "const": "health-log" }, "patient_id": { "type": "integer" },
+        "outcome": { "type": "string", "enum": ["created", "unchanged"] }, "data": { "$ref": "#/components/schemas/HealthLog" }
+      }, "additionalProperties": false },
+      "HealthLogEntry": {
+        "type": "object",
+        "required": ["id", "health_log_id", "patient_id", "user_id", "recorded_by_user_id", "occurred_at", "title", "notes", "intensity", "tags", "details", "created_at", "updated_at"],
+        "properties": {
+          "id": { "type": "integer" }, "health_log_id": { "type": "integer" }, "patient_id": { "type": "integer" },
+          "user_id": { "type": "integer" }, "recorded_by_user_id": { "type": ["integer", "null"] },
+          "occurred_at": { "type": "string", "format": "date-time" }, "title": { "type": ["string", "null"] },
+          "notes": { "type": ["string", "null"] }, "intensity": { "type": ["integer", "null"], "minimum": 0, "maximum": 10 },
+          "tags": { "type": "array", "items": { "type": "string" } }, "details": { "type": ["object", "null"], "additionalProperties": true },
+          "created_at": { "type": ["string", "null"], "format": "date-time" }, "updated_at": { "type": ["string", "null"], "format": "date-time" }
+        }, "additionalProperties": false
+      },
+      "HealthLogEntryAppendRequest": {
+        "type": "object", "required": ["external_id", "occurred_at"],
+        "properties": {
+          "external_id": { "type": "string", "minLength": 1, "maxLength": 255, "pattern": "^[^\\p{C}]+$" },
+          "occurred_at": { "type": "string", "format": "date-time" }, "title": { "type": ["string", "null"], "maxLength": 255 },
+          "notes": { "type": ["string", "null"], "maxLength": 10000 }, "intensity": { "type": ["integer", "null"], "minimum": 0, "maximum": 10 },
+          "tags": { "type": ["array", "null"], "maxItems": 20, "items": { "type": "string", "maxLength": 50 }, "uniqueItems": true },
+          "details": { "type": ["object", "null"], "maxProperties": 50, "additionalProperties": true }
+        }, "additionalProperties": false
+      },
+      "HealthLogEntryListResponse": { "type": "object", "required": ["resource_type", "patient_id", "health_log_id", "data", "pagination"], "properties": {
+        "resource_type": { "const": "health-log-entry" }, "patient_id": { "type": "integer" }, "health_log_id": { "type": "integer" },
+        "data": { "type": "array", "items": { "$ref": "#/components/schemas/HealthLogEntry" } }, "pagination": { "$ref": "#/components/schemas/Pagination" }
+      }, "additionalProperties": false },
+      "HealthLogEntryResponse": { "type": "object", "required": ["resource_type", "patient_id", "health_log_id", "data"], "properties": {
+        "resource_type": { "const": "health-log-entry" }, "patient_id": { "type": "integer" }, "health_log_id": { "type": "integer" },
+        "data": { "$ref": "#/components/schemas/HealthLogEntry" }
+      }, "additionalProperties": false },
+      "HealthLogEntryMutationResponse": { "type": "object", "required": ["resource_type", "patient_id", "health_log_id", "outcome", "data"], "properties": {
+        "resource_type": { "const": "health-log-entry" }, "patient_id": { "type": "integer" }, "health_log_id": { "type": "integer" },
+        "outcome": { "type": "string", "enum": ["created", "unchanged"] }, "data": { "$ref": "#/components/schemas/HealthLogEntry" }
+      }, "additionalProperties": false },
+      "RespiratoryEventType": { "type": "string", "enum": ["cough", "throat_clearing", "sniffle", "sneeze", "nose_blow", "hawk", "snort_suck"] },
+      "RespiratoryEvent": {
+        "type": "object",
+        "required": ["id", "phr_patient_id", "client_event_uuid", "event_type", "occurred_at", "tz_offset_min", "duration_ms", "confidence", "burst_count", "peak_dbfs", "mean_dbfs", "noise_floor_dbfs", "source", "device_id", "model_version", "false_positive_at", "corrected_to_event_type", "corrected_at", "effective_event_type", "created_at", "updated_at"],
+        "properties": {
+          "id": { "type": "integer" }, "phr_patient_id": { "type": "integer" }, "client_event_uuid": { "type": "string" },
+          "event_type": { "$ref": "#/components/schemas/RespiratoryEventType" }, "occurred_at": { "type": "string", "format": "date-time" },
+          "tz_offset_min": { "type": "integer" }, "duration_ms": { "type": ["integer", "null"] }, "confidence": { "type": ["number", "null"] },
+          "burst_count": { "type": "integer" }, "peak_dbfs": { "type": ["number", "null"] }, "mean_dbfs": { "type": ["number", "null"] },
+          "noise_floor_dbfs": { "type": ["number", "null"] }, "source": { "type": ["string", "null"] }, "device_id": { "type": ["string", "null"] },
+          "model_version": { "type": ["string", "null"] }, "false_positive_at": { "type": ["string", "null"], "format": "date-time" },
+          "corrected_to_event_type": { "oneOf": [{ "$ref": "#/components/schemas/RespiratoryEventType" }, { "type": "null" }] },
+          "corrected_at": { "type": ["string", "null"], "format": "date-time" }, "effective_event_type": { "$ref": "#/components/schemas/RespiratoryEventType" },
+          "created_at": { "type": ["string", "null"], "format": "date-time" }, "updated_at": { "type": ["string", "null"], "format": "date-time" }
+        }, "additionalProperties": false
+      },
+      "RespiratoryEventInput": {
+        "type": "object", "required": ["client_event_uuid", "event_type", "occurred_at"],
+        "properties": {
+          "client_event_uuid": { "type": "string", "maxLength": 64 }, "event_type": { "$ref": "#/components/schemas/RespiratoryEventType" },
+          "occurred_at": { "type": "string", "format": "date-time" }, "tz_offset_min": { "type": ["integer", "null"], "minimum": -720, "maximum": 840 },
+          "duration_ms": { "type": ["integer", "null"], "minimum": 0 }, "confidence": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+          "burst_count": { "type": ["integer", "null"], "minimum": 1 }, "peak_dbfs": { "type": ["number", "null"], "minimum": -120, "maximum": 20 },
+          "mean_dbfs": { "type": ["number", "null"], "minimum": -120, "maximum": 20 }, "noise_floor_dbfs": { "type": ["number", "null"], "minimum": -120, "maximum": 20 },
+          "source": { "type": ["string", "null"], "enum": ["desktop-mac", "desktop-win", "mobile-ios", "mobile-android", null] },
+          "device_id": { "type": ["string", "null"], "maxLength": 64 }, "model_version": { "type": ["string", "null"], "maxLength": 64 }
+        }, "additionalProperties": false
+      },
+      "RespiratoryEventBatchRequest": { "type": "object", "required": ["events"], "properties": {
+        "events": { "type": "array", "minItems": 1, "maxItems": 500, "items": { "$ref": "#/components/schemas/RespiratoryEventInput" } }
+      }, "additionalProperties": false },
+      "RespiratoryEventBatchResult": { "type": "object", "required": ["uuid", "status"], "properties": {
+        "uuid": { "type": ["string", "null"] }, "status": { "type": "string", "enum": ["accepted", "duplicate", "rejected"] },
+        "reason": { "type": "string" }
+      }, "additionalProperties": false },
+      "RespiratoryEventListResponse": { "type": "object", "required": ["resource_type", "patient_id", "data", "pagination"], "properties": {
+        "resource_type": { "const": "respiratory-event" }, "patient_id": { "type": "integer" },
+        "data": { "type": "array", "items": { "$ref": "#/components/schemas/RespiratoryEvent" } }, "pagination": { "$ref": "#/components/schemas/Pagination" }
+      }, "additionalProperties": false },
+      "RespiratoryEventBatchResponse": { "type": "object", "required": ["resource_type", "patient_id", "results"], "properties": {
+        "resource_type": { "const": "respiratory-event-batch" }, "patient_id": { "type": "integer" },
+        "results": { "type": "array", "items": { "$ref": "#/components/schemas/RespiratoryEventBatchResult" } }
       }, "additionalProperties": false },
       "DownloadAccess": { "type": "object", "required": ["document_id", "expires_at", "download_url"], "properties": {
         "document_id": { "type": "integer" }, "expires_at": { "type": "string", "format": "date-time" }, "download_url": { "type": "string", "format": "uri" } },

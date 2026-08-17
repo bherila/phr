@@ -4,7 +4,10 @@ namespace Tests\Unit\Services;
 
 use App\DataTransferObjects\AgentApi\ClinicalUpsertData;
 use App\DataTransferObjects\AgentApi\DocumentUploadData;
+use App\DataTransferObjects\AgentApi\HealthLogCreateData;
+use App\DataTransferObjects\AgentApi\HealthLogEntryAppendData;
 use App\DataTransferObjects\AgentApi\ImportReviewData;
+use App\DataTransferObjects\AgentApi\RespiratoryEventBatchData;
 use App\Services\AgentApi\Client\AgentApiMultipart;
 use App\Services\AgentApi\Client\AgentApiReadDao;
 use App\Services\AgentApi\Client\AgentApiTransport;
@@ -161,6 +164,66 @@ final class AgentApiReadDaoTest extends TestCase
             'action' => 'accept',
             'payload' => ['analyte' => 'Synthetic corrected result'],
         ], $transport->json);
+    }
+
+    public function test_health_and_device_daos_keep_nested_routes_and_payloads_typed(): void
+    {
+        $pageTransport = new RecordingAgentApiTransport(new AgentApiTransportResponse(200, [
+            'resource_type' => 'health-log-entry',
+            'patient_id' => 7,
+            'health_log_id' => 9,
+            'data' => [],
+            'pagination' => ['limit' => 10, 'has_more' => false, 'next_cursor' => null],
+        ]));
+        (new AgentApiReadDao($pageTransport))->healthLogEntries(
+            7,
+            9,
+            10,
+            occurredAfter: '2026-08-16T00:00:00Z',
+        );
+        $this->assertSame('patients/7/health-logs/9/entries', $pageTransport->path);
+        $this->assertSame([
+            'limit' => 10,
+            'occurred_after' => '2026-08-16T00:00:00Z',
+        ], $pageTransport->query);
+
+        $mutationTransport = new RecordingAgentApiTransport(new AgentApiTransportResponse(201, [
+            'resource_type' => 'health-log-entry',
+            'patient_id' => 7,
+            'health_log_id' => 9,
+            'outcome' => 'created',
+            'data' => ['id' => 11],
+        ]));
+        $entry = HealthLogEntryAppendData::fromValidated([
+            'external_id' => 'synthetic-entry',
+            'occurred_at' => '2026-08-16T01:00:00Z',
+        ]);
+        (new AgentApiWriteDao($mutationTransport))->healthLogEntryAppend(7, 9, $entry);
+        $this->assertSame('patients/7/health-logs/9/entries', $mutationTransport->path);
+        $this->assertSame('synthetic-entry', $mutationTransport->json['external_id'] ?? null);
+        $this->assertSame([], $mutationTransport->json['tags'] ?? null);
+
+        $batchTransport = new RecordingAgentApiTransport(new AgentApiTransportResponse(200, [
+            'resource_type' => 'respiratory-event-batch',
+            'patient_id' => 7,
+            'results' => [['uuid' => 'synthetic-event', 'status' => 'accepted']],
+        ]));
+        $batch = RespiratoryEventBatchData::from([[
+            'client_event_uuid' => 'synthetic-event',
+            'event_type' => 'cough',
+            'occurred_at' => '2026-08-16T02:00:00Z',
+        ]]);
+        (new AgentApiWriteDao($batchTransport))->respiratoryEventsIngest(7, $batch);
+        $this->assertSame('patients/7/respiratory-events/batch', $batchTransport->path);
+        $this->assertSame($batch->events, $batchTransport->json['events'] ?? null);
+
+        $log = HealthLogCreateData::fromValidated([
+            'external_id' => 'synthetic-log',
+            'name' => 'Synthetic log',
+            'kind' => 'custom',
+        ]);
+        $this->assertNull($log->attributes['description']);
+        $this->assertNull($log->attributes['archived_at']);
     }
 }
 

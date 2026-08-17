@@ -57,6 +57,30 @@ final class AgentMcpToolCatalog
                 readOnly: false,
                 destructive: true,
             ),
+            $this->method('health_log_entries.list', 'List health log entries', 'List bounded entries for one accessible health log.', $reads, 'healthLogEntriesList'),
+            $this->method('health_log_entries.get', 'Get health log entry', 'Get one entry from an accessible health log.', $reads, 'healthLogEntriesGet'),
+            new AgentMcpToolDefinition(
+                'health_logs.create',
+                'Create health log',
+                'Idempotently create a patient health log through the versioned REST API.',
+                [$writes, 'healthLogsCreate'],
+                readOnly: false,
+            ),
+            new AgentMcpToolDefinition(
+                'health_log_entries.append',
+                'Append health log entry',
+                'Idempotently append an entry to a patient health log.',
+                [$writes, 'healthLogEntriesAppend'],
+                readOnly: false,
+            ),
+            $this->method('respiratory_events.list', 'List respiratory events', 'List bounded Sinus Sentinel events for an accessible patient.', $reads, 'respiratoryEventsList'),
+            new AgentMcpToolDefinition(
+                'respiratory_events.ingest',
+                'Ingest respiratory events',
+                'Idempotently ingest a bounded Sinus Sentinel event batch using the device validation contract.',
+                [$writes, 'respiratoryEventsIngest'],
+                readOnly: false,
+            ),
         ];
 
         foreach (AgentClinicalResourceCatalog::ids() as $resource) {

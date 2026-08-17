@@ -18,6 +18,7 @@
         </include>
     </source>
     <php>
+        <env name="AGENT_API_MUTATION_DIGEST_KEY" value="synthetic-agent-mutation-digest-key-not-for-production" force="true"/>
         <!-- The suite reaches ~121 MB of resident allocations by the time it gets to the
              PHR import tests, and mime_content_type() then needs a further ~7 MB to load
              libmagic's magic database — enough to blow a 128 MB limit on a 19-byte fixture.

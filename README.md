@@ -198,6 +198,16 @@ staging, queue, review, and clinical-import services; MCP tools call those versi
 operations through typed DAOs. API failures expose only a stable `processing_failed`
 code, never provider messages or raw model output.
 
+Health-log automation uses `clinical:read`/`clinical:write` without creating a parallel
+clinical model. Agents can create logs, append entries, and page nested entries through
+the same request rules, resources, patient-access service, and health-log service as the
+browser. Required external IDs are scoped to the OAuth client and retained only as
+keyed one-way digests in a small idempotency DAO; exact retries are no-ops and changed
+payloads conflict. Respiratory-event list and batch operations likewise share the Sinus
+Sentinel service and its per-event accepted/duplicate/rejected validation semantics. MCP exposes
+these REST operations as `health_logs.create`, `health_log_entries.list/get/append`, and
+`respiratory_events.list/ingest`.
+
 `clinical:write` currently enables idempotent `PUT` upserts for office visits and
 procedures. Each stable external ID is namespaced to the OAuth client (the client itself is
 the import source), so two integrations cannot overwrite one another. New records carry an
@@ -217,6 +227,7 @@ composer install
 pnpm install
 cp .env.example .env
 php artisan key:generate
+php scripts/configure-agent-mutation-digest-key.php
 touch database/database.sqlite   # default local DB is sqlite
 php artisan migrate
 
@@ -399,6 +410,11 @@ Installation preserves every cron entry
 carrying neither PHR tag and rolls the account crontab back if verification fails.
 Five minutes is the scheduler's production resolution: do not add an every-minute task
 without also changing the managed cPanel cron cadence.
+
+Deployment also provisions `AGENT_API_MUTATION_DIGEST_KEY` once in the persistent
+server `.env` and validates it on every deploy. It is deliberately independent from
+`APP_KEY`: rotating Laravel's encryption key must not invalidate dormant OAuth-client
+retry identities. Never rotate this digest key after agent writes exist.
 
 Both managed cron entries run through fixed application wrappers. They and the three
 scheduled PHR maintenance tasks record only allow-listed job names, timestamps,
