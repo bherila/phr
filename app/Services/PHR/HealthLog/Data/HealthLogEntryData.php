@@ -3,6 +3,7 @@
 namespace App\Services\PHR\HealthLog\Data;
 
 use App\Models\PhrHealthLogEntry;
+use App\Support\AgentApi\AgentApiJson;
 use Spatie\TypeScriptTransformer\Attributes\LiteralTypeScriptType;
 use Spatie\TypeScriptTransformer\Attributes\TypeScript;
 
@@ -44,12 +45,19 @@ readonly class HealthLogEntryData
             notes: $entry->notes,
             intensity: $entry->intensity,
             tags: $entry->tags ?? [],
-            // JSON objects decode through Eloquent's array cast. Preserve the
-            // empty-object wire shape instead of serializing it back as [].
-            details: $entry->details === [] ? (object) [] : $entry->details,
+            details: self::details($entry),
             created_at: $entry->created_at?->toDateTimeString(),
             updated_at: $entry->updated_at?->toDateTimeString(),
         );
+    }
+
+    /** @return array<string, mixed>|object|null */
+    private static function details(PhrHealthLogEntry $entry): array|object|null
+    {
+        $raw = $entry->getRawOriginal('details');
+        $details = is_string($raw) ? AgentApiJson::decodeValue($raw) : $entry->details;
+
+        return is_array($details) || is_object($details) ? $details : null;
     }
 
     /** @return array<string, mixed> */

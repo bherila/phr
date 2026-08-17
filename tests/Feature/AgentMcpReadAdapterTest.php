@@ -514,12 +514,12 @@ final class AgentMcpReadAdapterTest extends TestCase
             'occurred_at' => '2026-08-16T13:00:00Z',
             'title' => 'Synthetic MCP observation',
             'tags' => ['synthetic'],
-            'details' => (object) [],
+            'details' => ['metadata' => (object) []],
         ]);
         $entry = $entryResponse->json();
         $this->assertFalse($entry['result']['isError'] ?? true, json_encode($entry, JSON_THROW_ON_ERROR));
         $entryWirePayload = json_decode($entryResponse->getContent(), false, flags: JSON_THROW_ON_ERROR);
-        $this->assertIsObject($entryWirePayload->result->structuredContent->data->details);
+        $this->assertIsObject($entryWirePayload->result->structuredContent->data->details->metadata);
         $listed = $this->callTool($session, 4, 'health_log_entries.list', [
             'patient_id' => $patient->id,
             'health_log_id' => $logId,

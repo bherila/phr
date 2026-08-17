@@ -23,6 +23,6 @@ final class AppendAgentHealthLogEntryRequest extends StoreHealthLogEntryRequest
 
     public function command(): HealthLogEntryAppendData
     {
-        return HealthLogEntryAppendData::fromValidated($this->validated());
+        return HealthLogEntryAppendData::fromValidated($this->validatedEntryData());
     }
 }

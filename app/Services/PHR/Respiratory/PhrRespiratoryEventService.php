@@ -146,7 +146,16 @@ final class PhrRespiratoryEventService
      */
     private function ingestEvent(array $event, int $patientId, array $existingUuids, array &$seenUuids): array
     {
-        $validator = Validator::make($event, self::eventRules());
+        $rules = self::eventRules();
+        if (array_diff_key($event, $rules) !== []) {
+            return [
+                'uuid' => isset($event['client_event_uuid']) && is_string($event['client_event_uuid'])
+                    ? $event['client_event_uuid'] : null,
+                'status' => 'rejected',
+                'reason' => 'The event contains unsupported fields.',
+            ];
+        }
+        $validator = Validator::make($event, $rules);
         if ($validator->fails()) {
             return [
                 'uuid' => isset($event['client_event_uuid']) && is_string($event['client_event_uuid'])

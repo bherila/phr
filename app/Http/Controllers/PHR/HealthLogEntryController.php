@@ -48,7 +48,7 @@ class HealthLogEntryController extends Controller
             $resolvedPatient,
             $resolvedLog,
             $userId,
-            $request->validated(),
+            $request->validatedEntryData(),
         );
 
         return response()->json(['entry' => $this->payload($entry)], 201);
@@ -72,7 +72,7 @@ class HealthLogEntryController extends Controller
         $resolvedPatient = $this->writablePatient($request, $patient);
         $resolvedLog = $this->resolveHealthLog($resolvedPatient, $healthLog);
         $resolvedEntry = $this->resolveEntry($resolvedPatient, $resolvedLog, $entry);
-        $updated = $this->healthLogService->updateEntry($resolvedEntry, $request->validated());
+        $updated = $this->healthLogService->updateEntry($resolvedEntry, $request->validatedEntryData());
 
         return response()->json(['entry' => $this->payload($updated)]);
     }

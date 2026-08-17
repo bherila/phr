@@ -12,11 +12,15 @@ use App\Services\AgentApi\Client\AgentApiWriteDao;
 use Closure;
 use Mcp\Capability\Attribute\Schema;
 use Mcp\Exception\ToolCallException;
+use Mcp\Server\RequestContext;
 
 /** Thin MCP mutation handlers over the typed REST write DAO. */
 final readonly class AgentMcpWriteTools
 {
-    public function __construct(private AgentApiWriteDao $api) {}
+    public function __construct(
+        private AgentApiWriteDao $api,
+        private AgentMcpRequestArguments $requestArguments,
+    ) {}
 
     public function clinicalUpsertHandler(string $resource): Closure
     {
@@ -137,6 +141,7 @@ final readonly class AgentMcpWriteTools
         #[Schema(minimum: 1)] int $health_log_id,
         #[Schema(minLength: 1, maxLength: 255, pattern: '^[^\\p{C}]+$')] string $external_id,
         #[Schema(format: 'date-time')] string $occurred_at,
+        RequestContext $context,
         #[Schema(maxLength: 255)] ?string $title = null,
         #[Schema(maxLength: 10000)] ?string $notes = null,
         #[Schema(minimum: 0, maximum: 10)] ?int $intensity = null,
@@ -153,7 +158,7 @@ final readonly class AgentMcpWriteTools
                 'notes' => $notes,
                 'intensity' => $intensity,
                 'tags' => $tags,
-                'details' => $details,
+                'details' => $this->requestArguments->value($context, 'details', $details),
             ]),
         )->toArray();
     }

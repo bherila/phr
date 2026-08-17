@@ -194,11 +194,19 @@ final class AgentApiHealthDeviceIngestionTest extends TestCase
                 'event_type' => 'unsupported',
                 'occurred_at' => '2026-08-16T08:01:00Z',
             ],
+            [
+                'client_event_uuid' => 'synthetic-unknown-field',
+                'event_type' => 'cough',
+                'occurred_at' => '2026-08-16T08:02:00Z',
+                'deviceId' => 'synthetic-unsupported-key',
+            ],
         ];
         $this->postJson("/api/v1/patients/{$patient->id}/respiratory-events/batch", ['events' => $events])
             ->assertOk()
             ->assertJsonPath('results.0.status', 'accepted')
-            ->assertJsonPath('results.1.status', 'rejected');
+            ->assertJsonPath('results.1.status', 'rejected')
+            ->assertJsonPath('results.2.status', 'rejected')
+            ->assertJsonPath('results.2.reason', 'The event contains unsupported fields.');
         $this->postJson("/api/v1/patients/{$patient->id}/respiratory-events/batch", ['events' => [$events[0]]])
             ->assertOk()->assertJsonPath('results.0.status', 'duplicate');
 

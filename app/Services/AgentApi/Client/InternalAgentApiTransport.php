@@ -2,13 +2,13 @@
 
 namespace App\Services\AgentApi\Client;
 
+use App\Support\AgentApi\AgentApiJson;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Routing\Router;
 use Illuminate\Support\Facades\Request as RequestFacade;
-use JsonException;
 use Symfony\Component\HttpFoundation\Response;
 use Throwable;
 
@@ -124,32 +124,6 @@ final class InternalAgentApiTransport implements AgentApiTransport
             return null;
         }
 
-        try {
-            $decoded = json_decode($content, false, 512, JSON_THROW_ON_ERROR);
-        } catch (JsonException) {
-            return null;
-        }
-
-        if (! is_object($decoded)) {
-            return null;
-        }
-
-        return array_map($this->preserveJsonShape(...), get_object_vars($decoded));
-    }
-
-    private function preserveJsonShape(mixed $value): mixed
-    {
-        if (is_object($value)) {
-            $properties = get_object_vars($value);
-
-            return $properties === []
-                ? $value
-                : array_map($this->preserveJsonShape(...), $properties);
-        }
-        if (is_array($value)) {
-            return array_map($this->preserveJsonShape(...), $value);
-        }
-
-        return $value;
+        return AgentApiJson::decodeObject($content);
     }
 }

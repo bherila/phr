@@ -3,9 +3,9 @@
 namespace App\Http\Requests\PHR;
 
 use App\Rules\JsonObject;
+use App\Support\AgentApi\AgentApiJson;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
-use JsonException;
 
 class StoreHealthLogEntryRequest extends FormRequest
 {
@@ -43,21 +43,26 @@ class StoreHealthLogEntryRequest extends FormRequest
     public function after(): array
     {
         return [function (Validator $validator): void {
-            if (! $this->isJson()) {
-                return;
-            }
-            try {
-                $payload = json_decode($this->getContent(), false, 512, JSON_THROW_ON_ERROR);
-            } catch (JsonException) {
-                return;
-            }
-            if (! is_object($payload) || ! property_exists($payload, 'details')) {
+            $payload = $this->rawJsonPayload();
+            if ($payload === null || ! property_exists($payload, 'details')) {
                 return;
             }
             if ($payload->details !== null && ! is_object($payload->details)) {
                 $validator->errors()->add('details', 'The details field must be a JSON object.');
             }
         }];
+    }
+
+    /** @return array<string, mixed> */
+    public function validatedEntryData(): array
+    {
+        $validated = $this->validated();
+        $payload = $this->rawJsonPayload();
+        if ($payload !== null && property_exists($payload, 'details')) {
+            $validated['details'] = AgentApiJson::preserveShape($payload->details);
+        }
+
+        return $validated;
     }
 
     /** @return array<string, mixed> */
@@ -72,5 +77,15 @@ class StoreHealthLogEntryRequest extends FormRequest
             'tags.*' => ['string', 'max:50', 'distinct'],
             'details' => ['nullable', 'array', new JsonObject, 'max:50'],
         ];
+    }
+
+    private function rawJsonPayload(): ?object
+    {
+        if (! $this->isJson()) {
+            return null;
+        }
+        $payload = AgentApiJson::decodeRaw($this->getContent());
+
+        return is_object($payload) ? $payload : null;
     }
 }
