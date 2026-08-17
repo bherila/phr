@@ -40,7 +40,19 @@ final class AgentApiJson
         if (is_object($value)) {
             $properties = get_object_vars($value);
 
-            return $properties === [] ? $value : self::objectProperties($value);
+            if ($properties === []) {
+                return $value;
+            }
+            if (array_filter(array_keys($properties), is_int(...)) !== []) {
+                $object = new \stdClass;
+                foreach ($properties as $key => $property) {
+                    $object->{(string) $key} = self::preserveShape($property);
+                }
+
+                return $object;
+            }
+
+            return self::objectProperties($value);
         }
         if (is_array($value)) {
             return array_map(self::preserveShape(...), $value);

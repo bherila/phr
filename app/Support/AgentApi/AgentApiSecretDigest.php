@@ -10,30 +10,15 @@ final class AgentApiSecretDigest
     /** @return non-empty-list<string> */
     public static function candidates(string $domain, string $value): array
     {
-        return array_values(array_unique(array_map(
-            static fn (string $key): string => self::withKey($domain, $value, $key),
-            self::keys(),
-        )));
-    }
-
-    /** @return non-empty-list<string> */
-    private static function keys(): array
-    {
-        $current = (string) config('app.key');
-        if ($current === '') {
-            throw new LogicException('APP_KEY is required to digest agent API metadata.');
+        $key = (string) config('agent_api.mutation_digest_key');
+        if ($key === '') {
+            throw new LogicException('AGENT_API_MUTATION_DIGEST_KEY is required to digest mutation identities.');
         }
-        $previous = config('app.previous_keys', []);
-        $keys = [$current];
-        if (is_array($previous)) {
-            foreach ($previous as $key) {
-                if (is_string($key) && $key !== '') {
-                    $keys[] = $key;
-                }
-            }
+        if (hash_equals((string) config('app.key'), $key)) {
+            throw new LogicException('AGENT_API_MUTATION_DIGEST_KEY must be independent from APP_KEY.');
         }
 
-        return $keys;
+        return [self::withKey($domain, $value, $key)];
     }
 
     private static function withKey(string $domain, string $value, string $key): string

@@ -108,14 +108,6 @@ final readonly class AgentHealthLogMutationService
                 } catch (ModelNotFoundException) {
                     throw new ConflictHttpException('The stable external identifier refers to a record that no longer exists.');
                 }
-                $this->identities->rotateDigests(
-                    $identity,
-                    $patient->id,
-                    $client,
-                    $operation,
-                    $externalId,
-                    $requestHash,
-                );
 
                 return new AgentAppendResult($record, AgentAppendResult::UNCHANGED);
             }

@@ -410,6 +410,11 @@ carrying neither PHR tag and rolls the account crontab back if verification fail
 Five minutes is the scheduler's production resolution: do not add an every-minute task
 without also changing the managed cPanel cron cadence.
 
+Deployment also provisions `AGENT_API_MUTATION_DIGEST_KEY` once in the persistent
+server `.env` and validates it on every deploy. It is deliberately independent from
+`APP_KEY`: rotating Laravel's encryption key must not invalidate dormant OAuth-client
+retry identities. Never rotate this digest key after agent writes exist.
+
 Both managed cron entries run through fixed application wrappers. They and the three
 scheduled PHR maintenance tasks record only allow-listed job names, timestamps,
 duration, status, and exit code; output, exceptions, paths, queue payloads, and patient

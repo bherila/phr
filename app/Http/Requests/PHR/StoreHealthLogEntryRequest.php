@@ -2,6 +2,8 @@
 
 namespace App\Http\Requests\PHR;
 
+use App\Http\Requests\Concerns\RejectsUnknownInputFields;
+use App\Rules\JsonList;
 use App\Rules\JsonObject;
 use App\Support\AgentApi\AgentApiJson;
 use Illuminate\Foundation\Http\FormRequest;
@@ -9,6 +11,8 @@ use Illuminate\Validation\Validator;
 
 class StoreHealthLogEntryRequest extends FormRequest
 {
+    use RejectsUnknownInputFields;
+
     /**
      * Determine if the user is authorized to make this request.
      */
@@ -43,6 +47,7 @@ class StoreHealthLogEntryRequest extends FormRequest
     public function after(): array
     {
         return [function (Validator $validator): void {
+            $this->rejectUnknownInputFields($validator, $this->rules());
             $payload = $this->rawJsonPayload();
             if ($payload === null || ! property_exists($payload, 'details')) {
                 return;
@@ -73,9 +78,14 @@ class StoreHealthLogEntryRequest extends FormRequest
             'title' => ['nullable', 'string', 'max:255'],
             'notes' => ['nullable', 'string', 'max:10000'],
             'intensity' => ['nullable', 'integer', 'between:0,10'],
-            'tags' => ['nullable', 'array', 'max:20'],
+            'tags' => ['nullable', 'array', new JsonList, 'max:20'],
             'tags.*' => ['string', 'max:50', 'distinct'],
-            'details' => ['nullable', 'array', new JsonObject, 'max:50'],
+            'details' => [
+                'nullable',
+                'array',
+                ...($this->isJson() ? [] : [new JsonObject]),
+                'max:50',
+            ],
         ];
     }
 

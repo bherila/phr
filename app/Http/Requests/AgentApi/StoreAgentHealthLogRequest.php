@@ -3,10 +3,14 @@
 namespace App\Http\Requests\AgentApi;
 
 use App\DataTransferObjects\AgentApi\HealthLogCreateData;
+use App\Http\Requests\Concerns\RejectsUnknownInputFields;
 use App\Http\Requests\PHR\StoreHealthLogRequest;
+use Illuminate\Validation\Validator;
 
 final class StoreAgentHealthLogRequest extends StoreHealthLogRequest
 {
+    use RejectsUnknownInputFields;
+
     public function authorize(): bool
     {
         return $this->user('api') !== null;
@@ -24,5 +28,11 @@ final class StoreAgentHealthLogRequest extends StoreHealthLogRequest
     public function command(): HealthLogCreateData
     {
         return HealthLogCreateData::fromValidated($this->validated());
+    }
+
+    /** @return list<callable(Validator): void> */
+    public function after(): array
+    {
+        return [fn (Validator $validator) => $this->rejectUnknownInputFields($validator, $this->rules())];
     }
 }
