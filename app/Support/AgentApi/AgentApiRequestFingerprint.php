@@ -24,6 +24,12 @@ final class AgentApiRequestFingerprint
 
     private static function sort(mixed $value): mixed
     {
+        if (is_object($value)) {
+            $properties = get_object_vars($value);
+            ksort($properties);
+
+            return (object) array_map(self::sort(...), $properties);
+        }
         if (! is_array($value)) {
             return $value;
         }

@@ -21,6 +21,7 @@ final class AgentMcpServerFactory
         private readonly AgentMcpReadTools $reads,
         private readonly AgentMcpWriteTools $writes,
         private readonly AgentMcpInputSchemaFactory $schemas,
+        private readonly AgentMcpRequestArguments $requestArguments,
     ) {}
 
     public function make(Request $request): Server
@@ -57,7 +58,7 @@ final class AgentMcpServerFactory
                 $registry,
                 $referenceHandler,
                 $logger,
-                new AgentMcpSchemaValidator($logger),
+                new AgentMcpSchemaValidator($logger, $this->requestArguments),
             ))
             ->setLazyLoading(false);
 

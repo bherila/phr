@@ -173,6 +173,16 @@ final class AgentApiHealthDeviceIngestionTest extends TestCase
             'external_id' => 'synthetic-object-tags-entry',
             'tags' => ['primary' => 'synthetic'],
         ])->assertUnprocessable()->assertJsonValidationErrors('tags');
+        $this->call(
+            'POST',
+            $endpoint,
+            server: ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json'],
+            content: json_encode([
+                ...$base,
+                'external_id' => 'synthetic-numeric-object-tags-entry',
+                'tags' => (object) ['0' => 'synthetic'],
+            ], JSON_THROW_ON_ERROR),
+        )->assertUnprocessable()->assertJsonValidationErrors('tags');
 
         $response = $this->call(
             'POST',
@@ -190,11 +200,21 @@ final class AgentApiHealthDeviceIngestionTest extends TestCase
             content: json_encode([
                 ...$base,
                 'external_id' => 'synthetic-numeric-property-entry',
-                'details' => (object) ['0' => 'synthetic-value'],
+                'details' => (object) ['0' => 'synthetic-value', 'z' => 'synthetic-last'],
             ], JSON_THROW_ON_ERROR),
         )->assertCreated();
         $numericWirePayload = json_decode($numericPropertyResponse->getContent(), false, flags: JSON_THROW_ON_ERROR);
         $this->assertSame('synthetic-value', $numericWirePayload->data->details->{'0'});
+        $this->call(
+            'POST',
+            $endpoint,
+            server: ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json'],
+            content: json_encode([
+                ...$base,
+                'external_id' => 'synthetic-numeric-property-entry',
+                'details' => (object) ['z' => 'synthetic-last', '0' => 'synthetic-value'],
+            ], JSON_THROW_ON_ERROR),
+        )->assertOk()->assertJsonPath('outcome', 'unchanged');
     }
 
     public function test_agent_respiratory_ingest_reuses_device_validation_and_duplicate_semantics(): void
@@ -236,6 +256,12 @@ final class AgentApiHealthDeviceIngestionTest extends TestCase
         $this->postJson("/api/v1/patients/{$patient->id}/respiratory-events/batch", [
             'events' => ['first' => $events[0]],
         ])->assertUnprocessable()->assertJsonValidationErrors('events');
+        $this->call(
+            'POST',
+            "/api/v1/patients/{$patient->id}/respiratory-events/batch",
+            server: ['CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json'],
+            content: json_encode(['events' => (object) ['0' => $events[0]]], JSON_THROW_ON_ERROR),
+        )->assertUnprocessable()->assertJsonValidationErrors('events');
 
         Passport::actingAs($actor, [AgentApiScopes::CLINICAL_READ], 'api', $client);
         $this->getJson("/api/v1/patients/{$patient->id}/respiratory-events?event_type=cough")

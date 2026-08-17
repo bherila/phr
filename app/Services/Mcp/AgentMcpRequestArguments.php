@@ -8,14 +8,19 @@ use Mcp\Schema\Request\CallToolRequest;
 use Mcp\Server\RequestContext;
 
 /** Typed access to raw MCP argument shapes lost by associative SDK decoding. */
-final readonly class AgentMcpRequestArguments
+final class AgentMcpRequestArguments
 {
     /** @var array<string, array<string, mixed>> */
     private array $calls;
 
+    /** @var list<array<string, mixed>> */
+    private array $validationCalls;
+
+    private int $validationCursor = 0;
+
     public function __construct(Request $request)
     {
-        $this->calls = $this->parse($request->getContent());
+        [$this->calls, $this->validationCalls] = $this->parse($request->getContent());
     }
 
     public function value(RequestContext $context, string $name, mixed $fallback): mixed
@@ -32,12 +37,28 @@ final readonly class AgentMcpRequestArguments
             : $fallback;
     }
 
-    /** @return array<string, array<string, mixed>> */
+    /** @return array<string, mixed>|null */
+    public function nextValidationArguments(mixed $sdkArguments): ?array
+    {
+        for ($index = $this->validationCursor; $index < count($this->validationCalls); $index++) {
+            $arguments = $this->validationCalls[$index];
+            if ($this->sdkShape($arguments) === $sdkArguments) {
+                $this->validationCursor = $index + 1;
+
+                return $arguments;
+            }
+        }
+
+        return null;
+    }
+
+    /** @return array{array<string, array<string, mixed>>, list<array<string, mixed>>} */
     private function parse(string $content): array
     {
         $decoded = AgentApiJson::decodeRaw($content);
         $messages = is_array($decoded) ? $decoded : [$decoded];
         $calls = [];
+        $validationCalls = [];
         foreach ($messages as $message) {
             if (! is_object($message)
                 || ($message->method ?? null) !== 'tools/call'
@@ -47,11 +68,18 @@ final readonly class AgentMcpRequestArguments
                 || ! is_object($message->params->arguments ?? null)) {
                 continue;
             }
-            $calls[$this->key($message->id, $message->params->name)] =
-                AgentApiJson::objectProperties($message->params->arguments);
+            $arguments = AgentApiJson::objectProperties($message->params->arguments);
+            $calls[$this->key($message->id, $message->params->name)] = $arguments;
+            $validationCalls[] = $arguments;
         }
 
-        return $calls;
+        return [$calls, $validationCalls];
+    }
+
+    /** @param array<string, mixed> $arguments */
+    private function sdkShape(array $arguments): mixed
+    {
+        return json_decode(json_encode($arguments, JSON_THROW_ON_ERROR), true, flags: JSON_THROW_ON_ERROR);
     }
 
     private function key(string|int $id, string $tool): string

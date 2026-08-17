@@ -520,7 +520,18 @@ final class AgentMcpReadAdapterTest extends TestCase
         $this->assertFalse($entry['result']['isError'] ?? true, json_encode($entry, JSON_THROW_ON_ERROR));
         $entryWirePayload = json_decode($entryResponse->getContent(), false, flags: JSON_THROW_ON_ERROR);
         $this->assertIsObject($entryWirePayload->result->structuredContent->data->details->metadata);
-        $listed = $this->callTool($session, 4, 'health_log_entries.list', [
+        $invalidDetails = $this->callTool($session, 4, 'health_log_entries.append', [
+            'patient_id' => $patient->id,
+            'health_log_id' => $logId,
+            'external_id' => 'synthetic-mcp-array-details',
+            'occurred_at' => '2026-08-16T13:01:00Z',
+            'details' => [],
+        ]);
+        $this->assertStringContainsString(
+            'Invalid parameters',
+            $invalidDetails['error']['message'] ?? '',
+        );
+        $listed = $this->callTool($session, 5, 'health_log_entries.list', [
             'patient_id' => $patient->id,
             'health_log_id' => $logId,
         ]);
@@ -529,7 +540,7 @@ final class AgentMcpReadAdapterTest extends TestCase
             $listed['result']['structuredContent']['data'][0]['title'] ?? null,
         );
 
-        $ingested = $this->callTool($session, 5, 'respiratory_events.ingest', [
+        $ingested = $this->callTool($session, 6, 'respiratory_events.ingest', [
             'patient_id' => $patient->id,
             'events' => [[
                 'client_event_uuid' => 'synthetic-mcp-respiratory',

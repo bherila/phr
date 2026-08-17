@@ -40,7 +40,7 @@ class StoreRespiratoryEventBatchRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'events' => ['required', 'array', new JsonList, 'min:1', 'max:500'],
+            'events' => ['required', 'array', JsonList::fromRequest($this, 'events'), 'min:1', 'max:500'],
             'events.*' => ['array'],
         ];
     }

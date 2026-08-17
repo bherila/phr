@@ -368,7 +368,8 @@ jobs:
         run: |
           ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes \
             ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
-            "bash -s" < .github/scripts/configure-agent-mutation-digest-key.sh
+            "PHR_ENV_FILE=\$HOME/phr-laravel/.env /opt/cpanel/ea-php85/root/usr/bin/php" \
+            < scripts/configure-agent-mutation-digest-key.php
 
       - name: Create or verify persistent OAuth signing keys
         run: |

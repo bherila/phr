@@ -78,7 +78,7 @@ class StoreHealthLogEntryRequest extends FormRequest
             'title' => ['nullable', 'string', 'max:255'],
             'notes' => ['nullable', 'string', 'max:10000'],
             'intensity' => ['nullable', 'integer', 'between:0,10'],
-            'tags' => ['nullable', 'array', new JsonList, 'max:20'],
+            'tags' => ['nullable', 'array', JsonList::fromRequest($this, 'tags'), 'max:20'],
             'tags.*' => ['string', 'max:50', 'distinct'],
             'details' => [
                 'nullable',

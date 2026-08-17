@@ -227,6 +227,7 @@ composer install
 pnpm install
 cp .env.example .env
 php artisan key:generate
+php scripts/configure-agent-mutation-digest-key.php
 touch database/database.sqlite   # default local DB is sqlite
 php artisan migrate
 
