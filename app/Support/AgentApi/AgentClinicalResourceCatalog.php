@@ -123,23 +123,30 @@ final class AgentClinicalResourceCatalog
         ));
     }
 
+    /** The generic REST/OpenAPI/capabilities identifier for ID-targeted patching. */
+    public const string UPDATE_OPERATION_ID = 'clinical.update';
+
     public static function upsertOperationId(string $resource): string
     {
         return str_replace('-', '_', $resource).'.upsert';
     }
 
-    public static function updateOperationId(string $resource): string
+    /** MCP exposes one update tool per resource; REST exposes a single generic route. */
+    public static function mcpUpdateToolId(string $resource): string
     {
         return str_replace('-', '_', $resource).'.update';
     }
 
     /** @return list<string> */
-    public static function writableOperationIds(): array
+    public static function upsertOperationIds(): array
     {
-        return [
-            ...array_map(self::upsertOperationId(...), self::writableIds()),
-            ...array_map(self::updateOperationId(...), self::writableIds()),
-        ];
+        return array_map(self::upsertOperationId(...), self::writableIds());
+    }
+
+    /** @return list<string> */
+    public static function mcpUpdateToolIds(): array
+    {
+        return array_map(self::mcpUpdateToolId(...), self::writableIds());
     }
 
     /**

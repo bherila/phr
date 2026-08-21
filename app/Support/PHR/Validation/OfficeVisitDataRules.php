@@ -21,7 +21,6 @@ final class OfficeVisitDataRules implements ClinicalDataRules
             'plan' => ['nullable', 'string', 'max:10000'],
             'subjective' => ['nullable', 'string', 'max:10000'],
             'objective' => ['nullable', 'string', 'max:10000'],
-            'raw_text' => ['nullable', 'string'],
             'icd10_codes' => ['nullable', 'array', 'max:100'],
             'icd10_codes.*' => ['array:code,description'],
             'icd10_codes.*.code' => ['required', 'string', 'max:20'],
@@ -48,7 +47,6 @@ final class OfficeVisitDataRules implements ClinicalDataRules
             'plan' => ClinicalJsonSchema::nullableString(maxLength: 10000),
             'subjective' => ClinicalJsonSchema::nullableString(maxLength: 10000),
             'objective' => ClinicalJsonSchema::nullableString(maxLength: 10000),
-            'raw_text' => ClinicalJsonSchema::nullableString(),
             'icd10_codes' => ClinicalJsonSchema::codes(),
             'cpt_codes' => ClinicalJsonSchema::codes(),
         ]);

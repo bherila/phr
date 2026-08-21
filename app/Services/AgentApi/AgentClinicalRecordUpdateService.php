@@ -34,6 +34,14 @@ final readonly class AgentClinicalRecordUpdateService
                 ->findOrFail($recordId);
             $currentVersion = $this->versions->for($record);
 
+            // The precondition is checked before anything is applied. This
+            // endpoint reaches legacy and browser-created rows, so a stale or
+            // fabricated version must never produce a successful response that
+            // discloses the record or its current version.
+            if (! hash_equals($currentVersion, $data->expectedVersion)) {
+                throw new ConflictHttpException('The clinical record changed; fetch it and retry with its current version.');
+            }
+
             if ($data->sourceDocumentSpecified && $data->sourceDocumentId !== null) {
                 PhrDocument::query()
                     ->where('patient_id', $patient->id)
@@ -44,20 +52,16 @@ final readonly class AgentClinicalRecordUpdateService
             if ($data->sourceDocumentSpecified) {
                 $updates['source_document_id'] = $data->sourceDocumentId;
             }
-            if ($data->reviewStatus !== null) {
-                $updates['review_status'] = $data->reviewStatus;
-            }
             $record->fill($updates);
 
-            // Safe retries remain no-ops, even after another edit changed the
-            // opaque version, because the requested state is already present.
+            // An exact no-op preserves the existing review state.
             if (! $record->isDirty()) {
                 return new ClinicalUpsertResult($record, ClinicalUpsertResult::UNCHANGED, $currentVersion);
             }
-            if (! hash_equals($currentVersion, $data->expectedVersion)) {
-                throw new ConflictHttpException('The clinical record changed; fetch it and retry with its current version.');
-            }
 
+            // Any effective agent change reopens human review. Confirmation is a
+            // browser action; this endpoint cannot assert it.
+            $record->setAttribute('review_status', 'pending_review');
             $record->save();
             $record->refresh();
 

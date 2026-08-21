@@ -162,14 +162,10 @@ final class AgentApiClinicalWriteTest extends TestCase
             ->assertOk()
             ->json('data.version');
 
-        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_WRITE], 'api', $client);
+        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE], 'api', $client);
         $payload = [
             'expected_version' => $version,
-            'review_status' => 'pending_review',
-            'data' => [
-                'assessment' => 'Normalized assessment',
-                'raw_text' => "## Imported clinician note\n\nNormalized Markdown source text.",
-            ],
+            'data' => ['assessment' => 'Normalized assessment'],
         ];
         $updated = $this->patchJson("/api/v1/patients/{$patient->id}/office-visits/{$legacy->id}", $payload)
             ->assertOk()
@@ -177,16 +173,22 @@ final class AgentApiClinicalWriteTest extends TestCase
             ->assertJsonPath('data.import_source', 'legacy_eob')
             ->assertJsonPath('data.external_id', 'legacy-visit-001')
             ->assertJsonPath('data.source_document_id', $sourceDocument->id)
-            ->assertJsonPath('data.raw_text', "## Imported clinician note\n\nNormalized Markdown source text.")
+            ->assertJsonPath('data.review_status', 'pending_review')
             ->json();
         $this->assertNotSame($version, $updated['version']);
         $this->assertSame('legacy_eob', $legacy->refresh()->import_source);
         $this->assertSame('legacy-visit-001', $legacy->external_id);
         $this->assertSame($sourceDocument->id, $legacy->source_document_id);
+        $this->assertSame('pending_review', $legacy->review_status);
 
-        $this->patchJson("/api/v1/patients/{$patient->id}/office-visits/{$legacy->id}", $payload)
+        // An exact replay at the current version is a no-op and preserves review state.
+        $this->patchJson("/api/v1/patients/{$patient->id}/office-visits/{$legacy->id}", [
+            'expected_version' => $updated['version'],
+            'data' => ['assessment' => 'Normalized assessment'],
+        ])
             ->assertOk()
-            ->assertJsonPath('outcome', 'unchanged');
+            ->assertJsonPath('outcome', 'unchanged')
+            ->assertJsonPath('data.review_status', 'pending_review');
         $this->patchJson("/api/v1/patients/{$patient->id}/office-visits/{$legacy->id}", [
             'expected_version' => $version,
             'data' => ['plan' => 'Stale plan'],
@@ -198,11 +200,58 @@ final class AgentApiClinicalWriteTest extends TestCase
         $this->patchJson("/api/v1/patients/{$patient->id}/office-visits/{$legacy->id}", [
             'expected_version' => $updated['version'],
         ])->assertUnprocessable()->assertJsonValidationErrors(['data']);
+        // The agent cannot assert confirmation through this endpoint.
+        $this->patchJson("/api/v1/patients/{$patient->id}/office-visits/{$legacy->id}", [
+            'expected_version' => $updated['version'],
+            'review_status' => 'confirmed',
+        ])->assertUnprocessable();
+        $this->assertSame('pending_review', $legacy->refresh()->review_status);
         $this->assertDatabaseCount('phr_office_visits', 2);
         $this->assertDatabaseHas('agent_api_audits', [
             'route_name' => 'agent-api.v1.clinical.update',
             'response_status' => 200,
         ]);
+    }
+
+    public function test_id_targeted_update_never_discloses_a_record_on_a_failed_precondition(): void
+    {
+        $actor = $this->user('update-precondition@example.test');
+        $patient = $this->patient($actor, 'Synthetic Precondition Patient');
+        $client = $this->client('Synthetic Precondition Client');
+
+        // A record the human entered in the browser: the agent client never
+        // created it and has no stored ID or version for it.
+        $human = PhrOfficeVisit::query()->create([
+            'patient_id' => $patient->id,
+            'user_id' => $actor->id,
+            'review_status' => 'confirmed',
+            'visit_date' => '2026-02-02',
+            'assessment' => 'Sentinel assessment',
+            'plan' => 'Sentinel plan',
+        ]);
+
+        // Write scope alone can no longer reach the endpoint at all.
+        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_WRITE], 'api', $client);
+        $this->patchJson("/api/v1/patients/{$patient->id}/office-visits/{$human->id}", [
+            'expected_version' => str_repeat('a', 64),
+            'data' => ['plan' => 'Sentinel plan'],
+        ])->assertForbidden();
+
+        // Even with both scopes, a fabricated version discloses nothing: no
+        // record body and no current version to spend on a blind overwrite.
+        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE], 'api', $client);
+        $response = $this->patchJson("/api/v1/patients/{$patient->id}/office-visits/{$human->id}", [
+            'expected_version' => str_repeat('a', 64),
+            'data' => ['plan' => 'Sentinel plan'],
+        ])->assertConflict();
+        $body = $response->json();
+        $this->assertArrayNotHasKey('data', $body);
+        $this->assertArrayNotHasKey('version', $body);
+        $this->assertStringNotContainsString('Sentinel', $response->getContent() ?: '');
+
+        $human->refresh();
+        $this->assertSame('Sentinel assessment', $human->assessment);
+        $this->assertSame('confirmed', $human->review_status);
     }
 
     public function test_write_scope_patient_grant_source_document_and_validation_are_all_enforced(): void
@@ -329,11 +378,11 @@ final class AgentApiClinicalWriteTest extends TestCase
                 $validatedFields,
                 array_keys($contract['components']['schemas'][$contractNames['data_schema']]['properties']),
             );
-            $this->assertSame(
-                AgentApiScopes::CLINICAL_WRITE,
-                $capabilities['operations'][AgentClinicalResourceCatalog::updateOperationId($resource)]['scope'],
-            );
         }
+        $this->assertSame(
+            [AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE],
+            $capabilities['operations'][AgentClinicalResourceCatalog::UPDATE_OPERATION_ID]['scopes'],
+        );
         $this->assertSame(
             '#/components/schemas/ClinicalRecordUpdateRequest',
             $contract['paths']['/patients/{patient}/{resource}/{record}']['patch']['requestBody']['content']['application/json']['schema']['$ref'],

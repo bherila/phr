@@ -56,12 +56,10 @@ final readonly class AgentMcpWriteTools
             #[Schema(pattern: '^[a-f0-9]{64}$')] string $expected_version,
             RequestContext $context,
             #[Schema(minimum: 1)] ?int $source_document_id = null,
-            #[Schema(enum: ['pending_review', 'confirmed'])] ?string $review_status = null,
             #[Schema(type: 'object')] ?array $data = null,
         ) use ($api, $requestArguments, $resource): array {
             $validated = [
                 'expected_version' => $expected_version,
-                'review_status' => $review_status,
                 'data' => $data,
             ];
             if ($requestArguments->has($context, 'source_document_id')) {

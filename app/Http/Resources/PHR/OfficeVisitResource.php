@@ -41,7 +41,6 @@ class OfficeVisitResource extends JsonResource
             'objective' => $visit->objective,
             'icd10_codes' => $visit->icd10_codes ?? [],
             'cpt_codes' => $visit->cpt_codes ?? [],
-            'raw_text' => $visit->raw_text,
             'eobs' => $this->whenLoaded(
                 'eobs',
                 fn () => EobSummaryResource::collection($visit->eobs)->resolve(),

@@ -322,6 +322,7 @@ final class AgentMcpReadAdapterTest extends TestCase
         ]);
         Passport::actingAs($actor, [
             AgentApiScopes::MCP_USE,
+            AgentApiScopes::CLINICAL_READ,
             AgentApiScopes::CLINICAL_WRITE,
         ], 'api', $client);
 
@@ -352,6 +353,10 @@ final class AgentMcpReadAdapterTest extends TestCase
         ]);
         $this->assertFalse($updated['result']['isError'] ?? true, json_encode($updated, JSON_THROW_ON_ERROR));
         $this->assertSame('updated', $updated['result']['structuredContent']['outcome'] ?? null);
+        $this->assertSame(
+            'pending_review',
+            $updated['result']['structuredContent']['data']['review_status'] ?? null,
+        );
         $this->assertSame(
             "## Imported procedure\n\nNormalized Markdown source text.",
             $updated['result']['structuredContent']['data']['raw_text'] ?? null,

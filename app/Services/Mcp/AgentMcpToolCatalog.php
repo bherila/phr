@@ -111,7 +111,7 @@ final class AgentMcpToolCatalog
                 destructive: true,
             );
             $definitions[] = new AgentMcpToolDefinition(
-                AgentClinicalResourceCatalog::updateOperationId($resource),
+                AgentClinicalResourceCatalog::mcpUpdateToolId($resource),
                 "Update {$title}",
                 "Partially update one existing {$title} record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
                 $writes->clinicalUpdateHandler($resource),

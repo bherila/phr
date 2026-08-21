@@ -184,11 +184,14 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
                 ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))
                 ->name('clinical.'.str_replace('-', '_', $writableResource).'.upsert');
         }
+        // ID-targeted patching reaches legacy and browser-created rows, needs a
+        // record ID and version that only a read can supply, and returns the
+        // patched resource. It therefore requires read as well as write.
         Route::patch('/patients/{patient}/{resource}/{record}', [AgentClinicalWriteController::class, 'update'])
             ->whereNumber(['patient', 'record'])
             ->whereIn('resource', AgentClinicalResourceCatalog::writableIds())
             ->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE))
             ->name('clinical.update');
         Route::get('/patients/{patient}/{resource}/{record}', [AgentClinicalReadController::class, 'show'])
             ->whereNumber(['patient', 'record'])

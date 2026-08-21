@@ -576,8 +576,8 @@
       "patch": {
         "operationId": "clinical.update",
         "summary": "Partially update one existing writable clinical record",
-        "description": "Read the record first and supply its current opaque version. The update is patient-scoped and never changes import_source or external_id. Omitted fields are preserved; a supplied null source_document_id clears only that link.",
-        "security": [{ "oauth2": ["clinical:write"] }],
+        "description": "Read the record first and supply its current opaque version. Requires clinical:read as well as clinical:write. The update is patient-scoped and never changes import_source or external_id. Omitted fields are preserved; a supplied null source_document_id clears only that link. A stale or unknown version is rejected with 409 before anything is applied, and every effective change resets review_status to pending_review.",
+        "security": [{ "oauth2": ["clinical:read", "clinical:write"] }],
         "parameters": [
           { "$ref": "#/components/parameters/PatientId" },
           { "$ref": "#/components/parameters/WritableClinicalResource" },
@@ -934,11 +934,10 @@
         "properties": {
           "expected_version": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
           "source_document_id": { "type": ["integer", "null"], "minimum": 1 },
-          "review_status": { "type": "string", "enum": ["pending_review", "confirmed"] },
           "data": { "type": "object", "minProperties": 1, "additionalProperties": true, "description": "A partial object validated against the selected writable clinical resource's schema." }
         },
         "anyOf": [
-          { "required": ["source_document_id"] }, { "required": ["review_status"] }, { "required": ["data"] }
+          { "required": ["source_document_id"] }, { "required": ["data"] }
         ],
         "additionalProperties": false
       },
@@ -1013,7 +1012,6 @@
           "plan": { "type": ["string", "null"], "maxLength": 10000 },
           "subjective": { "type": ["string", "null"], "maxLength": 10000 },
           "objective": { "type": ["string", "null"], "maxLength": 10000 },
-          "raw_text": { "type": ["string", "null"] },
           "icd10_codes": { "$ref": "#/components/schemas/ClinicalCodes" },
           "cpt_codes": { "$ref": "#/components/schemas/ClinicalCodes" }
         },

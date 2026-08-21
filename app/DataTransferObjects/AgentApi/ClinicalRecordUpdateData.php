@@ -16,7 +16,6 @@ final readonly class ClinicalRecordUpdateData
         public string $expectedVersion,
         public bool $sourceDocumentSpecified,
         public ?int $sourceDocumentId,
-        public ?string $reviewStatus,
         public array $attributes,
     ) {}
 
@@ -34,7 +33,6 @@ final readonly class ClinicalRecordUpdateData
             sourceDocumentId: array_key_exists('source_document_id', $validated) && $validated['source_document_id'] !== null
                 ? (int) $validated['source_document_id']
                 : null,
-            reviewStatus: array_key_exists('review_status', $validated) ? (string) $validated['review_status'] : null,
             attributes: (array) ($validated['data'] ?? []),
         );
     }
@@ -47,7 +45,6 @@ final readonly class ClinicalRecordUpdateData
         return array_filter([
             'expected_version' => $this->expectedVersion,
             'source_document_id' => $this->sourceDocumentSpecified ? $this->sourceDocumentId : null,
-            'review_status' => $this->reviewStatus,
             'data' => $this->attributes === [] ? null : $this->attributes,
         ], static fn (mixed $value, string $key): bool => match ($key) {
             'source_document_id' => $sourceDocumentSpecified,

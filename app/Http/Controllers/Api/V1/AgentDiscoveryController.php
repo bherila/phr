@@ -69,9 +69,14 @@ class AgentDiscoveryController extends Controller
                 'clinical.list' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
                 'clinical.get' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
                 ...array_fill_keys(
-                    AgentClinicalResourceCatalog::writableOperationIds(),
+                    AgentClinicalResourceCatalog::upsertOperationIds(),
                     ['available' => true, 'scope' => AgentApiScopes::CLINICAL_WRITE],
                 ),
+                AgentClinicalResourceCatalog::UPDATE_OPERATION_ID => [
+                    'available' => true,
+                    'scope' => AgentApiScopes::CLINICAL_WRITE,
+                    'scopes' => [AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE],
+                ],
                 'records.search' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
                 'timeline.list' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
                 'eobs.list' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
