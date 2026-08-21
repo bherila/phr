@@ -23,6 +23,7 @@ class AllergyResource extends JsonResource
             'import_source' => $allergy->import_source,
             'external_id' => $allergy->external_id,
             'source_document_id' => $allergy->source_document_id,
+            'review_status' => $allergy->review_status,
             'substance' => $allergy->substance,
             'rxnorm_code' => $allergy->rxnorm_code,
             'snomed_code' => $allergy->snomed_code,

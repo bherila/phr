@@ -171,7 +171,8 @@ final class AgentApiClinicalWriteTest extends TestCase
             ->assertUnprocessable()
             ->assertJsonValidationErrors(['data', 'data.name']);
         $this->putJson("/api/v1/patients/{$patient->id}/allergies", $this->visitPayload())
-            ->assertStatus(405);
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['data', 'data.substance']);
         $this->assertDatabaseCount('phr_office_visits', 0);
         $this->assertDatabaseCount('phr_procedures', 0);
     }
@@ -211,10 +212,17 @@ final class AgentApiClinicalWriteTest extends TestCase
             AgentClinicalResourceCatalog::writableIds(),
             $capabilities['writable_clinical_resources'],
         );
-        foreach ([
+        $expectedSchemas = [
             'office-visits' => ['data_schema' => 'OfficeVisitUpsertData', 'request_schema' => 'OfficeVisitUpsertRequest'],
             'procedures' => ['data_schema' => 'ProcedureUpsertData', 'request_schema' => 'ProcedureUpsertRequest'],
-        ] as $resource => $contractNames) {
+            'immunizations' => ['data_schema' => 'ImmunizationUpsertData', 'request_schema' => 'ImmunizationUpsertRequest'],
+            'medications' => ['data_schema' => 'MedicationUpsertData', 'request_schema' => 'MedicationUpsertRequest'],
+            'conditions' => ['data_schema' => 'ConditionUpsertData', 'request_schema' => 'ConditionUpsertRequest'],
+            'allergies' => ['data_schema' => 'AllergyUpsertData', 'request_schema' => 'AllergyUpsertRequest'],
+            'lab-results' => ['data_schema' => 'LabResultUpsertData', 'request_schema' => 'LabResultUpsertRequest'],
+            'vitals' => ['data_schema' => 'VitalUpsertData', 'request_schema' => 'VitalUpsertRequest'],
+        ];
+        foreach ($expectedSchemas as $resource => $contractNames) {
             $operation = AgentClinicalResourceCatalog::upsertOperationId($resource);
             $this->assertSame(
                 AgentApiScopes::CLINICAL_WRITE,
@@ -243,6 +251,71 @@ final class AgentApiClinicalWriteTest extends TestCase
                 $validatedFields,
                 array_keys($contract['components']['schemas'][$contractNames['data_schema']]['properties']),
             );
+        }
+
+        $this->assertSame('identity.get', $capabilities['workflow']['patient_selection']['first']);
+        $this->assertSame('patients.list', $capabilities['workflow']['patient_selection']['enumerate']);
+        $this->assertSame('patients.get', $capabilities['workflow']['patient_selection']['confirm']);
+        $this->assertSame('S256', $capabilities['workflow']['oauth']['authorization_code_pkce_method']);
+    }
+
+    public function test_all_core_clinical_resources_are_idempotently_writable_through_the_agent_api(): void
+    {
+        $actor = $this->user('all-core-writer@example.test');
+        $patient = $this->patient($actor, 'Synthetic All Core Patient');
+        $client = $this->client('Synthetic All Core Client');
+        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_WRITE], 'api', $client);
+
+        $payloads = [
+            'immunizations' => [
+                'vaccine_name' => 'Synthetic Influenza',
+                'administered_on' => '2026-01-10',
+            ],
+            'medications' => [
+                'name' => 'Synthetic medication',
+                'status' => 'active',
+            ],
+            'conditions' => [
+                'name' => 'Synthetic condition',
+                'clinical_status' => 'active',
+                'verification_status' => 'confirmed',
+            ],
+            'allergies' => [
+                'substance' => 'Synthetic allergen',
+                'clinical_status' => 'active',
+                'verification_status' => 'confirmed',
+            ],
+            'lab-results' => [
+                'analyte' => 'Synthetic analyte',
+                'value' => '1.23',
+            ],
+            'vitals' => [
+                'vital_name' => 'Synthetic heart rate',
+                'vital_date' => '2026-01-10',
+                'vital_value' => '72 beats/min',
+            ],
+        ];
+
+        foreach ($payloads as $resource => $data) {
+            $payload = [
+                'external_id' => 'synthetic-'.$resource.'-001',
+                'source_document_id' => null,
+                'review_status' => 'pending_review',
+                'expected_version' => null,
+                'data' => $data,
+            ];
+            $url = "/api/v1/patients/{$patient->id}/{$resource}";
+            $created = $this->putJson($url, $payload)
+                ->assertCreated()
+                ->assertJsonPath('resource_type', $resource)
+                ->assertJsonPath('outcome', 'created')
+                ->assertJsonPath('data.review_status', 'pending_review')
+                ->json();
+
+            $this->putJson($url, $payload)
+                ->assertOk()
+                ->assertJsonPath('outcome', 'unchanged')
+                ->assertJsonPath('version', $created['version']);
         }
     }
 

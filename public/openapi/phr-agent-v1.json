@@ -455,6 +455,103 @@
         }
       }
     },
+    "/patients/{patient}/immunizations": {
+      "put": {
+        "operationId": "immunizations.upsert",
+        "summary": "Idempotently create or update an immunization",
+        "description": "Stable external IDs are namespaced to the authenticated OAuth client. A changed existing record requires its current opaque version.",
+        "security": [{ "oauth2": ["clinical:write"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImmunizationUpsertRequest" } } } },
+        "responses": {
+          "200": { "description": "Existing record updated or desired state already present", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalUpsertResponse" } } } },
+          "201": { "description": "Record created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalUpsertResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/patients/{patient}/medications": {
+      "put": {
+        "operationId": "medications.upsert",
+        "summary": "Idempotently create or update a medication",
+        "security": [{ "oauth2": ["clinical:write"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MedicationUpsertRequest" } } } },
+        "responses": {
+          "200": { "description": "Existing record updated or desired state already present", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalUpsertResponse" } } } },
+          "201": { "description": "Record created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalUpsertResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/patients/{patient}/conditions": {
+      "put": {
+        "operationId": "conditions.upsert",
+        "summary": "Idempotently create or update a condition",
+        "security": [{ "oauth2": ["clinical:write"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConditionUpsertRequest" } } } },
+        "responses": {
+          "200": { "description": "Existing record updated or desired state already present", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalUpsertResponse" } } } },
+          "201": { "description": "Record created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalUpsertResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/patients/{patient}/allergies": {
+      "put": {
+        "operationId": "allergies.upsert",
+        "summary": "Idempotently create or update an allergy",
+        "security": [{ "oauth2": ["clinical:write"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AllergyUpsertRequest" } } } },
+        "responses": {
+          "200": { "description": "Existing record updated or desired state already present", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalUpsertResponse" } } } },
+          "201": { "description": "Record created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalUpsertResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/patients/{patient}/lab-results": {
+      "put": {
+        "operationId": "lab_results.upsert",
+        "summary": "Idempotently create or update a lab result",
+        "security": [{ "oauth2": ["clinical:write"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LabResultUpsertRequest" } } } },
+        "responses": {
+          "200": { "description": "Existing record updated or desired state already present", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalUpsertResponse" } } } },
+          "201": { "description": "Record created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalUpsertResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/patients/{patient}/vitals": {
+      "put": {
+        "operationId": "vitals.upsert",
+        "summary": "Idempotently create or update a vital",
+        "security": [{ "oauth2": ["clinical:write"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VitalUpsertRequest" } } } },
+        "responses": {
+          "200": { "description": "Existing record updated or desired state already present", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalUpsertResponse" } } } },
+          "201": { "description": "Record created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalUpsertResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
     "/patients/{patient}/{resource}/{record}": {
       "get": {
         "operationId": "clinical.get",
@@ -624,7 +721,7 @@
       "Facility": { "name": "facility", "in": "query", "schema": { "type": "string", "maxLength": 200 } },
       "Code": { "name": "code", "in": "query", "schema": { "type": "string", "maxLength": 100 } },
       "Source": { "name": "source", "in": "query", "schema": { "type": "string", "maxLength": 100 } },
-      "ReviewStatus": { "name": "review_status", "in": "query", "description": "Matches office-visit/procedure review_status or condition/allergy verification_status; other types cannot match this filter.", "schema": { "type": "string", "maxLength": 50 } },
+      "ReviewStatus": { "name": "review_status", "in": "query", "description": "Matches durable review_status for agent-reviewed resources; conditions and allergies retain their existing verification_status filter semantics.", "schema": { "type": "string", "maxLength": 50 } },
       "ImportSource": {
         "name": "import_source",
         "in": "query",
@@ -647,7 +744,7 @@
     "schemas": {
       "Capabilities": {
         "type": "object",
-        "required": ["api_version", "openapi_url", "mcp_url", "oauth", "scopes", "limits", "operations", "clinical_resources", "writable_clinical_resources", "list_filters"],
+        "required": ["api_version", "openapi_url", "mcp_url", "oauth", "scopes", "limits", "workflow", "operations", "clinical_resources", "writable_clinical_resources", "list_filters"],
         "properties": {
           "api_version": { "const": "v1" },
           "openapi_url": { "type": "string", "format": "uri" },
@@ -655,6 +752,7 @@
           "oauth": { "type": "object", "additionalProperties": true },
           "scopes": { "type": "object", "additionalProperties": { "type": "string" } },
           "limits": { "type": "object", "additionalProperties": { "type": "integer" } },
+          "workflow": { "type": "object", "additionalProperties": true },
           "operations": { "type": "object", "additionalProperties": { "$ref": "#/components/schemas/Operation" } },
           "clinical_resources": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
           "writable_clinical_resources": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
@@ -817,6 +915,48 @@
         ],
         "unevaluatedProperties": false
       },
+      "ImmunizationUpsertRequest": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ClinicalUpsertMetadata" },
+          { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/ImmunizationUpsertData" } } }
+        ],
+        "unevaluatedProperties": false
+      },
+      "MedicationUpsertRequest": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ClinicalUpsertMetadata" },
+          { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/MedicationUpsertData" } } }
+        ],
+        "unevaluatedProperties": false
+      },
+      "ConditionUpsertRequest": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ClinicalUpsertMetadata" },
+          { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/ConditionUpsertData" } } }
+        ],
+        "unevaluatedProperties": false
+      },
+      "AllergyUpsertRequest": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ClinicalUpsertMetadata" },
+          { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/AllergyUpsertData" } } }
+        ],
+        "unevaluatedProperties": false
+      },
+      "LabResultUpsertRequest": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ClinicalUpsertMetadata" },
+          { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/LabResultUpsertData" } } }
+        ],
+        "unevaluatedProperties": false
+      },
+      "VitalUpsertRequest": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ClinicalUpsertMetadata" },
+          { "type": "object", "required": ["data"], "properties": { "data": { "$ref": "#/components/schemas/VitalUpsertData" } } }
+        ],
+        "unevaluatedProperties": false
+      },
       "OfficeVisitUpsertData": {
         "type": "object",
         "properties": {
@@ -857,6 +997,126 @@
         },
         "additionalProperties": false
       },
+      "ImmunizationUpsertData": {
+        "type": "object",
+        "required": ["vaccine_name"],
+        "properties": {
+          "vaccine_name": { "type": "string", "maxLength": 255 },
+          "cvx_code": { "type": ["string", "null"], "maxLength": 20 },
+          "manufacturer": { "type": ["string", "null"], "maxLength": 100 },
+          "lot_number": { "type": ["string", "null"], "maxLength": 100 },
+          "administered_on": { "type": ["string", "null"], "format": "date" },
+          "dose_number": { "type": ["integer", "null"], "minimum": 1 },
+          "series_doses": { "type": ["integer", "null"], "minimum": 1 },
+          "site": { "type": ["string", "null"], "maxLength": 100 },
+          "route": { "type": ["string", "null"], "maxLength": 100 },
+          "administered_by": { "type": ["string", "null"], "maxLength": 255 },
+          "facility_name": { "type": ["string", "null"], "maxLength": 255 },
+          "notes": { "type": ["string", "null"], "maxLength": 10000 },
+          "raw_text": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      },
+      "MedicationUpsertData": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "maxLength": 255 },
+          "rxnorm_code": { "type": ["string", "null"], "maxLength": 50 },
+          "dose": { "type": ["string", "null"], "maxLength": 100 },
+          "dose_unit": { "type": ["string", "null"], "maxLength": 50 },
+          "route": { "type": ["string", "null"], "maxLength": 100 },
+          "frequency": { "type": ["string", "null"], "maxLength": 100 },
+          "started_on": { "type": ["string", "null"], "format": "date" },
+          "ended_on": { "type": ["string", "null"], "format": "date" },
+          "status": { "type": "string", "enum": ["active", "completed", "discontinued", "on_hold"] },
+          "prescriber_name": { "type": ["string", "null"], "maxLength": 255 },
+          "reason_for_use": { "type": ["string", "null"], "maxLength": 10000 },
+          "raw_text": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      },
+      "ConditionUpsertData": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "maxLength": 255 },
+          "icd10_code": { "type": ["string", "null"], "maxLength": 20 },
+          "snomed_code": { "type": ["string", "null"], "maxLength": 50 },
+          "onset_date": { "type": ["string", "null"], "format": "date" },
+          "abated_date": { "type": ["string", "null"], "format": "date" },
+          "clinical_status": { "type": "string", "enum": ["active", "recurrence", "relapse", "inactive", "remission", "resolved"] },
+          "verification_status": { "type": "string", "enum": ["unconfirmed", "provisional", "differential", "confirmed", "refuted", "entered_in_error"] },
+          "severity": { "type": ["string", "null"], "enum": ["mild", "moderate", "severe", null] },
+          "notes": { "type": ["string", "null"], "maxLength": 10000 },
+          "raw_text": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      },
+      "AllergyUpsertData": {
+        "type": "object",
+        "required": ["substance"],
+        "properties": {
+          "substance": { "type": "string", "maxLength": 255 },
+          "rxnorm_code": { "type": ["string", "null"], "maxLength": 50 },
+          "snomed_code": { "type": ["string", "null"], "maxLength": 50 },
+          "category": { "type": ["string", "null"], "enum": ["food", "medication", "environment", "biologic", null] },
+          "criticality": { "type": ["string", "null"], "enum": ["low", "high", "unable_to_assess", null] },
+          "clinical_status": { "type": "string", "enum": ["active", "inactive", "resolved"] },
+          "verification_status": { "type": "string", "enum": ["unconfirmed", "confirmed", "refuted", "entered_in_error"] },
+          "reaction": { "type": ["string", "null"], "maxLength": 255 },
+          "severity": { "type": ["string", "null"], "enum": ["mild", "moderate", "severe", null] },
+          "notes": { "type": ["string", "null"], "maxLength": 10000 },
+          "raw_text": { "type": ["string", "null"] }
+        },
+        "additionalProperties": false
+      },
+      "LabResultUpsertData": {
+        "type": "object",
+        "required": ["analyte"],
+        "properties": {
+          "test_name": { "type": ["string", "null"], "maxLength": 255 },
+          "collection_datetime": { "type": ["string", "null"], "format": "date-time" },
+          "result_datetime": { "type": ["string", "null"], "format": "date-time" },
+          "result_status": { "type": ["string", "null"], "maxLength": 50 },
+          "ordering_provider": { "type": ["string", "null"], "maxLength": 100 },
+          "resulting_lab": { "type": ["string", "null"], "maxLength": 100 },
+          "analyte": { "type": "string", "maxLength": 100 },
+          "value": { "type": ["string", "null"], "maxLength": 255 },
+          "value_numeric": { "type": ["number", "string", "null"] },
+          "unit": { "type": ["string", "null"], "maxLength": 50 },
+          "range_min": { "type": ["number", "string", "null"] },
+          "range_max": { "type": ["number", "string", "null"] },
+          "range_unit": { "type": ["string", "null"], "maxLength": 50 },
+          "reference_range_text": { "type": ["string", "null"], "maxLength": 255 },
+          "normal_value": { "type": ["string", "null"], "maxLength": 100 },
+          "abnormal_flag": { "type": ["string", "null"], "maxLength": 50 },
+          "message_from_provider": { "type": ["string", "null"], "maxLength": 10000 },
+          "result_comment": { "type": ["string", "null"], "maxLength": 10000 },
+          "lab_director": { "type": ["string", "null"], "maxLength": 100 },
+          "source": { "type": ["string", "null"], "maxLength": 100 },
+          "notes": { "type": ["string", "null"], "maxLength": 10000 }
+        },
+        "additionalProperties": false
+      },
+      "VitalUpsertData": {
+        "type": "object",
+        "required": ["vital_name"],
+        "properties": {
+          "vital_name": { "type": "string", "maxLength": 255 },
+          "vital_date": { "type": ["string", "null"], "format": "date" },
+          "observed_at": { "type": ["string", "null"], "format": "date-time" },
+          "vital_value": { "type": ["string", "null"], "maxLength": 255 },
+          "value_numeric": { "type": ["number", "string", "null"] },
+          "value_numeric_secondary": { "type": ["number", "string", "null"] },
+          "unit": { "type": ["string", "null"], "maxLength": 50 },
+          "secondary_unit": { "type": ["string", "null"], "maxLength": 50 },
+          "body_site": { "type": ["string", "null"], "maxLength": 100 },
+          "source": { "type": ["string", "null"], "maxLength": 100 },
+          "notes": { "type": ["string", "null"], "maxLength": 10000 }
+        },
+        "additionalProperties": false
+      },
       "ClinicalCodes": {
         "type": ["array", "null"],
         "maxItems": 100,
@@ -874,7 +1134,7 @@
         "type": "object",
         "required": ["resource_type", "patient_id", "outcome", "version", "data"],
         "properties": {
-          "resource_type": { "type": "string", "enum": ["office-visits", "procedures"] },
+          "resource_type": { "type": "string", "enum": ["office-visits", "procedures", "immunizations", "medications", "conditions", "allergies", "lab-results", "vitals"] },
           "patient_id": { "type": "integer" },
           "outcome": { "type": "string", "enum": ["created", "updated", "unchanged"] },
           "version": { "type": "string", "pattern": "^[a-f0-9]{64}$" },

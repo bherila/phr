@@ -38,6 +38,26 @@ class AgentDiscoveryController extends Controller
                 'maximum_page_size' => 100,
                 'maximum_document_upload_bytes' => PhrDocumentUploadLimits::MAX_BYTES,
             ],
+            'workflow' => [
+                'patient_selection' => [
+                    'first' => 'identity.get',
+                    'enumerate' => 'patients.list',
+                    'confirm' => 'patients.get',
+                    'rule' => 'Never infer or guess a patient id from an external record; use an id returned by patients.list and confirm it before a write.',
+                ],
+                'clinical_write' => [
+                    'read_before_write' => true,
+                    'stable_external_id_required' => true,
+                    'source_document_link_recommended' => true,
+                    'existing_record_version_required' => true,
+                    'retry_outcome' => 'unchanged',
+                ],
+                'oauth' => [
+                    'discovery' => url('/.well-known/oauth-authorization-server'),
+                    'authorization_code_pkce_method' => 'S256',
+                    'resource_metadata' => url('/.well-known/oauth-protected-resource/api/v1/mcp'),
+                ],
+            ],
             'operations' => [
                 'capabilities.get' => ['available' => true, 'scope' => null],
                 'identity.get' => ['available' => true, 'scope' => AgentApiScopes::IDENTITY_READ],

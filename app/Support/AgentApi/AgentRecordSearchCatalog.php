@@ -52,7 +52,7 @@ final class AgentRecordSearchCatalog
             'event' => ['administered_on', 'created_at'],
             'summary' => ['vaccine_name'], 'q' => ['vaccine_name', 'manufacturer', 'administered_by', 'facility_name', 'notes'],
             'provider' => ['administered_by'], 'facility' => ['facility_name'],
-            'codes' => ['cvx_code'], 'code_arrays' => [], 'sources' => ['import_source'], 'review' => [],
+            'codes' => ['cvx_code'], 'code_arrays' => [], 'sources' => ['import_source'], 'review' => ['review_status'],
             'source_document' => true,
         ],
         'medications' => [
@@ -60,7 +60,7 @@ final class AgentRecordSearchCatalog
             'event' => ['started_on', 'created_at'],
             'summary' => ['name'], 'q' => ['name', 'dose', 'frequency', 'prescriber_name', 'reason_for_use'],
             'provider' => ['prescriber_name'], 'facility' => [],
-            'codes' => ['rxnorm_code'], 'code_arrays' => [], 'sources' => ['import_source'], 'review' => [],
+            'codes' => ['rxnorm_code'], 'code_arrays' => [], 'sources' => ['import_source'], 'review' => ['review_status'],
             'source_document' => true,
         ],
         'conditions' => [
@@ -82,13 +82,13 @@ final class AgentRecordSearchCatalog
             'event' => ['result_datetime', 'collection_datetime', 'created_at'],
             'summary' => ['analyte', 'test_name'], 'q' => ['analyte', 'test_name', 'result_comment', 'message_from_provider'],
             'provider' => ['ordering_provider'], 'facility' => ['resulting_lab'], 'codes' => [], 'code_arrays' => [],
-            'sources' => ['source', 'import_source'], 'review' => [], 'source_document' => true,
+            'sources' => ['source', 'import_source'], 'review' => ['review_status'], 'source_document' => true,
         ],
         'vitals' => [
             'model' => PhrPatientVital::class,
             'event' => ['observed_at', 'vital_date', 'created_at'],
             'summary' => ['vital_name'], 'q' => ['vital_name', 'notes'], 'provider' => [], 'facility' => [], 'codes' => [], 'code_arrays' => [],
-            'sources' => ['source', 'import_source'], 'review' => [], 'source_document' => true,
+            'sources' => ['source', 'import_source'], 'review' => ['review_status'], 'source_document' => true,
         ],
         'health-logs' => [
             'model' => PhrHealthLog::class,

@@ -23,6 +23,7 @@ class MedicationResource extends JsonResource
             'import_source' => $medication->import_source,
             'external_id' => $medication->external_id,
             'source_document_id' => $medication->source_document_id,
+            'review_status' => $medication->review_status,
             'name' => $medication->name,
             'rxnorm_code' => $medication->rxnorm_code,
             'dose' => $medication->dose,

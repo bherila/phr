@@ -23,6 +23,7 @@ class ImmunizationResource extends JsonResource
             'import_source' => $immunization->import_source,
             'external_id' => $immunization->external_id,
             'source_document_id' => $immunization->source_document_id,
+            'review_status' => $immunization->review_status,
             'vaccine_name' => $immunization->vaccine_name,
             'cvx_code' => $immunization->cvx_code,
             'manufacturer' => $immunization->manufacturer,
