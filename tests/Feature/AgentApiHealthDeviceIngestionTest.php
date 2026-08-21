@@ -33,7 +33,7 @@ final class AgentApiHealthDeviceIngestionTest extends TestCase
         $actor = $this->user('health-agent@example.test');
         $patient = $this->patient($actor, 'Synthetic Health Agent Patient');
         $client = $this->client('Synthetic Health Agent');
-        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_WRITE], 'api', $client);
+        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE], 'api', $client);
 
         $logPayload = [
             'external_id' => 'synthetic-log-key',
@@ -149,7 +149,7 @@ final class AgentApiHealthDeviceIngestionTest extends TestCase
         $actor = $this->user('health-details-agent@example.test');
         $patient = $this->patient($actor, 'Synthetic Health Details Patient');
         $client = $this->client('Synthetic Health Details Agent');
-        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_WRITE], 'api', $client);
+        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE], 'api', $client);
 
         $logId = (int) $this->postJson("/api/v1/patients/{$patient->id}/health-logs", [
             'external_id' => 'synthetic-details-log',
@@ -430,5 +430,47 @@ final class AgentApiHealthDeviceIngestionTest extends TestCase
             'grant_types' => ['authorization_code', 'refresh_token'],
             'revoked' => false,
         ]);
+    }
+
+    public function test_health_log_mutations_respect_the_clinical_read_scope(): void
+    {
+        $actor = $this->user('health-log-receipt@example.test');
+        $patient = $this->patient($actor, 'Synthetic Health Log Receipt Patient');
+        $client = $this->client('Synthetic Health Log Receipt Client');
+
+        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_WRITE], 'api', $client);
+        $log = $this->postJson("/api/v1/patients/{$patient->id}/health-logs", [
+            'external_id' => 'synthetic-receipt-log',
+            'name' => 'Synthetic receipt journal',
+            'kind' => PhrHealthLog::KIND_SYMPTOM,
+        ])
+            ->assertCreated()
+            ->assertJsonPath('receipt_only', true)
+            ->json();
+        $this->assertSame(['id', 'patient_id'], array_keys($log['data']));
+
+        $entry = $this->postJson("/api/v1/patients/{$patient->id}/health-logs/{$log['data']['id']}/entries", [
+            'external_id' => 'synthetic-receipt-entry',
+            'occurred_at' => '2026-02-03T10:00:00Z',
+            'title' => 'SENTINEL-ENTRY-SUMMARY',
+        ])
+            ->assertCreated()
+            ->assertJsonPath('receipt_only', true)
+            ->assertJsonPath('health_log_id', $log['data']['id']);
+        $this->assertStringNotContainsString('SENTINEL-ENTRY-SUMMARY', $entry->getContent() ?: '');
+        $this->assertSame(
+            ['id', 'patient_id', 'health_log_id'],
+            array_keys($entry->json('data')),
+        );
+
+        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE], 'api', $client);
+        $this->postJson("/api/v1/patients/{$patient->id}/health-logs/{$log['data']['id']}/entries", [
+            'external_id' => 'synthetic-receipt-entry',
+            'occurred_at' => '2026-02-03T10:00:00Z',
+            'title' => 'SENTINEL-ENTRY-SUMMARY',
+        ])
+            ->assertOk()
+            ->assertJsonPath('receipt_only', false)
+            ->assertJsonPath('data.title', 'SENTINEL-ENTRY-SUMMARY');
     }
 }

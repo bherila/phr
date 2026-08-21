@@ -1171,15 +1171,28 @@
           "additionalProperties": false
         }
       },
+      "MutationReceipt": {
+        "type": "object",
+        "required": ["id"],
+        "description": "Returned to callers that hold the write scope but not the matching read scope. Identifies the affected record without disclosing its contents.",
+        "properties": {
+          "id": { "type": "integer" },
+          "patient_id": { "type": "integer" },
+          "health_log_id": { "type": "integer" },
+          "review_status": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
       "ClinicalUpsertResponse": {
         "type": "object",
-        "required": ["resource_type", "patient_id", "outcome", "version", "data"],
+        "required": ["resource_type", "patient_id", "outcome", "version", "data", "receipt_only"],
         "properties": {
           "resource_type": { "type": "string", "enum": ["office-visits", "procedures", "immunizations", "medications", "conditions", "allergies", "lab-results", "vitals"] },
           "patient_id": { "type": "integer" },
           "outcome": { "type": "string", "enum": ["created", "updated", "unchanged"] },
           "version": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
-          "data": { "$ref": "#/components/schemas/ClinicalRecord" }
+          "data": { "oneOf": [{ "$ref": "#/components/schemas/ClinicalRecord" }, { "$ref": "#/components/schemas/MutationReceipt" }] },
+          "receipt_only": { "type": "boolean", "description": "True when the caller lacks the matching read scope and data is a MutationReceipt rather than the full resource." }
         },
         "additionalProperties": false
       },
@@ -1388,9 +1401,11 @@
           "archived_at": { "type": ["string", "null"], "format": "date-time" }
         }, "additionalProperties": false
       },
-      "HealthLogMutationResponse": { "type": "object", "required": ["resource_type", "patient_id", "outcome", "data"], "properties": {
+      "HealthLogMutationResponse": { "type": "object", "required": ["resource_type", "patient_id", "outcome", "data", "receipt_only"], "properties": {
         "resource_type": { "const": "health-log" }, "patient_id": { "type": "integer" },
-        "outcome": { "type": "string", "enum": ["created", "unchanged"] }, "data": { "$ref": "#/components/schemas/HealthLog" }
+        "outcome": { "type": "string", "enum": ["created", "unchanged"] },
+        "data": { "oneOf": [{ "$ref": "#/components/schemas/HealthLog" }, { "$ref": "#/components/schemas/MutationReceipt" }] },
+          "receipt_only": { "type": "boolean", "description": "True when the caller lacks the matching read scope and data is a MutationReceipt rather than the full resource." }
       }, "additionalProperties": false },
       "HealthLogEntry": {
         "type": "object",
@@ -1422,9 +1437,11 @@
         "resource_type": { "const": "health-log-entry" }, "patient_id": { "type": "integer" }, "health_log_id": { "type": "integer" },
         "data": { "$ref": "#/components/schemas/HealthLogEntry" }
       }, "additionalProperties": false },
-      "HealthLogEntryMutationResponse": { "type": "object", "required": ["resource_type", "patient_id", "health_log_id", "outcome", "data"], "properties": {
+      "HealthLogEntryMutationResponse": { "type": "object", "required": ["resource_type", "patient_id", "health_log_id", "outcome", "data", "receipt_only"], "properties": {
         "resource_type": { "const": "health-log-entry" }, "patient_id": { "type": "integer" }, "health_log_id": { "type": "integer" },
-        "outcome": { "type": "string", "enum": ["created", "unchanged"] }, "data": { "$ref": "#/components/schemas/HealthLogEntry" }
+        "outcome": { "type": "string", "enum": ["created", "unchanged"] },
+        "data": { "oneOf": [{ "$ref": "#/components/schemas/HealthLogEntry" }, { "$ref": "#/components/schemas/MutationReceipt" }] },
+          "receipt_only": { "type": "boolean", "description": "True when the caller lacks the matching read scope and data is a MutationReceipt rather than the full resource." }
       }, "additionalProperties": false },
       "RespiratoryEventType": { "type": "string", "enum": ["cough", "throat_clearing", "sniffle", "sneeze", "nose_blow", "hawk", "snort_suck"] },
       "RespiratoryEvent": {

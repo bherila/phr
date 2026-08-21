@@ -43,7 +43,7 @@ final class AgentApiClinicalWriteTest extends TestCase
             'storage_disk' => PhrDocument::STORAGE_DISK,
             'byte_size' => 0,
         ]);
-        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_WRITE], 'api', $client);
+        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE], 'api', $client);
         $payload = $this->visitPayload();
         $payload['source_document_id'] = $document->id;
 
@@ -74,7 +74,7 @@ final class AgentApiClinicalWriteTest extends TestCase
         $this->getJson("/api/v1/patients/{$patient->id}/office-visits/{$create['data']['id']}")
             ->assertOk()
             ->assertJsonPath('data.version', $version);
-        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_WRITE], 'api', $client);
+        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE], 'api', $client);
 
         $changed['expected_version'] = $version;
         $updated = $this->putJson("/api/v1/patients/{$patient->id}/office-visits", $changed)
@@ -257,6 +257,57 @@ final class AgentApiClinicalWriteTest extends TestCase
         $human->refresh();
         $this->assertSame('Sentinel assessment', $human->assessment);
         $this->assertSame('confirmed', $human->review_status);
+    }
+
+    public function test_write_only_upsert_returns_a_receipt_that_never_discloses_browser_edits(): void
+    {
+        $actor = $this->user('receipt-writer@example.test');
+        $patient = $this->patient($actor, 'Synthetic Receipt Patient');
+        $client = $this->client('Synthetic Receipt Client');
+
+        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_WRITE], 'api', $client);
+        $created = $this->putJson("/api/v1/patients/{$patient->id}/office-visits", $this->visitPayload())
+            ->assertCreated()
+            ->assertJsonPath('receipt_only', true)
+            ->assertJsonPath('data.review_status', 'pending_review')
+            ->json();
+
+        // The receipt identifies the record and carries the new version, so a
+        // write-only client can still chain or retry after a lost response.
+        $this->assertSame(
+            ['id', 'patient_id', 'review_status'],
+            array_keys($created['data']),
+        );
+        $this->assertMatchesRegularExpression('/\A[a-f0-9]{64}\z/', $created['version']);
+
+        // The user adds a private detail through the browser.
+        $visit = PhrOfficeVisit::query()->findOrFail($created['data']['id']);
+        $visit->update(['plan' => 'SENTINEL-BROWSER-ONLY']);
+
+        // An idempotent replay must not hand that detail back.
+        $replay = $this->putJson("/api/v1/patients/{$patient->id}/office-visits", $this->visitPayload())
+            ->assertOk()
+            ->assertJsonPath('receipt_only', true);
+        $this->assertStringNotContainsString('SENTINEL-BROWSER-ONLY', $replay->getContent() ?: '');
+        $this->assertSame(['id', 'patient_id', 'review_status'], array_keys($replay->json('data')));
+
+        // The same caller holding clinical:read receives the full resource.
+        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE], 'api', $client);
+        $full = $this->putJson("/api/v1/patients/{$patient->id}/office-visits", $this->visitPayload())
+            ->assertOk()
+            ->assertJsonPath('receipt_only', false)
+            ->json();
+        $this->assertArrayHasKey('import_source', $full['data']);
+        $this->assertSame('SENTINEL-BROWSER-ONLY', $full['data']['plan']);
+
+        // Audits stay metadata only regardless of which variant was returned.
+        $this->assertDatabaseMissing('agent_api_audits', ['route_name' => null]);
+        foreach (AgentApiAudit::query()->get() as $audit) {
+            $this->assertStringNotContainsString(
+                'SENTINEL-BROWSER-ONLY',
+                json_encode($audit->getAttributes(), JSON_THROW_ON_ERROR),
+            );
+        }
     }
 
     public function test_write_scope_patient_grant_source_document_and_validation_are_all_enforced(): void

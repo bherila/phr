@@ -14,7 +14,9 @@ use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\HealthLog\PhrHealthLogDao;
 use App\Support\AgentApi\AgentApiClientIdentity;
 use App\Support\AgentApi\AgentApiCursor;
+use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentApiUpdateWindow;
+use App\Support\AgentApi\AgentMutationResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -37,12 +39,18 @@ final class AgentHealthLogController extends Controller
             $request->command(),
         );
 
-        return response()->json([
-            'resource_type' => 'health-log',
-            'patient_id' => $resolvedPatient->id,
-            'outcome' => $result->outcome,
-            'data' => (new HealthLogResource($result->record))->resolve($request),
-        ], $result->outcome === AgentAppendResult::CREATED ? 201 : 200);
+        return response()->json(
+            AgentMutationResponse::payload(
+                $request,
+                'health-log',
+                $resolvedPatient->id,
+                $result->outcome,
+                AgentApiScopes::CLINICAL_READ,
+                $result->record,
+                fn (): array => (new HealthLogResource($result->record))->resolve($request),
+            ),
+            $result->outcome === AgentAppendResult::CREATED ? 201 : 200,
+        );
     }
 
     public function entries(Request $request, int $patient, int $healthLog): JsonResponse
@@ -115,13 +123,19 @@ final class AgentHealthLogController extends Controller
             $request->command(),
         );
 
-        return response()->json([
-            'resource_type' => 'health-log-entry',
-            'patient_id' => $resolvedPatient->id,
-            'health_log_id' => $resolvedLog->id,
-            'outcome' => $result->outcome,
-            'data' => (new HealthLogEntryResource($result->record))->resolve($request),
-        ], $result->outcome === AgentAppendResult::CREATED ? 201 : 200);
+        return response()->json(
+            AgentMutationResponse::payload(
+                $request,
+                'health-log-entry',
+                $resolvedPatient->id,
+                $result->outcome,
+                AgentApiScopes::CLINICAL_READ,
+                $result->record,
+                fn (): array => (new HealthLogEntryResource($result->record))->resolve($request),
+                extra: ['health_log_id' => $resolvedLog->id],
+            ),
+            $result->outcome === AgentAppendResult::CREATED ? 201 : 200,
+        );
     }
 
     /** @return array<string, mixed> */
