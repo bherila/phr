@@ -721,7 +721,7 @@
       "Facility": { "name": "facility", "in": "query", "schema": { "type": "string", "maxLength": 200 } },
       "Code": { "name": "code", "in": "query", "schema": { "type": "string", "maxLength": 100 } },
       "Source": { "name": "source", "in": "query", "schema": { "type": "string", "maxLength": 100 } },
-      "ReviewStatus": { "name": "review_status", "in": "query", "description": "Matches durable review_status for agent-reviewed resources; conditions and allergies retain their existing verification_status filter semantics.", "schema": { "type": "string", "maxLength": 50 } },
+      "ReviewStatus": { "name": "review_status", "in": "query", "description": "Matches the durable review_status field across agent-reviewed clinical resources; condition/allergy verification_status remains a separate clinical field.", "schema": { "type": "string", "maxLength": 50 } },
       "ImportSource": {
         "name": "import_source",
         "in": "query",

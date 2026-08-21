@@ -68,14 +68,14 @@ final class AgentRecordSearchCatalog
             'event' => ['onset_date', 'created_at'],
             'summary' => ['name'], 'q' => ['name', 'notes'], 'provider' => [], 'facility' => [],
             'codes' => ['icd10_code', 'snomed_code'], 'code_arrays' => [], 'sources' => ['import_source'],
-            'review' => ['verification_status'], 'source_document' => true,
+            'review' => ['review_status'], 'source_document' => true,
         ],
         'allergies' => [
             'model' => PhrAllergy::class,
             'event' => ['created_at'],
             'summary' => ['substance'], 'q' => ['substance', 'reaction', 'notes'], 'provider' => [], 'facility' => [],
             'codes' => ['rxnorm_code', 'snomed_code'], 'code_arrays' => [], 'sources' => ['import_source'],
-            'review' => ['verification_status'], 'source_document' => true,
+            'review' => ['review_status'], 'source_document' => true,
         ],
         'lab-results' => [
             'model' => PhrLabResult::class,
