@@ -24,6 +24,7 @@ const ALLERGY = {
   criticality: 'low',
   clinical_status: 'active',
   verification_status: 'confirmed',
+  review_status: 'pending_review' as const,
   reaction: 'Synthetic reaction',
   severity: 'mild',
   notes: null,
@@ -57,6 +58,7 @@ describe('AllergiesPage', () => {
   it('keeps the mounted list synchronized with detail mutations', async () => {
     render(<AllergiesPage patientId={42} />)
     await screen.findByText('Synthetic reaction')
+    expect(screen.getByText('pending review')).toBeInTheDocument()
 
     notifyAllergyChanged({
       action: 'updated',

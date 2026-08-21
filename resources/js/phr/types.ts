@@ -2,6 +2,9 @@ import { z } from 'zod'
 
 const nullableString = z.string().nullable()
 
+export const PhrReviewStatusSchema = z.enum(['pending_review', 'confirmed'])
+export type PhrReviewStatus = z.infer<typeof PhrReviewStatusSchema>
+
 export const PhrConditionClinicalStatusSchema = z.enum([
   'active',
   'recurrence',
@@ -89,6 +92,7 @@ export const PhrLabResultSchema = z.object({
   lab_director: nullableString,
   source: nullableString,
   notes: nullableString,
+  review_status: PhrReviewStatusSchema.optional(),
   created_at: nullableString,
   updated_at: nullableString,
 })
@@ -110,6 +114,7 @@ export const PhrVitalSchema = z.object({
   body_site: nullableString,
   source: nullableString,
   notes: nullableString,
+  review_status: PhrReviewStatusSchema.optional(),
   created_at: nullableString,
   updated_at: nullableString,
 })
@@ -550,9 +555,6 @@ export const PhrOfficeVisitImagingStudyLinkResponseSchema = z.object({
   imaging_study: PhrOfficeVisitImagingStudySchema,
 })
 
-export const PhrReviewStatusSchema = z.enum(['pending_review', 'confirmed'])
-export type PhrReviewStatus = z.infer<typeof PhrReviewStatusSchema>
-
 export const PhrOfficeVisitSchema = z.object({
   id: z.number(),
   patient_id: z.number(),
@@ -609,6 +611,7 @@ export const PhrMedicationSchema = z.object({
   prescriber_name: nullableString,
   reason_for_use: nullableString,
   raw_text: nullableString,
+  review_status: PhrReviewStatusSchema.optional(),
   created_at: nullableString,
   updated_at: nullableString,
 })
@@ -640,6 +643,7 @@ export const PhrConditionSchema = z.object({
   severity: nullableString,
   notes: nullableString,
   raw_text: nullableString,
+  review_status: PhrReviewStatusSchema.optional(),
   created_at: nullableString,
   updated_at: nullableString,
 })
@@ -742,6 +746,7 @@ export const PhrImmunizationSchema = z.object({
   facility_name: nullableString,
   notes: nullableString,
   raw_text: nullableString,
+  review_status: PhrReviewStatusSchema.optional(),
   created_at: nullableString,
   updated_at: nullableString,
 })
@@ -791,6 +796,7 @@ export const PhrAllergySchema = z.object({
   severity: nullableString,
   notes: nullableString,
   raw_text: nullableString,
+  review_status: PhrReviewStatusSchema.optional(),
   created_at: nullableString,
   updated_at: nullableString,
 })

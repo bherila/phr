@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useClinicalCrud } from '@/phr/clinical/crud'
+import { reviewStatusBadge } from '@/phr/clinical/ui'
 import type { PhrListPageProps } from '@/phr/miller'
 import { compactPayload } from '@/phr/shared'
 import {
@@ -352,11 +353,14 @@ function MedicationTable({
                       <td className="px-4 py-3 text-muted-foreground">{medicationDetails(medication) || '—'}</td>
                       <td className="px-4 py-3 text-muted-foreground">{medication.prescriber_name ?? '—'}</td>
                       <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${resolvedStatus ? STATUS_CLASS[resolvedStatus] : 'bg-muted text-muted-foreground'}`}
-                        >
-                          {medication.status}
-                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          <span
+                            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${resolvedStatus ? STATUS_CLASS[resolvedStatus] : 'bg-muted text-muted-foreground'}`}
+                          >
+                            {medication.status}
+                          </span>
+                          {reviewStatusBadge(medication.review_status)}
+                        </div>
                       </td>
                       {canManage && (
                         <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>

@@ -41,8 +41,11 @@ class AgentDiscoveryController extends Controller
             'workflow' => [
                 'patient_selection' => [
                     'first' => 'identity.get',
+                    'first_scope' => AgentApiScopes::IDENTITY_READ,
                     'enumerate' => 'patients.list',
+                    'enumerate_scope' => AgentApiScopes::PATIENTS_READ,
                     'confirm' => 'patients.get',
+                    'confirm_scope' => AgentApiScopes::PATIENTS_READ,
                     'rule' => 'Never infer or guess a patient id from an external record; use an id returned by patients.list and confirm it before a write.',
                 ],
                 'clinical_write' => [

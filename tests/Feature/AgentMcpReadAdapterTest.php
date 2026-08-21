@@ -158,6 +158,7 @@ final class AgentMcpReadAdapterTest extends TestCase
         $initialized = $this->mcpPost($this->initializeMessage())->assertOk()->json();
         $instructions = $initialized['result']['instructions'] ?? '';
         $this->assertStringContainsString('Authorization Code plus S256 PKCE', $instructions);
+        $this->assertStringContainsString('identity:read', $instructions);
         $this->assertStringContainsString('identity.get, then patients.list', $instructions);
         $this->assertStringContainsString('Never guess a patient id', $instructions);
         $this->assertStringContainsString('deterministic external_id', $instructions);

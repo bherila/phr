@@ -254,8 +254,11 @@ final class AgentApiClinicalWriteTest extends TestCase
         }
 
         $this->assertSame('identity.get', $capabilities['workflow']['patient_selection']['first']);
+        $this->assertSame(AgentApiScopes::IDENTITY_READ, $capabilities['workflow']['patient_selection']['first_scope']);
         $this->assertSame('patients.list', $capabilities['workflow']['patient_selection']['enumerate']);
+        $this->assertSame(AgentApiScopes::PATIENTS_READ, $capabilities['workflow']['patient_selection']['enumerate_scope']);
         $this->assertSame('patients.get', $capabilities['workflow']['patient_selection']['confirm']);
+        $this->assertSame(AgentApiScopes::PATIENTS_READ, $capabilities['workflow']['patient_selection']['confirm_scope']);
         $this->assertSame('S256', $capabilities['workflow']['oauth']['authorization_code_pkce_method']);
     }
 

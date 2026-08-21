@@ -37,7 +37,7 @@ final class AgentMcpServerFactory
                 websiteUrl: url('/'),
             )
             ->setInstructions(implode(' ', [
-                'Authenticate with OAuth Authorization Code plus S256 PKCE using the server metadata at /.well-known/oauth-authorization-server; request mcp:use, patients:read, and only the narrow clinical, document, or import scopes needed for the task.',
+                'Authenticate with OAuth Authorization Code plus S256 PKCE using the server metadata at /.well-known/oauth-authorization-server; request mcp:use, identity:read, patients:read, and only the narrow clinical, document, or import scopes needed for the task.',
                 'After connection, call identity.get, then patients.list to enumerate the patients available to the logged-in account. Never guess a patient id; confirm the selected patient with patients.get before reading or writing.',
                 'Use bounded list operations with cursors. Read existing records before writing. Every clinical upsert needs a deterministic external_id and should include source_document_id when evidence was uploaded. A retry with the same client-scoped identity is idempotent; an update requires the current opaque version and conflicts if the record changed.',
                 'Keep interpreted source data distinct from evidence: upload or reuse the source document, then upsert only normalized records supported by the clinical schemas. Use pending_review unless the user has explicitly approved the proposed record, and use imports.review when working through a staged extraction proposal.',
