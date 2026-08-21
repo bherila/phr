@@ -51,11 +51,13 @@ class AgentApiSearchEvidenceTest extends TestCase
         $allergy = PhrAllergy::query()->create([
             'patient_id' => $patient->id, 'user_id' => $actor->id,
             'substance' => 'Synthetic allergen', 'verification_status' => 'provisional',
+            'review_status' => 'pending_review',
             'import_source' => 'synthetic-source',
         ]);
-        PhrAllergy::query()->create([
+        $confirmedAllergy = PhrAllergy::query()->create([
             'patient_id' => $patient->id, 'user_id' => $actor->id,
             'substance' => 'Synthetic second allergen', 'verification_status' => 'unconfirmed',
+            'review_status' => 'confirmed',
             'import_source' => 'synthetic-source',
         ]);
 
@@ -70,14 +72,14 @@ class AgentApiSearchEvidenceTest extends TestCase
         $this->assertStringNotContainsString('private assessment', $encoded);
         $this->assertStringNotContainsString('raw_text', $encoded);
 
-        $this->getJson("/api/v1/patients/{$patient->id}/timeline?review_status=provisional")
+        $this->getJson("/api/v1/patients/{$patient->id}/timeline?review_status=pending_review")
             ->assertOk()->assertJsonCount(1, 'data')
             ->assertJsonPath('data.0.resource_type', 'allergies')
             ->assertJsonPath('data.0.id', $allergy->id);
         $this->getJson("/api/v1/patients/{$patient->id}/timeline?review_status=confirmed")
-            ->assertOk()->assertJsonCount(1, 'data')
-            ->assertJsonPath('data.0.resource_type', 'office-visits')
-            ->assertJsonPath('data.0.id', $visit->id);
+            ->assertOk()->assertJsonCount(2, 'data')
+            ->assertJsonFragment(['resource_type' => 'office-visits', 'id' => $visit->id])
+            ->assertJsonFragment(['resource_type' => 'allergies', 'id' => $confirmedAllergy->id]);
         $this->getJson("/api/v1/patients/{$patient->id}/timeline?code=description")
             ->assertOk()->assertJsonCount(0, 'data');
         $this->getJson("/api/v1/patients/{$patient->id}/timeline?source=synthetic")

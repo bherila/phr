@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { useClinicalCrud } from '@/phr/clinical/crud'
-import { classBadge, codeChip, labelize } from '@/phr/clinical/ui'
+import { classBadge, codeChip, labelize, reviewStatusBadge } from '@/phr/clinical/ui'
 import type { PhrListPageProps } from '@/phr/miller'
 import { zodErrorMessage } from '@/phr/shared'
 import {
@@ -195,6 +195,7 @@ function AllergiesTable({
                     <td className="px-4 py-3">
                       <div className="flex flex-col items-start gap-1.5">
                         {classBadge(allergy.clinical_status, STATUS_CLASS)}
+                        {reviewStatusBadge(allergy.review_status)}
                         <span className="text-xs text-muted-foreground">{labelize(allergy.verification_status)}</span>
                       </div>
                     </td>

@@ -155,6 +155,14 @@ final class AgentMcpReadAdapterTest extends TestCase
             AgentApiScopes::CLINICAL_READ,
         ]);
 
+        $initialized = $this->mcpPost($this->initializeMessage())->assertOk()->json();
+        $instructions = $initialized['result']['instructions'] ?? '';
+        $this->assertStringContainsString('Authorization Code plus S256 PKCE', $instructions);
+        $this->assertStringContainsString('identity:read', $instructions);
+        $this->assertStringContainsString('identity.get, then patients.list', $instructions);
+        $this->assertStringContainsString('Never guess a patient id', $instructions);
+        $this->assertStringContainsString('deterministic external_id', $instructions);
+
         $session = $this->initializeSession();
         $tools = $this->mcpPost([
             'jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list', 'params' => [],
@@ -165,7 +173,9 @@ final class AgentMcpReadAdapterTest extends TestCase
             'office_visits.list', 'procedures.get', 'eobs.list', 'documents.get', 'documents.upload',
             'imports.list', 'imports.get', 'imports.create', 'imports.review', 'imports.retry',
             'health_logs.create', 'health_log_entries.list', 'health_log_entries.get',
-            'health_log_entries.append', 'respiratory_events.list', 'respiratory_events.ingest'] as $name) {
+            'health_log_entries.append', 'respiratory_events.list', 'respiratory_events.ingest',
+            'immunizations.upsert', 'medications.upsert', 'conditions.upsert', 'allergies.upsert',
+            'lab_results.upsert', 'vitals.upsert'] as $name) {
             $this->assertContains($name, $toolNames);
         }
         $this->assertCount(
@@ -221,6 +231,14 @@ final class AgentMcpReadAdapterTest extends TestCase
         $this->assertSame(
             ['name'],
             $toolsByName->get('procedures.upsert')['inputSchema']['properties']['data']['required'] ?? null,
+        );
+        $this->assertSame(
+            ['vaccine_name'],
+            $toolsByName->get('immunizations.upsert')['inputSchema']['properties']['data']['required'] ?? null,
+        );
+        $this->assertSame(
+            ['analyte'],
+            $toolsByName->get('lab_results.upsert')['inputSchema']['properties']['data']['required'] ?? null,
         );
         $this->assertFalse(
             $toolsByName->get('office_visits.upsert')['inputSchema']['properties']['data']['additionalProperties'] ?? true,

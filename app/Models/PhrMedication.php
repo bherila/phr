@@ -16,6 +16,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $import_source
  * @property string|null $external_id
  * @property int|null $source_document_id
+ * @property string $review_status
  * @property string $name
  * @property string|null $rxnorm_code
  * @property string|null $dose
@@ -44,6 +45,7 @@ class PhrMedication extends Model
         'import_source',
         'external_id',
         'source_document_id',
+        'review_status',
         'name',
         'rxnorm_code',
         'dose',

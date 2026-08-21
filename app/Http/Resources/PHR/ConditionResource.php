@@ -23,6 +23,7 @@ class ConditionResource extends JsonResource
             'import_source' => $condition->import_source,
             'external_id' => $condition->external_id,
             'source_document_id' => $condition->source_document_id,
+            'review_status' => $condition->review_status,
             'name' => $condition->name,
             'icd10_code' => $condition->icd10_code,
             'snomed_code' => $condition->snomed_code,

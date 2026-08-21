@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useClinicalCrud } from '@/phr/clinical/crud'
-import { classBadge, codeChip, labelize } from '@/phr/clinical/ui'
+import { classBadge, codeChip, labelize, reviewStatusBadge } from '@/phr/clinical/ui'
 import type { PhrListPageProps } from '@/phr/miller'
 import { compactPayload, zodErrorMessage } from '@/phr/shared'
 import {
@@ -334,6 +334,7 @@ function ConditionsTable({
                       <td className="px-4 py-3">
                         <div className="flex flex-col items-start gap-1.5">
                           {classBadge(condition.clinical_status, STATUS_CLASS)}
+                          {reviewStatusBadge(condition.review_status)}
                           <span className="text-xs text-muted-foreground">{labelize(condition.verification_status)}</span>
                         </div>
                       </td>

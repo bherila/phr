@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
+import { reviewStatusBadge } from '@/phr/clinical/ui'
 import type { PhrListPageProps } from '@/phr/miller'
 import { errorMessage, numericPayload } from '@/phr/shared'
 import {
@@ -261,7 +262,10 @@ export default function VitalsPage({ patientId, onDrill }: PhrListPageProps) {
                     className="cursor-pointer border-b border-border last:border-0 hover:bg-muted/20"
                     onClick={() => onDrill?.({ id: 'vitals-reading-detail', instance: String(v.id) })}
                   >
-                    <td className="px-3 py-2 font-medium text-foreground">{v.vital_name ?? '—'}</td>
+                    <td className="px-3 py-2 font-medium text-foreground">
+                      <div>{v.vital_name ?? '—'}</div>
+                      <div className="mt-1">{reviewStatusBadge(v.review_status)}</div>
+                    </td>
                     <td className="px-3 py-2 text-right font-semibold text-foreground">{displayValue(v)}</td>
                     <td className="px-3 py-2 text-muted-foreground">{v.unit ?? (v.secondary_unit ?? '—')}</td>
                     <td className="px-3 py-2 text-muted-foreground">{v.body_site ?? '—'}</td>

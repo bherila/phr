@@ -36,7 +36,13 @@ final class AgentMcpServerFactory
                 description: 'Read and safely update authorized personal health records through the versioned PHR REST API.',
                 websiteUrl: url('/'),
             )
-            ->setInstructions('Use list operations with bounded limits and cursors. Upserts require stable external IDs and the current opaque version before changing an existing record. Request document download access only when file contents are explicitly needed.')
+            ->setInstructions(implode(' ', [
+                'Authenticate with OAuth Authorization Code plus S256 PKCE using the server metadata at /.well-known/oauth-authorization-server; request mcp:use, identity:read, patients:read, and only the narrow clinical, document, or import scopes needed for the task.',
+                'After connection, call identity.get, then patients.list to enumerate the patients available to the logged-in account. Never guess a patient id; confirm the selected patient with patients.get before reading or writing.',
+                'Use bounded list operations with cursors. Read existing records before writing. Every clinical upsert needs a deterministic external_id and should include source_document_id when evidence was uploaded. A retry with the same client-scoped identity is idempotent; an update requires the current opaque version and conflicts if the record changed.',
+                'Keep interpreted source data distinct from evidence: upload or reuse the source document, then upsert only normalized records supported by the clinical schemas. Use pending_review unless the user has explicitly approved the proposed record, and use imports.review when working through a staged extraction proposal.',
+                'Request document download access only when file contents are explicitly needed.',
+            ]))
             ->setPaginationLimit(100)
             // Sessions contain protocol negotiation state, never tool arguments or
             // results. A token-derived cache namespace prevents possession of a

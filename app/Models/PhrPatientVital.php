@@ -15,6 +15,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $import_source
  * @property string|null $external_id
  * @property int|null $source_document_id
+ * @property string $review_status
  * @property string|null $vital_name
  * @property Carbon|null $vital_date
  * @property Carbon|null $observed_at
@@ -41,6 +42,7 @@ class PhrPatientVital extends Model
         'import_source',
         'external_id',
         'source_document_id',
+        'review_status',
         'vital_name',
         'vital_date',
         'observed_at',

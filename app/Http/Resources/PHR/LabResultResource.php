@@ -23,6 +23,7 @@ class LabResultResource extends JsonResource
             'import_source' => $labResult->import_source,
             'external_id' => $labResult->external_id,
             'source_document_id' => $labResult->source_document_id,
+            'review_status' => $labResult->review_status,
             'test_name' => $labResult->test_name,
             'collection_datetime' => $labResult->collection_datetime?->toDateTimeString(),
             'result_datetime' => $labResult->result_datetime?->toDateTimeString(),

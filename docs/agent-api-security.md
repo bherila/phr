@@ -35,15 +35,17 @@ model and JSON Resource classes consumed by the browser API; route input never s
 an arbitrary class or table.
 
 Clinical mutations require the separate `clinical:write` scope plus owner/manager
-access. The first write surface is a fixed office-visit/procedure allow-list. Its
+access. The write surface is a fixed allow-list covering office visits, procedures,
+immunizations, medications, conditions, allergies, lab results, and vitals. Their
 Laravel validation rules are shared with browser CRUD, while a typed command and write
 DAO keep REST and MCP payload handling out of the persistence service. Stable external
 IDs are stored under `agent-client:<OAuth client UUID>` so another client cannot claim
 the same identity. Source-document IDs are resolved inside the target patient boundary.
-Every mutable record exposes an opaque HMAC version derived from all stored attributes;
-changed writes require an exact version, while an exact replay returns `unchanged`
-before the conflict check. The HMAC prevents low-entropy clinical values from being
-tested offline and catches same-second changes that timestamp-only concurrency misses.
+Every mutable record exposes a durable review status and an opaque HMAC version derived
+from all stored attributes; changed writes require an exact version, while an exact
+replay returns `unchanged` before the conflict check. The HMAC prevents low-entropy
+clinical values from being tested offline and catches same-second changes that
+timestamp-only concurrency misses.
 
 Health-log creation and entry append use the same `clinical:write` and patient-grant
 boundary. They delegate to the browser's validation and health-log service through a
@@ -146,6 +148,13 @@ Its fixed tool catalog delegates to a typed DAO and cookie-free internal REST tr
 so it reuses route validation, patient authorization, serializers, throttles, and audit
 middleware instead of becoming a second clinical implementation. The scoped request
 context is restored after each subrequest. Browser session cookies are never copied.
+The MCP initialize response also supplies the operational workflow: discover OAuth
+metadata with Authorization Code plus S256 PKCE, call `identity.get` and then
+`patients.list`, confirm the chosen patient with `patients.get`, and use deterministic
+client-scoped identities with read-before-write and version preconditions. This gives
+an agent enough protocol context to select a patient safely without inferring ids from
+an external source. Large evidence files use the ordinary authenticated multipart REST
+upload; the bounded MCP base64 tool is reserved for small documents.
 
 The transport keeps the SDK's CORS, DNS-rebinding, and protocol-version protections,
 uses a 256 KiB request ceiling, and accepts cross-origin browser requests only from an

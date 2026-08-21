@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useClinicalCrud } from '@/phr/clinical/crud'
-import { codeChip } from '@/phr/clinical/ui'
+import { codeChip, reviewStatusBadge } from '@/phr/clinical/ui'
 import type { PhrListPageProps } from '@/phr/miller'
 import { numericPayload, zodErrorMessage } from '@/phr/shared'
 import {
@@ -278,6 +278,7 @@ export default function ImmunizationsPage({ patientId, onDrill }: PhrListPagePro
                       >
                         <td className="px-4 py-3">
                           <div className="font-medium text-card-foreground">{immunization.vaccine_name}</div>
+                          <div className="mt-1">{reviewStatusBadge(immunization.review_status)}</div>
                           <div className="mt-2 flex flex-wrap gap-1.5">
                             {codeChip('CVX', immunization.cvx_code)}
                             {immunization.manufacturer && (

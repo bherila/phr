@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
+import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { formatLabReferenceRange, formatLabValue } from '@/phr/labs/formatLabResult'
 import type { PhrListPageProps } from '@/phr/miller'
 import { errorMessage, numericPayload } from '@/phr/shared'
@@ -135,7 +136,10 @@ function LabResultsTable({ results, showPanelColumn, onDrill }: LabResultsTableP
             className={`border-b border-border last:border-0 hover:bg-muted/20 ${onDrill ? 'cursor-pointer' : ''}`}
             onClick={() => onDrill?.({ id: 'lab-panel-detail', instance: String(result.id) })}
           >
-            <td className="px-3 py-2 font-medium text-foreground">{result.analyte ?? '—'}</td>
+            <td className="px-3 py-2 font-medium text-foreground">
+              <div>{result.analyte ?? '—'}</div>
+              <div className="mt-1">{reviewStatusBadge(result.review_status)}</div>
+            </td>
             {showPanelColumn && (
               <td className="px-3 py-2 text-muted-foreground">{result.test_name ?? '—'}</td>
             )}

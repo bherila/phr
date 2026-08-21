@@ -21,8 +21,14 @@ use App\Models\PhrMedication;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatientVital;
 use App\Models\PhrProcedure;
+use App\Support\PHR\Validation\AllergyDataRules;
+use App\Support\PHR\Validation\ConditionDataRules;
+use App\Support\PHR\Validation\ImmunizationDataRules;
+use App\Support\PHR\Validation\LabResultDataRules;
+use App\Support\PHR\Validation\MedicationDataRules;
 use App\Support\PHR\Validation\OfficeVisitDataRules;
 use App\Support\PHR\Validation\ProcedureDataRules;
+use App\Support\PHR\Validation\VitalDataRules;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -62,31 +68,37 @@ final class AgentClinicalResourceCatalog
             'model' => PhrImmunization::class,
             'resource' => ImmunizationResource::class,
             'provenance' => true,
+            'write_rules' => ImmunizationDataRules::class,
         ],
         'medications' => [
             'model' => PhrMedication::class,
             'resource' => MedicationResource::class,
             'provenance' => true,
+            'write_rules' => MedicationDataRules::class,
         ],
         'conditions' => [
             'model' => PhrCondition::class,
             'resource' => ConditionResource::class,
             'provenance' => true,
+            'write_rules' => ConditionDataRules::class,
         ],
         'allergies' => [
             'model' => PhrAllergy::class,
             'resource' => AllergyResource::class,
             'provenance' => true,
+            'write_rules' => AllergyDataRules::class,
         ],
         'lab-results' => [
             'model' => PhrLabResult::class,
             'resource' => LabResultResource::class,
             'provenance' => true,
+            'write_rules' => LabResultDataRules::class,
         ],
         'vitals' => [
             'model' => PhrPatientVital::class,
             'resource' => VitalResource::class,
             'provenance' => true,
+            'write_rules' => VitalDataRules::class,
         ],
         'health-logs' => [
             'model' => PhrHealthLog::class,

@@ -14,6 +14,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $import_source
  * @property string|null $external_id
  * @property int|null $source_document_id
+ * @property string $review_status
  * @property string $substance
  * @property string|null $rxnorm_code
  * @property string|null $snomed_code
@@ -38,6 +39,7 @@ class PhrAllergy extends Model
         'import_source',
         'external_id',
         'source_document_id',
+        'review_status',
         'substance',
         'rxnorm_code',
         'snomed_code',

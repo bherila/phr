@@ -14,6 +14,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $import_source
  * @property string|null $external_id
  * @property int|null $source_document_id
+ * @property string $review_status
  * @property string $vaccine_name
  * @property string|null $cvx_code
  * @property string|null $manufacturer
@@ -40,6 +41,7 @@ class PhrImmunization extends Model
         'import_source',
         'external_id',
         'source_document_id',
+        'review_status',
         'vaccine_name',
         'cvx_code',
         'manufacturer',

@@ -15,6 +15,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $import_source
  * @property string|null $external_id
  * @property int|null $source_document_id
+ * @property string $review_status
  * @property string|null $test_name
  * @property Carbon|null $collection_datetime
  * @property Carbon|null $result_datetime
@@ -51,6 +52,7 @@ class PhrLabResult extends Model
         'import_source',
         'external_id',
         'source_document_id',
+        'review_status',
         'test_name',
         'collection_datetime',
         'result_datetime',

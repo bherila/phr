@@ -23,6 +23,7 @@ class VitalResource extends JsonResource
             'import_source' => $vital->import_source,
             'external_id' => $vital->external_id,
             'source_document_id' => $vital->source_document_id,
+            'review_status' => $vital->review_status,
             'vital_name' => $vital->vital_name,
             'vital_date' => $vital->vital_date?->toDateString(),
             'observed_at' => $vital->observed_at?->toDateTimeString(),

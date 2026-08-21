@@ -38,7 +38,11 @@ const REVIEW_STATUS_CLASS: Record<PhrReviewStatus, string> = {
   confirmed: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300',
 }
 
-export function reviewStatusBadge(status: PhrReviewStatus): ReactElement {
+export function reviewStatusBadge(status: PhrReviewStatus | null | undefined): ReactElement | null {
+  if (!status) {
+    return null
+  }
+
   return (
     <span
       title="Clinical review status"
