@@ -37,6 +37,18 @@ final class AgentMcpRequestArguments
             : $fallback;
     }
 
+    public function has(RequestContext $context, string $name): bool
+    {
+        $request = $context->getRequest();
+        if (! $request instanceof CallToolRequest) {
+            return false;
+        }
+
+        $arguments = $this->calls[$this->key($request->getId(), $request->name)] ?? null;
+
+        return is_array($arguments) && array_key_exists($name, $arguments);
+    }
+
     /** @return array<string, mixed>|null */
     public function nextValidationArguments(mixed $sdkArguments): ?array
     {

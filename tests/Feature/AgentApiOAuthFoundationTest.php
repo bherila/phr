@@ -298,8 +298,9 @@ class AgentApiOAuthFoundationTest extends TestCase
             'respiratory_events.list',
             'respiratory_events.ingest',
             'clinical.list',
-            ...AgentClinicalResourceCatalog::writableOperationIds(),
+            ...AgentClinicalResourceCatalog::upsertOperationIds(),
             'clinical.get',
+            AgentClinicalResourceCatalog::UPDATE_OPERATION_ID,
             'mcp.exchange',
             'mcp.session.delete',
             'oauth.disconnect',
@@ -311,6 +312,14 @@ class AgentApiOAuthFoundationTest extends TestCase
         foreach ($operationIds as $operationId) {
             $this->assertArrayHasKey($operationId, $capabilities['operations']);
             $this->assertTrue($capabilities['operations'][$operationId]['available']);
+        }
+        $operationProperties = array_keys($document['components']['schemas']['Operation']['properties']);
+        foreach ($capabilities['operations'] as $operationId => $operation) {
+            $this->assertSame(
+                [],
+                array_values(array_diff(array_keys($operation), $operationProperties)),
+                "Capabilities operation {$operationId} has undocumented properties.",
+            );
         }
         $this->assertSame(
             [AgentApiScopes::IDENTITY_READ],

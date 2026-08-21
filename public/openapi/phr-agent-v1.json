@@ -572,6 +572,24 @@
           "404": { "$ref": "#/components/responses/NotFound" },
           "429": { "$ref": "#/components/responses/RateLimited" }
         }
+      },
+      "patch": {
+        "operationId": "clinical.update",
+        "summary": "Partially update one existing writable clinical record",
+        "description": "Read the record first and supply its current opaque version. Requires clinical:read as well as clinical:write. The update is patient-scoped and never changes import_source or external_id. Omitted fields are preserved; a supplied null source_document_id clears only that link. A stale or unknown version is rejected with 409 before anything is applied, and every effective change resets review_status to pending_review.",
+        "security": [{ "oauth2": ["clinical:read", "clinical:write"] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/PatientId" },
+          { "$ref": "#/components/parameters/WritableClinicalResource" },
+          { "$ref": "#/components/parameters/RecordId" }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalRecordUpdateRequest" } } } },
+        "responses": {
+          "200": { "description": "Record updated or desired state already present", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalUpsertResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" }
+        }
       }
     },
     "/mcp": {
@@ -689,6 +707,15 @@
           "enum": ["office-visits", "procedures", "immunizations", "medications", "conditions", "allergies", "lab-results", "vitals", "health-logs"]
         }
       },
+      "WritableClinicalResource": {
+        "name": "resource",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "enum": ["office-visits", "procedures", "immunizations", "medications", "conditions", "allergies", "lab-results", "vitals"]
+        }
+      },
       "Limit": {
         "name": "limit",
         "in": "query",
@@ -765,7 +792,8 @@
         "required": ["available", "scope"],
         "properties": {
           "available": { "type": "boolean" },
-          "scope": { "type": ["string", "null"] }
+          "scope": { "type": ["string", "null"], "description": "Primary scope retained for backward compatibility. When scopes is present, all scopes in that array are required." },
+          "scopes": { "type": "array", "items": { "type": "string" }, "minItems": 2, "uniqueItems": true, "description": "All OAuth scopes required by an operation that has multiple mandatory scopes." }
         },
         "additionalProperties": false
       },
@@ -900,6 +928,19 @@
           "review_status": { "type": "string", "enum": ["pending_review", "confirmed"] },
           "expected_version": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" }
         }
+      },
+      "ClinicalRecordUpdateRequest": {
+        "type": "object",
+        "required": ["expected_version"],
+        "properties": {
+          "expected_version": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "source_document_id": { "type": ["integer", "null"], "minimum": 1 },
+          "data": { "type": "object", "minProperties": 1, "additionalProperties": true, "description": "A partial object validated against the selected writable clinical resource's schema." }
+        },
+        "anyOf": [
+          { "required": ["source_document_id"] }, { "required": ["data"] }
+        ],
+        "additionalProperties": false
       },
       "OfficeVisitUpsertRequest": {
         "allOf": [

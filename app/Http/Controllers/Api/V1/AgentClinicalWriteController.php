@@ -4,7 +4,9 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\DataTransferObjects\AgentApi\ClinicalUpsertResult;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\AgentApi\UpdateClinicalRecordRequest;
 use App\Http\Requests\AgentApi\UpsertClinicalRecordRequest;
+use App\Services\AgentApi\AgentClinicalRecordUpdateService;
 use App\Services\AgentApi\AgentClinicalUpsertService;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Support\AgentApi\AgentApiClientIdentity;
@@ -16,6 +18,7 @@ final class AgentClinicalWriteController extends Controller
     public function __construct(
         private PhrPatientAccessService $accessService,
         private AgentClinicalUpsertService $upserts,
+        private AgentClinicalRecordUpdateService $updates,
     ) {}
 
     public function upsert(UpsertClinicalRecordRequest $request, int $patient, string $resource): JsonResponse
@@ -37,5 +40,22 @@ final class AgentClinicalWriteController extends Controller
             'version' => $result->version,
             'data' => (new $resourceClass($result->record))->resolve($request),
         ], $result->outcome === ClinicalUpsertResult::CREATED ? 201 : 200);
+    }
+
+    public function update(UpdateClinicalRecordRequest $request, int $patient, string $resource, int $record): JsonResponse
+    {
+        $userId = (int) $request->user('api')?->id;
+        $resolvedPatient = $this->accessService->writablePatient($patient, $userId);
+        $result = $this->updates->update($resolvedPatient, $record, $request->updateData());
+        $definition = AgentClinicalResourceCatalog::definition($resource) ?? abort(404);
+        $resourceClass = $definition['resource'];
+
+        return response()->json([
+            'resource_type' => $resource,
+            'patient_id' => $resolvedPatient->id,
+            'outcome' => $result->outcome,
+            'version' => $result->version,
+            'data' => (new $resourceClass($result->record))->resolve($request),
+        ]);
     }
 }

@@ -15,4 +15,13 @@ final class AgentClinicalWriteSchemaCatalog
 
         return $ruleClass::jsonSchema();
     }
+
+    /** @return array<string, mixed> */
+    public static function partialData(string $resource): array
+    {
+        $schema = self::data($resource);
+        unset($schema['required']);
+
+        return $schema;
+    }
 }

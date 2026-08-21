@@ -2,6 +2,7 @@
 
 namespace App\Services\AgentApi\Client;
 
+use App\DataTransferObjects\AgentApi\ClinicalRecordUpdateData;
 use App\DataTransferObjects\AgentApi\ClinicalUpsertData;
 use App\DataTransferObjects\AgentApi\DocumentUploadData;
 use App\DataTransferObjects\AgentApi\HealthLogCreateData;
@@ -19,6 +20,15 @@ final readonly class AgentApiWriteDao
         return AgentClinicalUpsertPayload::from($this->transport->send(
             'PUT',
             "patients/{$patientId}/{$data->resource}",
+            json: $data->toRequestPayload(),
+        ));
+    }
+
+    public function clinicalUpdate(int $patientId, int $recordId, ClinicalRecordUpdateData $data): AgentClinicalUpsertPayload
+    {
+        return AgentClinicalUpsertPayload::from($this->transport->send(
+            'PATCH',
+            "patients/{$patientId}/{$data->resource}/{$recordId}",
             json: $data->toRequestPayload(),
         ));
     }
