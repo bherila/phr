@@ -175,11 +175,11 @@ final class AgentMcpReadAdapterTest extends TestCase
             'health_logs.create', 'health_log_entries.list', 'health_log_entries.get',
             'health_log_entries.append', 'respiratory_events.list', 'respiratory_events.ingest',
             'immunizations.upsert', 'medications.upsert', 'conditions.upsert', 'allergies.upsert',
-            'lab_results.upsert', 'vitals.upsert'] as $name) {
+            'lab_results.upsert', 'vitals.upsert', 'office_visits.update', 'procedures.update'] as $name) {
             $this->assertContains($name, $toolNames);
         }
         $this->assertCount(
-            26 + (count(AgentClinicalResourceCatalog::ids()) * 2) + count(AgentClinicalResourceCatalog::writableIds()),
+            26 + (count(AgentClinicalResourceCatalog::ids()) * 2) + (count(AgentClinicalResourceCatalog::writableIds()) * 2),
             $toolNames,
         );
         $writeTools = [
@@ -188,11 +188,15 @@ final class AgentMcpReadAdapterTest extends TestCase
         ];
         foreach ($tools as $tool) {
             $this->assertSame(
-                ! str_ends_with((string) $tool['name'], '.upsert') && ! in_array($tool['name'], $writeTools, true),
+                ! str_ends_with((string) $tool['name'], '.upsert')
+                    && ! str_ends_with((string) $tool['name'], '.update')
+                    && ! in_array($tool['name'], $writeTools, true),
                 $tool['annotations']['readOnlyHint'] ?? null,
             );
             $this->assertSame(
-                str_ends_with((string) $tool['name'], '.upsert') || in_array($tool['name'], ['imports.review', 'imports.retry'], true),
+                str_ends_with((string) $tool['name'], '.upsert')
+                    || str_ends_with((string) $tool['name'], '.update')
+                    || in_array($tool['name'], ['imports.review', 'imports.retry'], true),
                 $tool['annotations']['destructiveHint'] ?? null,
             );
             $this->assertTrue($tool['annotations']['idempotentHint'] ?? false);
@@ -242,6 +246,10 @@ final class AgentMcpReadAdapterTest extends TestCase
         );
         $this->assertFalse(
             $toolsByName->get('office_visits.upsert')['inputSchema']['properties']['data']['additionalProperties'] ?? true,
+        );
+        $this->assertArrayNotHasKey(
+            'required',
+            $toolsByName->get('procedures.update')['inputSchema']['properties']['data'] ?? [],
         );
         $this->assertSame(
             PhrHealthLog::KINDS,
@@ -336,15 +344,31 @@ final class AgentMcpReadAdapterTest extends TestCase
             'agent-client:'.$client->id,
             $created['result']['structuredContent']['data']['import_source'] ?? null,
         );
+        $updated = $this->callTool($session, 3, 'procedures.update', [
+            'patient_id' => $patient->id,
+            'record_id' => $created['result']['structuredContent']['data']['id'],
+            'expected_version' => $created['result']['structuredContent']['version'],
+            'data' => ['raw_text' => "## Imported procedure\n\nNormalized Markdown source text."],
+        ]);
+        $this->assertFalse($updated['result']['isError'] ?? true, json_encode($updated, JSON_THROW_ON_ERROR));
+        $this->assertSame('updated', $updated['result']['structuredContent']['outcome'] ?? null);
+        $this->assertSame(
+            "## Imported procedure\n\nNormalized Markdown source text.",
+            $updated['result']['structuredContent']['data']['raw_text'] ?? null,
+        );
         $this->assertDatabaseCount('phr_procedures', 1);
         $this->assertDatabaseHas('agent_api_audits', [
             'route_name' => 'agent-api.v1.clinical.procedures.upsert',
             'response_status' => 201,
         ]);
+        $this->assertDatabaseHas('agent_api_audits', [
+            'route_name' => 'agent-api.v1.clinical.update',
+            'response_status' => 200,
+        ]);
 
         Passport::actingAs($actor, [AgentApiScopes::MCP_USE], 'api', $client);
         $deniedSession = $this->initializeSession();
-        $denied = $this->callTool($deniedSession, 3, 'procedures.upsert', [
+        $denied = $this->callTool($deniedSession, 4, 'procedures.upsert', [
             'patient_id' => $patient->id,
             'external_id' => 'synthetic-mcp-denied',
             'source_document_id' => null,

@@ -2,6 +2,7 @@
 
 namespace App\Services\Mcp;
 
+use App\DataTransferObjects\AgentApi\ClinicalRecordUpdateData;
 use App\DataTransferObjects\AgentApi\ClinicalUpsertData;
 use App\DataTransferObjects\AgentApi\DocumentUploadData;
 use App\DataTransferObjects\AgentApi\HealthLogCreateData;
@@ -41,6 +42,41 @@ final readonly class AgentMcpWriteTools
             ]);
 
             return $this->api->clinicalUpsert($patient_id, $command)->toArray();
+        };
+    }
+
+    public function clinicalUpdateHandler(string $resource): Closure
+    {
+        $api = $this->api;
+        $requestArguments = $this->requestArguments;
+
+        return function (
+            #[Schema(minimum: 1)] int $patient_id,
+            #[Schema(minimum: 1)] int $record_id,
+            #[Schema(pattern: '^[a-f0-9]{64}$')] string $expected_version,
+            RequestContext $context,
+            #[Schema(minimum: 1)] ?int $source_document_id = null,
+            #[Schema(enum: ['pending_review', 'confirmed'])] ?string $review_status = null,
+            #[Schema(type: 'object')] ?array $data = null,
+        ) use ($api, $requestArguments, $resource): array {
+            $validated = [
+                'expected_version' => $expected_version,
+                'review_status' => $review_status,
+                'data' => $data,
+            ];
+            if ($requestArguments->has($context, 'source_document_id')) {
+                $validated['source_document_id'] = $source_document_id;
+            }
+
+            return $api->clinicalUpdate(
+                $patient_id,
+                $record_id,
+                ClinicalRecordUpdateData::fromValidated($resource, array_filter(
+                    $validated,
+                    static fn (mixed $value, string $key): bool => $key === 'source_document_id' || $value !== null,
+                    ARRAY_FILTER_USE_BOTH,
+                )),
+            )->toArray();
         };
     }
 

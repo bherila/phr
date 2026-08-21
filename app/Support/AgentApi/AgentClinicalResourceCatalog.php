@@ -128,10 +128,18 @@ final class AgentClinicalResourceCatalog
         return str_replace('-', '_', $resource).'.upsert';
     }
 
+    public static function updateOperationId(string $resource): string
+    {
+        return str_replace('-', '_', $resource).'.update';
+    }
+
     /** @return list<string> */
     public static function writableOperationIds(): array
     {
-        return array_map(self::upsertOperationId(...), self::writableIds());
+        return [
+            ...array_map(self::upsertOperationId(...), self::writableIds()),
+            ...array_map(self::updateOperationId(...), self::writableIds()),
+        ];
     }
 
     /**

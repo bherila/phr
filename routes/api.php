@@ -184,6 +184,12 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
                 ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))
                 ->name('clinical.'.str_replace('-', '_', $writableResource).'.upsert');
         }
+        Route::patch('/patients/{patient}/{resource}/{record}', [AgentClinicalWriteController::class, 'update'])
+            ->whereNumber(['patient', 'record'])
+            ->whereIn('resource', AgentClinicalResourceCatalog::writableIds())
+            ->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))
+            ->name('clinical.update');
         Route::get('/patients/{patient}/{resource}/{record}', [AgentClinicalReadController::class, 'show'])
             ->whereNumber(['patient', 'record'])
             ->whereIn('resource', AgentClinicalResourceCatalog::ids())

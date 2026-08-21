@@ -81,6 +81,9 @@ final class AgentMcpInputSchemaFactory
             if ($definition->name === str_replace('-', '_', $resource).'.upsert') {
                 $schema['properties']['data'] = AgentClinicalWriteSchemaCatalog::data($resource);
             }
+            if ($definition->name === str_replace('-', '_', $resource).'.update') {
+                $schema['properties']['data'] = AgentClinicalWriteSchemaCatalog::partialData($resource);
+            }
         }
 
         return $schema;

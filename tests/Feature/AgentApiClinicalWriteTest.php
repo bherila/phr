@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\AgentApiAudit;
 use App\Models\PhrDocument;
+use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Models\PhrProcedure;
@@ -125,6 +126,83 @@ final class AgentApiClinicalWriteTest extends TestCase
             $expectedSources,
             PhrProcedure::query()->pluck('import_source')->sort()->values()->all(),
         );
+    }
+
+    public function test_id_targeted_update_preserves_legacy_identity_and_requires_the_current_version(): void
+    {
+        $actor = $this->user('legacy-update@example.test');
+        $patient = $this->patient($actor, 'Synthetic Legacy Update Patient');
+        $otherPatient = $this->patient($actor, 'Synthetic Other Update Patient');
+        $sourceDocument = PhrDocument::query()->create([
+            'patient_id' => $patient->id,
+            'user_id' => $actor->id,
+            'uploaded_by_user_id' => $actor->id,
+            'document_type' => 'other',
+            'storage_disk' => PhrDocument::STORAGE_DISK,
+            'byte_size' => 0,
+        ]);
+        $legacy = PhrOfficeVisit::query()->create([
+            'patient_id' => $patient->id,
+            'user_id' => $actor->id,
+            'import_source' => 'legacy_eob',
+            'external_id' => 'legacy-visit-001',
+            'source_document_id' => $sourceDocument->id,
+            'review_status' => 'confirmed',
+            'visit_date' => '2026-01-17',
+            'assessment' => 'Legacy assessment',
+        ]);
+        $hidden = PhrOfficeVisit::query()->create([
+            'patient_id' => $otherPatient->id,
+            'user_id' => $actor->id,
+            'review_status' => 'confirmed',
+        ]);
+        $client = $this->client('Synthetic Legacy Update Client');
+        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_READ], 'api', $client);
+        $version = (string) $this->getJson("/api/v1/patients/{$patient->id}/office-visits/{$legacy->id}")
+            ->assertOk()
+            ->json('data.version');
+
+        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_WRITE], 'api', $client);
+        $payload = [
+            'expected_version' => $version,
+            'review_status' => 'pending_review',
+            'data' => [
+                'assessment' => 'Normalized assessment',
+                'raw_text' => "## Imported clinician note\n\nNormalized Markdown source text.",
+            ],
+        ];
+        $updated = $this->patchJson("/api/v1/patients/{$patient->id}/office-visits/{$legacy->id}", $payload)
+            ->assertOk()
+            ->assertJsonPath('outcome', 'updated')
+            ->assertJsonPath('data.import_source', 'legacy_eob')
+            ->assertJsonPath('data.external_id', 'legacy-visit-001')
+            ->assertJsonPath('data.source_document_id', $sourceDocument->id)
+            ->assertJsonPath('data.raw_text', "## Imported clinician note\n\nNormalized Markdown source text.")
+            ->json();
+        $this->assertNotSame($version, $updated['version']);
+        $this->assertSame('legacy_eob', $legacy->refresh()->import_source);
+        $this->assertSame('legacy-visit-001', $legacy->external_id);
+        $this->assertSame($sourceDocument->id, $legacy->source_document_id);
+
+        $this->patchJson("/api/v1/patients/{$patient->id}/office-visits/{$legacy->id}", $payload)
+            ->assertOk()
+            ->assertJsonPath('outcome', 'unchanged');
+        $this->patchJson("/api/v1/patients/{$patient->id}/office-visits/{$legacy->id}", [
+            'expected_version' => $version,
+            'data' => ['plan' => 'Stale plan'],
+        ])->assertConflict();
+        $this->patchJson("/api/v1/patients/{$patient->id}/office-visits/{$hidden->id}", [
+            'expected_version' => $updated['version'],
+            'data' => ['plan' => 'Hidden plan'],
+        ])->assertNotFound();
+        $this->patchJson("/api/v1/patients/{$patient->id}/office-visits/{$legacy->id}", [
+            'expected_version' => $updated['version'],
+        ])->assertUnprocessable()->assertJsonValidationErrors(['data']);
+        $this->assertDatabaseCount('phr_office_visits', 2);
+        $this->assertDatabaseHas('agent_api_audits', [
+            'route_name' => 'agent-api.v1.clinical.update',
+            'response_status' => 200,
+        ]);
     }
 
     public function test_write_scope_patient_grant_source_document_and_validation_are_all_enforced(): void
@@ -251,7 +329,15 @@ final class AgentApiClinicalWriteTest extends TestCase
                 $validatedFields,
                 array_keys($contract['components']['schemas'][$contractNames['data_schema']]['properties']),
             );
+            $this->assertSame(
+                AgentApiScopes::CLINICAL_WRITE,
+                $capabilities['operations'][AgentClinicalResourceCatalog::updateOperationId($resource)]['scope'],
+            );
         }
+        $this->assertSame(
+            '#/components/schemas/ClinicalRecordUpdateRequest',
+            $contract['paths']['/patients/{patient}/{resource}/{record}']['patch']['requestBody']['content']['application/json']['schema']['$ref'],
+        );
 
         $this->assertSame('identity.get', $capabilities['workflow']['patient_selection']['first']);
         $this->assertSame(AgentApiScopes::IDENTITY_READ, $capabilities['workflow']['patient_selection']['first_scope']);
