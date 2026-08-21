@@ -36,6 +36,10 @@ final class UpdateClinicalRecordRequest extends FormRequest
         return [
             'expected_version' => ['required', 'string', 'size:64', 'regex:/\A[a-f0-9]{64}\z/'],
             'source_document_id' => ['sometimes', 'nullable', 'integer', 'min:1'],
+            // Confirmation is a browser review action. The server owns this
+            // column on every agent edit, so the field is refused rather than
+            // silently ignored.
+            'review_status' => ['prohibited'],
             'data' => ['sometimes', 'array:'.implode(',', $allowedDataKeys), 'min:1'],
             ...$dataRules,
         ];

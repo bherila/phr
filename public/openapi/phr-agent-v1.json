@@ -792,7 +792,8 @@
         "required": ["available", "scope"],
         "properties": {
           "available": { "type": "boolean" },
-          "scope": { "type": ["string", "null"] }
+          "scope": { "type": ["string", "null"], "description": "Primary scope retained for backward compatibility. When scopes is present, all scopes in that array are required." },
+          "scopes": { "type": "array", "items": { "type": "string" }, "minItems": 2, "uniqueItems": true, "description": "All OAuth scopes required by an operation that has multiple mandatory scopes." }
         },
         "additionalProperties": false
       },

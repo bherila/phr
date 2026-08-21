@@ -200,12 +200,17 @@ final class AgentApiClinicalWriteTest extends TestCase
         $this->patchJson("/api/v1/patients/{$patient->id}/office-visits/{$legacy->id}", [
             'expected_version' => $updated['version'],
         ])->assertUnprocessable()->assertJsonValidationErrors(['data']);
-        // The agent cannot assert confirmation through this endpoint.
+        // The agent cannot assert confirmation through this endpoint. The field
+        // is refused outright, so an accompanying mutation is not applied either.
         $this->patchJson("/api/v1/patients/{$patient->id}/office-visits/{$legacy->id}", [
             'expected_version' => $updated['version'],
             'review_status' => 'confirmed',
-        ])->assertUnprocessable();
-        $this->assertSame('pending_review', $legacy->refresh()->review_status);
+            'data' => ['plan' => 'This mutation must not be applied'],
+        ])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors(['review_status']);
+        $this->assertNotSame('This mutation must not be applied', $legacy->refresh()->plan);
+        $this->assertSame('pending_review', $legacy->review_status);
         $this->assertDatabaseCount('phr_office_visits', 2);
         $this->assertDatabaseHas('agent_api_audits', [
             'route_name' => 'agent-api.v1.clinical.update',
