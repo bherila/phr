@@ -4,7 +4,10 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Contracts\PHR\ClinicalDataRules;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\AgentApi\ResolveClinicalRecordsRequest;
+use App\Services\AgentApi\AgentClinicalResolveService;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Support\AgentApi\AgentApiClientIdentity;
 use App\Support\AgentApi\AgentApiCursor;
 use App\Support\AgentApi\AgentApiUpdateWindow;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
@@ -21,6 +24,7 @@ final class AgentClinicalReadController extends Controller
     public function __construct(
         private PhrPatientAccessService $accessService,
         private AgentClinicalRecordVersion $versions,
+        private AgentClinicalResolveService $resolver,
     ) {}
 
     public function index(Request $request, int $patient, string $resource): JsonResponse
@@ -89,6 +93,33 @@ final class AgentClinicalReadController extends Controller
                 $request,
                 isset($definition['write_rules']),
             ),
+        ]);
+    }
+
+    /**
+     * Maps a batch of the caller's own external IDs onto record identity and
+     * concurrency state. This is a read, not a write: it returns no clinical
+     * content, so an agent can plan a sync pass without pulling the records it
+     * is going to skip.
+     */
+    public function resolve(ResolveClinicalRecordsRequest $request, int $patient, string $resource): JsonResponse
+    {
+        $userId = (int) $request->user('api')?->id;
+        $resolvedPatient = $this->accessService->accessiblePatientWithCurrentGrant($patient, $userId);
+        $resolution = $this->resolver->resolve(
+            $resolvedPatient,
+            AgentApiClientIdentity::fromRequest($request),
+            $resource,
+            $request->externalIds(),
+        );
+
+        return response()->json([
+            'resource_type' => $resource,
+            'patient_id' => $resolvedPatient->id,
+            // Cast so an empty result stays a JSON object. A bare [] would make
+            // the field change type on the one response a client sees first.
+            'resolved' => (object) $resolution['resolved'],
+            'unresolved' => $resolution['unresolved'],
         ]);
     }
 

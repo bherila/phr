@@ -121,6 +121,17 @@ final class AgentMcpReadTools
         ): array => $this->api->clinicalRecord($patient_id, $resource, $record_id)->toArray();
     }
 
+    public function clinicalResolveHandler(string $resource): Closure
+    {
+        return fn (
+            #[Schema(minimum: 1)] int $patient_id,
+            #[Schema(type: 'array')] array $external_ids,
+        ): array => $this->api->resolveClinicalRecords($patient_id, $resource, array_values(array_map(
+            static fn (mixed $externalId): string => (string) $externalId,
+            $external_ids,
+        )))->toArray();
+    }
+
     /** @return array<string, mixed> */
     public function eobsList(
         #[Schema(minimum: 1)] int $patient_id,

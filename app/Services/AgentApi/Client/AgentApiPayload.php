@@ -50,6 +50,26 @@ final readonly class AgentApiPayload
         return $payload;
     }
 
+    public static function resolution(AgentApiTransportResponse $response): self
+    {
+        $payload = self::from($response, ['resource_type', 'patient_id', 'resolved', 'unresolved']);
+        $resolved = $payload->value['resolved'];
+        $unresolved = $payload->value['unresolved'];
+        // resolved is keyed by external ID. It is checked by its values rather
+        // than array_is_list, because PHP turns numeric-string keys back into
+        // integers on decode -- external IDs of "0", "1", ... would otherwise
+        // decode as a list and be rejected as drift.
+        if (! is_array($resolved)
+            || array_filter($resolved, static fn (mixed $entry): bool => ! is_array($entry) || array_is_list($entry)) !== []
+            || ! is_array($unresolved)
+            || ! array_is_list($unresolved)
+            || array_filter($unresolved, static fn (mixed $id): bool => ! is_string($id)) !== []) {
+            throw new ToolCallException('The PHR API returned an invalid response.');
+        }
+
+        return $payload;
+    }
+
     /** @param list<string> $requiredKeys */
     public static function item(AgentApiTransportResponse $response, array $requiredKeys = ['data']): self
     {

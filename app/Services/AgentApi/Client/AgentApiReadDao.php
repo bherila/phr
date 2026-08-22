@@ -92,6 +92,16 @@ final class AgentApiReadDao
         return $this->item("patients/{$patientId}/{$resource}/{$recordId}", ['resource_type', 'patient_id', 'data']);
     }
 
+    /** @param list<string> $externalIds */
+    public function resolveClinicalRecords(int $patientId, string $resource, array $externalIds): AgentApiPayload
+    {
+        return AgentApiPayload::resolution($this->transport->send(
+            'POST',
+            "patients/{$patientId}/{$resource}/resolve",
+            json: ['external_ids' => $externalIds],
+        ));
+    }
+
     public function eobs(
         int $patientId,
         int $limit = 25,

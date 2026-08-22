@@ -6,6 +6,7 @@ use App\DataTransferObjects\AgentApi\DocumentUploadData;
 use App\GenAiProcessor\Jobs\ParseImportJob;
 use App\GenAiProcessor\Models\GenAiImportJob;
 use App\GenAiProcessor\Models\GenAiImportResult;
+use App\Http\Requests\AgentApi\ResolveClinicalRecordsRequest;
 use App\Models\AgentApiAudit;
 use App\Models\PhrDocument;
 use App\Models\PhrHealthLog;
@@ -175,11 +176,12 @@ final class AgentMcpReadAdapterTest extends TestCase
             'health_logs.create', 'health_log_entries.list', 'health_log_entries.get',
             'health_log_entries.append', 'respiratory_events.list', 'respiratory_events.ingest',
             'immunizations.upsert', 'medications.upsert', 'conditions.upsert', 'allergies.upsert',
-            'lab_results.upsert', 'vitals.upsert', 'office_visits.update', 'procedures.update'] as $name) {
+            'lab_results.upsert', 'vitals.upsert', 'office_visits.update', 'procedures.update',
+            'medications.resolve'] as $name) {
             $this->assertContains($name, $toolNames);
         }
         $this->assertCount(
-            26 + (count(AgentClinicalResourceCatalog::ids()) * 2) + (count(AgentClinicalResourceCatalog::writableIds()) * 2),
+            26 + (count(AgentClinicalResourceCatalog::ids()) * 2) + (count(AgentClinicalResourceCatalog::writableIds()) * 3),
             $toolNames,
         );
         $writeTools = [
@@ -259,6 +261,15 @@ final class AgentMcpReadAdapterTest extends TestCase
             PhrRespiratoryEvent::EVENT_TYPES,
             $toolsByName->get('respiratory_events.ingest')['inputSchema']['properties']['events']['items']['properties']['event_type']['enum'] ?? null,
         );
+        $resolveSchema = $toolsByName->get('medications.resolve')['inputSchema']['properties']['external_ids'] ?? [];
+        $this->assertSame('array', $resolveSchema['type'] ?? null);
+        $this->assertSame(1, $resolveSchema['minItems'] ?? null);
+        $this->assertSame(
+            ResolveClinicalRecordsRequest::MAX_EXTERNAL_IDS,
+            $resolveSchema['maxItems'] ?? null,
+        );
+        $this->assertSame('string', $resolveSchema['items']['type'] ?? null);
+        $this->assertSame(255, $resolveSchema['items']['maxLength'] ?? null);
 
         $visible = $this->callTool($session, 3, 'office_visits.list', [
             'patient_id' => $patient->id,
@@ -413,6 +424,58 @@ final class AgentMcpReadAdapterTest extends TestCase
             'Synthetic denied procedure',
             json_encode(AgentApiAudit::query()->get()->toArray(), JSON_THROW_ON_ERROR),
         );
+    }
+
+    public function test_mcp_clinical_resolve_uses_the_typed_rest_read_boundary(): void
+    {
+        $actor = $this->user('mcp-resolver@example.test');
+        $patient = $this->patient($actor, 'Synthetic MCP Resolve Patient');
+        $client = Client::query()->create([
+            'name' => 'Synthetic MCP Resolver',
+            'secret' => null,
+            'provider' => 'users',
+            'redirect_uris' => ['https://client.example.test/callback'],
+            'grant_types' => ['authorization_code', 'refresh_token'],
+            'revoked' => false,
+        ]);
+        Passport::actingAs($actor, [
+            AgentApiScopes::MCP_USE,
+            AgentApiScopes::CLINICAL_READ,
+            AgentApiScopes::CLINICAL_WRITE,
+        ], 'api', $client);
+
+        $session = $this->initializeSession();
+        $created = $this->callTool($session, 2, 'medications.upsert', [
+            'patient_id' => $patient->id,
+            'external_id' => 'synthetic-mcp-resolve-medication',
+            'source_document_id' => null,
+            'expected_version' => null,
+            'data' => ['name' => 'Synthetic MCP resolve medication', 'status' => 'active'],
+        ]);
+        $this->assertFalse($created['result']['isError'] ?? true, json_encode($created, JSON_THROW_ON_ERROR));
+
+        $resolved = $this->callTool($session, 3, 'medications.resolve', [
+            'patient_id' => $patient->id,
+            'external_ids' => ['synthetic-mcp-resolve-medication', 'synthetic-mcp-resolve-missing'],
+        ]);
+        $this->assertFalse($resolved['result']['isError'] ?? true, json_encode($resolved, JSON_THROW_ON_ERROR));
+        $structured = $resolved['result']['structuredContent'] ?? [];
+        $this->assertArrayHasKey('resolved', $structured);
+        $this->assertArrayHasKey('unresolved', $structured);
+        $this->assertSame(
+            $created['result']['structuredContent']['data']['id'] ?? null,
+            $structured['resolved']['synthetic-mcp-resolve-medication']['id'] ?? null,
+        );
+        $this->assertSame(
+            $created['result']['structuredContent']['version'] ?? null,
+            $structured['resolved']['synthetic-mcp-resolve-medication']['version'] ?? null,
+        );
+        $this->assertSame(['synthetic-mcp-resolve-missing'], $structured['unresolved'] ?? null);
+
+        $this->assertDatabaseHas('agent_api_audits', [
+            'route_name' => 'agent-api.v1.clinical.resolve',
+            'response_status' => 200,
+        ]);
     }
 
     public function test_mcp_document_upload_uses_the_typed_multipart_rest_boundary(): void

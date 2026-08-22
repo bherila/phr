@@ -552,6 +552,25 @@
         }
       }
     },
+    "/patients/{patient}/{resource}/resolve": {
+      "post": {
+        "operationId": "clinical.resolve",
+        "summary": "Resolve this connection's own external IDs to record identity and version",
+        "description": "Maps a bounded batch of external IDs onto record IDs and current opaque versions for one writable clinical resource. Lookup is scoped to the calling OAuth client's own import source, so it answers whether this connection has written a record before and never discloses another integration's records or a browser-created record. No clinical content is returned, which is why clinical:read alone is sufficient. Call it before upserting to decide what still needs writing: a matching version means skip, a differing version means read the record first, and a rejected review_status means a human refused the record and it must not be re-asserted unchanged.",
+        "security": [{ "oauth2": ["clinical:read"] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/PatientId" },
+          { "$ref": "#/components/parameters/WritableClinicalResource" }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalResolveRequest" } } } },
+        "responses": {
+          "200": { "description": "Resolution of every requested external ID", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalResolveResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
     "/patients/{patient}/{resource}/{record}": {
       "get": {
         "operationId": "clinical.get",
@@ -916,6 +935,50 @@
           "resource_type": { "type": "string" },
           "patient_id": { "type": "integer" },
           "data": { "$ref": "#/components/schemas/ClinicalRecord" }
+        },
+        "additionalProperties": false
+      },
+      "ClinicalResolveRequest": {
+        "type": "object",
+        "required": ["external_ids"],
+        "properties": {
+          "external_ids": {
+            "type": "array",
+            "description": "External IDs previously supplied by this connection. Duplicates collapse rather than failing validation; request order is preserved in unresolved.",
+            "minItems": 1,
+            "maxItems": 200,
+            "items": { "type": "string", "minLength": 1, "maxLength": 255 }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ClinicalResolvedRecord": {
+        "type": "object",
+        "required": ["id", "version", "review_status", "updated_at"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 1 },
+          "version": { "type": "string", "pattern": "^[a-f0-9]{64}$", "description": "The same opaque version the write endpoints compare against." },
+          "review_status": { "type": ["string", "null"], "enum": ["pending_review", "confirmed", "rejected", null] },
+          "updated_at": { "$ref": "#/components/schemas/LocalDateTime" }
+        },
+        "additionalProperties": false
+      },
+      "ClinicalResolveResponse": {
+        "type": "object",
+        "required": ["resource_type", "patient_id", "resolved", "unresolved"],
+        "properties": {
+          "resource_type": { "type": "string" },
+          "patient_id": { "type": "integer" },
+          "resolved": {
+            "type": "object",
+            "description": "Keyed by external ID. Always an object, empty when nothing matched.",
+            "additionalProperties": { "$ref": "#/components/schemas/ClinicalResolvedRecord" }
+          },
+          "unresolved": {
+            "type": "array",
+            "description": "External IDs this connection has not written for this patient, in request order.",
+            "items": { "type": "string" }
+          }
         },
         "additionalProperties": false
       },

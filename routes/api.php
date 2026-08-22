@@ -176,6 +176,15 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
             ->middleware('throttle:agent-api')
             ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))
             ->name('clinical.index');
+        // Resolution answers "have I written this before?" against the caller's
+        // own import source. It reads no clinical content, so it needs only the
+        // read scope even though a write is what it exists to plan.
+        Route::post('/patients/{patient}/{resource}/resolve', [AgentClinicalReadController::class, 'resolve'])
+            ->whereNumber('patient')
+            ->whereIn('resource', AgentClinicalResourceCatalog::writableIds())
+            ->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))
+            ->name('clinical.resolve');
         foreach (AgentClinicalResourceCatalog::writableIds() as $writableResource) {
             Route::put("/patients/{patient}/{$writableResource}", [AgentClinicalWriteController::class, 'upsert'])
                 ->defaults('resource', $writableResource)
