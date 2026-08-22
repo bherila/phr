@@ -9,6 +9,7 @@ use App\Models\PhrPatient;
 use App\Support\AgentApi\AgentApiClientIdentity;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
+use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
@@ -41,7 +42,8 @@ final readonly class AgentClinicalUpsertService
             $createAttributes = [
                 'user_id' => $patient->owner_user_id,
                 'source_document_id' => $data->sourceDocumentId,
-                'review_status' => $data->reviewStatus,
+                // Every agent-created record enters the human review queue.
+                'review_status' => PhrReviewStatus::PENDING,
                 ...$data->attributes,
             ];
 
@@ -67,9 +69,11 @@ final readonly class AgentClinicalUpsertService
                 ->lockForUpdate()
                 ->firstOrFail();
             $currentVersion = $this->versions->for($record);
+            // review_status is excluded from the diff on purpose: it must not
+            // count toward dirtiness, or a resubmission of unchanged clinical
+            // data would look like a real edit and reopen review by itself.
             $updates = [
                 'source_document_id' => $data->sourceDocumentId,
-                'review_status' => $data->reviewStatus,
                 ...$data->attributes,
             ];
             $record->fill($updates);
@@ -87,6 +91,10 @@ final readonly class AgentClinicalUpsertService
                 throw new ConflictHttpException('The clinical record changed; fetch it and retry with its current version.');
             }
 
+            // The record really is changing, so human review reopens -- including
+            // for a record a reviewer had already rejected. An idempotent retry
+            // returned above as UNCHANGED and leaves the reviewer's decision alone.
+            $record->setAttribute('review_status', PhrReviewStatus::PENDING);
             $record->save();
             $record->refresh();
 

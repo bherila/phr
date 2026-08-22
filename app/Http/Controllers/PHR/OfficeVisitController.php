@@ -4,6 +4,7 @@ namespace App\Http\Controllers\PHR;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\PHR\Concerns\HandlesClinicalResourceRequests;
+use App\Http\Requests\PHR\ReviewClinicalRecordRequest;
 use App\Http\Requests\PHR\StoreOfficeVisitRequest;
 use App\Http\Resources\PHR\OfficeVisitResource;
 use App\Models\PhrDicomStudy;
@@ -90,6 +91,11 @@ class OfficeVisitController extends Controller
     public function destroy(Request $request, int $patient, int $visit): Response
     {
         return $this->destroyClinicalResource($request, $patient, $visit);
+    }
+
+    public function review(ReviewClinicalRecordRequest $request, int $patient, int $visit): JsonResponse
+    {
+        return $this->reviewClinicalResource($request, $patient, $visit);
     }
 
     protected function accessService(): PhrPatientAccessService

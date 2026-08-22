@@ -47,6 +47,22 @@ replay returns `unchanged` before the conflict check. The HMAC prevents low-entr
 clinical values from being tested offline and catches same-second changes that
 timestamp-only concurrency misses.
 
+The review status is server-owned on every agent path. Upsert and update both refuse a
+client-supplied `review_status` rather than ignoring it, so a caller can never believe
+it confirmed a record. A created record is written as `pending_review`, and any
+effective agent edit returns the record to `pending_review` — including one a reviewer
+had already rejected, since re-asserting changed clinical data is a new claim. An exact
+replay is settled as `unchanged` before that reopening, so a client retrying a request
+that already succeeded cannot undo a human decision. Only the browser review route may
+set `confirmed` or `rejected`, and it cannot return a record to the queue by hand.
+Because the version HMAC covers the status column, a review decision invalidates any
+version an agent was holding and forces a re-read before its next write.
+
+Clinical exports are the reason this boundary exists: FHIR, C-CDA, and PDF are built
+from confirmed records only, at a single query chokepoint, so unreviewed or rejected
+machine-written data cannot leave the system. Native backups are deliberately exempt —
+a backup is not a clinical export and must stay complete.
+
 Health-log creation and entry append use the same `clinical:write` and patient-grant
 boundary. They delegate to the browser's validation and health-log service through a
 typed DAO. Their retry ledger stores only domain-separated HMAC external-ID/request
@@ -178,3 +194,6 @@ on later rsyncs, rejects a partial key pair, and never prints key material.
   metadata-only audit fields, and PHI-safe failures for each representative flow.
 - Never add clinical values, identifiers, filenames, object keys, or token material to
   logs, telemetry, audit rows, tests, or public review artifacts.
+- Keep `review_status` off every agent write schema. A new agent-writable resource must
+  default to `pending_review` and must be filtered out of clinical exports until a human
+  confirms it.

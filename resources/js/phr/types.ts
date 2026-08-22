@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 const nullableString = z.string().nullable()
 
-export const PhrReviewStatusSchema = z.enum(['pending_review', 'confirmed'])
+export const PhrReviewStatusSchema = z.enum(['pending_review', 'confirmed', 'rejected'])
 export type PhrReviewStatus = z.infer<typeof PhrReviewStatusSchema>
 
 export const PhrConditionClinicalStatusSchema = z.enum([
@@ -755,6 +755,7 @@ export type PhrImmunization = z.infer<typeof PhrImmunizationSchema>
 
 export const PhrImmunizationResponseSchema = z.object({
   immunization: PhrImmunizationSchema,
+  can_manage: z.boolean().default(false),
 })
 
 export const PhrImmunizationsResponseSchema = z.object({

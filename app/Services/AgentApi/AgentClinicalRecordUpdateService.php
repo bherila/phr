@@ -8,6 +8,7 @@ use App\Models\PhrDocument;
 use App\Models\PhrPatient;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
+use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
@@ -61,7 +62,7 @@ final readonly class AgentClinicalRecordUpdateService
 
             // Any effective agent change reopens human review. Confirmation is a
             // browser action; this endpoint cannot assert it.
-            $record->setAttribute('review_status', 'pending_review');
+            $record->setAttribute('review_status', PhrReviewStatus::PENDING);
             $record->save();
             $record->refresh();
 

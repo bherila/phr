@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useClinicalCrud } from '@/phr/clinical/crud'
+import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { classBadge, codeChip, labelize, reviewStatusBadge } from '@/phr/clinical/ui'
 import type { PhrListPageProps } from '@/phr/miller'
 import { compactPayload, zodErrorMessage } from '@/phr/shared'
@@ -92,6 +93,7 @@ interface ConditionsTableProps {
   onCancelDelete: () => void
   onConfirmDelete: (conditionId: number) => Promise<void>
   onMarkResolved: (condition: PhrCondition) => Promise<void>
+  onReview: (conditionId: number, decision: PhrReviewDecision) => void
   isMutating: (key: string) => boolean
   onDrill?: PhrListPageProps['onDrill']
 }
@@ -277,6 +279,7 @@ function ConditionsTable({
   onCancelDelete,
   onConfirmDelete,
   onMarkResolved,
+  onReview,
   isMutating,
   onDrill,
 }: ConditionsTableProps) {
@@ -353,6 +356,13 @@ function ConditionsTable({
                                 {isResolving ? 'Resolving...' : 'Resolve'}
                               </Button>
                             )}
+                            <ReviewActions
+                              status={condition.review_status}
+                              label={condition.name}
+                              busy={isMutating(`review:${condition.id}`)}
+                              disabled={isResolving || isSaving || isDeletingBusy}
+                              onReview={(decision) => onReview(condition.id, decision)}
+                            />
                             <Button
                               type="button"
                               size="icon-sm"
@@ -495,6 +505,9 @@ export default function ConditionsPage({ patientId, onDrill }: PhrListPageProps)
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">Track active problems separately from resolved or inactive history.</p>
         </div>
+        <div className="flex flex-wrap gap-2">
+          <ShowRejectedToggle showRejected={crud.showRejected} onChange={crud.setShowRejected} disabled={crud.busy} />
+        </div>
       </div>
 
       {crud.error && (
@@ -539,6 +552,7 @@ export default function ConditionsPage({ patientId, onDrill }: PhrListPageProps)
             onCancelDelete={crud.cancelDelete}
             onConfirmDelete={async (conditionId) => { await crud.deleteRecord(conditionId) }}
             onMarkResolved={markResolved}
+            onReview={(conditionId, decision) => void crud.reviewRecord(conditionId, decision)}
             isMutating={crud.isMutating}
             onDrill={onDrill}
           />
@@ -578,6 +592,7 @@ export default function ConditionsPage({ patientId, onDrill }: PhrListPageProps)
                   onCancelDelete={crud.cancelDelete}
                   onConfirmDelete={async (conditionId) => { await crud.deleteRecord(conditionId) }}
                    onMarkResolved={markResolved}
+                   onReview={(conditionId, decision) => void crud.reviewRecord(conditionId, decision)}
                    isMutating={crud.isMutating}
                    onDrill={onDrill}
                  />

@@ -5,12 +5,9 @@ namespace App\Http\Requests\AgentApi;
 use App\DataTransferObjects\AgentApi\ClinicalUpsertData;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use Illuminate\Foundation\Http\FormRequest;
-use Illuminate\Validation\Rule;
 
 final class UpsertClinicalRecordRequest extends FormRequest
 {
-    private const array REVIEW_STATUSES = ['pending_review', 'confirmed'];
-
     public function authorize(): bool
     {
         return $this->user('api') !== null;
@@ -38,7 +35,10 @@ final class UpsertClinicalRecordRequest extends FormRequest
         return [
             'external_id' => ['required', 'string', 'max:255', 'regex:/\A[^\p{C}]+\z/u'],
             'source_document_id' => ['present', 'nullable', 'integer', 'min:1'],
-            'review_status' => ['required', 'string', Rule::in(self::REVIEW_STATUSES)],
+            // The server owns the review lifecycle. A new record is always written
+            // as pending_review, so the field is refused rather than silently
+            // dropped -- a caller must never believe it confirmed a record.
+            'review_status' => ['prohibited'],
             'expected_version' => ['present', 'nullable', 'string', 'size:64', 'regex:/\A[a-f0-9]{64}\z/'],
             'data' => ['required', 'array:'.implode(',', $allowedDataKeys)],
             ...$dataRules,

@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers\PHR\Concerns;
 
+use App\Http\Requests\PHR\ReviewClinicalRecordRequest;
 use App\Models\PhrPatient;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Http\FormRequest;
@@ -48,9 +50,17 @@ trait HandlesClinicalResourceRequests
         $resolvedPatient = $this->accessService()->accessiblePatient($patient, $userId);
         $modelClass = $this->modelClass();
 
-        $records = $this->indexQuery(
+        $query = $this->indexQuery(
             $modelClass::query()->where('patient_id', $resolvedPatient->id)
-        )
+        );
+
+        // Rejected records stay out of the working list. They remain reachable
+        // so a mistaken rejection can be undone, but only on request.
+        if (! $request->boolean('include_rejected')) {
+            $query->where('review_status', '!=', PhrReviewStatus::REJECTED);
+        }
+
+        $records = $query
             ->get()
             ->map(fn (Model $record): array => $this->resourcePayload($record))
             ->values();
@@ -93,6 +103,20 @@ trait HandlesClinicalResourceRequests
         $resolvedPatient = $this->accessService()->writablePatient($patient, $userId);
         $resolved = $this->resolveClinicalResource($resolvedPatient, $record);
         $resolved->update($request->validated());
+
+        return response()->json([$this->resourceKey() => $this->resourcePayload($resolved->refresh())]);
+    }
+
+    /**
+     * Records a reviewer's accept/reject decision. This is the only path that may
+     * move a record out of `pending_review`; the agent API can never assert it.
+     */
+    protected function reviewClinicalResource(ReviewClinicalRecordRequest $request, int $patient, int $record): JsonResponse
+    {
+        $userId = (int) $request->user()?->id;
+        $resolvedPatient = $this->accessService()->writablePatient($patient, $userId);
+        $resolved = $this->resolveClinicalResource($resolvedPatient, $record);
+        $resolved->update(['review_status' => $request->reviewStatus()]);
 
         return response()->json([$this->resourceKey() => $this->resourcePayload($resolved->refresh())]);
     }

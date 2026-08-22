@@ -4,6 +4,7 @@ namespace App\Http\Controllers\PHR;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\PHR\Concerns\HandlesClinicalResourceRequests;
+use App\Http\Requests\PHR\ReviewClinicalRecordRequest;
 use App\Http\Requests\PHR\StoreAllergyRequest;
 use App\Http\Resources\PHR\AllergyResource;
 use App\Models\PhrAllergy;
@@ -43,6 +44,11 @@ class AllergyController extends Controller
     public function destroy(Request $request, int $patient, int $allergy): Response
     {
         return $this->destroyClinicalResource($request, $patient, $allergy);
+    }
+
+    public function review(ReviewClinicalRecordRequest $request, int $patient, int $allergy): JsonResponse
+    {
+        return $this->reviewClinicalResource($request, $patient, $allergy);
     }
 
     protected function accessService(): PhrPatientAccessService

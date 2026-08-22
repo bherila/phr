@@ -2,6 +2,7 @@ import type { Dispatch, SetStateAction } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { fetchWrapper } from '@/fetchWrapper'
+import type { PhrReviewDecision } from '@/phr/clinical/review'
 import { errorMessage } from '@/phr/shared'
 
 export interface ClinicalRecordBase {
@@ -35,8 +36,11 @@ export interface ClinicalCrudState<TRecord extends ClinicalRecordBase, TForm> {
   editForm: TForm
   setEditForm: Dispatch<SetStateAction<TForm>>
   mutatingKey: string | null
+  showRejected: boolean
+  setShowRejected: Dispatch<SetStateAction<boolean>>
   addRecord: (form: TForm) => Promise<TRecord | null>
   patchRecord: (recordId: number, payload: Record<string, unknown>, mutationKey?: string) => Promise<TRecord | null>
+  reviewRecord: (recordId: number, decision: PhrReviewDecision) => Promise<TRecord | null>
   saveEdit: (recordId: number) => Promise<TRecord | null>
   deleteRecord: (recordId: number) => Promise<boolean>
   startEdit: (record: TRecord) => void
@@ -63,6 +67,7 @@ export function useClinicalCrud<TRecord extends ClinicalRecordBase, TForm>({
   const [deletingId, setDeletingId] = useState<number | null>(null)
   const [editForm, setEditForm] = useState<TForm>(emptyForm)
   const [mutatingKey, setMutatingKey] = useState<string | null>(null)
+  const [showRejected, setShowRejected] = useState(false)
 
   // Stable refs for callable options so the loader's effect doesn't re-fire
   // every render when the caller passes inline arrow functions.
@@ -87,7 +92,8 @@ export function useClinicalCrud<TRecord extends ClinicalRecordBase, TForm>({
     setBusy(true)
     setError(null)
     try {
-      const rawRecords = await fetchWrapper.get(endpoint)
+      // Rejected records are excluded server-side unless explicitly requested.
+      const rawRecords = await fetchWrapper.get(showRejected ? `${endpoint}?include_rejected=1` : endpoint)
       const { records: parsedRecords, canManage: parsedCanManage } = parseListRef.current(rawRecords)
       setRecords(applySort(parsedRecords))
       setCanManage(parsedCanManage)
@@ -96,7 +102,7 @@ export function useClinicalCrud<TRecord extends ClinicalRecordBase, TForm>({
     } finally {
       setBusy(false)
     }
-  }, [applySort, endpoint])
+  }, [applySort, endpoint, showRejected])
 
   useEffect(() => {
     void load()
@@ -160,6 +166,32 @@ export function useClinicalCrud<TRecord extends ClinicalRecordBase, TForm>({
     }
   }
 
+  /**
+   * Records a review decision. This uses the dedicated /review endpoint rather
+   * than a field patch, because review_status is server-owned everywhere else.
+   */
+  async function reviewRecord(recordId: number, decision: PhrReviewDecision): Promise<TRecord | null> {
+    setMutatingKey(`review:${recordId}`)
+    setError(null)
+    try {
+      const raw: unknown = await fetchWrapper.patch(`${endpoint}/${recordId}/review`, { review_status: decision })
+      const updatedRecord = parseItemRef.current(raw)
+      // A record rejected while the rejected rows are hidden leaves the list.
+      if (decision === 'rejected' && !showRejected) {
+        setRecords((current) => current.filter((record) => record.id !== recordId))
+      } else {
+        replaceRecord(updatedRecord)
+      }
+
+      return updatedRecord
+    } catch (caught) {
+      setError(errorMessage(caught))
+      return null
+    } finally {
+      setMutatingKey(null)
+    }
+  }
+
   async function saveEdit(recordId: number): Promise<TRecord | null> {
     const updatedRecord = await patchRecord(recordId, payloadFromFormRef.current(editForm))
 
@@ -206,8 +238,11 @@ export function useClinicalCrud<TRecord extends ClinicalRecordBase, TForm>({
     editForm,
     setEditForm,
     mutatingKey,
+    showRejected,
+    setShowRejected,
     addRecord,
     patchRecord,
+    reviewRecord,
     saveEdit,
     deleteRecord,
     startEdit,

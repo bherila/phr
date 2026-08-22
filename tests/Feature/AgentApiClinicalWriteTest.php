@@ -10,8 +10,11 @@ use App\Models\PhrPatientUserAccess;
 use App\Models\PhrProcedure;
 use App\Models\User;
 use App\Support\AgentApi\AgentApiScopes;
+use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use App\Support\AgentApi\AgentClinicalWriteSchemaCatalog;
+use App\Support\PHR\PhrReviewStatus;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Passport\Client;
 use Laravel\Passport\Passport;
@@ -494,7 +497,6 @@ final class AgentApiClinicalWriteTest extends TestCase
             $payload = [
                 'external_id' => 'synthetic-'.$resource.'-001',
                 'source_document_id' => null,
-                'review_status' => 'pending_review',
                 'expected_version' => null,
                 'data' => $data,
             ];
@@ -513,13 +515,103 @@ final class AgentApiClinicalWriteTest extends TestCase
         }
     }
 
+    public function test_agent_cannot_assert_a_review_status_when_creating_a_record(): void
+    {
+        $actor = $this->user('review-asserter@example.test');
+        $patient = $this->patient($actor, 'Synthetic Assert Patient');
+        $client = $this->client('Synthetic Assertive Writer');
+        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE], 'api', $client);
+
+        $payload = $this->visitPayload();
+        $payload['review_status'] = 'confirmed';
+
+        $this->putJson("/api/v1/patients/{$patient->id}/office-visits", $payload)
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['review_status']);
+
+        // The refusal is total: no record is written at all.
+        $this->assertSame(0, PhrOfficeVisit::query()->where('patient_id', $patient->id)->count());
+
+        // The same call without the field succeeds, and the server picks the status.
+        $this->putJson("/api/v1/patients/{$patient->id}/office-visits", $this->visitPayload())
+            ->assertCreated()
+            ->assertJsonPath('data.review_status', 'pending_review');
+    }
+
+    public function test_only_an_effective_agent_change_reopens_a_rejected_record(): void
+    {
+        $actor = $this->user('rejection-durability@example.test');
+        $patient = $this->patient($actor, 'Synthetic Rejection Patient');
+        $client = $this->client('Synthetic Rejection Writer');
+        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE], 'api', $client);
+
+        $url = "/api/v1/patients/{$patient->id}/office-visits";
+        $payload = $this->visitPayload();
+        $created = $this->putJson($url, $payload)->assertCreated()->json();
+
+        $visit = PhrOfficeVisit::query()->where('patient_id', $patient->id)->sole();
+        $visit->update(['review_status' => PhrReviewStatus::REJECTED]);
+
+        // The version HMAC covers review_status, so a review decision invalidates
+        // whatever version the agent was holding and forces it to re-read.
+        $rejectedVersion = $this->versionOf($visit->fresh());
+        $this->assertNotSame($created['version'], $rejectedVersion);
+
+        // A retry of an already-applied request must not undo the rejection.
+        $this->putJson($url, $payload)
+            ->assertOk()
+            ->assertJsonPath('outcome', 'unchanged')
+            ->assertJsonPath('version', $rejectedVersion);
+        $this->assertSame(PhrReviewStatus::REJECTED, $visit->fresh()?->review_status);
+
+        // A real change re-asserts the record, so it returns to the review queue.
+        $changed = $payload;
+        $changed['expected_version'] = $rejectedVersion;
+        $changed['data']['assessment'] = 'Synthetic revised assessment';
+
+        $this->putJson($url, $changed)
+            ->assertOk()
+            ->assertJsonPath('outcome', 'updated')
+            ->assertJsonPath('data.review_status', 'pending_review');
+        $this->assertSame(PhrReviewStatus::PENDING, $visit->fresh()?->review_status);
+    }
+
+    public function test_an_effective_agent_change_reopens_a_confirmed_record(): void
+    {
+        $actor = $this->user('confirmed-reopen@example.test');
+        $patient = $this->patient($actor, 'Synthetic Reopen Patient');
+        $client = $this->client('Synthetic Reopen Writer');
+        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE], 'api', $client);
+
+        $url = "/api/v1/patients/{$patient->id}/office-visits";
+        $this->putJson($url, $this->visitPayload())->assertCreated();
+
+        $visit = PhrOfficeVisit::query()->where('patient_id', $patient->id)->sole();
+        $visit->update(['review_status' => PhrReviewStatus::CONFIRMED]);
+
+        $changed = $this->visitPayload();
+        $changed['expected_version'] = $this->versionOf($visit->fresh());
+        $changed['data']['assessment'] = 'Synthetic amended assessment';
+
+        $this->putJson($url, $changed)
+            ->assertOk()
+            ->assertJsonPath('data.review_status', 'pending_review');
+        $this->assertSame(PhrReviewStatus::PENDING, $visit->fresh()?->review_status);
+    }
+
+    private function versionOf(?Model $record): string
+    {
+        $this->assertNotNull($record);
+
+        return app(AgentClinicalRecordVersion::class)->for($record);
+    }
+
     /** @return array<string, mixed> */
     private function visitPayload(): array
     {
         return [
             'external_id' => 'synthetic-visit-001',
             'source_document_id' => null,
-            'review_status' => 'pending_review',
             'expected_version' => null,
             'data' => [
                 'visit_date' => '2026-01-15',
@@ -536,7 +628,6 @@ final class AgentApiClinicalWriteTest extends TestCase
         return [
             'external_id' => 'synthetic-procedure-001',
             'source_document_id' => null,
-            'review_status' => 'confirmed',
             'expected_version' => null,
             'data' => [
                 'name' => 'Synthetic procedure',

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
+import { ShowRejectedToggle } from '@/phr/clinical/review'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import type { PhrListPageProps, PhrModuleId } from '@/phr/miller'
 import { compactPayload, errorMessage } from '@/phr/shared'
@@ -212,6 +213,7 @@ export default function OfficeVisitsPage({ patientId, onDrill }: PhrListPageProp
   const [immunizations, setImmunizations] = useState<PhrImmunization[]>([])
   const [filter, setFilter] = useState<VisitFilter>('all')
   const [canManage, setCanManage] = useState(false)
+  const [showRejected, setShowRejected] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -219,10 +221,13 @@ export default function OfficeVisitsPage({ patientId, onDrill }: PhrListPageProp
     setBusy(true)
     setError(null)
     try {
+      // The timeline merges three resources, so the filter has to reach all of
+      // them or a rejected record would still surface through one of the feeds.
+      const rejected = showRejected ? '?include_rejected=1' : ''
       const [rawVisits, rawProcedures, rawImmunizations] = await Promise.all([
-        fetchWrapper.get(`/api/phr/patients/${patientId}/office-visits`),
-        fetchWrapper.get(`/api/phr/patients/${patientId}/procedures`),
-        fetchWrapper.get(`/api/phr/patients/${patientId}/immunizations`),
+        fetchWrapper.get(`/api/phr/patients/${patientId}/office-visits${rejected}`),
+        fetchWrapper.get(`/api/phr/patients/${patientId}/procedures${rejected}`),
+        fetchWrapper.get(`/api/phr/patients/${patientId}/immunizations${rejected}`),
       ])
       const parsedVisits = PhrOfficeVisitsResponseSchema.parse(rawVisits)
       const parsedProcedures = PhrProceduresResponseSchema.parse(rawProcedures)
@@ -236,7 +241,7 @@ export default function OfficeVisitsPage({ patientId, onDrill }: PhrListPageProp
     } finally {
       setBusy(false)
     }
-  }, [patientId])
+  }, [patientId, showRejected])
 
   useEffect(() => { void load() }, [load])
 
@@ -289,6 +294,7 @@ export default function OfficeVisitsPage({ patientId, onDrill }: PhrListPageProp
                 </Button>
               )
             })}
+            <ShowRejectedToggle showRejected={showRejected} onChange={setShowRejected} disabled={busy} />
           </div>
           <p className="mb-6 text-sm text-muted-foreground">{FILTER_DESCRIPTIONS[filter]}</p>
 

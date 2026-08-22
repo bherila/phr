@@ -4,6 +4,8 @@ import { useEffect, useId, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
+import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
+import { reviewStatusBadge } from '@/phr/clinical/ui'
 import type { PhrListPageProps } from '@/phr/miller'
 import { PhrNotFoundColumn } from '@/phr/miller'
 import { errorMessage, fetchPhrDetail, zodErrorMessage } from '@/phr/shared'
@@ -40,7 +42,7 @@ export default function AllergyDetail({ patientId, recordId, onDrill }: AllergyD
   const [notFound, setNotFound] = useState(false)
   const [deleted, setDeleted] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [mutation, setMutation] = useState<'save' | 'delete' | null>(null)
+  const [mutation, setMutation] = useState<'save' | 'delete' | 'review' | null>(null)
   const [editing, setEditing] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [form, setForm] = useState<PhrAllergyFormData>(EMPTY_ALLERGY_FORM)
@@ -121,6 +123,23 @@ export default function AllergyDetail({ patientId, recordId, onDrill }: AllergyD
     }
   }
 
+  async function reviewAllergy(decision: PhrReviewDecision): Promise<void> {
+    if (!allergy) return
+
+    setMutation('review')
+    setError(null)
+    try {
+      const raw: unknown = await fetchWrapper.patch(`${endpoint}/review`, { review_status: decision })
+      const updated = PhrAllergyResponseSchema.parse(raw).allergy
+      setAllergy(updated)
+      notifyAllergyChanged({ action: 'updated', allergy: updated, patientId })
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setMutation(null)
+    }
+  }
+
   async function deleteAllergy(): Promise<void> {
     if (!allergy) return
 
@@ -161,7 +180,19 @@ export default function AllergyDetail({ patientId, recordId, onDrill }: AllergyD
         <section className="rounded-lg border border-border bg-card p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold text-card-foreground">{allergy.substance}</h2>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-lg font-semibold text-card-foreground">{allergy.substance}</h2>
+                {reviewStatusBadge(allergy.review_status)}
+                {canManage && (
+                  <ReviewActions
+                    status={allergy.review_status}
+                    label={allergy.substance}
+                    busy={mutation === 'review'}
+                    disabled={mutation !== null && mutation !== 'review'}
+                    onReview={(decision) => void reviewAllergy(decision)}
+                  />
+                )}
+              </div>
               <p className="mt-1 text-sm text-muted-foreground">Allergy #{allergy.id}</p>
             </div>
             {canManage && (

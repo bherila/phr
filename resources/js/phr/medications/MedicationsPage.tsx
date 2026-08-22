@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useClinicalCrud } from '@/phr/clinical/crud'
+import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import type { PhrListPageProps } from '@/phr/miller'
 import { compactPayload } from '@/phr/shared'
@@ -59,6 +60,7 @@ interface MedicationTableProps {
   onCancelDelete: () => void
   onConfirmDelete: (medicationId: number) => Promise<void>
   onEndNow: (medication: PhrMedication) => Promise<void>
+  onReview: (medicationId: number, decision: PhrReviewDecision) => void
   isMutating: (key: string) => boolean
   onDrill?: PhrListPageProps['onDrill']
 }
@@ -306,6 +308,7 @@ function MedicationTable({
   onCancelDelete,
   onConfirmDelete,
   onEndNow,
+  onReview,
   isMutating,
   onDrill,
 }: MedicationTableProps) {
@@ -375,6 +378,13 @@ function MedicationTable({
                                 {isEndingNow ? 'Ending…' : 'End now'}
                               </Button>
                             )}
+                            <ReviewActions
+                              status={medication.review_status}
+                              label={medication.name}
+                              busy={isMutating(`review:${medication.id}`)}
+                              disabled={isEndingNow || isSaving || isDeletingBusy}
+                              onReview={(decision) => onReview(medication.id, decision)}
+                            />
                             <Button
                               size="icon-sm"
                               variant="ghost"
@@ -543,6 +553,7 @@ export default function MedicationsPage({ patientId, onDrill }: PhrListPageProps
               ))}
             </select>
           </label>
+          <ShowRejectedToggle showRejected={crud.showRejected} onChange={crud.setShowRejected} disabled={crud.busy} />
         </div>
       </div>
 
@@ -588,6 +599,7 @@ export default function MedicationsPage({ patientId, onDrill }: PhrListPageProps
             onCancelDelete={crud.cancelDelete}
             onConfirmDelete={async (id) => { await crud.deleteRecord(id) }}
             onEndNow={endNow}
+            onReview={(medicationId, decision) => void crud.reviewRecord(medicationId, decision)}
             isMutating={crud.isMutating}
             onDrill={onDrill}
           />
@@ -629,6 +641,7 @@ export default function MedicationsPage({ patientId, onDrill }: PhrListPageProps
                   onCancelDelete={crud.cancelDelete}
                   onConfirmDelete={async (id) => { await crud.deleteRecord(id) }}
                    onEndNow={endNow}
+                   onReview={(medicationId, decision) => void crud.reviewRecord(medicationId, decision)}
                    isMutating={crud.isMutating}
                    onDrill={onDrill}
                  />
