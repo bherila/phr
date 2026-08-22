@@ -217,3 +217,7 @@ on later rsyncs, rejects a partial key pair, and never prints key material.
 - Keep external-ID resolution scoped to the caller's own import source, and keep its
   response free of clinical content. A resolver that reports foreign hits leaks the
   existence of another integration's records.
+- Treat `external_id` as an opaque, case-sensitive identifier on every backend. The
+  column carries a binary collation so the MySQL family compares it bytewise like
+  SQLite; without that, upsert identity and resolution disagree about what "the same
+  record" is, and only in production.

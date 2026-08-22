@@ -55,12 +55,21 @@ final readonly class AgentApiPayload
         $payload = self::from($response, ['resource_type', 'patient_id', 'resolved', 'unresolved']);
         $resolved = $payload->value['resolved'];
         $unresolved = $payload->value['unresolved'];
-        // resolved is keyed by external ID. It is checked by its values rather
-        // than array_is_list, because PHP turns numeric-string keys back into
-        // integers on decode -- external IDs of "0", "1", ... would otherwise
-        // decode as a list and be rejected as drift.
-        if (! is_array($resolved)
-            || array_filter($resolved, static fn (mixed $entry): bool => ! is_array($entry) || array_is_list($entry)) !== []
+        // resolved is a map keyed by external ID, and AgentApiJson deliberately
+        // keeps an empty object and a numeric-key object as stdClass so `{}`
+        // never becomes `[]` on the wire. Both are legitimate here -- an empty
+        // map is what a client's first sync pass gets back -- so the entries
+        // are read through a temporary view. The stored payload keeps its
+        // original shape; normalizing it to an array would reintroduce exactly
+        // the distinction the decoder exists to preserve.
+        $entries = match (true) {
+            is_object($resolved) => get_object_vars($resolved),
+            is_array($resolved) && ! array_is_list($resolved) => $resolved,
+            is_array($resolved) && $resolved === [] => [],
+            default => null,
+        };
+        if ($entries === null
+            || array_filter($entries, static fn (mixed $entry): bool => ! is_array($entry) || array_is_list($entry)) !== []
             || ! is_array($unresolved)
             || ! array_is_list($unresolved)
             || array_filter($unresolved, static fn (mixed $id): bool => ! is_string($id)) !== []) {

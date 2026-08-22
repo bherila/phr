@@ -400,6 +400,30 @@ final class AgentApiClinicalResolveTest extends TestCase
         $this->assertSame($upsert['version'], $resolved['resolved'][$externalId]['version']);
     }
 
+    public function test_external_ids_are_compared_case_sensitively(): void
+    {
+        $actor = $this->user('resolve-case@example.test');
+        $patient = $this->patient($actor, 'Synthetic Case Patient');
+        $client = $this->client('Synthetic Case Client');
+        Passport::actingAs($actor, [AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE], 'api', $client);
+
+        $this->putJson(
+            "/api/v1/patients/{$patient->id}/medications",
+            $this->medicationPayload('Medication-ABC'),
+        )->assertCreated();
+
+        // External IDs are opaque client-chosen identifiers. The stored spelling
+        // is the only one that resolves; a differently-cased request must not
+        // come back keyed under a spelling the caller never sent.
+        $resolved = $this->postJson(
+            "/api/v1/patients/{$patient->id}/medications/resolve",
+            ['external_ids' => ['medication-abc', 'Medication-ABC']],
+        )->assertOk()->json();
+
+        $this->assertSame(['Medication-ABC'], array_keys($resolved['resolved']));
+        $this->assertSame(['medication-abc'], $resolved['unresolved']);
+    }
+
     /** @return array<string, mixed> */
     private function medicationPayload(string $externalId): array
     {

@@ -478,6 +478,87 @@ final class AgentMcpReadAdapterTest extends TestCase
         ]);
     }
 
+    public function test_mcp_clinical_resolve_returns_an_empty_object_when_nothing_is_written_yet(): void
+    {
+        $actor = $this->user('mcp-resolve-empty@example.test');
+        $patient = $this->patient($actor, 'Synthetic MCP Empty Resolve Patient');
+        $client = Client::query()->create([
+            'name' => 'Synthetic MCP Empty Resolver',
+            'secret' => null,
+            'provider' => 'users',
+            'redirect_uris' => ['https://client.example.test/callback'],
+            'grant_types' => ['authorization_code', 'refresh_token'],
+            'revoked' => false,
+        ]);
+        Passport::actingAs($actor, [AgentApiScopes::MCP_USE, AgentApiScopes::CLINICAL_READ], 'api', $client);
+
+        // A first synchronization pass resolves nothing. The transport keeps an
+        // empty JSON object as stdClass so `{}` never becomes `[]` on the wire,
+        // and the payload parser has to accept that rather than treat it as
+        // response drift.
+        $session = $this->initializeSession();
+        $response = $this->callToolResponse($session, 2, 'medications.resolve', [
+            'patient_id' => $patient->id,
+            'external_ids' => ['synthetic-mcp-never-written'],
+        ]);
+        $resolved = $response->json();
+
+        $this->assertFalse($resolved['result']['isError'] ?? true, json_encode($resolved, JSON_THROW_ON_ERROR));
+        $structured = $resolved['result']['structuredContent'] ?? [];
+        $this->assertSame([], $structured['resolved'] ?? null);
+        $this->assertSame(['synthetic-mcp-never-written'], $structured['unresolved'] ?? null);
+        // Asserted on the wire, not on the decoded array: PHP cannot tell an
+        // empty object from an empty list once decoded, so only the raw body
+        // proves the client receives {} rather than [].
+        $this->assertStringContainsString('"resolved":{}', (string) $response->getContent());
+    }
+
+    public function test_mcp_clinical_resolve_keeps_a_numeric_external_id_as_an_object_key(): void
+    {
+        $actor = $this->user('mcp-resolve-numeric@example.test');
+        $patient = $this->patient($actor, 'Synthetic MCP Numeric Resolve Patient');
+        $client = Client::query()->create([
+            'name' => 'Synthetic MCP Numeric Resolver',
+            'secret' => null,
+            'provider' => 'users',
+            'redirect_uris' => ['https://client.example.test/callback'],
+            'grant_types' => ['authorization_code', 'refresh_token'],
+            'revoked' => false,
+        ]);
+        Passport::actingAs($actor, [
+            AgentApiScopes::MCP_USE,
+            AgentApiScopes::CLINICAL_READ,
+            AgentApiScopes::CLINICAL_WRITE,
+        ], 'api', $client);
+
+        $session = $this->initializeSession();
+        $created = $this->callTool($session, 2, 'medications.upsert', [
+            'patient_id' => $patient->id,
+            'external_id' => '0',
+            'source_document_id' => null,
+            'expected_version' => null,
+            'data' => ['name' => 'Synthetic numeric external id medication', 'status' => 'active'],
+        ]);
+        $this->assertFalse($created['result']['isError'] ?? true, json_encode($created, JSON_THROW_ON_ERROR));
+
+        // PHP turns a numeric-string object key back into an integer, so a naive
+        // list check would read this valid map as response drift.
+        $response = $this->callToolResponse($session, 3, 'medications.resolve', [
+            'patient_id' => $patient->id,
+            'external_ids' => ['0'],
+        ]);
+        $resolved = $response->json();
+
+        $this->assertFalse($resolved['result']['isError'] ?? true, json_encode($resolved, JSON_THROW_ON_ERROR));
+        $structured = $resolved['result']['structuredContent'] ?? [];
+        $this->assertSame([], $structured['unresolved'] ?? null);
+        $this->assertSame(
+            $created['result']['structuredContent']['version'] ?? null,
+            $structured['resolved'][0]['version'] ?? null,
+        );
+        $this->assertStringContainsString('"resolved":{"0":', (string) $response->getContent());
+    }
+
     public function test_mcp_document_upload_uses_the_typed_multipart_rest_boundary(): void
     {
         Storage::fake(PhrDocument::STORAGE_DISK);
