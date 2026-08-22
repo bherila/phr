@@ -10,7 +10,9 @@ use App\Services\AgentApi\AgentClinicalRecordUpdateService;
 use App\Services\AgentApi\AgentClinicalUpsertService;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Support\AgentApi\AgentApiClientIdentity;
+use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
+use App\Support\AgentApi\AgentMutationResponse;
 use Illuminate\Http\JsonResponse;
 
 final class AgentClinicalWriteController extends Controller
@@ -33,13 +35,19 @@ final class AgentClinicalWriteController extends Controller
         $definition = AgentClinicalResourceCatalog::definition($resource) ?? abort(404);
         $resourceClass = $definition['resource'];
 
-        return response()->json([
-            'resource_type' => $resource,
-            'patient_id' => $resolvedPatient->id,
-            'outcome' => $result->outcome,
-            'version' => $result->version,
-            'data' => (new $resourceClass($result->record))->resolve($request),
-        ], $result->outcome === ClinicalUpsertResult::CREATED ? 201 : 200);
+        return response()->json(
+            AgentMutationResponse::payload(
+                $request,
+                $resource,
+                $resolvedPatient->id,
+                $result->outcome,
+                AgentApiScopes::CLINICAL_READ,
+                $result->record,
+                fn (): array => (new $resourceClass($result->record))->resolve($request),
+                $result->version,
+            ),
+            $result->outcome === ClinicalUpsertResult::CREATED ? 201 : 200,
+        );
     }
 
     public function update(UpdateClinicalRecordRequest $request, int $patient, string $resource, int $record): JsonResponse
@@ -50,12 +58,17 @@ final class AgentClinicalWriteController extends Controller
         $definition = AgentClinicalResourceCatalog::definition($resource) ?? abort(404);
         $resourceClass = $definition['resource'];
 
-        return response()->json([
-            'resource_type' => $resource,
-            'patient_id' => $resolvedPatient->id,
-            'outcome' => $result->outcome,
-            'version' => $result->version,
-            'data' => (new $resourceClass($result->record))->resolve($request),
-        ]);
+        // This route already requires clinical:read, so the full resource is
+        // always returned. It shares the presenter for response consistency.
+        return response()->json(AgentMutationResponse::payload(
+            $request,
+            $resource,
+            $resolvedPatient->id,
+            $result->outcome,
+            AgentApiScopes::CLINICAL_READ,
+            $result->record,
+            fn (): array => (new $resourceClass($result->record))->resolve($request),
+            $result->version,
+        ));
     }
 }

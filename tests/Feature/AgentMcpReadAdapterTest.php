@@ -371,9 +371,35 @@ final class AgentMcpReadAdapterTest extends TestCase
             'response_status' => 200,
         ]);
 
+        // The receipt policy holds through MCP because the tools delegate to the
+        // same REST routes: write scope alone yields identity, not contents.
+        Passport::actingAs($actor, [
+            AgentApiScopes::MCP_USE,
+            AgentApiScopes::CLINICAL_WRITE,
+        ], 'api', $client);
+        $writeOnlySession = $this->initializeSession();
+        $receipt = $this->callTool($writeOnlySession, 4, 'procedures.upsert', [
+            'patient_id' => $patient->id,
+            'external_id' => 'synthetic-mcp-receipt',
+            'source_document_id' => null,
+            'review_status' => 'pending_review',
+            'expected_version' => null,
+            'data' => ['name' => 'Synthetic receipt procedure'],
+        ]);
+        $this->assertFalse($receipt['result']['isError'] ?? true, json_encode($receipt, JSON_THROW_ON_ERROR));
+        $this->assertTrue($receipt['result']['structuredContent']['receipt_only'] ?? false);
+        $this->assertSame(
+            ['id', 'patient_id', 'review_status'],
+            array_keys($receipt['result']['structuredContent']['data'] ?? []),
+        );
+        $this->assertStringNotContainsString(
+            'Synthetic receipt procedure',
+            json_encode($receipt, JSON_THROW_ON_ERROR),
+        );
+
         Passport::actingAs($actor, [AgentApiScopes::MCP_USE], 'api', $client);
         $deniedSession = $this->initializeSession();
-        $denied = $this->callTool($deniedSession, 4, 'procedures.upsert', [
+        $denied = $this->callTool($deniedSession, 5, 'procedures.upsert', [
             'patient_id' => $patient->id,
             'external_id' => 'synthetic-mcp-denied',
             'source_document_id' => null,
