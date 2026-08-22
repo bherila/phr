@@ -36,6 +36,7 @@ export function classBadge(value: string | null, classes: Record<string, string>
 const REVIEW_STATUS_CLASS: Record<PhrReviewStatus, string> = {
   pending_review: 'bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200',
   confirmed: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300',
+  rejected: 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300',
 }
 
 export function reviewStatusBadge(status: PhrReviewStatus | null | undefined): ReactElement | null {

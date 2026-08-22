@@ -331,7 +331,6 @@ final class AgentMcpReadAdapterTest extends TestCase
             'patient_id' => $patient->id,
             'external_id' => 'synthetic-mcp-procedure-001',
             'source_document_id' => null,
-            'review_status' => 'pending_review',
             'expected_version' => null,
             'data' => [
                 'name' => 'Synthetic MCP procedure',
@@ -382,7 +381,6 @@ final class AgentMcpReadAdapterTest extends TestCase
             'patient_id' => $patient->id,
             'external_id' => 'synthetic-mcp-receipt',
             'source_document_id' => null,
-            'review_status' => 'pending_review',
             'expected_version' => null,
             'data' => ['name' => 'Synthetic receipt procedure'],
         ]);
@@ -403,7 +401,6 @@ final class AgentMcpReadAdapterTest extends TestCase
             'patient_id' => $patient->id,
             'external_id' => 'synthetic-mcp-denied',
             'source_document_id' => null,
-            'review_status' => 'pending_review',
             'expected_version' => null,
             'data' => ['name' => 'Synthetic denied procedure'],
         ]);

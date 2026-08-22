@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\PHR;
 
+use App\Models\PhrAllergy;
+use App\Models\PhrCondition;
 use App\Models\PhrDocument;
 use App\Models\PhrExport;
 use App\Models\PhrLabResult;
@@ -11,6 +13,7 @@ use App\Models\PhrPatientUserAccess;
 use App\Models\PhrPatientVital;
 use App\Models\PhrPortalMessage;
 use App\Models\User;
+use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Support\Facades\Storage;
 use Smalot\PdfParser\Parser;
 use Tests\TestCase;
@@ -155,6 +158,71 @@ class PhrExportTest extends TestCase
         $this->assertStringContainsString('Negative Assertions', $summaryText);
         $this->assertStringContainsString('2026-01-15 | allergy_absence | allergies | No known allergies documented. | Explicitly documented in portal bundle.', $summaryText);
         $zip->close();
+    }
+
+    public function test_export_omits_records_awaiting_or_refused_review(): void
+    {
+        Storage::fake('phr_documents');
+        Storage::fake('phr_exports');
+
+        $owner = $this->createUser();
+        $patient = $this->createPatient($owner);
+
+        foreach ([
+            PhrReviewStatus::CONFIRMED => 'Penicillin',
+            PhrReviewStatus::PENDING => 'Ibuprofen',
+            PhrReviewStatus::REJECTED => 'Latex',
+        ] as $status => $substance) {
+            PhrAllergy::create([
+                'patient_id' => $patient->id,
+                'user_id' => $owner->id,
+                'review_status' => $status,
+                'substance' => $substance,
+            ]);
+        }
+
+        foreach ([
+            PhrReviewStatus::CONFIRMED => 'Confirmed Hypertension',
+            PhrReviewStatus::PENDING => 'Unreviewed Diabetes',
+            PhrReviewStatus::REJECTED => 'Refused Asthma',
+        ] as $status => $name) {
+            PhrCondition::create([
+                'patient_id' => $patient->id,
+                'user_id' => $owner->id,
+                'review_status' => $status,
+                'name' => $name,
+            ]);
+        }
+
+        $this->actingAs($owner)->postJson("/api/phr/patients/{$patient->id}/exports", [
+            'formats' => ['zip'],
+        ])->assertAccepted();
+
+        $export = PhrExport::query()->where('patient_id', $patient->id)->sole();
+        $zip = new ZipArchive;
+        $this->assertTrue($zip->open(Storage::disk('phr_exports')->path((string) $export->storage_path)));
+
+        $summaryPdf = $zip->getFromName('summary.pdf');
+        $this->assertIsString($summaryPdf);
+        $artifacts = [
+            'fhir.json' => (string) $zip->getFromName('fhir.json'),
+            'ccda.xml' => (string) $zip->getFromName('ccda.xml'),
+            'summary.pdf' => preg_replace('/\s+/', ' ', (new Parser)->parseContent($summaryPdf)->getText()) ?? '',
+        ];
+        $zip->close();
+
+        foreach ($artifacts as $artifact => $contents) {
+            $this->assertStringContainsString('Penicillin', $contents, "{$artifact} dropped a confirmed allergy");
+            $this->assertStringContainsString('Confirmed Hypertension', $contents, "{$artifact} dropped a confirmed condition");
+
+            foreach (['Ibuprofen', 'Latex', 'Unreviewed Diabetes', 'Refused Asthma'] as $withheld) {
+                $this->assertStringNotContainsString(
+                    $withheld,
+                    $contents,
+                    "{$artifact} leaked the unconfirmed record {$withheld}",
+                );
+            }
+        }
     }
 
     public function test_manager_cannot_export_patient_record(): void

@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import type { MillerDrillTarget } from '@/components/ui/miller'
+import { fetchWrapper } from '@/fetchWrapper'
 import EncounterEobLinks from '@/phr/clinical/EncounterEobLinks'
+import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { PhrNotFoundColumn } from '@/phr/miller'
 import type { PhrModuleId } from '@/phr/miller/phrModuleRegistry'
@@ -56,6 +58,7 @@ export default function OfficeVisitDetail({ patientId, recordId, onDrill }: Offi
   const [error, setError] = useState<string | null>(null)
   const [canManage, setCanManage] = useState(false)
   const [refreshNonce, setRefreshNonce] = useState(0)
+  const [reviewBusy, setReviewBusy] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -95,6 +98,25 @@ export default function OfficeVisitDetail({ patientId, recordId, onDrill }: Offi
     }
   }, [patientId, recordId, refreshNonce])
 
+  async function reviewVisit(decision: PhrReviewDecision): Promise<void> {
+    if (!visit) return
+
+    setReviewBusy(true)
+    setError(null)
+    try {
+      const raw: unknown = await fetchWrapper.patch(
+        `/api/phr/patients/${patientId}/office-visits/${recordId}/review`,
+        { review_status: decision },
+      )
+      const updated = PhrOfficeVisitResponseSchema.parse(raw).office_visit
+      setVisit(updated)
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setReviewBusy(false)
+    }
+  }
+
   if (notFound) {
     return <PhrNotFoundColumn />
   }
@@ -113,6 +135,14 @@ export default function OfficeVisitDetail({ patientId, recordId, onDrill }: Offi
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-lg font-semibold text-card-foreground">{detailValue(visit.visit_type, 'Office Visit')}</h2>
               {reviewStatusBadge(visit.review_status)}
+              {canManage && (
+                <ReviewActions
+                  status={visit.review_status}
+                  label={detailValue(visit.visit_type, 'Office Visit')}
+                  busy={reviewBusy}
+                  onReview={(decision) => void reviewVisit(decision)}
+                />
+              )}
             </div>
             <p className="mt-1 text-sm text-muted-foreground">Visit #{visit.id}</p>
             <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">

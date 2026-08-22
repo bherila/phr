@@ -138,3 +138,71 @@ describe('MedicationsPage', () => {
     expect(onDrill).not.toHaveBeenCalled()
   })
 })
+
+it('confirms a medication, drops a rejected one from the list, and can reveal rejected rows', async () => {
+  mockGet.mockImplementation(async (url: string) => {
+    if (url === '/api/phr/patients/42/medications') {
+      return {
+        medications: [makeMedication({ id: 1, name: 'Metformin', review_status: 'pending_review' })],
+        can_manage: true,
+      }
+    }
+
+    if (url === '/api/phr/patients/42/medications?include_rejected=1') {
+      return {
+        medications: [
+          makeMedication({ id: 1, name: 'Metformin', review_status: 'pending_review' }),
+          makeMedication({ id: 3, name: 'Lisinopril', review_status: 'rejected' }),
+        ],
+        can_manage: true,
+      }
+    }
+
+    return {}
+  })
+
+  render(<MedicationsPage patientId={42} />)
+  await waitFor(() => expect(screen.getByText('Metformin')).toBeInTheDocument())
+
+  // Confirming keeps the row and settles it, so its actions disappear.
+  mockPatch.mockResolvedValueOnce({
+    medication: makeMedication({ id: 1, name: 'Metformin', review_status: 'confirmed' }),
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Confirm Metformin' }))
+
+  await waitFor(() => {
+    expect(mockPatch).toHaveBeenCalledWith('/api/phr/patients/42/medications/1/review', {
+      review_status: 'confirmed',
+    })
+  })
+  await waitFor(() => {
+    expect(screen.queryByRole('button', { name: 'Confirm Metformin' })).not.toBeInTheDocument()
+  })
+  expect(screen.getByText('Metformin')).toBeInTheDocument()
+
+  // Revealing rejected rows re-fetches with the flag and shows the hidden record.
+  fireEvent.click(screen.getByRole('button', { name: 'Show rejected' }))
+  await waitFor(() => expect(screen.getByText('Lisinopril')).toBeInTheDocument())
+  expect(mockGet).toHaveBeenCalledWith('/api/phr/patients/42/medications?include_rejected=1')
+})
+
+it('removes a rejected medication from the working list', async () => {
+  mockGet.mockImplementation(async () => ({
+    medications: [
+      makeMedication({ id: 1, name: 'Metformin', review_status: 'pending_review' }),
+      makeMedication({ id: 2, name: 'Amoxicillin', review_status: 'confirmed' }),
+    ],
+    can_manage: true,
+  }))
+
+  render(<MedicationsPage patientId={42} />)
+  await waitFor(() => expect(screen.getByText('Metformin')).toBeInTheDocument())
+
+  mockPatch.mockResolvedValueOnce({
+    medication: makeMedication({ id: 1, name: 'Metformin', review_status: 'rejected' }),
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Reject Metformin' }))
+
+  await waitFor(() => expect(screen.queryByText('Metformin')).not.toBeInTheDocument())
+  expect(screen.getByText('Amoxicillin')).toBeInTheDocument()
+})

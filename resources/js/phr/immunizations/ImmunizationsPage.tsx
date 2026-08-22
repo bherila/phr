@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useClinicalCrud } from '@/phr/clinical/crud'
+import { ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { codeChip, reviewStatusBadge } from '@/phr/clinical/ui'
 import type { PhrListPageProps } from '@/phr/miller'
 import { numericPayload, zodErrorMessage } from '@/phr/shared'
@@ -225,6 +226,9 @@ export default function ImmunizationsPage({ patientId, onDrill }: PhrListPagePro
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">Review vaccine history by administration date.</p>
         </div>
+        <div className="flex flex-wrap gap-2">
+          <ShowRejectedToggle showRejected={crud.showRejected} onChange={crud.setShowRejected} disabled={crud.busy} />
+        </div>
       </div>
 
       {crud.error && (
@@ -306,6 +310,13 @@ export default function ImmunizationsPage({ patientId, onDrill }: PhrListPagePro
                         {crud.canManage && (
                           <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
                             <div className="flex justify-end gap-2">
+                              <ReviewActions
+                                status={immunization.review_status}
+                                label={immunization.vaccine_name}
+                                busy={crud.isMutating(`review:${immunization.id}`)}
+                                disabled={isSaving || isDeletingBusy}
+                                onReview={(decision) => void crud.reviewRecord(immunization.id, decision)}
+                              />
                               <Button
                                 type="button"
                                 size="icon-sm"

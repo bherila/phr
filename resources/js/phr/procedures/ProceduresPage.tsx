@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useClinicalCrud } from '@/phr/clinical/crud'
+import { ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { classBadge, codeChip, reviewStatusBadge } from '@/phr/clinical/ui'
 import type { PhrListPageProps } from '@/phr/miller'
 import { compactPayload, zodErrorMessage } from '@/phr/shared'
@@ -259,6 +260,9 @@ export default function ProceduresPage({ patientId, onDrill }: PhrListPageProps)
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">Timeline of procedures, operations, and office procedures.</p>
         </div>
+        <div className="flex flex-wrap gap-2">
+          <ShowRejectedToggle showRejected={crud.showRejected} onChange={crud.setShowRejected} disabled={crud.busy} />
+        </div>
       </div>
 
       {crud.error && (
@@ -329,6 +333,13 @@ export default function ProceduresPage({ patientId, onDrill }: PhrListPageProps)
                     </div>
                     {crud.canManage && (
                        <div className="flex justify-end gap-2" onClick={(event) => event.stopPropagation()}>
+                        <ReviewActions
+                          status={procedure.review_status}
+                          label={procedure.name}
+                          busy={crud.isMutating(`review:${procedure.id}`)}
+                          disabled={isSaving || isDeletingBusy}
+                          onReview={(decision) => void crud.reviewRecord(procedure.id, decision)}
+                        />
                         <Button
                           type="button"
                           size="icon-sm"

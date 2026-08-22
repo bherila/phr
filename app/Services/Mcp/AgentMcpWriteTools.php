@@ -29,14 +29,12 @@ final readonly class AgentMcpWriteTools
             #[Schema(minimum: 1)] int $patient_id,
             #[Schema(minLength: 1, maxLength: 255, pattern: '^[^\\p{C}]+$')] string $external_id,
             #[Schema(minimum: 1)] ?int $source_document_id,
-            #[Schema(enum: ['pending_review', 'confirmed'])] string $review_status,
             #[Schema(pattern: '^[a-f0-9]{64}$')] ?string $expected_version,
             #[Schema(type: 'object')] array $data,
         ) use ($resource): array {
             $command = ClinicalUpsertData::fromValidated($resource, [
                 'external_id' => $external_id,
                 'source_document_id' => $source_document_id,
-                'review_status' => $review_status,
                 'expected_version' => $expected_version,
                 'data' => $data,
             ]);

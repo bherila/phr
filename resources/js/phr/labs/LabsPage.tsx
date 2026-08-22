@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
+import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { formatLabReferenceRange, formatLabValue } from '@/phr/labs/formatLabResult'
 import type { PhrListPageProps } from '@/phr/miller'
@@ -112,9 +113,12 @@ interface LabResultsTableProps {
   results: PhrLabResult[]
   showPanelColumn: boolean
   onDrill: PhrListPageProps['onDrill']
+  canManage: boolean
+  reviewingId: number | null
+  onReview: (result: PhrLabResult, decision: PhrReviewDecision) => void
 }
 
-function LabResultsTable({ results, showPanelColumn, onDrill }: LabResultsTableProps) {
+function LabResultsTable({ results, showPanelColumn, onDrill, canManage, reviewingId, onReview }: LabResultsTableProps) {
   return (
     <table className="w-full text-sm">
       <thead>
@@ -127,6 +131,7 @@ function LabResultsTable({ results, showPanelColumn, onDrill }: LabResultsTableP
           <th className="px-3 py-2 text-left font-medium text-muted-foreground">Range</th>
           <th className="px-3 py-2 text-center font-medium text-muted-foreground">Flag</th>
           <th className="px-3 py-2 text-left font-medium text-muted-foreground">Date</th>
+          <th className="px-3 py-2 text-right font-medium text-muted-foreground">Review</th>
         </tr>
       </thead>
       <tbody>
@@ -153,6 +158,16 @@ function LabResultsTable({ results, showPanelColumn, onDrill }: LabResultsTableP
             </td>
             <td className="px-3 py-2 text-muted-foreground">
               {(result.result_datetime ?? result.collection_datetime ?? '').slice(0, 10) || '—'}
+            </td>
+            <td className="px-3 py-2 text-right" onClick={(event) => event.stopPropagation()}>
+              {canManage && (
+                <ReviewActions
+                  status={result.review_status}
+                  label={result.analyte ?? result.test_name ?? 'lab result'}
+                  busy={reviewingId === result.id}
+                  onReview={(decision) => onReview(result, decision)}
+                />
+              )}
             </td>
           </tr>
         ))}
@@ -242,12 +257,18 @@ export default function LabsPage({ patientId, onDrill }: PhrListPageProps) {
   const [search, setSearch] = useState('')
   const [flagFilter, setFlagFilter] = useState<'all' | 'abnormal'>('all')
   const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc')
+  const [showRejected, setShowRejected] = useState(false)
+  const [reviewingId, setReviewingId] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     setBusy(true)
     setError(null)
     try {
-      const rawLabs = await fetchWrapper.get(`/api/phr/patients/${patientId}/lab-results`)
+      const rawLabs = await fetchWrapper.get(
+        showRejected
+          ? `/api/phr/patients/${patientId}/lab-results?include_rejected=1`
+          : `/api/phr/patients/${patientId}/lab-results`,
+      )
       const parsed = PhrLabResultsResponseSchema.parse(rawLabs)
       setResults(parsed.lab_results)
       setCanManage(parsed.can_manage)
@@ -256,11 +277,32 @@ export default function LabsPage({ patientId, onDrill }: PhrListPageProps) {
     } finally {
       setBusy(false)
     }
-  }, [patientId])
+  }, [patientId, showRejected])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  async function reviewResult(result: PhrLabResult, decision: PhrReviewDecision): Promise<void> {
+    setReviewingId(result.id)
+    setError(null)
+    try {
+      const raw: unknown = await fetchWrapper.patch(
+        `/api/phr/patients/${patientId}/lab-results/${result.id}/review`,
+        { review_status: decision },
+      )
+      const updated = PhrLabResultResponseSchema.parse(raw).lab_result
+      if (decision === 'rejected' && !showRejected) {
+        setResults((prev) => prev.filter((r) => r.id !== updated.id))
+      } else {
+        setResults((prev) => prev.map((r) => (r.id === updated.id ? updated : r)))
+      }
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setReviewingId(null)
+    }
+  }
 
   const filtered = useMemo(() => {
     let list = results
@@ -345,6 +387,7 @@ export default function LabsPage({ patientId, onDrill }: PhrListPageProps) {
           >
             Abnormal only
           </Button>
+          <ShowRejectedToggle showRejected={showRejected} onChange={setShowRejected} disabled={busy} />
         </div>
         <Button
           variant="ghost"
@@ -382,6 +425,9 @@ export default function LabsPage({ patientId, onDrill }: PhrListPageProps) {
                   results={group.results}
                   showPanelColumn={group.showPanelColumn}
                   onDrill={onDrill}
+                  canManage={canManage}
+                  reviewingId={reviewingId}
+                  onReview={(result, decision) => void reviewResult(result, decision)}
                 />
               </div>
             </section>

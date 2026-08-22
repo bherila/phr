@@ -4,6 +4,7 @@ namespace App\Http\Controllers\PHR;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\PHR\Concerns\HandlesClinicalResourceRequests;
+use App\Http\Requests\PHR\ReviewClinicalRecordRequest;
 use App\Http\Requests\PHR\StoreConditionRequest;
 use App\Http\Resources\PHR\ConditionResource;
 use App\Models\PhrCondition;
@@ -43,6 +44,11 @@ class ConditionController extends Controller
     public function destroy(Request $request, int $patient, int $condition): Response
     {
         return $this->destroyClinicalResource($request, $patient, $condition);
+    }
+
+    public function review(ReviewClinicalRecordRequest $request, int $patient, int $condition): JsonResponse
+    {
+        return $this->reviewClinicalResource($request, $patient, $condition);
     }
 
     protected function accessService(): PhrPatientAccessService

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
+import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import type { PhrListPageProps } from '@/phr/miller'
 import { errorMessage, numericPayload } from '@/phr/shared'
@@ -146,12 +147,18 @@ export default function VitalsPage({ patientId, onDrill }: PhrListPageProps) {
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc')
+  const [showRejected, setShowRejected] = useState(false)
+  const [reviewingId, setReviewingId] = useState<number | null>(null)
 
   const load = useCallback(async () => {
     setBusy(true)
     setError(null)
     try {
-      const rawVitals = await fetchWrapper.get(`/api/phr/patients/${patientId}/vitals`)
+      const rawVitals = await fetchWrapper.get(
+        showRejected
+          ? `/api/phr/patients/${patientId}/vitals?include_rejected=1`
+          : `/api/phr/patients/${patientId}/vitals`,
+      )
       const parsed = PhrVitalsResponseSchema.parse(rawVitals)
       setVitals(parsed.vitals)
       setCanManage(parsed.can_manage)
@@ -160,11 +167,32 @@ export default function VitalsPage({ patientId, onDrill }: PhrListPageProps) {
     } finally {
       setBusy(false)
     }
-  }, [patientId])
+  }, [patientId, showRejected])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  async function reviewVital(vital: PhrVital, decision: PhrReviewDecision): Promise<void> {
+    setReviewingId(vital.id)
+    setError(null)
+    try {
+      const raw: unknown = await fetchWrapper.patch(
+        `/api/phr/patients/${patientId}/vitals/${vital.id}/review`,
+        { review_status: decision },
+      )
+      const updated = PhrVitalResponseSchema.parse(raw).vital
+      if (decision === 'rejected' && !showRejected) {
+        setVitals((prev) => prev.filter((v) => v.id !== updated.id))
+      } else {
+        setVitals((prev) => prev.map((v) => (v.id === updated.id ? updated : v)))
+      }
+    } catch (err) {
+      setError(errorMessage(err))
+    } finally {
+      setReviewingId(null)
+    }
+  }
 
   const filtered = useMemo(() => {
     let list = vitals
@@ -229,6 +257,7 @@ export default function VitalsPage({ patientId, onDrill }: PhrListPageProps) {
         >
           Date {sortDir === 'desc' ? '↓' : '↑'}
         </Button>
+        <ShowRejectedToggle showRejected={showRejected} onChange={setShowRejected} disabled={busy} />
       </div>
 
       {busy && <p className="text-sm text-muted-foreground">Loading…</p>}
@@ -250,6 +279,7 @@ export default function VitalsPage({ patientId, onDrill }: PhrListPageProps) {
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Body Site</th>
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Date</th>
                 <th className="px-3 py-2 text-left font-medium text-muted-foreground">Trend</th>
+                <th className="px-3 py-2 text-right font-medium text-muted-foreground">Review</th>
               </tr>
             </thead>
             <tbody>
@@ -289,6 +319,16 @@ export default function VitalsPage({ patientId, onDrill }: PhrListPageProps) {
                           </Button>
                         ))}
                       </div>
+                    </td>
+                    <td className="px-3 py-2 text-right" onClick={(event) => event.stopPropagation()}>
+                      {canManage && (
+                        <ReviewActions
+                          status={v.review_status}
+                          label={v.vital_name ?? 'vital'}
+                          busy={reviewingId === v.id}
+                          onReview={(decision) => void reviewVital(v, decision)}
+                        />
+                      )}
                     </td>
                   </tr>
                 )

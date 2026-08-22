@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
 
+import { fetchWrapper } from '@/fetchWrapper'
+import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
+import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { PhrNotFoundColumn } from '@/phr/miller'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { type PhrImmunization, PhrImmunizationResponseSchema } from '@/phr/types'
@@ -18,6 +21,8 @@ export default function ImmunizationDetail({ patientId, recordId }: Immunization
   const [notFound, setNotFound] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [canManage, setCanManage] = useState(false)
+  const [reviewBusy, setReviewBusy] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -36,11 +41,13 @@ export default function ImmunizationDetail({ patientId, recordId }: Immunization
         if (cancelled) return
 
         setImmunization(result.data?.immunization ?? null)
+        setCanManage(result.data?.can_manage ?? false)
         setNotFound(result.notFound)
       } catch (caught) {
         if (!cancelled) {
           setError(errorMessage(caught))
           setImmunization(null)
+          setCanManage(false)
         }
       } finally {
         if (!cancelled) setBusy(false)
@@ -53,6 +60,25 @@ export default function ImmunizationDetail({ patientId, recordId }: Immunization
       cancelled = true
     }
   }, [patientId, recordId])
+
+  async function reviewImmunization(decision: PhrReviewDecision): Promise<void> {
+    if (!immunization) return
+
+    setReviewBusy(true)
+    setError(null)
+    try {
+      const raw: unknown = await fetchWrapper.patch(
+        `/api/phr/patients/${patientId}/immunizations/${recordId}/review`,
+        { review_status: decision },
+      )
+      const updated = PhrImmunizationResponseSchema.parse(raw).immunization
+      setImmunization(updated)
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setReviewBusy(false)
+    }
+  }
 
   if (notFound) {
     return <PhrNotFoundColumn />
@@ -68,7 +94,18 @@ export default function ImmunizationDetail({ patientId, recordId }: Immunization
       {busy && <p className="text-sm text-muted-foreground">Loading...</p>}
       {immunization && (
         <section className="rounded-lg border border-border bg-card p-4">
-          <h2 className="text-lg font-semibold text-card-foreground">{immunization.vaccine_name}</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-lg font-semibold text-card-foreground">{immunization.vaccine_name}</h2>
+            {reviewStatusBadge(immunization.review_status)}
+            {canManage && (
+              <ReviewActions
+                status={immunization.review_status}
+                label={immunization.vaccine_name}
+                busy={reviewBusy}
+                onReview={(decision) => void reviewImmunization(decision)}
+              />
+            )}
+          </div>
           <p className="mt-1 text-sm text-muted-foreground">Immunization #{immunization.id}</p>
           <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
             <div>

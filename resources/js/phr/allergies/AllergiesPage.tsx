@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { useClinicalCrud } from '@/phr/clinical/crud'
+import { ShowRejectedToggle } from '@/phr/clinical/review'
 import { classBadge, codeChip, labelize, reviewStatusBadge } from '@/phr/clinical/ui'
 import type { PhrListPageProps } from '@/phr/miller'
 import { zodErrorMessage } from '@/phr/shared'
@@ -225,7 +226,7 @@ export default function AllergiesPage({ patientId, onDrill }: PhrListPageProps) 
     payloadFromForm: allergyPayload,
     sortRecords: sortAllergies,
   })
-  const { setRecords } = crud
+  const { setRecords, showRejected } = crud
 
   useEffect(() => subscribeToAllergyChanges((change) => {
     if (change.patientId !== patientId) return
@@ -235,13 +236,19 @@ export default function AllergiesPage({ patientId, onDrill }: PhrListPageProps) 
         return current.filter((allergy) => allergy.id !== change.allergyId)
       }
 
+      // Review happens in the detail column. A rejection there must take the
+      // record out of this list too, or the list would contradict the server.
+      if (change.allergy.review_status === 'rejected' && !showRejected) {
+        return current.filter((allergy) => allergy.id !== change.allergy.id)
+      }
+
       const exists = current.some((allergy) => allergy.id === change.allergy.id)
       const next = exists
         ? current.map((allergy) => allergy.id === change.allergy.id ? change.allergy : allergy)
         : [...current, change.allergy]
       return sortAllergies(next)
     })
-  }), [patientId, setRecords])
+  }), [patientId, setRecords, showRejected])
 
   const activeAllergies = useMemo(
     () => crud.records.filter((allergy) => allergy.clinical_status === 'active'),
@@ -272,6 +279,7 @@ export default function AllergiesPage({ patientId, onDrill }: PhrListPageProps) 
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">Track active allergies and historical resolved or inactive reactions.</p>
         </div>
+        <ShowRejectedToggle showRejected={crud.showRejected} onChange={crud.setShowRejected} disabled={crud.busy} />
       </div>
 
       {crud.error && (

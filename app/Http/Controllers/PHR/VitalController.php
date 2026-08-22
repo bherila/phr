@@ -4,6 +4,7 @@ namespace App\Http\Controllers\PHR;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\PHR\Concerns\HandlesClinicalResourceRequests;
+use App\Http\Requests\PHR\ReviewClinicalRecordRequest;
 use App\Http\Requests\PHR\StoreVitalRequest;
 use App\Http\Resources\PHR\VitalResource;
 use App\Models\PhrPatientVital;
@@ -93,6 +94,11 @@ class VitalController extends Controller
     public function destroy(Request $request, int $patient, int $vital): Response
     {
         return $this->destroyClinicalResource($request, $patient, $vital);
+    }
+
+    public function review(ReviewClinicalRecordRequest $request, int $patient, int $vital): JsonResponse
+    {
+        return $this->reviewClinicalResource($request, $patient, $vital);
     }
 
     protected function accessService(): PhrPatientAccessService

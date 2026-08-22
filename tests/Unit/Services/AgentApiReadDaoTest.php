@@ -74,7 +74,6 @@ final class AgentApiReadDaoTest extends TestCase
         $command = ClinicalUpsertData::fromValidated('procedures', [
             'external_id' => 'synthetic-external-id',
             'source_document_id' => null,
-            'review_status' => 'pending_review',
             'expected_version' => null,
             'data' => ['name' => 'Synthetic typed procedure'],
         ]);
@@ -87,7 +86,6 @@ final class AgentApiReadDaoTest extends TestCase
         $this->assertSame([
             'external_id' => 'synthetic-external-id',
             'source_document_id' => null,
-            'review_status' => 'pending_review',
             'expected_version' => null,
             'data' => ['name' => 'Synthetic typed procedure'],
         ], $transport->json);
