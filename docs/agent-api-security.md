@@ -118,6 +118,23 @@ reviewed jobs. Import creation reuses the browser staging service, pins document
 to the owned document disk, cleans unpublished staging bytes on failure, and relies on
 the existing pending-job recovery command if queue dispatch is temporarily unavailable.
 
+External-ID resolution is a read, not a shortcut into the write surface. It matches on
+the same composite identity the upsert writes -- patient, client-namespaced import
+source, external ID -- so a connection can only ever resolve records it wrote itself. A
+record written by another OAuth client, or created in the browser, is reported as
+unresolved rather than as a foreign hit: reporting the difference would disclose that
+another integration holds that identifier. The response carries record ID, opaque
+version, review status, and update timestamp only, which is enough to decide skip,
+update, or leave alone without returning clinical content, and is why `clinical:read`
+alone is sufficient. The batch is capped so one cheap call cannot scan an unbounded
+slice of a patient's records.
+
+Resolution is also how a client honors a human's rejection. A resolved record reporting
+`rejected` was refused by a reviewer; re-asserting the same clinical data is a no-op that
+preserves that decision, but pushing changed data deliberately reopens review. A sync
+loop that ignores `review_status` and re-pushes edited content will reopen review on
+every pass, so clients are expected to read the field they are given here.
+
 The agent audit table intentionally excludes request URLs, route parameters, query
 strings, request and response bodies, filenames, error messages, IP addresses, and
 user agents. It records only an opaque request UUID, actor/client/token references,
@@ -197,3 +214,10 @@ on later rsyncs, rejects a partial key pair, and never prints key material.
 - Keep `review_status` off every agent write schema. A new agent-writable resource must
   default to `pending_review` and must be filtered out of clinical exports until a human
   confirms it.
+- Keep external-ID resolution scoped to the caller's own import source, and keep its
+  response free of clinical content. A resolver that reports foreign hits leaks the
+  existence of another integration's records.
+- Treat `external_id` as an opaque, case-sensitive identifier on every backend. The
+  column carries a binary collation so the MySQL family compares it bytewise like
+  SQLite; without that, upsert identity and resolution disagree about what "the same
+  record" is, and only in production.
