@@ -2,9 +2,11 @@
 
 namespace App\Services\Mcp;
 
+use App\Support\AgentApi\AgentApiResponseSchemaCatalog;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Http\Request;
 use Laravel\Passport\AccessToken;
+use Mcp\Capability\Discovery\SchemaValidator;
 use Mcp\Capability\Registry;
 use Mcp\Capability\Registry\ReferenceHandler;
 use Mcp\Schema\ToolAnnotations;
@@ -21,6 +23,7 @@ final class AgentMcpServerFactory
         private readonly AgentMcpReadTools $reads,
         private readonly AgentMcpWriteTools $writes,
         private readonly AgentMcpInputSchemaFactory $schemas,
+        private readonly AgentMcpOutputSchemaFactory $outputSchemas,
         private readonly AgentMcpRequestArguments $requestArguments,
     ) {}
 
@@ -29,6 +32,13 @@ final class AgentMcpServerFactory
         $logger = new NullLogger;
         $registry = new Registry(logger: $logger);
         $referenceHandler = new ReferenceHandler(app());
+        $definitions = $this->catalog->definitions($this->reads, $this->writes);
+        $schemaIds = [];
+        foreach ($definitions as $definition) {
+            $schemaIds[$definition->name] = AgentApiResponseSchemaCatalog::operationComponent(
+                $definition->responseOperationId(),
+            );
+        }
         $builder = Server::builder()
             ->setServerInfo(
                 name: 'PHR Agent API',
@@ -60,15 +70,23 @@ final class AgentMcpServerFactory
             ->setReferenceHandler($referenceHandler)
             // Register first so the protocol selects the shape-aware validator
             // before the SDK's default CallToolHandler.
-            ->addRequestHandler(new CallToolHandler(
+            ->addRequestHandler(new AgentMcpValidatedCallToolHandler(
+                new CallToolHandler(
+                    $registry,
+                    $referenceHandler,
+                    $logger,
+                    new AgentMcpSchemaValidator($logger, $this->requestArguments),
+                ),
                 $registry,
-                $referenceHandler,
-                $logger,
-                new AgentMcpSchemaValidator($logger, $this->requestArguments),
+                // A plain validator: the shape-aware subclass consumes the queued
+                // wire arguments, which belong to input validation only. Null
+                // logger because the SDK logs data and schema on internal errors.
+                new SchemaValidator($logger),
+                $schemaIds,
             ))
             ->setLazyLoading(false);
 
-        foreach ($this->catalog->definitions($this->reads, $this->writes) as $definition) {
+        foreach ($definitions as $definition) {
             $builder->addTool(
                 handler: $definition->handler,
                 name: $definition->name,
@@ -81,7 +99,7 @@ final class AgentMcpServerFactory
                     openWorldHint: false,
                 ),
                 inputSchema: $this->schemas->for($definition),
-                outputSchema: ['type' => 'object', 'additionalProperties' => true],
+                outputSchema: $this->outputSchemas->for($definition),
             );
         }
 
