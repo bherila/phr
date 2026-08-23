@@ -111,7 +111,12 @@ other document metadata remain behind `documents:read`.
 
 Structured imports retain the same scope split. `imports:write` permits queueing,
 bounded retries, and terminal proposal decisions but does not reveal extracted data;
-`imports:read` is required to list jobs or inspect proposals. A failed job is represented
+`imports:read` is required to list jobs or inspect proposals. The review response
+carries counts only: an import result also holds free-text importer warnings, which
+the EOB importers populate with claim numbers and parser exception text, and those
+must not cross the agent boundary. The controller allow-lists the four counts and the
+closed response envelope refuses anything else, so a warning added to that result
+later fails rather than being forwarded. A failed job is represented
 by a stable failure code rather than its stored provider error or raw response. Retry
 clears stale, unreviewed output before redispatch and refuses exhausted or already
 reviewed jobs. Import creation reuses the browser staging service, pins document reads
@@ -134,6 +139,18 @@ Resolution is also how a client honors a human's rejection. A resolved record re
 preserves that decision, but pushing changed data deliberately reopens review. A sync
 loop that ignores `review_status` and re-pushes edited content will reopen review on
 every pass, so clients are expected to read the field they are given here.
+
+MCP output schemas are the REST response contract rather than a second one. Each
+tool declares the versioned operation it mirrors, and its schema is the transitive
+closure of that operation's OpenAPI response component packaged into local `$defs`,
+so nothing resolves against the published document at runtime. There is no
+permissive fallback: an operation with no declared response component fails when
+the server is built. Structured content is validated on every successful call and
+withheld when it does not match, which makes the document an enforced contract
+instead of documentation. A validation failure returns a generic error and records
+only the tool name, schema id, and failing keywords -- never the data or the
+validator's JSON pointers, which for a map keyed by external ID contain a
+caller-chosen identifier.
 
 The agent audit table intentionally excludes request URLs, route parameters, query
 strings, request and response bodies, filenames, error messages, IP addresses, and
@@ -217,6 +234,16 @@ on later rsyncs, rejects a partial key pair, and never prints key material.
 - Keep external-ID resolution scoped to the caller's own import source, and keep its
   response free of clinical content. A resolver that reports foreign hits leaks the
   existence of another integration's records.
+- Give every MCP tool an output schema derived from the REST operation it mirrors,
+  and never a permissive one. A new tool needs its operation's response component in
+  the OpenAPI document before it can be served at all.
+- Describe a response the way it is actually serialized. The agent-owned controllers
+  emit RFC 3339; the shared browser resources emit `Y-m-d H:i:s` and must use the
+  LocalDateTime component. Labelling the latter `format: date-time` is a false
+  contract that only strict validation catches.
+- Add a property to a closed response envelope only alongside the release that
+  emits it, or reserve it in advance. Clients validating the older schema reject the
+  newer response.
 - Treat `external_id` as an opaque, case-sensitive identifier on every backend. The
   column carries a binary collation so the MySQL family compares it bytewise like
   SQLite; without that, upsert identity and resolution disagree about what "the same

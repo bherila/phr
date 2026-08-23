@@ -91,12 +91,14 @@ final class AgentMcpToolCatalog
                 "List {$title}",
                 "List {$title} for an accessible patient through the versioned REST API.",
                 $reads->clinicalListHandler($resource),
+                responseOperationId: 'clinical.list',
             );
             $definitions[] = new AgentMcpToolDefinition(
                 "{$toolName}.get",
                 "Get {$title}",
                 "Get one {$title} record for an accessible patient through the versioned REST API.",
                 $reads->clinicalGetHandler($resource),
+                responseOperationId: 'clinical.get',
             );
         }
 
@@ -115,6 +117,7 @@ final class AgentMcpToolCatalog
                 "Resolve {$title}",
                 "Map a bounded batch of this connection's own external IDs onto {$title} record IDs and current versions. Returns no clinical content, so use it to decide what still needs writing before calling upsert.",
                 $reads->clinicalResolveHandler($resource),
+                responseOperationId: AgentClinicalResourceCatalog::RESOLVE_OPERATION_ID,
             );
             $definitions[] = new AgentMcpToolDefinition(
                 AgentClinicalResourceCatalog::mcpUpdateToolId($resource),
@@ -123,6 +126,7 @@ final class AgentMcpToolCatalog
                 $writes->clinicalUpdateHandler($resource),
                 readOnly: false,
                 destructive: true,
+                responseOperationId: AgentClinicalResourceCatalog::UPDATE_OPERATION_ID,
             );
         }
 

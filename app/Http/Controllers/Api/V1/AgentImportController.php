@@ -12,6 +12,7 @@ use App\Models\PhrPatient;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\Import\PhrDocumentProcessingService;
 use App\Services\PHR\Import\PhrImportJobDao;
+use App\Services\PHR\Import\PhrImportResult;
 use App\Services\PHR\Import\PhrImportRetryPolicy;
 use App\Services\PHR\Import\PhrImportReviewService;
 use App\Support\AgentApi\AgentApiCursor;
@@ -133,13 +134,37 @@ final class AgentImportController extends Controller
             'patient_id' => $resolved->id,
             'job_id' => $job->id,
             'outcome' => $review->outcome,
-            'import' => $review->import->toArray(),
+            'import' => $this->importCounts($review->import),
             'data' => $request->user('api')?->tokenCan(AgentApiScopes::IMPORTS_READ)
                 ? $this->resultPayload($review->result)
                 : $this->resultReceipt($review->result),
         ];
 
         return response()->json($payload);
+    }
+
+    /**
+     * Counts only, as an explicit allow-list.
+     *
+     * PhrImportResult also carries free-text importer warnings -- the EOB
+     * importers put claim numbers and parser exception messages in there -- and
+     * a failure must reach an agent as a stable code, never as provider text.
+     * The review path never populates them today, so this is a boundary rather
+     * than a fix; an allow-list keeps a field added to the result later from
+     * crossing by default.
+     *
+     * @return array<string, int>
+     */
+    private function importCounts(PhrImportResult $import): array
+    {
+        $counts = $import->toArray();
+
+        return [
+            'created' => (int) $counts['created'],
+            'updated' => (int) $counts['updated'],
+            'skipped' => (int) $counts['skipped'],
+            'documents' => (int) $counts['documents'],
+        ];
     }
 
     private function readablePatient(Request $request, int $patient): PhrPatient
