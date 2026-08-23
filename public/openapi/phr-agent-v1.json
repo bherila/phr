@@ -611,6 +611,26 @@
         }
       }
     },
+    "/patients/{patient}/{resource}/{record}/retract": {
+      "post": {
+        "operationId": "clinical.retract",
+        "summary": "Withdraw a clinical record this connection wrote",
+        "description": "Marks a record as withdrawn by the integration that wrote it. This means the source is taking back a claim it made in error; it does NOT mean the record is absent from a later export. Institutions age data out past their own retention policies, so absence from a newer import is never a reason to retract. Scope is this connection's own import namespace: a record written by another client, or created in the browser, reports 404 rather than 403, because refusing by name would confirm another integration holds that identifier. Nothing is deleted, the identity stays reserved so an ordinary upsert cannot re-assert it, and the record stops appearing in lists, search, timeline, and clinical exports. Retracting an already-retracted record is settled as unchanged.",
+        "security": [{ "oauth2": ["clinical:write"] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/PatientId" },
+          { "$ref": "#/components/parameters/WritableClinicalResource" },
+          { "$ref": "#/components/parameters/RecordId" }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalRetractionRequest" } } } },
+        "responses": {
+          "200": { "description": "Record withdrawn, or already withdrawn", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClinicalRetractionResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "409": { "$ref": "#/components/responses/Conflict" },
+          "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
     "/mcp": {
       "post": {
         "operationId": "mcp.exchange",
@@ -995,6 +1015,23 @@
           "source_document_id": { "type": ["integer", "null"], "minimum": 1 },
           "expected_version": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" }
         }
+      },
+      "ClinicalRetractionRequest": {
+        "type": "object", "required": ["expected_version"],
+        "properties": {
+          "expected_version": { "type": "string", "pattern": "^[a-f0-9]{64}$", "description": "The version the caller means to withdraw. Withdrawing is as consequential as changing, so it takes the same precondition." }
+        }, "additionalProperties": false
+      },
+      "ClinicalRetractionResponse": {
+        "type": "object", "required": ["resource_type", "patient_id", "outcome", "version", "data", "receipt_only", "lifecycle"],
+        "properties": {
+          "resource_type": { "type": "string" }, "patient_id": { "type": "integer" },
+          "outcome": { "type": "string", "enum": ["retracted", "unchanged"] },
+          "version": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "data": { "oneOf": [{ "$ref": "#/components/schemas/ClinicalRecord" }, { "$ref": "#/components/schemas/MutationReceipt" }] },
+          "receipt_only": { "type": "boolean", "description": "True when the caller lacks clinical:read and data is a MutationReceipt rather than the full resource." },
+          "lifecycle": { "type": "string", "enum": ["active", "retracted", "deleted"], "description": "Derived from the record's deletion and retraction timestamps rather than stored." }
+        }, "additionalProperties": false
       },
       "ClinicalRecordUpdateRequest": {
         "type": "object",

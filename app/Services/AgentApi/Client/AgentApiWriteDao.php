@@ -24,6 +24,18 @@ final readonly class AgentApiWriteDao
         ));
     }
 
+    public function clinicalRetract(int $patientId, string $resource, int $recordId, string $expectedVersion): AgentApiPayload
+    {
+        return AgentApiPayload::item(
+            $this->transport->send(
+                'POST',
+                "patients/{$patientId}/{$resource}/{$recordId}/retract",
+                json: ['expected_version' => $expectedVersion],
+            ),
+            ['resource_type', 'patient_id', 'outcome', 'data', 'lifecycle'],
+        );
+    }
+
     public function clinicalUpdate(int $patientId, int $recordId, ClinicalRecordUpdateData $data): AgentClinicalUpsertPayload
     {
         return AgentClinicalUpsertPayload::from($this->transport->send(

@@ -120,6 +120,15 @@ final class AgentMcpToolCatalog
                 responseOperationId: AgentClinicalResourceCatalog::RESOLVE_OPERATION_ID,
             );
             $definitions[] = new AgentMcpToolDefinition(
+                AgentClinicalResourceCatalog::mcpRetractToolId($resource),
+                "Retract {$title}",
+                "Withdraw one {$title} record this connection wrote, by its record ID and current version. Use this when the source is taking back a claim it made in error. A record simply missing from a newer export is NOT a reason to retract: institutions age data out past their own retention policies, so absence from a later import says nothing about whether the record was correct. Nothing is deleted and the external ID stays reserved.",
+                $writes->clinicalRetractHandler($resource),
+                readOnly: false,
+                destructive: true,
+                responseOperationId: AgentClinicalResourceCatalog::RETRACT_OPERATION_ID,
+            );
+            $definitions[] = new AgentMcpToolDefinition(
                 AgentClinicalResourceCatalog::mcpUpdateToolId($resource),
                 "Update {$title}",
                 "Partially update one existing {$title} record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",

@@ -302,6 +302,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             AgentClinicalResourceCatalog::RESOLVE_OPERATION_ID,
             'clinical.get',
             AgentClinicalResourceCatalog::UPDATE_OPERATION_ID,
+            AgentClinicalResourceCatalog::RETRACT_OPERATION_ID,
             'mcp.exchange',
             'mcp.session.delete',
             'oauth.disconnect',
