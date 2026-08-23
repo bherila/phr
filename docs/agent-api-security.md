@@ -140,6 +140,27 @@ preserves that decision, but pushing changed data deliberately reopens review. A
 loop that ignores `review_status` and re-pushes edited content will reopen review on
 every pass, so clients are expected to read the field they are given here.
 
+Records carry a lifecycle beyond present-or-absent. A person deleting a record in
+the browser now soft-deletes it, so the removal is recorded rather than erased; an
+integration may withdraw a record it wrote through `clinical.retract`, scoped to its
+own import namespace, with the same version precondition an update takes. Neither is
+`review_status = rejected`, which records a human refusing the content. Retraction is
+the source taking back a claim it made in error and never means the record is absent
+from a later export -- institutions age data out past their own retention policies,
+so absence from a newer import is not evidence about a record's correctness, and an
+agent must never infer removal from it. A record another integration wrote, or a
+person created in the browser, reports 404 rather than 403, for the same reason
+resolution reports foreign hits as unresolved.
+
+Withdrawn records leave the agent list and get, search, timeline, the browser working
+list, and clinical exports, including where a human had already confirmed them: a
+confirmation is not a licence to keep exporting a claim its source has taken back.
+They stay in native backups, which read raw tables so an archive remains complete.
+Their identity stays reserved, so an ordinary upsert conflicts instead of reviving a
+record a person deleted or a source withdrew, and resolution reports them with their
+lifecycle rather than as unresolved -- which is how a re-importing client learns not
+to re-add what the patient removed.
+
 MCP output schemas are the REST response contract rather than a second one. Each
 tool declares the versioned operation it mirrors, and its schema is the transitive
 closure of that operation's OpenAPI response component packaged into local `$defs`,
@@ -244,6 +265,11 @@ on later rsyncs, rejects a partial key pair, and never prints key material.
 - Add a property to a closed response envelope only alongside the release that
   emits it, or reserve it in advance. Clients validating the older schema reject the
   newer response.
+- Keep a withdrawn record out of every path that presents current clinical data, and
+  out of none of the paths that preserve history. A new read path over an
+  agent-writable resource must filter the lifecycle; a new archive path must not.
+- Never treat absence from an import as deletion, and never expose an operation that
+  would let a client do so.
 - Treat `external_id` as an opaque, case-sensitive identifier on every backend. The
   column carries a binary collation so the MySQL family compares it bytewise like
   SQLite; without that, upsert identity and resolution disagree about what "the same
