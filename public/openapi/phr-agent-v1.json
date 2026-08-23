@@ -1435,8 +1435,9 @@
       "ImportReviewRequest": { "type": "object", "required": ["action"], "properties": {
         "action": { "type": "string", "enum": ["accept", "reject"] }, "payload": { "type": "object", "additionalProperties": true,
           "description": "Optional corrected proposal for accept only; prohibited for reject." } }, "additionalProperties": false },
-      "ImportCounts": { "type": "object", "required": ["created", "updated", "skipped", "documents"], "properties": {
-        "created": { "type": "integer" }, "updated": { "type": "integer" }, "skipped": { "type": "integer" }, "documents": { "type": "integer" } }, "additionalProperties": false },
+      "ImportCounts": { "type": "object", "required": ["created", "updated", "skipped", "documents", "warnings"], "properties": {
+        "created": { "type": "integer" }, "updated": { "type": "integer" }, "skipped": { "type": "integer" }, "documents": { "type": "integer" },
+        "warnings": { "type": "array", "items": { "type": "string" }, "description": "Non-fatal importer notes. Always empty on the agent review path, which builds a fresh result; do not build behaviour on its contents." } }, "additionalProperties": false },
       "ImportReviewResponse": { "type": "object", "required": ["resource_type", "patient_id", "job_id", "outcome", "import", "data"], "properties": {
         "resource_type": { "const": "import_result" }, "patient_id": { "type": "integer" }, "job_id": { "type": "integer" },
         "outcome": { "type": "string", "enum": ["accepted", "rejected", "unchanged"] }, "import": { "$ref": "#/components/schemas/ImportCounts" },
@@ -1449,9 +1450,9 @@
           "id": { "type": "integer" }, "patient_id": { "type": "integer" }, "user_id": { "type": "integer" },
           "created_by_user_id": { "type": ["integer", "null"] }, "name": { "type": "string" },
           "kind": { "type": "string", "enum": ["meal", "snack", "symptom", "custom"] },
-          "description": { "type": ["string", "null"] }, "archived_at": { "type": ["string", "null"], "format": "date-time" },
-          "entries_count": { "type": "integer" }, "latest_entry_at": { "type": ["string", "null"], "format": "date-time" },
-          "created_at": { "type": ["string", "null"], "format": "date-time" }, "updated_at": { "type": ["string", "null"], "format": "date-time" }
+          "description": { "type": ["string", "null"] }, "archived_at": { "$ref": "#/components/schemas/LocalDateTime" },
+          "entries_count": { "type": "integer" }, "latest_entry_at": { "$ref": "#/components/schemas/LocalDateTime" },
+          "created_at": { "$ref": "#/components/schemas/LocalDateTime" }, "updated_at": { "$ref": "#/components/schemas/LocalDateTime" }
         }, "additionalProperties": false
       },
       "HealthLogCreateRequest": {
@@ -1476,10 +1477,10 @@
         "properties": {
           "id": { "type": "integer" }, "health_log_id": { "type": "integer" }, "patient_id": { "type": "integer" },
           "user_id": { "type": "integer" }, "recorded_by_user_id": { "type": ["integer", "null"] },
-          "occurred_at": { "type": "string", "format": "date-time" }, "title": { "type": ["string", "null"] },
+          "occurred_at": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$" }, "title": { "type": ["string", "null"] },
           "notes": { "type": ["string", "null"] }, "intensity": { "type": ["integer", "null"], "minimum": 0, "maximum": 10 },
           "tags": { "type": "array", "items": { "type": "string" } }, "details": { "type": ["object", "null"], "additionalProperties": true },
-          "created_at": { "type": ["string", "null"], "format": "date-time" }, "updated_at": { "type": ["string", "null"], "format": "date-time" }
+          "created_at": { "$ref": "#/components/schemas/LocalDateTime" }, "updated_at": { "$ref": "#/components/schemas/LocalDateTime" }
         }, "additionalProperties": false
       },
       "HealthLogEntryAppendRequest": {
@@ -1512,14 +1513,14 @@
         "required": ["id", "phr_patient_id", "client_event_uuid", "event_type", "occurred_at", "tz_offset_min", "duration_ms", "confidence", "burst_count", "peak_dbfs", "mean_dbfs", "noise_floor_dbfs", "source", "device_id", "model_version", "false_positive_at", "corrected_to_event_type", "corrected_at", "effective_event_type", "created_at", "updated_at"],
         "properties": {
           "id": { "type": "integer" }, "phr_patient_id": { "type": "integer" }, "client_event_uuid": { "type": "string" },
-          "event_type": { "$ref": "#/components/schemas/RespiratoryEventType" }, "occurred_at": { "type": "string", "format": "date-time" },
+          "event_type": { "$ref": "#/components/schemas/RespiratoryEventType" }, "occurred_at": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}$" },
           "tz_offset_min": { "type": "integer" }, "duration_ms": { "type": ["integer", "null"] }, "confidence": { "type": ["number", "null"] },
           "burst_count": { "type": "integer" }, "peak_dbfs": { "type": ["number", "null"] }, "mean_dbfs": { "type": ["number", "null"] },
           "noise_floor_dbfs": { "type": ["number", "null"] }, "source": { "type": ["string", "null"] }, "device_id": { "type": ["string", "null"] },
-          "model_version": { "type": ["string", "null"] }, "false_positive_at": { "type": ["string", "null"], "format": "date-time" },
+          "model_version": { "type": ["string", "null"] }, "false_positive_at": { "$ref": "#/components/schemas/LocalDateTime" },
           "corrected_to_event_type": { "oneOf": [{ "$ref": "#/components/schemas/RespiratoryEventType" }, { "type": "null" }] },
-          "corrected_at": { "type": ["string", "null"], "format": "date-time" }, "effective_event_type": { "$ref": "#/components/schemas/RespiratoryEventType" },
-          "created_at": { "type": ["string", "null"], "format": "date-time" }, "updated_at": { "type": ["string", "null"], "format": "date-time" }
+          "corrected_at": { "$ref": "#/components/schemas/LocalDateTime" }, "effective_event_type": { "$ref": "#/components/schemas/RespiratoryEventType" },
+          "created_at": { "$ref": "#/components/schemas/LocalDateTime" }, "updated_at": { "$ref": "#/components/schemas/LocalDateTime" }
         }, "additionalProperties": false
       },
       "RespiratoryEventInput": {
