@@ -1439,9 +1439,8 @@
       "ImportReviewRequest": { "type": "object", "required": ["action"], "properties": {
         "action": { "type": "string", "enum": ["accept", "reject"] }, "payload": { "type": "object", "additionalProperties": true,
           "description": "Optional corrected proposal for accept only; prohibited for reject." } }, "additionalProperties": false },
-      "ImportCounts": { "type": "object", "required": ["created", "updated", "skipped", "documents", "warnings"], "properties": {
-        "created": { "type": "integer" }, "updated": { "type": "integer" }, "skipped": { "type": "integer" }, "documents": { "type": "integer" },
-        "warnings": { "type": "array", "items": { "type": "string" }, "description": "Non-fatal importer notes. Always empty on the agent review path, which builds a fresh result; do not build behaviour on its contents." } }, "additionalProperties": false },
+      "ImportCounts": { "description": "Counts only. Importer warnings carry free-text provider content and deliberately do not cross the agent boundary; the closed envelope is what enforces that.", "type": "object", "required": ["created", "updated", "skipped", "documents"], "properties": {
+        "created": { "type": "integer" }, "updated": { "type": "integer" }, "skipped": { "type": "integer" }, "documents": { "type": "integer" } }, "additionalProperties": false },
       "ImportReviewResponse": { "type": "object", "required": ["resource_type", "patient_id", "job_id", "outcome", "import", "data"], "properties": {
         "resource_type": { "const": "import_result" }, "patient_id": { "type": "integer" }, "job_id": { "type": "integer" },
         "outcome": { "type": "string", "enum": ["accepted", "rejected", "unchanged"] }, "import": { "$ref": "#/components/schemas/ImportCounts" },

@@ -111,7 +111,12 @@ other document metadata remain behind `documents:read`.
 
 Structured imports retain the same scope split. `imports:write` permits queueing,
 bounded retries, and terminal proposal decisions but does not reveal extracted data;
-`imports:read` is required to list jobs or inspect proposals. A failed job is represented
+`imports:read` is required to list jobs or inspect proposals. The review response
+carries counts only: an import result also holds free-text importer warnings, which
+the EOB importers populate with claim numbers and parser exception text, and those
+must not cross the agent boundary. The controller allow-lists the four counts and the
+closed response envelope refuses anything else, so a warning added to that result
+later fails rather than being forwarded. A failed job is represented
 by a stable failure code rather than its stored provider error or raw response. Retry
 clears stale, unreviewed output before redispatch and refuses exhausted or already
 reviewed jobs. Import creation reuses the browser staging service, pins document reads

@@ -158,6 +158,36 @@ final class AgentMcpOutputSchemaTest extends TestCase
         ]), $schema));
     }
 
+    public function test_importer_warnings_cannot_cross_the_agent_boundary(): void
+    {
+        // PhrImportResult carries free-text importer warnings -- the EOB importers
+        // put claim numbers and parser exception text in them -- and a failure must
+        // reach an agent as a stable code, not as provider content. The review path
+        // never populates them today, so the guard that matters is the closed
+        // envelope: if some later path does populate them, the response is refused
+        // rather than forwarded.
+        $schema = AgentApiResponseSchemaCatalog::forOperation('imports.review');
+        $this->assertFalse($schema['$defs']['ImportCounts']['additionalProperties']);
+        $this->assertArrayNotHasKey('warnings', $schema['$defs']['ImportCounts']['properties']);
+
+        $validator = new SchemaValidator;
+        $envelope = static fn (array $counts): array => [
+            'resource_type' => 'import_result',
+            'patient_id' => 4,
+            'job_id' => 7,
+            'outcome' => 'rejected',
+            'import' => $counts,
+            'data' => ['id' => 9, 'status' => 'skipped'],
+        ];
+        $counts = ['created' => 0, 'updated' => 0, 'skipped' => 1, 'documents' => 0];
+
+        $this->assertSame([], $validator->validateAgainstJsonSchema($envelope($counts), $schema));
+        $this->assertNotSame([], $validator->validateAgainstJsonSchema(
+            $envelope([...$counts, 'warnings' => ['claim 12345: synthetic parser failure']]),
+            $schema,
+        ));
+    }
+
     public function test_tools_list_advertises_the_strict_envelope(): void
     {
         $this->actingAsAgent('mcp-output-schema@example.test');
