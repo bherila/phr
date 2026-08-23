@@ -913,7 +913,9 @@
           "patient_id": { "type": "integer" },
           "created_at": { "$ref": "#/components/schemas/LocalDateTime" },
           "updated_at": { "$ref": "#/components/schemas/LocalDateTime" },
-          "version": { "type": "string", "pattern": "^[a-f0-9]{64}$", "description": "Present on agent-writable resource types and required to change an existing record." }
+          "version": { "type": "string", "pattern": "^[a-f0-9]{64}$", "description": "Present on agent-writable resource types and required to change an existing record." },
+          "lifecycle": { "type": "string", "enum": ["active", "retracted", "deleted"], "description": "Reserved for the record lifecycle. Not emitted yet; declared now because the resolve envelope that shares this vocabulary is closed." },
+          "retracted_at": { "$ref": "#/components/schemas/LocalDateTime", "description": "Reserved. Set when the writing integration withdraws the record; distinct from review_status rejected, which records a human refusing it." }
         },
         "additionalProperties": true
       },
@@ -959,7 +961,9 @@
           "id": { "type": "integer", "minimum": 1 },
           "version": { "type": "string", "pattern": "^[a-f0-9]{64}$", "description": "The same opaque version the write endpoints compare against." },
           "review_status": { "type": ["string", "null"], "enum": ["pending_review", "confirmed", "rejected", null] },
-          "updated_at": { "$ref": "#/components/schemas/LocalDateTime" }
+          "updated_at": { "$ref": "#/components/schemas/LocalDateTime" },
+          "lifecycle": { "type": "string", "enum": ["active", "retracted", "deleted"], "description": "Reserved for the record lifecycle. Not emitted yet; declared now because this envelope is closed, so a client validating today must already accept it." },
+          "retracted_at": { "$ref": "#/components/schemas/LocalDateTime", "description": "Reserved. Set when the writing integration withdraws the record; distinct from review_status rejected, which records a human refusing it." }
         },
         "additionalProperties": false
       },
