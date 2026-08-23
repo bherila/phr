@@ -62,10 +62,13 @@ final readonly class AgentApiPayload
         // are read through a temporary view. The stored payload keeps its
         // original shape; normalizing it to an array would reintroduce exactly
         // the distinction the decoder exists to preserve.
+        //
+        // A JSON list is drift, empty or not: the controller emits an object,
+        // and accepting `[]` here would discard the one shape distinction the
+        // decoder exists to keep.
         $entries = match (true) {
             is_object($resolved) => get_object_vars($resolved),
             is_array($resolved) && ! array_is_list($resolved) => $resolved,
-            is_array($resolved) && $resolved === [] => [],
             default => null,
         };
         if ($entries === null

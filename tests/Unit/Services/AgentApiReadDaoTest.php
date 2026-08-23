@@ -50,6 +50,41 @@ final class AgentApiReadDaoTest extends TestCase
         $dao->patients();
     }
 
+    public function test_it_rejects_a_json_list_resolution_map_at_the_dao_boundary(): void
+    {
+        // The resolver contract is a JSON object keyed by external ID. An empty
+        // object decodes to stdClass, so a PHP list here can only mean the
+        // response drifted to `[]` -- the one shape AgentApiJson exists to keep
+        // distinct from `{}`.
+        $dao = new AgentApiReadDao(new RecordingAgentApiTransport(new AgentApiTransportResponse(200, [
+            'resource_type' => 'medication',
+            'patient_id' => 4,
+            'resolved' => [],
+            'unresolved' => [],
+        ])));
+
+        $this->expectException(ToolCallException::class);
+        $this->expectExceptionMessage('The PHR API returned an invalid response.');
+        $dao->resolveClinicalRecords(4, 'medications', ['synthetic-external-1']);
+    }
+
+    public function test_it_accepts_an_empty_object_resolution_map_at_the_dao_boundary(): void
+    {
+        // A client's first synchronization pass resolves nothing, so `{}` is the
+        // most common resolver response there is and must survive the boundary.
+        $dao = new AgentApiReadDao(new RecordingAgentApiTransport(new AgentApiTransportResponse(200, [
+            'resource_type' => 'medication',
+            'patient_id' => 4,
+            'resolved' => (object) [],
+            'unresolved' => ['synthetic-external-1'],
+        ])));
+
+        $payload = $dao->resolveClinicalRecords(4, 'medications', ['synthetic-external-1'])->toArray();
+
+        $this->assertEquals((object) [], $payload['resolved']);
+        $this->assertSame(['synthetic-external-1'], $payload['unresolved']);
+    }
+
     public function test_it_maps_rest_failures_without_copying_response_content(): void
     {
         $dao = new AgentApiReadDao(new RecordingAgentApiTransport(new AgentApiTransportResponse(403, [
