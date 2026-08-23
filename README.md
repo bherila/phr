@@ -110,6 +110,32 @@ The API contract is published at
 [`docs/agent-api-security.md`](docs/agent-api-security.md) for the integration threat
 model and security boundaries.
 
+## Connect an MCP client
+
+PHR's remote MCP endpoint is `https://phr.bherila.net/api/v1/mcp`. It uses OAuth
+with Bherila.net for sign-in; do not create or paste a personal API token. The
+browser opened by the login command shows the requested PHR permissions before
+continuing to the client.
+
+Install it for your user account, then complete the browser login:
+
+```bash
+# Codex CLI
+codex mcp add phr --url https://phr.bherila.net/api/v1/mcp \
+  --oauth-resource https://phr.bherila.net/api/v1
+codex mcp login phr
+
+# Claude Code CLI
+claude mcp add --transport http --scope user phr https://phr.bherila.net/api/v1/mcp
+claude mcp login phr
+```
+
+Restart the client if it was already running. Start by calling `identity.get`, then
+use `patients.list` and `patients.get` to select and confirm a patient; never infer
+a patient ID. The connected client receives only the signed-in user's authorized
+records and OAuth scopes. Because PHR content is health information, connect only a
+client and account you trust.
+
 ### Data portability
 
 Interoperability exports and native backups serve different purposes:
