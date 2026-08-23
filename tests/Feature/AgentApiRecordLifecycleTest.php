@@ -6,7 +6,9 @@ use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Models\User;
+use App\Services\PHR\Export\PhrExportDataService;
 use App\Support\AgentApi\AgentApiScopes;
+use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Passport\Client;
 use Laravel\Passport\Passport;
@@ -79,6 +81,48 @@ final class AgentApiRecordLifecycleTest extends TestCase
 
         $this->assertSame(1, PhrOfficeVisit::query()->count());
         $this->assertNotNull(PhrOfficeVisit::query()->sole()->retracted_at);
+    }
+
+    public function test_a_retracted_record_leaves_the_lists_and_the_export(): void
+    {
+        [$actor, $patient] = $this->agent('lifecycle-exclusion@example.test');
+
+        $this->putJson("/api/v1/patients/{$patient->id}/office-visits", $this->payload())->assertCreated();
+        $record = PhrOfficeVisit::query()->sole();
+        // A human confirmed it before the source withdrew it. A confirmation is
+        // not a licence to keep exporting a claim its source has taken back.
+        $record->forceFill(['review_status' => PhrReviewStatus::CONFIRMED])->save();
+
+        $this->getJson("/api/v1/patients/{$patient->id}/office-visits")
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $record->id);
+        $this->assertContains(
+            $record->id,
+            app(PhrExportDataService::class)->load($patient)['office_visits']->pluck('id')->all(),
+        );
+
+        $record->forceFill(['retracted_at' => now()])->save();
+
+        $this->getJson("/api/v1/patients/{$patient->id}/office-visits")
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+        $this->actingAs($actor)
+            ->getJson("/api/phr/patients/{$patient->id}/office-visits")
+            ->assertOk()
+            ->assertJsonCount(0, 'office_visits');
+        $this->assertNotContains(
+            $record->id,
+            app(PhrExportDataService::class)->load($patient)['office_visits']->pluck('id')->all(),
+        );
+
+        // Search and timeline read the same models through their own query
+        // builder, so they are a separate way in and need the same exclusion.
+        $this->getJson("/api/v1/patients/{$patient->id}/records/search?resource_type[]=office-visits")
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+        $this->getJson("/api/v1/patients/{$patient->id}/timeline?resource_type[]=office-visits")
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
     }
 
     /** @return array{0: User, 1: PhrPatient, 2: Client} */

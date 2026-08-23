@@ -31,20 +31,43 @@ final class RecordLifecycleColumnsTest extends TestCase
         }
     }
 
+    public function test_the_column_and_the_cast_that_declares_it_stay_in_agreement(): void
+    {
+        // Read paths opt into the lifecycle filter by asking the model whether it
+        // casts retracted_at, because the shared controllers also serve resources
+        // this lifecycle does not cover. A column without its cast would be
+        // silently unfiltered, which is the failure worth pinning.
+        foreach ($this->agentWritableModels() as $model) {
+            $this->assertTrue(
+                $model->hasCast('retracted_at'),
+                $model::class.' has the column but does not declare it, so reads will not filter it.',
+            );
+        }
+    }
+
     /** @return list<string> */
     private function agentWritableTables(): array
     {
-        $tables = [];
+        return array_map(
+            static fn (Model $model): string => $model->getTable(),
+            $this->agentWritableModels(),
+        );
+    }
+
+    /** @return list<Model> */
+    private function agentWritableModels(): array
+    {
+        $models = [];
         foreach (AgentClinicalResourceCatalog::writableIds() as $resource) {
             $definition = AgentClinicalResourceCatalog::definition($resource);
             $this->assertIsArray($definition);
             /** @var Model $model */
             $model = new $definition['model'];
-            $tables[] = $model->getTable();
+            $models[] = $model;
         }
         // documents.upload is an agent write path outside the clinical catalog.
-        $tables[] = (new PhrDocument)->getTable();
+        $models[] = new PhrDocument;
 
-        return $tables;
+        return $models;
     }
 }
