@@ -221,6 +221,41 @@ final class AgentApiRecordLifecycleTest extends TestCase
         $this->assertNull($record->fresh()?->retracted_at);
     }
 
+    public function test_resolve_reports_withdrawn_records_rather_than_calling_the_id_free(): void
+    {
+        [$actor, $patient] = $this->agent('lifecycle-resolve@example.test');
+
+        $this->putJson("/api/v1/patients/{$patient->id}/office-visits", $this->payload())->assertCreated();
+        $record = PhrOfficeVisit::query()->sole();
+        $externalId = $this->payload()['external_id'];
+
+        $this->postJson("/api/v1/patients/{$patient->id}/office-visits/resolve", ['external_ids' => [$externalId]])
+            ->assertOk()
+            ->assertJsonPath("resolved.{$externalId}.lifecycle", 'active')
+            ->assertJsonPath("resolved.{$externalId}.retracted_at", null)
+            ->assertJsonPath('unresolved', []);
+
+        $record->forceFill(['retracted_at' => now()])->save();
+
+        $this->postJson("/api/v1/patients/{$patient->id}/office-visits/resolve", ['external_ids' => [$externalId]])
+            ->assertOk()
+            ->assertJsonPath("resolved.{$externalId}.lifecycle", 'retracted')
+            ->assertJsonPath('unresolved', []);
+
+        // A deletion is the case that matters for re-import: the identity is
+        // still reserved, so reporting it as unresolved would invite the client
+        // to re-add exactly what the person removed.
+        $record->forceFill(['retracted_at' => null])->save();
+        $this->actingAs($actor)
+            ->deleteJson("/api/phr/patients/{$patient->id}/office-visits/{$record->id}")
+            ->assertNoContent();
+
+        $this->postJson("/api/v1/patients/{$patient->id}/office-visits/resolve", ['external_ids' => [$externalId]])
+            ->assertOk()
+            ->assertJsonPath("resolved.{$externalId}.lifecycle", 'deleted')
+            ->assertJsonPath('unresolved', []);
+    }
+
     /** @return array{0: User, 1: PhrPatient, 2: Client} */
     private function agent(string $email): array
     {

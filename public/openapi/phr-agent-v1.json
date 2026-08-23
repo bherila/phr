@@ -934,8 +934,8 @@
           "created_at": { "$ref": "#/components/schemas/LocalDateTime" },
           "updated_at": { "$ref": "#/components/schemas/LocalDateTime" },
           "version": { "type": "string", "pattern": "^[a-f0-9]{64}$", "description": "Present on agent-writable resource types and required to change an existing record." },
-          "lifecycle": { "type": "string", "enum": ["active", "retracted", "deleted"], "description": "Reserved for the record lifecycle. Not emitted yet; declared now because the resolve envelope that shares this vocabulary is closed." },
-          "retracted_at": { "$ref": "#/components/schemas/LocalDateTime", "description": "Reserved. Set when the writing integration withdraws the record; distinct from review_status rejected, which records a human refusing it." }
+          "lifecycle": { "type": "string", "enum": ["active", "retracted", "deleted"], "description": "Whether the record still stands, was withdrawn by its source, or was deleted by a person. Derived from the timestamps rather than stored." },
+          "retracted_at": { "$ref": "#/components/schemas/LocalDateTime", "description": "Set when the writing integration withdrew the record; distinct from review_status rejected, which records a human refusing it." }
         },
         "additionalProperties": true
       },
@@ -976,14 +976,14 @@
       },
       "ClinicalResolvedRecord": {
         "type": "object",
-        "required": ["id", "version", "review_status", "updated_at"],
+        "required": ["id", "version", "review_status", "updated_at", "lifecycle", "retracted_at"],
         "properties": {
           "id": { "type": "integer", "minimum": 1 },
           "version": { "type": "string", "pattern": "^[a-f0-9]{64}$", "description": "The same opaque version the write endpoints compare against." },
           "review_status": { "type": ["string", "null"], "enum": ["pending_review", "confirmed", "rejected", null] },
           "updated_at": { "$ref": "#/components/schemas/LocalDateTime" },
-          "lifecycle": { "type": "string", "enum": ["active", "retracted", "deleted"], "description": "Reserved for the record lifecycle. Not emitted yet; declared now because this envelope is closed, so a client validating today must already accept it." },
-          "retracted_at": { "$ref": "#/components/schemas/LocalDateTime", "description": "Reserved. Set when the writing integration withdraws the record; distinct from review_status rejected, which records a human refusing it." }
+          "lifecycle": { "type": "string", "enum": ["active", "retracted", "deleted"], "description": "Whether the record still stands, was withdrawn by the integration that wrote it, or was deleted by a person. Derived from the timestamps rather than stored. A retracted or deleted entry still resolves: its external ID stays reserved, so treating it as unresolved would report the identifier as free when an upsert on it conflicts." },
+          "retracted_at": { "$ref": "#/components/schemas/LocalDateTime", "description": "Set when the writing integration withdrew the record; distinct from review_status rejected, which records a human refusing it." }
         },
         "additionalProperties": false
       },
