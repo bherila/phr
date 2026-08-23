@@ -137,6 +137,15 @@ final class AgentClinicalResourceCatalog
         return str_replace('-', '_', $resource).'.update';
     }
 
+    /** The generic REST/OpenAPI/capabilities identifier for external-ID resolution. */
+    public const string RESOLVE_OPERATION_ID = 'clinical.resolve';
+
+    /** MCP exposes one resolve tool per resource; REST exposes a single generic route. */
+    public static function mcpResolveToolId(string $resource): string
+    {
+        return str_replace('-', '_', $resource).'.resolve';
+    }
+
     /** @return list<string> */
     public static function upsertOperationIds(): array
     {
@@ -147,6 +156,12 @@ final class AgentClinicalResourceCatalog
     public static function mcpUpdateToolIds(): array
     {
         return array_map(self::mcpUpdateToolId(...), self::writableIds());
+    }
+
+    /** @return list<string> */
+    public static function mcpResolveToolIds(): array
+    {
+        return array_map(self::mcpResolveToolId(...), self::writableIds());
     }
 
     /**

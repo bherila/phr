@@ -299,6 +299,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             'respiratory_events.ingest',
             'clinical.list',
             ...AgentClinicalResourceCatalog::upsertOperationIds(),
+            AgentClinicalResourceCatalog::RESOLVE_OPERATION_ID,
             'clinical.get',
             AgentClinicalResourceCatalog::UPDATE_OPERATION_ID,
             'mcp.exchange',

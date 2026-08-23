@@ -197,6 +197,26 @@ final class AgentApiDocumentUploadTest extends TestCase
         $this->assertCount(0, Storage::disk(PhrDocument::STORAGE_DISK)->allFiles());
     }
 
+    public function test_external_ids_differing_only_in_case_are_distinct_identities(): void
+    {
+        $actor = $this->user('document-case-sensitivity@example.test');
+        $patient = $this->patient($actor, 'Synthetic Case Sensitivity Patient');
+        $client = $this->client('Synthetic Case Sensitivity Client');
+        Passport::actingAs($actor, [AgentApiScopes::DOCUMENTS_WRITE], 'api', $client);
+
+        // The contents differ deliberately. Identical bytes deduplicate on hash
+        // independently of the external ID, so a same-content pair would conflict
+        // for a reason that says nothing about how the identifier compares.
+        $this->postUpload($patient, 'Document-ABC', '%PDF-1.4 synthetic upper')->assertCreated();
+        $this->postUpload($patient, 'document-abc', '%PDF-1.4 synthetic lower')->assertCreated();
+
+        $this->assertDatabaseCount('phr_documents', 2);
+        $this->assertSame(
+            ['Document-ABC', 'document-abc'],
+            PhrDocument::query()->orderBy('id')->pluck('external_id')->all(),
+        );
+    }
+
     private function postUpload(PhrPatient $patient, string $externalId, string $contents = '%PDF-1.4 synthetic document'): TestResponse
     {
         return $this->post("/api/v1/patients/{$patient->id}/documents", [

@@ -2,6 +2,7 @@
 
 namespace App\Services\Mcp;
 
+use App\Http\Requests\AgentApi\ResolveClinicalRecordsRequest;
 use App\Models\PhrDocument;
 use App\Models\PhrHealthLog;
 use App\Models\PhrRespiratoryEvent;
@@ -75,6 +76,18 @@ final class AgentMcpInputSchemaFactory
             } else {
                 unset($schema['properties']['archived']);
             }
+        }
+
+        // Reflection cannot see inside a PHP array parameter, so the batch cap
+        // and per-ID constraints have to be declared here or the tool would
+        // advertise an unbounded list of anything.
+        if (in_array($definition->name, AgentClinicalResourceCatalog::mcpResolveToolIds(), true)) {
+            $schema['properties']['external_ids'] = [
+                'type' => 'array',
+                'minItems' => 1,
+                'maxItems' => ResolveClinicalRecordsRequest::MAX_EXTERNAL_IDS,
+                'items' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 255],
+            ];
         }
 
         foreach (AgentClinicalResourceCatalog::writableIds() as $resource) {

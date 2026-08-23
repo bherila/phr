@@ -111,6 +111,12 @@ final class AgentMcpToolCatalog
                 destructive: true,
             );
             $definitions[] = new AgentMcpToolDefinition(
+                AgentClinicalResourceCatalog::mcpResolveToolId($resource),
+                "Resolve {$title}",
+                "Map a bounded batch of this connection's own external IDs onto {$title} record IDs and current versions. Returns no clinical content, so use it to decide what still needs writing before calling upsert.",
+                $reads->clinicalResolveHandler($resource),
+            );
+            $definitions[] = new AgentMcpToolDefinition(
                 AgentClinicalResourceCatalog::mcpUpdateToolId($resource),
                 "Update {$title}",
                 "Partially update one existing {$title} record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
