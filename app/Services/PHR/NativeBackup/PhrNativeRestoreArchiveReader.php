@@ -266,7 +266,13 @@ final class PhrNativeRestoreArchiveReader
         sort($expectedAttributes);
         $actualAttributes = array_keys($record['attributes']);
         sort($actualAttributes);
-        if ($expectedAttributes !== $actualAttributes) {
+        // An archive written before the record lifecycle existed has no
+        // deleted_at or retracted_at. Those two absences are the only tolerated
+        // difference; the records are normalized to null on the way out, after
+        // their stored hash has been verified against what was actually written.
+        $missing = array_values(array_diff($expectedAttributes, $actualAttributes));
+        if (array_diff($missing, PhrNativeLifecycleCompatibility::COLUMNS) !== []
+            || array_diff($actualAttributes, $expectedAttributes) !== []) {
             throw new NativeRestoreException('invalid_archive');
         }
 

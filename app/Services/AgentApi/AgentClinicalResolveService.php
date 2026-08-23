@@ -6,8 +6,10 @@ use App\Models\PhrPatient;
 use App\Support\AgentApi\AgentApiClientIdentity;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
+use App\Support\PHR\PhrRecordLifecycle;
 use DateTimeInterface;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 
 /**
  * Answers "have I written this before?" for the calling OAuth client.
@@ -24,7 +26,7 @@ final readonly class AgentClinicalResolveService
     /**
      * @param  list<string>  $externalIds
      * @return array{
-     *     resolved: array<string, array{id: int, version: string, review_status: string|null, updated_at: string|null}>,
+     *     resolved: array<string, array{id: int, version: string, review_status: string|null, updated_at: string|null, lifecycle: string, retracted_at: string|null}>,
      *     unresolved: list<string>
      * }
      */
@@ -38,7 +40,13 @@ final readonly class AgentClinicalResolveService
         $modelClass = $definition['model'] ?? null;
         abort_unless(is_string($modelClass) && isset($definition['write_rules']), 404);
 
-        $records = $modelClass::query()
+        // Withdrawn records are deliberately included. Their identity is still
+        // reserved, so reporting them as unresolved would tell a client the
+        // external ID is free when an upsert on it will conflict. This is the
+        // channel through which a client learns that a person deleted one of
+        // its records -- and therefore that a later re-import must not re-add
+        // it, which is the failure a merge would otherwise reproduce every run.
+        $records = $modelClass::withoutGlobalScopes([SoftDeletingScope::class])
             ->where('patient_id', $patient->id)
             ->where('import_source', $client->importSource())
             ->whereIn('external_id', $externalIds)
@@ -54,6 +62,8 @@ final readonly class AgentClinicalResolveService
                 'version' => $this->versions->for($record),
                 'review_status' => $this->stringOrNull($record->getAttribute('review_status')),
                 'updated_at' => $this->timestamp($record->getAttribute('updated_at')),
+                'lifecycle' => PhrRecordLifecycle::of($record),
+                'retracted_at' => $this->timestamp($record->getAttribute('retracted_at')),
             ];
         }
 

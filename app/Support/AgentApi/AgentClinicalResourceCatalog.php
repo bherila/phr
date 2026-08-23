@@ -140,6 +140,21 @@ final class AgentClinicalResourceCatalog
     /** The generic REST/OpenAPI/capabilities identifier for external-ID resolution. */
     public const string RESOLVE_OPERATION_ID = 'clinical.resolve';
 
+    /** The generic REST/OpenAPI/capabilities identifier for source retraction. */
+    public const string RETRACT_OPERATION_ID = 'clinical.retract';
+
+    /** MCP exposes one retraction tool per resource; REST exposes a single generic route. */
+    public static function mcpRetractToolId(string $resource): string
+    {
+        return str_replace('-', '_', $resource).'.retract';
+    }
+
+    /** @return list<string> */
+    public static function mcpRetractToolIds(): array
+    {
+        return array_map(self::mcpRetractToolId(...), self::writableIds());
+    }
+
     /** MCP exposes one resolve tool per resource; REST exposes a single generic route. */
     public static function mcpResolveToolId(string $resource): string
     {

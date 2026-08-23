@@ -7,6 +7,7 @@ use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Support\AgentApi\AgentApiUpdateWindow;
 use App\Support\AgentApi\AgentRecordCursor;
 use App\Support\AgentApi\AgentRecordSearchCatalog;
+use App\Support\PHR\PhrRecordLifecycle;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
@@ -133,6 +134,7 @@ final class AgentRecordSearchController extends Controller
             ->addSelect($model->qualifyColumn('*'))
             ->selectRaw("{$eventExpression} as agent_event_at");
 
+        PhrRecordLifecycle::scopeLive($query);
         AgentApiUpdateWindow::apply($query, $validated, $model->qualifyColumn('patient_id'));
         $this->applyFilters($query, $definition, $validated, $eventExpression);
         $this->applyCursor($query, $type, $cursor, $eventExpression, $model->qualifyColumn('id'));

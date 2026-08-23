@@ -81,6 +81,10 @@ class AgentDiscoveryController extends Controller
                     'scope' => AgentApiScopes::CLINICAL_WRITE,
                     'scopes' => [AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE],
                 ],
+                AgentClinicalResourceCatalog::RETRACT_OPERATION_ID => [
+                    'available' => true,
+                    'scope' => AgentApiScopes::CLINICAL_WRITE,
+                ],
                 'records.search' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
                 'timeline.list' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
                 'eobs.list' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],

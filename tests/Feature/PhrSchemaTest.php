@@ -121,6 +121,13 @@ class PhrSchemaTest extends TestCase
         $normalizeMigration = include database_path('migrations/2026_05_17_042849_normalize_phr_patient_schema.php');
         $normalizeMigration->up();
 
+        // The models below are the current ones, and they soft-delete. Replaying
+        // only the two historical migrations leaves this rebuilt schema without
+        // the lifecycle columns every later read filters on, which a real upgrade
+        // would have applied in sequence.
+        $lifecycleMigration = include database_path('migrations/2026_08_23_100000_add_record_lifecycle_columns.php');
+        $lifecycleMigration->up();
+
         $patient = PhrPatient::where('owner_user_id', 1)->where('display_name', 'Legacy PHR Patient')->sole();
         $labResult = PhrLabResult::findOrFail(10);
         $vital = PhrPatientVital::findOrFail(20);

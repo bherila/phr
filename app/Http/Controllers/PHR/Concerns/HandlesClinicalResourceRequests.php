@@ -5,6 +5,7 @@ namespace App\Http\Controllers\PHR\Concerns;
 use App\Http\Requests\PHR\ReviewClinicalRecordRequest;
 use App\Models\PhrPatient;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Support\PHR\PhrRecordLifecycle;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -53,6 +54,11 @@ trait HandlesClinicalResourceRequests
         $query = $this->indexQuery(
             $modelClass::query()->where('patient_id', $resolvedPatient->id)
         );
+
+        // A record its source withdrew is not current clinical data, so it leaves
+        // the working list the way a deleted one does. Deletion is handled by the
+        // soft-delete scope.
+        PhrRecordLifecycle::scopeLive($query);
 
         // Rejected records stay out of the working list. They remain reachable
         // so a mistaken rejection can be undone, but only on request.

@@ -202,6 +202,15 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
             ->middleware('throttle:agent-api')
             ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE))
             ->name('clinical.update');
+        // Withdrawing a claim needs only write. The mutation presenter already
+        // degrades to a receipt without read scope, and an upsert hands a
+        // write-only client the version this precondition needs.
+        Route::post('/patients/{patient}/{resource}/{record}/retract', [AgentClinicalWriteController::class, 'retract'])
+            ->whereNumber(['patient', 'record'])
+            ->whereIn('resource', AgentClinicalResourceCatalog::writableIds())
+            ->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))
+            ->name('clinical.retract');
         Route::get('/patients/{patient}/{resource}/{record}', [AgentClinicalReadController::class, 'show'])
             ->whereNumber(['patient', 'record'])
             ->whereIn('resource', AgentClinicalResourceCatalog::ids())

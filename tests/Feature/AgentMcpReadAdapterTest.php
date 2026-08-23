@@ -177,11 +177,11 @@ final class AgentMcpReadAdapterTest extends TestCase
             'health_log_entries.append', 'respiratory_events.list', 'respiratory_events.ingest',
             'immunizations.upsert', 'medications.upsert', 'conditions.upsert', 'allergies.upsert',
             'lab_results.upsert', 'vitals.upsert', 'office_visits.update', 'procedures.update',
-            'medications.resolve'] as $name) {
+            'medications.resolve', 'medications.retract'] as $name) {
             $this->assertContains($name, $toolNames);
         }
         $this->assertCount(
-            26 + (count(AgentClinicalResourceCatalog::ids()) * 2) + (count(AgentClinicalResourceCatalog::writableIds()) * 3),
+            26 + (count(AgentClinicalResourceCatalog::ids()) * 2) + (count(AgentClinicalResourceCatalog::writableIds()) * 4),
             $toolNames,
         );
         $writeTools = [
@@ -192,12 +192,14 @@ final class AgentMcpReadAdapterTest extends TestCase
             $this->assertSame(
                 ! str_ends_with((string) $tool['name'], '.upsert')
                     && ! str_ends_with((string) $tool['name'], '.update')
+                    && ! str_ends_with((string) $tool['name'], '.retract')
                     && ! in_array($tool['name'], $writeTools, true),
                 $tool['annotations']['readOnlyHint'] ?? null,
             );
             $this->assertSame(
                 str_ends_with((string) $tool['name'], '.upsert')
                     || str_ends_with((string) $tool['name'], '.update')
+                    || str_ends_with((string) $tool['name'], '.retract')
                     || in_array($tool['name'], ['imports.review', 'imports.retry'], true),
                 $tool['annotations']['destructiveHint'] ?? null,
             );

@@ -91,6 +91,8 @@ final class AgentMcpOutputSchemaTest extends TestCase
             'version' => str_repeat('a', 64),
             'review_status' => 'pending_review',
             'updated_at' => '2026-08-23 04:05:06',
+            'lifecycle' => 'active',
+            'retracted_at' => null,
         ];
 
         foreach ([(object) [], (object) ['0' => $record], (object) ['Doc-ABC' => $record]] as $resolved) {
@@ -113,22 +115,19 @@ final class AgentMcpOutputSchemaTest extends TestCase
         ], $schema));
     }
 
-    public function test_the_closed_resolution_envelope_reserves_the_lifecycle_vocabulary(): void
+    public function test_the_closed_resolution_envelope_carries_the_lifecycle_vocabulary(): void
     {
-        // ClinicalResolvedRecord is a closed envelope, so a field added to it
-        // later is a breaking revision for every client already validating it.
-        // Reserving the names now is what lets the retraction work ship without
-        // one. ClinicalRecord is open and carries them only for discoverability.
+        // These fields were declared one release before they were emitted,
+        // precisely because this envelope is closed: adding them to a closed
+        // schema after clients were validating against it would have made every
+        // such client reject the newer response. They are now required.
         $schema = AgentApiResponseSchemaCatalog::forOperation(AgentClinicalResourceCatalog::RESOLVE_OPERATION_ID);
         $record = $schema['$defs']['ClinicalResolvedRecord'];
 
         $this->assertFalse($record['additionalProperties']);
         $this->assertSame(['active', 'retracted', 'deleted'], $record['properties']['lifecycle']['enum']);
-        $this->assertArrayHasKey('retracted_at', $record['properties']);
-
-        // Reserved, not live: today's responses omit them.
-        $this->assertNotContains('lifecycle', $record['required']);
-        $this->assertNotContains('retracted_at', $record['required']);
+        $this->assertContains('lifecycle', $record['required']);
+        $this->assertContains('retracted_at', $record['required']);
 
         $validator = new SchemaValidator;
         $base = [
@@ -136,6 +135,8 @@ final class AgentMcpOutputSchemaTest extends TestCase
             'version' => str_repeat('a', 64),
             'review_status' => 'pending_review',
             'updated_at' => '2026-08-23 04:05:06',
+            'lifecycle' => 'active',
+            'retracted_at' => null,
         ];
         $envelope = static fn (array $entry): array => [
             'resource_type' => 'medications',
@@ -145,13 +146,12 @@ final class AgentMcpOutputSchemaTest extends TestCase
         ];
 
         $this->assertSame([], $validator->validateAgainstJsonSchema($envelope($base), $schema));
-        // And tomorrow's carry them, against this same published schema.
         $this->assertSame([], $validator->validateAgainstJsonSchema($envelope([
             ...$base,
             'lifecycle' => 'retracted',
             'retracted_at' => '2026-08-24 09:00:00',
         ]), $schema));
-        // The vocabulary is still fixed.
+        // The vocabulary stays fixed.
         $this->assertNotSame([], $validator->validateAgainstJsonSchema($envelope([
             ...$base,
             'lifecycle' => 'deleted-ish',

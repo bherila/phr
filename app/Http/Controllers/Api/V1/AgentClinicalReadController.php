@@ -12,6 +12,7 @@ use App\Support\AgentApi\AgentApiCursor;
 use App\Support\AgentApi\AgentApiUpdateWindow;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
+use App\Support\PHR\PhrRecordLifecycle;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
@@ -36,6 +37,7 @@ final class AgentClinicalReadController extends Controller
         $modelClass = $definition['model'];
 
         $query = $modelClass::query()->where('patient_id', $resolvedPatient->id);
+        PhrRecordLifecycle::scopeLive($query);
         AgentApiUpdateWindow::apply($query, $validated, $query->getModel()->qualifyColumn('patient_id'));
         $this->applyFilters($query, $validated, $definition['provenance'], $resource);
         if ($definition['health_log_aggregates'] ?? false) {
@@ -76,6 +78,7 @@ final class AgentClinicalReadController extends Controller
         $resolvedPatient = $this->accessService->accessiblePatientWithCurrentGrant($patient, $userId);
         $modelClass = $definition['model'];
         $query = $modelClass::query()->where('patient_id', $resolvedPatient->id);
+        PhrRecordLifecycle::scopeLive($query);
         if ($definition['health_log_aggregates'] ?? false) {
             $query
                 ->withCount('entries')
