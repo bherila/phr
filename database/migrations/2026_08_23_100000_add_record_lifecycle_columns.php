@@ -2,6 +2,7 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -71,6 +72,26 @@ return new class extends Migration
 
     public function down(): void
     {
+        // Forward-only once anything has been withdrawn. Dropping these columns
+        // would make every tombstoned row visible again -- a record a person
+        // deleted or a source retracted would silently return to lists, exports,
+        // and every agent read. A rollback that resurrects clinical data is
+        // worse than no rollback, so this refuses rather than doing it quietly.
+        foreach (self::TABLES as $tableName) {
+            if (! Schema::hasTable($tableName) || ! Schema::hasColumn($tableName, 'retracted_at')) {
+                continue;
+            }
+            $withdrawn = DB::table($tableName)
+                ->whereNotNull('deleted_at')
+                ->orWhereNotNull('retracted_at')
+                ->exists();
+            if ($withdrawn) {
+                throw new RuntimeException(
+                    "Refusing to drop the record lifecycle columns: {$tableName} holds withdrawn records that would become visible again."
+                );
+            }
+        }
+
         foreach (self::TABLES as $tableName) {
             if (! Schema::hasTable($tableName)) {
                 continue;

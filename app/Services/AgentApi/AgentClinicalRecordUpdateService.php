@@ -29,8 +29,12 @@ final readonly class AgentClinicalRecordUpdateService
 
         return DB::transaction(function () use ($patient, $recordId, $data, $modelClass): ClinicalUpsertResult {
             /** @var Model $record */
+            // A withdrawn record is not editable. Deletion is already excluded by
+            // the soft-delete scope; retraction has to be stated, or an agent
+            // could keep patching a record its own source has taken back.
             $record = $modelClass::query()
                 ->where('patient_id', $patient->id)
+                ->whereNull('retracted_at')
                 ->lockForUpdate()
                 ->findOrFail($recordId);
             $currentVersion = $this->versions->for($record);

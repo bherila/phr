@@ -12,12 +12,31 @@ use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 final readonly class AgentClinicalUpsertService
 {
     public function __construct(private AgentClinicalRecordVersion $versions) {}
+
+    /**
+     * @param  class-string<Model>  $modelClass
+     * @param  array<string, mixed>  $identity
+     */
+    private function refuseWithdrawnIdentity(string $modelClass, array $identity): void
+    {
+        $existing = $modelClass::query()
+            ->withoutGlobalScope(SoftDeletingScope::class)
+            ->where($identity)
+            ->lockForUpdate()
+            ->first();
+
+        if ($existing instanceof Model
+            && ($existing->getAttribute('deleted_at') !== null || $existing->getAttribute('retracted_at') !== null)) {
+            throw new ConflictHttpException('The external identifier is no longer available for this patient.');
+        }
+    }
 
     public function upsert(
         PhrPatient $patient,
@@ -55,17 +74,26 @@ final readonly class AgentClinicalUpsertService
             // answering; reviving one would resurrect something a person deleted or
             // the source withdrew. Both are a conflict, which is the same answer
             // documents.upload already gives for a trashed identity.
-            $withdrawn = $modelClass::query()
-                ->withoutGlobalScope(SoftDeletingScope::class)
-                ->where($identity)
-                ->first();
-            if ($withdrawn instanceof Model
-                && ($withdrawn->getAttribute('deleted_at') !== null || $withdrawn->getAttribute('retracted_at') !== null)) {
-                throw new ConflictHttpException('The external identifier is no longer available for this patient.');
-            }
+            // Locking the identity row serializes this against a concurrent
+            // delete or retraction. createOrFirst applies the soft-delete scope,
+            // so it would not see a withdrawn row and would fail on the unique
+            // index instead of answering; reviving one would resurrect something
+            // a person deleted or the source withdrew. Both are a conflict,
+            // which is the same answer documents.upload gives for a trashed
+            // identity.
+            $this->refuseWithdrawnIdentity($modelClass, $identity);
 
-            /** @var Model $record */
-            $record = $modelClass::query()->createOrFirst($identity, $createAttributes);
+            try {
+                /** @var Model $record */
+                $record = $modelClass::query()->createOrFirst($identity, $createAttributes);
+            } catch (UniqueConstraintViolationException) {
+                // Two first writes raced. The row now exists; whether it is
+                // usable is the same question as before, asked under a lock.
+                $this->refuseWithdrawnIdentity($modelClass, $identity);
+
+                /** @var Model $record */
+                $record = $modelClass::query()->where($identity)->firstOrFail();
+            }
             if ($record->wasRecentlyCreated) {
                 // Hydrate database defaults and driver-normalized scalar types before
                 // deriving the version clients will later compare after a fresh read.

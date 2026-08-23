@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\PhrDocument;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
@@ -254,6 +255,72 @@ final class AgentApiRecordLifecycleTest extends TestCase
             ->assertOk()
             ->assertJsonPath("resolved.{$externalId}.lifecycle", 'deleted')
             ->assertJsonPath('unresolved', []);
+    }
+
+    public function test_withdrawn_records_disappear_from_evidence_links(): void
+    {
+        [$actor, $patient, $client] = $this->agent('lifecycle-evidence@example.test');
+        $document = PhrDocument::query()->create([
+            'patient_id' => $patient->id,
+            'user_id' => $patient->owner_user_id,
+            'uploaded_by_user_id' => $patient->owner_user_id,
+            'document_type' => 'other',
+            'storage_disk' => PhrDocument::STORAGE_DISK,
+            'byte_size' => 0,
+        ]);
+
+        $payload = [...$this->payload(), 'source_document_id' => $document->id];
+        $link = "/api/v1/patients/{$patient->id}/evidence-links?resource_type=document&resource_id={$document->id}";
+        $this->putJson("/api/v1/patients/{$patient->id}/office-visits", $payload)->assertCreated();
+        $record = PhrOfficeVisit::query()->sole();
+
+        // Evidence links are built with a raw query builder, which sees neither
+        // the soft-delete scope nor the retraction filter.
+        Passport::actingAs($actor, [
+            AgentApiScopes::CLINICAL_READ,
+            AgentApiScopes::CLINICAL_WRITE,
+            AgentApiScopes::DOCUMENTS_READ,
+        ], 'api', $client);
+        $links = $this->getJson($link)->assertOk()->json('data');
+        $this->assertContains(
+            ['target_type' => 'office-visit', 'target_id' => $record->id],
+            array_map(
+                static fn (array $row): array => ['target_type' => $row['target_type'], 'target_id' => $row['target_id']],
+                $links,
+            ),
+        );
+
+        $record->forceFill(['retracted_at' => now()])->save();
+
+        $links = $this->getJson($link)->assertOk()->json('data');
+        $this->assertNotContains(
+            ['target_type' => 'office-visit', 'target_id' => $record->id],
+            array_map(
+                static fn (array $row): array => ['target_type' => $row['target_type'], 'target_id' => $row['target_id']],
+                $links,
+            ),
+        );
+    }
+
+    public function test_a_withdrawn_record_cannot_still_be_patched(): void
+    {
+        [, $patient] = $this->agent('lifecycle-update@example.test');
+
+        $created = $this->putJson("/api/v1/patients/{$patient->id}/office-visits", $this->payload())
+            ->assertCreated()
+            ->json();
+        $record = PhrOfficeVisit::query()->sole();
+        $record->forceFill(['retracted_at' => now()])->save();
+
+        $this->patchJson("/api/v1/patients/{$patient->id}/office-visits/{$record->id}", [
+            'expected_version' => $created['version'],
+            'data' => ['assessment' => 'Synthetic edit after withdrawal'],
+        ])->assertNotFound();
+
+        $this->assertSame(
+            'Synthetic lifecycle assessment',
+            PhrOfficeVisit::query()->sole()->assessment,
+        );
     }
 
     /** @return array{0: User, 1: PhrPatient, 2: Client} */

@@ -9,10 +9,12 @@ use App\Models\PhrNativeRecordIdentity;
 use App\Models\PhrNativeRestoreAttempt;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
+use App\Models\User;
 use App\Services\PHR\NativeBackup\NativeRestoreException;
 use App\Services\PHR\NativeBackup\PhrNativeBackupService;
 use App\Services\PHR\NativeBackup\PhrNativeRecordCodec;
 use App\Services\PHR\NativeBackup\PhrNativeRestoreService;
+use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -660,6 +662,113 @@ final class PhrNativeRestoreTest extends TestCase
 
         $owner->delete();
         $this->assertDatabaseHas('phr_native_restore_attempts', ['id' => $recent->id, 'actor_user_id' => null]);
+    }
+
+    public function test_an_archive_written_before_the_record_lifecycle_still_restores(): void
+    {
+        $owner = User::factory()->create(['user_role' => 'user']);
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        DB::table('phr_lab_results')->insert([
+            'patient_id' => $patient->id,
+            'user_id' => $owner->id,
+            'test_name' => 'Synthetic legacy panel',
+            'analyte' => 'WBC',
+            'value' => '5.5',
+            'review_status' => PhrReviewStatus::CONFIRMED,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $archivePath = $this->archiveCopy($patient, (int) $owner->id);
+        // Forge the pre-lifecycle shape: an archive downloaded before the
+        // columns existed has no deleted_at or retracted_at at all, and its
+        // content hash was taken over that smaller attribute set. A round trip
+        // cannot reproduce this, because it always writes and reads the same
+        // schema -- which is exactly why the regression was invisible.
+        $this->mutateTableRecords($archivePath, 'phr_lab_results', static function (array $record): array {
+            unset($record['attributes']['deleted_at'], $record['attributes']['retracted_at']);
+
+            return $record;
+        });
+
+        DB::table('phr_patients')->where('id', $patient->id)->delete();
+
+        $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $attempt->status, (string) $attempt->failure_category);
+
+        app(PhrNativeRestoreService::class)->apply($attempt->refresh(), (int) $owner->id);
+
+        $restored = DB::table('phr_lab_results')->where('analyte', 'WBC')->first();
+        $this->assertNotNull($restored);
+        // The absent attributes restore as the value such a row always had.
+        $this->assertNull($restored->deleted_at);
+        $this->assertNull($restored->retracted_at);
+    }
+
+    public function test_a_legacy_archive_recognises_an_unchanged_row_instead_of_conflicting(): void
+    {
+        $owner = User::factory()->create(['user_role' => 'user']);
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        DB::table('phr_lab_results')->insert([
+            'patient_id' => $patient->id,
+            'user_id' => $owner->id,
+            'test_name' => 'Synthetic legacy panel',
+            'analyte' => 'HGB',
+            'value' => '13.1',
+            'review_status' => PhrReviewStatus::CONFIRMED,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $archivePath = $this->archiveCopy($patient, (int) $owner->id);
+        $this->mutateTableRecords($archivePath, 'phr_lab_results', static function (array $record): array {
+            unset($record['attributes']['deleted_at'], $record['attributes']['retracted_at']);
+
+            return $record;
+        });
+
+        // Nothing changed since the backup. The archive hashes its record over a
+        // smaller attribute set than the current row projects, so without
+        // normalizing the absent lifecycle values to null every legacy record
+        // would read as a conflict against the very row it came from.
+        $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
+        $plan = $attempt->refresh()->plan_counts_json;
+        $this->assertIsArray($plan);
+        $this->assertSame(0, $plan['tables']['phr_lab_results']['block'] ?? -1);
+        $this->assertSame(1, $plan['tables']['phr_lab_results']['skip'] ?? 0);
+    }
+
+    public function test_a_legacy_archive_conflicts_with_a_row_that_has_since_been_deleted(): void
+    {
+        $owner = User::factory()->create(['user_role' => 'user']);
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        DB::table('phr_lab_results')->insert([
+            'patient_id' => $patient->id,
+            'user_id' => $owner->id,
+            'test_name' => 'Synthetic legacy panel',
+            'analyte' => 'RBC',
+            'value' => '4.2',
+            'review_status' => PhrReviewStatus::CONFIRMED,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $archivePath = $this->archiveCopy($patient, (int) $owner->id);
+        $this->mutateTableRecords($archivePath, 'phr_lab_results', static function (array $record): array {
+            unset($record['attributes']['deleted_at'], $record['attributes']['retracted_at']);
+
+            return $record;
+        });
+
+        // The person deleted the record after taking the backup. Restoring must
+        // report a conflict rather than quietly bringing it back.
+        DB::table('phr_lab_results')->where('analyte', 'RBC')->update(['deleted_at' => now()]);
+
+        $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
+        $plan = $attempt->refresh()->plan_counts_json;
+        $this->assertIsArray($plan);
+        $this->assertSame(1, $plan['tables']['phr_lab_results']['block'] ?? 0);
+        $this->assertSame(0, $plan['tables']['phr_lab_results']['skip'] ?? -1);
     }
 
     private function patientWithOwnerGrant(int $ownerId): PhrPatient

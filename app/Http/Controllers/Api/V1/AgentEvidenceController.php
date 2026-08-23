@@ -283,8 +283,13 @@ final class AgentEvidenceController extends Controller
                 'lab-results' => 'lab-result', 'vitals' => 'vital',
                 default => abort(500, 'Clinical search catalog is inconsistent.'),
             };
+            // A raw query builder bypasses both the soft-delete scope and the
+            // model-level retraction filter, so evidence links would keep
+            // reporting IDs for records that no longer stand.
             $queries[$targetType] = DB::table((new $model)->getTable())
                 ->where('patient_id', $patientId)
+                ->whereNull('deleted_at')
+                ->whereNull('retracted_at')
                 ->where('source_document_id', $documentId);
         }
 
@@ -297,10 +302,12 @@ final class AgentEvidenceController extends Controller
         $queries = [
             'eob-line' => DB::table('phr_eob_lines')->where('patient_id', $patientId)->where('eob_id', $eobId),
             'office-visit' => DB::table('phr_office_visits')->where('patient_id', $patientId)
+                ->whereNull('deleted_at')->whereNull('retracted_at')
                 ->whereExists(fn ($pivot) => $pivot->selectRaw('1')->from('phr_office_visit_eobs')
                     ->where('patient_id', $patientId)->where('eob_id', $eobId)
                     ->whereColumn('office_visit_id', 'phr_office_visits.id')),
             'procedure' => DB::table('phr_procedures')->where('patient_id', $patientId)
+                ->whereNull('deleted_at')->whereNull('retracted_at')
                 ->whereExists(fn ($pivot) => $pivot->selectRaw('1')->from('phr_procedure_eobs')
                     ->where('patient_id', $patientId)->where('eob_id', $eobId)
                     ->whereColumn('procedure_id', 'phr_procedures.id')),
