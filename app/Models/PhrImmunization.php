@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Traits\SerializesDatesAsLocal;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 
 /**
@@ -34,6 +35,7 @@ use Illuminate\Support\Carbon;
 class PhrImmunization extends Model
 {
     use SerializesDatesAsLocal;
+    use SoftDeletes;
 
     protected $fillable = [
         'patient_id',
@@ -60,6 +62,7 @@ class PhrImmunization extends Model
     protected function casts(): array
     {
         return [
+            'retracted_at' => 'datetime',
             'patient_id' => 'integer',
             'user_id' => 'integer',
             'source_document_id' => 'integer',

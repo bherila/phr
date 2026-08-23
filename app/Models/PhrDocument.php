@@ -118,6 +118,7 @@ class PhrDocument extends Model
     protected function casts(): array
     {
         return [
+            'retracted_at' => 'datetime',
             'patient_id' => 'integer',
             'user_id' => 'integer',
             'uploaded_by_user_id' => 'integer',

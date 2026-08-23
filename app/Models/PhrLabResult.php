@@ -6,6 +6,7 @@ use App\Traits\SerializesDatesAsLocal;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 
 /**
@@ -43,6 +44,7 @@ use Illuminate\Support\Carbon;
 class PhrLabResult extends Model
 {
     use SerializesDatesAsLocal;
+    use SoftDeletes;
 
     protected $table = 'phr_lab_results';
 
@@ -79,6 +81,7 @@ class PhrLabResult extends Model
     protected function casts(): array
     {
         return [
+            'retracted_at' => 'datetime',
             'patient_id' => 'integer',
             'user_id' => 'integer',
             'source_document_id' => 'integer',

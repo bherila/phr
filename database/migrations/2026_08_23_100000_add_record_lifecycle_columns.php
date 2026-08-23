@@ -59,9 +59,13 @@ return new class extends Migration
 
             // Reads filter the live set on every list, export, and resolve, so
             // the lifecycle columns are indexed with the patient they scope to.
-            Schema::table($tableName, function (Blueprint $table) use ($tableName): void {
-                $table->index(['patient_id', 'deleted_at', 'retracted_at'], $this->indexName($tableName));
-            });
+            // Guarded like the columns above: the whole migration stays safe to
+            // replay over a schema that already has part of it.
+            if (! Schema::hasIndex($tableName, $this->indexName($tableName))) {
+                Schema::table($tableName, function (Blueprint $table) use ($tableName): void {
+                    $table->index(['patient_id', 'deleted_at', 'retracted_at'], $this->indexName($tableName));
+                });
+            }
         }
     }
 
@@ -73,7 +77,9 @@ return new class extends Migration
             }
 
             Schema::table($tableName, function (Blueprint $table) use ($tableName): void {
-                $table->dropIndex($this->indexName($tableName));
+                if (Schema::hasIndex($tableName, $this->indexName($tableName))) {
+                    $table->dropIndex($this->indexName($tableName));
+                }
                 if (Schema::hasColumn($tableName, 'retracted_at')) {
                     $table->dropColumn('retracted_at');
                 }

@@ -11,6 +11,7 @@ use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
@@ -46,6 +47,22 @@ final readonly class AgentClinicalUpsertService
                 'review_status' => PhrReviewStatus::PENDING,
                 ...$data->attributes,
             ];
+
+            // Identity survives both a deletion and a retraction: the row stays and
+            // the unique (patient_id, import_source, external_id) index still holds
+            // the slot. createOrFirst applies the soft-delete scope, so it would not
+            // see a withdrawn row and would fail on the constraint instead of
+            // answering; reviving one would resurrect something a person deleted or
+            // the source withdrew. Both are a conflict, which is the same answer
+            // documents.upload already gives for a trashed identity.
+            $withdrawn = $modelClass::query()
+                ->withoutGlobalScope(SoftDeletingScope::class)
+                ->where($identity)
+                ->first();
+            if ($withdrawn instanceof Model
+                && ($withdrawn->getAttribute('deleted_at') !== null || $withdrawn->getAttribute('retracted_at') !== null)) {
+                throw new ConflictHttpException('The external identifier is no longer available for this patient.');
+            }
 
             /** @var Model $record */
             $record = $modelClass::query()->createOrFirst($identity, $createAttributes);

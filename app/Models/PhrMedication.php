@@ -7,6 +7,7 @@ use Database\Factories\PhrMedicationFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 
 /**
@@ -38,6 +39,7 @@ class PhrMedication extends Model
     use HasFactory;
 
     use SerializesDatesAsLocal;
+    use SoftDeletes;
 
     protected $fillable = [
         'patient_id',
@@ -63,6 +65,7 @@ class PhrMedication extends Model
     protected function casts(): array
     {
         return [
+            'retracted_at' => 'datetime',
             'patient_id' => 'integer',
             'user_id' => 'integer',
             'source_document_id' => 'integer',
