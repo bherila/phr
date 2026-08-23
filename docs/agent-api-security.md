@@ -135,6 +135,18 @@ preserves that decision, but pushing changed data deliberately reopens review. A
 loop that ignores `review_status` and re-pushes edited content will reopen review on
 every pass, so clients are expected to read the field they are given here.
 
+MCP output schemas are the REST response contract rather than a second one. Each
+tool declares the versioned operation it mirrors, and its schema is the transitive
+closure of that operation's OpenAPI response component packaged into local `$defs`,
+so nothing resolves against the published document at runtime. There is no
+permissive fallback: an operation with no declared response component fails when
+the server is built. Structured content is validated on every successful call and
+withheld when it does not match, which makes the document an enforced contract
+instead of documentation. A validation failure returns a generic error and records
+only the tool name, schema id, and failing keywords -- never the data or the
+validator's JSON pointers, which for a map keyed by external ID contain a
+caller-chosen identifier.
+
 The agent audit table intentionally excludes request URLs, route parameters, query
 strings, request and response bodies, filenames, error messages, IP addresses, and
 user agents. It records only an opaque request UUID, actor/client/token references,
@@ -217,6 +229,16 @@ on later rsyncs, rejects a partial key pair, and never prints key material.
 - Keep external-ID resolution scoped to the caller's own import source, and keep its
   response free of clinical content. A resolver that reports foreign hits leaks the
   existence of another integration's records.
+- Give every MCP tool an output schema derived from the REST operation it mirrors,
+  and never a permissive one. A new tool needs its operation's response component in
+  the OpenAPI document before it can be served at all.
+- Describe a response the way it is actually serialized. The agent-owned controllers
+  emit RFC 3339; the shared browser resources emit `Y-m-d H:i:s` and must use the
+  LocalDateTime component. Labelling the latter `format: date-time` is a false
+  contract that only strict validation catches.
+- Add a property to a closed response envelope only alongside the release that
+  emits it, or reserve it in advance. Clients validating the older schema reject the
+  newer response.
 - Treat `external_id` as an opaque, case-sensitive identifier on every backend. The
   column carries a binary collation so the MySQL family compares it bytewise like
   SQLite; without that, upsert identity and resolution disagree about what "the same
