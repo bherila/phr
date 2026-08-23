@@ -3,11 +3,12 @@
 namespace App\Services\Mcp;
 
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
+use Bherila\McpLaravelBridge\Mcp\ToolDefinition;
 
 /** Fixed allow-list of versioned REST operations exposed through MCP. */
 final class AgentMcpToolCatalog
 {
-    /** @return list<AgentMcpToolDefinition> */
+    /** @return list<ToolDefinition> */
     public function definitions(AgentMcpReadTools $reads, AgentMcpWriteTools $writes): array
     {
         $definitions = [
@@ -25,7 +26,7 @@ final class AgentMcpToolCatalog
             $this->method('documents.list', 'List documents', 'List document metadata without returning file contents.', $reads, 'documentsList'),
             $this->method('documents.get', 'Get document', 'Get document metadata without returning file contents.', $reads, 'documentsGet'),
             $this->method('documents.download_access.create', 'Create document download access', 'Create short-lived, OAuth-bound download access for one authorized document.', $reads, 'documentsDownloadAccessCreate'),
-            new AgentMcpToolDefinition(
+            new ToolDefinition(
                 'documents.upload',
                 'Upload document',
                 'Idempotently upload a small document through the versioned REST API. Use the multipart REST endpoint for larger files.',
@@ -34,14 +35,14 @@ final class AgentMcpToolCatalog
             ),
             $this->method('imports.list', 'List imports', 'List bounded import-job status for an accessible patient.', $reads, 'importsList'),
             $this->method('imports.get', 'Get import', 'Inspect one import job and its proposed structured records.', $reads, 'importsGet'),
-            new AgentMcpToolDefinition(
+            new ToolDefinition(
                 'imports.create',
                 'Create import',
                 'Idempotently enqueue structured extraction for a stored patient document.',
                 [$writes, 'importsCreate'],
                 readOnly: false,
             ),
-            new AgentMcpToolDefinition(
+            new ToolDefinition(
                 'imports.review',
                 'Review import proposal',
                 'Accept or reject one proposed record through the versioned REST workflow.',
@@ -49,7 +50,7 @@ final class AgentMcpToolCatalog
                 readOnly: false,
                 destructive: true,
             ),
-            new AgentMcpToolDefinition(
+            new ToolDefinition(
                 'imports.retry',
                 'Retry import',
                 'Safely retry a failed import job that has retry capacity.',
@@ -59,14 +60,14 @@ final class AgentMcpToolCatalog
             ),
             $this->method('health_log_entries.list', 'List health log entries', 'List bounded entries for one accessible health log.', $reads, 'healthLogEntriesList'),
             $this->method('health_log_entries.get', 'Get health log entry', 'Get one entry from an accessible health log.', $reads, 'healthLogEntriesGet'),
-            new AgentMcpToolDefinition(
+            new ToolDefinition(
                 'health_logs.create',
                 'Create health log',
                 'Idempotently create a patient health log through the versioned REST API.',
                 [$writes, 'healthLogsCreate'],
                 readOnly: false,
             ),
-            new AgentMcpToolDefinition(
+            new ToolDefinition(
                 'health_log_entries.append',
                 'Append health log entry',
                 'Idempotently append an entry to a patient health log.',
@@ -74,7 +75,7 @@ final class AgentMcpToolCatalog
                 readOnly: false,
             ),
             $this->method('respiratory_events.list', 'List respiratory events', 'List bounded Sinus Sentinel events for an accessible patient.', $reads, 'respiratoryEventsList'),
-            new AgentMcpToolDefinition(
+            new ToolDefinition(
                 'respiratory_events.ingest',
                 'Ingest respiratory events',
                 'Idempotently ingest a bounded Sinus Sentinel event batch using the device validation contract.',
@@ -86,14 +87,14 @@ final class AgentMcpToolCatalog
         foreach (AgentClinicalResourceCatalog::ids() as $resource) {
             $toolName = str_replace('-', '_', $resource);
             $title = ucwords(str_replace('-', ' ', $resource));
-            $definitions[] = new AgentMcpToolDefinition(
+            $definitions[] = new ToolDefinition(
                 "{$toolName}.list",
                 "List {$title}",
                 "List {$title} for an accessible patient through the versioned REST API.",
                 $reads->clinicalListHandler($resource),
                 responseOperationId: 'clinical.list',
             );
-            $definitions[] = new AgentMcpToolDefinition(
+            $definitions[] = new ToolDefinition(
                 "{$toolName}.get",
                 "Get {$title}",
                 "Get one {$title} record for an accessible patient through the versioned REST API.",
@@ -104,7 +105,7 @@ final class AgentMcpToolCatalog
 
         foreach (AgentClinicalResourceCatalog::writableIds() as $resource) {
             $title = ucwords(str_replace('-', ' ', $resource));
-            $definitions[] = new AgentMcpToolDefinition(
+            $definitions[] = new ToolDefinition(
                 AgentClinicalResourceCatalog::upsertOperationId($resource),
                 "Upsert {$title}",
                 "Idempotently create or update one {$title} record through the versioned REST API.",
@@ -112,14 +113,14 @@ final class AgentMcpToolCatalog
                 readOnly: false,
                 destructive: true,
             );
-            $definitions[] = new AgentMcpToolDefinition(
+            $definitions[] = new ToolDefinition(
                 AgentClinicalResourceCatalog::mcpResolveToolId($resource),
                 "Resolve {$title}",
                 "Map a bounded batch of this connection's own external IDs onto {$title} record IDs and current versions. Returns no clinical content, so use it to decide what still needs writing before calling upsert.",
                 $reads->clinicalResolveHandler($resource),
                 responseOperationId: AgentClinicalResourceCatalog::RESOLVE_OPERATION_ID,
             );
-            $definitions[] = new AgentMcpToolDefinition(
+            $definitions[] = new ToolDefinition(
                 AgentClinicalResourceCatalog::mcpRetractToolId($resource),
                 "Retract {$title}",
                 "Withdraw one {$title} record this connection wrote, by its record ID and current version. Use this when the source is taking back a claim it made in error. A record simply missing from a newer export is NOT a reason to retract: institutions age data out past their own retention policies, so absence from a later import says nothing about whether the record was correct. Nothing is deleted and the external ID stays reserved.",
@@ -128,7 +129,7 @@ final class AgentMcpToolCatalog
                 destructive: true,
                 responseOperationId: AgentClinicalResourceCatalog::RETRACT_OPERATION_ID,
             );
-            $definitions[] = new AgentMcpToolDefinition(
+            $definitions[] = new ToolDefinition(
                 AgentClinicalResourceCatalog::mcpUpdateToolId($resource),
                 "Update {$title}",
                 "Partially update one existing {$title} record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
@@ -148,7 +149,7 @@ final class AgentMcpToolCatalog
         string $description,
         AgentMcpReadTools $tools,
         string $method,
-    ): AgentMcpToolDefinition {
-        return new AgentMcpToolDefinition($name, $title, $description, [$tools, $method]);
+    ): ToolDefinition {
+        return new ToolDefinition($name, $title, $description, [$tools, $method]);
     }
 }

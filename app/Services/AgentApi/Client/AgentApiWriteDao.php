@@ -9,6 +9,7 @@ use App\DataTransferObjects\AgentApi\HealthLogCreateData;
 use App\DataTransferObjects\AgentApi\HealthLogEntryAppendData;
 use App\DataTransferObjects\AgentApi\ImportReviewData;
 use App\DataTransferObjects\AgentApi\RespiratoryEventBatchData;
+use Bherila\McpLaravelBridge\Http\AgentApiTransport;
 
 /** Typed data-access boundary for reusable v1 REST mutations. */
 final readonly class AgentApiWriteDao

@@ -2,6 +2,8 @@
 
 namespace App\Services\AgentApi\Client;
 
+use Bherila\McpLaravelBridge\Http\AgentApiTransport;
+
 /**
  * Typed data-access boundary for the reusable v1 REST read surface.
  * MCP tools delegate here; this class intentionally knows routes, not models.

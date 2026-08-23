@@ -5,7 +5,7 @@ namespace App\Http\Requests\PHR;
 use App\Http\Requests\Concerns\RejectsUnknownInputFields;
 use App\Rules\JsonList;
 use App\Rules\JsonObject;
-use App\Support\AgentApi\AgentApiJson;
+use Bherila\McpLaravelBridge\Json as AgentApiJson;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Validator;
 

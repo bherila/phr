@@ -10,6 +10,7 @@ use App\DataTransferObjects\AgentApi\HealthLogEntryAppendData;
 use App\DataTransferObjects\AgentApi\ImportReviewData;
 use App\DataTransferObjects\AgentApi\RespiratoryEventBatchData;
 use App\Services\AgentApi\Client\AgentApiWriteDao;
+use Bherila\McpLaravelBridge\Mcp\RequestArguments;
 use Closure;
 use Mcp\Capability\Attribute\Schema;
 use Mcp\Exception\ToolCallException;
@@ -20,7 +21,7 @@ final readonly class AgentMcpWriteTools
 {
     public function __construct(
         private AgentApiWriteDao $api,
-        private AgentMcpRequestArguments $requestArguments,
+        private RequestArguments $requestArguments,
     ) {}
 
     public function clinicalUpsertHandler(string $resource): Closure

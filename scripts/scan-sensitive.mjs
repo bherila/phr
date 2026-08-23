@@ -88,7 +88,7 @@ const RULES = [
     // RFC 2606 reserves example.* and .test/.invalid/.localhost for exactly this purpose.
     re: /\b[A-Za-z0-9._%+-]+@(?!example\.(?:com|org|net)\b)(?!.*\.(?:test|invalid|localhost)\b)(?!localhost\b)[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
     // Placeholders and the app's own public domains are not personal data.
-    ignore: /@(?:bherila\.net|users\.noreply\.github\.com|sentry\.io|.*\.example)\b|\{|\}|\$|:[a-z]/i,
+    ignore: /^git@github\.com$|@(?:bherila\.net|users\.noreply\.github\.com|sentry\.io|.*\.example)\b|\{|\}|\$|:[a-z]/i,
   },
 ]
 

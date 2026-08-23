@@ -2,6 +2,7 @@
 
 namespace App\Services\AgentApi\Client;
 
+use Bherila\McpLaravelBridge\Http\AgentApiTransportResponse;
 use Mcp\Exception\ToolCallException;
 
 /** Typed response boundary for idempotent clinical writes. */

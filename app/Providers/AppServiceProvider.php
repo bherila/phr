@@ -2,13 +2,13 @@
 
 namespace App\Providers;
 
-use App\Services\AgentApi\Client\AgentApiTransport;
-use App\Services\AgentApi\Client\InternalAgentApiTransport;
 use App\Support\AgentApi\AccountAwareAccessTokenRepository;
 use App\Support\AgentApi\AccountAwareAuthCodeRepository;
 use App\Support\AgentApi\AccountAwareRefreshTokenRepository;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentApiTokenPolicy;
+use Bherila\McpLaravelBridge\Http\AgentApiTransport;
+use Bherila\McpLaravelBridge\Http\InternalAgentApiTransport;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
