@@ -9,20 +9,18 @@ use App\Models\PhrRespiratoryEvent;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use App\Support\AgentApi\AgentClinicalWriteSchemaCatalog;
 use App\Support\AgentApi\AgentRecordSearchCatalog;
-use Mcp\Capability\Discovery\DocBlockParser;
-use Mcp\Capability\Discovery\HandlerResolver;
-use Mcp\Capability\Discovery\SchemaGenerator;
-use Psr\Log\NullLogger;
+use Bherila\McpLaravelBridge\Mcp\ReflectedInputSchemaFactory;
+use Bherila\McpLaravelBridge\Mcp\ToolDefinition;
 
 /** Builds strict MCP schemas from typed handlers and shared REST catalogs. */
 final class AgentMcpInputSchemaFactory
 {
+    public function __construct(private readonly ReflectedInputSchemaFactory $reflected) {}
+
     /** @return array<string, mixed> */
-    public function for(AgentMcpToolDefinition $definition): array
+    public function for(ToolDefinition $definition): array
     {
-        $generator = new SchemaGenerator(new DocBlockParser(logger: new NullLogger));
-        $schema = $generator->generate(HandlerResolver::resolve($definition->handler));
-        $schema['additionalProperties'] = false;
+        $schema = $this->reflected->for($definition->handler);
 
         if (in_array($definition->name, ['records.search', 'timeline.list'], true)) {
             $schema['properties']['resource_type']['items']['enum'] = AgentRecordSearchCatalog::ids();

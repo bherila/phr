@@ -5,15 +5,15 @@ namespace Tests\Feature;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Models\User;
-use App\Services\AgentApi\Client\AgentApiTransport;
-use App\Services\AgentApi\Client\AgentApiTransportResponse;
 use App\Services\Mcp\AgentMcpReadTools;
 use App\Services\Mcp\AgentMcpToolCatalog;
-use App\Services\Mcp\AgentMcpToolDefinition;
 use App\Services\Mcp\AgentMcpWriteTools;
 use App\Support\AgentApi\AgentApiResponseSchemaCatalog;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
+use Bherila\McpLaravelBridge\Http\AgentApiTransport;
+use Bherila\McpLaravelBridge\Http\AgentApiTransportResponse;
+use Bherila\McpLaravelBridge\Mcp\ToolDefinition;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
 use Laravel\Passport\Client;
@@ -229,7 +229,7 @@ final class AgentMcpOutputSchemaTest extends TestCase
         // closed. This is the drift an output schema exists to catch.
         $this->app->bind(AgentApiTransport::class, fn (): AgentApiTransport => new class implements AgentApiTransport
         {
-            public function send(string $method, string $path, array $query = [], ?array $json = null, mixed $multipart = null): AgentApiTransportResponse
+            public function send(string $method, string $path, array $query = [], ?array $json = null, mixed $multipart = null, array $headers = []): AgentApiTransportResponse
             {
                 return new AgentApiTransportResponse(200, [
                     'data' => [['id' => 1, 'undeclared_column' => 'synthetic-leak']],
@@ -252,7 +252,7 @@ final class AgentMcpOutputSchemaTest extends TestCase
         $this->assertStringNotContainsString('undeclared_column', $body);
     }
 
-    /** @return list<AgentMcpToolDefinition> */
+    /** @return list<ToolDefinition> */
     private function definitions(): array
     {
         return app(AgentMcpToolCatalog::class)->definitions(

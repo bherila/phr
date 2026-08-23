@@ -3,7 +3,7 @@
 namespace App\Services\PHR\HealthLog\Data;
 
 use App\Models\PhrHealthLogEntry;
-use App\Support\AgentApi\AgentApiJson;
+use Bherila\McpLaravelBridge\Json as AgentApiJson;
 use Spatie\TypeScriptTransformer\Attributes\LiteralTypeScriptType;
 use Spatie\TypeScriptTransformer\Attributes\TypeScript;
 

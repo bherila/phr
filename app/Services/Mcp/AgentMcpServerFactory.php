@@ -3,9 +3,12 @@
 namespace App\Services\Mcp;
 
 use App\Support\AgentApi\AgentApiResponseSchemaCatalog;
+use Bherila\McpLaravelBridge\Mcp\CredentialSessionNamespace;
+use Bherila\McpLaravelBridge\Mcp\OriginalShapeSchemaValidator;
+use Bherila\McpLaravelBridge\Mcp\RequestArguments;
+use Bherila\McpLaravelBridge\Mcp\ValidatedCallToolHandler;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Http\Request;
-use Laravel\Passport\AccessToken;
 use Mcp\Capability\Discovery\SchemaValidator;
 use Mcp\Capability\Registry;
 use Mcp\Capability\Registry\ReferenceHandler;
@@ -13,6 +16,7 @@ use Mcp\Schema\ToolAnnotations;
 use Mcp\Server;
 use Mcp\Server\Handler\Request\CallToolHandler;
 use Mcp\Server\Session\Psr16SessionStore;
+use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
 final class AgentMcpServerFactory
@@ -24,12 +28,13 @@ final class AgentMcpServerFactory
         private readonly AgentMcpWriteTools $writes,
         private readonly AgentMcpInputSchemaFactory $schemas,
         private readonly AgentMcpOutputSchemaFactory $outputSchemas,
-        private readonly AgentMcpRequestArguments $requestArguments,
+        private readonly RequestArguments $requestArguments,
     ) {}
 
     public function make(Request $request): Server
     {
         $logger = new NullLogger;
+        $driftLogger = app(LoggerInterface::class);
         $registry = new Registry(logger: $logger);
         $referenceHandler = new ReferenceHandler(app());
         $definitions = $this->catalog->definitions($this->reads, $this->writes);
@@ -59,7 +64,7 @@ final class AgentMcpServerFactory
             // session UUID from crossing OAuth-token boundaries.
             ->setSession(new Psr16SessionStore(
                 cache: $this->cache,
-                prefix: 'phr_mcp_'.hash('sha256', $this->tokenIdentity($request)).'_',
+                prefix: CredentialSessionNamespace::prefix($request, 'phr_mcp_'),
                 ttl: (int) config('agent_api.mcp_session_ttl_seconds', 1800),
             ))
             // The SDK's debug logger includes tool arguments and results. A null
@@ -70,12 +75,12 @@ final class AgentMcpServerFactory
             ->setReferenceHandler($referenceHandler)
             // Register first so the protocol selects the shape-aware validator
             // before the SDK's default CallToolHandler.
-            ->addRequestHandler(new AgentMcpValidatedCallToolHandler(
+            ->addRequestHandler(new ValidatedCallToolHandler(
                 new CallToolHandler(
                     $registry,
                     $referenceHandler,
                     $logger,
-                    new AgentMcpSchemaValidator($logger, $this->requestArguments),
+                    new OriginalShapeSchemaValidator($logger, $this->requestArguments),
                 ),
                 $registry,
                 // A plain validator: the shape-aware subclass consumes the queued
@@ -83,6 +88,8 @@ final class AgentMcpServerFactory
                 // logger because the SDK logs data and schema on internal errors.
                 new SchemaValidator($logger),
                 $schemaIds,
+                $driftLogger,
+                'The PHR API returned a response that failed its output contract.',
             ))
             ->setLazyLoading(false);
 
@@ -104,31 +111,5 @@ final class AgentMcpServerFactory
         }
 
         return $builder->build();
-    }
-
-    private function tokenIdentity(Request $request): string
-    {
-        $bearer = $request->bearerToken();
-        if (is_string($bearer) && $bearer !== '') {
-            return $bearer;
-        }
-
-        $token = $request->user('api')?->token();
-        $attributes = $token instanceof AccessToken ? $token->toArray() : [];
-        $tokenId = $attributes['oauth_access_token_id'] ?? null;
-
-        // OPTIONS is intentionally unauthenticated so browser preflight works;
-        // the transport returns before it accesses any session state.
-        if (is_string($tokenId) && $tokenId !== '') {
-            return $tokenId;
-        }
-        if ($token instanceof AccessToken) {
-            // Passport::actingAs() uses an in-memory AccessToken without an id.
-            // Object identity keeps feature tests faithful to the production
-            // token-isolation boundary without weakening the bearer-token path.
-            return 'transient-'.spl_object_id($token);
-        }
-
-        return 'preflight';
     }
 }

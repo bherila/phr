@@ -2,8 +2,8 @@
 
 namespace App\DataTransferObjects\AgentApi;
 
-use App\Services\AgentApi\Client\AgentApiFile;
-use App\Services\AgentApi\Client\AgentApiMultipart;
+use Bherila\McpLaravelBridge\Http\AgentApiFile;
+use Bherila\McpLaravelBridge\Http\AgentApiMultipart;
 use InvalidArgumentException;
 
 final readonly class DocumentUploadData

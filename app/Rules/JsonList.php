@@ -2,7 +2,7 @@
 
 namespace App\Rules;
 
-use App\Support\AgentApi\AgentApiJson;
+use Bherila\McpLaravelBridge\Json as AgentApiJson;
 use Closure;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Http\Request;

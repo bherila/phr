@@ -8,11 +8,11 @@ use App\DataTransferObjects\AgentApi\HealthLogCreateData;
 use App\DataTransferObjects\AgentApi\HealthLogEntryAppendData;
 use App\DataTransferObjects\AgentApi\ImportReviewData;
 use App\DataTransferObjects\AgentApi\RespiratoryEventBatchData;
-use App\Services\AgentApi\Client\AgentApiMultipart;
 use App\Services\AgentApi\Client\AgentApiReadDao;
-use App\Services\AgentApi\Client\AgentApiTransport;
-use App\Services\AgentApi\Client\AgentApiTransportResponse;
 use App\Services\AgentApi\Client\AgentApiWriteDao;
+use Bherila\McpLaravelBridge\Http\AgentApiMultipart;
+use Bherila\McpLaravelBridge\Http\AgentApiTransport;
+use Bherila\McpLaravelBridge\Http\AgentApiTransportResponse;
 use Mcp\Exception\ToolCallException;
 use PHPUnit\Framework\TestCase;
 
@@ -282,6 +282,7 @@ final class RecordingAgentApiTransport implements AgentApiTransport
         array $query = [],
         ?array $json = null,
         ?AgentApiMultipart $multipart = null,
+        array $headers = [],
     ): AgentApiTransportResponse {
         $this->method = $method;
         $this->path = $path;

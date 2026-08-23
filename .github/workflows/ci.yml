@@ -100,6 +100,11 @@ jobs:
         with:
           php-version: '8.5'
 
+      - name: Authorize private MCP bridge dependency
+        uses: webfactory/ssh-agent@a6f90b1f127823b31d4d4a8d96047790581349bd # v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.MCP_BRIDGE_DEPLOY_KEY }}
+
       - name: Cache Composer dependencies
         uses: actions/cache@v5
         with:
@@ -108,7 +113,7 @@ jobs:
           restore-keys: composer-
 
       - name: Install Composer dependencies
-        run: composer install --no-interaction --prefer-dist
+        run: composer install --no-interaction
 
       - name: Validate synthetic C-CDA document
         run: pnpm run validate:ccda
@@ -142,6 +147,11 @@ jobs:
         with:
           php-version: '8.5'
 
+      - name: Authorize private MCP bridge dependency
+        uses: webfactory/ssh-agent@a6f90b1f127823b31d4d4a8d96047790581349bd # v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.MCP_BRIDGE_DEPLOY_KEY }}
+
       - name: Cache Composer dependencies
         uses: actions/cache@v5
         with:
@@ -150,7 +160,7 @@ jobs:
           restore-keys: composer-
 
       - name: Install Composer dependencies
-        run: composer install --no-interaction --prefer-dist
+        run: composer install --no-interaction
 
       - name: Download frontend build artifact
         uses: actions/download-artifact@v5
@@ -181,6 +191,11 @@ jobs:
         with:
           php-version: '8.5'
 
+      - name: Authorize private MCP bridge dependency
+        uses: webfactory/ssh-agent@a6f90b1f127823b31d4d4a8d96047790581349bd # v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.MCP_BRIDGE_DEPLOY_KEY }}
+
       - name: Cache Composer dependencies
         uses: actions/cache@v5
         with:
@@ -189,7 +204,7 @@ jobs:
           restore-keys: composer-
 
       - name: Install Composer dependencies
-        run: composer install --no-interaction --prefer-dist
+        run: composer install --no-interaction
 
       - name: Setup pnpm + Node dependencies
         uses: ./.github/actions/setup-pnpm-node
@@ -276,6 +291,11 @@ jobs:
         with:
           php-version: '8.5'
 
+      - name: Authorize private MCP bridge dependency
+        uses: webfactory/ssh-agent@a6f90b1f127823b31d4d4a8d96047790581349bd # v0.9.1
+        with:
+          ssh-private-key: ${{ secrets.MCP_BRIDGE_DEPLOY_KEY }}
+
       - name: Cache Composer dependencies
         uses: actions/cache@v5
         with:
@@ -284,7 +304,7 @@ jobs:
           restore-keys: composer-
 
       - name: Install Composer (no dev)
-        run: composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
+        run: composer install --no-dev --no-interaction --optimize-autoloader
 
       - name: Download frontend build artifact
         uses: actions/download-artifact@v5
