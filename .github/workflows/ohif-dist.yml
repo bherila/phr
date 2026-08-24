@@ -45,7 +45,7 @@ jobs:
 
     steps:
       - name: Checkout phr (for patcher script)
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           path: phr
           sparse-checkout: |
@@ -53,14 +53,14 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Checkout OHIF Viewers ${{ env.OHIF_TAG }}
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: OHIF/Viewers
           ref: ${{ env.OHIF_TAG }}
           path: Viewers
 
       - name: Setup Node 20
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: 'yarn'
@@ -86,7 +86,7 @@ jobs:
           du -sh Viewers/platform/app/dist
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: ohif-dist
           path: Viewers/platform/app/dist
@@ -101,7 +101,7 @@ jobs:
       contents: read
     steps:
       - name: Download build artifact
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: ohif-dist
           path: ohif-dist
