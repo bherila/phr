@@ -4,7 +4,6 @@ namespace App\Http\Controllers\PHR;
 
 use App\Http\Controllers\Controller;
 use App\Services\PHR\Access\PhrPatientAccessService;
-use BWH\Auth\OAuth\OAuthClient;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -14,7 +13,6 @@ class PageController extends Controller
 {
     public function __construct(
         private PhrPatientAccessService $accessService,
-        private OAuthClient $oauth,
     ) {}
 
     public function index(): RedirectResponse
@@ -92,11 +90,14 @@ class PageController extends Controller
 
     /**
      * The navbar's "back" affordance exits PHR entirely rather than navigating within it, so it
-     * points at the parent site (also the OAuth identity provider PHR authenticates against)
-     * instead of a hardcoded literal.
+     * points at the parent site.
+     *
+     * This is deliberately not the OAuth provider base URL. The two coincided only while
+     * identity was served from the parent site; the identity provider now lives on its own
+     * subdomain and has nothing to navigate back to.
      */
     private function backUrl(): string
     {
-        return $this->oauth->providerBaseUrl();
+        return (string) config('phr.parent_site_url');
     }
 }
