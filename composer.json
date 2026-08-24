@@ -2,7 +2,7 @@
     "$schema": "https://getcomposer.org/schema.json",
     "name": "bherila/phr",
     "type": "project",
-    "description": "Personal Health Record app serving phr.bherila.net, extracted from a private monorepo (bherila/2025-website#1805).",
+    "description": "Personal Health Record app serving phr.bherila.net.",
     "keywords": ["laravel", "framework", "health-records"],
     "license": "MIT",
     "require": {

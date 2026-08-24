@@ -9,11 +9,8 @@ name: OHIF Dist
 # don't clobber the OHIF dist that lives at ~/phr-laravel/public/ohif/ on the
 # server. This workflow is the only thing that should ever write there.
 #
-# Ported from the bwh-php monorepo, where OHIF for this app used to be built
-# and deployed before the PHR app was split into its own repo. That version
-# deployed to ~/bwh-php/public/ohif/ over password SSH; this one deploys to
-# ~/phr-laravel/public/ohif/ using this repo's key-based deploy credentials
-# (see ci.yml's `deploy` job for the same pattern).
+# Deploys to ~/phr-laravel/public/ohif/ using this repo's key-based deploy
+# credentials (see ci.yml's `deploy` job for the same pattern).
 
 on:
   workflow_dispatch:
@@ -110,9 +107,8 @@ jobs:
           path: ohif-dist
 
       # Same key-based auth as ci.yml's `deploy` job (SSH_PRIVATE_KEY +
-      # SSH_KNOWN_HOSTS) — this repo's deploy credentials are a key, not a
-      # password, unlike the monorepo original this was ported from. Host
-      # key is pinned via SSH_KNOWN_HOSTS (no StrictHostKeyChecking=no).
+      # SSH_KNOWN_HOSTS). Host key is pinned via SSH_KNOWN_HOSTS (no
+      # StrictHostKeyChecking=no).
       - name: Set up SSH deploy key
         run: |
           install -d -m 700 ~/.ssh

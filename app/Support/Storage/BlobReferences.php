@@ -11,12 +11,10 @@ use Illuminate\Support\Facades\Schema;
  *
  * A stored object is garbage only when NO mapped column references it. That is set
  * membership, not reference counting — one object may legitimately be referenced from
- * several tables at once (in bwh-php a `tax_docs/...` key is reachable from both
- * `fin_tax_documents.s3_path` and `genai_import_jobs.s3_path`), and it is prunable only
- * once every one of them has let go.
+ * several tables at once, and it is prunable only once every one of them has let go.
  *
  * The map is deliberately per-app rather than shared: each app owns a disjoint storage
- * root, so mixing them would let one app's pruner reason about the other's data.
+ * root, so mixing them would let one app's pruner reason about another app's data.
  *
  * Two properties this class is responsible for, both of which have teeth:
  *

@@ -25,15 +25,12 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 
 /**
- * PHR's own minimal GenAI import-job queue (bherila/2025-website#1805, option (c)).
+ * PHR's own minimal GenAI import-job queue.
  *
- * The monorepo's App\GenAiProcessor\Jobs\ParseImportJob is a ~1,300-line class shared
- * with finance (deterministic-parser tiers, tax-document account matching, lot rebuilds,
- * class-action-email handling, etc). PHR only ever touches the "default" branch of that
- * class — the plain TOON/JSON text-output path and the PHR result-splitting logic — so
- * this job reimplements only that slice directly against the public `bherila/genai-laravel`
- * client. It intentionally has no deterministic-parser tier, no tax-document coupling, and
- * no cross-account matching.
+ * This job implements only the plain TOON/JSON text-output path and PHR's own
+ * result-splitting logic, directly against the public `bherila/genai-laravel`
+ * client. It intentionally has no deterministic-parser tier, no tax-document
+ * coupling, and no cross-account matching.
  */
 class ParseImportJob implements ShouldQueue
 {
@@ -230,9 +227,7 @@ class ParseImportJob implements ShouldQueue
     }
 
     /**
-     * Atomically claim a quota slot for today (UTC). Mirrors the monorepo's site-wide +
-     * per-user quota check (GenAiJobDispatcherService::claimQuota), trimmed to the parts
-     * PHR uses.
+     * Atomically claim a quota slot for today (UTC) — a site-wide + per-user quota check.
      */
     private function claimQuota(int $userId, User $user, ?int $excludeJobId = null): bool
     {
@@ -342,10 +337,9 @@ class ParseImportJob implements ShouldQueue
     /**
      * Decode the model's text output as JSON, falling back to TOON.
      *
-     * A simplified version of the monorepo's GenAiJobDispatcherService::decodeStructuredText —
-     * that version also handles YAML-shaped fallbacks and tabular-block normalization for
-     * finance-specific TOON dialects PHR never emits. Markdown-fence stripping + straight
-     * JSON/TOON decode covers everything PhrPromptTemplate actually asks the model for.
+     * Markdown-fence stripping + straight JSON/TOON decode covers everything
+     * PhrPromptTemplate actually asks the model for; PHR never emits the
+     * YAML-shaped or tabular-block TOON dialects that would need more than this.
      *
      * @return array<array-key, mixed>|null
      */
