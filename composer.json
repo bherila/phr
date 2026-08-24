@@ -8,7 +8,7 @@
     "require": {
         "php": ">=8.3 <8.6",
         "barryvdh/laravel-dompdf": "^3.1",
-        "bherila/auth-laravel": "^0.5.2",
+        "bherila/auth-laravel": "^0.6.0",
         "bherila/genai-laravel": "@dev",
         "bherila/mcp-laravel-bridge": "^0.1.0",
         "helgesverre/toon": "^3.1",

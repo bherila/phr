@@ -37,6 +37,12 @@ final class AgentApiResponseSchemaCatalog
         return self::catalog()->operationComponent($operationId);
     }
 
+    /** @return list<string> */
+    public static function scopesForOperation(string $operationId): array
+    {
+        return self::catalog()->scopesForOperation($operationId);
+    }
+
     public static function flush(): void
     {
         self::$catalog?->flush();

@@ -3,6 +3,7 @@
 namespace App\Support\AgentApi;
 
 use App\Models\User;
+use BWH\Auth\OAuth\Server\OAuthResourceIndicator;
 use Laravel\Passport\Bridge\AuthCodeRepository;
 use Laravel\Passport\Passport;
 use League\OAuth2\Server\Entities\AuthCodeEntityInterface;
@@ -29,7 +30,7 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
             $authCodeEntity->getScopes(),
         );
         $resourceIsValid = ! in_array(AgentApiScopes::MCP_USE, $scopeIds, true)
-            || $resourceUri === OAuthResourceIndicator::agentApi();
+            || $resourceUri === OAuthResourceIndicator::resource();
         $client = $this->dynamicClients->lockForAuthorization(
             $authCodeEntity->getClient()->getIdentifier(),
         );

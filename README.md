@@ -130,11 +130,14 @@ claude mcp add --transport http --scope user phr https://phr.bherila.net/api/v1/
 claude mcp login phr
 ```
 
-Restart the client if it was already running. Start by calling `identity.get`, then
-use `patients.list` and `patients.get` to select and confirm a patient; never infer
-a patient ID. The connected client receives only the signed-in user's authorized
-records and OAuth scopes. Because PHR content is health information, connect only a
-client and account you trust.
+Restart the client if it was already running. The MCP initialization response teaches
+compatible harnesses to call `identity.get`, then use `patients.list` and
+`patients.get` to select and confirm a patient without inferring an ID. Clients that
+implement MCP prompts can also expose the guided `safely-update-clinical-record` and
+`review-import-proposal` workflows when their required tools are authorized. Tool and
+prompt discovery is filtered to the connection's granted OAuth scopes, and every call
+still enforces patient access through the underlying REST route. Because PHR content is
+health information, connect only a client and account you trust.
 
 ### Data portability
 

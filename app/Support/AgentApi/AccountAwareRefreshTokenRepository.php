@@ -3,6 +3,7 @@
 namespace App\Support\AgentApi;
 
 use App\Models\User;
+use BWH\Auth\OAuth\Server\OAuthResourceIndicator;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Facades\DB;
 use Laravel\Passport\Bridge\RefreshTokenRepository;

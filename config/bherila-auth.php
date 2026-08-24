@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\ThrottleTwoFactorVerify;
 use App\Models\User;
+use App\Support\AgentApi\AgentApiScopes;
 
 return [
     'routes' => [
@@ -24,6 +25,39 @@ return [
         'authorize_path' => '/oauth/authorize',
         'token_path' => '/oauth/token',
         'identity_path' => '/api/oauth/user',
+    ],
+
+    'oauth_server' => [
+        'issuer' => rtrim((string) env('APP_URL', 'http://localhost'), '/'),
+        'resource' => rtrim((string) env('APP_URL', 'http://localhost'), '/').'/api/v1',
+        'authorization_endpoint' => rtrim((string) env('APP_URL', 'http://localhost'), '/').'/oauth/authorize',
+        'token_endpoint' => rtrim((string) env('APP_URL', 'http://localhost'), '/').'/oauth/token',
+        'registration_endpoint' => rtrim((string) env('APP_URL', 'http://localhost'), '/').'/oauth/register',
+        'scopes' => AgentApiScopes::descriptions(),
+        'token_endpoint_auth_methods' => ['none', 'client_secret_basic', 'client_secret_post'],
+        'resource_required_scope' => AgentApiScopes::MCP_USE,
+        'dynamic_clients' => [
+            'required_columns' => ['dynamically_registered_at', 'scopes'],
+            'registered_at_column' => 'dynamically_registered_at',
+            'last_used_at_column' => null,
+            'scopes_column' => 'scopes',
+            'enforce_registered_scopes' => true,
+        ],
+        'authorization_state' => [
+            'cache_prefix' => 'oauth-resource:',
+            'ttl_seconds' => null,
+        ],
+        'consent' => [
+            'app_name' => 'PHR',
+            'heading' => 'Connect :client to :app?',
+            'intro' => 'This application is requesting access to your personal health record.',
+            'identity' => true,
+            'trust_warning' => 'Only continue if you recognize and trust this application. You can disconnect it later.',
+            'dynamic_client_warning' => 'This client registered automatically. After approval, your browser returns to:',
+            'policy_notice' => 'Patient access and the granted clinical, document, and import permissions still apply to every request.',
+            'approve_label' => 'Authorize',
+            'deny_label' => 'Cancel',
+        ],
     ],
 
     'migrations' => [

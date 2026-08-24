@@ -4,9 +4,9 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use App\Support\AgentApi\AgentApiScopes;
-use App\Support\AgentApi\OAuthAuthorizationStateStore;
 use App\Support\AgentApi\OAuthDynamicClientDao;
-use App\Support\AgentApi\OAuthResourceIndicator;
+use BWH\Auth\OAuth\Server\OAuthAuthorizationStateStore;
+use BWH\Auth\OAuth\Server\OAuthResourceIndicator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Passport\AuthCode;
 use Laravel\Passport\Client;
@@ -98,7 +98,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'state' => 'synthetic-registration-state',
             'code_challenge' => $challenge,
             'code_challenge_method' => 'S256',
-            'resource' => OAuthResourceIndicator::agentApi(),
+            'resource' => OAuthResourceIndicator::resource(),
         ];
         $withoutScope = $authorization;
         unset($withoutScope['scope']);
@@ -151,7 +151,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             ->assertJsonPath('error', 'invalid_target');
         $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
             ...$authorization,
-            'resource' => OAuthResourceIndicator::agentApi(),
+            'resource' => OAuthResourceIndicator::resource(),
         ]))->assertOk();
     }
 
@@ -248,7 +248,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
 
         $approval = $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
             ...$query,
-            'resource' => OAuthResourceIndicator::agentApi().'/',
+            'resource' => OAuthResourceIndicator::resource().'/',
         ]))->assertOk();
         $this->assertNotNull($approval);
         $authToken = session('authToken');
@@ -260,7 +260,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         $this->assertNull(app(OAuthAuthorizationStateStore::class)->resourceFor($authToken));
         parse_str((string) parse_url((string) $redirect->headers->get('Location'), PHP_URL_QUERY), $redirectQuery);
         $this->assertIsString($redirectQuery['code']);
-        $this->assertSame(OAuthResourceIndicator::agentApi(), AuthCode::query()->sole()->resource_uri);
+        $this->assertSame(OAuthResourceIndicator::resource(), AuthCode::query()->sole()->resource_uri);
 
         $issued = $this->postJson('/oauth/token', [
             'grant_type' => 'authorization_code',
@@ -268,10 +268,10 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'redirect_uri' => 'https://agent.example.test/callback',
             'code_verifier' => $verifier,
             'code' => $redirectQuery['code'],
-            'resource' => OAuthResourceIndicator::agentApi(),
+            'resource' => OAuthResourceIndicator::resource(),
         ])->assertOk()->json();
         $first = Token::query()->where('user_id', $user->id)->sole();
-        $this->assertSame(OAuthResourceIndicator::agentApi(), $first->resource_uri);
+        $this->assertSame(OAuthResourceIndicator::resource(), $first->resource_uri);
 
         $rotated = $this->postJson('/oauth/token', [
             'grant_type' => 'refresh_token',
@@ -279,7 +279,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'refresh_token' => $issued['refresh_token'],
         ])->assertOk()->json();
         $this->assertSame(
-            [OAuthResourceIndicator::agentApi(), OAuthResourceIndicator::agentApi()],
+            [OAuthResourceIndicator::resource(), OAuthResourceIndicator::resource()],
             Token::query()->where('user_id', $user->id)->orderBy('created_at')->pluck('resource_uri')->all(),
         );
 
@@ -288,29 +288,29 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'client_id' => $client->id,
             'refresh_token' => $rotated['refresh_token'],
             'resource' => 'https://unrelated.example.test/api',
-        ])->assertBadRequest()->assertJsonPath('error', 'invalid_grant');
+        ])->assertBadRequest()->assertJsonPath('error', 'invalid_target');
         $this->postJson('/oauth/token', [
             'grant_type' => 'refresh_token',
             'client_id' => $client->id,
             'refresh_token' => $rotated['refresh_token'],
-            'resource' => OAuthResourceIndicator::agentApi(),
-        ])->assertBadRequest()->assertJsonPath('error', 'invalid_grant');
+            'resource' => OAuthResourceIndicator::resource(),
+        ])->assertOk();
     }
 
     public function test_concurrent_approval_reads_keep_the_resource_indicator_bound(): void
     {
         $state = app(OAuthAuthorizationStateStore::class);
-        $state->rememberResource('synthetic-concurrent-auth-token', OAuthResourceIndicator::agentApi());
+        $state->rememberResource('synthetic-concurrent-auth-token', OAuthResourceIndicator::resource());
         $sessionKey = 'oauth-resource:'.hash('sha256', 'synthetic-concurrent-auth-token');
 
         $this->assertTrue(session()->has($sessionKey));
 
         $this->assertSame(
-            OAuthResourceIndicator::agentApi(),
+            OAuthResourceIndicator::resource(),
             $state->resourceFor('synthetic-concurrent-auth-token'),
         );
         $this->assertSame(
-            OAuthResourceIndicator::agentApi(),
+            OAuthResourceIndicator::resource(),
             $state->resourceFor('synthetic-concurrent-auth-token'),
         );
     }
@@ -333,7 +333,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'state' => 'synthetic-denied-consent-state',
             'code_challenge' => $challenge,
             'code_challenge_method' => 'S256',
-            'resource' => OAuthResourceIndicator::agentApi(),
+            'resource' => OAuthResourceIndicator::resource(),
         ]))->assertOk();
         $authToken = session('authToken');
         $this->assertIsString($authToken);
@@ -368,7 +368,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         $this->get('/oauth/authorize?'.http_build_query([
             ...$authorization,
             'redirect_uri' => 'https://unregistered.example.test/callback',
-            'resource' => OAuthResourceIndicator::agentApi(),
+            'resource' => OAuthResourceIndicator::resource(),
         ]))->assertUnauthorized();
 
         $this->assertNull(app(OAuthAuthorizationStateStore::class)->resourceFor($authToken));
@@ -411,7 +411,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'state' => 'synthetic-missing-resource-state',
             'code_challenge' => $challenge,
             'code_challenge_method' => 'S256',
-            'resource' => OAuthResourceIndicator::agentApi(),
+            'resource' => OAuthResourceIndicator::resource(),
         ]))->assertOk();
         $redirect = $this->post('/oauth/authorize', [
             'auth_token' => session('authToken'),
@@ -426,7 +426,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'code' => $redirectQuery['code'],
         ])->assertOk();
         $this->assertSame(
-            OAuthResourceIndicator::agentApi(),
+            OAuthResourceIndicator::resource(),
             Token::query()->where('user_id', $user->id)->sole()->resource_uri,
         );
     }
@@ -448,7 +448,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'state' => 'synthetic-cached-resource-state',
             'code_challenge' => $challenge,
             'code_challenge_method' => 'S256',
-            'resource' => OAuthResourceIndicator::agentApi(),
+            'resource' => OAuthResourceIndicator::resource(),
         ]))->assertOk();
         $authToken = session('authToken');
         $this->assertIsString($authToken);
@@ -458,11 +458,11 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         $this->post('/oauth/authorize', [
             'auth_token' => $authToken,
         ])->assertRedirect();
-        $this->assertSame(OAuthResourceIndicator::agentApi(), AuthCode::query()->sole()->resource_uri);
+        $this->assertSame(OAuthResourceIndicator::resource(), AuthCode::query()->sole()->resource_uri);
         $this->assertNull(app(OAuthAuthorizationStateStore::class)->resourceFor($authToken));
     }
 
-    public function test_changed_authorization_code_audience_revokes_the_code(): void
+    public function test_invalid_token_audience_is_rejected_without_consuming_the_code(): void
     {
         $user = User::factory()->create([
             'name' => 'Synthetic Changed Resource User',
@@ -479,7 +479,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'state' => 'synthetic-changed-resource-state',
             'code_challenge' => $challenge,
             'code_challenge_method' => 'S256',
-            'resource' => OAuthResourceIndicator::agentApi(),
+            'resource' => OAuthResourceIndicator::resource(),
         ]))->assertOk();
         $redirect = $this->post('/oauth/authorize', [
             'auth_token' => session('authToken'),
@@ -501,14 +501,14 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         $this->postJson('/oauth/token', [
             ...$exchange,
             'resource' => 'https://unrelated.example.test/api',
-        ])->assertBadRequest()->assertJsonPath('error', 'invalid_grant');
+        ])->assertBadRequest()->assertJsonPath('error', 'invalid_target');
         $this->postJson('/oauth/token', [
             ...$exchange,
-            'resource' => OAuthResourceIndicator::agentApi(),
-        ])->assertBadRequest()->assertJsonPath('error', 'invalid_grant');
+            'resource' => OAuthResourceIndicator::resource(),
+        ])->assertOk();
 
         $this->assertTrue(AuthCode::query()->sole()->revoked);
-        $this->assertDatabaseCount('oauth_access_tokens', 0);
+        $this->assertDatabaseCount('oauth_access_tokens', 1);
     }
 
     public function test_credential_pruning_removes_only_unused_stale_dynamic_clients(): void
