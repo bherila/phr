@@ -181,8 +181,10 @@ final class AgentMcpServerFactory
         $hasClinicalUpdate = $this->hasTools($available, ['records.search', 'office_visits.update']);
         $hasImportReview = $this->hasTools($available, ['records.search', 'imports.list', 'imports.get', 'imports.review']);
 
-        if ($hasPatientContext && ($hasClinicalUpdate || $hasImportReview)) {
+        if ($hasPatientContext && $hasClinicalUpdate) {
             $base = 'First call identity.get, then patients.list; select only a patient ID returned by PHR, never guess one, and confirm it with patients.get before reading or writing. Read existing patient-scoped records before every write. Prevent duplicates: every clinical upsert needs stable provenance and a deterministic external_id. Before an update, read the target record and supply its returned ID and current opaque version. Keep changes pending_review unless the user explicitly approves the clinical facts.';
+        } elseif ($hasPatientContext && $hasImportReview) {
+            $base = 'First call identity.get, then patients.list; select only a patient ID returned by PHR, never guess one, and confirm it with patients.get before reviewing an import. Inspect the staged proposal and existing patient-scoped records, preserve stable provenance and deterministic external_id values, and obtain explicit user approval before accepting or rejecting a proposal.';
         } elseif ($hasPatientContext) {
             $base = 'First call identity.get, then patients.list; select only a patient ID returned by PHR, never guess one, and confirm it with patients.get. Use only operations currently exposed in tools/list; missing tools are not authorized for this connection.';
         } else {

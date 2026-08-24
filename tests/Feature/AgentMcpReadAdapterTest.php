@@ -351,6 +351,34 @@ final class AgentMcpReadAdapterTest extends TestCase
         );
     }
 
+    public function test_mcp_import_only_guidance_does_not_advertise_clinical_writes(): void
+    {
+        $actor = $this->user('mcp-import-reviewer@example.test');
+        Passport::actingAs($actor, [
+            AgentApiScopes::MCP_USE,
+            AgentApiScopes::IDENTITY_READ,
+            AgentApiScopes::PATIENTS_READ,
+            AgentApiScopes::CLINICAL_READ,
+            AgentApiScopes::IMPORTS_READ,
+            AgentApiScopes::IMPORTS_WRITE,
+        ]);
+
+        $initialization = $this->mcpPost($this->initializeMessage())->assertOk();
+        $instructions = $initialization->json('result.instructions');
+        $this->assertIsString($instructions);
+        $this->assertStringContainsString('review-import-proposal', $instructions);
+        $this->assertStringContainsString('explicit user approval', $instructions);
+        $this->assertStringNotContainsString('clinical upsert', $instructions);
+        $this->assertStringNotContainsString('safely-update-clinical-record', $instructions);
+        $session = $initialization->headers->get('Mcp-Session-Id');
+        $this->assertIsString($session);
+
+        $prompts = $this->mcpPost([
+            'jsonrpc' => '2.0', 'id' => 2, 'method' => 'prompts/list', 'params' => [],
+        ], $session)->assertOk()->json('result.prompts');
+        $this->assertSame(['review-import-proposal'], array_column($prompts, 'name'));
+    }
+
     public function test_mcp_clinical_upsert_uses_the_typed_rest_write_boundary(): void
     {
         $actor = $this->user('mcp-writer@example.test');
