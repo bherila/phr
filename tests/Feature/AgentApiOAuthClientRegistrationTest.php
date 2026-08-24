@@ -431,6 +431,37 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         );
     }
 
+    public function test_resource_binding_survives_loss_of_its_session_copy_before_approval(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Synthetic Cached Resource User',
+            'email' => 'cached-resource@example.test',
+            'user_role' => 'user',
+        ]);
+        $client = $this->publicClient('Synthetic Cached Resource Client');
+        [, $challenge] = $this->pkce();
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+            'client_id' => $client->id,
+            'redirect_uri' => 'https://agent.example.test/callback',
+            'response_type' => 'code',
+            'scope' => AgentApiScopes::MCP_USE,
+            'state' => 'synthetic-cached-resource-state',
+            'code_challenge' => $challenge,
+            'code_challenge_method' => 'S256',
+            'resource' => OAuthResourceIndicator::agentApi(),
+        ]))->assertOk();
+        $authToken = session('authToken');
+        $this->assertIsString($authToken);
+
+        session()->forget('oauth-resource:'.hash('sha256', $authToken));
+
+        $this->post('/oauth/authorize', [
+            'auth_token' => $authToken,
+        ])->assertRedirect();
+        $this->assertSame(OAuthResourceIndicator::agentApi(), AuthCode::query()->sole()->resource_uri);
+        $this->assertNull(app(OAuthAuthorizationStateStore::class)->resourceFor($authToken));
+    }
+
     public function test_changed_authorization_code_audience_revokes_the_code(): void
     {
         $user = User::factory()->create([
