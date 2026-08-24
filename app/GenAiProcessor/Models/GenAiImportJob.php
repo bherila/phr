@@ -12,9 +12,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 
 /**
- * PHR's own minimal GenAI import-job queue. Mirrors the shape of the monorepo's
- * finance+PHR GenAiImportJob model (bherila/2025-website#1805, option (c)), but
- * scoped to PHR job types only — the two apps intentionally diverge from here.
+ * PHR's own minimal GenAI import-job queue, scoped to PHR job types only.
  */
 class GenAiImportJob extends Model
 {

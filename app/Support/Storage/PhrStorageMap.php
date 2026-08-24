@@ -5,15 +5,14 @@ namespace App\Support\Storage;
 /**
  * PHR's declaration of what references stored objects, and where they live.
  *
- * Deliberately app-local. Each app owns a disjoint storage root — PHR's is
- * `phr-laravel/storage/app/private/`, the finance app's is `bwh-php/storage/app/private/`
- * — so a shared map would let one app's pruner reason about data it cannot see. The
- * engine (BlobReferences, StoragePruner) is generic; only this file is PHR's.
+ * Deliberately app-local. Each app owns a disjoint storage root, so a shared map
+ * would let one app's pruner reason about data it cannot see. The engine
+ * (BlobReferences, StoragePruner) is generic; only this file is PHR's.
  *
  * Verified against the live `bherila_phr` schema on 2026-08-02 via information_schema
- * rather than by grepping migrations. That distinction is not academic: the finance app
- * stores utility bills in `utility_bill.pdf_s3_path`, a column that a pattern anchored on
- * `s3_path%` never matches, and missing it would have condemned every utility bill.
+ * rather than by grepping migrations. That distinction is not academic: a naive column
+ * pattern anchored on a fixed suffix can silently miss a real storage-key column named
+ * differently, and missing one condemns every object it references to pruning.
  */
 class PhrStorageMap
 {
@@ -88,9 +87,9 @@ class PhrStorageMap
             // Staging for GenAI imports, on the disk named `s3`. Empty in production today,
             // but the column exists and must be honoured rather than assumed dead.
             //
-            // In bwh-php this same column also stores `inline://paste/<uuid>` sentinels for
-            // pasted content, which are not storage keys. Harmless either way — a sentinel
-            // matches no file, so it neither protects nor reaps anything.
+            // This same column can also hold `inline://paste/<uuid>` sentinels for pasted
+            // content, which are not storage keys. Harmless either way — a sentinel matches
+            // no file, so it neither protects nor reaps anything.
             ->from('genai_import_jobs', 's3_path')
 
             // Columns that match a key-ish name but hold no storage key. Listed so the

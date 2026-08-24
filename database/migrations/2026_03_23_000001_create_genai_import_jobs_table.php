@@ -29,9 +29,9 @@ return new class extends Migration
             $table->timestamp('parsed_at')->nullable();
             $table->unsignedInteger('input_tokens')->nullable();
             $table->unsignedInteger('output_tokens')->nullable();
-            // Which tier handled the document. PHR has no deterministic-parser tier (unlike
-            // the monorepo's shared version), so this is always ai_only for now — the column
-            // is kept so the shape matches GenAiImportJob::TIER_* constants if PHR ever adds one.
+            // Which tier handled the document. PHR has no deterministic-parser tier, so this
+            // is always ai_only for now — the column is kept so the shape matches
+            // GenAiImportJob::TIER_* constants if PHR ever adds one.
             $table->string('processing_tier', 32)->nullable();
             $table->timestamps();
 

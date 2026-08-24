@@ -265,14 +265,14 @@ jobs:
     needs:
       - test
       - frontend-build
-    # Deploys automatically on a green push to main, matching bherila/2025-website and
-    # bherila/website-games. `workflow_dispatch` also still works for a manual redeploy.
+    # Deploys automatically on a green push to main. `workflow_dispatch` also still
+    # works for a manual redeploy.
     #
-    # This was manual-only while the repo was private and unreviewed: the authorization
-    # review (bherila/2025-website#1805) was outstanding and `required_reviewers` is not
-    # available on private repos without a paid plan, so there was no way to gate an
-    # automatic deploy. Both conditions have since cleared — the review is done and its
-    # findings are fixed, and the repo is public.
+    # This was manual-only while the repo was private and unreviewed: an authorization
+    # review was outstanding and `required_reviewers` is not available on private repos
+    # without a paid plan, so there was no way to gate an automatic deploy. Both
+    # conditions have since cleared — the review is done and its findings are fixed,
+    # and the repo is public.
     #
     # The gate that remains is `needs.test.result == 'success'`: the aggregate job checks
     # every other job explicitly, so a new job added to this workflow must also be added
@@ -329,10 +329,10 @@ jobs:
           printf '%s\n' "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      # Destination is hard-coded to ~/phr-laravel/ — this account also hosts the
-      # separate finance app at ~/bwh-php/ (webroot ~/public_html) and the games app at
-      # ~/games-laravel/, and --delete makes a wrong or empty destination catastrophic.
-      # Never point this at ~/, ~/bwh-php, ~/games-laravel, or ~/public_html.
+      # Destination is hard-coded to ~/phr-laravel/ — this account also hosts other
+      # applications in sibling home directories, and --delete makes a wrong or empty
+      # destination catastrophic. Never point this at ~/, or at any other application's
+      # directory or the public webroot.
       #
       # Host key is pinned via SSH_KNOWN_HOSTS (no StrictHostKeyChecking=no) — the
       # deploy key alone only proves who we are, not that the server is who it claims
