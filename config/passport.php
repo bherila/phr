@@ -1,10 +1,10 @@
 <?php
 
-use App\Http\Middleware\EnforceOAuthPkce;
-use App\Http\Middleware\EnforceOAuthResourceIndicator;
 use App\Http\Middleware\EnsureOAuthAuthorizationUserCanLogin;
 use App\Http\Middleware\OAuthAuthorizationSecurityHeaders;
 use App\Http\Middleware\SerializeOAuthTokenExchange;
+use BWH\Auth\Http\Middleware\EnforceOAuthPkce;
+use BWH\Auth\Http\Middleware\EnforceOAuthResourceIndicator;
 
 return [
 

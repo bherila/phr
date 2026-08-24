@@ -150,23 +150,40 @@ final class AgentMcpReadAdapterTest extends TestCase
             'user_id' => $other->id,
             'visit_type' => 'synthetic-mcp-hidden',
         ]);
-        Passport::actingAs($actor, [
-            AgentApiScopes::MCP_USE,
-            AgentApiScopes::PATIENTS_READ,
-            AgentApiScopes::CLINICAL_READ,
-        ]);
+        Passport::actingAs($actor, AgentApiScopes::ids());
 
         $initialized = $this->mcpPost($this->initializeMessage())->assertOk()->json();
         $instructions = $initialized['result']['instructions'] ?? '';
+        $firstDecisionWindow = substr($instructions, 0, 512);
+        $this->assertStringContainsString('First call identity.get', $firstDecisionWindow);
+        $this->assertStringContainsString('never guess one', $firstDecisionWindow);
+        $this->assertStringContainsString('deterministic external_id', $firstDecisionWindow);
+        $this->assertStringContainsString('pending_review', $firstDecisionWindow);
         $this->assertStringContainsString('Authorization Code plus S256 PKCE', $instructions);
         $this->assertStringContainsString('identity:read', $instructions);
         $this->assertStringContainsString('identity.get, then patients.list', $instructions);
-        $this->assertStringContainsString('Never guess a patient id', $instructions);
         $this->assertStringContainsString('deterministic external_id', $instructions);
 
         $session = $this->initializeSession();
+        $prompts = $this->mcpPost([
+            'jsonrpc' => '2.0', 'id' => 2, 'method' => 'prompts/list', 'params' => [],
+        ], $session)->assertOk()->json('result.prompts');
+        $this->assertSame(
+            ['safely-update-clinical-record', 'review-import-proposal'],
+            array_column($prompts, 'name'),
+        );
+        $importGuide = $this->mcpPost([
+            'jsonrpc' => '2.0',
+            'id' => 3,
+            'method' => 'prompts/get',
+            'params' => ['name' => 'review-import-proposal', 'arguments' => []],
+        ], $session)->assertOk()->json('result.messages.0.content.text');
+        $this->assertIsString($importGuide);
+        $this->assertStringContainsString('without creating duplicate health records', $importGuide);
+        $this->assertStringContainsString('wait for explicit user approval', $importGuide);
+
         $tools = $this->mcpPost([
-            'jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list', 'params' => [],
+            'jsonrpc' => '2.0', 'id' => 4, 'method' => 'tools/list', 'params' => [],
         ], $session)->assertOk()->json('result.tools');
         $this->assertIsArray($tools);
         $toolNames = array_column($tools, 'name');
@@ -301,24 +318,65 @@ final class AgentMcpReadAdapterTest extends TestCase
         $this->assertContains('agent-api.v1.clinical.show', $routeNames);
     }
 
-    public function test_underlying_rest_scope_remains_required_and_error_is_phi_safe(): void
+    public function test_mcp_discovery_hides_unauthorized_tools_and_prompts(): void
     {
         $actor = $this->user('mcp-least-privilege@example.test');
         $patient = $this->patient($actor, 'Synthetic Scope Marker Never Persist');
         Passport::actingAs($actor, [AgentApiScopes::MCP_USE]);
 
-        $session = $this->initializeSession();
+        $initialization = $this->mcpPost($this->initializeMessage())->assertOk();
+        $instructions = $initialization->json('result.instructions');
+        $this->assertIsString($instructions);
+        $this->assertStringContainsString('missing tools are not authorized', $instructions);
+        $this->assertStringNotContainsString('imports.review', $instructions);
+        $session = $initialization->headers->get('Mcp-Session-Id');
+        $this->assertIsString($session);
+
+        $tools = $this->mcpPost([
+            'jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list', 'params' => [],
+        ], $session)->assertOk()->json('result.tools');
+        $this->assertSame(['capabilities.get'], array_column($tools, 'name'));
+
+        $prompts = $this->mcpPost([
+            'jsonrpc' => '2.0', 'id' => 3, 'method' => 'prompts/list', 'params' => [],
+        ], $session)->assertOk()->json('result.prompts');
+        $this->assertSame([], $prompts);
+
         $result = $this->callTool($session, 2, 'patients.get', ['patient_id' => $patient->id]);
 
-        $this->assertTrue($result['result']['isError'] ?? false);
-        $this->assertSame(
-            'This connection lacks the required permission.',
-            $result['result']['content'][0]['text'] ?? null,
-        );
+        $this->assertArrayHasKey('error', $result);
         $this->assertStringNotContainsString(
             'Synthetic Scope Marker Never Persist',
-            json_encode(AgentApiAudit::query()->get()->toArray(), JSON_THROW_ON_ERROR),
+            json_encode($result, JSON_THROW_ON_ERROR),
         );
+    }
+
+    public function test_mcp_import_only_guidance_does_not_advertise_clinical_writes(): void
+    {
+        $actor = $this->user('mcp-import-reviewer@example.test');
+        Passport::actingAs($actor, [
+            AgentApiScopes::MCP_USE,
+            AgentApiScopes::IDENTITY_READ,
+            AgentApiScopes::PATIENTS_READ,
+            AgentApiScopes::CLINICAL_READ,
+            AgentApiScopes::IMPORTS_READ,
+            AgentApiScopes::IMPORTS_WRITE,
+        ]);
+
+        $initialization = $this->mcpPost($this->initializeMessage())->assertOk();
+        $instructions = $initialization->json('result.instructions');
+        $this->assertIsString($instructions);
+        $this->assertStringContainsString('review-import-proposal', $instructions);
+        $this->assertStringContainsString('explicit user approval', $instructions);
+        $this->assertStringNotContainsString('clinical upsert', $instructions);
+        $this->assertStringNotContainsString('safely-update-clinical-record', $instructions);
+        $session = $initialization->headers->get('Mcp-Session-Id');
+        $this->assertIsString($session);
+
+        $prompts = $this->mcpPost([
+            'jsonrpc' => '2.0', 'id' => 2, 'method' => 'prompts/list', 'params' => [],
+        ], $session)->assertOk()->json('result.prompts');
+        $this->assertSame(['review-import-proposal'], array_column($prompts, 'name'));
     }
 
     public function test_mcp_clinical_upsert_uses_the_typed_rest_write_boundary(): void
@@ -417,11 +475,7 @@ final class AgentMcpReadAdapterTest extends TestCase
             'expected_version' => null,
             'data' => ['name' => 'Synthetic denied procedure'],
         ]);
-        $this->assertTrue($denied['result']['isError'] ?? false);
-        $this->assertSame(
-            'This connection lacks the required permission.',
-            $denied['result']['content'][0]['text'] ?? null,
-        );
+        $this->assertArrayHasKey('error', $denied);
         $this->assertStringNotContainsString(
             'Synthetic denied procedure',
             json_encode(AgentApiAudit::query()->get()->toArray(), JSON_THROW_ON_ERROR),

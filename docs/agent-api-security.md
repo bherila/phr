@@ -222,10 +222,15 @@ context is restored after each subrequest. Browser session cookies are never cop
 The MCP initialize response also supplies the operational workflow: discover OAuth
 metadata with Authorization Code plus S256 PKCE, call `identity.get` and then
 `patients.list`, confirm the chosen patient with `patients.get`, and use deterministic
-client-scoped identities with read-before-write and version preconditions. This gives
-an agent enough protocol context to select a patient safely without inferring ids from
-an external source. Large evidence files use the ordinary authenticated multipart REST
-upload; the bounded MCP base64 tool is reserved for small documents.
+client-scoped identities with read-before-write and version preconditions. It
+front-loads the identity, deduplication, version, and review-state rules that a harness
+must see before acting. Clients that implement MCP prompts can additionally expose the
+guided `safely-update-clinical-record` and `review-import-proposal` workflows. This
+gives an agent enough protocol context to select a patient safely without inferring ids
+from an external source. `tools/list`, prompt registration, and initialization guidance
+are filtered to the token's OpenAPI-declared scopes, while the delegated REST route
+remains the enforcement boundary. Large evidence files use the ordinary authenticated
+multipart REST upload; the bounded MCP base64 tool is reserved for small documents.
 
 The transport keeps the SDK's CORS, DNS-rebinding, and protocol-version protections,
 uses a 256 KiB request ceiling, and accepts cross-origin browser requests only from an

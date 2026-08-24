@@ -44,7 +44,7 @@ class AppServiceProvider extends ServiceProvider
         Passport::tokensExpireIn(now()->addMinutes(AgentApiTokenPolicy::ACCESS_TOKEN_LIFETIME_MINUTES));
         Passport::refreshTokensExpireIn(now()->addDays(AgentApiTokenPolicy::REFRESH_TOKEN_LIFETIME_DAYS));
         Passport::personalAccessTokensExpireIn(now()->addMinutes(AgentApiTokenPolicy::ACCESS_TOKEN_LIFETIME_MINUTES));
-        Passport::authorizationView('oauth.authorize');
+        Passport::authorizationView('bherila-auth::oauth.authorize');
 
         // Authorization Code + PKCE is the supported interactive grant. Passport
         // rotates refresh tokens by default; unused grant types stay disabled.
