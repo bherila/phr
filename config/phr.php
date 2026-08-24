@@ -1,6 +1,13 @@
 <?php
 
 return [
+    // The PHR navbar's "back" affordance exits PHR entirely and returns to the
+    // parent site. This used to be derived from the OAuth provider base URL,
+    // which was correct only while identity was served from the parent site
+    // itself. Since identity moved to its own subdomain the two are different
+    // hosts, and the back link must not follow the identity provider.
+    'parent_site_url' => rtrim((string) env('PHR_PARENT_SITE_URL', 'https://bherila.net'), '/'),
+
     'exports_retention_days' => (int) env('PHR_EXPORTS_RETENTION_DAYS', 30),
     // Native archives are denser than interoperability summaries. Seven days is
     // enough to retrieve an owner-requested backup without retaining another full

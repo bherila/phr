@@ -17,7 +17,7 @@ return [
 
     'oauth_client' => [
         'provider' => env('OAUTH_PROVIDER', 'bherila'),
-        'base_url' => env('OAUTH_PROVIDER_URL', 'https://bherila.net'),
+        'base_url' => env('OAUTH_PROVIDER_URL', 'https://id.bherila.net'),
         'client_id' => env('OAUTH_CLIENT_ID'),
         'client_secret' => env('OAUTH_CLIENT_SECRET'),
         'redirect_uri' => env('OAUTH_REDIRECT_URI', rtrim((string) env('APP_URL'), '/').'/oauth/callback'),
