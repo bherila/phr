@@ -20,6 +20,9 @@
           'user_role' => auth()->user()->user_role,
           'last_login_date' => optional(auth()->user()->last_login_date)->toDateTimeString(),
         ] : null,
+        // Rendered per request from the session rather than compiled into the bundle, so the
+        // set of sibling applications is visible only to someone who is actually signed in.
+        'applications' => auth()->check() ? \App\Http\Controllers\OAuthLoginController::applications(request()) : [],
       ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) !!}
     </script>
     @stack('data-head')
