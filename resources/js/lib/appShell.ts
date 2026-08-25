@@ -39,6 +39,26 @@ export function currentUser(): { name: string; email: string } | null {
 }
 
 /**
+ * Reduce a URL from the wire to one that is safe to put in an `href`.
+ *
+ * These arrive as text in the page and end up as a link the browser will follow, so the
+ * scheme is the thing that matters: `javascript:` and `data:` both pass the provider-side
+ * FILTER_VALIDATE_URL check but execute rather than navigate. Parsing and allowing only
+ * http(s) is stronger than matching a prefix — it normalises away the leading control
+ * characters and escapes that a hand-rolled test can be walked past — and it returns the
+ * parsed form so what is rendered is what was validated.
+ */
+function safeHref(url: string): string | null {
+  try {
+    const parsed = new URL(url)
+
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? parsed.toString() : null
+  } catch {
+    return null
+  }
+}
+
+/**
  * The other applications this person can reach, as the identity provider reported them.
  *
  * Injected per request from the session rather than compiled in, so the set of applications
@@ -51,11 +71,13 @@ export function relyingApplications(): RelyingApplication[] {
     return []
   }
 
-  // A `javascript:` or `data:` URL passes FILTER_VALIDATE_URL on the way out and would be
-  // followed here, so the scheme is checked again rather than trusted from the wire.
-  return apps.filter((app): app is RelyingApplication =>
-    typeof app?.key === 'string'
-    && typeof app?.name === 'string'
-    && typeof app?.url === 'string'
-    && /^https?:\/\//i.test(app.url))
+  return apps.flatMap((app): RelyingApplication[] => {
+    if (typeof app?.key !== 'string' || typeof app?.name !== 'string' || typeof app?.url !== 'string') {
+      return []
+    }
+
+    const url = safeHref(app.url)
+
+    return url === null ? [] : [{ key: app.key, name: app.name, url }]
+  })
 }
