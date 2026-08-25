@@ -25,6 +25,12 @@ return [
         'authorize_path' => '/oauth/authorize',
         'token_path' => '/oauth/token',
         'identity_path' => '/api/oauth/user',
+        // Signing out locally leaves the provider still recognising the person, so the next
+        // sign-in returns them without a prompt and the button reads as having done nothing.
+        // Named here because this block is restated in full: `mergeConfigFrom` is a shallow
+        // merge, so an omitted key is blank rather than inherited, and `endSessionUrl()`
+        // aborts 503 on a blank one.
+        'end_session_path' => '/oauth/end-session',
     ],
 
     'oauth_server' => [

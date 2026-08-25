@@ -2,10 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\OAuthLoginController;
 use App\Models\PhrPatient;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -28,6 +30,7 @@ class OAuthLoginTest extends TestCase
             'authorize_path' => '/oauth/authorize',
             'token_path' => '/oauth/token',
             'identity_path' => '/api/oauth/user',
+            'end_session_path' => '/oauth/end-session',
         ]);
     }
 
@@ -164,7 +167,9 @@ class OAuthLoginTest extends TestCase
             'user_id' => $user->getKey(),
         ]);
 
-        $this->post('/logout')->assertRedirect('/');
+        $this->post('/logout')->assertRedirect(
+            'https://identity.example.test/oauth/end-session?client_id=phr-client&post_logout_redirect_uri=http%3A%2F%2Flocalhost',
+        );
         $this->assertDatabaseHas('auth_audit_log', [
             'event' => 'logged_out',
             'user_id' => $user->getKey(),
@@ -238,6 +243,83 @@ class OAuthLoginTest extends TestCase
     /**
      * @return array<string, string>
      */
+    public function test_signing_out_ends_the_session_at_the_provider(): void
+    {
+        $user = $this->boundUser('signed-out-subject');
+        $this->fakeProvider('signed-out-subject', 'Signed Out', 'signed-out@example.test');
+
+        $this->withSession($this->oauthSession())
+            ->get('/oauth/callback?state=expected-state&code=authorization-code');
+
+        $response = $this->post('/logout');
+
+        // Signing out only here would leave the provider still recognising this person, so
+        // the next protected page would hand them back without a prompt.
+        $response->assertRedirect(
+            'https://identity.example.test/oauth/end-session?client_id=phr-client&post_logout_redirect_uri=http%3A%2F%2Flocalhost',
+        );
+        $this->assertGuest();
+    }
+
+    public function test_signing_out_stays_local_when_no_provider_is_configured(): void
+    {
+        Config::set('bherila-auth.oauth_client.client_id', '');
+
+        $user = User::factory()->create();
+
+        // Handing off to a provider that was never configured aborts 503, which would make
+        // signing out fail outright — worse than signing out only locally.
+        $this->actingAs($user)->post('/logout')->assertRedirect('/');
+        $this->assertGuest();
+    }
+
+    public function test_sign_in_caches_the_provider_application_list_for_the_session(): void
+    {
+        $this->boundUser('app-list-subject');
+        $this->fakeProvider('app-list-subject', 'App List', 'app-list@example.test', [
+            ['key' => 'games', 'name' => 'Games', 'url' => 'https://games.example.test'],
+        ]);
+
+        $this->withSession($this->oauthSession())
+            ->get('/oauth/callback?state=expected-state&code=authorization-code')
+            ->assertRedirect('/');
+
+        $this->assertSame(
+            [['key' => 'games', 'name' => 'Games', 'url' => 'https://games.example.test']],
+            session(OAuthLoginController::APPLICATIONS_SESSION_KEY),
+        );
+    }
+
+    public function test_the_application_list_reaches_the_page_but_never_an_anonymous_one(): void
+    {
+        $this->boundUser('rendered-subject');
+        $this->fakeProvider('rendered-subject', 'Rendered', 'rendered@example.test', [
+            ['key' => 'games', 'name' => 'Games', 'url' => 'https://games.example.test'],
+        ]);
+
+        $this->withSession($this->oauthSession())
+            ->get('/oauth/callback?state=expected-state&code=authorization-code');
+
+        $this->get('/phr/patients')->assertSee('https://games.example.test');
+
+        // The list is chrome for someone who is signed in. The sign-in page is rendered from
+        // the same layout, so an ungated injection would publish which applications exist to
+        // anyone who merely loads it.
+        Auth::logout();
+        $this->get('/login')->assertOk()->assertDontSee('https://games.example.test');
+    }
+
+    private function boundUser(string $subject): User
+    {
+        $user = User::factory()->create();
+        $user->forceFill([
+            'oauth_provider' => 'bherila',
+            'oauth_subject' => $subject,
+        ])->save();
+
+        return $user;
+    }
+
     private function oauthSession(): array
     {
         return [
@@ -246,9 +328,12 @@ class OAuthLoginTest extends TestCase
         ];
     }
 
-    private function fakeProvider(string $subject, string $name, string $email): void
+    /**
+     * @param  list<array<string, string>>  $apps
+     */
+    private function fakeProvider(string $subject, string $name, string $email, array $apps = []): void
     {
-        Http::fake(function (Request $request) use ($subject, $name, $email) {
+        Http::fake(function (Request $request) use ($subject, $name, $email, $apps) {
             if ($request->url() === 'https://identity.example.test/oauth/token') {
                 $this->assertSame('authorization_code', $request['grant_type']);
                 $this->assertSame('authorization-code', $request['code']);
@@ -260,7 +345,7 @@ class OAuthLoginTest extends TestCase
             if ($request->url() === 'https://identity.example.test/api/oauth/user') {
                 $this->assertSame('Bearer test-access-token', $request->header('Authorization')[0] ?? null);
 
-                return Http::response(['sub' => $subject, 'name' => $name, 'email' => $email], 200);
+                return Http::response(['sub' => $subject, 'name' => $name, 'email' => $email, 'apps' => $apps], 200);
             }
 
             return Http::response([], 404);

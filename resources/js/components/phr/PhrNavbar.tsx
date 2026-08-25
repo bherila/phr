@@ -1,7 +1,7 @@
 'use client'
 
-import { ArrowLeft, Command, Database, Search, Settings } from 'lucide-react'
-import { type MouseEvent, type ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
+import { ArrowLeft, Command, Database, Search, Settings, UserRound } from 'lucide-react'
+import { type MouseEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -12,6 +12,15 @@ import {
   ComboboxList,
 } from '@/components/ui/combobox'
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
   NavigationMenu,
   NavigationMenuItem,
   NavigationMenuLink,
@@ -20,6 +29,7 @@ import {
 } from '@/components/ui/navigation-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { fetchWrapper } from '@/fetchWrapper'
+import { currentUser, relyingApplications } from '@/lib/appShell'
 import type { PhrSection } from '@/lib/phrRouteBuilder'
 import { phrSectionUrl } from '@/lib/phrRouteBuilder'
 import { cn } from '@/lib/utils'
@@ -52,6 +62,19 @@ export default function PhrNavbar({
   const [patients, setPatients] = useState<PhrPatient[]>([])
   const [searchValue, setSearchValue] = useState('')
   const [isComboboxOpen, setIsComboboxOpen] = useState(false)
+
+  // Read once per mount: both come from the server-rendered initial data, which does not
+  // change while the page is open.
+  const signedInUser = useMemo(() => currentUser(), [])
+  const applications = useMemo(() => relyingApplications(), [])
+
+  // Signing out must be a POST so it cannot be triggered by a link someone else planted.
+  // The form is rendered outside the menu because the menu unmounts its own content on
+  // select, which would tear the form out of the document before it could submit.
+  const logoutFormRef = useRef<HTMLFormElement>(null)
+  const csrfToken = typeof document === 'undefined'
+    ? ''
+    : (document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '')
 
   const fetchPatients = useCallback(async () => {
     try {
@@ -270,8 +293,59 @@ export default function PhrNavbar({
               </NavigationMenuItem>
             </NavigationMenuList>
           </NavigationMenu>
+
+          {signedInUser !== null && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-muted-foreground"
+                  aria-label="Account"
+                >
+                  <UserRound className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel className="font-normal">
+                    <span className="block truncate text-sm font-medium">{signedInUser.name}</span>
+                    <span className="block truncate text-xs text-muted-foreground">{signedInUser.email}</span>
+                  </DropdownMenuLabel>
+                </DropdownMenuGroup>
+
+                {/* The sibling applications, as the identity provider reported them at sign-in.
+                    The provider — not this bundle — decides what is listed, so an application
+                    this person cannot reach never appears. */}
+                {applications.length > 0 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                      <DropdownMenuLabel>Other apps</DropdownMenuLabel>
+                    </DropdownMenuGroup>
+                    {applications.map((app) => (
+                      <DropdownMenuItem key={app.key} asChild>
+                        <a href={app.url}>{app.name}</a>
+                      </DropdownMenuItem>
+                    ))}
+                  </>
+                )}
+
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => logoutFormRef.current?.submit()}>
+                  Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
       </div>
+
+      {signedInUser !== null && (
+        <form ref={logoutFormRef} action="/logout" method="POST" className="hidden">
+          <input type="hidden" name="_token" value={csrfToken} />
+        </form>
+      )}
 
       {children}
     </div>
