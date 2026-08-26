@@ -2,9 +2,9 @@
 
 namespace Tests\Feature;
 
-use App\Http\Controllers\OAuthLoginController;
 use App\Models\PhrPatient;
 use App\Models\User;
+use BWH\Auth\OAuth\ProviderApplications;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Auth;
@@ -286,7 +286,7 @@ class OAuthLoginTest extends TestCase
 
         $this->assertSame(
             [['key' => 'games', 'name' => 'Games', 'url' => 'https://games.example.test']],
-            session(OAuthLoginController::APPLICATIONS_SESSION_KEY),
+            session(ProviderApplications::SESSION_KEY),
         );
     }
 

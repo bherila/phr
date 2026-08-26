@@ -22,7 +22,7 @@
         ] : null,
         // Rendered per request from the session rather than compiled into the bundle, so the
         // set of sibling applications is visible only to someone who is actually signed in.
-        'applications' => auth()->check() ? \App\Http\Controllers\OAuthLoginController::applications(request()) : [],
+        'applications' => auth()->check() ? \BWH\Auth\OAuth\ProviderApplications::forRequest(request()) : [],
       ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) !!}
     </script>
     @stack('data-head')
