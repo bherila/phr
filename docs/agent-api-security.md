@@ -231,6 +231,13 @@ from an external source. `tools/list`, prompt registration, and initialization g
 are filtered to the token's OpenAPI-declared scopes, while the delegated REST route
 remains the enforcement boundary. Large evidence files use the ordinary authenticated
 multipart REST upload; the bounded MCP base64 tool is reserved for small documents.
+The same boundary applies to DICOM: `dicom_studies.list/get` and
+`dicom_series.list` return only bounded metadata and counts, never pixels, instance
+metadata, source paths, or object keys. DICOM writes use the existing
+patient-authorized per-file session processor;
+large instances stay on its multipart REST endpoint, while MCP can bridge only a
+small base64 instance into an already-open session. Agent session responses exclude
+uploader identity, manifests, skipped source paths, and parser errors.
 
 The transport keeps the SDK's CORS, DNS-rebinding, and protocol-version protections,
 uses a 256 KiB request ceiling, and accepts cross-origin browser requests only from an

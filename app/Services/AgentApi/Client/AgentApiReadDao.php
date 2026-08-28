@@ -197,6 +197,50 @@ final class AgentApiReadDao
         return AgentApiPayload::from($response, ['document_id', 'expires_at', 'download_url']);
     }
 
+    public function dicomStudies(
+        int $patientId,
+        int $limit = 25,
+        ?string $cursor = null,
+        ?string $updatedAfter = null,
+        ?string $updatedBefore = null,
+        ?string $modality = null,
+        ?string $dateFrom = null,
+        ?string $dateTo = null,
+    ): AgentApiPayload {
+        return $this->page("patients/{$patientId}/dicom/studies", [
+            'limit' => $limit,
+            'cursor' => $cursor,
+            'updated_after' => $updatedAfter,
+            'updated_before' => $updatedBefore,
+            'modality' => $modality,
+            'date_from' => $dateFrom,
+            'date_to' => $dateTo,
+        ]);
+    }
+
+    public function dicomStudy(int $patientId, int $studyId): AgentApiPayload
+    {
+        return $this->item("patients/{$patientId}/dicom/studies/{$studyId}", ['resource_type', 'patient_id', 'data']);
+    }
+
+    public function dicomSeries(
+        int $patientId,
+        int $studyId,
+        int $limit = 25,
+        ?string $cursor = null,
+        ?string $updatedAfter = null,
+        ?string $updatedBefore = null,
+        ?string $modality = null,
+    ): AgentApiPayload {
+        return $this->page("patients/{$patientId}/dicom/studies/{$studyId}/series", [
+            'limit' => $limit,
+            'cursor' => $cursor,
+            'updated_after' => $updatedAfter,
+            'updated_before' => $updatedBefore,
+            'modality' => $modality,
+        ]);
+    }
+
     public function imports(
         int $patientId,
         int $limit = 25,

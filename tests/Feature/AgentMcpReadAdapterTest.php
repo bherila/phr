@@ -8,6 +8,8 @@ use App\GenAiProcessor\Models\GenAiImportJob;
 use App\GenAiProcessor\Models\GenAiImportResult;
 use App\Http\Requests\AgentApi\ResolveClinicalRecordsRequest;
 use App\Models\AgentApiAudit;
+use App\Models\PhrDicomSeries;
+use App\Models\PhrDicomStudy;
 use App\Models\PhrDocument;
 use App\Models\PhrHealthLog;
 use App\Models\PhrOfficeVisit;
@@ -139,6 +141,17 @@ final class AgentMcpReadAdapterTest extends TestCase
             'visit_type' => 'synthetic-mcp-visible',
             'import_source' => 'synthetic-source-a',
         ]);
+        $dicomStudy = PhrDicomStudy::query()->create([
+            'patient_id' => $patient->id,
+            'study_instance_uid' => '1.2.840.synthetic.mcp.study',
+            'modalities' => 'CT',
+        ]);
+        PhrDicomSeries::query()->create([
+            'patient_id' => $patient->id,
+            'study_id' => $dicomStudy->id,
+            'series_instance_uid' => '1.2.840.synthetic.mcp.series',
+            'modality' => 'CT',
+        ]);
         $filteredVisit = PhrOfficeVisit::query()->create([
             'patient_id' => $patient->id,
             'user_id' => $actor->id,
@@ -189,6 +202,8 @@ final class AgentMcpReadAdapterTest extends TestCase
         $toolNames = array_column($tools, 'name');
         foreach (['capabilities.get', 'patients.list', 'records.search', 'timeline.list',
             'office_visits.list', 'procedures.get', 'eobs.list', 'documents.get', 'documents.upload',
+            'dicom_studies.list', 'dicom_studies.get', 'dicom_series.list', 'dicom_uploads.open', 'dicom_uploads.upload_file',
+            'dicom_uploads.finalize', 'dicom_uploads.cancel',
             'imports.list', 'imports.get', 'imports.create', 'imports.review', 'imports.retry',
             'health_logs.create', 'health_log_entries.list', 'health_log_entries.get',
             'health_log_entries.append', 'respiratory_events.list', 'respiratory_events.ingest',
@@ -198,12 +213,13 @@ final class AgentMcpReadAdapterTest extends TestCase
             $this->assertContains($name, $toolNames);
         }
         $this->assertCount(
-            26 + (count(AgentClinicalResourceCatalog::ids()) * 2) + (count(AgentClinicalResourceCatalog::writableIds()) * 4),
+            33 + (count(AgentClinicalResourceCatalog::ids()) * 2) + (count(AgentClinicalResourceCatalog::writableIds()) * 4),
             $toolNames,
         );
         $writeTools = [
             'documents.upload', 'imports.create', 'imports.review', 'imports.retry',
             'health_logs.create', 'health_log_entries.append', 'respiratory_events.ingest',
+            'dicom_uploads.open', 'dicom_uploads.upload_file', 'dicom_uploads.finalize', 'dicom_uploads.cancel',
         ];
         foreach ($tools as $tool) {
             $this->assertSame(
@@ -217,7 +233,7 @@ final class AgentMcpReadAdapterTest extends TestCase
                 str_ends_with((string) $tool['name'], '.upsert')
                     || str_ends_with((string) $tool['name'], '.update')
                     || str_ends_with((string) $tool['name'], '.retract')
-                    || in_array($tool['name'], ['imports.review', 'imports.retry'], true),
+                    || in_array($tool['name'], ['imports.review', 'imports.retry', 'dicom_uploads.finalize', 'dicom_uploads.cancel'], true),
                 $tool['annotations']['destructiveHint'] ?? null,
             );
             $this->assertTrue($tool['annotations']['idempotentHint'] ?? false);
@@ -230,9 +246,29 @@ final class AgentMcpReadAdapterTest extends TestCase
             $toolsByName->get('records.search')['inputSchema']['properties']['resource_type']['items']['enum'] ?? null,
         );
         $this->assertSame(
+            ['patient_id', 'upload_id', 'filename', 'content_base64'],
+            $toolsByName->get('dicom_uploads.upload_file')['inputSchema']['required'] ?? null,
+        );
+        $this->assertSame(
             PhrDocument::DOCUMENT_TYPES,
             $toolsByName->get('documents.list')['inputSchema']['properties']['document_type']['enum'] ?? null,
         );
+
+        $dicom = $this->callTool($session, 11, 'dicom_studies.list', ['patient_id' => $patient->id]);
+        $this->assertSame('1.2.840.synthetic.mcp.study', $dicom['result']['structuredContent']['data'][0]['study_instance_uid'] ?? null);
+        $this->assertArrayNotHasKey('metadata_json', $dicom['result']['structuredContent']['data'][0] ?? []);
+        $series = $this->callTool($session, 12, 'dicom_series.list', [
+            'patient_id' => $patient->id,
+            'study_id' => $dicomStudy->id,
+        ]);
+        $this->assertSame('1.2.840.synthetic.mcp.series', $series['result']['structuredContent']['data'][0]['series_instance_uid'] ?? null);
+
+        $openedDicom = $this->callTool($session, 13, 'dicom_uploads.open', [
+            'patient_id' => $patient->id,
+            'root_name' => 'SYNTHETIC_CT',
+        ]);
+        $this->assertSame('pending', $openedDicom['result']['structuredContent']['data']['status'] ?? null);
+        $this->assertArrayNotHasKey('uploaded_by_user_id', $openedDicom['result']['structuredContent']['data'] ?? []);
         $this->assertSame(
             PhrDocument::DOCUMENT_TYPES,
             $toolsByName->get('documents.upload')['inputSchema']['properties']['document_type']['enum'] ?? null,

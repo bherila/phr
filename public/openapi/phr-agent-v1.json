@@ -303,6 +303,90 @@
           "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
       }
     },
+    "/patients/{patient}/dicom/studies": {
+      "get": {
+        "operationId": "dicom_studies.list",
+        "summary": "List bounded DICOM study metadata",
+        "description": "Returns study-level metadata and counts only; image pixels, instance metadata, storage keys, and files are never returned.",
+        "security": [{ "oauth2": ["clinical:read"] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" },
+          { "$ref": "#/components/parameters/UpdatedAfter" }, { "$ref": "#/components/parameters/UpdatedBefore" },
+          { "name": "modality", "in": "query", "schema": { "type": "string", "maxLength": 16 } },
+          { "$ref": "#/components/parameters/DateFrom" }, { "$ref": "#/components/parameters/DateTo" }
+        ],
+        "responses": { "200": { "description": "Bounded DICOM-study page", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DicomStudyListResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/patients/{patient}/dicom/studies/{study}": {
+      "get": {
+        "operationId": "dicom_studies.get",
+        "summary": "Get DICOM study metadata",
+        "security": [{ "oauth2": ["clinical:read"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "name": "study", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }],
+        "responses": { "200": { "description": "DICOM study metadata", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DicomStudyResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/patients/{patient}/dicom/studies/{study}/series": {
+      "get": {
+        "operationId": "dicom_series.list",
+        "summary": "List bounded DICOM series metadata",
+        "description": "Returns series metadata and instance counts only; pixels, instance metadata, source paths, and object keys are never returned.",
+        "security": [{ "oauth2": ["clinical:read"] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/PatientId" }, { "name": "study", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
+          { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/UpdatedAfter" }, { "$ref": "#/components/parameters/UpdatedBefore" },
+          { "name": "modality", "in": "query", "schema": { "type": "string", "maxLength": 16 } }
+        ],
+        "responses": { "200": { "description": "Bounded DICOM-series page", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DicomSeriesListResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/patients/{patient}/dicom/uploads": {
+      "post": {
+        "operationId": "dicom_uploads.open",
+        "summary": "Open a DICOM upload session",
+        "security": [{ "oauth2": ["clinical:write"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
+        "requestBody": { "required": false, "content": { "application/json": { "schema": { "type": "object", "properties": { "root_name": { "type": ["string", "null"], "maxLength": 255 } }, "additionalProperties": false } } } },
+        "responses": { "201": { "description": "Open DICOM upload session", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DicomUploadOpenResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/patients/{patient}/dicom/uploads/{upload}/files": {
+      "post": {
+        "operationId": "dicom_uploads.upload_file",
+        "summary": "Upload one DICOM object to an open session",
+        "security": [{ "oauth2": ["clinical:write"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "name": "upload", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }],
+        "requestBody": { "required": true, "content": { "multipart/form-data": { "schema": { "type": "object", "required": ["file"], "properties": { "file": { "type": "string", "format": "binary", "description": "One DICOM object, up to the advertised server limit." }, "relative_path": { "type": ["string", "null"], "maxLength": 1024 } }, "additionalProperties": false } } } },
+        "responses": { "200": { "description": "DICOM object stored or safely skipped", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DicomUploadFileResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "409": { "$ref": "#/components/responses/Conflict" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/patients/{patient}/dicom/uploads/{upload}/finalize": {
+      "post": {
+        "operationId": "dicom_uploads.finalize",
+        "summary": "Finalize a DICOM upload session",
+        "security": [{ "oauth2": ["clinical:write"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "name": "upload", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }],
+        "responses": { "200": { "description": "Finalized DICOM session", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DicomUploadFinalizeResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/patients/{patient}/dicom/uploads/{upload}/cancel": {
+      "post": {
+        "operationId": "dicom_uploads.cancel",
+        "summary": "Cancel an open DICOM upload session",
+        "security": [{ "oauth2": ["clinical:write"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "name": "upload", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }],
+        "responses": { "200": { "description": "Cancelled DICOM session", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DicomUploadCancelResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
     "/patients/{patient}/health-logs": {
       "post": {
         "operationId": "health_logs.create",
@@ -1426,6 +1510,56 @@
         },
         "additionalProperties": false
       },
+      "DicomStudyMetadata": {
+        "type": "object", "description": "Study-level DICOM metadata without pixels, instance metadata, storage keys, source paths, or user identifiers.",
+        "required": ["id", "patient_id", "upload_id", "study_instance_uid", "study_date", "study_time", "accession_number", "description", "modalities", "series_count", "instance_count", "file_size_bytes", "created_at", "updated_at"],
+        "properties": {
+          "id": { "type": "integer" }, "patient_id": { "type": "integer" }, "upload_id": { "type": ["integer", "null"] },
+          "study_instance_uid": { "type": "string" }, "study_date": { "type": ["string", "null"], "format": "date" }, "study_time": { "type": ["string", "null"] },
+          "accession_number": { "type": ["string", "null"] }, "description": { "type": ["string", "null"] }, "modalities": { "type": ["string", "null"] },
+          "series_count": { "type": "integer", "minimum": 0 }, "instance_count": { "type": "integer", "minimum": 0 }, "file_size_bytes": { "type": "integer", "minimum": 0 },
+          "created_at": { "type": ["string", "null"] }, "updated_at": { "type": ["string", "null"] }
+        }, "additionalProperties": false
+      },
+      "DicomStudyListResponse": { "type": "object", "required": ["resource_type", "patient_id", "data", "pagination"], "properties": {
+        "resource_type": { "const": "dicom_study" }, "patient_id": { "type": "integer" }, "data": { "type": "array", "items": { "$ref": "#/components/schemas/DicomStudyMetadata" } },
+        "pagination": { "$ref": "#/components/schemas/Pagination" } }, "additionalProperties": false },
+      "DicomStudyResponse": { "type": "object", "required": ["resource_type", "patient_id", "data"], "properties": {
+        "resource_type": { "const": "dicom_study" }, "patient_id": { "type": "integer" }, "data": { "$ref": "#/components/schemas/DicomStudyMetadata" } }, "additionalProperties": false },
+      "DicomSeriesMetadata": {
+        "type": "object", "description": "Series-level DICOM metadata without pixels, instance metadata, storage keys, source paths, or user identifiers.",
+        "required": ["id", "patient_id", "study_id", "series_instance_uid", "modality", "series_number", "description", "body_part", "instance_count", "created_at", "updated_at"],
+        "properties": {
+          "id": { "type": "integer" }, "patient_id": { "type": "integer" }, "study_id": { "type": "integer" }, "series_instance_uid": { "type": "string" },
+          "modality": { "type": ["string", "null"] }, "series_number": { "type": ["integer", "null"] }, "description": { "type": ["string", "null"] }, "body_part": { "type": ["string", "null"] },
+          "instance_count": { "type": "integer", "minimum": 0 }, "created_at": { "type": ["string", "null"] }, "updated_at": { "type": ["string", "null"] }
+        }, "additionalProperties": false
+      },
+      "DicomSeriesListResponse": { "type": "object", "required": ["resource_type", "patient_id", "study_id", "data", "pagination"], "properties": {
+        "resource_type": { "const": "dicom_series" }, "patient_id": { "type": "integer" }, "study_id": { "type": "integer" }, "data": { "type": "array", "items": { "$ref": "#/components/schemas/DicomSeriesMetadata" } },
+        "pagination": { "$ref": "#/components/schemas/Pagination" } }, "additionalProperties": false },
+      "DicomUploadSession": {
+        "type": "object", "description": "DICOM upload progress without storage locations, uploader identity, source file paths, manifests, or parser errors.",
+        "required": ["id", "patient_id", "status", "original_root_name", "total_files", "stored_files", "skipped_files", "total_bytes", "stored_bytes", "created_at", "updated_at"],
+        "properties": {
+          "id": { "type": "integer" }, "patient_id": { "type": "integer" }, "status": { "type": "string", "enum": ["pending", "processed", "failed"] },
+          "original_root_name": { "type": ["string", "null"] }, "total_files": { "type": "integer", "minimum": 0 }, "stored_files": { "type": "integer", "minimum": 0 }, "skipped_files": { "type": "integer", "minimum": 0 },
+          "total_bytes": { "type": "integer", "minimum": 0 }, "stored_bytes": { "type": "integer", "minimum": 0 }, "created_at": { "type": ["string", "null"] }, "updated_at": { "type": ["string", "null"] }
+        }, "additionalProperties": false
+      },
+      "DicomUploadLimits": { "type": "object", "required": ["max_file_bytes", "max_file_size_label", "direct_upload"], "properties": {
+        "max_file_bytes": { "type": "integer", "minimum": 1 }, "max_file_size_label": { "type": "string" }, "direct_upload": { "const": true } }, "additionalProperties": false },
+      "DicomUploadOpenResponse": { "type": "object", "required": ["resource_type", "patient_id", "data", "limits"], "properties": {
+        "resource_type": { "const": "dicom_upload" }, "patient_id": { "type": "integer" }, "data": { "$ref": "#/components/schemas/DicomUploadSession" }, "limits": { "$ref": "#/components/schemas/DicomUploadLimits" } }, "additionalProperties": false },
+      "DicomUploadFileResult": { "type": "object", "required": ["stored", "skipped_reason", "study_id"], "properties": {
+        "stored": { "type": "boolean" }, "skipped_reason": { "type": ["string", "null"], "enum": ["auxiliary_file", "upload_error", "missing_temp_file", "not_dicom", "duplicate_sop_instance", null] },
+        "study_id": { "type": ["integer", "null"] } }, "additionalProperties": false },
+      "DicomUploadFileResponse": { "type": "object", "required": ["resource_type", "patient_id", "upload_id", "result", "data"], "properties": {
+        "resource_type": { "const": "dicom_upload_file" }, "patient_id": { "type": "integer" }, "upload_id": { "type": "integer" }, "result": { "$ref": "#/components/schemas/DicomUploadFileResult" }, "data": { "$ref": "#/components/schemas/DicomUploadSession" } }, "additionalProperties": false },
+      "DicomUploadFinalizeResponse": { "type": "object", "required": ["resource_type", "patient_id", "duplicate_upload", "data"], "properties": {
+        "resource_type": { "const": "dicom_upload" }, "patient_id": { "type": "integer" }, "duplicate_upload": { "type": "boolean" }, "data": { "$ref": "#/components/schemas/DicomUploadSession" } }, "additionalProperties": false },
+      "DicomUploadCancelResponse": { "type": "object", "required": ["resource_type", "patient_id", "data"], "properties": {
+        "resource_type": { "const": "dicom_upload" }, "patient_id": { "type": "integer" }, "data": { "$ref": "#/components/schemas/DicomUploadSession" } }, "additionalProperties": false },
       "ImportJobStatus": { "type": "string", "enum": ["pending", "processing", "parsed", "imported", "failed", "queued_tomorrow"] },
       "ImportResultStatus": { "type": "string", "enum": ["pending_review", "imported", "skipped"] },
       "ImportJobMetadata": {

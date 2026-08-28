@@ -232,6 +232,45 @@ final class AgentMcpReadTools
     }
 
     /** @return array<string, mixed> */
+    public function dicomStudiesList(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1, maximum: 100)] int $limit = 25,
+        #[Schema(maxLength: 2048)] ?string $cursor = null,
+        #[Schema(format: 'date-time')] ?string $updated_after = null,
+        #[Schema(format: 'date-time')] ?string $updated_before = null,
+        #[Schema(maxLength: 16)] ?string $modality = null,
+        #[Schema(format: 'date')] ?string $date_from = null,
+        #[Schema(format: 'date')] ?string $date_to = null,
+    ): array {
+        return $this->api->dicomStudies(
+            $patient_id, $limit, $cursor, $updated_after, $updated_before, $modality, $date_from, $date_to,
+        )->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function dicomStudiesGet(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $study_id,
+    ): array {
+        return $this->api->dicomStudy($patient_id, $study_id)->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function dicomSeriesList(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $study_id,
+        #[Schema(minimum: 1, maximum: 100)] int $limit = 25,
+        #[Schema(maxLength: 2048)] ?string $cursor = null,
+        #[Schema(format: 'date-time')] ?string $updated_after = null,
+        #[Schema(format: 'date-time')] ?string $updated_before = null,
+        #[Schema(maxLength: 16)] ?string $modality = null,
+    ): array {
+        return $this->api->dicomSeries(
+            $patient_id, $study_id, $limit, $cursor, $updated_after, $updated_before, $modality,
+        )->toArray();
+    }
+
+    /** @return array<string, mixed> */
     public function importsList(
         #[Schema(minimum: 1)] int $patient_id,
         #[Schema(minimum: 1, maximum: 100)] int $limit = 25,

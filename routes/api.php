@@ -6,6 +6,8 @@ use App\Http\Controllers\Api\UserAiModelsController;
 use App\Http\Controllers\Api\UserDeviceController;
 use App\Http\Controllers\Api\V1\AgentClinicalReadController;
 use App\Http\Controllers\Api\V1\AgentClinicalWriteController;
+use App\Http\Controllers\Api\V1\AgentDicomController;
+use App\Http\Controllers\Api\V1\AgentDicomUploadController;
 use App\Http\Controllers\Api\V1\AgentDiscoveryController;
 use App\Http\Controllers\Api\V1\AgentDocumentController;
 use App\Http\Controllers\Api\V1\AgentEvidenceController;
@@ -169,6 +171,30 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         Route::post('/patients/{patient}/respiratory-events/batch', [AgentRespiratoryEventController::class, 'batch'])
             ->whereNumber('patient')->middleware('throttle:agent-api')
             ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))->name('respiratory-events.batch');
+
+        // DICOM metadata remains bounded; file bytes are sent one-at-a-time to a
+        // short-lived upload session and are never returned by these endpoints.
+        Route::get('/patients/{patient}/dicom/studies', [AgentDicomController::class, 'index'])
+            ->whereNumber('patient')->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))->name('dicom-studies.index');
+        Route::get('/patients/{patient}/dicom/studies/{study}', [AgentDicomController::class, 'show'])
+            ->whereNumber(['patient', 'study'])->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))->name('dicom-studies.show');
+        Route::get('/patients/{patient}/dicom/studies/{study}/series', [AgentDicomController::class, 'series'])
+            ->whereNumber(['patient', 'study'])->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))->name('dicom-series.index');
+        Route::post('/patients/{patient}/dicom/uploads', [AgentDicomUploadController::class, 'open'])
+            ->whereNumber('patient')->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))->name('dicom-uploads.open');
+        Route::post('/patients/{patient}/dicom/uploads/{upload}/files', [AgentDicomUploadController::class, 'storeFile'])
+            ->whereNumber(['patient', 'upload'])->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))->name('dicom-uploads.files.store');
+        Route::post('/patients/{patient}/dicom/uploads/{upload}/finalize', [AgentDicomUploadController::class, 'finalize'])
+            ->whereNumber(['patient', 'upload'])->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))->name('dicom-uploads.finalize');
+        Route::post('/patients/{patient}/dicom/uploads/{upload}/cancel', [AgentDicomUploadController::class, 'cancel'])
+            ->whereNumber(['patient', 'upload'])->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))->name('dicom-uploads.cancel');
 
         Route::get('/patients/{patient}/{resource}', [AgentClinicalReadController::class, 'index'])
             ->whereNumber('patient')
