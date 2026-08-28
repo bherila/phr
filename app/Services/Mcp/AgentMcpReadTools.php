@@ -271,6 +271,14 @@ final class AgentMcpReadTools
     }
 
     /** @return array<string, mixed> */
+    public function reconciliationsPreview(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(enum: ['meritain-eob-visits', 'meritain-eob-allergy-procedures', 'delta-dental-eob-visits'])] string $reconciliation,
+    ): array {
+        return $this->api->reconciliationPreview($patient_id, $reconciliation)->toArray();
+    }
+
+    /** @return array<string, mixed> */
     public function importsList(
         #[Schema(minimum: 1)] int $patient_id,
         #[Schema(minimum: 1, maximum: 100)] int $limit = 25,

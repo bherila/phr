@@ -106,6 +106,8 @@ class AgentDiscoveryController extends Controller
                 'dicom_uploads.upload_file' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_WRITE],
                 'dicom_uploads.finalize' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_WRITE],
                 'dicom_uploads.cancel' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_WRITE],
+                'reconciliations.preview' => ['available' => true, 'scope' => AgentApiScopes::RECONCILIATION_READ],
+                'reconciliations.apply' => ['available' => true, 'scope' => AgentApiScopes::RECONCILIATION_WRITE],
                 'imports.list' => ['available' => true, 'scope' => AgentApiScopes::IMPORTS_READ],
                 'imports.get' => ['available' => true, 'scope' => AgentApiScopes::IMPORTS_READ],
                 'imports.create' => ['available' => true, 'scope' => AgentApiScopes::IMPORTS_WRITE],

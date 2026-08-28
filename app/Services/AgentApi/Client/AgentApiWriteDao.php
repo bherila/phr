@@ -90,6 +90,15 @@ final readonly class AgentApiWriteDao
         ), ['resource_type', 'patient_id', 'data']);
     }
 
+    public function reconciliationApply(int $patientId, string $reconciliation, string $previewDigest): AgentApiPayload
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'POST',
+            "patients/{$patientId}/reconciliations/{$reconciliation}/apply",
+            json: ['preview_digest' => $previewDigest],
+        ), ['resource_type', 'patient_id', 'outcome', 'data']);
+    }
+
     public function importCreate(int $patientId, int $documentId): AgentImportPayload
     {
         return AgentImportPayload::mutation($this->transport->send(

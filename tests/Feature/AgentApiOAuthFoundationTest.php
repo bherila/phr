@@ -291,6 +291,8 @@ class AgentApiOAuthFoundationTest extends TestCase
             'imports.get',
             'imports.retry',
             'imports.review',
+            'reconciliations.preview',
+            'reconciliations.apply',
             'dicom_studies.list',
             'dicom_studies.get',
             'dicom_series.list',
