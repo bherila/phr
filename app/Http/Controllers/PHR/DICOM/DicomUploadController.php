@@ -8,7 +8,7 @@ use App\Http\Requests\PHR\DICOM\StoreDicomUploadFileRequest;
 use App\Models\PhrDicomUpload;
 use App\Models\PhrPatient;
 use App\Services\PHR\Access\PhrPatientAccessService;
-use App\Services\PHR\DICOM\DicomUploadLimits;
+use App\Services\PHR\DICOM\DicomUploadPresenter;
 use App\Services\PHR\DICOM\DicomUploadProcessor;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,6 +19,7 @@ class DicomUploadController extends Controller
     public function __construct(
         private readonly DicomUploadProcessor $uploadProcessor,
         private readonly PhrPatientAccessService $accessService,
+        private readonly DicomUploadPresenter $uploadPresenter,
     ) {}
 
     /**
@@ -33,8 +34,8 @@ class DicomUploadController extends Controller
         $upload = $this->uploadProcessor->openUpload($patientModel, (int) $request->user()?->id, $rootName);
 
         return response()->json([
-            'upload' => $this->uploadPayload($upload),
-            'limits' => $this->uploadLimitsPayload(),
+            'upload' => $this->uploadPresenter->payload($upload),
+            'limits' => $this->uploadPresenter->limitsPayload(),
         ], 201);
     }
 
@@ -57,7 +58,7 @@ class DicomUploadController extends Controller
 
         return response()->json([
             'result' => $result,
-            'upload' => $this->uploadPayload($session->refresh()),
+            'upload' => $this->uploadPresenter->payload($session->refresh()),
         ]);
     }
 
@@ -74,7 +75,7 @@ class DicomUploadController extends Controller
         }
 
         return response()->json([
-            'upload' => $this->uploadPayload($session),
+            'upload' => $this->uploadPresenter->payload($session),
             'duplicate_upload' => $this->uploadProcessor->isDuplicateUploadDiscard($session),
         ]);
     }
@@ -92,7 +93,7 @@ class DicomUploadController extends Controller
             $session->refresh();
         }
 
-        return response()->json(['upload' => $this->uploadPayload($session)]);
+        return response()->json(['upload' => $this->uploadPresenter->payload($session)]);
     }
 
     private function resolvePatient(Request $request, int $patient): PhrPatient
@@ -107,43 +108,5 @@ class DicomUploadController extends Controller
         return PhrDicomUpload::query()
             ->where('patient_id', $patient->id)
             ->findOrFail($uploadId);
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function uploadPayload(PhrDicomUpload $upload): array
-    {
-        return [
-            'id' => $upload->id,
-            'patient_id' => $upload->patient_id,
-            'uploaded_by_user_id' => $upload->uploaded_by_user_id,
-            'status' => $upload->status,
-            'original_root_name' => $upload->original_root_name,
-            'total_files' => $upload->total_files,
-            'stored_files' => $upload->stored_files,
-            'skipped_files' => $upload->skipped_files,
-            'total_bytes' => $upload->total_bytes,
-            'stored_bytes' => $upload->stored_bytes,
-            'manifest_json' => $upload->manifest_json,
-            'skipped_files_json' => $upload->skipped_files_json,
-            'error_message' => $upload->error_message,
-            'created_at' => $upload->created_at?->toDateTimeString(),
-            'updated_at' => $upload->updated_at?->toDateTimeString(),
-        ];
-    }
-
-    /**
-     * @return array{max_file_bytes: int, max_file_size_label: string, direct_upload: bool}
-     */
-    private function uploadLimitsPayload(): array
-    {
-        $maxFileBytes = DicomUploadLimits::maxMultipartFileBytes();
-
-        return [
-            'max_file_bytes' => $maxFileBytes,
-            'max_file_size_label' => DicomUploadLimits::formatBytes($maxFileBytes),
-            'direct_upload' => true,
-        ];
     }
 }

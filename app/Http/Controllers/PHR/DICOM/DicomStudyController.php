@@ -7,6 +7,7 @@ use App\Models\PhrDicomInstance;
 use App\Models\PhrDicomSeries;
 use App\Models\PhrDicomStudy;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Services\PHR\DICOM\DicomStudyPresenter;
 use App\Services\PHR\DICOM\DicomUploadProcessor;
 use App\Services\PHR\DICOM\VolumeCacheService;
 use App\Services\PHR\DICOM\VolumeSeriesInspector;
@@ -18,6 +19,7 @@ class DicomStudyController extends Controller
     public function __construct(
         private PhrPatientAccessService $accessService,
         private DicomUploadProcessor $uploadProcessor,
+        private DicomStudyPresenter $studyPresenter,
         private VolumeSeriesInspector $volumeSeriesInspector,
         private VolumeCacheService $volumeCacheService,
     ) {}
@@ -27,23 +29,14 @@ class DicomStudyController extends Controller
         $userId = (int) $request->user()?->id;
         $resolvedPatient = $this->accessService->accessiblePatient($patient, $userId);
 
-        $studies = PhrDicomStudy::query()
-            ->select('phr_dicom_studies.*')
-            ->selectSub(
-                PhrDicomInstance::query()
-                    ->join('phr_dicom_files', 'phr_dicom_files.id', '=', 'phr_dicom_instances.file_id')
-                    ->selectRaw('COALESCE(SUM(phr_dicom_files.file_size_bytes), 0)')
-                    ->whereColumn('phr_dicom_instances.study_id', 'phr_dicom_studies.id'),
-                'file_size_bytes',
-            )
+        $studies = $this->studyPresenter->withSummaryMetrics(PhrDicomStudy::query())
             ->forPatient((int) $resolvedPatient->id)
-            ->withCount(['series', 'instances'])
             ->orderByDesc('study_date')
             ->orderByDesc('study_time')
             ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->get()
-            ->map(fn (PhrDicomStudy $study): array => $this->studyPayload($study))
+            ->map(fn (PhrDicomStudy $study): array => $this->studyPresenter->payload($study))
             ->values();
 
         return response()->json(['studies' => $studies]);
@@ -54,20 +47,11 @@ class DicomStudyController extends Controller
         $userId = (int) $request->user()?->id;
         $resolvedPatient = $this->accessService->accessiblePatient($patient, $userId);
 
-        $resolvedStudy = PhrDicomStudy::query()
-            ->select('phr_dicom_studies.*')
-            ->selectSub(
-                PhrDicomInstance::query()
-                    ->join('phr_dicom_files', 'phr_dicom_files.id', '=', 'phr_dicom_instances.file_id')
-                    ->selectRaw('COALESCE(SUM(phr_dicom_files.file_size_bytes), 0)')
-                    ->whereColumn('phr_dicom_instances.study_id', 'phr_dicom_studies.id'),
-                'file_size_bytes',
-            )
+        $resolvedStudy = $this->studyPresenter->withSummaryMetrics(PhrDicomStudy::query())
             ->forPatient((int) $resolvedPatient->id)
-            ->withCount(['series', 'instances'])
             ->findOrFail($study);
 
-        return response()->json(['study' => $this->studyPayload($resolvedStudy)]);
+        return response()->json(['study' => $this->studyPresenter->payload($resolvedStudy)]);
     }
 
     public function viewerJson(Request $request, int $patient, int $study): JsonResponse
@@ -113,29 +97,6 @@ class DicomStudyController extends Controller
             ...$inspection,
             'cache' => $this->volumeCacheService->manifestPayload($resolvedSeries, (int) $resolvedPatient->id),
         ])->header('Cache-Control', 'no-store');
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function studyPayload(PhrDicomStudy $study): array
-    {
-        return [
-            'id' => $study->id,
-            'patient_id' => $study->patient_id,
-            'upload_id' => $study->upload_id,
-            'study_instance_uid' => $study->study_instance_uid,
-            'study_date' => $study->study_date?->toDateString(),
-            'study_time' => $study->study_time,
-            'accession_number' => $study->accession_number,
-            'description' => $study->description,
-            'modalities' => $study->modalities,
-            'series_count' => (int) ($study->series_count ?? 0),
-            'instance_count' => (int) ($study->instances_count ?? 0),
-            'file_size_bytes' => (int) ($study->getAttribute('file_size_bytes') ?? 0),
-            'created_at' => $study->created_at?->toDateTimeString(),
-            'updated_at' => $study->updated_at?->toDateTimeString(),
-        ];
     }
 
     /**

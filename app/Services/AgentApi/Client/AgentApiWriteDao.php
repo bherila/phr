@@ -4,6 +4,7 @@ namespace App\Services\AgentApi\Client;
 
 use App\DataTransferObjects\AgentApi\ClinicalRecordUpdateData;
 use App\DataTransferObjects\AgentApi\ClinicalUpsertData;
+use App\DataTransferObjects\AgentApi\DicomUploadFileData;
 use App\DataTransferObjects\AgentApi\DocumentUploadData;
 use App\DataTransferObjects\AgentApi\HealthLogCreateData;
 use App\DataTransferObjects\AgentApi\HealthLogEntryAppendData;
@@ -53,6 +54,40 @@ final readonly class AgentApiWriteDao
             "patients/{$patientId}/documents",
             multipart: $data->toMultipart(),
         ));
+    }
+
+    public function dicomUploadOpen(int $patientId, ?string $rootName): AgentApiPayload
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'POST',
+            "patients/{$patientId}/dicom/uploads",
+            json: ['root_name' => $rootName],
+        ), ['resource_type', 'patient_id', 'data', 'limits']);
+    }
+
+    public function dicomUploadFile(int $patientId, int $uploadId, DicomUploadFileData $data): AgentApiPayload
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'POST',
+            "patients/{$patientId}/dicom/uploads/{$uploadId}/files",
+            multipart: $data->toMultipart(),
+        ), ['resource_type', 'patient_id', 'upload_id', 'result', 'data']);
+    }
+
+    public function dicomUploadFinalize(int $patientId, int $uploadId): AgentApiPayload
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'POST',
+            "patients/{$patientId}/dicom/uploads/{$uploadId}/finalize",
+        ), ['resource_type', 'patient_id', 'duplicate_upload', 'data']);
+    }
+
+    public function dicomUploadCancel(int $patientId, int $uploadId): AgentApiPayload
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'POST',
+            "patients/{$patientId}/dicom/uploads/{$uploadId}/cancel",
+        ), ['resource_type', 'patient_id', 'data']);
     }
 
     public function importCreate(int $patientId, int $documentId): AgentImportPayload

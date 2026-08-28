@@ -4,6 +4,7 @@ namespace App\Services\Mcp;
 
 use App\DataTransferObjects\AgentApi\ClinicalRecordUpdateData;
 use App\DataTransferObjects\AgentApi\ClinicalUpsertData;
+use App\DataTransferObjects\AgentApi\DicomUploadFileData;
 use App\DataTransferObjects\AgentApi\DocumentUploadData;
 use App\DataTransferObjects\AgentApi\HealthLogCreateData;
 use App\DataTransferObjects\AgentApi\HealthLogEntryAppendData;
@@ -121,6 +122,51 @@ final readonly class AgentMcpWriteTools
         }
 
         return $this->api->documentUpload($patient_id, $command)->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function dicomUploadsOpen(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(maxLength: 255)] ?string $root_name = null,
+    ): array {
+        return $this->api->dicomUploadOpen($patient_id, $root_name)->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function dicomUploadsUploadFile(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $upload_id,
+        #[Schema(minLength: 1, maxLength: 255, pattern: '^[^\\p{C}]+$')] string $filename,
+        #[Schema(minLength: 4, maxLength: DicomUploadFileData::MCP_MAX_BASE64_CHARACTERS, pattern: '^[A-Za-z0-9+/]*={0,2}$')] string $content_base64,
+        #[Schema(maxLength: 1024)] ?string $relative_path = null,
+    ): array {
+        try {
+            $file = DicomUploadFileData::fromBase64([
+                'filename' => $filename,
+                'content_base64' => $content_base64,
+                'relative_path' => $relative_path,
+            ]);
+        } catch (\InvalidArgumentException) {
+            throw new ToolCallException('The DICOM content is invalid or too large for MCP.');
+        }
+
+        return $this->api->dicomUploadFile($patient_id, $upload_id, $file)->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function dicomUploadsFinalize(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $upload_id,
+    ): array {
+        return $this->api->dicomUploadFinalize($patient_id, $upload_id)->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function dicomUploadsCancel(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $upload_id,
+    ): array {
+        return $this->api->dicomUploadCancel($patient_id, $upload_id)->toArray();
     }
 
     /** @return array<string, mixed> */

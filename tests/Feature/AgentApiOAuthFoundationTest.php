@@ -291,6 +291,13 @@ class AgentApiOAuthFoundationTest extends TestCase
             'imports.get',
             'imports.retry',
             'imports.review',
+            'dicom_studies.list',
+            'dicom_studies.get',
+            'dicom_series.list',
+            'dicom_uploads.open',
+            'dicom_uploads.upload_file',
+            'dicom_uploads.finalize',
+            'dicom_uploads.cancel',
             'health_logs.create',
             'health_log_entries.list',
             'health_log_entries.append',
@@ -338,6 +345,14 @@ class AgentApiOAuthFoundationTest extends TestCase
         $this->assertSame(
             [AgentApiScopes::DOCUMENTS_WRITE],
             $document['paths']['/patients/{patient}/documents']['post']['security'][0]['oauth2'],
+        );
+        $this->assertSame(
+            [AgentApiScopes::CLINICAL_READ],
+            $document['paths']['/patients/{patient}/dicom/studies']['get']['security'][0]['oauth2'],
+        );
+        $this->assertSame(
+            [AgentApiScopes::CLINICAL_WRITE],
+            $document['paths']['/patients/{patient}/dicom/uploads']['post']['security'][0]['oauth2'],
         );
         $this->assertSame(
             [AgentApiScopes::IMPORTS_READ],

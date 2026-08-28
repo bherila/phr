@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Services\PHR\DICOM\DicomUploadLimits;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use App\Support\PHR\PhrDocumentUploadLimits;
@@ -37,6 +38,7 @@ class AgentDiscoveryController extends Controller
                 'default_page_size' => 25,
                 'maximum_page_size' => 100,
                 'maximum_document_upload_bytes' => PhrDocumentUploadLimits::MAX_BYTES,
+                'maximum_dicom_upload_file_bytes' => DicomUploadLimits::maxMultipartFileBytes(),
             ],
             'workflow' => [
                 'patient_selection' => [
@@ -97,6 +99,13 @@ class AgentDiscoveryController extends Controller
                 'documents.get' => ['available' => true, 'scope' => AgentApiScopes::DOCUMENTS_READ],
                 'documents.download_access.create' => ['available' => true, 'scope' => AgentApiScopes::DOCUMENTS_READ],
                 'documents.download' => ['available' => true, 'scope' => AgentApiScopes::DOCUMENTS_READ],
+                'dicom_studies.list' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
+                'dicom_studies.get' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
+                'dicom_series.list' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
+                'dicom_uploads.open' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_WRITE],
+                'dicom_uploads.upload_file' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_WRITE],
+                'dicom_uploads.finalize' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_WRITE],
+                'dicom_uploads.cancel' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_WRITE],
                 'imports.list' => ['available' => true, 'scope' => AgentApiScopes::IMPORTS_READ],
                 'imports.get' => ['available' => true, 'scope' => AgentApiScopes::IMPORTS_READ],
                 'imports.create' => ['available' => true, 'scope' => AgentApiScopes::IMPORTS_WRITE],
