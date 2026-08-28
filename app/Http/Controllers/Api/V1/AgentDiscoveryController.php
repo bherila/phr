@@ -89,6 +89,7 @@ class AgentDiscoveryController extends Controller
                 ],
                 'records.search' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
                 'timeline.list' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
+                'changes.list' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
                 'eobs.list' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
                 'eobs.get' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
                 'eob_lines.list' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
@@ -140,6 +141,7 @@ class AgentDiscoveryController extends Controller
                     'resource_type', 'q', 'date_from', 'date_to', 'provider', 'facility',
                     'code', 'source', 'review_status', 'updated_after', 'updated_before',
                 ],
+                'change_feed' => ['limit', 'cursor', 'resource_type', 'updated_after', 'watermark'],
             ],
         ])->withHeaders([
             'Cache-Control' => 'public, max-age=300',

@@ -10,6 +10,8 @@ use App\Support\AgentApi\AgentRecordSearchCatalog;
 use App\Support\PHR\PhrRecordLifecycle;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -37,6 +39,58 @@ final class AgentRecordSearchController extends Controller
     public function timeline(Request $request, int $patient): JsonResponse
     {
         return $this->respond($request, $patient, 'timeline');
+    }
+
+    /**
+     * Return current resource states that changed within a fixed snapshot.
+     * Removed/retracted records become tombstones so a synchronizer never has
+     * to infer deletion from their absence in an ordinary list response.
+     */
+    public function changes(Request $request, int $patient): JsonResponse
+    {
+        $validated = $request->validate([
+            'limit' => ['sometimes', 'integer', 'between:1,100'],
+            'cursor' => ['sometimes', 'string', 'max:2048'],
+            'resource_type' => ['sometimes', 'array', 'min:1', 'max:9'],
+            'resource_type.*' => ['string', 'distinct', Rule::in(AgentRecordSearchCatalog::ids())],
+            'updated_after' => ['sometimes', 'date'],
+            'watermark' => ['sometimes', 'date'],
+        ]);
+        $resolvedPatient = $this->accessService->accessiblePatientWithCurrentGrant(
+            $patient,
+            (int) $request->user('api')?->id,
+        );
+        $limit = (int) ($validated['limit'] ?? 25);
+        $cursor = AgentRecordCursor::decode(isset($validated['cursor']) ? (string) $validated['cursor'] : null);
+        $watermark = Carbon::parse((string) ($validated['watermark'] ?? now()))->utc();
+        $records = collect();
+
+        foreach ($validated['resource_type'] ?? AgentRecordSearchCatalog::ids() as $type) {
+            $records = $records->concat($this->changesForType(
+                (string) $type,
+                AgentRecordSearchCatalog::definition((string) $type),
+                (int) $resolvedPatient->id,
+                $validated,
+                $cursor,
+                $watermark,
+                $limit + 1,
+            ));
+        }
+        $ordered = $records->sort(fn (array $left, array $right): int => $this->compare($left, $right))->values();
+        $hasMore = $ordered->count() > $limit;
+        $page = $ordered->take($limit)->values();
+        $last = $page->last();
+
+        return response()->json([
+            'patient_id' => (int) $resolvedPatient->id,
+            'data' => $page->map(fn (array $change): array => $change['payload'])->values(),
+            'pagination' => [
+                'limit' => $limit,
+                'has_more' => $hasMore,
+                'next_cursor' => $hasMore && is_array($last) ? AgentRecordCursor::encode($last['cursor']) : null,
+                'watermark' => $watermark->toIso8601String(),
+            ],
+        ]);
     }
 
     private function respond(Request $request, int $patient, string $view): JsonResponse
@@ -146,6 +200,66 @@ final class AgentRecordSearchController extends Controller
             ->limit($limit)
             ->get() as $record) {
             $records[] = $this->project($type, $definition, $record);
+        }
+
+        return collect($records);
+    }
+
+    /**
+     * @param  SearchDefinition  $definition
+     * @param  array<string, mixed>  $validated
+     * @param  RecordCursor|null  $cursor
+     * @return Collection<int, array{cursor: RecordCursor, payload: array{resource_type: string, id: int, patient_id: int, change_type: string, changed_at: string, data?: array<string, mixed>}}>
+     */
+    private function changesForType(
+        string $type,
+        array $definition,
+        int $patientId,
+        array $validated,
+        ?array $cursor,
+        Carbon $watermark,
+        int $limit,
+    ): Collection {
+        /** @var class-string<Model> $modelClass */
+        $modelClass = $definition['model'];
+        $model = new $modelClass;
+        $updatedAt = $model->qualifyColumn('updated_at');
+        $query = $modelClass::query();
+        if (in_array(SoftDeletes::class, class_uses_recursive($modelClass), true)) {
+            $query->withoutGlobalScope(SoftDeletingScope::class);
+        }
+        $query
+            ->where($model->qualifyColumn('patient_id'), $patientId)
+            ->addSelect($model->qualifyColumn('*'))
+            ->selectRaw("{$updatedAt} as agent_event_at")
+            ->where($updatedAt, '<=', $watermark);
+        if (isset($validated['updated_after'])) {
+            $query->where($updatedAt, '>=', Carbon::parse((string) $validated['updated_after'])->utc());
+        }
+        $this->applyCursor($query, $type, $cursor, $updatedAt, $model->qualifyColumn('id'));
+
+        $records = [];
+        foreach ($query->orderByDesc($updatedAt)->orderByDesc($model->qualifyColumn('id'))->limit($limit)->get() as $record) {
+            $projected = $this->project($type, $definition, $record);
+            $lifecycle = PhrRecordLifecycle::of($record);
+            $eventAt = (string) $record->getAttribute('agent_event_at');
+            $payload = $lifecycle === PhrRecordLifecycle::ACTIVE
+                ? [
+                    'resource_type' => $type,
+                    'id' => (int) $record->getKey(),
+                    'patient_id' => $patientId,
+                    'change_type' => 'upsert',
+                    'changed_at' => Carbon::parse($eventAt)->toIso8601String(),
+                    'data' => $projected['payload'],
+                ]
+                : [
+                    'resource_type' => $type,
+                    'id' => (int) $record->getKey(),
+                    'patient_id' => $patientId,
+                    'change_type' => $lifecycle,
+                    'changed_at' => Carbon::parse($eventAt)->toIso8601String(),
+                ];
+            $records[] = ['cursor' => $projected['cursor'], 'payload' => $payload];
         }
 
         return collect($records);

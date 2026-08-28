@@ -106,6 +106,11 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
             ->middleware('throttle:agent-api')
             ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))
             ->name('timeline.index');
+        Route::get('/patients/{patient}/changes', [AgentRecordSearchController::class, 'changes'])
+            ->whereNumber('patient')
+            ->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))
+            ->name('changes.index');
 
         Route::get('/patients/{patient}/eobs', [AgentEvidenceController::class, 'eobs'])
             ->whereNumber('patient')->middleware('throttle:agent-api')

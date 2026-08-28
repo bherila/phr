@@ -18,6 +18,7 @@ final class AgentMcpToolCatalog
             $this->method('patients.get', 'Get patient', 'Get one accessible patient and its current access metadata.', $reads, 'patientsGet'),
             $this->method('records.search', 'Search records', 'Search clinical records using the versioned REST filters and cursor pagination.', $reads, 'recordsSearch'),
             $this->method('timeline.list', 'List timeline', 'List a patient timeline using the versioned REST filters and cursor pagination.', $reads, 'timelineList'),
+            $this->method('changes.list', 'List changes', 'List bounded clinical change states for one patient. Reuse the returned watermark with every cursor page; deleted and retracted records are tombstones.', $reads, 'changesList'),
             $this->method('eobs.list', 'List EOBs', 'List explanation-of-benefits records for an accessible patient.', $reads, 'eobsList'),
             $this->method('eobs.get', 'Get EOB', 'Get one explanation-of-benefits record for an accessible patient.', $reads, 'eobsGet'),
             $this->method('eob_lines.list', 'List EOB lines', 'List line items for one accessible explanation-of-benefits record.', $reads, 'eobLinesList'),

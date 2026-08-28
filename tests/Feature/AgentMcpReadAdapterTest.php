@@ -215,6 +215,7 @@ final class AgentMcpReadAdapterTest extends TestCase
             'reconciliations.preview', 'reconciliations.apply',
             'exports.list', 'exports.create', 'exports.download_access.create',
             'native_backups.list', 'native_backups.create', 'native_backups.download_access.create',
+            'changes.list',
             'imports.list', 'imports.get', 'imports.create', 'imports.review', 'imports.retry',
             'health_logs.create', 'health_log_entries.list', 'health_log_entries.get',
             'health_log_entries.append', 'respiratory_events.list', 'respiratory_events.ingest',
@@ -224,7 +225,7 @@ final class AgentMcpReadAdapterTest extends TestCase
             $this->assertContains($name, $toolNames);
         }
         $this->assertCount(
-            41 + (count(AgentClinicalResourceCatalog::ids()) * 2) + (count(AgentClinicalResourceCatalog::writableIds()) * 4),
+            42 + (count(AgentClinicalResourceCatalog::ids()) * 2) + (count(AgentClinicalResourceCatalog::writableIds()) * 4),
             $toolNames,
         );
         $writeTools = [
