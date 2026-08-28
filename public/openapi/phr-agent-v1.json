@@ -125,6 +125,16 @@
         }
       }
     },
+    "/patients/{patient}/changes": {
+      "get": {
+        "operationId": "changes.list",
+        "summary": "List bounded clinical changes using a stable snapshot watermark",
+        "description": "Use the watermark returned by the first page for each following cursor page. Deleted and retracted resources are tombstones, never inferred from absence.",
+        "security": [{ "oauth2": ["clinical:read"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/ResourceTypes" }, { "$ref": "#/components/parameters/UpdatedAfter" }, { "$ref": "#/components/parameters/Watermark" }],
+        "responses": { "200": { "description": "Stable cursor-bounded clinical change page", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ChangeFeedResponse" } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
     "/patients/{patient}/eobs": {
       "get": {
         "operationId": "eobs.list", "summary": "List explanation-of-benefit records without raw parser payloads",
@@ -930,6 +940,7 @@
         "in": "query",
         "schema": { "type": "string", "format": "date-time" }
       },
+      "Watermark": { "name": "watermark", "in": "query", "description": "Snapshot watermark returned by the first changes.list page; keep it unchanged while following cursors.", "schema": { "type": "string", "format": "date-time" } },
       "ResourceTypes": {
         "name": "resource_type[]", "in": "query", "style": "form", "explode": true,
         "schema": { "type": "array", "minItems": 1, "maxItems": 9, "uniqueItems": true,
@@ -1475,6 +1486,11 @@
           "pagination": { "$ref": "#/components/schemas/Pagination" } },
         "additionalProperties": false
       },
+      "ChangeEntry": { "type": "object", "required": ["resource_type", "id", "patient_id", "change_type", "changed_at"], "properties": {
+        "resource_type": { "type": "string", "enum": ["office-visits", "procedures", "immunizations", "medications", "conditions", "allergies", "lab-results", "vitals", "health-logs"] }, "id": { "type": "integer" }, "patient_id": { "type": "integer" }, "change_type": { "type": "string", "enum": ["upsert", "retracted", "deleted"] }, "changed_at": { "type": "string", "format": "date-time" }, "data": { "$ref": "#/components/schemas/RecordSummary", "description": "Present for upsert only; omitted for retracted/deleted tombstones." }
+      }, "additionalProperties": false },
+      "ChangePagination": { "type": "object", "required": ["limit", "has_more", "next_cursor", "watermark"], "properties": { "limit": { "type": "integer", "minimum": 1, "maximum": 100 }, "has_more": { "type": "boolean" }, "next_cursor": { "type": ["string", "null"] }, "watermark": { "type": "string", "format": "date-time" } }, "additionalProperties": false },
+      "ChangeFeedResponse": { "type": "object", "required": ["patient_id", "data", "pagination"], "properties": { "patient_id": { "type": "integer" }, "data": { "type": "array", "items": { "$ref": "#/components/schemas/ChangeEntry" } }, "pagination": { "$ref": "#/components/schemas/ChangePagination" } }, "additionalProperties": false },
       "Eob": {
         "type": "object",
         "description": "Privacy-minimized EOB metadata. Raw text, parser data, member identifiers, tax identifiers, check numbers, and user identifiers are never returned.",

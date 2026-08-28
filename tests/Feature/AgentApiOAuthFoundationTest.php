@@ -276,6 +276,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             'patients.get',
             'records.search',
             'timeline.list',
+            'changes.list',
             'eobs.list',
             'eobs.get',
             'eob_lines.list',

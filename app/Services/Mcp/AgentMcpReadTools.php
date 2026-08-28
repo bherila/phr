@@ -94,6 +94,21 @@ final class AgentMcpReadTools
         );
     }
 
+    /**
+     * @param  list<string>|null  $resource_type
+     * @return array<string, mixed>
+     */
+    public function changesList(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1, maximum: 100)] int $limit = 25,
+        #[Schema(maxLength: 2048)] ?string $cursor = null,
+        #[Schema(minItems: 1, maxItems: 9, uniqueItems: true, items: ['type' => 'string'])] ?array $resource_type = null,
+        #[Schema(format: 'date-time')] ?string $updated_after = null,
+        #[Schema(format: 'date-time', description: 'Reuse the watermark from the first page until this sync pass completes.')] ?string $watermark = null,
+    ): array {
+        return $this->api->changes($patient_id, $limit, $cursor, $resource_type, $updated_after, $watermark)->toArray();
+    }
+
     public function clinicalListHandler(string $resource): Closure
     {
         return function (

@@ -140,6 +140,14 @@ token and read scope, so it is not a transferable file credential. Agent respons
 exclude storage paths, requestor identity, filenames, backend error text, native archive
 hashes, and record counts.
 
+`changes.list` is the incremental clinical synchronization surface. It is bounded
+to the same fixed clinical resource catalog as search, requires `clinical:read`, and
+returns an opaque cursor plus a snapshot watermark. A client retains that watermark
+for every following cursor page, avoiding skips caused by writes that arrive mid-sync.
+The feed returns the normal concise record projection for current data and a minimal
+tombstone for soft-deleted or source-retracted records; it never asks an agent to infer
+removal from an absent list item.
+
 External-ID resolution is a read, not a shortcut into the write surface. It matches on
 the same composite identity the upsert writes -- patient, client-namespaced import
 source, external ID -- so a connection can only ever resolve records it wrote itself. A
@@ -261,6 +269,9 @@ calling reconcilers or models directly.
 It likewise exposes the asynchronous export and native-backup status/request/download
 access tools through the typed REST client; raw archive bytes are never returned as MCP
 tool content.
+The `changes.list` tool uses the same REST feed and tells clients to carry the returned
+watermark across all cursor pages, rather than implementing a second synchronization
+path in the MCP server.
 
 The transport keeps the SDK's CORS, DNS-rebinding, and protocol-version protections,
 uses a 256 KiB request ceiling, and accepts cross-origin browser requests only from an

@@ -70,6 +70,24 @@ final class AgentApiReadDao
         ]);
     }
 
+    /** @param list<string>|null $resourceTypes */
+    public function changes(
+        int $patientId,
+        int $limit = 25,
+        ?string $cursor = null,
+        ?array $resourceTypes = null,
+        ?string $updatedAfter = null,
+        ?string $watermark = null,
+    ): AgentApiPayload {
+        return $this->page("patients/{$patientId}/changes", [
+            'limit' => $limit,
+            'cursor' => $cursor,
+            'resource_type' => $resourceTypes,
+            'updated_after' => $updatedAfter,
+            'watermark' => $watermark,
+        ]);
+    }
+
     public function clinicalRecords(
         int $patientId,
         string $resource,
