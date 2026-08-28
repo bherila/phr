@@ -58,6 +58,10 @@ final class AgentMcpReadAdapterTest extends TestCase
         $this->assertContains(AgentApiScopes::IMPORTS_WRITE, AgentApiScopes::ids());
         $this->assertArrayNotHasKey(AgentApiScopes::IMPORTS_READ, AgentApiScopes::reservedDescriptions());
         $this->assertArrayNotHasKey(AgentApiScopes::IMPORTS_WRITE, AgentApiScopes::reservedDescriptions());
+        $this->assertContains(AgentApiScopes::RECONCILIATION_READ, AgentApiScopes::ids());
+        $this->assertContains(AgentApiScopes::RECONCILIATION_WRITE, AgentApiScopes::ids());
+        $this->assertArrayNotHasKey(AgentApiScopes::RECONCILIATION_READ, AgentApiScopes::reservedDescriptions());
+        $this->assertArrayNotHasKey(AgentApiScopes::RECONCILIATION_WRITE, AgentApiScopes::reservedDescriptions());
 
         $this->getJson('/.well-known/oauth-protected-resource/api/v1/mcp')
             ->assertOk()
@@ -204,6 +208,7 @@ final class AgentMcpReadAdapterTest extends TestCase
             'office_visits.list', 'procedures.get', 'eobs.list', 'documents.get', 'documents.upload',
             'dicom_studies.list', 'dicom_studies.get', 'dicom_series.list', 'dicom_uploads.open', 'dicom_uploads.upload_file',
             'dicom_uploads.finalize', 'dicom_uploads.cancel',
+            'reconciliations.preview', 'reconciliations.apply',
             'imports.list', 'imports.get', 'imports.create', 'imports.review', 'imports.retry',
             'health_logs.create', 'health_log_entries.list', 'health_log_entries.get',
             'health_log_entries.append', 'respiratory_events.list', 'respiratory_events.ingest',
@@ -213,13 +218,14 @@ final class AgentMcpReadAdapterTest extends TestCase
             $this->assertContains($name, $toolNames);
         }
         $this->assertCount(
-            33 + (count(AgentClinicalResourceCatalog::ids()) * 2) + (count(AgentClinicalResourceCatalog::writableIds()) * 4),
+            35 + (count(AgentClinicalResourceCatalog::ids()) * 2) + (count(AgentClinicalResourceCatalog::writableIds()) * 4),
             $toolNames,
         );
         $writeTools = [
             'documents.upload', 'imports.create', 'imports.review', 'imports.retry',
             'health_logs.create', 'health_log_entries.append', 'respiratory_events.ingest',
             'dicom_uploads.open', 'dicom_uploads.upload_file', 'dicom_uploads.finalize', 'dicom_uploads.cancel',
+            'reconciliations.apply',
         ];
         foreach ($tools as $tool) {
             $this->assertSame(
@@ -233,7 +239,7 @@ final class AgentMcpReadAdapterTest extends TestCase
                 str_ends_with((string) $tool['name'], '.upsert')
                     || str_ends_with((string) $tool['name'], '.update')
                     || str_ends_with((string) $tool['name'], '.retract')
-                    || in_array($tool['name'], ['imports.review', 'imports.retry', 'dicom_uploads.finalize', 'dicom_uploads.cancel'], true),
+                    || in_array($tool['name'], ['imports.review', 'imports.retry', 'dicom_uploads.finalize', 'dicom_uploads.cancel', 'reconciliations.apply'], true),
                 $tool['annotations']['destructiveHint'] ?? null,
             );
             $this->assertTrue($tool['annotations']['idempotentHint'] ?? false);

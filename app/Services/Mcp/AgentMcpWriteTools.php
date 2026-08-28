@@ -170,6 +170,15 @@ final readonly class AgentMcpWriteTools
     }
 
     /** @return array<string, mixed> */
+    public function reconciliationsApply(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(enum: ['meritain-eob-visits', 'meritain-eob-allergy-procedures', 'delta-dental-eob-visits'])] string $reconciliation,
+        #[Schema(pattern: '^[a-f0-9]{64}$')] string $preview_digest,
+    ): array {
+        return $this->api->reconciliationApply($patient_id, $reconciliation, $preview_digest)->toArray();
+    }
+
+    /** @return array<string, mixed> */
     public function importsCreate(
         #[Schema(minimum: 1)] int $patient_id,
         #[Schema(minimum: 1)] int $document_id,

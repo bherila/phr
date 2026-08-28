@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\V1\AgentHealthLogController;
 use App\Http\Controllers\Api\V1\AgentImportController;
 use App\Http\Controllers\Api\V1\AgentMcpController;
 use App\Http\Controllers\Api\V1\AgentPatientController;
+use App\Http\Controllers\Api\V1\AgentReconciliationController;
 use App\Http\Controllers\Api\V1\AgentRecordSearchController;
 use App\Http\Controllers\Api\V1\AgentRespiratoryEventController;
 use App\Http\Controllers\Api\V1\AgentTokenController;
@@ -152,6 +153,13 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         Route::post('/patients/{patient}/imports/{import}/results/{result}/review', [AgentImportController::class, 'review'])
             ->whereNumber(['patient', 'import', 'result'])->middleware('throttle:agent-api')
             ->middleware(CheckToken::using(AgentApiScopes::IMPORTS_WRITE))->name('imports.results.review');
+
+        Route::get('/patients/{patient}/reconciliations/{reconciliation}/preview', [AgentReconciliationController::class, 'preview'])
+            ->whereNumber('patient')->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::RECONCILIATION_READ))->name('reconciliations.preview');
+        Route::post('/patients/{patient}/reconciliations/{reconciliation}/apply', [AgentReconciliationController::class, 'apply'])
+            ->whereNumber('patient')->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::RECONCILIATION_WRITE))->name('reconciliations.apply');
 
         Route::post('/patients/{patient}/health-logs', [AgentHealthLogController::class, 'store'])
             ->whereNumber('patient')->middleware('throttle:agent-api')

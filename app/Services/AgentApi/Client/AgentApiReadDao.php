@@ -241,6 +241,14 @@ final class AgentApiReadDao
         ]);
     }
 
+    public function reconciliationPreview(int $patientId, string $reconciliation): AgentApiPayload
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'GET',
+            "patients/{$patientId}/reconciliations/{$reconciliation}/preview",
+        ), ['resource_type', 'patient_id', 'data']);
+    }
+
     public function imports(
         int $patientId,
         int $limit = 25,

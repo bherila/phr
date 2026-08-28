@@ -303,6 +303,29 @@
           "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
       }
     },
+    "/patients/{patient}/reconciliations/{reconciliation}/preview": {
+      "get": {
+        "operationId": "reconciliations.preview",
+        "summary": "Preview a privileged EOB reconciliation",
+        "description": "Returns only the deterministic, count-based plan and confirmation digest; it never returns claim, provider, or record content.",
+        "security": [{ "oauth2": ["reconciliation:read"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/Reconciliation" }],
+        "responses": { "200": { "description": "Count-only reconciliation preview", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReconciliationPreviewResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/patients/{patient}/reconciliations/{reconciliation}/apply": {
+      "post": {
+        "operationId": "reconciliations.apply",
+        "summary": "Apply an explicitly confirmed EOB reconciliation",
+        "description": "The server recalculates the dry-run plan in its mutation transaction and rejects a stale preview digest.",
+        "security": [{ "oauth2": ["reconciliation:write"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/Reconciliation" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReconciliationApplyRequest" } } } },
+        "responses": { "200": { "description": "The exactly previewed reconciliation was applied", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReconciliationApplyResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "409": { "$ref": "#/components/responses/Conflict" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
     "/patients/{patient}/dicom/studies": {
       "get": {
         "operationId": "dicom_studies.list",
@@ -795,6 +818,8 @@
               "documents:write": "Upload patient documents",
               "imports:read": "Read import jobs and extraction results",
               "imports:write": "Create and review import jobs",
+              "reconciliation:read": "Preview administrative reconciliation",
+              "reconciliation:write": "Apply an explicitly confirmed reconciliation",
               "mcp:use": "Connect through the PHR MCP server"
             }
           }
@@ -821,6 +846,7 @@
       "ImportResultId": { "name": "result", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
       "HealthLogId": { "name": "healthLog", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
       "HealthLogEntryId": { "name": "entry", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
+      "Reconciliation": { "name": "reconciliation", "in": "path", "required": true, "schema": { "type": "string", "enum": ["meritain-eob-visits", "meritain-eob-allergy-procedures", "delta-dental-eob-visits"] } },
       "ClinicalResource": {
         "name": "resource",
         "in": "path",
@@ -1560,6 +1586,20 @@
         "resource_type": { "const": "dicom_upload" }, "patient_id": { "type": "integer" }, "duplicate_upload": { "type": "boolean" }, "data": { "$ref": "#/components/schemas/DicomUploadSession" } }, "additionalProperties": false },
       "DicomUploadCancelResponse": { "type": "object", "required": ["resource_type", "patient_id", "data"], "properties": {
         "resource_type": { "const": "dicom_upload" }, "patient_id": { "type": "integer" }, "data": { "$ref": "#/components/schemas/DicomUploadSession" } }, "additionalProperties": false },
+      "ReconciliationPlan": { "type": "object", "required": ["reconciliation", "summary", "preview_digest"], "properties": {
+        "reconciliation": { "type": "string", "enum": ["meritain-eob-visits", "meritain-eob-allergy-procedures", "delta-dental-eob-visits"] },
+        "summary": { "type": "object", "description": "Counts only; no claim, provider, or clinical-record data is included.", "additionalProperties": { "type": "integer", "minimum": 0 } },
+        "preview_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }, "additionalProperties": false },
+      "ReconciliationPreviewResponse": { "type": "object", "required": ["resource_type", "patient_id", "data"], "properties": {
+        "resource_type": { "const": "reconciliation_preview" }, "patient_id": { "type": "integer" }, "data": { "$ref": "#/components/schemas/ReconciliationPlan" }
+      }, "additionalProperties": false },
+      "ReconciliationApplyRequest": { "type": "object", "required": ["preview_digest"], "properties": {
+        "preview_digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }, "additionalProperties": false },
+      "ReconciliationApplyResponse": { "type": "object", "required": ["resource_type", "patient_id", "outcome", "data"], "properties": {
+        "resource_type": { "const": "reconciliation_apply" }, "patient_id": { "type": "integer" }, "outcome": { "const": "applied" }, "data": { "$ref": "#/components/schemas/ReconciliationPlan" }
+      }, "additionalProperties": false },
       "ImportJobStatus": { "type": "string", "enum": ["pending", "processing", "parsed", "imported", "failed", "queued_tomorrow"] },
       "ImportResultStatus": { "type": "string", "enum": ["pending_review", "imported", "skipped"] },
       "ImportJobMetadata": {

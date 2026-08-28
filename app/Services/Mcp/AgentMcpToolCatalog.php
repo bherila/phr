@@ -59,6 +59,15 @@ final class AgentMcpToolCatalog
                 readOnly: false,
                 destructive: true,
             ),
+            $this->method('reconciliations.preview', 'Preview reconciliation', 'Produce a count-only, dry-run EOB reconciliation plan and its confirmation digest.', $reads, 'reconciliationsPreview'),
+            new ToolDefinition(
+                'reconciliations.apply',
+                'Apply reconciliation',
+                'Apply exactly the reconciliation preview identified by its digest. Request a new preview if this reports a conflict.',
+                [$writes, 'reconciliationsApply'],
+                readOnly: false,
+                destructive: true,
+            ),
             new ToolDefinition(
                 'documents.upload',
                 'Upload document',

@@ -123,6 +123,15 @@ reviewed jobs. Import creation reuses the browser staging service, pins document
 to the owned document disk, cleans unpublished staging bytes on failure, and relies on
 the existing pending-job recovery command if queue dispatch is temporarily unavailable.
 
+Administrative EOB reconciliation has a separate, opt-in privilege boundary. The
+`reconciliation:read` scope returns a dry-run plan containing only deterministic
+counts and a SHA-256 confirmation digest; it never returns claims, provider names, or
+record content. `reconciliation:write` additionally requires owner/manager patient
+access and can apply only a supplied digest. The service recalculates that plan inside
+the mutation transaction and fails closed with a conflict if it changed, so an agent
+cannot apply a plan it did not explicitly preview. Both operations use the existing
+Meritain and Delta Dental reconcilers and the ordinary metadata-only agent audit.
+
 External-ID resolution is a read, not a shortcut into the write surface. It matches on
 the same composite identity the upsert writes -- patient, client-namespaced import
 source, external ID -- so a connection can only ever resolve records it wrote itself. A
@@ -238,6 +247,9 @@ patient-authorized per-file session processor;
 large instances stay on its multipart REST endpoint, while MCP can bridge only a
 small base64 instance into an already-open session. Agent session responses exclude
 uploader identity, manifests, skipped source paths, and parser errors.
+The same MCP adapter exposes `reconciliations.preview` and
+`reconciliations.apply`; it delegates to those scoped REST endpoints rather than
+calling reconcilers or models directly.
 
 The transport keeps the SDK's CORS, DNS-rebinding, and protocol-version protections,
 uses a 256 KiB request ceiling, and accepts cross-origin browser requests only from an
