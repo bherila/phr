@@ -279,6 +279,40 @@ final class AgentMcpReadTools
     }
 
     /** @return array<string, mixed> */
+    public function exportsList(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1, maximum: 100)] int $limit = 25,
+        #[Schema(maxLength: 2048)] ?string $cursor = null,
+        #[Schema(format: 'date-time')] ?string $updated_after = null,
+        #[Schema(format: 'date-time')] ?string $updated_before = null,
+    ): array {
+        return $this->api->exports($patient_id, $limit, $cursor, $updated_after, $updated_before)->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function nativeBackupsList(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1, maximum: 100)] int $limit = 25,
+        #[Schema(maxLength: 2048)] ?string $cursor = null,
+        #[Schema(format: 'date-time')] ?string $updated_after = null,
+        #[Schema(format: 'date-time')] ?string $updated_before = null,
+    ): array {
+        return $this->api->nativeBackups($patient_id, $limit, $cursor, $updated_after, $updated_before)->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function exportsDownloadAccessCreate(#[Schema(minimum: 1)] int $patient_id, #[Schema(minimum: 1)] int $export_id): array
+    {
+        return $this->api->exportDownloadAccess($patient_id, $export_id)->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function nativeBackupsDownloadAccessCreate(#[Schema(minimum: 1)] int $patient_id, #[Schema(minimum: 1)] int $backup_id): array
+    {
+        return $this->api->nativeBackupDownloadAccess($patient_id, $backup_id)->toArray();
+    }
+
+    /** @return array<string, mixed> */
     public function importsList(
         #[Schema(minimum: 1)] int $patient_id,
         #[Schema(minimum: 1, maximum: 100)] int $limit = 25,

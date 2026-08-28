@@ -178,6 +178,22 @@ final readonly class AgentMcpWriteTools
         return $this->api->reconciliationApply($patient_id, $reconciliation, $preview_digest)->toArray();
     }
 
+    /** @param list<string> $formats
+     * @return array<string, mixed>
+     */
+    public function exportsCreate(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minItems: 1, maxItems: 4, uniqueItems: true, items: ['type' => 'string', 'enum' => ['fhir', 'ccda', 'pdf', 'zip']])] array $formats = ['zip'],
+    ): array {
+        return $this->api->exportCreate($patient_id, $formats)->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function nativeBackupsCreate(#[Schema(minimum: 1)] int $patient_id): array
+    {
+        return $this->api->nativeBackupCreate($patient_id)->toArray();
+    }
+
     /** @return array<string, mixed> */
     public function importsCreate(
         #[Schema(minimum: 1)] int $patient_id,

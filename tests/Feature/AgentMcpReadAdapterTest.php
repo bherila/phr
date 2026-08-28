@@ -58,6 +58,10 @@ final class AgentMcpReadAdapterTest extends TestCase
         $this->assertContains(AgentApiScopes::IMPORTS_WRITE, AgentApiScopes::ids());
         $this->assertArrayNotHasKey(AgentApiScopes::IMPORTS_READ, AgentApiScopes::reservedDescriptions());
         $this->assertArrayNotHasKey(AgentApiScopes::IMPORTS_WRITE, AgentApiScopes::reservedDescriptions());
+        $this->assertContains(AgentApiScopes::EXPORTS_READ, AgentApiScopes::ids());
+        $this->assertContains(AgentApiScopes::EXPORTS_WRITE, AgentApiScopes::ids());
+        $this->assertArrayNotHasKey(AgentApiScopes::EXPORTS_READ, AgentApiScopes::reservedDescriptions());
+        $this->assertArrayNotHasKey(AgentApiScopes::EXPORTS_WRITE, AgentApiScopes::reservedDescriptions());
         $this->assertContains(AgentApiScopes::RECONCILIATION_READ, AgentApiScopes::ids());
         $this->assertContains(AgentApiScopes::RECONCILIATION_WRITE, AgentApiScopes::ids());
         $this->assertArrayNotHasKey(AgentApiScopes::RECONCILIATION_READ, AgentApiScopes::reservedDescriptions());
@@ -209,6 +213,8 @@ final class AgentMcpReadAdapterTest extends TestCase
             'dicom_studies.list', 'dicom_studies.get', 'dicom_series.list', 'dicom_uploads.open', 'dicom_uploads.upload_file',
             'dicom_uploads.finalize', 'dicom_uploads.cancel',
             'reconciliations.preview', 'reconciliations.apply',
+            'exports.list', 'exports.create', 'exports.download_access.create',
+            'native_backups.list', 'native_backups.create', 'native_backups.download_access.create',
             'imports.list', 'imports.get', 'imports.create', 'imports.review', 'imports.retry',
             'health_logs.create', 'health_log_entries.list', 'health_log_entries.get',
             'health_log_entries.append', 'respiratory_events.list', 'respiratory_events.ingest',
@@ -218,7 +224,7 @@ final class AgentMcpReadAdapterTest extends TestCase
             $this->assertContains($name, $toolNames);
         }
         $this->assertCount(
-            35 + (count(AgentClinicalResourceCatalog::ids()) * 2) + (count(AgentClinicalResourceCatalog::writableIds()) * 4),
+            41 + (count(AgentClinicalResourceCatalog::ids()) * 2) + (count(AgentClinicalResourceCatalog::writableIds()) * 4),
             $toolNames,
         );
         $writeTools = [
@@ -226,6 +232,7 @@ final class AgentMcpReadAdapterTest extends TestCase
             'health_logs.create', 'health_log_entries.append', 'respiratory_events.ingest',
             'dicom_uploads.open', 'dicom_uploads.upload_file', 'dicom_uploads.finalize', 'dicom_uploads.cancel',
             'reconciliations.apply',
+            'exports.create', 'native_backups.create',
         ];
         foreach ($tools as $tool) {
             $this->assertSame(

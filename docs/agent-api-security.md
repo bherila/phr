@@ -132,6 +132,14 @@ the mutation transaction and fails closed with a conflict if it changed, so an a
 cannot apply a plan it did not explicitly preview. Both operations use the existing
 Meritain and Delta Dental reconcilers and the ordinary metadata-only agent audit.
 
+Exports and native backups have their own `exports:read` and `exports:write` scopes,
+and intentionally remain owner-only like the browser Data Hub. The write scope queues
+the existing asynchronous builders; the read scope returns bounded status metadata and
+can create a one-minute signed download URL. That URL still requires the same bearer
+token and read scope, so it is not a transferable file credential. Agent responses
+exclude storage paths, requestor identity, filenames, backend error text, native archive
+hashes, and record counts.
+
 External-ID resolution is a read, not a shortcut into the write surface. It matches on
 the same composite identity the upsert writes -- patient, client-namespaced import
 source, external ID -- so a connection can only ever resolve records it wrote itself. A
@@ -250,6 +258,9 @@ uploader identity, manifests, skipped source paths, and parser errors.
 The same MCP adapter exposes `reconciliations.preview` and
 `reconciliations.apply`; it delegates to those scoped REST endpoints rather than
 calling reconcilers or models directly.
+It likewise exposes the asynchronous export and native-backup status/request/download
+access tools through the typed REST client; raw archive bytes are never returned as MCP
+tool content.
 
 The transport keeps the SDK's CORS, DNS-rebinding, and protocol-version protections,
 uses a 256 KiB request ceiling, and accepts cross-origin browser requests only from an

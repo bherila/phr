@@ -326,6 +326,47 @@
           "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "409": { "$ref": "#/components/responses/Conflict" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
       }
     },
+    "/patients/{patient}/exports": {
+      "get": {
+        "operationId": "exports.list", "summary": "List bounded asynchronous export status",
+        "security": [{ "oauth2": ["exports:read"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/UpdatedAfter" }, { "$ref": "#/components/parameters/UpdatedBefore" }],
+        "responses": { "200": { "description": "Export status page", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExportListResponse" } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      },
+      "post": {
+        "operationId": "exports.create", "summary": "Queue a structured export",
+        "security": [{ "oauth2": ["exports:write"] }], "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExportCreateRequest" } } } },
+        "responses": { "202": { "description": "Export queued", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExportMutationResponse" } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/patients/{patient}/exports/{export}/download-access": {
+      "post": {
+        "operationId": "exports.download_access.create", "summary": "Create short-lived export download access",
+        "security": [{ "oauth2": ["exports:read"] }], "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/ExportId" }],
+        "responses": { "200": { "description": "Bearer-authenticated temporary export URL", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExportDownloadAccessResponse" } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/patients/{patient}/native-backups": {
+      "get": {
+        "operationId": "native_backups.list", "summary": "List bounded asynchronous native-backup status",
+        "security": [{ "oauth2": ["exports:read"] }],
+        "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/UpdatedAfter" }, { "$ref": "#/components/parameters/UpdatedBefore" }],
+        "responses": { "200": { "description": "Native-backup status page", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NativeBackupListResponse" } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      },
+      "post": {
+        "operationId": "native_backups.create", "summary": "Queue a native backup",
+        "security": [{ "oauth2": ["exports:write"] }], "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
+        "responses": { "202": { "description": "Native backup queued", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NativeBackupMutationResponse" } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/patients/{patient}/native-backups/{backup}/download-access": {
+      "post": {
+        "operationId": "native_backups.download_access.create", "summary": "Create short-lived native-backup download access",
+        "security": [{ "oauth2": ["exports:read"] }], "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/NativeBackupId" }],
+        "responses": { "200": { "description": "Bearer-authenticated temporary native-backup URL", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NativeBackupDownloadAccessResponse" } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
     "/patients/{patient}/dicom/studies": {
       "get": {
         "operationId": "dicom_studies.list",
@@ -818,6 +859,8 @@
               "documents:write": "Upload patient documents",
               "imports:read": "Read import jobs and extraction results",
               "imports:write": "Create and review import jobs",
+              "exports:read": "Read export and backup status and download results",
+              "exports:write": "Request exports and native backups",
               "reconciliation:read": "Preview administrative reconciliation",
               "reconciliation:write": "Apply an explicitly confirmed reconciliation",
               "mcp:use": "Connect through the PHR MCP server"
@@ -844,6 +887,8 @@
       "DocumentId": { "name": "document", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
       "ImportId": { "name": "import", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
       "ImportResultId": { "name": "result", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
+      "ExportId": { "name": "export", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
+      "NativeBackupId": { "name": "backup", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
       "HealthLogId": { "name": "healthLog", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
       "HealthLogEntryId": { "name": "entry", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
       "Reconciliation": { "name": "reconciliation", "in": "path", "required": true, "schema": { "type": "string", "enum": ["meritain-eob-visits", "meritain-eob-allergy-procedures", "delta-dental-eob-visits"] } },
@@ -1600,6 +1645,17 @@
       "ReconciliationApplyResponse": { "type": "object", "required": ["resource_type", "patient_id", "outcome", "data"], "properties": {
         "resource_type": { "const": "reconciliation_apply" }, "patient_id": { "type": "integer" }, "outcome": { "const": "applied" }, "data": { "$ref": "#/components/schemas/ReconciliationPlan" }
       }, "additionalProperties": false },
+      "ExportMetadata": { "type": "object", "description": "Asynchronous export status without storage paths, error text, requestor identity, or filenames.", "required": ["id", "formats", "status", "file_size_bytes", "generated_at", "expires_at", "created_at", "updated_at"], "properties": {
+        "id": { "type": "integer" }, "formats": { "type": "array", "minItems": 1, "items": { "type": "string", "enum": ["fhir", "ccda", "pdf", "zip"] }, "uniqueItems": true }, "status": { "type": "string", "enum": ["pending", "processing", "ready", "failed"] }, "file_size_bytes": { "type": ["integer", "null"], "minimum": 0 }, "generated_at": { "type": ["string", "null"], "format": "date-time" }, "expires_at": { "type": ["string", "null"], "format": "date-time" }, "created_at": { "type": ["string", "null"], "format": "date-time" }, "updated_at": { "type": ["string", "null"], "format": "date-time" }
+      }, "additionalProperties": false },
+      "ExportListResponse": { "type": "object", "required": ["resource_type", "patient_id", "data", "pagination"], "properties": { "resource_type": { "const": "export" }, "patient_id": { "type": "integer" }, "data": { "type": "array", "items": { "$ref": "#/components/schemas/ExportMetadata" } }, "pagination": { "$ref": "#/components/schemas/Pagination" } }, "additionalProperties": false },
+      "ExportCreateRequest": { "type": "object", "properties": { "formats": { "type": "array", "minItems": 1, "maxItems": 4, "items": { "type": "string", "enum": ["fhir", "ccda", "pdf", "zip"] }, "uniqueItems": true, "default": ["zip"] } }, "additionalProperties": false },
+      "ExportMutationResponse": { "type": "object", "required": ["resource_type", "patient_id", "outcome", "data"], "properties": { "resource_type": { "const": "export" }, "patient_id": { "type": "integer" }, "outcome": { "const": "queued" }, "data": { "$ref": "#/components/schemas/ExportMetadata" } }, "additionalProperties": false },
+      "ExportDownloadAccessResponse": { "type": "object", "required": ["resource_type", "patient_id", "id", "expires_at", "download_url"], "properties": { "resource_type": { "const": "export" }, "patient_id": { "type": "integer" }, "id": { "type": "integer" }, "expires_at": { "type": "string", "format": "date-time" }, "download_url": { "type": "string", "format": "uri" } }, "additionalProperties": false },
+      "NativeBackupMetadata": { "type": "object", "description": "Asynchronous native-backup status without archive hashes, record counts, storage paths, failure details, or requestor identity.", "required": ["id", "format", "schema_version", "status", "file_size_bytes", "generated_at", "expires_at", "created_at", "updated_at"], "properties": { "id": { "type": "integer" }, "format": { "const": "phr-native-v1" }, "schema_version": { "type": "integer", "minimum": 1 }, "status": { "type": "string", "enum": ["pending", "processing", "ready", "failed"] }, "file_size_bytes": { "type": ["integer", "null"], "minimum": 0 }, "generated_at": { "type": ["string", "null"], "format": "date-time" }, "expires_at": { "type": ["string", "null"], "format": "date-time" }, "created_at": { "type": ["string", "null"], "format": "date-time" }, "updated_at": { "type": ["string", "null"], "format": "date-time" } }, "additionalProperties": false },
+      "NativeBackupListResponse": { "type": "object", "required": ["resource_type", "patient_id", "data", "pagination"], "properties": { "resource_type": { "const": "native_backup" }, "patient_id": { "type": "integer" }, "data": { "type": "array", "items": { "$ref": "#/components/schemas/NativeBackupMetadata" } }, "pagination": { "$ref": "#/components/schemas/Pagination" } }, "additionalProperties": false },
+      "NativeBackupMutationResponse": { "type": "object", "required": ["resource_type", "patient_id", "outcome", "data"], "properties": { "resource_type": { "const": "native_backup" }, "patient_id": { "type": "integer" }, "outcome": { "const": "queued" }, "data": { "$ref": "#/components/schemas/NativeBackupMetadata" } }, "additionalProperties": false },
+      "NativeBackupDownloadAccessResponse": { "type": "object", "required": ["resource_type", "patient_id", "id", "expires_at", "download_url"], "properties": { "resource_type": { "const": "native_backup" }, "patient_id": { "type": "integer" }, "id": { "type": "integer" }, "expires_at": { "type": "string", "format": "date-time" }, "download_url": { "type": "string", "format": "uri" } }, "additionalProperties": false },
       "ImportJobStatus": { "type": "string", "enum": ["pending", "processing", "parsed", "imported", "failed", "queued_tomorrow"] },
       "ImportResultStatus": { "type": "string", "enum": ["pending_review", "imported", "skipped"] },
       "ImportJobMetadata": {
