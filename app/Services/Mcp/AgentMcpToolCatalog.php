@@ -68,6 +68,12 @@ final class AgentMcpToolCatalog
                 readOnly: false,
                 destructive: true,
             ),
+            $this->method('exports.list', 'List exports', 'List bounded asynchronous export status for an owned patient.', $reads, 'exportsList'),
+            $this->method('exports.download_access.create', 'Create export download access', 'Create short-lived, OAuth-bound download access for one ready export.', $reads, 'exportsDownloadAccessCreate'),
+            $this->method('native_backups.list', 'List native backups', 'List bounded asynchronous native-backup status for an owned patient.', $reads, 'nativeBackupsList'),
+            $this->method('native_backups.download_access.create', 'Create native-backup download access', 'Create short-lived, OAuth-bound download access for one ready native backup.', $reads, 'nativeBackupsDownloadAccessCreate'),
+            new ToolDefinition('exports.create', 'Request export', 'Queue a structured export. Poll exports.list until it is ready, then explicitly request download access.', [$writes, 'exportsCreate'], readOnly: false),
+            new ToolDefinition('native_backups.create', 'Request native backup', 'Queue a complete native backup. Poll native_backups.list until it is ready, then explicitly request download access.', [$writes, 'nativeBackupsCreate'], readOnly: false),
             new ToolDefinition(
                 'documents.upload',
                 'Upload document',

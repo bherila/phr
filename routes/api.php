@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\AgentDicomUploadController;
 use App\Http\Controllers\Api\V1\AgentDiscoveryController;
 use App\Http\Controllers\Api\V1\AgentDocumentController;
 use App\Http\Controllers\Api\V1\AgentEvidenceController;
+use App\Http\Controllers\Api\V1\AgentExportController;
 use App\Http\Controllers\Api\V1\AgentHealthLogController;
 use App\Http\Controllers\Api\V1\AgentImportController;
 use App\Http\Controllers\Api\V1\AgentMcpController;
@@ -160,6 +161,31 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         Route::post('/patients/{patient}/reconciliations/{reconciliation}/apply', [AgentReconciliationController::class, 'apply'])
             ->whereNumber('patient')->middleware('throttle:agent-api')
             ->middleware(CheckToken::using(AgentApiScopes::RECONCILIATION_WRITE))->name('reconciliations.apply');
+
+        Route::get('/patients/{patient}/exports', [AgentExportController::class, 'exportsIndex'])
+            ->whereNumber('patient')->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::EXPORTS_READ))->name('exports.index');
+        Route::post('/patients/{patient}/exports', [AgentExportController::class, 'exportsStore'])
+            ->whereNumber('patient')->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::EXPORTS_WRITE))->name('exports.store');
+        Route::post('/patients/{patient}/exports/{export}/download-access', [AgentExportController::class, 'exportDownloadAccess'])
+            ->whereNumber(['patient', 'export'])->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::EXPORTS_READ))->name('exports.download-access');
+        Route::get('/patients/{patient}/exports/{export}/file', [AgentExportController::class, 'exportFile'])
+            ->whereNumber(['patient', 'export'])->middleware(['throttle:agent-api', 'signed'])
+            ->middleware(CheckToken::using(AgentApiScopes::EXPORTS_READ))->name('exports.file');
+        Route::get('/patients/{patient}/native-backups', [AgentExportController::class, 'backupsIndex'])
+            ->whereNumber('patient')->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::EXPORTS_READ))->name('native-backups.index');
+        Route::post('/patients/{patient}/native-backups', [AgentExportController::class, 'backupsStore'])
+            ->whereNumber('patient')->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::EXPORTS_WRITE))->name('native-backups.store');
+        Route::post('/patients/{patient}/native-backups/{backup}/download-access', [AgentExportController::class, 'backupDownloadAccess'])
+            ->whereNumber(['patient', 'backup'])->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::EXPORTS_READ))->name('native-backups.download-access');
+        Route::get('/patients/{patient}/native-backups/{backup}/file', [AgentExportController::class, 'backupFile'])
+            ->whereNumber(['patient', 'backup'])->middleware(['throttle:agent-api', 'signed'])
+            ->middleware(CheckToken::using(AgentApiScopes::EXPORTS_READ))->name('native-backups.file');
 
         Route::post('/patients/{patient}/health-logs', [AgentHealthLogController::class, 'store'])
             ->whereNumber('patient')->middleware('throttle:agent-api')

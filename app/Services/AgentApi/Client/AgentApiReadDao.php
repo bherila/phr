@@ -249,6 +249,32 @@ final class AgentApiReadDao
         ), ['resource_type', 'patient_id', 'data']);
     }
 
+    public function exports(int $patientId, int $limit = 25, ?string $cursor = null, ?string $updatedAfter = null, ?string $updatedBefore = null): AgentApiPayload
+    {
+        return $this->page("patients/{$patientId}/exports", compact('limit', 'cursor') + [
+            'updated_after' => $updatedAfter,
+            'updated_before' => $updatedBefore,
+        ]);
+    }
+
+    public function nativeBackups(int $patientId, int $limit = 25, ?string $cursor = null, ?string $updatedAfter = null, ?string $updatedBefore = null): AgentApiPayload
+    {
+        return $this->page("patients/{$patientId}/native-backups", compact('limit', 'cursor') + [
+            'updated_after' => $updatedAfter,
+            'updated_before' => $updatedBefore,
+        ]);
+    }
+
+    public function exportDownloadAccess(int $patientId, int $exportId): AgentApiPayload
+    {
+        return AgentApiPayload::from($this->transport->send('POST', "patients/{$patientId}/exports/{$exportId}/download-access"), ['resource_type', 'patient_id', 'id', 'expires_at', 'download_url']);
+    }
+
+    public function nativeBackupDownloadAccess(int $patientId, int $backupId): AgentApiPayload
+    {
+        return AgentApiPayload::from($this->transport->send('POST', "patients/{$patientId}/native-backups/{$backupId}/download-access"), ['resource_type', 'patient_id', 'id', 'expires_at', 'download_url']);
+    }
+
     public function imports(
         int $patientId,
         int $limit = 25,

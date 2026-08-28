@@ -99,6 +99,24 @@ final readonly class AgentApiWriteDao
         ), ['resource_type', 'patient_id', 'outcome', 'data']);
     }
 
+    /** @param list<string> $formats */
+    public function exportCreate(int $patientId, array $formats): AgentApiPayload
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'POST',
+            "patients/{$patientId}/exports",
+            json: ['formats' => $formats],
+        ), ['resource_type', 'patient_id', 'outcome', 'data']);
+    }
+
+    public function nativeBackupCreate(int $patientId): AgentApiPayload
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'POST',
+            "patients/{$patientId}/native-backups",
+        ), ['resource_type', 'patient_id', 'outcome', 'data']);
+    }
+
     public function importCreate(int $patientId, int $documentId): AgentImportPayload
     {
         return AgentImportPayload::mutation($this->transport->send(

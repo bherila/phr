@@ -42,6 +42,8 @@ final class AgentApiScopes
             self::DOCUMENTS_WRITE => 'Upload patient documents',
             self::IMPORTS_READ => 'Read import jobs and extraction results',
             self::IMPORTS_WRITE => 'Create and review import jobs',
+            self::EXPORTS_READ => 'Read export and backup status and download results',
+            self::EXPORTS_WRITE => 'Request exports and native backups',
             self::RECONCILIATION_READ => 'Preview administrative reconciliation',
             self::RECONCILIATION_WRITE => 'Apply an explicitly confirmed reconciliation',
             self::MCP_USE => 'Connect through the PHR MCP server',
@@ -58,8 +60,6 @@ final class AgentApiScopes
     public static function reservedDescriptions(): array
     {
         return [
-            self::EXPORTS_READ => 'Read export and backup status and download results',
-            self::EXPORTS_WRITE => 'Request exports and native backups',
         ];
     }
 
