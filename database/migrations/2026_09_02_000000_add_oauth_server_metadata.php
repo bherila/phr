@@ -39,4 +39,9 @@ return new class extends Migration
 
         Schema::table($tableName, $definition);
     }
+
+    public function getConnection(): ?string
+    {
+        return $this->connection ?? config('passport.connection');
+    }
 };
