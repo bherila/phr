@@ -5,6 +5,7 @@ use App\Http\Middleware\OAuthAuthorizationSecurityHeaders;
 use App\Http\Middleware\SerializeOAuthTokenExchange;
 use BWH\Auth\Http\Middleware\EnforceOAuthPkce;
 use BWH\Auth\Http\Middleware\EnforceOAuthResourceIndicator;
+use BWH\Auth\Http\Middleware\EnsureOAuthServerEnabled;
 
 return [
 
@@ -22,6 +23,7 @@ return [
     'guard' => 'web',
 
     'middleware' => [
+        EnsureOAuthServerEnabled::class,
         EnforceOAuthPkce::class,
         EnforceOAuthResourceIndicator::class,
         EnsureOAuthAuthorizationUserCanLogin::class,
