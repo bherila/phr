@@ -8,6 +8,7 @@ use App\Support\AgentApi\OAuthDynamicClientDao;
 use BWH\Auth\OAuth\Server\OAuthAuthorizationStateStore;
 use BWH\Auth\OAuth\Server\OAuthResourceIndicator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Testing\TestResponse;
 use Laravel\Passport\AuthCode;
 use Laravel\Passport\Client;
 use Laravel\Passport\Token;
@@ -40,7 +41,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         $this->getJson('/.well-known/oauth-authorization-server')
             ->assertOk()
             ->assertJsonPath('registration_endpoint', url('/oauth/register'))
-            ->assertJsonPath('resource_indicators_supported', true)
+            ->assertJsonMissingPath('resource_indicators_supported')
             ->assertJsonPath('scopes_supported', AgentApiScopes::ids());
 
         $this->getJson('/.well-known/oauth-protected-resource/api/v1/mcp')
@@ -104,16 +105,14 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         unset($withoutScope['scope']);
         $this->actingAs($user)->get('/oauth/authorize?'.http_build_query($withoutScope))
             ->assertOk();
-        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+        $this->assertOAuthErrorRedirect($this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
             ...$authorization,
             'scope' => AgentApiScopes::DOCUMENTS_READ,
-        ]))->assertBadRequest()
-            ->assertJsonPath('error', 'invalid_scope');
-        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+        ])), 'invalid_scope', 'https://agent.example.test/oauth/callback');
+        $this->assertOAuthErrorRedirect($this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
             ...$authorization,
             'scope' => [AgentApiScopes::PATIENTS_READ],
-        ]))->assertBadRequest()
-            ->assertJsonPath('error', 'invalid_scope');
+        ])), 'invalid_scope', 'https://agent.example.test/oauth/callback');
 
         $this->actingAs($user)->get('/oauth/authorize?'.http_build_query($authorization))->assertOk()
             ->assertSee('This client registered automatically')
@@ -146,25 +145,26 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'code_challenge_method' => 'S256',
         ];
 
-        $this->actingAs($user)->getJson('/oauth/authorize?'.http_build_query($authorization))
-            ->assertBadRequest()
-            ->assertJsonPath('error', 'invalid_target');
+        $this->assertOAuthErrorRedirect(
+            $this->actingAs($user)->getJson('/oauth/authorize?'.http_build_query($authorization)),
+            'invalid_target',
+        );
         $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
             ...$authorization,
             'resource' => OAuthResourceIndicator::resource(),
         ]))->assertOk();
     }
 
-    public function test_dynamic_registration_omits_unsupplied_scope_metadata(): void
+    public function test_dynamic_registration_defaults_unsupplied_scope_to_the_server_catalog(): void
     {
         $response = $this->postJson('/oauth/register', [
             'client_name' => 'Synthetic Unscoped Agent',
             'redirect_uris' => ['https://agent.example.test/callback'],
         ])->assertCreated()
-            ->assertJsonMissingPath('scope');
+            ->assertJsonPath('scope', implode(' ', AgentApiScopes::ids()));
 
         $client = Client::query()->findOrFail($response->json('client_id'));
-        $this->assertNull($client->scopes);
+        $this->assertSame(AgentApiScopes::ids(), $client->scopes);
     }
 
     public function test_single_callback_is_displayed_when_authorization_omits_redirect_uri(): void
@@ -175,7 +175,10 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'user_role' => 'user',
         ]);
         $client = $this->publicClient('Synthetic Omitted Callback Client');
-        $client->forceFill(['dynamically_registered_at' => now()])->save();
+        $client->forceFill([
+            'dynamically_registered_at' => now(),
+            'scopes' => [AgentApiScopes::IDENTITY_READ],
+        ])->save();
         [, $challenge] = $this->pkce();
 
         $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
@@ -241,14 +244,18 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'code_challenge' => $challenge,
             'code_challenge_method' => 'S256',
         ];
-        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+        $this->assertOAuthErrorRedirect($this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
             ...$query,
             'resource' => 'https://unrelated.example.test/api',
-        ]))->assertBadRequest()->assertJsonPath('error_description', 'The requested resource is invalid.');
+        ])), 'invalid_target');
 
-        $approval = $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+        $this->assertOAuthErrorRedirect($this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
             ...$query,
             'resource' => OAuthResourceIndicator::resource().'/',
+        ])), 'invalid_target');
+        $approval = $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+            ...$query,
+            'resource' => OAuthResourceIndicator::resource(),
         ]))->assertOk();
         $this->assertNotNull($approval);
         $authToken = session('authToken');
@@ -553,6 +560,18 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'grant_types' => ['authorization_code', 'refresh_token'],
             'revoked' => false,
         ]);
+    }
+
+    private function assertOAuthErrorRedirect(
+        TestResponse $response,
+        string $expectedError,
+        string $redirectUri = 'https://agent.example.test/callback',
+    ): void {
+        $response->assertRedirect();
+        $location = (string) $response->headers->get('Location');
+        $this->assertStringStartsWith($redirectUri.'?', $location);
+        parse_str((string) parse_url($location, PHP_URL_QUERY), $query);
+        $this->assertSame($expectedError, $query['error'] ?? null);
     }
 
     /** @return array{string, string} */

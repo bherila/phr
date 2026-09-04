@@ -34,6 +34,7 @@ return [
     ],
 
     'oauth_server' => [
+        'enabled' => true,
         'issuer' => rtrim((string) env('APP_URL', 'http://localhost'), '/'),
         'resource' => rtrim((string) env('APP_URL', 'http://localhost'), '/').'/api/v1',
         'authorization_endpoint' => rtrim((string) env('APP_URL', 'http://localhost'), '/').'/oauth/authorize',
@@ -42,6 +43,7 @@ return [
         'scopes' => AgentApiScopes::descriptions(),
         'token_endpoint_auth_methods' => ['none', 'client_secret_basic', 'client_secret_post'],
         'resource_required_scope' => AgentApiScopes::MCP_USE,
+        'resource_required_scopes' => [AgentApiScopes::MCP_USE],
         'dynamic_clients' => [
             'required_columns' => ['dynamically_registered_at', 'scopes'],
             'registered_at_column' => 'dynamically_registered_at',

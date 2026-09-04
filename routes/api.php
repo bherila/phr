@@ -54,6 +54,7 @@ use App\Http\Middleware\EnsureOAuthUserCanLogin;
 use App\Http\Middleware\PreventAgentApiResponseCaching;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
+use BWH\Auth\Http\Middleware\ExpectOAuthResource;
 use Illuminate\Support\Facades\Route;
 use Laravel\Passport\Http\Middleware\CheckToken;
 
@@ -66,6 +67,7 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         ->name('mcp.options');
 
     Route::middleware([
+        ExpectOAuthResource::class,
         'auth:api',
         AuditAgentApiRequest::class,
         EnsureOAuthUserCanLogin::class,
