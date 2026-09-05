@@ -67,7 +67,6 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         ->name('mcp.options');
 
     Route::middleware([
-        ExpectOAuthResource::class,
         'auth:api',
         AuditAgentApiRequest::class,
         EnsureOAuthUserCanLogin::class,
@@ -84,6 +83,7 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
             ->name('me');
 
         Route::match(['POST', 'DELETE'], '/mcp', AgentMcpController::class)
+            ->middleware(ExpectOAuthResource::class)
             ->middleware('throttle:agent-api')
             ->middleware(CheckToken::using(AgentApiScopes::MCP_USE))
             ->name('mcp');
