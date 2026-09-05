@@ -3,8 +3,9 @@
 use App\Http\Middleware\AuditAgentApiRequest;
 use App\Http\Middleware\EnsureOAuthAuthorizationUserCanLogin;
 use App\Http\Middleware\ThrottleAgentApiAuthentication;
+use BWH\Auth\Http\Middleware\ExpectOAuthResource;
 use Illuminate\Auth\AuthenticationException;
-use Illuminate\Auth\Middleware\Authenticate;
+use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -24,10 +25,13 @@ return Application::configure(basePath: dirname(__DIR__))
         // same metadata-only evidence as successful authenticated requests.
         $middleware->prependToPriorityList(ThrottleRequests::class, AuditAgentApiRequest::class);
         $middleware->append(ThrottleAgentApiAuthentication::class);
+        // Resource-bound bearer tokens are rejected unless the route establishes
+        // its expected audience before Passport authenticates the request.
+        $middleware->prependToPriorityList(AuthenticatesRequests::class, ExpectOAuthResource::class);
         // Passport's authorization routes declare their package middleware
         // outside the route-level web/auth middleware. Force the account-state
         // check after session authentication but before the consent controller.
-        $middleware->appendToPriorityList(Authenticate::class, EnsureOAuthAuthorizationUserCanLogin::class);
+        $middleware->appendToPriorityList(AuthenticatesRequests::class, EnsureOAuthAuthorizationUserCanLogin::class);
 
         // PHR respiratory-events / Sinus Sentinel device ingest authenticates via bearer
         // token (AuthenticateWebOrMcpRequest) and carries no session/CSRF token. These

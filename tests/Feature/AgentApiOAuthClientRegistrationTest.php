@@ -134,7 +134,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'user_role' => 'user',
         ]);
         $client = $this->publicClient('Synthetic MCP Authorization Client');
-        [, $challenge] = $this->pkce();
+        [$verifier, $challenge] = $this->pkce();
         $authorization = [
             'client_id' => $client->id,
             'redirect_uri' => 'https://agent.example.test/callback',
@@ -153,6 +153,33 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             ...$authorization,
             'resource' => OAuthResourceIndicator::resource(),
         ]))->assertOk();
+        $redirect = $this->post('/oauth/authorize', [
+            'auth_token' => session('authToken'),
+        ])->assertRedirect();
+        parse_str((string) parse_url((string) $redirect->headers->get('Location'), PHP_URL_QUERY), $redirectQuery);
+
+        $issued = $this->postJson('/oauth/token', [
+            'grant_type' => 'authorization_code',
+            'client_id' => $client->id,
+            'redirect_uri' => 'https://agent.example.test/callback',
+            'code_verifier' => $verifier,
+            'code' => $redirectQuery['code'],
+            'resource' => OAuthResourceIndicator::resource(),
+        ])->assertOk()->json();
+
+        $this->withToken($issued['access_token'])->postJson('/api/v1/mcp', [
+            'jsonrpc' => '2.0',
+            'id' => 1,
+            'method' => 'initialize',
+            'params' => [
+                'protocolVersion' => '2025-06-18',
+                'capabilities' => [],
+                'clientInfo' => ['name' => 'Synthetic OAuth MCP Client', 'version' => '1.0.0'],
+            ],
+        ], ['Mcp-Protocol-Version' => '2025-06-18'])
+            ->assertOk()
+            ->assertJsonPath('jsonrpc', '2.0')
+            ->assertJsonPath('id', 1);
     }
 
     public function test_dynamic_registration_defaults_unsupplied_scope_to_the_server_catalog(): void
