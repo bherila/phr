@@ -129,9 +129,16 @@ class DicomMetadataParser
             'has_preamble' => $hasPreamble,
             'metadata' => $metadata,
             'normalized' => $normalized,
+            // The three UIDs are present on every DICOM composite object, including
+            // non-pixel ones (Presentation State, Structured Report, Key Object
+            // Selection, Registration). Rows/Columns are what separate an actual
+            // image IOD from those; without the check they get indexed as images and
+            // then hand OHIF a SOP class it has no handler for.
             'is_image_instance' => $normalized['study_instance_uid'] !== null
                 && $normalized['series_instance_uid'] !== null
-                && $normalized['sop_instance_uid'] !== null,
+                && $normalized['sop_instance_uid'] !== null
+                && $normalized['rows'] !== null
+                && $normalized['columns'] !== null,
         ];
     }
 

@@ -310,6 +310,98 @@ class PhrDicomTest extends TestCase
         $this->assertStringNotContainsString('/api/phr/patients/', $signedInstanceUrl);
     }
 
+    public function test_parser_does_not_treat_a_pixel_less_composite_object_as_an_image_instance(): void
+    {
+        $parser = new DicomMetadataParser;
+
+        $image = $parser->parseBytes($this->dicomBytes());
+        $this->assertTrue($image['is_dicom']);
+        $this->assertTrue($image['is_image_instance']);
+
+        // Presentation State shape: all three UIDs, no Rows/Columns.
+        $presentationState = $parser->parseBytes($this->dicomBytes([
+            'sop_class_uid' => '1.2.840.10008.5.1.4.1.1.11.1',
+        ], includePixelDescription: false));
+
+        $this->assertTrue($presentationState['is_dicom']);
+        $this->assertNotNull($presentationState['normalized']['sop_instance_uid']);
+        $this->assertNull($presentationState['normalized']['rows']);
+        $this->assertNull($presentationState['normalized']['columns']);
+        $this->assertFalse($presentationState['is_image_instance']);
+    }
+
+    public function test_pixel_less_composite_object_is_stored_as_a_file_but_not_indexed_as_an_image(): void
+    {
+        $this->fakeDicomDisk();
+
+        $owner = $this->createUser();
+        $patientId = $this->createPatientFor($owner);
+        $uploadId = $this->openUpload($owner, $patientId, 'CARDIAC_CT');
+
+        $this->postFile($owner, $patientId, $uploadId, UploadedFile::fake()->createWithContent('IM0001', $this->dicomBytes()), 'CARDIAC_CT/ST0001/SE0001/IM0001')
+            ->assertOk()
+            ->assertJsonPath('result.stored', true);
+
+        $presentationStateSeriesUid = '1.2.840.113619.2.55.3.604688437.20260517.1.9';
+        $this->postFile(
+            $owner,
+            $patientId,
+            $uploadId,
+            UploadedFile::fake()->createWithContent('PR0001', $this->dicomBytes([
+                'sop_class_uid' => '1.2.840.10008.5.1.4.1.1.11.1',
+                'series_instance_uid' => $presentationStateSeriesUid,
+                'sop_instance_uid' => $presentationStateSeriesUid.'.1',
+            ], includePixelDescription: false)),
+            'CARDIAC_CT/ST0001/SE0009/PR0001',
+        )
+            ->assertOk()
+            ->assertJsonPath('result.stored', true);
+
+        $this->finalizeUpload($owner, $patientId, $uploadId)->assertOk();
+
+        // The companion object is retained on disk and as a file row...
+        $this->assertSame(2, PhrDicomFile::query()->where('patient_id', $patientId)->count());
+
+        // ...but only the pixel-bearing image is indexed as a study/series/instance.
+        $this->assertSame(1, PhrDicomStudy::query()->where('patient_id', $patientId)->count());
+        $this->assertSame(1, PhrDicomSeries::query()->where('patient_id', $patientId)->count());
+        $this->assertSame(0, PhrDicomSeries::query()->where('series_instance_uid', $presentationStateSeriesUid)->count());
+
+        $instance = PhrDicomInstance::query()->where('patient_id', $patientId)->sole();
+        $this->assertSame('1.2.840.113619.2.55.3.604688437.20260517.1.1.1', $instance->sop_instance_uid);
+        $this->assertSame(512, $instance->rows);
+        $this->assertSame(512, $instance->columns);
+    }
+
+    public function test_viewer_json_omits_already_stored_series_without_pixel_dimensions(): void
+    {
+        $owner = $this->createUser();
+        $patientId = $this->createPatientFor($owner);
+
+        $study = $this->createIndexedStudy(
+            $owner,
+            $patientId,
+            '1.2.840.113619.study.mixed',
+            '2026-05-17',
+            '101112',
+            [1024, 2048],
+        );
+
+        // Legacy rows indexed before the parser rejected non-pixel composite objects.
+        $presentationSeries = $this->createSeriesWithoutPixelDimensions($study, 'PR');
+
+        $response = $this->actingAs($owner)
+            ->getJson("/api/phr/patients/{$patientId}/dicom/studies/{$study->id}/viewer-json")
+            ->assertOk();
+
+        $this->assertSame(2, $study->series()->count());
+        $this->assertCount(1, $response->json('studies.0.series'));
+        $this->assertNotContains($presentationSeries->id, array_column($response->json('studies.0.series'), 'id'));
+        $this->assertSame('CT', $response->json('studies.0.series.0.Modality'));
+        $this->assertCount(2, $response->json('studies.0.series.0.instances'));
+        $this->assertSame(2, $response->json('studies.0.NumInstances'));
+    }
+
     public function test_oversized_multipart_upload_is_rejected_before_processing(): void
     {
         $this->fakeDicomDisk();
@@ -756,10 +848,60 @@ class PhrDicomTest extends TestCase
                 'file_id' => $file->id,
                 'sop_instance_uid' => $studyInstanceUid.'.1.'.($index + 1),
                 'instance_number' => $index + 1,
+                'rows' => 512,
+                'columns' => 512,
             ]);
         }
 
         return $study;
+    }
+
+    /**
+     * A series shaped like a non-pixel composite object that predates the parser guard:
+     * real study/series/SOP UIDs, but no Rows/Columns on its instance.
+     */
+    private function createSeriesWithoutPixelDimensions(PhrDicomStudy $study, string $modality): PhrDicomSeries
+    {
+        $patientId = (int) $study->patient_id;
+        $seriesUid = $study->study_instance_uid.'.9';
+
+        $series = PhrDicomSeries::create([
+            'patient_id' => $patientId,
+            'study_id' => $study->id,
+            'series_instance_uid' => $seriesUid,
+            'modality' => $modality,
+            'series_number' => 99,
+            'description' => 'Saved windowing overlay',
+        ]);
+
+        $relativePath = 'INDEXED/'.$study->study_instance_uid.'/PR0001';
+        $file = PhrDicomFile::create([
+            'patient_id' => $patientId,
+            'upload_id' => $study->upload_id,
+            'file_kind' => PhrDicomFile::KIND_DICOM,
+            'r2_key' => 'phr/dicom/patients/'.$patientId.'/uploads/'.$study->study_instance_uid.'/'.$relativePath,
+            'original_relative_path' => $relativePath,
+            'original_path_hash' => hash('sha256', $relativePath),
+            'original_filename' => basename($relativePath),
+            'mime_type' => 'application/dicom',
+            'file_size_bytes' => 512,
+            'sha256' => hash('sha256', $seriesUid),
+        ]);
+
+        PhrDicomInstance::create([
+            'patient_id' => $patientId,
+            'study_id' => $study->id,
+            'series_id' => $series->id,
+            'upload_id' => $study->upload_id,
+            'file_id' => $file->id,
+            'sop_instance_uid' => $seriesUid.'.1',
+            'sop_class_uid' => '1.2.840.10008.5.1.4.1.1.11.1',
+            'instance_number' => 1,
+            'rows' => null,
+            'columns' => null,
+        ]);
+
+        return $series;
     }
 
     private function processorThatThrowsOnParseCall(int $throwOnParseCall): DicomUploadProcessor
@@ -795,20 +937,25 @@ class PhrDicomTest extends TestCase
     }
 
     /**
+     * Fully synthetic DICOM bytes. Pass `includePixelDescription: false` to build a
+     * non-pixel composite object (Presentation State / Structured Report shape): all
+     * three UIDs present, no Rows/Columns/BitsAllocated.
+     *
      * @param  array<string, string>  $overrides
      */
-    private function dicomBytes(array $overrides = [], bool $includeUndefinedLengthSequence = false): string
+    private function dicomBytes(array $overrides = [], bool $includeUndefinedLengthSequence = false, bool $includePixelDescription = true): string
     {
         $values = [
             'study_instance_uid' => '1.2.840.113619.2.55.3.604688437.20260517.1',
             'series_instance_uid' => '1.2.840.113619.2.55.3.604688437.20260517.1.1',
             'sop_instance_uid' => '1.2.840.113619.2.55.3.604688437.20260517.1.1.1',
+            'sop_class_uid' => '1.2.840.10008.5.1.4.1.1.2',
             ...$overrides,
         ];
 
         return str_repeat("\0", 128).'DICM'
             .$this->element(0x0002, 0x0010, 'UI', '1.2.840.10008.1.2.1')
-            .$this->element(0x0008, 0x0016, 'UI', '1.2.840.10008.5.1.4.1.1.2')
+            .$this->element(0x0008, 0x0016, 'UI', $values['sop_class_uid'])
             .$this->element(0x0008, 0x0018, 'UI', $values['sop_instance_uid'])
             .$this->element(0x0008, 0x0020, 'DA', '20260517')
             .$this->element(0x0008, 0x0030, 'TM', '101112')
@@ -828,7 +975,12 @@ class PhrDicomTest extends TestCase
             .$this->element(0x0020, 0x0032, 'DS', '0\\0\\0')
             .$this->element(0x0020, 0x0037, 'DS', '1\\0\\0\\0\\1\\0')
             .$this->element(0x0020, 0x0052, 'UI', '1.2.3.4.5')
-            .$this->element(0x0028, 0x0002, 'US', pack('v', 1))
+            .($includePixelDescription ? $this->pixelDescriptionElements() : '');
+    }
+
+    private function pixelDescriptionElements(): string
+    {
+        return $this->element(0x0028, 0x0002, 'US', pack('v', 1))
             .$this->element(0x0028, 0x0004, 'CS', 'MONOCHROME2')
             .$this->element(0x0028, 0x0010, 'US', pack('v', 512))
             .$this->element(0x0028, 0x0011, 'US', pack('v', 512))
