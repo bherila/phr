@@ -95,10 +95,11 @@ final class AgentPatientController extends Controller
             return $patient;
         });
 
-        $patient->load(['accessGrants' => function (Relation $relation) use ($userId): void {
-            $relation->getQuery()->where('user_id', $userId);
-        }]);
-
+        // No grant load: the creator is always this patient's owner_user_id, so
+        // AgentPatientPresenter takes its owner branch and never reads
+        // accessGrants, and PhrPatientAccessService::canWrite() short-circuits
+        // on ownership before touching the relation. show() loads the grant
+        // because its caller may hold only a shared-access row.
         return response()->json([
             'data' => $this->presenter->payload($patient, $userId, includeNotes: true),
         ], 201);
