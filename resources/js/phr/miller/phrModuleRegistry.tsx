@@ -446,6 +446,7 @@ const PatientsManagePage = lazy(() => import('@/phr/patients-manage/PatientsMana
 const AiProviderSettingsPage = lazy(() => import('@/phr/config/AiProviderSettingsPage'))
 const ConnectedDevicesPanel = lazy(() => import('@/phr/config/ConnectedDevicesPanel'))
 const DataHubPage = lazy(() => import('@/phr/data-hub/DataHubPage'))
+const ImportsPage = lazy(() => import('@/phr/imports/ImportsPage'))
 
 function noPatientState() {
   return (
@@ -551,17 +552,8 @@ function DataHubColumn() {
   return <DataHubPage />
 }
 
-function ComingSoonColumn({ title }: { title: string }) {
-  return (
-    <div className="p-6">
-      <h1 className="text-2xl font-semibold text-foreground">{title}</h1>
-      <p className="mt-2 text-sm text-muted-foreground">Coming soon.</p>
-    </div>
-  )
-}
-
-function ImportsColumn() {
-  return <ComingSoonColumn title="Imports" />
+function ImportsColumn({ state }: PhrRenderProps) {
+  return <ImportsPage {...(state.patientId !== undefined ? { patientId: state.patientId } : {})} />
 }
 
 type ConfigTab = 'ai-providers' | 'devices'

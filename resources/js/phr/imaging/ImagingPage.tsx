@@ -1,67 +1,23 @@
-import { AlertCircle, CheckCircle2, Download, ExternalLink, Images, Loader2, RefreshCcw, UploadCloud, X } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Download, ExternalLink, Images, RefreshCcw, UploadCloud } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Progress } from '@/components/ui/progress'
-import { fetchWrapper, getCsrfToken } from '@/fetchWrapper'
+import { fetchWrapper } from '@/fetchWrapper'
 import { cn, formatBytes } from '@/lib/utils'
 import type { PhrListPageProps } from '@/phr/miller'
 import { errorMessage } from '@/phr/shared'
-import {
-  PhrDicomStudiesResponseSchema,
-  type PhrDicomStudy,
-  type PhrDicomUploadFileResponse,
-  PhrDicomUploadFileResponseSchema,
-  PhrDicomUploadFinalizeResponseSchema,
-  PhrDicomUploadResponseSchema,
-} from '@/phr/types'
-
-type FileWithRelativePath = File
-
-interface DirectoryInputAttributes {
-  webkitdirectory: string
-  directory: string
-}
-
-const directoryInputAttributes: DirectoryInputAttributes = {
-  webkitdirectory: '',
-  directory: '',
-}
-
-const UPLOAD_CONCURRENCY = 4
-
-type UploadPhase = 'uploading' | 'done' | 'duplicate' | 'aborting' | 'cancelled' | 'failed'
-
-interface FileFailure {
-  path: string
-  reason: string
-}
-
-interface UploadSummary {
-  stored: number
-  skipped: number
-  errored: number
-  failures: FileFailure[]
-}
+import { PhrDicomStudiesResponseSchema, type PhrDicomStudy } from '@/phr/types'
+import { useDicomUploadCompletions } from '@/phr/uploads'
 
 export default function ImagingPage({ patientId, onDrill }: PhrListPageProps) {
-  const inputRef = useRef<HTMLInputElement | null>(null)
   const [canManage, setCanManage] = useState(false)
   const [studies, setStudies] = useState<PhrDicomStudy[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const [dialogOpen, setDialogOpen] = useState(false)
-  const [phase, setPhase] = useState<UploadPhase>('uploading')
-  const [queuedFiles, setQueuedFiles] = useState<FileWithRelativePath[]>([])
-  const [rootName, setRootName] = useState<string | null>(null)
-  const [bytesSent, setBytesSent] = useState(0)
-  const [filesProcessed, setFilesProcessed] = useState(0)
-  const [currentFileName, setCurrentFileName] = useState<string>('')
-  const [summary, setSummary] = useState<UploadSummary>({ stored: 0, skipped: 0, errored: 0, failures: [] })
-
-  const controllerRef = useRef<UploadController | null>(null)
+  // DICOM import lives in the Imports tab now; this just re-reads the study list whenever a
+  // background upload for this patient finishes.
+  const uploadCompletions = useDicomUploadCompletions(patientId)
 
   const loadStudies = useCallback(async () => {
     setBusy(true)
@@ -83,131 +39,7 @@ export default function ImagingPage({ patientId, onDrill }: PhrListPageProps) {
 
   useEffect(() => {
     void loadStudies()
-  }, [loadStudies])
-
-  const totalBytes = useMemo(() => queuedFiles.reduce((sum, file) => sum + file.size, 0), [queuedFiles])
-  const totalFiles = queuedFiles.length
-  const progressPercent = totalBytes === 0 ? 0 : Math.min(100, Math.round((bytesSent / totalBytes) * 100))
-
-  function onFolderChosen(files: FileList | null): void {
-    const accepted = files ? Array.from(files).filter((file) => !isAuxiliaryUploadPath(relativeFilePath(file))) : []
-    if (accepted.length === 0) {
-      setError('No DICOM-compatible files were found in the chosen folder.')
-      if (inputRef.current) {
-        inputRef.current.value = ''
-      }
-      return
-    }
-
-    setError(null)
-    const inferredRoot = inferUploadRootName(accepted)
-    setQueuedFiles(accepted)
-    setRootName(inferredRoot)
-    setBytesSent(0)
-    setFilesProcessed(0)
-    setCurrentFileName('')
-    setSummary({ stored: 0, skipped: 0, errored: 0, failures: [] })
-    setPhase('uploading')
-    setDialogOpen(true)
-
-    if (inputRef.current) {
-      inputRef.current.value = ''
-    }
-
-    void startUpload(accepted, inferredRoot)
-  }
-
-  async function startUpload(files: FileWithRelativePath[], uploadRootName: string | null): Promise<void> {
-    setError(null)
-    let uploadId: number | null = null
-
-    try {
-      const openResponse = await fetchWrapper.post(`/api/phr/patients/${patientId}/dicom/uploads`, uploadRootName ? { root_name: uploadRootName } : {})
-      const { upload, limits } = PhrDicomUploadResponseSchema.parse(openResponse)
-      const currentUploadId = upload.id
-      uploadId = currentUploadId
-
-      controllerRef.current = new UploadController({
-        patientId,
-        uploadId: currentUploadId,
-        files,
-        concurrency: UPLOAD_CONCURRENCY,
-        maxFileBytes: limits?.max_file_bytes ?? null,
-        maxFileSizeLabel: limits?.max_file_size_label ?? null,
-        onFileBytesProgress: (bytes) => setBytesSent((prev) => prev + bytes),
-        onFileStarted: (name) => setCurrentFileName(name),
-        onFileFinished: (outcome) => {
-          setFilesProcessed((prev) => prev + 1)
-          setSummary((prev) => applyOutcomeToSummary(prev, outcome))
-        },
-      })
-
-      const outcomes = await controllerRef.current.run()
-
-      if (controllerRef.current.aborted) {
-        await cancelUploadSession(patientId, currentUploadId)
-        setError('Upload cancelled.')
-        setPhase('cancelled')
-        return
-      }
-
-      const failedOutcomes = outcomes.filter((outcome) => outcome.errorMessage !== null)
-      if (failedOutcomes.length > 0) {
-        setError(failedOutcomes[0]?.errorMessage ?? 'Upload failed.')
-        await cancelUploadSession(patientId, currentUploadId)
-        setPhase('failed')
-        return
-      }
-
-      try {
-        const finalizeResponse = PhrDicomUploadFinalizeResponseSchema.parse(await fetchWrapper.post(
-          `/api/phr/patients/${patientId}/dicom/uploads/${currentUploadId}/finalize`,
-          {},
-        ))
-        if (finalizeResponse.duplicate_upload === true) {
-          setError(null)
-          setPhase('duplicate')
-          await loadStudies()
-          return
-        }
-      } catch (caught) {
-        const message = errorMessage(caught)
-        setError(message)
-        setSummary((prev) => appendFailure(prev, 'Finalize upload', message))
-        await cancelUploadSession(patientId, currentUploadId)
-        setPhase('failed')
-        return
-      }
-
-      setPhase('done')
-      await loadStudies()
-    } catch (caught) {
-      const message = errorMessage(caught)
-      setError(message)
-      setSummary((prev) => appendFailure(prev, 'Upload session', message))
-      if (uploadId !== null) {
-        await cancelUploadSession(patientId, uploadId)
-      }
-      setPhase('failed')
-    } finally {
-      controllerRef.current = null
-    }
-  }
-
-  function cancelUpload(): void {
-    if (controllerRef.current && !controllerRef.current.aborted) {
-      setPhase('aborting')
-      controllerRef.current.abort()
-    } else {
-      closeDialog()
-    }
-  }
-
-  function closeDialog(): void {
-    setDialogOpen(false)
-    setQueuedFiles([])
-    setCurrentFileName('')
-  }
+  }, [loadStudies, uploadCompletions])
 
   return (
     <div>
@@ -217,10 +49,10 @@ export default function ImagingPage({ patientId, onDrill }: PhrListPageProps) {
           Imaging
         </h1>
         <div className="flex gap-2">
-          {canManage && (
-            <Button type="button" size="sm" onClick={() => inputRef.current?.click()}>
+          {canManage && onDrill && (
+            <Button type="button" size="sm" onClick={() => onDrill({ id: 'imports' })}>
               <UploadCloud className="size-4" />
-              Upload DICOM
+              Import DICOM
             </Button>
           )}
           <Button type="button" variant="outline" size="sm" onClick={() => void loadStudies()} disabled={busy}>
@@ -229,15 +61,6 @@ export default function ImagingPage({ patientId, onDrill }: PhrListPageProps) {
           </Button>
         </div>
       </div>
-
-      <input
-        ref={inputRef}
-        type="file"
-        className="hidden"
-        multiple
-        onChange={(event) => onFolderChosen(event.target.files)}
-        {...directoryInputAttributes}
-      />
 
       {error && (
         <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -292,330 +115,8 @@ export default function ImagingPage({ patientId, onDrill }: PhrListPageProps) {
           ))}
         </div>
       )}
-
-      <Dialog
-        open={dialogOpen}
-        onOpenChange={(open) => {
-          if (!open && (phase === 'uploading' || phase === 'aborting')) {
-            return
-          }
-          if (!open) {
-            closeDialog()
-          }
-        }}
-      >
-        <DialogContent showCloseButton={phase !== 'uploading' && phase !== 'aborting'}>
-          <DialogHeader>
-            <DialogTitle>
-              {phase === 'uploading' && 'Uploading…'}
-              {phase === 'aborting' && 'Cancelling…'}
-              {phase === 'done' && (summary.errored > 0 ? 'Upload finished with errors' : 'Upload complete')}
-              {phase === 'duplicate' && 'Duplicate study skipped'}
-              {phase === 'cancelled' && 'Upload cancelled'}
-              {phase === 'failed' && 'Upload failed'}
-            </DialogTitle>
-            <DialogDescription>
-              {(phase === 'uploading' || phase === 'aborting') && `${filesProcessed} of ${totalFiles} files · ${formatBytes(bytesSent)} / ${formatBytes(totalBytes)}${rootName ? ` · ${rootName}` : ''}`}
-              {phase === 'done' && `Stored ${summary.stored} · Skipped ${summary.skipped}${summary.errored > 0 ? ` · Errored ${summary.errored}` : ''}`}
-              {phase === 'duplicate' && `No new images were added. Stored ${summary.stored} · Skipped ${summary.skipped}`}
-              {phase === 'cancelled' && `The upload session was cancelled and stored files were discarded. Processed ${filesProcessed} of ${totalFiles} files.`}
-              {phase === 'failed' && `The upload session was stopped and stored files were discarded. Processed ${filesProcessed} of ${totalFiles} files.`}
-            </DialogDescription>
-          </DialogHeader>
-
-          {(phase === 'uploading' || phase === 'aborting') && (
-            <div className="flex min-w-0 flex-col gap-2">
-              <Progress value={progressPercent} />
-              <p className="min-w-0 truncate text-xs text-muted-foreground">
-                <Loader2 className="mr-1 inline size-3 animate-spin" />
-                {phase === 'aborting' ? 'Stopping in-flight uploads…' : currentFileName || 'Preparing…'}
-              </p>
-            </div>
-          )}
-
-          {(phase === 'done' || phase === 'duplicate' || phase === 'cancelled' || phase === 'failed') && summary.failures.length > 0 && (
-            <div className="max-h-40 overflow-y-auto rounded-md border border-border bg-muted/30 p-2 text-xs">
-              <p className="mb-1 flex items-center gap-1 font-medium text-foreground">
-                <AlertCircle className="size-3" />
-                Failed files
-              </p>
-              <ul className="space-y-0.5 text-muted-foreground">
-                {summary.failures.slice(0, 50).map((failure) => (
-                  <li key={`${failure.path}:${failure.reason}`} className="break-words">
-                    {failure.path} — {failure.reason}
-                  </li>
-                ))}
-                {summary.failures.length > 50 && (
-                  <li className="italic">…and {summary.failures.length - 50} more</li>
-                )}
-              </ul>
-            </div>
-          )}
-
-          {phase === 'done' && summary.errored === 0 && summary.stored > 0 && (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <CheckCircle2 className="size-4 text-primary" />
-              Studies are now visible below.
-            </p>
-          )}
-
-          {phase === 'duplicate' && (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <CheckCircle2 className="size-4 text-muted-foreground" />
-              This study is already available in the imaging library.
-            </p>
-          )}
-
-          <DialogFooter>
-            {phase === 'uploading' && (
-              <Button type="button" variant="outline" onClick={cancelUpload}>
-                <X className="size-4" />
-                Cancel upload
-              </Button>
-            )}
-            {phase === 'aborting' && (
-              <Button type="button" variant="outline" disabled>
-                <Loader2 className="size-4 animate-spin" />
-                Cancelling…
-              </Button>
-            )}
-            {(phase === 'done' || phase === 'duplicate' || phase === 'cancelled' || phase === 'failed') && (
-              <Button type="button" onClick={closeDialog}>
-                {phase === 'done' || phase === 'duplicate' ? 'Done' : 'Close'}
-              </Button>
-            )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   )
-}
-
-interface FileOutcome {
-  stored: boolean
-  skippedReason: string | null
-  errorMessage: string | null
-  relativePath: string
-}
-
-interface UploadControllerOptions {
-  patientId: number
-  uploadId: number
-  files: FileWithRelativePath[]
-  concurrency: number
-  maxFileBytes: number | null
-  maxFileSizeLabel: string | null
-  onFileBytesProgress: (deltaBytes: number) => void
-  onFileStarted: (name: string) => void
-  onFileFinished: (outcome: FileOutcome) => void
-}
-
-class UploadController {
-  private readonly options: UploadControllerOptions
-
-  private nextIndex = 0
-
-  private readonly activeRequests = new Set<XMLHttpRequest>()
-
-  private hasHardFailure = false
-
-  aborted = false
-
-  constructor(options: UploadControllerOptions) {
-    this.options = options
-  }
-
-  abort(): void {
-    this.aborted = true
-    for (const request of this.activeRequests) {
-      request.abort()
-    }
-  }
-
-  async run(): Promise<FileOutcome[]> {
-    const outcomes: FileOutcome[] = []
-    const workerCount = Math.min(this.options.concurrency, this.options.files.length)
-    const workers: Promise<void>[] = []
-    for (let i = 0; i < workerCount; i++) {
-      workers.push(this.runWorker(outcomes))
-    }
-    await Promise.all(workers)
-
-    return outcomes
-  }
-
-  private async runWorker(outcomes: FileOutcome[]): Promise<void> {
-    while (!this.aborted && !this.hasHardFailure) {
-      const index = this.nextIndex++
-      if (index >= this.options.files.length) {
-        return
-      }
-      const file = this.options.files[index]
-      if (!file) {
-        return
-      }
-      const outcome = await this.uploadOne(index, file)
-      outcomes.push(outcome)
-      this.options.onFileFinished(outcome)
-      if (outcome.errorMessage !== null && !this.aborted) {
-        this.hasHardFailure = true
-      }
-    }
-  }
-
-  private async uploadOne(index: number, file: FileWithRelativePath): Promise<FileOutcome> {
-    const relativePath = relativeFilePath(file)
-    this.options.onFileStarted(relativePath)
-
-    if (this.options.maxFileBytes !== null && file.size > this.options.maxFileBytes) {
-      this.options.onFileBytesProgress(file.size)
-
-      return {
-        stored: false,
-        skippedReason: null,
-        errorMessage: `File is ${formatBytes(file.size)}, which exceeds the server upload limit of ${this.options.maxFileSizeLabel ?? formatBytes(this.options.maxFileBytes)}.`,
-        relativePath,
-      }
-    }
-
-    if (this.aborted) {
-      return { stored: false, skippedReason: null, errorMessage: 'Cancelled.', relativePath }
-    }
-
-    try {
-      const completed = await this.postFile(file, relativePath)
-
-      return {
-        stored: completed.result.stored,
-        skippedReason: completed.result.skipped_reason,
-        errorMessage: null,
-        relativePath: completed.result.relative_path,
-      }
-    } catch (error) {
-      return {
-        stored: false,
-        skippedReason: null,
-        errorMessage: errorMessage(error),
-        relativePath,
-      }
-    }
-  }
-
-  private postFile(file: FileWithRelativePath, relativePath: string): Promise<PhrDicomUploadFileResponse> {
-    return new Promise<PhrDicomUploadFileResponse>((resolve, reject) => {
-      const xhr = new XMLHttpRequest()
-      xhr.open('POST', `/api/phr/patients/${this.options.patientId}/dicom/uploads/${this.options.uploadId}/files`)
-      xhr.setRequestHeader('Accept', 'application/json')
-      xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest')
-      const csrfToken = getCsrfToken()
-      if (csrfToken) {
-        xhr.setRequestHeader('X-CSRF-TOKEN', csrfToken)
-      }
-
-      let lastLoaded = 0
-      xhr.upload.addEventListener('progress', (event) => {
-        if (event.lengthComputable) {
-          const delta = event.loaded - lastLoaded
-          lastLoaded = event.loaded
-          this.options.onFileBytesProgress(delta)
-        }
-      })
-
-      xhr.addEventListener('load', () => {
-        this.activeRequests.delete(xhr)
-        this.options.onFileBytesProgress(file.size - lastLoaded)
-
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try {
-            resolve(PhrDicomUploadFileResponseSchema.parse(JSON.parse(xhr.responseText)))
-          } catch (error) {
-            reject(error instanceof Error ? error : new Error(errorMessage(error)))
-          }
-        } else {
-          reject(new Error(extractServerError(xhr)))
-        }
-      })
-
-      xhr.addEventListener('error', () => {
-        this.activeRequests.delete(xhr)
-        reject(new Error('Network error during upload.'))
-      })
-
-      xhr.addEventListener('abort', () => {
-        this.activeRequests.delete(xhr)
-        reject(new Error('Cancelled.'))
-      })
-
-      const formData = new FormData()
-      formData.append('file', file)
-      formData.append('relative_path', relativePath)
-
-      this.activeRequests.add(xhr)
-      try {
-        xhr.send(formData)
-      } catch (error) {
-        this.activeRequests.delete(xhr)
-        reject(error instanceof Error ? error : new Error(errorMessage(error)))
-      }
-    })
-  }
-}
-
-function applyOutcomeToSummary(summary: UploadSummary, outcome: FileOutcome): UploadSummary {
-  if (outcome.stored) {
-    return { ...summary, stored: summary.stored + 1 }
-  }
-  if (outcome.errorMessage !== null) {
-    return {
-      ...summary,
-      errored: summary.errored + 1,
-      failures: [...summary.failures, { path: outcome.relativePath, reason: outcome.errorMessage }],
-    }
-  }
-  return {
-    ...summary,
-    skipped: summary.skipped + 1,
-    failures: outcome.skippedReason && outcome.skippedReason !== 'auxiliary_file' && outcome.skippedReason !== 'duplicate_sop_instance'
-      ? [...summary.failures, { path: outcome.relativePath, reason: outcome.skippedReason }]
-      : summary.failures,
-  }
-}
-
-function appendFailure(summary: UploadSummary, path: string, reason: string): UploadSummary {
-  return {
-    ...summary,
-    errored: summary.errored + 1,
-    failures: [...summary.failures, { path, reason }],
-  }
-}
-
-async function cancelUploadSession(patientId: number, uploadId: number): Promise<void> {
-  await fetchWrapper.post(`/api/phr/patients/${patientId}/dicom/uploads/${uploadId}/cancel`, {}).catch(() => {})
-}
-
-function extractServerError(xhr: XMLHttpRequest): string {
-  try {
-    const parsed = JSON.parse(xhr.responseText)
-    if (parsed && typeof parsed === 'object' && 'message' in parsed) {
-      return String(parsed.message)
-    }
-  } catch {
-    // body wasn't JSON, fall through
-  }
-  const status = xhr.statusText || `HTTP ${xhr.status}`
-  const snippet = truncate(xhr.responseText, 200)
-  return snippet ? `${status} — ${snippet}` : status
-}
-
-function truncate(text: string, max: number): string {
-  if (!text) {
-    return ''
-  }
-  const oneLine = text.replace(/\s+/g, ' ').trim()
-  if (oneLine.length <= max) {
-    return oneLine
-  }
-  return `${oneLine.slice(0, max)}…`
 }
 
 function compareStudiesNewestFirst(a: PhrDicomStudy, b: PhrDicomStudy): number {
@@ -634,73 +135,6 @@ function compareStudiesNewestFirst(a: PhrDicomStudy, b: PhrDicomStudy): number {
 
 function compareNullableStringsDesc(a: string | null, b: string | null): number {
   return (b ?? '').localeCompare(a ?? '')
-}
-
-function relativeFilePath(file: FileWithRelativePath): string {
-  return file.webkitRelativePath || file.name
-}
-
-function inferUploadRootName(files: FileWithRelativePath[]): string | null {
-  const firstFile = files[0]
-  if (!firstFile) {
-    return null
-  }
-
-  const firstPath = relativeFilePath(firstFile)
-  const segments = firstPath.split('/').filter(Boolean)
-
-  return segments.length > 1 ? (segments[0] ?? null) : null
-}
-
-const AUXILIARY_BASENAMES = new Set(['thumbs.db', 'desktop.ini', '.ds_store'])
-
-const AUXILIARY_EXTENSIONS = new Set([
-  'bat',
-  'bmp',
-  'cmd',
-  'com',
-  'config',
-  'css',
-  'db',
-  'dll',
-  'doc',
-  'docx',
-  'exe',
-  'exml',
-  'gif',
-  'htm',
-  'html',
-  'ico',
-  'inf',
-  'ini',
-  'jpg',
-  'jpeg',
-  'js',
-  'lnk',
-  'msi',
-  'pdf',
-  'png',
-  'rtf',
-  'std',
-  'txt',
-  'url',
-  'xml',
-])
-
-function isAuxiliaryUploadPath(path: string): boolean {
-  const normalizedPath = path.replace(/\\/g, '/')
-  const basename = normalizedPath.split('/').pop()?.toLowerCase() ?? ''
-
-  if (basename === 'dicomdir') {
-    return false
-  }
-
-  if (AUXILIARY_BASENAMES.has(basename)) {
-    return true
-  }
-
-  const extension = basename.includes('.') ? basename.split('.').pop() ?? '' : ''
-  return AUXILIARY_EXTENSIONS.has(extension)
 }
 
 function downloadStudyZip(patientId: number, studyId: number): void {
