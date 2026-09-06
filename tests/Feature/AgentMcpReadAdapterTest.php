@@ -208,7 +208,7 @@ final class AgentMcpReadAdapterTest extends TestCase
         ], $session)->assertOk()->json('result.tools');
         $this->assertIsArray($tools);
         $toolNames = array_column($tools, 'name');
-        foreach (['capabilities.get', 'patients.list', 'records.search', 'timeline.list',
+        foreach (['capabilities.get', 'patients.list', 'patients.create', 'records.search', 'timeline.list',
             'office_visits.list', 'procedures.get', 'eobs.list', 'documents.get', 'documents.upload',
             'dicom_studies.list', 'dicom_studies.get', 'dicom_series.list', 'dicom_uploads.open', 'dicom_uploads.upload_file',
             'dicom_uploads.finalize', 'dicom_uploads.cancel',
@@ -225,11 +225,11 @@ final class AgentMcpReadAdapterTest extends TestCase
             $this->assertContains($name, $toolNames);
         }
         $this->assertCount(
-            42 + (count(AgentClinicalResourceCatalog::ids()) * 2) + (count(AgentClinicalResourceCatalog::writableIds()) * 4),
+            43 + (count(AgentClinicalResourceCatalog::ids()) * 2) + (count(AgentClinicalResourceCatalog::writableIds()) * 4),
             $toolNames,
         );
         $writeTools = [
-            'documents.upload', 'imports.create', 'imports.review', 'imports.retry',
+            'patients.create', 'documents.upload', 'imports.create', 'imports.review', 'imports.retry',
             'health_logs.create', 'health_log_entries.append', 'respiratory_events.ingest',
             'dicom_uploads.open', 'dicom_uploads.upload_file', 'dicom_uploads.finalize', 'dicom_uploads.cancel',
             'reconciliations.apply',
@@ -877,6 +877,54 @@ final class AgentMcpReadAdapterTest extends TestCase
             'route_name' => 'agent-api.v1.respiratory-events.batch',
             'response_status' => 200,
         ]);
+    }
+
+    public function test_mcp_patients_create_uses_the_typed_rest_write_boundary(): void
+    {
+        $actor = $this->user('mcp-patient-creator@example.test');
+        $client = Client::query()->create([
+            'name' => 'Synthetic MCP Patient Creator',
+            'secret' => null,
+            'provider' => 'users',
+            'redirect_uris' => ['https://client.example.test/callback'],
+            'grant_types' => ['authorization_code', 'refresh_token'],
+            'revoked' => false,
+        ]);
+        Passport::actingAs($actor, [AgentApiScopes::MCP_USE, AgentApiScopes::PATIENTS_WRITE], 'api', $client);
+
+        $session = $this->initializeSession();
+        $created = $this->callTool($session, 2, 'patients.create', [
+            'display_name' => 'Synthetic MCP Created Patient',
+            'relationship' => 'child',
+            'birth_date' => '2015-06-01',
+            'sex_at_birth' => 'female',
+        ]);
+        $this->assertFalse($created['result']['isError'] ?? true, json_encode($created, JSON_THROW_ON_ERROR));
+        $this->assertSame(
+            'Synthetic MCP Created Patient',
+            $created['result']['structuredContent']['data']['display_name'] ?? null,
+        );
+        $this->assertSame(
+            PhrPatientUserAccess::LEVEL_OWNER,
+            $created['result']['structuredContent']['data']['access']['level'] ?? null,
+        );
+        $patientId = $created['result']['structuredContent']['data']['id'] ?? null;
+        $this->assertDatabaseHas('phr_patients', [
+            'id' => $patientId,
+            'owner_user_id' => $actor->id,
+        ]);
+        $this->assertDatabaseHas('phr_patient_user_access', [
+            'patient_id' => $patientId,
+            'user_id' => $actor->id,
+            'access_level' => PhrPatientUserAccess::LEVEL_OWNER,
+        ]);
+
+        Passport::actingAs($actor, [AgentApiScopes::MCP_USE], 'api', $client);
+        $deniedSession = $this->initializeSession();
+        $tools = $this->mcpPost([
+            'jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list', 'params' => [],
+        ], $deniedSession)->assertOk()->json('result.tools');
+        $this->assertNotContains('patients.create', array_column($tools, 'name'));
     }
 
     public function test_mcp_sessions_are_isolated_by_oauth_token(): void

@@ -20,7 +20,11 @@ Protected-resource pre-authentication buckets normalize numeric patient and reco
 path segments, preventing identifier changes from creating fresh parsing budgets.
 
 Patient discovery deliberately has its own `patients:read` scope. Its response omits
-the owner's user id and every grant except the caller's fixed access metadata. The
+the owner's user id and every grant except the caller's fixed access metadata.
+Patient creation requires the separate `patients:write` scope and reuses the same
+`StorePatientRequest` validation rules and `owner_user_id` plus owner-level
+`PhrPatientUserAccess` grant the browser Data Hub creates, so a token holding only
+`patients:read` can never create a new patient record. The
 separate `clinical:read` scope permits list/get access to the fixed core-resource
 allow-list only after the patient id is resolved through `PhrPatientAccessService`.
 Clinical list responses are cursor-bounded to 100 rows, and source/update filters are
