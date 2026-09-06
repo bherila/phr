@@ -103,8 +103,8 @@ export default function ImagingStudyDetail({ patientId, recordId }: ImagingStudy
     { label: 'Modality', value: study.modalities },
     { label: 'Study Date', value: study.study_date },
     { label: 'Accession #', value: study.accession_number },
-    { label: 'Series', value: String(study.series_count) },
-    { label: 'Images', value: String(study.instance_count) },
+    { label: 'Series', value: String(series.length) },
+    { label: 'Images', value: String(series.reduce((sum, s) => sum + s.instances.length, 0)) },
   ]
 
   return (

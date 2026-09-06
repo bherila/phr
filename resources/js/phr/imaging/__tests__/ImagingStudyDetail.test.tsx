@@ -118,6 +118,27 @@ describe('ImagingStudyDetail', () => {
     expect(screen.getByText('Series 2')).toBeInTheDocument()
   })
 
+  it('shows series/image stats from the filtered viewer-json response, not the raw study counts', async () => {
+    mockFetch.mockImplementation(async (url: string) => {
+      if (url === `/api/phr/patients/${PATIENT_ID}/dicom/studies/${STUDY_ID}`) {
+        // The study record's raw counts can include non-pixel objects (e.g.
+        // Presentation States) that the viewer-json endpoint filters out.
+        return jsonResponse({ study: makeStudy({ series_count: 5, instance_count: 40 }) })
+      }
+      if (url === `/api/phr/patients/${PATIENT_ID}/dicom/studies/${STUDY_ID}/viewer-json`) {
+        return jsonResponse(makeViewerResponse(2))
+      }
+      return jsonResponse({})
+    })
+
+    const { container } = render(<ImagingStudyDetail patientId={PATIENT_ID} recordId={STUDY_ID} />)
+
+    await waitFor(() => expect(screen.getByText('Series 1')).toBeInTheDocument())
+
+    const values = Array.from(container.querySelectorAll('dd')).map((el) => el.textContent)
+    expect(values).toEqual(['Cardiac CT', 'CT', '2026-05-17', 'ACC123', '2', '2'])
+  })
+
   it('renders PhrNotFoundColumn on 404', async () => {
     mockFetch.mockResolvedValue(jsonResponse({ message: 'Not Found' }, { ok: false, status: 404, statusText: 'Not Found' }))
     render(<ImagingStudyDetail patientId={PATIENT_ID} recordId={STUDY_ID} />)
