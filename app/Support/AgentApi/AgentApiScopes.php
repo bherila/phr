@@ -8,6 +8,8 @@ final class AgentApiScopes
 
     public const string PATIENTS_READ = 'patients:read';
 
+    public const string PATIENTS_WRITE = 'patients:write';
+
     public const string CLINICAL_READ = 'clinical:read';
 
     public const string CLINICAL_WRITE = 'clinical:write';
@@ -36,6 +38,7 @@ final class AgentApiScopes
         return [
             self::IDENTITY_READ => 'Read your account identity and granted scopes',
             self::PATIENTS_READ => 'List and read patients you can access',
+            self::PATIENTS_WRITE => 'Create new patients you own',
             self::CLINICAL_READ => 'Read clinical records for patients you can access',
             self::CLINICAL_WRITE => 'Create and update clinical records you can manage',
             self::DOCUMENTS_READ => 'Read document metadata and download authorized files',

@@ -103,6 +103,55 @@ class AgentApiClinicalReadTest extends TestCase
         $this->getJson("/api/v1/patients/{$hidden->id}")->assertNotFound();
     }
 
+    public function test_patient_creation_requires_its_own_scope_and_grants_owner_access(): void
+    {
+        $actor = $this->user('agent-creator@example.test');
+        Passport::actingAs($actor, [AgentApiScopes::PATIENTS_WRITE]);
+
+        $created = $this->postJson('/api/v1/patients', [
+            'display_name' => 'Synthetic Created Patient',
+            'relationship' => 'child',
+            'birth_date' => '2015-06-01',
+            'sex_at_birth' => 'female',
+            'notes' => 'Synthetic creation note',
+        ])
+            ->assertCreated()
+            ->assertHeader('Cache-Control', 'max-age=0, no-store, private')
+            ->assertJsonPath('data.display_name', 'Synthetic Created Patient')
+            ->assertJsonPath('data.relationship', 'child')
+            ->assertJsonPath('data.birth_date', '2015-06-01') // sensitive-scan-ignore: synthetic fixture date
+            ->assertJsonPath('data.sex_at_birth', 'female')
+            ->assertJsonPath('data.notes', 'Synthetic creation note')
+            ->assertJsonPath('data.access.level', PhrPatientUserAccess::LEVEL_OWNER)
+            ->assertJsonPath('data.access.is_owner', true)
+            ->assertJsonPath('data.access.can_write', true)
+            ->json();
+        $patientId = (int) $created['data']['id'];
+
+        $this->assertDatabaseHas('phr_patients', [
+            'id' => $patientId,
+            'owner_user_id' => $actor->id,
+            'display_name' => 'Synthetic Created Patient',
+        ]);
+        $this->assertDatabaseHas('phr_patient_user_access', [
+            'patient_id' => $patientId,
+            'user_id' => $actor->id,
+            'access_level' => PhrPatientUserAccess::LEVEL_OWNER,
+            'granted_by_user_id' => $actor->id,
+        ]);
+
+        $this->postJson('/api/v1/patients', ['display_name' => 'Synthetic Minimal Patient'])
+            ->assertCreated();
+        $this->postJson('/api/v1/patients', [])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('display_name');
+
+        Passport::actingAs($actor, [AgentApiScopes::PATIENTS_READ]);
+        $this->postJson('/api/v1/patients', ['display_name' => 'Synthetic Denied Patient'])
+            ->assertForbidden();
+        $this->assertDatabaseMissing('phr_patients', ['display_name' => 'Synthetic Denied Patient']);
+    }
+
     public function test_patient_and_clinical_scopes_are_independent_and_default_deny(): void
     {
         $actor = $this->user('scope-reader@example.test');
