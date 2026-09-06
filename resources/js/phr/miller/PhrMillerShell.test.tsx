@@ -47,7 +47,8 @@ describe('PhrMillerShell', () => {
     window.location.hash = '#/imports'
     render(<PhrMillerShell />)
     expect(await screen.findByRole('heading', { name: 'Imports' })).toBeInTheDocument()
-    expect(screen.getByText('Coming soon.')).toBeInTheDocument()
+    // The placeholder is gone: the Imports tab now owns the DICOM import entry point.
+    expect(await screen.findByRole('button', { name: /upload dicom folder/i })).toBeInTheDocument()
   })
 
   it('swaps the rendered section when the hash changes (no full reload)', async () => {

@@ -5,6 +5,7 @@ import PhrNavbar from '@/components/phr/PhrNavbar'
 import { useMillerApp } from '@/components/ui/miller'
 import type { PhrSection } from '@/lib/phrRouteBuilder'
 import { patientUrl, phrSectionUrl } from '@/lib/phrRouteBuilder'
+import { DicomUploadProvider, DicomUploadTray } from '@/phr/uploads'
 
 import { PhrCommandPalette, usePhrCommandPaletteShortcut } from './PhrCommandPalette'
 import { PhrDockHomeView } from './PhrDockHomeView'
@@ -94,34 +95,40 @@ export function PhrMillerShell({ initialPatientId, backUrl }: PhrMillerShellProp
     window.dispatchEvent(new Event('hashchange'))
   }, [])
 
+  // The upload provider sits above the column stack, not inside it: the shell is mounted once
+  // per page load and its children swap on navigation, so job state (and the beforeunload
+  // guard registered from the provider) survives moving between Miller tabs and columns.
   return (
-    <PhrNavbar
-      {...(patientId !== undefined ? { patientId } : {})}
-      {...(activeSection ? { activeSection } : {})}
-      {...(backUrl ? { backUrl } : {})}
-      className="flex h-full flex-col"
-      onPatientChange={handlePatientChange}
-      onSectionChange={handleSectionChange}
-      onSearch={() => setPaletteOpen(true)}
-    >
-      <div className="min-h-0 flex-1 overflow-hidden">
-        <Suspense fallback={LOADING}>{shell}</Suspense>
-      </div>
-      {patientId === undefined ? (
-        <PhrCommandPalette
-          open={paletteOpen}
-          onClose={() => setPaletteOpen(false)}
-          onDrill={pushColumn}
-          registry={phrModuleRegistry}
-        />
-      ) : (
-        <PhrPatientSearchPalette
-          open={paletteOpen}
-          patientId={patientId}
-          onClose={() => setPaletteOpen(false)}
-          onDrill={pushColumn}
-        />
-      )}
-    </PhrNavbar>
+    <DicomUploadProvider>
+      <PhrNavbar
+        {...(patientId !== undefined ? { patientId } : {})}
+        {...(activeSection ? { activeSection } : {})}
+        {...(backUrl ? { backUrl } : {})}
+        className="flex h-full flex-col"
+        onPatientChange={handlePatientChange}
+        onSectionChange={handleSectionChange}
+        onSearch={() => setPaletteOpen(true)}
+      >
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <Suspense fallback={LOADING}>{shell}</Suspense>
+        </div>
+        {patientId === undefined ? (
+          <PhrCommandPalette
+            open={paletteOpen}
+            onClose={() => setPaletteOpen(false)}
+            onDrill={pushColumn}
+            registry={phrModuleRegistry}
+          />
+        ) : (
+          <PhrPatientSearchPalette
+            open={paletteOpen}
+            patientId={patientId}
+            onClose={() => setPaletteOpen(false)}
+            onDrill={pushColumn}
+          />
+        )}
+      </PhrNavbar>
+      <DicomUploadTray />
+    </DicomUploadProvider>
   )
 }
