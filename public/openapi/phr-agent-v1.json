@@ -61,6 +61,19 @@
           "422": { "$ref": "#/components/responses/InvalidRequest" },
           "429": { "$ref": "#/components/responses/RateLimited" }
         }
+      },
+      "post": {
+        "operationId": "patients.create",
+        "summary": "Create a new patient owned by the authorized user",
+        "security": [{ "oauth2": ["patients:write"] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PatientCreateRequest" } } } },
+        "responses": {
+          "201": { "description": "Patient created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PatientResponse" } } } },
+          "401": { "$ref": "#/components/responses/Unauthenticated" },
+          "403": { "$ref": "#/components/responses/InsufficientScope" },
+          "422": { "$ref": "#/components/responses/InvalidRequest" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
       }
     },
     "/patients/{patient}": {
@@ -863,6 +876,7 @@
             "scopes": {
               "identity:read": "Read account identity and granted scopes",
               "patients:read": "List and read patients you can access",
+              "patients:write": "Create new patients you own",
               "clinical:read": "Read clinical records for patients you can access",
               "clinical:write": "Create and update clinical records you can manage",
               "documents:read": "Read document metadata and download authorized files",
@@ -1057,7 +1071,7 @@
           "created_at": { "$ref": "#/components/schemas/LocalDateTime" },
           "updated_at": { "$ref": "#/components/schemas/LocalDateTime" },
           "access": { "$ref": "#/components/schemas/PatientAccess" },
-          "notes": { "type": ["string", "null"], "description": "Present only in patients.get responses." }
+          "notes": { "type": ["string", "null"], "description": "Present only in patients.get and patients.create responses; patients.list omits it." }
         },
         "additionalProperties": false
       },
@@ -1089,6 +1103,18 @@
         "type": "object",
         "required": ["data"],
         "properties": { "data": { "$ref": "#/components/schemas/Patient" } },
+        "additionalProperties": false
+      },
+      "PatientCreateRequest": {
+        "type": "object",
+        "required": ["display_name"],
+        "properties": {
+          "display_name": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "relationship": { "type": ["string", "null"], "maxLength": 50 },
+          "birth_date": { "type": ["string", "null"], "format": "date" },
+          "sex_at_birth": { "type": ["string", "null"], "maxLength": 50 },
+          "notes": { "type": ["string", "null"], "maxLength": 10000 }
+        },
         "additionalProperties": false
       },
       "ClinicalRecord": {

@@ -9,6 +9,7 @@ use App\DataTransferObjects\AgentApi\DocumentUploadData;
 use App\DataTransferObjects\AgentApi\HealthLogCreateData;
 use App\DataTransferObjects\AgentApi\HealthLogEntryAppendData;
 use App\DataTransferObjects\AgentApi\ImportReviewData;
+use App\DataTransferObjects\AgentApi\PatientCreateData;
 use App\DataTransferObjects\AgentApi\RespiratoryEventBatchData;
 use App\Services\AgentApi\Client\AgentApiWriteDao;
 use Bherila\McpLaravelBridge\Mcp\RequestArguments;
@@ -24,6 +25,23 @@ final readonly class AgentMcpWriteTools
         private AgentApiWriteDao $api,
         private RequestArguments $requestArguments,
     ) {}
+
+    /** @return array<string, mixed> */
+    public function patientsCreate(
+        #[Schema(minLength: 1, maxLength: 255, pattern: '^[^\\p{C}]+$')] string $display_name,
+        #[Schema(maxLength: 50)] ?string $relationship = null,
+        #[Schema(format: 'date')] ?string $birth_date = null,
+        #[Schema(maxLength: 50)] ?string $sex_at_birth = null,
+        #[Schema(maxLength: 10000)] ?string $notes = null,
+    ): array {
+        return $this->api->patientCreate(PatientCreateData::fromValidated([
+            'display_name' => $display_name,
+            'relationship' => $relationship,
+            'birth_date' => $birth_date,
+            'sex_at_birth' => $sex_at_birth,
+            'notes' => $notes,
+        ]))->toArray();
+    }
 
     public function clinicalUpsertHandler(string $resource): Closure
     {

@@ -9,6 +9,7 @@ use App\DataTransferObjects\AgentApi\DocumentUploadData;
 use App\DataTransferObjects\AgentApi\HealthLogCreateData;
 use App\DataTransferObjects\AgentApi\HealthLogEntryAppendData;
 use App\DataTransferObjects\AgentApi\ImportReviewData;
+use App\DataTransferObjects\AgentApi\PatientCreateData;
 use App\DataTransferObjects\AgentApi\RespiratoryEventBatchData;
 use Bherila\McpLaravelBridge\Http\AgentApiTransport;
 
@@ -16,6 +17,15 @@ use Bherila\McpLaravelBridge\Http\AgentApiTransport;
 final readonly class AgentApiWriteDao
 {
     public function __construct(private AgentApiTransport $transport) {}
+
+    public function patientCreate(PatientCreateData $data): AgentApiPayload
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'POST',
+            'patients',
+            json: $data->attributes,
+        ));
+    }
 
     public function clinicalUpsert(int $patientId, ClinicalUpsertData $data): AgentClinicalUpsertPayload
     {

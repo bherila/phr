@@ -92,6 +92,10 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
             ->middleware('throttle:agent-api')
             ->middleware(CheckToken::using(AgentApiScopes::PATIENTS_READ))
             ->name('patients.index');
+        Route::post('/patients', [AgentPatientController::class, 'store'])
+            ->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::PATIENTS_WRITE))
+            ->name('patients.store');
         Route::get('/patients/{patient}', [AgentPatientController::class, 'show'])
             ->whereNumber('patient')
             ->middleware('throttle:agent-api')

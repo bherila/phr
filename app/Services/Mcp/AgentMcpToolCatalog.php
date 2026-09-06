@@ -16,6 +16,22 @@ final class AgentMcpToolCatalog
             $this->method('identity.get', 'Get identity', 'Return the authorized account identity and granted OAuth scopes.', $reads, 'identityGet'),
             $this->method('patients.list', 'List patients', 'List only patients accessible to the authorized account, with bounded pagination.', $reads, 'patientsList'),
             $this->method('patients.get', 'Get patient', 'Get one accessible patient and its current access metadata.', $reads, 'patientsGet'),
+            // Deliberately not idempotent. Patient creation carries no
+            // client-supplied external ID to deduplicate on, so a repeated call
+            // writes a second profile for the same person, and unlike a
+            // duplicated export row or upload session that duplicate is
+            // permanent: a patient is the identity everything else is scoped by
+            // and nothing in the application merges two profiles. Advertising
+            // idempotentHint: true would invite a harness to retry a timed-out
+            // call and silently split a person's longitudinal record.
+            new ToolDefinition(
+                'patients.create',
+                'Create patient',
+                'Create a new PHR patient owned by the authorized account and grant that account owner-level access to it. This is not idempotent and has no deduplication key: confirm with patients.list that the person is not already present before calling it, and never retry a call whose outcome is unknown without checking first.',
+                [$writes, 'patientsCreate'],
+                readOnly: false,
+                idempotent: false,
+            ),
             $this->method('records.search', 'Search records', 'Search clinical records using the versioned REST filters and cursor pagination.', $reads, 'recordsSearch'),
             $this->method('timeline.list', 'List timeline', 'List a patient timeline using the versioned REST filters and cursor pagination.', $reads, 'timelineList'),
             $this->method('changes.list', 'List changes', 'List bounded clinical change states for one patient. Reuse the returned watermark with every cursor page; deleted and retracted records are tombstones.', $reads, 'changesList'),

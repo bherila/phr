@@ -324,9 +324,9 @@ export default function ImagingPage({ patientId, onDrill }: PhrListPageProps) {
           </DialogHeader>
 
           {(phase === 'uploading' || phase === 'aborting') && (
-            <div className="flex flex-col gap-2">
+            <div className="flex min-w-0 flex-col gap-2">
               <Progress value={progressPercent} />
-              <p className="truncate text-xs text-muted-foreground">
+              <p className="min-w-0 truncate text-xs text-muted-foreground">
                 <Loader2 className="mr-1 inline size-3 animate-spin" />
                 {phase === 'aborting' ? 'Stopping in-flight uploads…' : currentFileName || 'Preparing…'}
               </p>

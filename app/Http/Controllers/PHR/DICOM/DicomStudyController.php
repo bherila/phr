@@ -107,9 +107,15 @@ class DicomStudyController extends Controller
         $metadata = $study->metadata_json ?? [];
         $seriesPayloads = $study->series
             ->sortBy(fn (PhrDicomSeries $series): int => $series->series_number ?? $series->id)
-            ->map(fn (PhrDicomSeries $series): array => $this->viewerSeriesPayload($series, $patientId, $study->study_instance_uid))
+            ->map(fn (PhrDicomSeries $series): ?array => $this->viewerSeriesPayload($series, $patientId, $study->study_instance_uid))
+            ->filter(fn (?array $series): bool => $series !== null)
             ->values()
             ->all();
+
+        $numInstances = array_sum(array_map(
+            fn (array $series): int => count($series['instances']),
+            $seriesPayloads,
+        ));
 
         return [
             'StudyInstanceUID' => $study->study_instance_uid,
@@ -122,17 +128,35 @@ class DicomStudyController extends Controller
             'PatientSex' => $metadata['PatientSex'] ?? '',
             'StudyDescription' => $study->description ?? $metadata['StudyDescription'] ?? '',
             'series' => $seriesPayloads,
-            'NumInstances' => $study->series->sum(fn (PhrDicomSeries $series): int => $series->instances->count()),
+            'NumInstances' => $numInstances,
             'Modalities' => $study->modalities ?? '',
         ];
     }
 
     /**
-     * @return array<string, mixed>
+     * Non-pixel composite objects (Presentation State, Structured Report, Key Object
+     * Selection) stored before the parser rejected them have no Rows/Columns. OHIF has
+     * no handler for their SOP classes and fails the whole study with "SOP Class UID is
+     * not supported", and the app's own series list renders them as unopenable cards —
+     * so they are dropped here, and a series left with nothing renderable is dropped
+     * entirely (null).
+     *
+     * @return array<string, mixed>|null
      */
-    private function viewerSeriesPayload(PhrDicomSeries $series, int $patientId, string $studyInstanceUid): array
+    private function viewerSeriesPayload(PhrDicomSeries $series, int $patientId, string $studyInstanceUid): ?array
     {
         $metadata = $series->metadata_json ?? [];
+
+        $instances = $series->instances
+            ->filter(fn (PhrDicomInstance $instance): bool => $instance->rows !== null && $instance->columns !== null)
+            ->sortBy(fn (PhrDicomInstance $instance): int => $instance->instance_number ?? $instance->id)
+            ->map(fn (PhrDicomInstance $instance): array => $this->viewerInstancePayload($instance, $series, $patientId, $studyInstanceUid))
+            ->values()
+            ->all();
+
+        if ($instances === []) {
+            return null;
+        }
 
         return [
             'id' => $series->id,
@@ -140,11 +164,7 @@ class DicomStudyController extends Controller
             'SeriesNumber' => $series->series_number ?? $metadata['SeriesNumber'] ?? null,
             'Modality' => $series->modality ?? $metadata['Modality'] ?? '',
             'SeriesDescription' => $series->description ?? $metadata['SeriesDescription'] ?? '',
-            'instances' => $series->instances
-                ->sortBy(fn (PhrDicomInstance $instance): int => $instance->instance_number ?? $instance->id)
-                ->map(fn (PhrDicomInstance $instance): array => $this->viewerInstancePayload($instance, $series, $patientId, $studyInstanceUid))
-                ->values()
-                ->all(),
+            'instances' => $instances,
         ];
     }
 

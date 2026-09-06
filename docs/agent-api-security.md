@@ -20,7 +20,17 @@ Protected-resource pre-authentication buckets normalize numeric patient and reco
 path segments, preventing identifier changes from creating fresh parsing budgets.
 
 Patient discovery deliberately has its own `patients:read` scope. Its response omits
-the owner's user id and every grant except the caller's fixed access metadata. The
+the owner's user id and every grant except the caller's fixed access metadata.
+Patient creation requires the separate `patients:write` scope and reuses the same
+`StorePatientRequest` validation rules and `owner_user_id` plus owner-level
+`PhrPatientUserAccess` grant the browser patient-management flow creates, so a token
+holding only `patients:read` can never create a new patient record. It deliberately
+carries no deduplication key, and its duplicate is the one that cannot be cleaned up:
+a patient is the identity the rest of the surface is scoped by, and nothing in the
+application merges two profiles. Its MCP tool therefore declares itself
+non-idempotent rather than inheriting the catalog's default hint, so a harness is
+told to confirm the person is absent instead of retrying a call whose outcome it does
+not know. The
 separate `clinical:read` scope permits list/get access to the fixed core-resource
 allow-list only after the patient id is resolved through `PhrPatientAccessService`.
 Clinical list responses are cursor-bounded to 100 rows, and source/update filters are
@@ -301,6 +311,9 @@ on later rsyncs, rejects a partial key pair, and never prints key material.
 - Keep external-ID resolution scoped to the caller's own import source, and keep its
   response free of clinical content. A resolver that reports foreign hits leaks the
   existence of another integration's records.
+- Declare a write tool's idempotency honestly. A create with no deduplication key
+  must set `idempotent: false`, because `idempotentHint` is what tells a harness a
+  retry after an unknown outcome is safe.
 - Give every MCP tool an output schema derived from the REST operation it mirrors,
   and never a permissive one. A new tool needs its operation's response component in
   the OpenAPI document before it can be served at all.

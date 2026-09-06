@@ -68,6 +68,7 @@ class AgentDiscoveryController extends Controller
                 'identity.get' => ['available' => true, 'scope' => AgentApiScopes::IDENTITY_READ],
                 'patients.list' => ['available' => true, 'scope' => AgentApiScopes::PATIENTS_READ],
                 'patients.get' => ['available' => true, 'scope' => AgentApiScopes::PATIENTS_READ],
+                'patients.create' => ['available' => true, 'scope' => AgentApiScopes::PATIENTS_WRITE],
                 'clinical.list' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
                 'clinical.get' => ['available' => true, 'scope' => AgentApiScopes::CLINICAL_READ],
                 AgentClinicalResourceCatalog::RESOLVE_OPERATION_ID => [
