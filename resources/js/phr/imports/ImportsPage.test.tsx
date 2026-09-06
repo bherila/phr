@@ -124,4 +124,43 @@ describe('ImportsPage', () => {
       MockUploadXMLHttpRequest.instances.forEach((instance) => instance.abort())
     }
   })
+
+  it('reads the chosen files before clearing the folder input', async () => {
+    const restoreXhr = MockUploadXMLHttpRequest.install()
+    MockUploadXMLHttpRequest.autoComplete = false
+
+    try {
+      const { container } = renderImports(PATIENT_ID)
+      await waitFor(() => expect(screen.getByRole('button', { name: /upload dicom folder/i })).toBeEnabled())
+
+      const input = container.querySelector('input[type="file"]')
+      if (!(input instanceof HTMLInputElement)) {
+        throw new Error('Expected the DICOM folder input to render.')
+      }
+
+      // A real browser hands the change handler the input's *own* live FileList and empties
+      // it in place when `value` is cleared, so the handler has to snapshot first. Model that
+      // here: clearing the input drops the file, and a read-after-clear would upload nothing.
+      const files = { length: 1, 0: makeDicomFile('CARDIAC_CT/IM0001') }
+      Object.defineProperty(input, 'files', { configurable: true, get: () => files })
+      Object.defineProperty(input, 'value', {
+        configurable: true,
+        get: () => '',
+        set: () => {
+          files.length = 0
+        },
+      })
+
+      fireEvent.change(input)
+
+      await waitFor(() => expect(mockPost).toHaveBeenCalledWith(
+        `/api/phr/patients/${PATIENT_ID}/dicom/uploads`,
+        { root_name: 'CARDIAC_CT' },
+      ))
+      expect(screen.queryByText(/No DICOM-compatible files were found/)).not.toBeInTheDocument()
+    } finally {
+      restoreXhr()
+      MockUploadXMLHttpRequest.instances.forEach((instance) => instance.abort())
+    }
+  })
 })

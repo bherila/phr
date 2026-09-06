@@ -76,6 +76,11 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
   const canUpload = selectedPatientId !== undefined
 
   function onFolderChosen(files: FileList | null): void {
+    // Snapshot before touching the input: `input.value = ''` empties the very `FileList`
+    // the change event handed us (it is the element's own live list, not a copy), so
+    // clearing first would leave nothing to upload.
+    const chosen = files ? Array.from(files) : []
+
     const input = inputRef.current
     if (input) {
       input.value = ''
@@ -86,7 +91,7 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
       return
     }
 
-    const result = startUpload(selectedPatientId, files ? Array.from(files) : [])
+    const result = startUpload(selectedPatientId, chosen)
     if (!result.ok) {
       setError(result.error)
       return

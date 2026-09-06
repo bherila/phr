@@ -11,6 +11,7 @@ import { type DicomUploadJob, useDicomUploads } from './DicomUploadProvider'
 
 const PHASE_TITLES: Record<UploadPhase, string> = {
   uploading: 'Uploading…',
+  finalizing: 'Finalizing…',
   aborting: 'Cancelling…',
   done: 'Upload complete',
   duplicate: 'Duplicate study skipped',
@@ -41,6 +42,7 @@ function progressPercent(job: DicomUploadJob): number {
 function jobDescription(job: DicomUploadJob): string {
   switch (job.phase) {
     case 'uploading':
+    case 'finalizing':
     case 'aborting':
       return `${job.filesProcessed} of ${job.totalFiles} files · ${formatBytes(job.bytesSent)} / ${formatBytes(job.totalBytes)}${job.rootName ? ` · ${job.rootName}` : ''}`
     case 'done':
@@ -148,7 +150,9 @@ function DicomUploadJobDialog({ job }: { job: DicomUploadJob | null }): ReactEle
                 <Progress value={progressPercent(job)} />
                 <p className="min-w-0 truncate text-xs text-muted-foreground">
                   <Loader2 className="mr-1 inline size-3 animate-spin" />
-                  {job.phase === 'aborting' ? 'Stopping in-flight uploads…' : job.currentFileName || 'Preparing…'}
+                  {job.phase === 'aborting' && 'Stopping in-flight uploads…'}
+                  {job.phase === 'finalizing' && 'Grouping images into studies…'}
+                  {job.phase === 'uploading' && (job.currentFileName || 'Preparing…')}
                 </p>
               </div>
             )}
@@ -208,6 +212,17 @@ function DicomUploadJobDialog({ job }: { job: DicomUploadJob | null }): ReactEle
                   <Button type="button" variant="outline" onClick={() => cancelUpload(job.id)}>
                     <X className="size-4" />
                     Cancel upload
+                  </Button>
+                </>
+              )}
+              {job.phase === 'finalizing' && (
+                <>
+                  <Button type="button" variant="ghost" onClick={() => openJob(null)}>
+                    Run in background
+                  </Button>
+                  <Button type="button" variant="outline" disabled>
+                    <Loader2 className="size-4 animate-spin" />
+                    Finalizing…
                   </Button>
                 </>
               )}

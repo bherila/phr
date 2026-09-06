@@ -263,6 +263,80 @@ describe('DicomUploadProvider', () => {
     }
   })
 
+  it('honours a cancel requested while the upload session is still opening', async () => {
+    const restoreXhr = MockUploadXMLHttpRequest.install()
+    let openTheSession: () => void = () => {}
+    const sessionOpened = new Promise<void>((resolve) => {
+      openTheSession = resolve
+    })
+    mockPost.mockImplementation(async (url: string) => {
+      if (url === OPEN_URL) {
+        await sessionOpened
+        return { upload: makeDicomUpload('pending') }
+      }
+      if (url === FINALIZE_URL) throw new Error('Finalize should not be called.')
+      if (url === CANCEL_URL) return { upload: makeDicomUpload('failed') }
+      return {}
+    })
+
+    try {
+      const { container } = await renderImports()
+      fireEvent.change(fileInput(container), { target: { files: [makeDicomFile('CARDIAC_CT/IM0001')] } })
+
+      // No UploadController exists yet — the intent has to be recorded somewhere else.
+      openTrayJob()
+      const dialog = await screen.findByRole('dialog')
+      fireEvent.click(within(dialog).getByRole('button', { name: /cancel upload/i }))
+      await waitFor(() => expect(within(dialog).getAllByText('Cancelling…').length).toBeGreaterThan(0))
+
+      openTheSession()
+
+      await waitFor(() => expect(within(dialog).getByText('Upload cancelled')).toBeInTheDocument())
+      expect(MockUploadXMLHttpRequest.instances).toHaveLength(0)
+      expect(mockPost).toHaveBeenCalledWith(CANCEL_URL, {})
+      expect(mockPost).not.toHaveBeenCalledWith(FINALIZE_URL, {})
+    } finally {
+      openTheSession()
+      restoreXhr()
+    }
+  })
+
+  it('stops offering a cancel once finalize is in flight', async () => {
+    const restoreXhr = MockUploadXMLHttpRequest.install()
+    let completeFinalize: () => void = () => {}
+    const finalized = new Promise<void>((resolve) => {
+      completeFinalize = resolve
+    })
+    mockPost.mockImplementation(async (url: string) => {
+      if (url === OPEN_URL) return { upload: makeDicomUpload('pending') }
+      if (url === FINALIZE_URL) {
+        await finalized
+        return { upload: makeDicomUpload('processed') }
+      }
+      return {}
+    })
+
+    try {
+      const { container } = await renderImports()
+      fireEvent.change(fileInput(container), { target: { files: [makeDicomFile('CARDIAC_CT/IM0001')] } })
+      await waitFor(() => expect(within(tray()).getByText('Finalizing…')).toBeInTheDocument())
+
+      // Finalize cannot be undone, so the modal must not offer a cancel that silently loses
+      // the race and leaves the job reporting "Upload complete" after the user cancelled it.
+      openTrayJob()
+      const dialog = await screen.findByRole('dialog')
+      expect(within(dialog).queryByRole('button', { name: /cancel upload/i })).not.toBeInTheDocument()
+      expect(within(dialog).getByText('Grouping images into studies…')).toBeInTheDocument()
+
+      completeFinalize()
+      await waitFor(() => expect(within(dialog).getByText('Upload complete')).toBeInTheDocument())
+      expect(mockPost).not.toHaveBeenCalledWith(CANCEL_URL, {})
+    } finally {
+      completeFinalize()
+      restoreXhr()
+    }
+  })
+
   it('keeps a job failed when finalize fails and cancels the session', async () => {
     const restoreXhr = MockUploadXMLHttpRequest.install()
     mockPost.mockImplementation(async (url: string) => {

@@ -38,6 +38,18 @@ export interface DicomUploadJob {
 
 export type StartUploadResult = { ok: true, jobId: string } | { ok: false, error: string }
 
+/**
+ * Mutable bookkeeping for one in-flight job, held in a ref rather than state: cancellation
+ * has to be observable by `runJob` the instant it is requested, including during the two
+ * awaits (open, finalize) when no {@link UploadController} exists to abort.
+ */
+interface JobRun {
+  controller: UploadController | null
+  cancelRequested: boolean
+  /** Cleared once finalize is in flight — past that point the server session is committed. */
+  cancellable: boolean
+}
+
 export interface DicomUploadContextValue {
   jobs: DicomUploadJob[]
   activeJobCount: number
@@ -83,14 +95,19 @@ export function DicomUploadProvider({ children, budget = globalUploadBudget }: D
   const [jobs, setJobs] = useState<DicomUploadJob[]>([])
   const [openJobId, setOpenJobId] = useState<string | null>(null)
   const [completions, setCompletions] = useState<Record<number, number>>({})
-  const controllersRef = useRef(new Map<string, UploadController>())
+  const runsRef = useRef(new Map<string, JobRun>())
 
   const updateJob = useCallback((jobId: string, updater: (job: DicomUploadJob) => DicomUploadJob): void => {
     setJobs((previous) => previous.map((job) => (job.id === jobId ? updater(job) : job)))
   }, [])
 
+  const markCancelled = useCallback((jobId: string): void => {
+    updateJob(jobId, (job) => ({ ...job, phase: 'cancelled', error: 'Upload cancelled.', currentFileName: '' }))
+  }, [updateJob])
+
   const runJob = useCallback(async (jobId: string, patientId: number, files: File[], rootName: string | null): Promise<void> => {
     let uploadId: number | null = null
+    const run = runsRef.current.get(jobId)
 
     try {
       const openResponse = await fetchWrapper.post(
@@ -99,6 +116,14 @@ export function DicomUploadProvider({ children, budget = globalUploadBudget }: D
       )
       const { upload, limits } = PhrDicomUploadResponseSchema.parse(openResponse)
       uploadId = upload.id
+
+      // Cancel can land while the session is still opening, before any controller exists to
+      // abort; discard the freshly opened session rather than uploading into it.
+      if (run?.cancelRequested) {
+        await cancelUploadSession(patientId, upload.id)
+        markCancelled(jobId)
+        return
+      }
 
       const controller = new UploadController({
         patientId,
@@ -115,13 +140,15 @@ export function DicomUploadProvider({ children, budget = globalUploadBudget }: D
           summary: applyOutcomeToSummary(job.summary, outcome),
         })),
       })
-      controllersRef.current.set(jobId, controller)
+      if (run) {
+        run.controller = controller
+      }
 
       const outcomes = await controller.run()
 
       if (controller.aborted) {
         await cancelUploadSession(patientId, upload.id)
-        updateJob(jobId, (job) => ({ ...job, phase: 'cancelled', error: 'Upload cancelled.', currentFileName: '' }))
+        markCancelled(jobId)
         return
       }
 
@@ -136,6 +163,13 @@ export function DicomUploadProvider({ children, budget = globalUploadBudget }: D
         }))
         return
       }
+
+      // Every file is stored; finalize groups them into studies server-side and cannot be
+      // undone by a cancel, so stop offering one and say what is actually happening.
+      if (run) {
+        run.cancellable = false
+      }
+      updateJob(jobId, (job) => ({ ...job, phase: 'finalizing', currentFileName: '' }))
 
       try {
         const finalizeResponse = PhrDicomUploadFinalizeResponseSchema.parse(await fetchWrapper.post(
@@ -175,9 +209,9 @@ export function DicomUploadProvider({ children, budget = globalUploadBudget }: D
         summary: appendFailure(job.summary, 'Upload session', message),
       }))
     } finally {
-      controllersRef.current.delete(jobId)
+      runsRef.current.delete(jobId)
     }
-  }, [budget, updateJob])
+  }, [budget, markCancelled, updateJob])
 
   const startUpload = useCallback((patientId: number, files: File[]): StartUploadResult => {
     const accepted = filterUploadableFiles(files)
@@ -202,18 +236,23 @@ export function DicomUploadProvider({ children, budget = globalUploadBudget }: D
     }
 
     setJobs((previous) => [...previous, job])
+    runsRef.current.set(jobId, { controller: null, cancelRequested: false, cancellable: true })
     void runJob(jobId, patientId, accepted, job.rootName)
 
     return { ok: true, jobId }
   }, [runJob])
 
   const cancelUpload = useCallback((jobId: string): void => {
-    const controller = controllersRef.current.get(jobId)
-    if (!controller || controller.aborted) {
+    const run = runsRef.current.get(jobId)
+    // No run record means the job already settled; `cancellable` false means finalize is in
+    // flight and there is nothing left to stop.
+    if (!run || run.cancelRequested || !run.cancellable) {
       return
     }
-    updateJob(jobId, (job) => ({ ...job, phase: 'aborting' }))
-    controller.abort()
+    run.cancelRequested = true
+    updateJob(jobId, (job) => (isActiveUploadPhase(job.phase) ? { ...job, phase: 'aborting' } : job))
+    // Null while the session is still opening — `runJob` picks the request up after the open.
+    run.controller?.abort()
   }, [updateJob])
 
   const dismissJob = useCallback((jobId: string): void => {

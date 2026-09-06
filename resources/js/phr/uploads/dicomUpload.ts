@@ -11,9 +11,9 @@ import { type PhrDicomUploadFileResponse, PhrDicomUploadFileResponseSchema } fro
  */
 export const UPLOAD_CONCURRENCY = 4
 
-export type UploadPhase = 'uploading' | 'done' | 'duplicate' | 'aborting' | 'cancelled' | 'failed'
+export type UploadPhase = 'uploading' | 'finalizing' | 'done' | 'duplicate' | 'aborting' | 'cancelled' | 'failed'
 
-export const ACTIVE_UPLOAD_PHASES: readonly UploadPhase[] = ['uploading', 'aborting']
+export const ACTIVE_UPLOAD_PHASES: readonly UploadPhase[] = ['uploading', 'finalizing', 'aborting']
 
 export function isActiveUploadPhase(phase: UploadPhase): boolean {
   return ACTIVE_UPLOAD_PHASES.includes(phase)
