@@ -273,6 +273,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             'capabilities.get',
             'identity.get',
             'patients.list',
+            'patients.create',
             'patients.get',
             'records.search',
             'timeline.list',

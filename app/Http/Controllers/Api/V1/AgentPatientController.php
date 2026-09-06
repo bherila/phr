@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\PHR\StorePatientRequest;
 use App\Models\PhrPatient;
+use App\Models\PhrPatientUserAccess;
 use App\Services\PHR\Access\AgentPatientPresenter;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Support\AgentApi\AgentApiCursor;
@@ -11,6 +13,7 @@ use App\Support\AgentApi\AgentApiUpdateWindow;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 final class AgentPatientController extends Controller
@@ -62,6 +65,43 @@ final class AgentPatientController extends Controller
         return response()->json([
             'data' => $this->presenter->payload($resolved, $userId, includeNotes: true),
         ]);
+    }
+
+    /**
+     * Mirrors PhrPatientController::store's persistence: the creator becomes
+     * both owner_user_id and the sole owner-level access grant. Reuses
+     * StorePatientRequest's validation rules directly, rather than
+     * duplicating them, so the two entry points can never drift apart.
+     */
+    public function store(Request $request): JsonResponse
+    {
+        $validated = $request->validate((new StorePatientRequest)->rules());
+        $userId = (int) $request->user('api')?->id;
+
+        $patient = DB::transaction(function () use ($userId, $validated): PhrPatient {
+            $patient = PhrPatient::create([
+                'owner_user_id' => $userId,
+                ...$validated,
+            ]);
+
+            PhrPatientUserAccess::create([
+                'patient_id' => $patient->id,
+                'user_id' => $userId,
+                'access_level' => PhrPatientUserAccess::LEVEL_OWNER,
+                'granted_by_user_id' => $userId,
+                'granted_at' => now(),
+            ]);
+
+            return $patient;
+        });
+
+        $patient->load(['accessGrants' => function (Relation $relation) use ($userId): void {
+            $relation->getQuery()->where('user_id', $userId);
+        }]);
+
+        return response()->json([
+            'data' => $this->presenter->payload($patient, $userId, includeNotes: true),
+        ], 201);
     }
 
     /** @return array<string, mixed> */
