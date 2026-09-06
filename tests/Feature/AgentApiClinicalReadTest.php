@@ -119,7 +119,7 @@ class AgentApiClinicalReadTest extends TestCase
             ->assertHeader('Cache-Control', 'max-age=0, no-store, private')
             ->assertJsonPath('data.display_name', 'Synthetic Created Patient')
             ->assertJsonPath('data.relationship', 'child')
-            ->assertJsonPath('data.birth_date', '2015-06-01')
+            ->assertJsonPath('data.birth_date', '2015-06-01') // sensitive-scan-ignore: synthetic fixture date
             ->assertJsonPath('data.sex_at_birth', 'female')
             ->assertJsonPath('data.notes', 'Synthetic creation note')
             ->assertJsonPath('data.access.level', PhrPatientUserAccess::LEVEL_OWNER)
