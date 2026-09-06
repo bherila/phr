@@ -250,7 +250,14 @@ final class AgentMcpReadAdapterTest extends TestCase
                     || in_array($tool['name'], ['imports.review', 'imports.retry', 'dicom_uploads.finalize', 'dicom_uploads.cancel', 'reconciliations.apply'], true),
                 $tool['annotations']['destructiveHint'] ?? null,
             );
-            $this->assertTrue($tool['annotations']['idempotentHint'] ?? false);
+            // patients.create is the one tool whose duplicate is a second,
+            // unmergeable patient profile rather than a disposable
+            // patient-scoped artifact, so it is the only one that must not
+            // advertise itself as safe to retry after an unknown outcome.
+            $this->assertSame(
+                $tool['name'] !== 'patients.create',
+                $tool['annotations']['idempotentHint'] ?? null,
+            );
             $this->assertFalse($tool['inputSchema']['additionalProperties'] ?? true);
             $this->assertSame('object', $tool['outputSchema']['type'] ?? null);
         }
@@ -918,6 +925,28 @@ final class AgentMcpReadAdapterTest extends TestCase
             'user_id' => $actor->id,
             'access_level' => PhrPatientUserAccess::LEVEL_OWNER,
         ]);
+
+        // The tool has no deduplication key, so an identical second call writes a
+        // second profile for the same person. That is why it must not advertise
+        // itself as idempotent: a harness retrying an unknown outcome would
+        // silently split a patient's longitudinal record.
+        $repeated = $this->callTool($session, 3, 'patients.create', [
+            'display_name' => 'Synthetic MCP Created Patient',
+            'relationship' => 'child',
+            'birth_date' => '2015-06-01',
+            'sex_at_birth' => 'female',
+        ]);
+        $this->assertFalse($repeated['result']['isError'] ?? true, json_encode($repeated, JSON_THROW_ON_ERROR));
+        $this->assertNotSame($patientId, $repeated['result']['structuredContent']['data']['id'] ?? null);
+        $this->assertSame(2, PhrPatient::query()->where('display_name', 'Synthetic MCP Created Patient')->count());
+
+        $advertised = collect($this->mcpPost([
+            'jsonrpc' => '2.0', 'id' => 4, 'method' => 'tools/list', 'params' => [],
+        ], $session)->assertOk()->json('result.tools'))
+            ->firstWhere('name', 'patients.create');
+        $this->assertIsArray($advertised);
+        $this->assertFalse($advertised['annotations']['readOnlyHint'] ?? null);
+        $this->assertFalse($advertised['annotations']['idempotentHint'] ?? null);
 
         Passport::actingAs($actor, [AgentApiScopes::MCP_USE], 'api', $client);
         $deniedSession = $this->initializeSession();

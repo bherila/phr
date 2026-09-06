@@ -1071,7 +1071,7 @@
           "created_at": { "$ref": "#/components/schemas/LocalDateTime" },
           "updated_at": { "$ref": "#/components/schemas/LocalDateTime" },
           "access": { "$ref": "#/components/schemas/PatientAccess" },
-          "notes": { "type": ["string", "null"], "description": "Present only in patients.get responses." }
+          "notes": { "type": ["string", "null"], "description": "Present only in patients.get and patients.create responses; patients.list omits it." }
         },
         "additionalProperties": false
       },
