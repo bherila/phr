@@ -1,7 +1,9 @@
 # pnpm 11 reads `allowBuilds`; `onlyBuiltDependencies` is retained because older
 # pnpm versions ignore `allowBuilds`. Both list the same packages deliberately.
 allowBuilds:
+  '@parcel/watcher': true
   '@swc/core': true
+  spotlight-noindex: true
   unrs-resolver: true
 minimumReleaseAgeExclude:
   - bwh-auth
