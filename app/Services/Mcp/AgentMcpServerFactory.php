@@ -3,6 +3,8 @@
 namespace App\Services\Mcp;
 
 use App\Support\AgentApi\AgentApiResponseSchemaCatalog;
+use Bherila\GenAiLaravel\Mcp\GenAiMcpToolCatalog;
+use Bherila\GenAiLaravel\Mcp\Tools\GenAiMcpTools;
 use Bherila\McpLaravelBridge\Mcp\CredentialSessionNamespace;
 use Bherila\McpLaravelBridge\Mcp\OriginalShapeSchemaValidator;
 use Bherila\McpLaravelBridge\Mcp\RequestArguments;
@@ -31,6 +33,8 @@ final class AgentMcpServerFactory
         private readonly AgentMcpInputSchemaFactory $schemas,
         private readonly AgentMcpOutputSchemaFactory $outputSchemas,
         private readonly RequestArguments $requestArguments,
+        private readonly GenAiMcpToolCatalog $genAiCatalog,
+        private readonly GenAiMcpTools $genAiTools,
     ) {}
 
     public function make(Request $request): Server
@@ -39,10 +43,18 @@ final class AgentMcpServerFactory
         $driftLogger = app(LoggerInterface::class);
         $registry = new Registry(logger: $logger);
         $referenceHandler = new ReferenceHandler(app());
-        $definitions = $this->catalog->definitions($this->reads, $this->writes);
+        $phrDefinitions = $this->catalog->definitions($this->reads, $this->writes);
+        $genAiDefinitions = $this->genAiCatalog->definitions($this->genAiTools);
+        $genAiToolNames = array_fill_keys(array_map(
+            static fn (ToolDefinition $definition): string => $definition->name,
+            $genAiDefinitions,
+        ), true);
+        $definitions = [...$phrDefinitions, ...$genAiDefinitions];
         $exposedDefinitions = array_values(array_filter(
             $definitions,
-            fn (ToolDefinition $definition): bool => $this->canExpose($request, $definition),
+            fn (ToolDefinition $definition): bool => isset($genAiToolNames[$definition->name])
+                ? (bool) $request->user('api')?->tokenCan($this->genAiCatalog->requiredScope($definition))
+                : $this->canExpose($request, $definition),
         ));
         $exposedToolNames = array_fill_keys(array_map(
             static fn (ToolDefinition $definition): string => $definition->name,
@@ -50,9 +62,9 @@ final class AgentMcpServerFactory
         ), true);
         $schemaIds = [];
         foreach ($exposedDefinitions as $definition) {
-            $schemaIds[$definition->name] = AgentApiResponseSchemaCatalog::operationComponent(
-                $definition->responseOperationId(),
-            );
+            $schemaIds[$definition->name] = isset($genAiToolNames[$definition->name])
+                ? 'genai-mcp.v1.'.$definition->name
+                : AgentApiResponseSchemaCatalog::operationComponent($definition->responseOperationId());
         }
         $builder = Server::builder()
             ->setServerInfo(
@@ -142,7 +154,9 @@ final class AgentMcpServerFactory
                     openWorldHint: false,
                 ),
                 inputSchema: $this->schemas->for($definition),
-                outputSchema: $this->outputSchemas->for($definition),
+                outputSchema: isset($genAiToolNames[$definition->name])
+                    ? $this->genAiCatalog->outputSchema($definition->name)
+                    : $this->outputSchemas->for($definition),
             );
         }
 
@@ -214,6 +228,14 @@ final class AgentMcpServerFactory
         }
 
         $details[] = 'Authenticate with OAuth Authorization Code plus S256 PKCE and request only the narrow identity:read, patients:read, clinical, document, or import scopes needed for the task.';
+
+        $hasGenAiStatus = isset($available['genai_queue_status']);
+        $hasGenAiWork = isset($available['claim_genai_request']);
+        if ($hasGenAiWork) {
+            $details[] = $this->genAiCatalog->instructions();
+        } elseif ($hasGenAiStatus) {
+            $details[] = 'You may inspect the private external GenAI queue status, but this connection was not granted permission to claim or complete work.';
+        }
 
         return $base.' '.implode(' ', $details);
     }

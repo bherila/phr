@@ -201,3 +201,21 @@ it('announces loading and request errors and allows retrying', async () => {
   fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
   expect(await screen.findByText('No AI provider configured')).toBeInTheDocument()
 })
+
+it('switches to subscription-client processing without requiring an API configuration', async () => {
+  mockGet.mockResolvedValue([])
+  mockPut.mockResolvedValue({
+    mode: 'external',
+    mcp_url: 'https://phr.example.test/api/v1/mcp',
+    rest_base_url: 'https://phr.example.test/api/v1/genai',
+    required_scopes: ['mcp:use', 'genai:read', 'genai:work'],
+  })
+
+  render(<AiProviderSettingsPage />)
+  await screen.findByText('No AI provider configured')
+  fireEvent.click(screen.getByRole('radio', { name: /My subscription client/ }))
+
+  await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/api/user/ai-execution-mode', { mode: 'external' }))
+  expect(await screen.findByText('Pending imports will wait for your connected subscription client.')).toBeInTheDocument()
+  expect(screen.getByText(/mcp:use genai:read genai:work/)).toBeInTheDocument()
+})

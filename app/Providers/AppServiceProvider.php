@@ -2,17 +2,27 @@
 
 namespace App\Providers;
 
+use App\GenAiProcessor\External\PhrMcpAttachmentResolver;
+use App\GenAiProcessor\External\PhrMcpCompletionDelivery;
+use App\GenAiProcessor\External\PhrMcpMailboxAccessResolver;
+use App\GenAiProcessor\Models\GenAiImportJob;
 use App\Support\AgentApi\AccountAwareAccessTokenRepository;
 use App\Support\AgentApi\AccountAwareAuthCodeRepository;
 use App\Support\AgentApi\AccountAwareRefreshTokenRepository;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentApiTokenPolicy;
+use Bherila\GenAiLaravel\Contracts\AttachmentResolver;
+use Bherila\GenAiLaravel\Contracts\CompletionDelivery;
+use Bherila\GenAiLaravel\Contracts\MailboxAccessResolver;
+use Bherila\GenAiLaravel\Mcp\Events\McpRequestClaimed;
+use Bherila\GenAiLaravel\Mcp\Events\McpRequestFailed;
 use Bherila\McpLaravelBridge\Http\AgentApiTransport;
 use Bherila\McpLaravelBridge\Http\InternalAgentApiTransport;
 use Bherila\McpLaravelBridge\Http\McpHttpPolicy;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Middleware\HandleCors;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Passport\Bridge\AccessTokenRepository;
@@ -34,6 +44,9 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(AccessTokenRepository::class, AccountAwareAccessTokenRepository::class);
         $this->app->bind(AuthCodeRepository::class, AccountAwareAuthCodeRepository::class);
         $this->app->bind(RefreshTokenRepository::class, AccountAwareRefreshTokenRepository::class);
+        $this->app->bind(MailboxAccessResolver::class, PhrMcpMailboxAccessResolver::class);
+        $this->app->bind(AttachmentResolver::class, PhrMcpAttachmentResolver::class);
+        $this->app->bind(CompletionDelivery::class, PhrMcpCompletionDelivery::class);
         $this->app->singleton(McpHttpPolicy::class, static fn (): McpHttpPolicy => new McpHttpPolicy(
             allowedOrigins: static function (): array {
                 $origins = config('agent_api.mcp_allowed_origins', []);
@@ -74,7 +87,24 @@ class AppServiceProvider extends ServiceProvider
         Passport::refreshTokensExpireIn(now()->addDays(AgentApiTokenPolicy::REFRESH_TOKEN_LIFETIME_DAYS));
         Passport::personalAccessTokensExpireIn(now()->addMinutes(AgentApiTokenPolicy::ACCESS_TOKEN_LIFETIME_MINUTES));
         Passport::authorizationView('bherila-auth::oauth.authorize');
-        HandleCors::skipWhen(fn (Request $request): bool => $request->is('api/v1/mcp'));
+        HandleCors::skipWhen(fn (Request $request): bool => $request->is('api/v1/mcp') || $request->is('api/v1/genai/*'));
+        Event::listen(McpRequestClaimed::class, static function (McpRequestClaimed $event): void {
+            GenAiImportJob::query()
+                ->where('mcp_request_id', $event->requestId)
+                ->where('execution_mode', GenAiImportJob::EXECUTION_EXTERNAL)
+                ->where('status', 'pending')
+                ->update(['status' => 'processing', 'updated_at' => now()]);
+        });
+        Event::listen(McpRequestFailed::class, static function (McpRequestFailed $event): void {
+            if ($event->terminal) {
+                return;
+            }
+            GenAiImportJob::query()
+                ->where('mcp_request_id', $event->requestId)
+                ->where('execution_mode', GenAiImportJob::EXECUTION_EXTERNAL)
+                ->where('status', 'processing')
+                ->update(['status' => 'pending', 'updated_at' => now()]);
+        });
 
         // Authorization Code + PKCE is the supported interactive grant. Passport
         // rotates refresh tokens by default; unused grant types stay disabled.

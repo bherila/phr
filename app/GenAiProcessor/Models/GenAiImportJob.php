@@ -8,7 +8,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 
 /**
@@ -43,6 +45,15 @@ class GenAiImportJob extends Model
 
     public const MAX_RETRIES = 3;
 
+    public const EXECUTION_API = 'api';
+
+    public const EXECUTION_EXTERNAL = 'external';
+
+    public const VALID_EXECUTION_MODES = [
+        self::EXECUTION_API,
+        self::EXECUTION_EXTERNAL,
+    ];
+
     /** A registered deterministic parser produced the result; AI was used only to verify. */
     public const TIER_DETERMINISTIC = 'deterministic';
 
@@ -73,6 +84,9 @@ class GenAiImportJob extends Model
         'input_tokens',
         'output_tokens',
         'processing_tier',
+        'execution_mode',
+        'mcp_generation',
+        'mcp_request_id',
     ];
 
     protected $casts = [
@@ -82,6 +96,7 @@ class GenAiImportJob extends Model
         'parsed_at' => 'datetime',
         'input_tokens' => 'integer',
         'output_tokens' => 'integer',
+        'mcp_generation' => 'integer',
     ];
 
     protected static function boot(): void
@@ -90,6 +105,9 @@ class GenAiImportJob extends Model
 
         // Always clean up the S3/R2 file when a job record is deleted.
         static::deleting(function (self $job): void {
+            if ($job->mcp_request_id !== null && Schema::hasTable('genai_mcp_requests')) {
+                DB::table('genai_mcp_requests')->where('id', $job->mcp_request_id)->delete();
+            }
             if (! empty($job->s3_path)) {
                 try {
                     Storage::disk('s3')->delete($job->s3_path);

@@ -68,6 +68,8 @@ final class AgentMcpReadAdapterTest extends TestCase
         $this->assertContains(AgentApiScopes::RECONCILIATION_WRITE, AgentApiScopes::ids());
         $this->assertArrayNotHasKey(AgentApiScopes::RECONCILIATION_READ, AgentApiScopes::reservedDescriptions());
         $this->assertArrayNotHasKey(AgentApiScopes::RECONCILIATION_WRITE, AgentApiScopes::reservedDescriptions());
+        $this->assertContains(AgentApiScopes::GENAI_READ, AgentApiScopes::ids());
+        $this->assertContains(AgentApiScopes::GENAI_WORK, AgentApiScopes::ids());
 
         $this->getJson('/.well-known/oauth-protected-resource/api/v1/mcp')
             ->assertOk()
@@ -228,13 +230,15 @@ final class AgentMcpReadAdapterTest extends TestCase
             'imports.list', 'imports.get', 'imports.create', 'imports.review', 'imports.retry',
             'health_logs.create', 'health_log_entries.list', 'health_log_entries.get',
             'health_log_entries.append', 'respiratory_events.list', 'respiratory_events.ingest',
+            'genai_queue_status', 'claim_genai_request', 'renew_genai_lease',
+            'complete_genai_request', 'fail_genai_request',
             'immunizations.upsert', 'medications.upsert', 'conditions.upsert', 'allergies.upsert',
             'lab_results.upsert', 'vitals.upsert', 'office_visits.update', 'procedures.update',
             'medications.resolve', 'medications.retract'] as $name) {
             $this->assertContains($name, $toolNames);
         }
         $this->assertCount(
-            43 + (count(AgentClinicalResourceCatalog::ids()) * 2) + (count(AgentClinicalResourceCatalog::writableIds()) * 4),
+            48 + (count(AgentClinicalResourceCatalog::ids()) * 2) + (count(AgentClinicalResourceCatalog::writableIds()) * 4),
             $toolNames,
         );
         $writeTools = [
@@ -243,6 +247,7 @@ final class AgentMcpReadAdapterTest extends TestCase
             'dicom_uploads.open', 'dicom_uploads.upload_file', 'dicom_uploads.finalize', 'dicom_uploads.cancel',
             'reconciliations.apply',
             'exports.create', 'native_backups.create',
+            'claim_genai_request', 'renew_genai_lease', 'complete_genai_request', 'fail_genai_request',
         ];
         foreach ($tools as $tool) {
             $this->assertSame(

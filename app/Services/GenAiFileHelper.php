@@ -25,9 +25,8 @@ class GenAiFileHelper
         ?ToolConfig $toolConfig = null,
         ?string $assistantPrefill = null,
     ): mixed {
-        $fileUri = $client->uploadFile($stream, $mimeType, $name);
-
-        if ($fileUri !== null) {
+        if ($client::supportsFileApi()) {
+            $fileUri = $client->uploadFile($stream, $mimeType, $name);
             try {
                 return $client->converseWithFileRef($fileUri, $mimeType, $prompt, $toolConfig);
             } finally {
@@ -76,8 +75,12 @@ class GenAiFileHelper
     /**
      * Check that the file size is within the provider's accepted limit.
      */
-    public static function withinSizeLimit(GenAiClient $client, int $bytes): bool
+    public static function withinSizeLimit(GenAiClient $client, int $bytes, string $mimeType): bool
     {
-        return $bytes <= $client::maxFileBytes();
+        $limit = $client::supportsFileApi()
+            ? $client::maxUploadedFileBytes()
+            : $client::maxInlineFileBytes($mimeType);
+
+        return $limit !== null && $bytes <= $limit;
     }
 }

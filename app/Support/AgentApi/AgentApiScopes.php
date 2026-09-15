@@ -32,6 +32,10 @@ final class AgentApiScopes
 
     public const string MCP_USE = 'mcp:use';
 
+    public const string GENAI_READ = 'genai:read';
+
+    public const string GENAI_WORK = 'genai:work';
+
     /** @return array<string, string> */
     public static function descriptions(): array
     {
@@ -50,6 +54,8 @@ final class AgentApiScopes
             self::RECONCILIATION_READ => 'Preview administrative reconciliation',
             self::RECONCILIATION_WRITE => 'Apply an explicitly confirmed reconciliation',
             self::MCP_USE => 'Connect through the PHR MCP server',
+            self::GENAI_READ => 'Read your private external GenAI processing queue status',
+            self::GENAI_WORK => 'Claim, download, and complete your private external GenAI work',
         ];
     }
 

@@ -4,6 +4,7 @@ namespace App\Console\Commands\Phr;
 
 use App\GenAiProcessor\Jobs\ParseImportJob;
 use App\GenAiProcessor\Models\GenAiImportJob;
+use App\Models\User;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\Import\PhrStructuredDataImporter;
 use Illuminate\Console\Attributes\Description;
@@ -67,6 +68,7 @@ class PhrGenAiEnqueueCommand extends BasePhrCommand
             'file_size_bytes' => filesize($file) ?: 0,
             'context_json' => json_encode(['patient_id' => $patient->id]),
             'status' => 'pending',
+            'execution_mode' => User::query()->findOrFail($actorId)->genAiExecutionMode(),
         ]);
 
         ParseImportJob::dispatch($job->id);

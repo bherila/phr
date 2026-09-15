@@ -7,6 +7,7 @@ interface AppInitialData {
   currentUser?: {
     name?: string
     email?: string
+    genai_execution_mode?: unknown
   } | null
   // Deliberately `unknown`: this is untrusted JSON from the page, not a validated
   // list. `relyingApplicationsFrom` is what turns it into one.
@@ -36,6 +37,10 @@ export function currentUser(): { name: string; email: string } | null {
   }
 
   return { name: user?.name ?? '', email: user?.email ?? '' }
+}
+
+export function genAiExecutionMode(): 'api' | 'external' {
+  return readInitialData().currentUser?.genai_execution_mode === 'external' ? 'external' : 'api'
 }
 
 /**

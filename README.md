@@ -139,6 +139,17 @@ prompt discovery is filtered to the connection's granted OAuth scopes, and every
 still enforces patient access through the underlying REST route. Because PHR content is
 health information, connect only a client and account you trust.
 
+### Process imports with your own subscription
+
+In **AI Provider Settings**, choose **My subscription client** to keep document
+extractions in your private PHR queue instead of calling a server-side model API.
+An OAuth-connected Codex, Claude Code, or REST-capable client can drain that queue
+ad hoc or on a schedule with the dedicated `genai:read` and `genai:work` scopes.
+Files are streamed from short-lived URLs that still require the OAuth bearer header;
+they are never embedded in MCP messages. See
+[`docs/external-genai-processing.md`](docs/external-genai-processing.md) for the MCP
+tools, REST workflow, lease behavior, and hosted-connector limitation.
+
 ### Data portability
 
 Interoperability exports and native backups serve different purposes:

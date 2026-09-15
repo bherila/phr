@@ -45,6 +45,7 @@ class RequeueStaleGenAiJobs extends Command
     {
         $jobs = GenAiImportJob::query()
             ->where('status', 'queued_tomorrow')
+            ->where('execution_mode', GenAiImportJob::EXECUTION_API)
             ->whereDate('scheduled_for', '<=', $now->utc()->toDateString())
             ->oldest('id')
             ->limit($batch)
@@ -78,6 +79,7 @@ class RequeueStaleGenAiJobs extends Command
     {
         $jobs = GenAiImportJob::query()
             ->where('status', 'processing')
+            ->where('execution_mode', GenAiImportJob::EXECUTION_API)
             ->where('updated_at', '<=', $cutoff)
             ->oldest('id')
             ->limit($batch)
@@ -166,7 +168,7 @@ class RequeueStaleGenAiJobs extends Command
             // after --pending-minutes.
             Log::error('Failed to redispatch recovered GenAI job', [
                 'job_id' => $jobId,
-                'error' => $error->getMessage(),
+                'exception' => $error::class,
             ]);
             $this->error("Failed to redispatch GenAI job {$jobId}; it remains pending for the next recovery pass.");
 

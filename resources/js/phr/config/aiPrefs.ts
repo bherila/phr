@@ -42,6 +42,13 @@ export const AiDeleteResponseSchema = z.object({
   success: z.literal(true),
 })
 
+export const AiExecutionModeResponseSchema = z.object({
+  mode: z.enum(['api', 'external']),
+  mcp_url: z.string().url(),
+  rest_base_url: z.string().url(),
+  required_scopes: z.array(z.string()),
+})
+
 export const AI_PROVIDER_LABELS: Record<AiProvider, string> = {
   gemini: 'Google Gemini',
   anthropic: 'Anthropic',

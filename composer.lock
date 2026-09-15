@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "35130aab17cc4f00e80252063e821469",
+    "content-hash": "8323d46afbb94d2a407daeb7f710b491",
     "packages": [
         {
             "name": "aws/aws-crt-php",
@@ -297,28 +297,34 @@
         },
         {
             "name": "bherila/genai-laravel",
-            "version": "v0.1.0",
+            "version": "v0.2.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/bherila/genai-laravel.git",
-                "reference": "05597676f8be37c63f81bd2f810fb702fa09fe59"
+                "reference": "076b379839fd8ab41ea0e48e9a9be217015afce7"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/bherila/genai-laravel/zipball/05597676f8be37c63f81bd2f810fb702fa09fe59",
-                "reference": "05597676f8be37c63f81bd2f810fb702fa09fe59",
+                "url": "https://api.github.com/repos/bherila/genai-laravel/zipball/076b379839fd8ab41ea0e48e9a9be217015afce7",
+                "reference": "076b379839fd8ab41ea0e48e9a9be217015afce7",
                 "shasum": ""
             },
             "require": {
-                "illuminate/contracts": "^12|^13",
-                "illuminate/http": "^12|^13",
-                "illuminate/support": "^12|^13",
-                "php": "^8.2"
+                "bherila/mcp-laravel-bridge": "^0.2.0",
+                "illuminate/contracts": "^13",
+                "illuminate/database": "^13",
+                "illuminate/filesystem": "^13",
+                "illuminate/http": "^13",
+                "illuminate/routing": "^13",
+                "illuminate/support": "^13",
+                "opis/json-schema": "^2.6",
+                "php": "^8.4"
             },
             "require-dev": {
                 "dompdf/dompdf": "^3",
+                "larastan/larastan": "^3",
                 "laravel/pint": "^1",
-                "orchestra/testbench": "^10|^11",
+                "orchestra/testbench": "^11",
                 "phpoffice/phpspreadsheet": "^4|^5",
                 "phpoffice/phpword": "^1",
                 "phpstan/phpstan": "^2",
@@ -371,17 +377,19 @@
             "description": "Provider-agnostic GenAI client for Laravel: Gemini, AWS Bedrock, and more",
             "keywords": [
                 "ai",
+                "anthropic",
                 "bedrock",
                 "gemini",
                 "genai",
                 "laravel",
-                "llm"
+                "llm",
+                "mcp"
             ],
             "support": {
-                "source": "https://github.com/bherila/genai-laravel/tree/v0.1.0",
+                "source": "https://github.com/bherila/genai-laravel/tree/v0.2.0",
                 "issues": "https://github.com/bherila/genai-laravel/issues"
             },
-            "time": "2026-06-28T06:58:51+00:00"
+            "time": "2026-09-15T10:59:56+00:00"
         },
         {
             "name": "bherila/mcp-laravel-bridge",
@@ -12281,9 +12289,7 @@
     ],
     "aliases": [],
     "minimum-stability": "stable",
-    "stability-flags": {
-        "bherila/genai-laravel": 20
-    },
+    "stability-flags": {},
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {

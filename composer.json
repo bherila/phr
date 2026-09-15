@@ -9,7 +9,7 @@
         "php": ">=8.4 <8.6",
         "barryvdh/laravel-dompdf": "^3.1",
         "bherila/auth-laravel": "^0.12",
-        "bherila/genai-laravel": "@dev",
+        "bherila/genai-laravel": "^0.2.0",
         "bherila/mcp-laravel-bridge": "^0.2.0",
         "helgesverre/toon": "^3.1",
         "laravel/framework": "^13.8",

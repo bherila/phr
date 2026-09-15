@@ -3,6 +3,7 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\GenAiProcessor\Models\GenAiImportJob;
 use App\Support\AgentApi\OAuthCredentialRevoker;
 use App\Traits\SerializesDatesAsLocal;
 use Bherila\GenAiLaravel\Clients\AnthropicClient;
@@ -51,6 +52,12 @@ class User extends Authenticatable implements OAuthenticatable
             }
             if (Schema::hasTable('agent_api_audits')) {
                 DB::table('agent_api_audits')->where('actor_user_id', $user->id)->update(['actor_user_id' => null]);
+            }
+            if (Schema::hasTable('genai_mcp_mailboxes')) {
+                DB::table('genai_mcp_mailboxes')
+                    ->where('owner_type', self::class)
+                    ->where('owner_id', (string) $user->id)
+                    ->delete();
             }
         });
     }
@@ -124,7 +131,17 @@ class User extends Authenticatable implements OAuthenticatable
             'mcp_api_key_expires_at' => 'datetime',
             'mcp_api_key_last_used_at' => 'datetime',
             'oauth_security_version' => 'integer',
+            'genai_execution_mode' => 'string',
         ];
+    }
+
+    public function genAiExecutionMode(): string
+    {
+        $mode = (string) ($this->attributes['genai_execution_mode'] ?? GenAiImportJob::EXECUTION_API);
+
+        return in_array($mode, GenAiImportJob::VALID_EXECUTION_MODES, true)
+            ? $mode
+            : GenAiImportJob::EXECUTION_API;
     }
 
     /**

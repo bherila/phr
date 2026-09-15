@@ -5,6 +5,7 @@ import { useCallback, useEffect, useId, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
+import { genAiExecutionMode } from '@/lib/appShell'
 import { errorMessage } from '@/phr/shared'
 
 import {
@@ -13,6 +14,7 @@ import {
   AiConfigurationListSchema,
   AiConfigurationSchema,
   AiDeleteResponseSchema,
+  AiExecutionModeResponseSchema,
   AiModelsResponseSchema,
   type AiProvider,
 } from './aiPrefs'
@@ -85,6 +87,8 @@ export default function AiProviderSettingsPage(): ReactElement {
   const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [executionMode, setExecutionMode] = useState<'api' | 'external'>(genAiExecutionMode)
+  const [executionModeBusy, setExecutionModeBusy] = useState(false)
   const formHeadingId = useId()
   const sessionTokenId = useId()
 
@@ -280,6 +284,26 @@ export default function AiProviderSettingsPage(): ReactElement {
     }
   }
 
+  async function changeExecutionMode(mode: 'api' | 'external'): Promise<void> {
+    if (mode === executionMode) return
+
+    setExecutionModeBusy(true)
+    setNotice(null)
+    setLoadError(null)
+    try {
+      const raw: unknown = await fetchWrapper.put('/api/user/ai-execution-mode', { mode })
+      const response = AiExecutionModeResponseSchema.parse(raw)
+      setExecutionMode(response.mode)
+      setNotice(response.mode === 'external'
+        ? 'Pending imports will wait for your connected subscription client.'
+        : 'Pending imports will use your active API configuration.')
+    } catch (caught) {
+      setLoadError(errorMessage(caught))
+    } finally {
+      setExecutionModeBusy(false)
+    }
+  }
+
   const editingConfiguration = editingId === null
     ? null
     : configurations.find((configuration) => configuration.id === editingId) ?? null
@@ -299,6 +323,42 @@ export default function AiProviderSettingsPage(): ReactElement {
             Add configuration
           </Button>
         </div>
+
+        <section className="mt-6 rounded-lg border border-border bg-card p-4 shadow-sm" aria-labelledby="execution-mode-heading">
+          <h2 id="execution-mode-heading" className="text-lg font-semibold text-card-foreground">Document processing mode</h2>
+          <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+            Choose API credentials hosted by PHR, or process queued documents with your own Codex, Claude Code, or other REST-capable subscription client. External processing never falls back to a hosted API key.
+          </p>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <label className="flex cursor-pointer gap-3 rounded-md border border-border p-3">
+              <input
+                type="radio"
+                name="genai-execution-mode"
+                value="api"
+                checked={executionMode === 'api'}
+                disabled={executionModeBusy}
+                onChange={() => void changeExecutionMode('api')}
+              />
+              <span><span className="block font-medium text-foreground">PHR API credentials</span><span className="text-sm text-muted-foreground">Use the active provider configuration below.</span></span>
+            </label>
+            <label className="flex cursor-pointer gap-3 rounded-md border border-border p-3">
+              <input
+                type="radio"
+                name="genai-execution-mode"
+                value="external"
+                checked={executionMode === 'external'}
+                disabled={executionModeBusy}
+                onChange={() => void changeExecutionMode('external')}
+              />
+              <span><span className="block font-medium text-foreground">My subscription client</span><span className="text-sm text-muted-foreground">Keep work queued until your OAuth-connected client drains it over MCP or REST.</span></span>
+            </label>
+          </div>
+          {executionMode === 'external' ? (
+            <p className="mt-3 text-sm text-muted-foreground">
+              Connect to <code className="rounded bg-muted px-1 py-0.5">/api/v1/mcp</code> with the <code className="rounded bg-muted px-1 py-0.5">mcp:use genai:read genai:work</code> scopes. Attachment URLs require the same OAuth bearer token; hosted clients that cannot send it are not supported.
+            </p>
+          ) : null}
+        </section>
 
         {notice ? (
           <p role="status" aria-live="polite" className="mt-4 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">

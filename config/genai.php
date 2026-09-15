@@ -136,4 +136,46 @@ return [
 
     ],
 
+    'mcp' => [
+        'enabled' => true,
+        'personal_tokens' => ['enabled' => false],
+        'max_attempts' => (int) env('GENAI_MCP_MAX_ATTEMPTS', 3),
+        'retry_backoff_seconds' => [60, 300, 1800],
+        'lease' => [
+            'seconds' => (int) env('GENAI_MCP_LEASE_SECONDS', 900),
+            'max_total_seconds' => (int) env('GENAI_MCP_MAX_LEASE_SECONDS', 3600),
+        ],
+        'limits' => [
+            'max_enqueue_json_bytes' => 2_097_152,
+            'max_claim_json_bytes' => 3_145_728,
+            'max_input_text_chars' => 500_000,
+            'max_attachments' => 1,
+            'max_attachment_bytes' => 104_857_600,
+            'max_completion_bytes' => 1_048_576,
+            'max_completion_text_chars' => 100_000,
+            'max_tool_calls' => 1,
+            'max_json_nesting' => 32,
+        ],
+        'attachments' => ['disk' => 'local'],
+        'retention' => ['terminal_days' => 30],
+        // PHR owns the OAuth-protected v1 routes and composes the tools into its
+        // existing MCP server. Never enable the package's standalone surfaces.
+        'rest' => [
+            'enabled' => false,
+            'prefix' => 'unused',
+            'middleware' => [],
+            'requests_per_minute' => 120,
+        ],
+        'server' => [
+            'enabled' => false,
+            'path' => 'unused',
+            'middleware' => [],
+            'allowed_origins' => [],
+            'allowed_hosts' => [],
+            'max_body_bytes' => 262_144,
+            'max_response_body_bytes' => 1_048_576,
+            'session_ttl_seconds' => 1800,
+        ],
+    ],
+
 ];
