@@ -849,6 +849,63 @@
         }
       }
     },
+    "/genai/queue/status": {
+      "get": {
+        "operationId": "genai.queue_status", "summary": "Read private external GenAI queue counts",
+        "security": [{ "oauth2": ["genai:read"] }],
+        "parameters": [{ "name": "queue", "in": "query", "schema": { "type": "string", "maxLength": 80 } }],
+        "responses": { "200": { "description": "Bounded status counts", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GenAiQueueStatus" } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/genai/claims": {
+      "post": {
+        "operationId": "genai.requests.claim", "summary": "Lease one authorized external GenAI request",
+        "security": [{ "oauth2": ["genai:work"] }],
+        "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "queue": { "type": ["string", "null"], "maxLength": 80 } }, "additionalProperties": false } } } },
+        "responses": { "200": { "description": "Lease, prompt, schemas, and authenticated attachment URLs", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GenAiClaimEnvelope" } } } }, "204": { "description": "No currently claimable work" }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "409": { "$ref": "#/components/responses/Conflict" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/genai/requests/{requestId}": {
+      "get": {
+        "operationId": "genai.requests.get", "summary": "Read one authorized external request status",
+        "security": [{ "oauth2": ["genai:read"] }], "parameters": [{ "$ref": "#/components/parameters/GenAiRequestId" }],
+        "responses": { "200": { "description": "Request status", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/genai/requests/{requestId}/lease": {
+      "post": {
+        "operationId": "genai.leases.renew", "summary": "Renew an active external processing lease",
+        "security": [{ "oauth2": ["genai:work"] }], "parameters": [{ "$ref": "#/components/parameters/GenAiRequestId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GenAiLeaseRequest" } } } },
+        "responses": { "200": { "description": "Renewed lease", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GenAiClaimEnvelope" } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "409": { "$ref": "#/components/responses/Conflict" }, "410": { "$ref": "#/components/responses/Conflict" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/genai/requests/{requestId}/complete": {
+      "post": {
+        "operationId": "genai.requests.complete", "summary": "Submit a schema-validated external completion",
+        "description": "Completion commits durable delivery only; PHR reauthorizes and idempotently stages proposals for human review.",
+        "security": [{ "oauth2": ["genai:work"] }], "parameters": [{ "$ref": "#/components/parameters/GenAiRequestId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["lease_token", "response"], "properties": { "lease_token": { "type": "string" }, "response": { "type": "object" }, "executor": { "type": "object", "additionalProperties": { "type": "string" } } }, "additionalProperties": false } } } },
+        "responses": { "200": { "description": "Durable completion receipt", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "409": { "$ref": "#/components/responses/Conflict" }, "410": { "$ref": "#/components/responses/Conflict" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/genai/requests/{requestId}/fail": {
+      "post": {
+        "operationId": "genai.requests.fail", "summary": "Report a sanitized external processing failure",
+        "security": [{ "oauth2": ["genai:work"] }], "parameters": [{ "$ref": "#/components/parameters/GenAiRequestId" }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["lease_token", "error", "retryable"], "properties": { "lease_token": { "type": "string" }, "error": { "type": "object", "required": ["code", "message"], "properties": { "code": { "type": "string", "maxLength": 80 }, "message": { "type": "string", "maxLength": 1000 } }, "additionalProperties": false }, "retryable": { "type": "boolean" } }, "additionalProperties": false } } } },
+        "responses": { "200": { "description": "Retry or terminal failure state", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "409": { "$ref": "#/components/responses/Conflict" }, "410": { "$ref": "#/components/responses/Conflict" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
+    "/genai/requests/{requestId}/attachments/{attachmentId}": {
+      "get": {
+        "operationId": "genai.attachments.download", "summary": "Stream a leased health-document attachment with OAuth and signature",
+        "description": "The temporary URL is not a bearer credential. The same genai:work OAuth Authorization header remains mandatory.",
+        "security": [{ "oauth2": ["genai:work"] }],
+        "parameters": [{ "$ref": "#/components/parameters/GenAiRequestId" }, { "$ref": "#/components/parameters/GenAiAttachmentId" }, { "name": "attempt", "in": "query", "required": true, "schema": { "type": "integer", "minimum": 1 } }, { "name": "expires", "in": "query", "required": true, "schema": { "type": "integer" } }, { "name": "signature", "in": "query", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Streamed document bytes", "content": { "application/octet-stream": { "schema": { "type": "string", "format": "binary" } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "410": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
+      }
+    },
     "/oauth/token": {
       "delete": {
         "operationId": "oauth.disconnect",
@@ -887,7 +944,9 @@
               "exports:write": "Request exports and native backups",
               "reconciliation:read": "Preview administrative reconciliation",
               "reconciliation:write": "Apply an explicitly confirmed reconciliation",
-              "mcp:use": "Connect through the PHR MCP server"
+              "mcp:use": "Connect through the PHR MCP server",
+              "genai:read": "Read your private external GenAI processing queue status",
+              "genai:work": "Claim, download, and complete your private external GenAI work"
             }
           }
         }
@@ -911,6 +970,8 @@
       "DocumentId": { "name": "document", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
       "ImportId": { "name": "import", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
       "ImportResultId": { "name": "result", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
+      "GenAiRequestId": { "name": "requestId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+      "GenAiAttachmentId": { "name": "attachmentId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
       "ExportId": { "name": "export", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
       "NativeBackupId": { "name": "backup", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
       "HealthLogId": { "name": "healthLog", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
@@ -1045,6 +1106,21 @@
           },
           "scopes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
         },
+        "additionalProperties": false
+      },
+      "GenAiQueueStatus": {
+        "type": "object", "required": ["counts"],
+        "properties": { "counts": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } } },
+        "additionalProperties": false
+      },
+      "GenAiClaimEnvelope": {
+        "type": "object", "required": ["empty", "request"],
+        "properties": { "empty": { "const": false }, "request": { "type": "object", "description": "Prompt, portable schemas, lease token, and attachment metadata. Attachment bytes are never embedded.", "additionalProperties": true } },
+        "additionalProperties": false
+      },
+      "GenAiLeaseRequest": {
+        "type": "object", "required": ["lease_token"],
+        "properties": { "lease_token": { "type": "string", "minLength": 32, "maxLength": 255 } },
         "additionalProperties": false
       },
       "PatientAccess": {

@@ -322,6 +322,13 @@ class AgentApiOAuthFoundationTest extends TestCase
             AgentClinicalResourceCatalog::RETRACT_OPERATION_ID,
             'mcp.exchange',
             'mcp.session.delete',
+            'genai.queue_status',
+            'genai.requests.claim',
+            'genai.requests.get',
+            'genai.leases.renew',
+            'genai.requests.complete',
+            'genai.requests.fail',
+            'genai.attachments.download',
             'oauth.disconnect',
         ];
         $this->assertSame(

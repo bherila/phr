@@ -6,10 +6,11 @@ use App\GenAiProcessor\Mail\GenAiJobCompleteMail;
 use App\GenAiProcessor\Mail\GenAiJobDeferredMail;
 use App\GenAiProcessor\Models\GenAiDailyQuota;
 use App\GenAiProcessor\Models\GenAiImportJob;
-use App\GenAiProcessor\Services\Prompts\Phr\PhrPromptTemplate;
+use App\GenAiProcessor\Services\PhrExternalGenAiRequestService;
+use App\GenAiProcessor\Services\PhrGenAiRequestPreparationService;
+use App\GenAiProcessor\Services\PhrImportProposalApplicationService;
 use App\Models\User;
 use App\Services\GenAiFileHelper;
-use App\Services\PHR\Import\PhrImportProposalDao;
 use App\Services\PHR\Import\PhrStructuredDataImporter;
 use Bherila\GenAiLaravel\Exceptions\GenAiFatalException;
 use Bherila\GenAiLaravel\Exceptions\GenAiRateLimitException;
@@ -90,6 +91,16 @@ class ParseImportJob implements ShouldQueue
             return;
         }
 
+        $executionMode = $user->genAiExecutionMode();
+        if ($job->execution_mode !== $executionMode) {
+            $job->update(['execution_mode' => $executionMode]);
+        }
+        if ($executionMode === GenAiImportJob::EXECUTION_EXTERNAL) {
+            $this->queueExternally($job);
+
+            return;
+        }
+
         $activeConfig = $user->activeAiConfiguration();
         if ($activeConfig && $activeConfig->isExpired()) {
             $job->markFailed('Your AI configuration "'.$activeConfig->name.'" has expired. Please update it in Settings.');
@@ -120,13 +131,13 @@ class ParseImportJob implements ShouldQueue
             }
 
             $fileSize = (int) (Storage::disk('s3')->size($job->s3_path) ?: 0);
-            if ($fileSize > 0 && ! GenAiFileHelper::withinSizeLimit($client, $fileSize)) {
+            if ($fileSize > 0 && ! GenAiFileHelper::withinSizeLimit($client, $fileSize, $job->mime_type ?? 'application/pdf')) {
                 $job->markFailed('File exceeds the size limit for the configured AI provider.');
 
                 return;
             }
 
-            $prompt = (new PhrPromptTemplate($job->job_type))->build($job->getContextArray());
+            $prompt = app(PhrGenAiRequestPreparationService::class)->prepare($job)->prompt;
 
             if (! $this->claimQuota($user->id, $user, $job->id)) {
                 $job->markQueuedTomorrow();
@@ -186,11 +197,24 @@ class ParseImportJob implements ShouldQueue
                 return;
             }
 
-            DB::transaction(function () use ($job, $data): void {
-                app(PhrImportProposalDao::class)->createForJob($job, $data);
-            });
+            $job->refresh();
+            $user->refresh();
+            if ($user->genAiExecutionMode() === GenAiImportJob::EXECUTION_EXTERNAL
+                || $job->execution_mode === GenAiImportJob::EXECUTION_EXTERNAL) {
+                $job->forceFill([
+                    'execution_mode' => GenAiImportJob::EXECUTION_EXTERNAL,
+                    'status' => 'pending',
+                    'raw_response' => null,
+                    'input_tokens' => null,
+                    'output_tokens' => null,
+                ])->save();
+                $this->queueExternally($job);
 
-            $job->markParsed();
+                return;
+            }
+
+            app(PhrImportProposalApplicationService::class)->apply($job->id, $data);
+            $job->refresh();
 
             Log::info('ParseImportJob: success', [
                 'job_id' => $job->id,
@@ -223,6 +247,28 @@ class ParseImportJob implements ShouldQueue
             if (is_resource($fileStream)) {
                 fclose($fileStream);
             }
+        }
+    }
+
+    private function queueExternally(GenAiImportJob $job): void
+    {
+        try {
+            app(PhrExternalGenAiRequestService::class)->enqueue($job);
+            Log::info('ParseImportJob: queued for external processing', ['job_id' => $job->id]);
+        } catch (\Throwable $exception) {
+            GenAiImportJob::query()
+                ->whereKey($job->id)
+                ->where('execution_mode', GenAiImportJob::EXECUTION_EXTERNAL)
+                ->whereIn('status', ['pending', 'processing'])
+                ->update([
+                    'status' => 'pending',
+                    'error_message' => 'External processing is temporarily unavailable; the import remains queued.',
+                    'updated_at' => now(),
+                ]);
+            Log::warning('ParseImportJob: external enqueue deferred to recovery', [
+                'job_id' => $job->id,
+                'exception' => $exception::class,
+            ]);
         }
     }
 

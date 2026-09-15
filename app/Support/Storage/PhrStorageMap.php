@@ -102,6 +102,14 @@ class PhrStorageMap
             ->ignoring('users', 'gemini_api_key', because: 'API credential')
             ->ignoring('users', 'mcp_api_key', because: 'API credential')
             ->ignoring('user_ai_configurations', 'api_key', because: 'API credential')
-            ->ignoring('agent_api_audits', 'sampling_key', because: 'rate-limit audit bucket digest, not a storage key');
+            ->ignoring('agent_api_audits', 'sampling_key', because: 'rate-limit audit bucket digest, not a storage key')
+
+            // Package-owned attachment blobs use the package-configured disk and
+            // lifecycle, not a PHR storage-map disk. PHR external imports use
+            // immutable host references instead, so their attachment path is null.
+            ->ignoring('genai_mcp_attachments', 'path', because: 'package attachment path on package-owned disk')
+            ->ignoring('genai_mcp_claim_receipts', 'idempotency_key', because: 'claim replay key, not a storage key')
+            ->ignoring('genai_mcp_claim_receipts', 'principal_key', because: 'hashed OAuth principal namespace, not a storage key')
+            ->ignoring('genai_mcp_requests', 'idempotency_key', because: 'enqueue replay key, not a storage key');
     }
 }

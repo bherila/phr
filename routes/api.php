@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\DevicePairingExchangeController;
 use App\Http\Controllers\Api\UserAiConfigurationController;
+use App\Http\Controllers\Api\UserAiExecutionModeController;
 use App\Http\Controllers\Api\UserAiModelsController;
 use App\Http\Controllers\Api\UserDeviceController;
 use App\Http\Controllers\Api\V1\AgentClinicalReadController;
@@ -54,6 +55,8 @@ use App\Http\Middleware\EnsureOAuthUserCanLogin;
 use App\Http\Middleware\PreventAgentApiResponseCaching;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
+use Bherila\GenAiLaravel\Mcp\Http\AttachmentController as GenAiAttachmentController;
+use Bherila\GenAiLaravel\Mcp\Http\McpApiController as GenAiMcpApiController;
 use Bherila\McpLaravelBridge\Http\McpHttpSecurityMiddleware;
 use BWH\Auth\Http\Middleware\ExpectOAuthResource;
 use Illuminate\Support\Facades\Route;
@@ -88,6 +91,7 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
             ->middleware(ExpectOAuthResource::class)
             ->middleware('throttle:agent-api')
             ->middleware(CheckToken::using(AgentApiScopes::MCP_USE))
+            ->middleware('genai.mcp.auth')
             ->name('mcp');
 
         Route::get('/patients', [AgentPatientController::class, 'index'])
@@ -293,6 +297,50 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
     });
 });
 
+Route::prefix('v1/genai')->middleware([
+    McpHttpSecurityMiddleware::class,
+    'auth:api',
+    AuditAgentApiRequest::class,
+    EnsureOAuthUserCanLogin::class,
+    PreventAgentApiResponseCaching::class,
+    ExpectOAuthResource::class,
+    'throttle:agent-api',
+])->group(function (): void {
+    Route::get('/queue/status', [GenAiMcpApiController::class, 'status'])
+        ->middleware(CheckToken::using(AgentApiScopes::GENAI_READ))
+        ->middleware('genai.mcp.auth')
+        ->name('agent-api.v1.genai.status');
+    Route::post('/claims', [GenAiMcpApiController::class, 'claim'])
+        ->middleware(CheckToken::using(AgentApiScopes::GENAI_WORK))
+        ->middleware('genai.mcp.auth')
+        ->name('agent-api.v1.genai.claim');
+    Route::get('/requests/{requestId}', [GenAiMcpApiController::class, 'show'])
+        ->whereUuid('requestId')
+        ->middleware(CheckToken::using(AgentApiScopes::GENAI_READ))
+        ->middleware('genai.mcp.auth')
+        ->name('agent-api.v1.genai.requests.show');
+    Route::post('/requests/{requestId}/lease', [GenAiMcpApiController::class, 'renew'])
+        ->whereUuid('requestId')
+        ->middleware(CheckToken::using(AgentApiScopes::GENAI_WORK))
+        ->middleware('genai.mcp.auth')
+        ->name('agent-api.v1.genai.requests.renew');
+    Route::post('/requests/{requestId}/complete', [GenAiMcpApiController::class, 'complete'])
+        ->whereUuid('requestId')
+        ->middleware(CheckToken::using(AgentApiScopes::GENAI_WORK))
+        ->middleware('genai.mcp.auth')
+        ->name('agent-api.v1.genai.requests.complete');
+    Route::post('/requests/{requestId}/fail', [GenAiMcpApiController::class, 'fail'])
+        ->whereUuid('requestId')
+        ->middleware(CheckToken::using(AgentApiScopes::GENAI_WORK))
+        ->middleware('genai.mcp.auth')
+        ->name('agent-api.v1.genai.requests.fail');
+    Route::match(['GET', 'HEAD'], '/requests/{requestId}/attachments/{attachmentId}', GenAiAttachmentController::class)
+        ->whereUuid(['requestId', 'attachmentId'])
+        ->middleware(CheckToken::using(AgentApiScopes::GENAI_WORK))
+        ->middleware('genai.mcp.auth')
+        ->name('genai.mcp.attachments.show');
+});
+
 // Per-user AI provider settings used by ParseImportJob via User::resolvedAiClient().
 // The authenticated PHR Config screen consumes these session-protected endpoints.
 Route::middleware(['web', 'auth'])->group(function (): void {
@@ -302,6 +350,8 @@ Route::middleware(['web', 'auth'])->group(function (): void {
     Route::delete('/user/ai-prefs/{id}', [UserAiConfigurationController::class, 'destroy']);
     Route::post('/user/ai-prefs/{id}/activate', [UserAiConfigurationController::class, 'activate']);
     Route::post('/user/ai-prefs/models', [UserAiModelsController::class, 'fetch']);
+    Route::get('/user/ai-execution-mode', [UserAiExecutionModeController::class, 'show']);
+    Route::put('/user/ai-execution-mode', [UserAiExecutionModeController::class, 'update']);
 
     // Device management for devices paired via /device-pairing (DevicePairingController).
     // Session-only: this never accepts a device's own bearer key, only a browser session,

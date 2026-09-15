@@ -7,6 +7,7 @@ use App\GenAiProcessor\Jobs\ParseImportJob;
 use App\GenAiProcessor\Models\GenAiImportJob;
 use App\Models\PhrDocument;
 use App\Models\PhrPatient;
+use App\Models\User;
 use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
 use App\Support\Storage\PhrStorageKey;
 use Illuminate\Support\Facades\Log;
@@ -66,6 +67,7 @@ final readonly class PhrDocumentProcessingService
                             'filename_hint' => $document->original_filename,
                         ], JSON_THROW_ON_ERROR),
                         'status' => 'pending',
+                        'execution_mode' => User::query()->findOrFail($actorUserId)->genAiExecutionMode(),
                     ]);
                     $document->update(['genai_job_id' => $job->id]);
 
@@ -126,6 +128,7 @@ final readonly class PhrDocumentProcessingService
         }
 
         $job->results()->where('status', 'pending_review')->delete();
+        $executionMode = User::query()->findOrFail($actorUserId)->genAiExecutionMode();
         $job->update([
             's3_path' => $newStagingPath ?? $job->s3_path,
             'user_id' => $actorUserId,
@@ -140,6 +143,9 @@ final readonly class PhrDocumentProcessingService
             'input_tokens' => null,
             'output_tokens' => null,
             'processing_tier' => null,
+            'execution_mode' => $executionMode,
+            'mcp_request_id' => null,
+            'mcp_generation' => $job->mcp_generation + 1,
         ]);
 
         return new ImportJobMutationResult($job->refresh(), (int) $document->id, ImportJobMutationResult::RETRIED);
