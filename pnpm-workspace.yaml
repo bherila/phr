@@ -1,5 +1,8 @@
 # pnpm 11 reads `allowBuilds`; `onlyBuiltDependencies` is retained because older
 # pnpm versions ignore `allowBuilds`. Both list the same packages deliberately.
+# Keep per-worktree node_modules as links into pnpm's shared virtual store.
+enableGlobalVirtualStore: true
+
 allowBuilds:
   '@parcel/watcher': true
   '@swc/core': true
