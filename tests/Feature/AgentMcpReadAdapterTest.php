@@ -264,12 +264,16 @@ final class AgentMcpReadAdapterTest extends TestCase
                     || in_array($tool['name'], ['imports.review', 'imports.retry', 'dicom_uploads.finalize', 'dicom_uploads.cancel', 'reconciliations.apply'], true),
                 $tool['annotations']['destructiveHint'] ?? null,
             );
-            // patients.create is the one tool whose duplicate is a second,
-            // unmergeable patient profile rather than a disposable
-            // patient-scoped artifact, so it is the only one that must not
-            // advertise itself as safe to retry after an unknown outcome.
+            // These operations are not safe to replay after an unknown outcome:
+            // patients.create can create a second profile, while claim/renew/fail
+            // depend on the mailbox lease state at the time of the first call.
             $this->assertSame(
-                $tool['name'] !== 'patients.create',
+                ! in_array($tool['name'], [
+                    'patients.create',
+                    'claim_genai_request',
+                    'renew_genai_lease',
+                    'fail_genai_request',
+                ], true),
                 $tool['annotations']['idempotentHint'] ?? null,
             );
             $this->assertFalse($tool['inputSchema']['additionalProperties'] ?? true);
