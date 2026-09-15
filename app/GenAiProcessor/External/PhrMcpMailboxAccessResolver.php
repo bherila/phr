@@ -12,6 +12,7 @@ use Bherila\GenAiLaravel\Mcp\Models\McpMailbox;
 use Bherila\GenAiLaravel\Mcp\Models\McpRequest;
 use Illuminate\Http\Request;
 use Laravel\Passport\AccessToken;
+use Laravel\Passport\Passport;
 use Throwable;
 
 final readonly class PhrMcpMailboxAccessResolver implements MailboxAccessResolver
@@ -27,11 +28,27 @@ final readonly class PhrMcpMailboxAccessResolver implements MailboxAccessResolve
         $token = $user->token();
         $attributes = $token instanceof AccessToken ? $token->toArray() : [];
         $tokenId = $attributes['oauth_access_token_id'] ?? null;
-        if ((! is_string($tokenId) || $tokenId === '') && app()->environment('testing') && $token !== null) {
-            $tokenId = 'testing-user-'.$user->id;
-        }
-        if (! is_string($tokenId) || $tokenId === '') {
-            return null;
+        $clientId = $attributes['oauth_client_id'] ?? null;
+        if (app()->environment('testing') && $token instanceof AccessToken
+            && (! is_string($tokenId) || $tokenId === '')) {
+            // Passport::actingAs intentionally has no persisted token. Keep
+            // unrelated feature tests usable while giving each supplied client
+            // a deterministic family namespace.
+            $clientId = is_string($clientId) && $clientId !== '' ? $clientId : 'testing-client';
+            $familyId = 'testing-family';
+        } else {
+            if (! is_string($tokenId) || $tokenId === '' || ! is_string($clientId) || $clientId === '') {
+                return null;
+            }
+            $persistedToken = Passport::token()->newQuery()->find($tokenId);
+            $familyId = $persistedToken?->oauth_family_id;
+            if ($persistedToken === null
+                || (string) $persistedToken->user_id !== (string) $user->id
+                || (string) $persistedToken->client_id !== $clientId
+                || ! is_string($familyId)
+                || $familyId === '') {
+                return null;
+            }
         }
         $rawScopes = $attributes['oauth_scopes'] ?? [];
         $scopes = is_array($rawScopes) && $rawScopes !== []
@@ -49,7 +66,11 @@ final readonly class PhrMcpMailboxAccessResolver implements MailboxAccessResolve
             ->all();
 
         return new ExecutionContext(
-            principalKey: sprintf('phr:user:%d:oauth:%s', $user->id, hash('sha256', $tokenId)),
+            principalKey: sprintf(
+                'phr:user:%d:oauth:%s',
+                $user->id,
+                hash('sha256', $clientId."\0".$familyId),
+            ),
             mailboxIds: $mailboxIds,
             scopes: $scopes,
         );

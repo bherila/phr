@@ -52,6 +52,7 @@ use App\Http\Controllers\PHR\VitalController as PHRVitalController;
 use App\Http\Middleware\AuditAgentApiRequest;
 use App\Http\Middleware\AuthenticateWebOrMcpRequest;
 use App\Http\Middleware\EnsureOAuthUserCanLogin;
+use App\Http\Middleware\GenAiRestHttpSecurityMiddleware;
 use App\Http\Middleware\PreventAgentApiResponseCaching;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
@@ -298,7 +299,7 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
 });
 
 Route::prefix('v1/genai')->middleware([
-    McpHttpSecurityMiddleware::class,
+    GenAiRestHttpSecurityMiddleware::class,
     'auth:api',
     AuditAgentApiRequest::class,
     EnsureOAuthUserCanLogin::class,
@@ -306,6 +307,9 @@ Route::prefix('v1/genai')->middleware([
     ExpectOAuthResource::class,
     'throttle:agent-api',
 ])->group(function (): void {
+    Route::options('/{path?}', static fn () => response('', 204))
+        ->where('path', '.*')
+        ->name('agent-api.v1.genai.options');
     Route::get('/queue/status', [GenAiMcpApiController::class, 'status'])
         ->middleware(CheckToken::using(AgentApiScopes::GENAI_READ))
         ->middleware('genai.mcp.auth')

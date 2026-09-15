@@ -4,8 +4,12 @@ namespace Tests\Feature\PHR\GenAi;
 
 use App\GenAiProcessor\External\PhrMcpAttachmentResolver;
 use App\GenAiProcessor\External\PhrMcpCompletionDelivery;
+use App\GenAiProcessor\External\PhrMcpMailboxAccessResolver;
 use App\GenAiProcessor\Jobs\ParseImportJob;
 use App\GenAiProcessor\Models\GenAiImportJob;
+use App\GenAiProcessor\Services\PhrGenAiExecutionModeService;
+use App\GenAiProcessor\Services\PhrImportExecutionModeChanged;
+use App\GenAiProcessor\Services\PhrImportProposalApplicationService;
 use App\Models\PhrDocument;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
@@ -18,9 +22,15 @@ use Bherila\GenAiLaravel\Mcp\Models\McpAttachment;
 use Bherila\GenAiLaravel\Mcp\Models\McpDelivery;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Laravel\Passport\AccessToken;
+use Laravel\Passport\Client;
 use Laravel\Passport\Passport;
+use Laravel\Passport\Token;
 use League\OAuth2\Server\ResourceServer;
 use Mockery;
 use Tests\TestCase;
@@ -177,21 +187,39 @@ final class ExternalGenAiProcessingTest extends TestCase
 
     public function test_versioned_rest_requires_dedicated_scope_and_streams_with_oauth(): void
     {
-        [$user, , , $job] = $this->externalJob();
+        config(['agent_api.mcp_allowed_origins' => ['https://client.example.test']]);
+        [$user, , $document, $job] = $this->externalJob();
+        $largeDocument = '%PDF-1.4 '.str_repeat('x', 1_100_000);
+        Storage::disk('s3')->put($job->s3_path, $largeDocument);
+        $job->forceFill([
+            'file_hash' => hash('sha256', $largeDocument),
+            'file_size_bytes' => strlen($largeDocument),
+        ])->save();
+        $document->forceFill([
+            'file_hash' => hash('sha256', $largeDocument),
+            'byte_size' => strlen($largeDocument),
+        ])->save();
         (new ParseImportJob($job->id))->handle();
 
         // Passport 13 resolves its resource server even when actingAs supplies
         // an already validated AccessToken. Keep this isolated feature test
         // independent from deployment-only signing keys.
         $this->app->instance(ResourceServer::class, Mockery::mock(ResourceServer::class));
-        Passport::actingAs($user, [AgentApiScopes::GENAI_READ], 'api');
+        $this->call('OPTIONS', '/api/v1/genai/queue/status', server: [
+            'HTTP_ORIGIN' => 'https://client.example.test',
+            'HTTP_ACCESS_CONTROL_REQUEST_METHOD' => 'GET',
+            'HTTP_ACCESS_CONTROL_REQUEST_HEADERS' => 'Authorization, Idempotency-Key',
+        ])->assertNoContent()->assertHeader('Access-Control-Allow-Origin', 'https://client.example.test');
+        $client = Client::factory()->create(['name' => 'Synthetic GenAI REST client']);
+        $token = $this->oauthToken($user, $client, Str::random(80));
+        $this->actingAsOAuthToken($user, $client, $token, [AgentApiScopes::GENAI_READ]);
         $this->getJson('/api/v1/genai/queue/status')
             ->assertOk()
             ->assertHeader('Cache-Control', 'no-store, private')
             ->assertJsonPath('counts.pending', 1);
         $this->postJson('/api/v1/genai/claims', ['queue' => 'phr-imports'])->assertForbidden();
 
-        Passport::actingAs($user, [AgentApiScopes::GENAI_WORK], 'api');
+        $this->actingAsOAuthToken($user, $client, $token, [AgentApiScopes::GENAI_WORK]);
         $claim = $this->postJson('/api/v1/genai/claims', ['queue' => 'phr-imports'])
             ->assertOk()
             ->assertJsonPath('empty', false)
@@ -200,12 +228,84 @@ final class ExternalGenAiProcessingTest extends TestCase
             ->assertOk()
             ->assertHeader('Content-Type', 'application/pdf')
             ->assertHeader('Cache-Control', 'no-store, private');
-        $this->assertSame($this->documentBytes(), $download->streamedContent());
+        $this->assertSame($largeDocument, $download->streamedContent());
+
+        $completion = [
+            'lease_token' => $claim['request']['lease_token'],
+            'response' => $this->completionResponse(str_repeat('e', 499_000)),
+            'executor' => ['client' => 'synthetic-client', 'model' => 'synthetic-model'],
+        ];
+        $this->assertGreaterThan(262_144, strlen(json_encode($completion, JSON_THROW_ON_ERROR)));
+        $this->postJson('/api/v1/genai/requests/'.$claim['request']['id'].'/complete', $completion)
+            ->assertOk()
+            ->assertJsonPath('status', 'completed');
 
         $this->getJson('/api/v1/genai/queue/status')->assertForbidden();
         $this->postJson('/api/v1/genai/claims?access_token=synthetic-secret', ['queue' => 'phr-imports'])
             ->assertBadRequest()
             ->assertDontSee('synthetic-secret');
+    }
+
+    public function test_oauth_refresh_keeps_the_same_principal_for_claim_renew_and_complete(): void
+    {
+        [$user, , , $job] = $this->externalJob();
+        (new ParseImportJob($job->id))->handle();
+        $job->refresh();
+        $mailboxId = (string) $job->getConnection()->table('genai_mcp_requests')
+            ->where('id', $job->mcp_request_id)
+            ->value('mailbox_id');
+        $client = Client::factory()->create(['name' => 'Synthetic rotating GenAI client']);
+        $familyId = Str::random(80);
+        $firstToken = $this->oauthToken($user, $client, $familyId);
+        $rotatedToken = $this->oauthToken($user, $client, $familyId);
+        $firstContext = $this->resolvedContext($user, $client, $firstToken);
+        $rotatedContext = $this->resolvedContext($user, $client, $rotatedToken);
+
+        $this->assertSame($firstContext->principalKey, $rotatedContext->principalKey);
+        $this->assertSame([$mailboxId], $firstContext->mailboxIds);
+        $claim = app(McpQueueService::class)->claim($firstContext, 'phr-imports');
+        $this->assertIsArray($claim);
+        app(McpQueueService::class)->renew(
+            $rotatedContext,
+            $job->mcp_request_id,
+            $claim['request']['lease_token'],
+        );
+        $receipt = app(McpQueueService::class)->complete(
+            $rotatedContext,
+            $job->mcp_request_id,
+            $claim['request']['lease_token'],
+            $this->completionResponse(),
+        );
+
+        $this->assertSame('completed', $receipt['status']);
+    }
+
+    public function test_api_result_is_rejected_when_execution_mode_switches_before_locked_apply(): void
+    {
+        [$user, , , $job] = $this->externalJob();
+        $user->forceFill(['genai_execution_mode' => GenAiImportJob::EXECUTION_API])->save();
+        $job->forceFill([
+            'execution_mode' => GenAiImportJob::EXECUTION_API,
+            'status' => 'processing',
+        ])->save();
+
+        // This represents a provider response already in memory when the user
+        // commits the API -> external preference transaction.
+        app(PhrGenAiExecutionModeService::class)->update($user, GenAiImportJob::EXECUTION_EXTERNAL);
+
+        try {
+            app(PhrImportProposalApplicationService::class)->applyApiResult(
+                $job->id,
+                $this->completionResponse()['tool_calls'][0]['input'],
+            );
+            $this->fail('A stale API result crossed the execution-mode switch.');
+        } catch (PhrImportExecutionModeChanged) {
+            $this->assertTrue(true);
+        }
+
+        $this->assertSame(GenAiImportJob::EXECUTION_EXTERNAL, $job->refresh()->execution_mode);
+        $this->assertSame('pending', $job->status);
+        $this->assertDatabaseCount('genai_import_results', 0);
     }
 
     public function test_execution_mode_change_reconciles_pending_work_without_api_fallback(): void
@@ -327,6 +427,78 @@ final class ExternalGenAiProcessingTest extends TestCase
             mailboxIds: [$mailboxId],
             scopes: [AgentApiScopes::GENAI_READ, AgentApiScopes::GENAI_WORK],
         );
+    }
+
+    /** @param list<string> $scopes */
+    private function actingAsOAuthToken(User $user, Client $client, Token $token, array $scopes): void
+    {
+        Passport::actingAs($user, $scopes, 'api', $client);
+        $user->withAccessToken(new AccessToken([
+            'oauth_access_token_id' => $token->id,
+            'oauth_client_id' => $client->id,
+            'oauth_user_id' => (string) $user->id,
+            'oauth_scopes' => $scopes,
+        ]));
+        Auth::guard('api')->setUser($user);
+    }
+
+    private function oauthToken(User $user, Client $client, string $familyId): Token
+    {
+        return Token::query()->create([
+            'id' => Str::random(80),
+            'user_id' => $user->id,
+            'client_id' => $client->id,
+            'name' => null,
+            'scopes' => [AgentApiScopes::GENAI_READ, AgentApiScopes::GENAI_WORK],
+            'revoked' => false,
+            'oauth_security_version' => $user->oauth_security_version,
+            'oauth_family_id' => $familyId,
+            'expires_at' => now()->addMinutes(15),
+        ]);
+    }
+
+    private function resolvedContext(User $user, Client $client, Token $token): ExecutionContext
+    {
+        $actor = $user->fresh();
+        $actor->withAccessToken(new AccessToken([
+            'oauth_access_token_id' => $token->id,
+            'oauth_client_id' => $client->id,
+            'oauth_user_id' => (string) $user->id,
+            'oauth_scopes' => [AgentApiScopes::GENAI_READ, AgentApiScopes::GENAI_WORK],
+        ]));
+        $request = Request::create('/api/v1/genai/claims', 'POST');
+        $request->setUserResolver(static fn (?string $guard = null): ?User => $guard === 'api' ? $actor : null);
+        $context = app(PhrMcpMailboxAccessResolver::class)->resolve($request);
+        $this->assertInstanceOf(ExecutionContext::class, $context);
+
+        return $context;
+    }
+
+    /** @return array{text: string, tool_calls: list<array{name: string, input: array<string, mixed>}>} */
+    private function completionResponse(string $extractedText = 'Synthetic extracted text'): array
+    {
+        return [
+            'text' => '',
+            'tool_calls' => [[
+                'name' => 'submit_phr_import',
+                'input' => [
+                    'schema_version' => 'phr_pdf_bundle.v1',
+                    'source_document' => [
+                        'record_key' => 'synthetic-document',
+                        'title' => 'Synthetic document',
+                        'document_type' => 'lab_report',
+                        'summary' => 'Synthetic summary',
+                        'extracted_text' => $extractedText,
+                    ],
+                    'records' => [
+                        'conditions' => [], 'allergies' => [], 'immunizations' => [],
+                        'medications' => [], 'vitals' => [], 'lab_results' => [],
+                        'procedures' => [], 'encounters' => [], 'portal_messages' => [],
+                        'negative_assertions' => [],
+                    ],
+                ],
+            ]],
+        ];
     }
 
     private function documentBytes(): string

@@ -62,8 +62,8 @@ final readonly class PhrMcpCompletionDelivery implements CompletionDelivery
 
         try {
             $data = $this->completionData($delivery);
-            $created = $this->application->apply($job->id, $data, function (GenAiImportJob $lockedJob) use ($request): void {
-                $this->authorizeApplication($lockedJob, $request);
+            $created = $this->application->apply($job->id, $data, function (GenAiImportJob $lockedJob, User $lockedUser) use ($request): void {
+                $this->authorizeApplication($lockedJob, $lockedUser, $request);
             });
         } catch (PhrExternalCompletionRejected|UnexpectedValueException|ModelNotFoundException $exception) {
             GenAiImportJob::query()
@@ -130,16 +130,14 @@ final readonly class PhrMcpCompletionDelivery implements CompletionDelivery
         return $call['input'];
     }
 
-    private function authorizeApplication(GenAiImportJob $job, McpRequest $request): void
+    private function authorizeApplication(GenAiImportJob $job, User $user, McpRequest $request): void
     {
         if ($job->mcp_request_id !== $request->id
             || $job->execution_mode !== GenAiImportJob::EXECUTION_EXTERNAL
             || ! in_array($job->status, ['pending', 'processing', 'parsed', 'imported'], true)) {
             throw new PhrExternalCompletionRejected('The import no longer accepts this external completion.');
         }
-        $user = User::query()->lockForUpdate()->find($job->user_id);
-        if (! $user instanceof User || ! $user->canLogin()
-            || $user->genAiExecutionMode() !== GenAiImportJob::EXECUTION_EXTERNAL) {
+        if (! $user->canLogin() || $user->genAiExecutionMode() !== GenAiImportJob::EXECUTION_EXTERNAL) {
             throw new PhrExternalCompletionRejected('The import owner no longer permits external processing.');
         }
         $document = PhrDocument::query()

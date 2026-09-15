@@ -3,6 +3,7 @@
 namespace App\GenAiProcessor\Services;
 
 use App\GenAiProcessor\Models\GenAiImportJob;
+use App\Models\User;
 use App\Services\PHR\Import\PhrImportProposalDao;
 use Closure;
 use Illuminate\Support\Facades\DB;
@@ -15,16 +16,24 @@ final readonly class PhrImportProposalApplicationService
 
     /**
      * @param  array<array-key, mixed>  $data
-     * @param  (Closure(GenAiImportJob): void)|null  $authorizeLockedJob
+     * @param  (Closure(GenAiImportJob, User): void)|null  $authorizeLockedJob
      */
     public function apply(int $jobId, array $data, ?Closure $authorizeLockedJob = null): int
     {
-        return DB::transaction(function () use ($jobId, $data, $authorizeLockedJob): int {
+        $ownerId = GenAiImportJob::query()->findOrFail($jobId)->user_id;
+
+        return DB::transaction(function () use ($jobId, $ownerId, $data, $authorizeLockedJob): int {
+            // Execution-mode changes lock the user and then their jobs. Keep the
+            // same order so a provider result cannot cross that transaction.
+            $user = User::query()->lockForUpdate()->findOrFail($ownerId);
             $job = GenAiImportJob::query()->lockForUpdate()->findOrFail($jobId);
+            if ((int) $job->user_id !== (int) $user->id) {
+                throw new UnexpectedValueException('The import job owner changed unexpectedly.');
+            }
+            $authorizeLockedJob?->__invoke($job, $user);
             if (in_array($job->status, ['parsed', 'imported'], true)) {
                 return 0;
             }
-            $authorizeLockedJob?->__invoke($job);
             if (! in_array($job->status, ['pending', 'processing'], true)) {
                 throw new UnexpectedValueException('The import job no longer accepts extraction results.');
             }
@@ -41,5 +50,20 @@ final readonly class PhrImportProposalApplicationService
 
             return $created;
         });
+    }
+
+    /** @param array<array-key, mixed> $data */
+    public function applyApiResult(int $jobId, array $data): int
+    {
+        return $this->apply(
+            $jobId,
+            $data,
+            static function (GenAiImportJob $job, User $user): void {
+                if ($job->execution_mode !== GenAiImportJob::EXECUTION_API
+                    || $user->genAiExecutionMode() !== GenAiImportJob::EXECUTION_API) {
+                    throw new PhrImportExecutionModeChanged('The import no longer permits API execution results.');
+                }
+            },
+        );
     }
 }

@@ -8,6 +8,7 @@ use App\GenAiProcessor\Models\GenAiDailyQuota;
 use App\GenAiProcessor\Models\GenAiImportJob;
 use App\GenAiProcessor\Services\PhrExternalGenAiRequestService;
 use App\GenAiProcessor\Services\PhrGenAiRequestPreparationService;
+use App\GenAiProcessor\Services\PhrImportExecutionModeChanged;
 use App\GenAiProcessor\Services\PhrImportProposalApplicationService;
 use App\Models\User;
 use App\Services\GenAiFileHelper;
@@ -213,7 +214,25 @@ class ParseImportJob implements ShouldQueue
                 return;
             }
 
-            app(PhrImportProposalApplicationService::class)->apply($job->id, $data);
+            try {
+                app(PhrImportProposalApplicationService::class)->applyApiResult($job->id, $data);
+            } catch (PhrImportExecutionModeChanged) {
+                // The preference transaction won after this API request began.
+                // Discard its output and hand the still-pending work to the
+                // selected external queue; never let the stale API result win.
+                $job->refresh();
+                $user->refresh();
+                $job->forceFill([
+                    'execution_mode' => GenAiImportJob::EXECUTION_EXTERNAL,
+                    'status' => 'pending',
+                    'raw_response' => null,
+                    'input_tokens' => null,
+                    'output_tokens' => null,
+                ])->save();
+                $this->queueExternally($job);
+
+                return;
+            }
             $job->refresh();
 
             Log::info('ParseImportJob: success', [

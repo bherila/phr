@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\AuditAgentApiRequest;
 use App\Http\Middleware\EnsureOAuthAuthorizationUserCanLogin;
+use App\Http\Middleware\GenAiRestHttpSecurityMiddleware;
 use App\Http\Middleware\ThrottleAgentApiAuthentication;
 use Bherila\McpLaravelBridge\Http\McpHttpSecurityMiddleware;
 use BWH\Auth\Http\Middleware\ExpectOAuthResource;
@@ -30,6 +31,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // its expected audience before Passport authenticates the request.
         $middleware->prependToPriorityList(AuthenticatesRequests::class, ExpectOAuthResource::class);
         $middleware->prependToPriorityList(AuthenticatesRequests::class, McpHttpSecurityMiddleware::class);
+        $middleware->prependToPriorityList(AuthenticatesRequests::class, GenAiRestHttpSecurityMiddleware::class);
         // Passport's authorization routes declare their package middleware
         // outside the route-level web/auth middleware. Force the account-state
         // check after session authentication but before the consent controller.

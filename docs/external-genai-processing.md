@@ -60,12 +60,18 @@ lease token, portable prompt/tool schemas, and a short-lived `download_url`. The
 download is an authenticated streaming response: send the same
 `Authorization: Bearer ...` header when following that URL. The URL signature alone
 is deliberately insufficient, and no file bytes are included in MCP or JSON as
-base64.
+base64. PHR's REST edge accepts the configured 1 MiB completion envelope and streams
+private attachments up to the configured 100 MiB attachment limit; the MCP control
+plane retains its smaller independent request/response limits.
 
 Clients should renew a lease before it expires. Submit the normalized response in
-the exact shape described by `submission_schema`. Retrying an identical completion
-with the same lease is safe; different data conflicts. Report only sanitized error
-codes/messages to the failure endpoint.
+the exact shape described by `submission_schema`. OAuth access-token refresh keeps
+the same lease principal for that user, client, and credential family, while the
+lease token remains a required second factor. Retrying an identical completion with
+the same lease is safe while the linked request remains authorized; different data
+conflicts. Persist the returned receipt because replay after proposal delivery is a
+separate follow-up. Report only sanitized error codes/messages to the failure
+endpoint.
 
 Hosted connectors that cannot attach the OAuth header when downloading a file are
 not compatible with health-document processing. Use a supported REST-capable local
