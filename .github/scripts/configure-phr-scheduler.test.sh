@@ -4,6 +4,13 @@ set -euo pipefail
 
 # This file doubles as the fake crontab and PHP executable used by the test.
 if [[ -n "${FAKE_CRONTAB_FILE:-}" && $# -gt 0 ]]; then
+    if [[ "$1" == '-d' ]]; then
+        [[ "${2:-}" == 'memory_limit=1G' ]] || {
+            echo "Unexpected fake PHP memory limit: ${2:-missing}" >&2
+            exit 1
+        }
+        shift 2
+    fi
     case "$1" in
         -l)
             if [[ ! -f "$FAKE_CRONTAB_FILE" ]]; then
@@ -48,10 +55,12 @@ if [[ -n "${FAKE_CRONTAB_FILE:-}" && $# -gt 0 ]]; then
     esac
 fi
 
-readonly script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly script_dir
 readonly installer="${script_dir}/configure-phr-scheduler.sh"
 readonly helper="${script_dir}/configure-phr-scheduler.test.sh"
-readonly test_root="$(mktemp -d)"
+test_root="$(mktemp -d)"
+readonly test_root
 readonly fake_home="${test_root}/home/test-user"
 readonly fake_app="${fake_home}/phr-laravel"
 readonly fake_crontab="${test_root}/crontab"
@@ -84,8 +93,8 @@ export PHR_FLOCK_BIN="$helper"
 bash "$installer" >/dev/null
 bash "$installer" >/dev/null
 
-readonly expected_scheduler_line="*/5 * * * * cd ${fake_app} && ${helper} artisan phr:uptime:run-scheduler >> /dev/null 2>&1 # JOB:phr-laravel-scheduler"
-readonly expected_worker_line="*/5 * * * * cd ${fake_app} && ${helper} -n ${fake_app}/storage/framework/phr-queue-worker.lock ${helper} artisan phr:uptime:run-worker >> /dev/null 2>&1 # JOB:phr-laravel-queue-worker"
+readonly expected_scheduler_line="*/5 * * * * cd ${fake_app} && ${helper} -d memory_limit=1G artisan phr:uptime:run-scheduler >> /dev/null 2>&1 # JOB:phr-laravel-scheduler"
+readonly expected_worker_line="*/5 * * * * cd ${fake_app} && ${helper} -n ${fake_app}/storage/framework/phr-queue-worker.lock ${helper} -d memory_limit=1G artisan phr:uptime:run-worker >> /dev/null 2>&1 # JOB:phr-laravel-queue-worker"
 
 [[ "$(grep -Ec '# JOB:phr-laravel-scheduler[[:space:]]*$' "$fake_crontab")" == '1' ]]
 [[ "$(grep -Ec '# JOB:phr-laravel-queue-worker[[:space:]]*$' "$fake_crontab")" == '1' ]]
@@ -124,6 +133,14 @@ unset FAKE_QUEUE_DRIVER
 export FAKE_RETRY_AFTER=3600
 if bash "$installer" >/dev/null 2>&1; then
     echo 'Expected unsafe retry_after verification to fail.' >&2
+    exit 1
+fi
+cmp -s "$original_crontab" "$fake_crontab"
+
+unset FAKE_RETRY_AFTER
+export PHR_CRON_MEMORY_LIMIT=128
+if bash "$installer" >/dev/null 2>&1; then
+    echo 'Expected an invalid cron memory limit to fail.' >&2
     exit 1
 fi
 cmp -s "$original_crontab" "$fake_crontab"
