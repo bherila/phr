@@ -10,7 +10,7 @@
         "barryvdh/laravel-dompdf": "^3.1",
         "bherila/auth-laravel": "^0.12",
         "bherila/genai-laravel": "@dev",
-        "bherila/mcp-laravel-bridge": "^0.1.0",
+        "bherila/mcp-laravel-bridge": "^0.2.0",
         "helgesverre/toon": "^3.1",
         "laravel/framework": "^13.8",
         "laravel/passport": "^13.0",
@@ -35,11 +35,6 @@
             "name": "genai-laravel",
             "type": "vcs",
             "url": "https://github.com/bherila/genai-laravel"
-        },
-        {
-            "name": "mcp-laravel-bridge",
-            "type": "vcs",
-            "url": "git@github.com:bherila/mcp-laravel-bridge.git"
         }
     ],
     "autoload": {

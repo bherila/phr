@@ -283,9 +283,16 @@ The `changes.list` tool uses the same REST feed and tells clients to carry the r
 watermark across all cursor pages, rather than implementing a second synchronization
 path in the MCP server.
 
-The transport keeps the SDK's CORS, DNS-rebinding, and protocol-version protections,
-uses a 256 KiB request ceiling, and accepts cross-origin browser requests only from an
-explicit configuration allow-list. MCP sessions expire after 30 minutes and use an
+The transport is locked to `bherila/mcp-laravel-bridge` v0.2.0 and the official
+`mcp/sdk` v0.7.1. Its hardened Laravel edge profile compares a
+present browser Origin as an exact scheme/host/port origin, validates the service Host
+independently against `APP_URL`, the OAuth resource, or an explicit service-authority
+allow-list, rejects query-string credentials before authentication, and applies the
+SDK's version-appropriate protocol lifecycle middleware; the deployed handshake and
+regression suite exercise MCP protocol `2025-06-18`. Browser origins never expand
+the service Host allow-list. Request bodies default to a 256 KiB ceiling and complete
+non-streamed responses to 1 MiB; native clients without Origin remain supported. MCP sessions
+expire after 30 minutes and use an
 irreversible token-derived cache namespace, preventing a session UUID from crossing token
 boundaries. Session state contains protocol negotiation only. The SDK receives a null
 logger because its debug logger includes tool arguments and results; application logs and
