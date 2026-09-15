@@ -93,8 +93,8 @@ export PHR_FLOCK_BIN="$helper"
 bash "$installer" >/dev/null
 bash "$installer" >/dev/null
 
-readonly expected_scheduler_line="*/5 * * * * cd ${fake_app} && ${helper} -d memory_limit=1G artisan phr:uptime:run-scheduler >> /dev/null 2>&1 # JOB:phr-laravel-scheduler"
-readonly expected_worker_line="*/5 * * * * cd ${fake_app} && ${helper} -n ${fake_app}/storage/framework/phr-queue-worker.lock ${helper} -d memory_limit=1G artisan phr:uptime:run-worker >> /dev/null 2>&1 # JOB:phr-laravel-queue-worker"
+readonly expected_scheduler_line="*/5 * * * * cd ${fake_app} && PHR_CRON_MEMORY_LIMIT=1G ${helper} -d memory_limit=1G artisan phr:uptime:run-scheduler >> /dev/null 2>&1 # JOB:phr-laravel-scheduler"
+readonly expected_worker_line="*/5 * * * * cd ${fake_app} && PHR_CRON_MEMORY_LIMIT=1G ${helper} -n ${fake_app}/storage/framework/phr-queue-worker.lock ${helper} -d memory_limit=1G artisan phr:uptime:run-worker >> /dev/null 2>&1 # JOB:phr-laravel-queue-worker"
 
 [[ "$(grep -Ec '# JOB:phr-laravel-scheduler[[:space:]]*$' "$fake_crontab")" == '1' ]]
 [[ "$(grep -Ec '# JOB:phr-laravel-queue-worker[[:space:]]*$' "$fake_crontab")" == '1' ]]
