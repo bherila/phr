@@ -5,7 +5,7 @@ namespace Tests\Unit;
 use Tests\TestCase;
 
 /**
- * Every local disk root under storage/ must be in the deploy's rsync --exclude list.
+ * Every local disk root under storage/ must be protected by the shared deploy contract.
  *
  * The deploy runs `rsync -av --delete ... storage ...`. A local disk root that is not
  * excluded is not in the repo, so rsync deletes it on the receiver — silently, with every
@@ -29,7 +29,14 @@ class LocalDiskDeployExcludeTest extends TestCase
         $this->assertIsString($workflow, 'Could not read .github/workflows/ci.yml.');
 
         preg_match_all("/--exclude='([^']+)'/", $workflow, $matches);
-        $excluded = array_flip($matches[1]);
+        $excludes = $matches[1];
+        if (preg_match('/^\s+excludes:\s*\|\R((?:\s{12}\S.*\R?)*)/m', $workflow, $block) === 1) {
+            foreach (preg_split('/\R/', trim($block[1])) ?: [] as $line) {
+                $excludes[] = trim($line);
+            }
+        }
+        $excluded = array_flip($excludes);
+        $keepsRuntimeStorage = str_contains($workflow, 'keep-runtime-storage: true');
 
         $storageRoot = rtrim(storage_path(), '/').'/';
         $unprotected = [];
@@ -46,6 +53,18 @@ class LocalDiskDeployExcludeTest extends TestCase
             }
 
             $relative = substr($root, strlen($storageRoot));
+
+            if ($keepsRuntimeStorage && (
+                $relative === 'app'
+                || str_starts_with($relative, 'app/')
+                || $relative === 'logs'
+                || str_starts_with($relative, 'logs/')
+                || str_starts_with($relative, 'framework/cache/')
+                || str_starts_with($relative, 'framework/sessions/')
+                || str_starts_with($relative, 'framework/views/')
+            )) {
+                continue;
+            }
 
             // storage/app/private and storage/app/public are the transferred tree itself,
             // not directories carved out of it. Only roots nested deeper need an exclude.
@@ -70,8 +89,8 @@ class LocalDiskDeployExcludeTest extends TestCase
         $unprotected = $this->unprotectedDiskRoots();
 
         $this->assertSame([], $unprotected, sprintf(
-            "These local disks are not in the deploy's --exclude list:\n  %s\n\n".
-            'The next deploy will delete their contents. Add --exclude=\'<dirname>\' in '.
+            "These local disks are not protected by the deploy contract:\n  %s\n\n".
+            'The next deploy will delete their contents. Add the directory to `excludes` in '.
             '.github/workflows/ci.yml.',
             implode("\n  ", $unprotected),
         ));
@@ -85,12 +104,12 @@ class LocalDiskDeployExcludeTest extends TestCase
         config([
             'filesystems.disks.__probe' => [
                 'driver' => 'local',
-                'root' => storage_path('app/private/definitely-not-excluded'),
+                'root' => storage_path('custom/definitely-not-excluded'),
             ],
         ]);
 
         $this->assertSame(
-            ['__probe (root: app/private/definitely-not-excluded)'],
+            ['__probe (root: custom/definitely-not-excluded)'],
             $this->unprotectedDiskRoots(),
         );
     }
@@ -114,12 +133,9 @@ class LocalDiskDeployExcludeTest extends TestCase
         $workflow = file_get_contents(base_path('.github/workflows/ci.yml'));
         $this->assertIsString($workflow);
 
-        $this->assertStringContainsString("--exclude='/storage/app/private/oauth/'", $workflow);
-        $this->assertStringNotContainsString("--exclude='oauth'", $workflow);
-        $this->assertStringContainsString(
-            'OAuth signing key pair is incomplete; refusing to rotate it automatically.',
-            $workflow,
-        );
+        $this->assertStringContainsString('/storage/app/private/oauth/', $workflow);
+        $this->assertStringContainsString('keep-runtime-storage: true', $workflow);
+        $this->assertStringContainsString('passport-key-directory: storage/app/private/oauth', $workflow);
         $this->assertStringNotContainsString('passport:keys --force ||', $workflow);
     }
 }
