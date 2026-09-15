@@ -8,12 +8,18 @@ readonly worker_job_name='phr-laravel-queue-worker'
 readonly worker_job_tag="# JOB:${worker_job_name}"
 readonly cron_schedule='*/5 * * * *'
 readonly php_bin="${PHR_CRON_PHP_BIN:-/opt/cpanel/ea-php85/root/usr/bin/php}"
+readonly php_memory_limit="${PHR_CRON_MEMORY_LIMIT:-1G}"
 readonly app_dir="${PHR_CRON_APP_DIR:-${HOME}/phr-laravel}"
 readonly crontab_bin="${PHR_CRONTAB_BIN:-crontab}"
 readonly flock_bin="${PHR_FLOCK_BIN:-/usr/bin/flock}"
 readonly worker_lock="${app_dir}/storage/framework/phr-queue-worker.lock"
-readonly scheduler_cron_line="${cron_schedule} cd ${app_dir} && ${php_bin} artisan phr:uptime:run-scheduler >> /dev/null 2>&1 ${scheduler_job_tag}"
-readonly worker_cron_line="${cron_schedule} cd ${app_dir} && ${flock_bin} -n ${worker_lock} ${php_bin} artisan phr:uptime:run-worker >> /dev/null 2>&1 ${worker_job_tag}"
+readonly scheduler_cron_line="${cron_schedule} cd ${app_dir} && PHR_CRON_MEMORY_LIMIT=${php_memory_limit} ${php_bin} -d memory_limit=${php_memory_limit} artisan phr:uptime:run-scheduler >> /dev/null 2>&1 ${scheduler_job_tag}"
+readonly worker_cron_line="${cron_schedule} cd ${app_dir} && PHR_CRON_MEMORY_LIMIT=${php_memory_limit} ${flock_bin} -n ${worker_lock} ${php_bin} -d memory_limit=${php_memory_limit} artisan phr:uptime:run-worker >> /dev/null 2>&1 ${worker_job_tag}"
+
+if [[ ! "$php_memory_limit" =~ ^[1-9][0-9]*[MGmg]$ ]]; then
+    echo "Refusing to install cron with an invalid PHP memory limit: ${php_memory_limit}" >&2
+    exit 1
+fi
 
 for value in "$php_bin" "$app_dir" "$flock_bin"; do
     if [[ ! "$value" =~ ^/[A-Za-z0-9._/-]+$ ]]; then
@@ -33,6 +39,16 @@ if ! command -v "$crontab_bin" >/dev/null 2>&1; then
 fi
 
 cd "$app_dir"
+bootstrap_memory_limit="$(
+    PHR_CRON_MEMORY_LIMIT="$php_memory_limit" \
+        "$php_bin" -d memory_limit=128M -r \
+        'require "vendor/autoload.php"; require "bootstrap/app.php"; echo ini_get("memory_limit");'
+)"
+if [[ "${bootstrap_memory_limit^^}" != "${php_memory_limit^^}" ]]; then
+    echo "CLI bootstrap did not apply the scheduled child memory limit: ${bootstrap_memory_limit:-missing}" >&2
+    exit 1
+fi
+
 schedule_output="$("$php_bin" artisan schedule:list --no-ansi)"
 
 for expected_command in \
@@ -165,6 +181,7 @@ do
 done
 
 echo "Installed ${scheduler_job_name} and ${worker_job_name} without changing unrelated cPanel cron entries."
+echo "Verified scheduler child PHP memory limit: ${bootstrap_memory_limit^^}."
 printf '%s\n' "$schedule_output"
 
 echo "Production queue driver:"

@@ -15,6 +15,14 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\ThrottleRequests;
 use Symfony\Component\HttpFoundation\Response;
 
+$cronMemoryLimit = getenv('PHR_CRON_MEMORY_LIMIT');
+if (PHP_SAPI === 'cli'
+    && is_string($cronMemoryLimit)
+    && preg_match('/^[1-9][0-9]*[MG]$/i', $cronMemoryLimit) === 1
+) {
+    ini_set('memory_limit', strtoupper($cronMemoryLimit));
+}
+
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
         web: __DIR__.'/../routes/web.php',
