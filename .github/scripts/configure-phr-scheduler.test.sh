@@ -5,11 +5,20 @@ set -euo pipefail
 # This file doubles as the fake crontab and PHP executable used by the test.
 if [[ -n "${FAKE_CRONTAB_FILE:-}" && $# -gt 0 ]]; then
     if [[ "$1" == '-d' ]]; then
-        [[ "${2:-}" == 'memory_limit=1G' ]] || {
-            echo "Unexpected fake PHP memory limit: ${2:-missing}" >&2
+        readonly fake_php_ini_setting="${2:-}"
+        shift 2
+        if [[ "${1:-}" == '-r' ]]; then
+            [[ "$fake_php_ini_setting" == 'memory_limit=128M' ]] || {
+                echo "Unexpected fake PHP bootstrap memory limit: ${fake_php_ini_setting}" >&2
+                exit 1
+            }
+            printf '%s' "${PHR_CRON_MEMORY_LIMIT:-}"
+            exit 0
+        fi
+        [[ "$fake_php_ini_setting" == 'memory_limit=1G' ]] || {
+            echo "Unexpected fake PHP memory limit: ${fake_php_ini_setting}" >&2
             exit 1
         }
-        shift 2
     fi
     case "$1" in
         -l)

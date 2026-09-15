@@ -39,6 +39,16 @@ if ! command -v "$crontab_bin" >/dev/null 2>&1; then
 fi
 
 cd "$app_dir"
+bootstrap_memory_limit="$(
+    PHR_CRON_MEMORY_LIMIT="$php_memory_limit" \
+        "$php_bin" -d memory_limit=128M -r \
+        'require "vendor/autoload.php"; require "bootstrap/app.php"; echo ini_get("memory_limit");'
+)"
+if [[ "${bootstrap_memory_limit^^}" != "${php_memory_limit^^}" ]]; then
+    echo "CLI bootstrap did not apply the scheduled child memory limit: ${bootstrap_memory_limit:-missing}" >&2
+    exit 1
+fi
+
 schedule_output="$("$php_bin" artisan schedule:list --no-ansi)"
 
 for expected_command in \
@@ -171,6 +181,7 @@ do
 done
 
 echo "Installed ${scheduler_job_name} and ${worker_job_name} without changing unrelated cPanel cron entries."
+echo "Verified scheduler child PHP memory limit: ${bootstrap_memory_limit^^}."
 printf '%s\n' "$schedule_output"
 
 echo "Production queue driver:"
