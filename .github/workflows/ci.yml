@@ -312,77 +312,15 @@ jobs:
           name: frontend-build
           path: public/build/
 
-      # cPanel stores the vhost's PHP-version handler INSIDE public/.htaccess, which rsync
-      # replaces on every deploy. Without re-appending it the vhost silently falls back to
-      # the account default (ea-php81) and every page 500s on composer's platform check —
-      # while this workflow still reports success, because every step exits 0. The failure
-      # is visible only in ~/phr-laravel/public/error_log. Setting the version in MultiPHP
-      # is not enough on its own: the next deploy wipes it again.
-      - name: Append cPanel PHP handler to .htaccess
-        run: cat htaccess-append.txt >> public/.htaccess
-
-      - name: Set up SSH deploy key
+      # The digest key is provisioned before the shared action because its installer is
+      # intentionally streamed directly to PHP rather than uploaded with the application.
+      - name: Set up SSH for the agent digest preflight
         run: |
           install -d -m 700 ~/.ssh
           printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           printf '%s\n' "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
-
-      # Destination is hard-coded to ~/phr-laravel/ — this account also hosts other
-      # applications in sibling home directories, and --delete makes a wrong or empty
-      # destination catastrophic. Never point this at ~/, or at any other application's
-      # directory or the public webroot.
-      #
-      # Host key is pinned via SSH_KNOWN_HOSTS (no StrictHostKeyChecking=no) — the
-      # deploy key alone only proves who we are, not that the server is who it claims
-      # to be, so skipping host verification here would defeat the point of pinning it.
-      #
-      # The --exclude list is what --delete must not touch. Excluded paths are
-      # hidden from the transfer entirely, so rsync also refuses to delete them
-      # on the receiver:
-      #   ohif           the ~200 MB static OHIF Viewer bundle at public/ohif/.
-      #                  It is built out of band and is not in git, so without
-      #                  this the first deploy after uploading it deletes it and
-      #                  /ohif/viewer/... starts 404ing again.
-      #   phr-documents  local disk root for uploaded PHR documents.
-      #   phr-exports    local disk root for generated PHR exports.
-      #   phr-dicom      local disk root for DICOM pixel data (storage/app/private/).
-      #   s3-blobs       local disk root for GenAI import staging (the disk named "s3").
-      #   oauth          persistent Passport signing keys. Rotating these on deploy
-      #                  immediately invalidates every connected OAuth client.
-      # These hold real clinical records that only exist on the server; deleting them is
-      # unrecoverable. phr-dicom joined that list on 2026-08-01 when DICOM moved off
-      # Cloudflare R2 onto this host — before that the data lived in a bucket and this
-      # exclude was unnecessary. It is now load-bearing for ~824 MB of patient imaging
-      # that exists nowhere else on the server.
-      #
-      # LocalDiskDeployExcludeTest asserts this list covers every local disk root, so
-      # adding a disk without an exclude fails the build rather than the next deploy.
-      - name: Deploy with rsync
-        run: |
-          rsync -av --delete \
-            --exclude='.env' \
-            --exclude='ohif' \
-            --exclude='phr-documents' \
-            --exclude='phr-exports' \
-            --exclude='phr-dicom' \
-            --exclude='s3-blobs' \
-            --exclude='/storage/app/private/oauth/' \
-            -e "ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
-            app \
-            bootstrap \
-            config \
-            database \
-            public \
-            resources \
-            routes \
-            storage \
-            vendor \
-            artisan \
-            composer.json \
-            composer.lock \
-            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:~/phr-laravel/
 
       - name: Create or verify persistent agent mutation digest key
         run: |
@@ -391,34 +329,24 @@ jobs:
             "PHR_ENV_FILE=\$HOME/phr-laravel/.env /opt/cpanel/ea-php85/root/usr/bin/php" \
             < scripts/configure-agent-mutation-digest-key.php
 
-      - name: Create or verify persistent OAuth signing keys
-        run: |
-          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes \
-            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
-            "cd ~/phr-laravel && \
-             install -d -m 700 storage/app/private/oauth && \
-             if [ -s storage/app/private/oauth/oauth-private.key ] && [ -s storage/app/private/oauth/oauth-public.key ]; then \
-               chmod 600 storage/app/private/oauth/oauth-private.key storage/app/private/oauth/oauth-public.key; \
-             elif [ ! -e storage/app/private/oauth/oauth-private.key ] && [ ! -e storage/app/private/oauth/oauth-public.key ]; then \
-               /opt/cpanel/ea-php85/root/usr/bin/php artisan passport:keys --force && \
-               chmod 600 storage/app/private/oauth/oauth-private.key storage/app/private/oauth/oauth-public.key; \
-             else \
-               echo 'OAuth signing key pair is incomplete; refusing to rotate it automatically.' >&2; \
-               exit 1; \
-             fi && \
-             /opt/cpanel/ea-php85/root/usr/bin/php artisan phr:agent-api:verify-oauth-keys"
-
-      - name: Run artisan migrate, config clear/cache on server
-        run: |
-          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes \
-            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
-            "cd ~/phr-laravel && /opt/cpanel/ea-php85/root/usr/bin/php artisan migrate --force && /opt/cpanel/ea-php85/root/usr/bin/php artisan config:clear && /opt/cpanel/ea-php85/root/usr/bin/php artisan config:cache"
-
-      - name: Configure and verify cPanel scheduler and queue worker crons
-        run: |
-          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes \
-            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
-            "bash -s" < .github/scripts/configure-phr-scheduler.sh
-
-      - name: Verify production health
-        run: curl --fail --silent --show-error --retry 3 --retry-all-errors --max-time 20 https://phr.bherila.net/up > /dev/null
+      - name: Deploy with the shared cPanel action
+        uses: bherila/shared-cpanel-deployment@182ba6cf1834f75173b454ff01cfad0732ba9c2a # v1.1.0
+        with:
+          ssh-host: ${{ secrets.SSH_HOST }}
+          ssh-username: ${{ secrets.SSH_USERNAME }}
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          ssh-known-hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
+          deploy-dir: phr-laravel
+          site-url: https://phr.bherila.net
+          excludes: |
+            ohif
+            phr-documents
+            phr-exports
+            phr-dicom
+            s3-blobs
+            /storage/app/private/oauth/
+          keep-runtime-storage: true
+          passport-key-directory: storage/app/private/oauth
+          artisan-commands: phr:agent-api:verify-oauth-keys
+          install-cron: false
+          post-deploy-script: .github/scripts/configure-phr-scheduler.sh
