@@ -21,6 +21,7 @@ use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use App\Support\AgentApi\AgentRecordSearchCatalog;
 use Bherila\McpLaravelBridge\Http\InternalAgentApiTransport;
+use Bherila\McpLaravelBridge\Testing\McpHttpConformanceAssertions;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
@@ -37,6 +38,7 @@ use Tests\TestCase;
 final class AgentMcpReadAdapterTest extends TestCase
 {
     use ConfiguresPassportKeys;
+    use McpHttpConformanceAssertions;
     use RefreshDatabase;
 
     protected function setUp(): void
@@ -97,15 +99,22 @@ final class AgentMcpReadAdapterTest extends TestCase
 
     public function test_mcp_requires_its_own_scope_and_accepts_unauthenticated_preflight(): void
     {
+        config(['agent_api.mcp_allowed_origins' => ['http://localhost']]);
         $user = $this->user('mcp-scope@example.test');
         Passport::actingAs($user, [AgentApiScopes::PATIENTS_READ]);
 
         $this->mcpPost($this->initializeMessage())->assertForbidden();
 
-        $this->options('/api/v1/mcp', [
+        $response = $this->options('/api/v1/mcp', [], [
             'Origin' => 'http://localhost',
             'Access-Control-Request-Method' => 'POST',
-        ])->assertNoContent();
+            'Access-Control-Request-Headers' => 'authorization, content-type, mcp-protocol-version, mcp-session-id',
+        ])->assertNoContent()
+            ->assertHeader('Access-Control-Allow-Origin', 'http://localhost')
+            ->assertHeader('Access-Control-Allow-Methods', 'POST, DELETE, OPTIONS');
+
+        self::assertAllowedMcpOrigin($response->baseResponse, 'http://localhost');
+        self::assertPrivateMcpResponse($response->baseResponse);
     }
 
     public function test_internal_rest_transport_forwards_bearer_auth_but_never_browser_cookies(): void
@@ -995,6 +1004,69 @@ final class AgentMcpReadAdapterTest extends TestCase
                 'clientInfo' => ['name' => str_repeat('x', 200), 'version' => '1'],
             ],
         ])->assertStatus(413);
+    }
+
+    public function test_transport_caps_complete_non_streamed_responses(): void
+    {
+        config(['agent_api.mcp_max_response_body_bytes' => 1]);
+        $actor = $this->user('mcp-response-cap@example.test');
+        Passport::actingAs($actor, [AgentApiScopes::MCP_USE]);
+
+        $this->mcpPost($this->initializeMessage())
+            ->assertInternalServerError()
+            ->assertJsonPath('error.message', 'MCP response exceeds the configured limit.');
+    }
+
+    public function test_mcp_requires_an_exact_browser_origin_match(): void
+    {
+        config([
+            'app.url' => 'https://phr.example.test',
+            'agent_api.mcp_allowed_origins' => ['https://client.example.test:443'],
+        ]);
+        $actor = $this->user('mcp-origin-policy@example.test');
+        Passport::actingAs($actor, [AgentApiScopes::MCP_USE]);
+
+        $this->withHeader('Origin', 'http://client.example.test:443')
+            ->postJson('https://phr.example.test/api/v1/mcp', $this->initializeMessage(), [
+                'Mcp-Protocol-Version' => '2025-06-18',
+            ])
+            ->assertForbidden()
+            ->assertHeaderMissing('Access-Control-Allow-Origin');
+
+        $this->withHeader('Origin', 'https://client.example.test:444')
+            ->postJson('https://phr.example.test/api/v1/mcp', $this->initializeMessage(), [
+                'Mcp-Protocol-Version' => '2025-06-18',
+            ])
+            ->assertForbidden()
+            ->assertHeaderMissing('Access-Control-Allow-Origin');
+    }
+
+    public function test_mcp_checks_service_host_independently_from_browser_origin(): void
+    {
+        config([
+            'app.url' => 'https://phr.example.test',
+            'agent_api.mcp_allowed_origins' => ['https://client.example.test'],
+        ]);
+        $actor = $this->user('mcp-host-policy@example.test');
+        Passport::actingAs($actor, [AgentApiScopes::MCP_USE]);
+
+        $this->withHeader('Origin', 'https://client.example.test')
+            ->postJson('https://client.example.test/api/v1/mcp', $this->initializeMessage(), [
+                'Mcp-Protocol-Version' => '2025-06-18',
+            ])
+            ->assertForbidden();
+    }
+
+    public function test_mcp_rejects_query_string_credentials_before_authentication(): void
+    {
+        $response = $this->postJson('/api/v1/mcp?access_token=synthetic-secret', $this->initializeMessage(), [
+            'Mcp-Protocol-Version' => '2025-06-18',
+        ]);
+
+        $response->assertBadRequest()
+            ->assertHeader('Cache-Control', 'no-store, private');
+        self::assertPrivateMcpResponse($response->baseResponse);
+        $this->assertStringNotContainsString('synthetic-secret', $response->getContent());
     }
 
     /**

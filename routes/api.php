@@ -54,6 +54,7 @@ use App\Http\Middleware\EnsureOAuthUserCanLogin;
 use App\Http\Middleware\PreventAgentApiResponseCaching;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
+use Bherila\McpLaravelBridge\Http\McpHttpSecurityMiddleware;
 use BWH\Auth\Http\Middleware\ExpectOAuthResource;
 use Illuminate\Support\Facades\Route;
 use Laravel\Passport\Http\Middleware\CheckToken;
@@ -63,7 +64,7 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         ->middleware('throttle:60,1')
         ->name('capabilities');
     Route::options('/mcp', AgentMcpController::class)
-        ->middleware('throttle:60,1')
+        ->middleware([McpHttpSecurityMiddleware::class, 'throttle:60,1'])
         ->name('mcp.options');
 
     Route::middleware([
@@ -83,6 +84,7 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
             ->name('me');
 
         Route::match(['POST', 'DELETE'], '/mcp', AgentMcpController::class)
+            ->middleware(McpHttpSecurityMiddleware::class)
             ->middleware(ExpectOAuthResource::class)
             ->middleware('throttle:agent-api')
             ->middleware(CheckToken::using(AgentApiScopes::MCP_USE))

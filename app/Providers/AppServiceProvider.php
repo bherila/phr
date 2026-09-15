@@ -9,7 +9,9 @@ use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentApiTokenPolicy;
 use Bherila\McpLaravelBridge\Http\AgentApiTransport;
 use Bherila\McpLaravelBridge\Http\InternalAgentApiTransport;
+use Bherila\McpLaravelBridge\Http\McpHttpPolicy;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Middleware\HandleCors;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
@@ -32,6 +34,33 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(AccessTokenRepository::class, AccountAwareAccessTokenRepository::class);
         $this->app->bind(AuthCodeRepository::class, AccountAwareAuthCodeRepository::class);
         $this->app->bind(RefreshTokenRepository::class, AccountAwareRefreshTokenRepository::class);
+        $this->app->singleton(McpHttpPolicy::class, static fn (): McpHttpPolicy => new McpHttpPolicy(
+            allowedOrigins: static function (): array {
+                $origins = config('agent_api.mcp_allowed_origins', []);
+
+                return is_array($origins)
+                    ? array_values(array_filter($origins, static fn (mixed $origin): bool => is_string($origin) && $origin !== ''))
+                    : [];
+            },
+            allowedHosts: static function (): array {
+                $configured = config('agent_api.mcp_allowed_hosts', []);
+                if (is_array($configured) && $configured !== []) {
+                    return array_values(array_filter($configured, static fn (mixed $host): bool => is_string($host) && $host !== ''));
+                }
+
+                $hosts = [];
+                foreach ([config('app.url'), config('bherila-auth.oauth_server.resource')] as $url) {
+                    if (! is_string($url)) {
+                        continue;
+                    }
+                    $hosts[] = McpHttpPolicy::hostFromUrl($url);
+                }
+
+                return array_values(array_unique($hosts));
+            },
+            maxRequestBodyBytes: (int) config('agent_api.mcp_max_body_bytes', 262_144),
+            maxResponseBodyBytes: (int) config('agent_api.mcp_max_response_body_bytes', 1_048_576),
+        ));
     }
 
     /**
@@ -45,6 +74,7 @@ class AppServiceProvider extends ServiceProvider
         Passport::refreshTokensExpireIn(now()->addDays(AgentApiTokenPolicy::REFRESH_TOKEN_LIFETIME_DAYS));
         Passport::personalAccessTokensExpireIn(now()->addMinutes(AgentApiTokenPolicy::ACCESS_TOKEN_LIFETIME_MINUTES));
         Passport::authorizationView('bherila-auth::oauth.authorize');
+        HandleCors::skipWhen(fn (Request $request): bool => $request->is('api/v1/mcp'));
 
         // Authorization Code + PKCE is the supported interactive grant. Passport
         // rotates refresh tokens by default; unused grant types stay disabled.
