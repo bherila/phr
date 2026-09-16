@@ -39,10 +39,10 @@ done
 echo 'persistent_links=exact_shared'
 report_path marker "$stable/storage/framework/down"
 report_path lock "$control/deploy.lock"
-report_path failed_transaction "$control/transactions/$failed"
+report_path failed_transaction "$control/state/$failed"
 report_path failed_candidate "$control/releases/$failed"
 report_path cron_snapshot "$snapshot"
-for directory in transactions releases recovery; do
+for directory in state releases recovery; do
     [[ -d "$control/$directory" && ! -L "$control/$directory" ]]
     entries=0
     while IFS= read -r -d '' ignored; do entries=$((entries + 1)); done < <(find "$control/$directory" -mindepth 1 -maxdepth 1 -print0)

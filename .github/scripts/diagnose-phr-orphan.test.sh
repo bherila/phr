@@ -9,7 +9,7 @@ done < <(sed -nE 's/.*uses: [^@]+@([a-f0-9]+)([[:space:]]|$).*/\1/p' "$workflow"
 readonly fixture_root="$(mktemp -d)"
 trap 'rm -rf "$fixture_root"' EXIT
 mkdir -p "$fixture_root/phr-laravel/public" "$fixture_root/.deployments/phr-laravel/shared/storage/framework" \
-    "$fixture_root/.deployments/phr-laravel/shared/public/ohif" "$fixture_root/.deployments/phr-laravel/transactions" \
+    "$fixture_root/.deployments/phr-laravel/shared/public/ohif" "$fixture_root/.deployments/phr-laravel/state" \
     "$fixture_root/.deployments/phr-laravel/releases" "$fixture_root/.deployments/phr-laravel/recovery" "$fixture_root/bin"
 ln -s "$fixture_root/.deployments/phr-laravel/shared/storage" "$fixture_root/phr-laravel/storage"
 ln -s "$fixture_root/.deployments/phr-laravel/shared/public/ohif" "$fixture_root/phr-laravel/public/ohif"
