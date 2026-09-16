@@ -26,8 +26,10 @@ for suffix in .deployments ".deployments/$app" ".deployments/$app/shared"; do
 done
 [[ -d "$stable" && ! -L "$stable" ]]
 [[ -f "$stable/.deploy-release" && ! -L "$stable/.deploy-release" ]]
-mapfile -t releases < <(sed -n 's/^release=//p' "$stable/.deploy-release")
-mapfile -t commits < <(sed -n 's/^commit=//p' "$stable/.deploy-release")
+release_lines=$(sed -n 's/^release=//p' "$stable/.deploy-release")
+commit_lines=$(sed -n 's/^commit=//p' "$stable/.deploy-release")
+mapfile -t releases <<<"$release_lines"
+mapfile -t commits <<<"$commit_lines"
 [[ ${#releases[@]} == 1 && ${releases[0]} == "$selected" ]]
 [[ ${#commits[@]} == 1 && ${commits[0]} == "$commit" ]]
 echo 'selected_identity=exact_expected'
@@ -44,8 +46,8 @@ report_path failed_candidate "$control/releases/$failed"
 report_path cron_snapshot "$snapshot"
 for directory in state releases recovery; do
     [[ -d "$control/$directory" && ! -L "$control/$directory" ]]
-    entries=0
-    while IFS= read -r -d '' ignored; do entries=$((entries + 1)); done < <(find "$control/$directory" -mindepth 1 -maxdepth 1 -print0)
+    inventory=$(find "$control/$directory" -mindepth 1 -maxdepth 1 -printf '.')
+    entries=${#inventory}
     printf '%s_entries=%d\n' "$directory" "$entries"
 done
 if [[ -f "$snapshot" && ! -L "$snapshot" ]]; then
