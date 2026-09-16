@@ -43,7 +43,12 @@ cache='public, max-age=300'
 challenge=''
 allow_origin=''
 payload='{}'
+location=''
 case "$url" in
+    */ohif/viewer/dicomjson)
+        status="${PHR_TEST_VIEWER_STATUS:-302}"
+        location="${PHR_TEST_VIEWER_LOCATION:-https://phr.example.test/login}"
+        ;;
     */.well-known/oauth-protected-resource/api/v1)
         payload='{"resource":"https://phr.example.test/api/v1","authorization_servers":["https://phr.example.test"],"scopes_supported":["mcp:use","genai:read","genai:work"]}'
         [[ -z "${PHR_TEST_METADATA:-}" ]] || payload="$PHR_TEST_METADATA"
@@ -73,6 +78,7 @@ esac
     printf 'HTTP/1.1 %s Synthetic\r\n' "$status"
     printf 'Cache-Control: %s\r\n' "$cache"
     printf 'X-Content-Type-Options: nosniff\r\n'
+    [[ -z "$location" ]] || printf 'Location: %s\r\n' "$location"
     [[ -z "$challenge" ]] || printf 'WWW-Authenticate: %s\r\n' "$challenge"
     [[ -z "$allow_origin" ]] || printf 'Access-Control-Allow-Origin: %s\r\n' "$allow_origin"
     printf '\r\n'
@@ -87,7 +93,8 @@ printf '%s\n' "$*" >>"$PHR_TEST_SSH_LOG"
 if [[ "${2:-}" == 'crontab -l' ]]; then
     cat "$PHR_TEST_CRONTAB"
 else
-    cat >/dev/null
+    input=$(cat)
+    if [[ "$input" == *ohif_artifact=ok* && "${PHR_TEST_ARTIFACT_FAILURE:-false}" == true ]]; then exit 1; fi
 fi
 SCRIPT
 chmod +x "$fake_curl" "$fake_ssh"
@@ -116,6 +123,20 @@ printf '%s\n' \
 
 "$verifier" >/dev/null
 grep -Fq "$DEPLOY_CANDIDATE_DIR" "$ssh_log"
+
+for status in 200 301 404 503; do
+    if PHR_TEST_VIEWER_STATUS="$status" "$verifier" >/dev/null 2>&1; then
+        echo 'Unexpected viewer status accepted.' >&2; exit 1
+    fi
+done
+for location in https://hostile.invalid/login /ohif/ /login?wrong=1; do
+    if PHR_TEST_VIEWER_LOCATION="$location" "$verifier" >/dev/null 2>&1; then
+        echo 'Unexpected viewer redirect accepted.' >&2; exit 1
+    fi
+done
+if PHR_TEST_ARTIFACT_FAILURE=true "$verifier" >/dev/null 2>&1; then
+    echo 'Failed remote OHIF artifact proof accepted.' >&2; exit 1
+fi
 
 export DEPLOY_CANDIDATE_DIR=.deployments/phr-laravel/releases/abcdef123456-42-1
 if "$verifier" >/dev/null 2>&1; then

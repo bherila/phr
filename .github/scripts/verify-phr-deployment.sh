@@ -87,8 +87,12 @@ assert_private_challenge() {
 
 request up "$site_url/up"
 [[ "$RESPONSE_STATUS" == 200 ]] || { echo "Production verification failed for /up with HTTP ${RESPONSE_STATUS}." >&2; exit 1; }
-request ohif "$site_url/ohif/"
-[[ "$RESPONSE_STATUS" == 200 ]] || { echo "Production verification failed for /ohif/ with HTTP ${RESPONSE_STATUS}." >&2; exit 1; }
+request ohif "$site_url/ohif/viewer/dicomjson" --proto '=https' --max-redirs 0
+[[ "$RESPONSE_STATUS" == 302 ]] || { echo 'OHIF viewer did not preserve its authentication boundary.' >&2; exit 1; }
+viewer_location=$(header_value location)
+[[ "$viewer_location" == /login || "$viewer_location" == "$site_url/login" ]] || {
+    echo 'OHIF viewer did not preserve its exact login redirect.' >&2; exit 1;
+}
 
 request metadata "$site_url/.well-known/oauth-protected-resource/api/v1"
 [[ "$RESPONSE_STATUS" == 200 ]] || { echo "Protected-resource metadata returned HTTP ${RESPONSE_STATUS}." >&2; exit 1; }
@@ -152,6 +156,10 @@ fi
 "$ssh_bin" "$DEPLOY_SSH_TARGET" \
     "bash -s -- $(printf '%q ' "$DEPLOY_CANDIDATE_DIR" "$DEPLOY_PHP_BINARY" "$DEPLOY_DIR")" \
     <"$script_dir/verify-phr-candidate.sh"
+
+timeout 60 "$ssh_bin" "$DEPLOY_SSH_TARGET" \
+    "bash -s -- $(printf '%q ' "$DEPLOY_DIR" "$DEPLOY_PHP_BINARY" "$DEPLOY_RELEASE_ID" "$DEPLOY_SOURCE_COMMIT" "$DEPLOY_RELEASE_ID")" \
+    <"$script_dir/verify-phr-ohif-artifact.sh"
 
 crontab_file="$verify_root/crontab"
 "$ssh_bin" "$DEPLOY_SSH_TARGET" 'crontab -l' >"$crontab_file"
