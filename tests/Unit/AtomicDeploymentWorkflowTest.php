@@ -37,7 +37,7 @@ class AtomicDeploymentWorkflowTest extends TestCase
         $workflow = $this->workflow('ci.yml');
 
         $this->assertStringContainsString(
-            'bherila/shared-cpanel-deployment@5ee5d2a006eb4c21d827069e4c9428e764907c16',
+            'bherila/shared-cpanel-deployment@e97463f105268c9f63449cf5b6730c95386f709d',
             $workflow,
         );
         $this->assertStringContainsString('atomic-layout: stable-directory', $workflow);
