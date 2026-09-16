@@ -26,6 +26,8 @@ for suffix in .deployments ".deployments/$app" ".deployments/$app/shared"; do
 done
 [[ -d "$stable" && ! -L "$stable" ]]
 [[ -f "$stable/.deploy-release" && ! -L "$stable/.deploy-release" ]]
+[[ "$(grep -c '^release=' "$stable/.deploy-release")" == 1 ]]
+[[ "$(grep -c '^commit=' "$stable/.deploy-release")" == 1 ]]
 release_lines=$(sed -n 's/^release=//p' "$stable/.deploy-release")
 commit_lines=$(sed -n 's/^commit=//p' "$stable/.deploy-release")
 mapfile -t releases <<<"$release_lines"

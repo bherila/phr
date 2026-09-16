@@ -41,6 +41,12 @@ if output="$(env HOME="$fixture_root" PATH="$fixture_root/bin:$PATH" bash "$scri
 fi
 [[ "$output" == *REDACTED* && "$output" != *'state_entries=0'* ]]
 rm -f "$fixture_root/bin/find"
+printf '%s\n' 'commit=' >> "$fixture_root/phr-laravel/.deploy-release"
+if output="$(env HOME="$fixture_root" PATH="$fixture_root/bin:$PATH" bash "$script_dir/diagnose-phr-orphan.sh" 2>&1)"; then
+    echo 'Trailing empty duplicate metadata unexpectedly accepted.' >&2
+    exit 1
+fi
+[[ "$output" == *REDACTED* ]]
 printf '%s\n' 'commit=WRONG_SECRET_CANARY' >> "$fixture_root/phr-laravel/.deploy-release"
 if output="$(env HOME="$fixture_root" PATH="$fixture_root/bin:$PATH" bash "$script_dir/diagnose-phr-orphan.sh" 2>&1)"; then
     echo 'Duplicate/wrong metadata unexpectedly accepted.' >&2
