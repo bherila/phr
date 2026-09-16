@@ -3,6 +3,8 @@ set -euo pipefail
 readonly script_dir="$(cd "$(dirname "$0")" && pwd)"
 readonly workflow="$script_dir/../workflows/ci.yml"
 grep -Fq 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' "$workflow"
+grep -Fq "vars.ATOMIC_DEPLOY_ENABLED != 'false'" "$workflow"
+grep -Fq "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'diagnose-phr-orphan'" "$workflow"
 while IFS= read -r pin; do
     [[ "$pin" =~ ^[a-f0-9]{40}$ ]]
 done < <(sed -nE 's/.*uses: [^@]+@([a-f0-9]+)([[:space:]]|$).*/\1/p' "$workflow" | awk 'length($0) > 8')

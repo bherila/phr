@@ -300,7 +300,7 @@ jobs:
     # every other job explicitly, so a new job added to this workflow must also be added
     # to that check or it becomes invisible to the gate and can fail while the deploy
     # still runs.
-    if: ${{ !cancelled() && inputs.operation != 'diagnose-phr-orphan' && github.ref == 'refs/heads/main' && needs.test.result == 'success' && needs['frontend-build'].result == 'success' }}
+    if: ${{ !cancelled() && vars.ATOMIC_DEPLOY_ENABLED != 'false' && inputs.operation != 'diagnose-phr-orphan' && github.ref == 'refs/heads/main' && needs.test.result == 'success' && needs['frontend-build'].result == 'success' }}
     runs-on: ubuntu-24.04-arm
     environment: prod
     concurrency:
@@ -378,7 +378,7 @@ jobs:
           verification-script: .github/scripts/verify-phr-deployment.sh
 
   diagnose-orphan:
-    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/diagnose/phr-orphan-state' && inputs.operation == 'diagnose-phr-orphan' && inputs.confirmation == 'DIAGNOSE_PHR_35100840905' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'diagnose-phr-orphan' && inputs.confirmation == 'DIAGNOSE_PHR_35100840905' }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     environment: prod
