@@ -44,6 +44,7 @@ class AtomicDeploymentWorkflowTest extends TestCase
         $this->assertStringContainsString('initial-live-commit: ${{ vars.ATOMIC_INITIAL_LIVE_COMMIT }}', $workflow);
         $this->assertStringContainsString('recovery-release-id: ${{ vars.ATOMIC_RECOVERY_RELEASE_ID }}', $workflow);
         $this->assertStringContainsString('failure-policy: maintenance', $workflow);
+        $this->assertStringContainsString("vars.ATOMIC_DEPLOY_ENABLED != 'false'", $workflow);
         $this->assertMatchesRegularExpression('/persistent-paths:\s*\|\R\s+storage\R\s+public\/ohif/', $workflow);
         $this->assertStringContainsString('quiesce-script: .github/scripts/quiesce-phr-deployment.sh', $workflow);
         $this->assertStringContainsString('pre-migrate-script: .github/scripts/provision-phr-candidate-secrets.sh', $workflow);
@@ -56,6 +57,20 @@ class AtomicDeploymentWorkflowTest extends TestCase
         $this->assertStringNotContainsString('post-deploy-script: .github/scripts/configure-phr-scheduler.sh', $workflow);
         $this->assertStringNotContainsString('PHR_ENV_FILE=\$HOME/phr-laravel/.env', $workflow);
         $this->assertStringNotContainsString('Create or verify persistent agent mutation digest key', $workflow);
+    }
+
+    public function test_temporary_incident_dispatch_surface_is_removed(): void
+    {
+        $workflow = $this->workflow('ci.yml');
+
+        $this->assertStringContainsString('workflow_dispatch:', $workflow);
+        $this->assertStringNotContainsString('inputs.operation', $workflow);
+        $this->assertStringNotContainsString('inputs.confirmation', $workflow);
+        foreach (['diagnose-phr-orphan', 'recover-phr-orphan', 'verify-phr-orphan-public'] as $script) {
+            $this->assertStringNotContainsString($script, $workflow);
+            $this->assertFileDoesNotExist(base_path(".github/scripts/{$script}.sh"));
+            $this->assertFileDoesNotExist(base_path(".github/scripts/{$script}.test.sh"));
+        }
     }
 
     public function test_candidate_upload_includes_the_required_secret_installer_and_application_paths(): void
