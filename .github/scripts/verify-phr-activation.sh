@@ -9,7 +9,7 @@ fi
 
 readonly stable_path="$1"
 readonly php_bin="$2"
-readonly candidate_path="$3"
+readonly active_candidate_path="$3"
 
 case "$stable_path" in
     '' | .* | */* | *[!A-Za-z0-9._-]*)
@@ -18,19 +18,10 @@ case "$stable_path" in
         ;;
 esac
 
-case "$candidate_path" in
-    .deployments/"$stable_path"/releases/*)
-        release_id="${candidate_path##*/}"
-        if [[ -z "$release_id" || "$release_id" == .* || "$release_id" == *[!A-Za-z0-9._-]* ]]; then
-            echo 'The activation verifier received an unsafe release id.' >&2
-            exit 2
-        fi
-        ;;
-    *)
-        echo 'The activation verifier received an unrelated candidate path.' >&2
-        exit 2
-        ;;
-esac
+if [[ "$active_candidate_path" != "$stable_path" ]]; then
+    echo 'Stable-directory activation must expose the selected candidate at the stable path.' >&2
+    exit 2
+fi
 
 case "$php_bin" in
     /*) ;;
@@ -41,18 +32,19 @@ case "$php_bin" in
 esac
 
 readonly stable_root="$HOME/$stable_path"
-readonly candidate_root="$HOME/$candidate_path"
 readonly shared_root="$HOME/.deployments/$stable_path/shared"
 
-if [[ ! -x "$php_bin" || ! -L "$stable_root" || ! -f "$candidate_root/artisan" ]]; then
+if [[ ! -x "$php_bin" || ! -d "$stable_root" || -L "$stable_root" || ! -f "$stable_root/artisan" \
+    || ! -f "$stable_root/.deploy-release" ]]; then
     echo 'The selected PHR release or PHP binary is unavailable after activation.' >&2
     exit 1
 fi
 
-stable_real="$(readlink -f "$stable_root" || true)"
-candidate_real="$(readlink -f "$candidate_root" || true)"
-if [[ -z "$stable_real" || "$stable_real" != "$candidate_real" ]]; then
-    echo 'The stable PHR path does not select the candidate release.' >&2
+release_id="$(sed -n 's/^release=//p' "$stable_root/.deploy-release" | head -1)"
+release_commit="$(sed -n 's/^commit=//p' "$stable_root/.deploy-release" | head -1)"
+if [[ ! "$release_id" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ \
+    || ! "$release_commit" =~ ^[0-9A-Fa-f]{40,64}$ ]]; then
+    echo 'The stable PHR directory has invalid release metadata.' >&2
     exit 1
 fi
 
@@ -74,4 +66,4 @@ if ! grep -Fq 'production' <<<"${app_environment,,}"; then
     exit 1
 fi
 
-echo 'The stable PHR path selects the candidate and its managed persistent state.'
+echo 'The real stable PHR directory contains the selected candidate and its managed persistent state.'

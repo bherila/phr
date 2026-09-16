@@ -12,34 +12,37 @@ trap 'rm -rf "$test_root"' EXIT
 export HOME="$test_root/home"
 candidate_path='.deployments/phr-laravel/releases/candidate'
 candidate_root="$HOME/$candidate_path"
+stable_root="$HOME/phr-laravel"
 shared_root="$HOME/.deployments/phr-laravel/shared"
-mkdir -p "$candidate_root/public" "$shared_root/storage" "$shared_root/public/ohif"
-touch "$candidate_root/artisan"
-ln -s "$shared_root/storage" "$candidate_root/storage"
-ln -s "$shared_root/public/ohif" "$candidate_root/public/ohif"
-ln -s "$candidate_path" "$HOME/phr-laravel"
+mkdir -p "$stable_root/public" "$shared_root/storage" "$shared_root/public/ohif"
+touch "$stable_root/artisan"
+printf 'release=candidate\ncommit=abcdef1234567890abcdef1234567890abcdef12\ncreated_at=2026-09-16T00:00:00Z\n' >"$stable_root/.deploy-release"
+ln -s "$shared_root/storage" "$stable_root/storage"
+ln -s "$shared_root/public/ohif" "$stable_root/public/ohif"
 
 fake_php="$test_root/php"
 printf '%s\n' '#!/usr/bin/env bash' 'printf "Current application environment: production\\n"' >"$fake_php"
 chmod +x "$fake_php"
 
-"$verifier" phr-laravel "$fake_php" "$candidate_path" >/dev/null
+"$verifier" phr-laravel "$fake_php" phr-laravel >/dev/null
 
-rm "$candidate_root/public/ohif"
-mkdir "$candidate_root/public/ohif"
-if "$verifier" phr-laravel "$fake_php" "$candidate_path" >/dev/null 2>&1; then
+rm "$stable_root/public/ohif"
+mkdir "$stable_root/public/ohif"
+if "$verifier" phr-laravel "$fake_php" phr-laravel >/dev/null 2>&1; then
     echo 'Expected a release-local OHIF directory to fail activation verification.' >&2
     exit 1
 fi
-rm -rf "$candidate_root/public/ohif"
-ln -s "$shared_root/public/ohif" "$candidate_root/public/ohif"
+rm -rf "$stable_root/public/ohif"
+ln -s "$shared_root/public/ohif" "$stable_root/public/ohif"
 
-other_candidate='.deployments/phr-laravel/releases/other'
-mkdir -p "$HOME/$other_candidate"
-rm "$HOME/phr-laravel"
-ln -s "$other_candidate" "$HOME/phr-laravel"
 if "$verifier" phr-laravel "$fake_php" "$candidate_path" >/dev/null 2>&1; then
-    echo 'Expected the wrong selected release to fail activation verification.' >&2
+    echo 'Expected a release-tree active path to fail stable-directory activation verification.' >&2
+    exit 1
+fi
+
+rm "$stable_root/.deploy-release"
+if "$verifier" phr-laravel "$fake_php" phr-laravel >/dev/null 2>&1; then
+    echo 'Expected missing selected release metadata to fail activation verification.' >&2
     exit 1
 fi
 

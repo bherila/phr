@@ -18,8 +18,8 @@ if [[ ! "$DEPLOY_SSH_TARGET" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*(@[A-Za-z0-9][A-Za-z0
 fi
 case "$DEPLOY_DIR:$DEPLOY_RELEASE_ID" in *[!A-Za-z0-9._:-]*) echo 'Deployment directory or release id is unsafe.' >&2; exit 2 ;; esac
 case "$DEPLOY_CANDIDATE_DIR" in
-    .deployments/"$DEPLOY_DIR"/releases/"$DEPLOY_RELEASE_ID") ;;
-    *) echo 'Candidate path does not match the release identity.' >&2; exit 2 ;;
+    "$DEPLOY_DIR") ;;
+    *) echo 'Stable-directory live verification requires the candidate at the stable path.' >&2; exit 2 ;;
 esac
 case "$DEPLOY_PHP_BINARY" in /*) ;; *) echo 'DEPLOY_PHP_BINARY must be absolute.' >&2; exit 2 ;; esac
 case "$DEPLOY_SITE_URL" in https://*) ;; *) echo 'DEPLOY_SITE_URL must use HTTPS.' >&2; exit 2 ;; esac

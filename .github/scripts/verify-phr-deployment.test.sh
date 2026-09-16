@@ -96,7 +96,7 @@ export DEPLOY_SSH_TARGET=cpanel-deploy@host.example.test
 export DEPLOY_PHP_BINARY=/opt/cpanel/ea-php85/root/usr/bin/php
 export DEPLOY_DIR=phr-laravel
 export DEPLOY_RELEASE_ID=abcdef123456-42-1
-export DEPLOY_CANDIDATE_DIR=.deployments/phr-laravel/releases/abcdef123456-42-1
+export DEPLOY_CANDIDATE_DIR=phr-laravel
 export DEPLOY_SITE_URL=https://phr.example.test
 export DEPLOY_SOURCE_COMMIT=abcdef1234567890abcdef1234567890abcdef12
 export DEPLOY_LIVE_RELEASE="$DEPLOY_RELEASE_ID"
@@ -116,6 +116,13 @@ printf '%s\n' \
 
 "$verifier" >/dev/null
 grep -Fq "$DEPLOY_CANDIDATE_DIR" "$ssh_log"
+
+export DEPLOY_CANDIDATE_DIR=.deployments/phr-laravel/releases/abcdef123456-42-1
+if "$verifier" >/dev/null 2>&1; then
+    echo 'Expected a release-tree live path to fail stable-directory verification.' >&2
+    exit 1
+fi
+export DEPLOY_CANDIDATE_DIR=phr-laravel
 
 export DEPLOY_SSH_TARGET=-V
 if "$verifier" >/dev/null 2>&1; then
