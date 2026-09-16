@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-/** Provision the stable agent mutation digest key without loading app configuration. */
+/** Provision an agent mutation digest key without loading app configuration. */
 $envFile = getenv('PHR_ENV_FILE') ?: __DIR__.'/../.env';
 
 $fail = static function (string $message): never {

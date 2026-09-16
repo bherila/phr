@@ -9,7 +9,9 @@ on:
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A main run may already be quiescing production. Never cancel it between the
+  # durable remote phases; pull-request runs can still supersede one another.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   frontend-build:
@@ -89,8 +91,13 @@ jobs:
       - name: Setup pnpm + Node dependencies
         uses: ./.github/actions/setup-pnpm-node
 
-      - name: Test cPanel cron installer
-        run: bash .github/scripts/configure-phr-scheduler.test.sh
+      - name: Test atomic deployment hooks
+        run: |
+          bash .github/scripts/quiesce-phr-deployment.test.sh
+          bash .github/scripts/provision-phr-candidate-secrets.test.sh
+          bash .github/scripts/verify-phr-candidate.test.sh
+          bash .github/scripts/verify-phr-activation.test.sh
+          bash .github/scripts/verify-phr-deployment.test.sh
 
       - name: Test agent mutation digest key installer
         run: bash .github/scripts/configure-agent-mutation-digest-key.test.sh
@@ -281,6 +288,11 @@ jobs:
     if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.test.result == 'success' && needs['frontend-build'].result == 'success' }}
     runs-on: ubuntu-24.04-arm
     environment: prod
+    concurrency:
+      # OHIF and the Laravel release both write through ~/phr-laravel. Serialize
+      # their deploy jobs without cancelling either writer.
+      group: phr-production-files
+      cancel-in-progress: false
     permissions:
       contents: read
     steps:
@@ -312,25 +324,8 @@ jobs:
           name: frontend-build
           path: public/build/
 
-      # The digest key is provisioned before the shared action because its installer is
-      # intentionally streamed directly to PHP rather than uploaded with the application.
-      - name: Set up SSH for the agent digest preflight
-        run: |
-          install -d -m 700 ~/.ssh
-          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          printf '%s\n' "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
-
-      - name: Create or verify persistent agent mutation digest key
-        run: |
-          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes \
-            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
-            "PHR_ENV_FILE=\$HOME/phr-laravel/.env /opt/cpanel/ea-php85/root/usr/bin/php" \
-            < scripts/configure-agent-mutation-digest-key.php
-
       - name: Deploy with the shared cPanel action
-        uses: bherila/shared-cpanel-deployment@182ba6cf1834f75173b454ff01cfad0732ba9c2a # v1.1.0
+        uses: bherila/shared-cpanel-deployment@e97463f105268c9f63449cf5b6730c95386f709d # v2.1.1
         with:
           ssh-host: ${{ secrets.SSH_HOST }}
           ssh-username: ${{ secrets.SSH_USERNAME }}
@@ -338,6 +333,13 @@ jobs:
           ssh-known-hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
           deploy-dir: phr-laravel
           site-url: https://phr.bherila.net
+          atomic-layout: stable-directory
+          initial-live-commit: ${{ vars.ATOMIC_INITIAL_LIVE_COMMIT }}
+          recovery-release-id: ${{ vars.ATOMIC_RECOVERY_RELEASE_ID }}
+          failure-policy: maintenance
+          persistent-paths: |
+            storage
+            public/ohif
           excludes: |
             ohif
             phr-documents
@@ -345,8 +347,17 @@ jobs:
             phr-dicom
             s3-blobs
             /storage/app/private/oauth/
-          keep-runtime-storage: true
           passport-key-directory: storage/app/private/oauth
+          artisan-memory-limit: 1G
           artisan-commands: phr:agent-api:verify-oauth-keys
-          install-cron: false
-          post-deploy-script: .github/scripts/configure-phr-scheduler.sh
+          quiesce-script: .github/scripts/quiesce-phr-deployment.sh
+          pre-migrate-script: .github/scripts/provision-phr-candidate-secrets.sh
+          post-deploy-script: .github/scripts/verify-phr-candidate.sh
+          post-activate-script: .github/scripts/verify-phr-activation.sh
+          install-cron: true
+          cron-memory-limit: 1G
+          cron-lines: |
+            */5 * * * * cd "$HOME/phr-laravel" && PHR_CRON_MEMORY_LIMIT=1G /opt/cpanel/ea-php85/root/usr/bin/php artisan phr:uptime:run-scheduler >> /dev/null 2>&1 # JOB:phr-laravel-scheduler
+          extra-cron-lines: |
+            */5 * * * * cd "$HOME/phr-laravel" && PHR_CRON_MEMORY_LIMIT=1G /usr/bin/flock -n "$HOME/phr-laravel/storage/framework/phr-queue-worker.lock" /opt/cpanel/ea-php85/root/usr/bin/php artisan phr:uptime:run-worker >> /dev/null 2>&1 # JOB:phr-laravel-queue-worker
+          verification-script: .github/scripts/verify-phr-deployment.sh

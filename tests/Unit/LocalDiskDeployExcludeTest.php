@@ -23,7 +23,7 @@ class LocalDiskDeployExcludeTest extends TestCase
      *
      * @return list<string>
      */
-    private function unprotectedDiskRoots(): array
+    private function unprotectedDiskRoots(bool $ignorePersistentStorage = false): array
     {
         $workflow = file_get_contents(base_path('.github/workflows/ci.yml'));
         $this->assertIsString($workflow, 'Could not read .github/workflows/ci.yml.');
@@ -37,6 +37,8 @@ class LocalDiskDeployExcludeTest extends TestCase
         }
         $excluded = array_flip($excludes);
         $keepsRuntimeStorage = str_contains($workflow, 'keep-runtime-storage: true');
+        $persistsStorage = ! $ignorePersistentStorage
+            && preg_match('/^\s+persistent-paths:\s*\|\R(?:\s{12}\S.*\R?)*\s{12}storage\s*$/m', $workflow) === 1;
 
         $storageRoot = rtrim(storage_path(), '/').'/';
         $unprotected = [];
@@ -49,6 +51,10 @@ class LocalDiskDeployExcludeTest extends TestCase
             $root = rtrim((string) ($disk['root'] ?? ''), '/');
 
             if ($root === '' || ! str_starts_with($root.'/', $storageRoot)) {
+                continue;
+            }
+
+            if ($persistsStorage) {
                 continue;
             }
 
@@ -110,7 +116,7 @@ class LocalDiskDeployExcludeTest extends TestCase
 
         $this->assertSame(
             ['__probe (root: custom/definitely-not-excluded)'],
-            $this->unprotectedDiskRoots(),
+            $this->unprotectedDiskRoots(ignorePersistentStorage: true),
         );
     }
 
@@ -134,7 +140,8 @@ class LocalDiskDeployExcludeTest extends TestCase
         $this->assertIsString($workflow);
 
         $this->assertStringContainsString('/storage/app/private/oauth/', $workflow);
-        $this->assertStringContainsString('keep-runtime-storage: true', $workflow);
+        $this->assertMatchesRegularExpression('/persistent-paths:\s*\|\R\s+storage\R\s+public\/ohif/', $workflow);
+        $this->assertStringNotContainsString('keep-runtime-storage: true', $workflow);
         $this->assertStringContainsString('passport-key-directory: storage/app/private/oauth', $workflow);
         $this->assertStringNotContainsString('passport:keys --force ||', $workflow);
     }

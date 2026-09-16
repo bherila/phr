@@ -97,6 +97,10 @@ jobs:
     timeout-minutes: 15
     needs: build
     environment: prod
+    concurrency:
+      # The Laravel deploy moves/selects the same persistent public/ohif tree.
+      group: phr-production-files
+      cancel-in-progress: false
     permissions:
       contents: read
     steps:
