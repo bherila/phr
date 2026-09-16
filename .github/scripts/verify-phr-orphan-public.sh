@@ -12,7 +12,14 @@ probe() {
     [[ "$actual" == "$expected" ]] || { echo 'Fixed public recovery probe failed.' >&2; return 1; }
 }
 probe /up 200
-probe /ohif/ 200
+# A client-routed viewer path must hit Laravel auth, not Apache's directory
+# redirect or a static entrypoint. Never follow a redirect into a login-page 200.
+probe /ohif/viewer/dicomjson 302
+location=$(awk 'tolower($1) == "location:" {sub(/^[^:]*:[[:space:]]*/, ""); sub(/\r$/, ""); print}' "$probe_root/headers")
+[[ "$location" == /login || "$location" == "$site/login" ]] || {
+    echo 'OHIF viewer did not preserve its exact authentication redirect.' >&2
+    exit 1
+}
 probe /.well-known/oauth-protected-resource/api/v1 200
 php -d memory_limit=1G -r '
     $data = json_decode((string) file_get_contents($argv[1]), true);
