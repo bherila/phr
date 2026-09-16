@@ -356,6 +356,22 @@ jobs:
           initial-live-commit: ${{ vars.ATOMIC_INITIAL_LIVE_COMMIT }}
           recovery-release-id: ${{ vars.ATOMIC_RECOVERY_RELEASE_ID }}
           failure-policy: maintenance
+          # The pre-migrate hook runs the digest-key installer from the candidate.
+          # Keep the shared action's standard application paths plus that helper.
+          paths: |
+            app
+            bootstrap
+            config
+            database
+            public
+            resources
+            routes
+            scripts
+            storage
+            vendor
+            artisan
+            composer.json
+            composer.lock
           persistent-paths: |
             storage
             public/ohif

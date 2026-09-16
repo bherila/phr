@@ -57,4 +57,20 @@ class AtomicDeploymentWorkflowTest extends TestCase
         $this->assertStringNotContainsString('PHR_ENV_FILE=\$HOME/phr-laravel/.env', $workflow);
         $this->assertStringNotContainsString('Create or verify persistent agent mutation digest key', $workflow);
     }
+
+    public function test_candidate_upload_includes_the_required_secret_installer_and_application_paths(): void
+    {
+        $workflow = $this->workflow('ci.yml');
+        $this->assertSame(1, preg_match('/^          paths: \|\R((?:            [^\r\n]+\R)+)/m', $workflow, $matches));
+        $paths = array_map('trim', explode("\n", trim($matches[1])));
+
+        foreach (['app', 'bootstrap', 'config', 'database', 'public', 'resources', 'routes', 'storage', 'vendor', 'artisan', 'composer.json', 'composer.lock'] as $path) {
+            $this->assertContains($path, $paths, "Candidate upload lost standard application path {$path}.");
+        }
+
+        $installer = 'scripts/configure-agent-mutation-digest-key.php';
+        $this->assertFileExists(base_path($installer));
+        $this->assertContains(dirname($installer), $paths, 'Candidate secret provisioning requires the installer in the uploaded release.');
+        $this->assertStringContainsString('$candidate_root/'.$installer, file_get_contents(base_path('.github/scripts/provision-phr-candidate-secrets.sh')));
+    }
 }
