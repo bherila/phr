@@ -6,6 +6,15 @@ on:
   pull_request:
   # A green push to main deploys automatically; this also permits manual redeploys.
   workflow_dispatch:
+    inputs:
+      operation:
+        description: Leave empty for normal CI; diagnose-phr-orphan is read-only
+        required: false
+        type: string
+      confirmation:
+        description: Type DIAGNOSE_PHR_35100840905 for the fixed failed deployment
+        required: false
+        type: string
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -15,6 +24,7 @@ concurrency:
 
 jobs:
   frontend-build:
+    if: ${{ inputs.operation != 'diagnose-phr-orphan' }}
     name: Frontend Build
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
@@ -37,6 +47,7 @@ jobs:
           retention-days: 2
 
   frontend-static:
+    if: ${{ inputs.operation != 'diagnose-phr-orphan' }}
     name: Frontend Static Checks
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
@@ -65,6 +76,7 @@ jobs:
         run: pnpm audit --audit-level high --ignore-registry-errors
 
   frontend-tests:
+    if: ${{ inputs.operation != 'diagnose-phr-orphan' }}
     name: Frontend Tests
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
@@ -80,6 +92,7 @@ jobs:
         run: pnpm run test
 
   backend-static:
+    if: ${{ inputs.operation != 'diagnose-phr-orphan' }}
     name: Backend Static Checks
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
@@ -137,6 +150,7 @@ jobs:
         run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
 
   backend-tests:
+    if: ${{ inputs.operation != 'diagnose-phr-orphan' }}
     name: Backend Tests
     # Some page tests render a real Blade view without ->withoutVite(), so they need
     # an actual public/build/manifest.json — reuse frontend-build's artifact instead
@@ -184,6 +198,7 @@ jobs:
         run: php -d memory_limit=1G vendor/bin/phpunit
 
   e2e:
+    if: ${{ inputs.operation != 'diagnose-phr-orphan' }}
     name: Playwright E2E
     needs: frontend-build
     runs-on: ubuntu-24.04-arm
@@ -246,7 +261,7 @@ jobs:
       - backend-static
       - backend-tests
       - e2e
-    if: always()
+    if: ${{ always() && inputs.operation != 'diagnose-phr-orphan' }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
@@ -285,7 +300,7 @@ jobs:
     # every other job explicitly, so a new job added to this workflow must also be added
     # to that check or it becomes invisible to the gate and can fail while the deploy
     # still runs.
-    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && needs.test.result == 'success' && needs['frontend-build'].result == 'success' }}
+    if: ${{ !cancelled() && vars.ATOMIC_DEPLOY_ENABLED != 'false' && inputs.operation != 'diagnose-phr-orphan' && github.ref == 'refs/heads/main' && needs.test.result == 'success' && needs['frontend-build'].result == 'success' }}
     runs-on: ubuntu-24.04-arm
     environment: prod
     concurrency:
@@ -361,3 +376,36 @@ jobs:
           extra-cron-lines: |
             */5 * * * * cd "$HOME/phr-laravel" && PHR_CRON_MEMORY_LIMIT=1G /usr/bin/flock -n "$HOME/phr-laravel/storage/framework/phr-queue-worker.lock" /opt/cpanel/ea-php85/root/usr/bin/php artisan phr:uptime:run-worker >> /dev/null 2>&1 # JOB:phr-laravel-queue-worker
           verification-script: .github/scripts/verify-phr-deployment.sh
+
+  diagnose-orphan:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'diagnose-phr-orphan' && inputs.confirmation == 'DIAGNOSE_PHR_35100840905' }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 5
+    environment: prod
+    permissions:
+      contents: read
+    concurrency:
+      group: phr-production-files
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: webfactory/ssh-agent@e83874834305fe9a4a2997156cb26c5de65a8555 # v0.10.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+      - name: Pin production host key
+        env:
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+      - name: Read only fixed deployment inventory
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
+        run: |
+          timeout 150 ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USERNAME@$SSH_HOST" \
+            '/usr/bin/timeout --kill-after=10s 120 bash -s' \
+            < .github/scripts/diagnose-phr-orphan.sh
