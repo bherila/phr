@@ -20,11 +20,11 @@ php -d memory_limit=1G -r '
         && ($data["authorization_servers"][0] ?? null) === "https://phr.bherila.net" ? 0 : 1);
 ' "$probe_root/body"
 probe /api/v1/genai/queue/status 401
-grep -Fiq 'cache-control: no-store' "$probe_root/headers"
+grep -Eiq '^cache-control:.*no-store' "$probe_root/headers"
 grep -Fiq 'Bearer resource_metadata="https://phr.bherila.net/.well-known/oauth-protected-resource/api/v1"' "$probe_root/headers"
 probe /api/v1/mcp 401 --request POST --header 'Content-Type: application/json' \
     --header 'Mcp-Protocol-Version: 2025-06-18' \
     --data '{"jsonrpc":"2.0","id":"recovery-check","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"recovery-check","version":"1"}}}'
-grep -Fiq 'cache-control: no-store' "$probe_root/headers"
+grep -Eiq '^cache-control:.*no-store' "$probe_root/headers"
 grep -Fiq 'Bearer resource_metadata="https://phr.bherila.net/.well-known/oauth-protected-resource/api/v1"' "$probe_root/headers"
 echo 'Fixed public health and unauthenticated OAuth/MCP boundaries verified; no tokens or data writes.'

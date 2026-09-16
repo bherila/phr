@@ -22,7 +22,7 @@ printf '%s\n' '#!/bin/bash' 'set -euo pipefail' \
 chmod 700 "$php_bin"
 readonly workflow="$script_dir/../workflows/ci.yml"
 grep -Fq 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' "$workflow"
-grep -Fq "github.ref == 'refs/heads/recover/phr-exact-orphan'" "$workflow"
+grep -Fq "github.ref == 'refs/heads/main' && vars.ATOMIC_DEPLOY_ENABLED == 'false'" "$workflow"
 [[ $(grep -Fc "inputs.operation != 'recover-phr-orphan'" "$workflow") == 8 ]]
 ! grep -Eq 'config:|migrate|putenv|key:generate' "$script_dir/recover-phr-orphan.sh"
 
@@ -103,6 +103,22 @@ setup_fixture
 mkdir "$HOME/.deployments/$app/state/foreign"
 expect_failure run_recovery prepare
 [[ ! -e "$HOME/.deployments/$app/deploy.lock" ]]
+setup_fixture
+run_recovery prepare
+printf '%s\n' 'ENV_DRIFT_CANARY' >> "$HOME/$app/.env"
+run_recovery start-supervisor || true
+wait_phase maintenance-restored
+run_recovery cleanup
+[[ -f "$HOME/$app/storage/framework/down" ]]
+setup_fixture
+mkdir -p "$PHR_ORPHAN_PROC_ROOT/4242"
+printf 'Uid:\t%s\t%s\t%s\t%s\n' "$(id -u)" "$(id -u)" "$(id -u)" "$(id -u)" > "$PHR_ORPHAN_PROC_ROOT/4242/status"
+printf '%s\0%s\0' "$php_bin" artisan > "$PHR_ORPHAN_PROC_ROOT/4242/cmdline"
+ln -s "$php_bin" "$PHR_ORPHAN_PROC_ROOT/4242/exe"
+ln -s "$HOME/$app" "$PHR_ORPHAN_PROC_ROOT/4242/cwd"
+expect_failure run_recovery prepare
+[[ ! -e "$HOME/.deployments/$app/deploy.lock" ]]
+rm -rf "$PHR_ORPHAN_PROC_ROOT/4242"
 setup_fixture
 printf '%s\n' 'MALICIOUS_CRON_CANARY' >> "$HOME/.deployments/$app/recovery/c765e4086fa2-35100840905-1.cron"
 expect_failure run_recovery prepare
