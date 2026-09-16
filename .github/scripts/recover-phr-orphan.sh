@@ -129,7 +129,10 @@ valid_marker() {
 }
 
 require_file_maintenance() {
-    (cd "$stable" && "$php_bin" -d memory_limit=1G -d display_errors=0 -d log_errors=0 -r '
+    local seconds=${PHR_ORPHAN_MAINTENANCE_TIMEOUT_SECONDS:-60}
+    [[ "$seconds" =~ ^[1-9][0-9]*$ ]] || return 1
+    (cd "$stable" && "$timeout_bin" --foreground --signal=TERM --kill-after=10s "${seconds}s" \
+        "$php_bin" -d memory_limit=1G -d display_errors=0 -d log_errors=0 -r '
         try {
             require "vendor/autoload.php";
             $app = require "bootstrap/app.php";
@@ -143,7 +146,7 @@ require_file_maintenance() {
 
 no_phr_cron() {
     local contents
-    contents=$("$timeout_bin" --kill-after=10s 30s crontab -l 2>/dev/null) || return 1
+    contents=$("$timeout_bin" --foreground --kill-after=10s 30s crontab -l 2>/dev/null) || return 1
     ! grep -E "^[[:space:]]*[^#].*(phr-laravel|phr:uptime:run-|# JOB:phr-laravel)" <<<"$contents" >/dev/null
 }
 
@@ -196,21 +199,21 @@ no_phr_processes() {
 
 write_lock_value() {
     local name="$1" value="$2" temporary
-    owned_lock
-    temporary=$(mktemp "$lock/.${name}.XXXXXX")
-    printf '%s\n' "$value" >"$temporary"
-    chmod 600 "$temporary"
-    mv -f -- "$temporary" "$lock/$name"
+    owned_lock || return 1
+    temporary=$(mktemp "$lock/.${name}.XXXXXX") || return 1
+    printf '%s\n' "$value" >"$temporary" || return 1
+    chmod 600 "$temporary" || return 1
+    mv -f -- "$temporary" "$lock/$name" || return 1
 }
 
 write_operation_value() {
     local name="$1" value="$2" temporary
-    owned_lock
-    owned_operation
-    temporary=$(mktemp "$operation/.${name}.XXXXXX")
-    printf '%s\n' "$value" >"$temporary"
-    chmod 600 "$temporary"
-    mv -f -- "$temporary" "$operation/$name"
+    owned_lock || return 1
+    owned_operation || return 1
+    temporary=$(mktemp "$operation/.${name}.XXXXXX") || return 1
+    printf '%s\n' "$value" >"$temporary" || return 1
+    chmod 600 "$temporary" || return 1
+    mv -f -- "$temporary" "$operation/$name" || return 1
 }
 
 restore_marker() {
@@ -237,7 +240,7 @@ release_owned_lock() {
     # Ownership and destination safety are fully proved before this boundary.
     # A successful same-filesystem rename releases the canonical lock; cleanup
     # of the uniquely named evidence directory is deliberately non-failing.
-    mv -T "$lock" "$unlock"
+    mv -T "$lock" "$unlock" || return 1
     rm -rf -- "$unlock" || echo 'Released the canonical lock; retained unlock evidence could not be removed.' >&2
     return 0
 }
@@ -294,7 +297,7 @@ rewrite_owned_cron() {
     valid_owned_cron "$cron_snapshot" || return 1
     current=$(mktemp "$lock/.current-cron.XXXXXX") || return 1
     next=$(mktemp "$lock/.next-cron.XXXXXX") || return 1
-    "$timeout_bin" --kill-after=10s 30s crontab -l >"$current" 2>/dev/null || return 1
+    "$timeout_bin" --foreground --kill-after=10s 30s crontab -l >"$current" 2>/dev/null || return 1
     awk 'NR == FNR {owned[$0] = 1; next}
         $0 in owned {next}
         /phr-laravel|phr:uptime:run-/ {exit 1}
@@ -302,8 +305,8 @@ rewrite_owned_cron() {
     if [[ "$mode" == restore ]]; then
         cat "$cron_snapshot" >>"$next" || return 1
     fi
-    "$timeout_bin" --kill-after=10s 30s crontab "$next" || return 1
-    "$timeout_bin" --kill-after=10s 30s crontab -l 2>/dev/null | cmp -s - "$next" || return 1
+    "$timeout_bin" --foreground --kill-after=10s 30s crontab "$next" || return 1
+    "$timeout_bin" --foreground --kill-after=10s 30s crontab -l 2>/dev/null | cmp -s - "$next" || return 1
     rm -f -- "$current" "$next"
 }
 
@@ -315,7 +318,7 @@ pause_owned_cron() { with_cron_mutex pause_owned_cron_impl; }
 require_restored_cron() {
     local current line count=0
     valid_owned_cron "$cron_snapshot" || return 1
-    current=$("$timeout_bin" --kill-after=10s 30s crontab -l 2>/dev/null) || return 1
+    current=$("$timeout_bin" --foreground --kill-after=10s 30s crontab -l 2>/dev/null) || return 1
     while IFS= read -r line; do
         if grep -Fxq -- "$line" "$cron_snapshot"; then count=$((count + 1))
         elif [[ "$line" == *phr-laravel* || "$line" == *phr:uptime:run-* ]]; then return 1
@@ -325,7 +328,7 @@ require_restored_cron() {
 }
 
 read_only_boot_proof() {
-    (cd "$stable" && "$timeout_bin" --signal=TERM --kill-after=10s 60s \
+    (cd "$stable" && "$timeout_bin" --foreground --signal=TERM --kill-after=10s 60s \
         "$php_bin" -d memory_limit=1G -d display_errors=0 -d log_errors=0 -r '
         try {
             require "vendor/autoload.php";
@@ -340,7 +343,7 @@ read_only_boot_proof() {
 
 prepare() {
     local database_status owner_tmp marker_tmp script_tmp
-    [[ -x "$php_bin" && -x "$timeout_bin" \
+    [[ -x "$php_bin" && -x "$timeout_bin" && -x /usr/bin/setsid \
         && -d "$control" && ! -L "$control" && -d "$releases" && ! -L "$releases" ]]
     exact_identity
     state_is_empty
@@ -410,7 +413,7 @@ prepare() {
 require_serving() {
     local timeout_seconds=${PHR_ORPHAN_POST_UP_TIMEOUT_SECONDS:-60}
     [[ "$timeout_seconds" =~ ^[1-9][0-9]*$ && -x "$timeout_bin" ]]
-    (cd "$stable" && "$timeout_bin" --signal=TERM --kill-after=10s "${timeout_seconds}s" \
+    (cd "$stable" && "$timeout_bin" --foreground --signal=TERM --kill-after=10s "${timeout_seconds}s" \
         "$php_bin" -d memory_limit=1G -d display_errors=0 -d log_errors=0 -r '
         try {
             require "vendor/autoload.php";
@@ -419,6 +422,61 @@ require_serving() {
             exit($app->isDownForMaintenance() ? 1 : 0);
         } catch (Throwable) { exit(1); }
     ')
+}
+
+publish_supervisor_identity() {
+    local birth session group boot uid
+    owned_lock || return 1
+    supervisor_operation || return 1
+    birth=$(awk '{sub(/^.*\) /, ""); print $20}' "/proc/$$/stat") || return 1
+    session=$(awk '{sub(/^.*\) /, ""); print $4}' "/proc/$$/stat") || return 1
+    group=$(awk '{sub(/^.*\) /, ""); print $3}' "/proc/$$/stat") || return 1
+    uid=$(awk '/^Uid:/ {print $2; exit}' "/proc/$$/status") || return 1
+    boot=$(cat /proc/sys/kernel/random/boot_id) || return 1
+    [[ "$birth" =~ ^[0-9]+$ && "$session" == "$$" && "$group" == "$$" && "$uid" == "$(id -u)" \
+        && "$boot" =~ ^[a-f0-9-]{36}$ ]] || return 1
+    write_operation_value process-pid "$$" || return 1
+    write_operation_value process-birth "$birth" || return 1
+    write_operation_value process-session "$session" || return 1
+    write_operation_value process-uid "$uid" || return 1
+    write_operation_value process-boot "$boot" || return 1
+}
+
+reclaim_dead_supervisor() {
+    local name pid birth session uid boot current_boot current_birth process_state group_error
+    owned_lock || return 1
+    supervisor_operation || return 1
+    # Unadopted startup cannot be reclaimed: a delayed child may still start.
+    [[ "$(cat "$operation/state")" == adopted ]] || return 1
+    for name in pid birth session uid boot; do
+        [[ -f "$operation/process-$name" && ! -L "$operation/process-$name" ]] || return 1
+    done
+    pid=$(cat "$operation/process-pid") || return 1
+    birth=$(cat "$operation/process-birth") || return 1
+    session=$(cat "$operation/process-session") || return 1
+    uid=$(cat "$operation/process-uid") || return 1
+    boot=$(cat "$operation/process-boot") || return 1
+    current_boot=$(cat /proc/sys/kernel/random/boot_id) || return 1
+    [[ "$pid" =~ ^[1-9][0-9]*$ && "$birth" =~ ^[0-9]+$ && "$session" == "$pid" \
+        && "$uid" == "$(id -u)" && "$boot" =~ ^[a-f0-9-]{36}$ \
+        && "$current_boot" =~ ^[a-f0-9-]{36}$ ]] || return 1
+    if [[ "$boot" == "$current_boot" ]]; then
+        if [[ -d "/proc/$pid" ]]; then
+            current_birth=$(awk '{sub(/^.*\) /, ""); print $20}' "/proc/$pid/stat" 2>/dev/null) || return 1
+            process_state=$(awk '{sub(/^.*\) /, ""); print $1}' "/proc/$pid/stat" 2>/dev/null) || return 1
+            [[ "$current_birth" != "$birth" || "$process_state" == Z ]] || return 1
+        fi
+        # Kernel-atomic absence of the dedicated group proves no late up or
+        # crontab child survived its leader. Never signal/kill foreign writers.
+        if group_error=$(LC_ALL=C kill -0 -- "-$session" 2>&1); then return 1; fi
+        [[ "$group_error" == *'No such process'* ]] || return 1
+    fi
+    owned_lock || return 1
+    supervisor_operation || return 1
+    mkdir "$operation/takeover" || return 1
+    write_operation_value role cleanup || return 1
+    write_operation_value state cleanup || return 1
+    echo 'Definitively dead owned supervisor and all descendants were proved absent; cleanup claimed its operation mutex.'
 }
 
 start_supervisor() {
@@ -438,7 +496,8 @@ start_supervisor() {
     owned_lock
     [[ "$(cat "$lock/phase")" == prepared ]]
     [[ ! -e "$abort_request" && ! -L "$abort_request" ]]
-    nohup /bin/bash "$supervisor_script" supervise "$app" "$expected_release" "$expected_commit" "$php_bin" "$recovery_owner" \
+    [[ -x /usr/bin/setsid ]]
+    nohup /usr/bin/setsid /bin/bash "$supervisor_script" supervise "$app" "$expected_release" "$expected_commit" "$php_bin" "$recovery_owner" \
         >"$lock/supervisor.log" 2>&1 </dev/null &
     supervisor_pid=$!
     write_lock_value supervisor-pid "$supervisor_pid"
@@ -486,6 +545,7 @@ supervise() {
     fi
     [[ ! -e "$abort_request" && ! -L "$abort_request" ]]
     [[ "$(cat "$lock/phase")" == prepared ]]
+    publish_supervisor_identity
     write_operation_value state adopted
     exact_identity
     state_is_empty
@@ -518,7 +578,7 @@ supervise() {
     [[ ! -e "$abort_request" && ! -L "$abort_request" ]]
     [[ "$(cat "$lock/phase")" == activating ]]
     environment_is_unchanged
-    (cd "$stable" && "$timeout_bin" --signal=TERM --kill-after=10s "${timeout_seconds}s" \
+    (cd "$stable" && "$timeout_bin" --foreground --signal=TERM --kill-after=10s "${timeout_seconds}s" \
         "$php_bin" -d memory_limit=1G artisan up --no-ansi)
     [[ ! -e "$abort_request" && ! -L "$abort_request" ]]
     [[ "$(cat "$lock/phase")" == activating ]]
@@ -598,19 +658,19 @@ wait_supervisor() {
 }
 
 release_success() {
-    [[ -x "$php_bin" ]]
-    exact_identity
-    state_is_empty
-    owned_lock
-    storage_is_managed
-    environment_is_unchanged
-    [[ "$(cat "$lock/phase")" == verified ]]
-    [[ ! -e "$operation" && ! -L "$operation" ]]
-    [[ ! -e "$maintenance_marker" && ! -L "$maintenance_marker" ]]
-    require_serving
-    require_restored_cron
-    write_lock_value phase verified
-    release_owned_lock
+    [[ -x "$php_bin" ]] || return 1
+    exact_identity || return 1
+    state_is_empty || return 1
+    owned_lock || return 1
+    storage_is_managed || return 1
+    environment_is_unchanged || return 1
+    [[ "$(cat "$lock/phase")" == verified ]] || return 1
+    [[ ! -e "$operation" && ! -L "$operation" ]] || return 1
+    [[ ! -e "$maintenance_marker" && ! -L "$maintenance_marker" ]] || return 1
+    require_serving || return 1
+    require_restored_cron || return 1
+    write_lock_value phase verified || return 1
+    release_owned_lock || return 1
     echo 'Verified exact orphan release is serving; its exact owned recovery lock was released.'
 }
 
@@ -643,6 +703,7 @@ cleanup() {
     deadline=$((SECONDS + wait_seconds))
     while [[ -e "$operation" || -L "$operation" ]]; do
         owned_lock
+        if reclaim_dead_supervisor; then break; fi
         (( SECONDS < deadline )) || {
             echo 'Recovery supervisor is still active; retaining the operation mutex and canonical lock.' >&2
             return 1
@@ -651,14 +712,19 @@ cleanup() {
     done
     phase=$(cat "$lock/phase")
     if [[ "$phase" == verified ]]; then
-        release_success
-        return
+        if release_success; then return 0; fi
+        echo 'Verified finalization failed; restoring the original maintenance and paused cron state.' >&2
     fi
     # Win the same atomic mutex used by startup before restoration/unlock. A
     # starter that raced the preceding absence check blocks this mkdir; a
     # delayed starter cannot publish while this cleanup mutex remains inside
     # the canonical lock through the owner-checked rename.
-    mkdir "$operation"
+    if [[ ! -e "$operation" && ! -L "$operation" ]]; then
+        mkdir "$operation"
+    else
+        owned_operation
+        [[ "$(cat "$operation/role")" == cleanup && -d "$operation/takeover" ]]
+    fi
     chmod 700 "$operation"
     printf '%s\n' "$recovery_owner" >"$operation/owner"
     chmod 600 "$operation/owner"

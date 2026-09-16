@@ -17,7 +17,8 @@ printf '%s\n' '#!/bin/bash' 'if [[ "$*" == "-l" ]]; then cat "$FIXTURE_CRON"; el
 chmod 700 "$fixture_root/bin/crontab"
 printf '%s\n' '#!/bin/bash' 'set -euo pipefail' \
     'if [[ "$*" == *"SELECT 1"* ]]; then echo environment=production; exit 0; fi' \
-    'if [[ "$*" == *"artisan up"* ]]; then rm -f storage/framework/down; [[ "${FAIL_UP:-false}" != true ]] || exit 72; fi' \
+    'if [[ "$*" == *FileBasedMaintenanceMode* && "${HANG_MAINTENANCE:-false}" == true ]]; then sleep 10; fi' \
+    'if [[ "$*" == *"artisan up"* ]]; then if [[ "${DELAY_UP:-false}" == true ]]; then touch "$DELAY_UP_STARTED"; sleep 2; fi; rm -f storage/framework/down; [[ "${FAIL_UP:-false}" != true ]] || exit 72; fi' \
     'exit 0' > "$php_bin"
 chmod 700 "$php_bin"
 readonly workflow="$script_dir/../workflows/ci.yml"
@@ -97,6 +98,60 @@ starter=$!
 while [[ ! -d "$HOME/.deployments/$app/deploy.lock/operation" ]]; do sleep 0.1; done
 run_recovery cleanup
 wait "$starter" || true
+[[ -f "$HOME/$app/storage/framework/down" && ! -e "$HOME/.deployments/$app/deploy.lock" ]]
+
+setup_fixture
+run_recovery prepare
+run_recovery start-supervisor
+run_recovery wait-serving
+run_recovery mark-verified
+run_recovery wait-supervisor
+printf '%s\n' ENV_DRIFT_AFTER_VERIFICATION >> "$HOME/$app/.env"
+expect_failure run_recovery release-success
+run_recovery cleanup
+[[ -f "$HOME/$app/storage/framework/down" && ! -e "$HOME/.deployments/$app/deploy.lock" ]]
+[[ $(wc -l < "$FIXTURE_CRON") == 2 ]]
+
+setup_fixture
+HANG_MAINTENANCE=true PHR_ORPHAN_MAINTENANCE_TIMEOUT_SECONDS=1 expect_failure run_recovery prepare
+run_recovery cleanup
+[[ -f "$HOME/$app/storage/framework/down" && ! -e "$HOME/.deployments/$app/deploy.lock" ]]
+
+# The fixture owns/reaps the real setsid child, making SIGKILL and descendant
+# liveness checks deterministic without relying on the container's PID 1.
+launch_owned_supervisor() {
+    local operation="$HOME/.deployments/$app/deploy.lock/operation"
+    mkdir "$operation"
+    printf '%s\n' "$owner" > "$operation/owner"
+    printf '%s\n' supervisor > "$operation/role"
+    printf '%s\n' startup > "$operation/state"
+    /usr/bin/setsid bash "$HOME/.deployments/$app/deploy.lock/recover-phr-orphan.sh" \
+        supervise "$app" "$release" "$commit" "$php_bin" "$owner" \
+        > "$HOME/.deployments/$app/deploy.lock/supervisor.log" 2>&1 &
+    fixture_supervisor=$!
+}
+setup_fixture
+run_recovery prepare
+launch_owned_supervisor
+wait_phase serving
+kill -KILL "$fixture_supervisor"
+wait "$fixture_supervisor" 2>/dev/null || true
+run_recovery cleanup
+[[ -f "$HOME/$app/storage/framework/down" && ! -e "$HOME/.deployments/$app/deploy.lock" ]]
+
+setup_fixture
+run_recovery prepare
+export DELAY_UP=true DELAY_UP_STARTED="$fixture_root/delayed-up-started"
+launch_owned_supervisor
+unset DELAY_UP
+while [[ ! -f "$DELAY_UP_STARTED" ]]; do sleep 0.1; done
+kill -KILL "$fixture_supervisor"
+wait "$fixture_supervisor" 2>/dev/null || true
+PHR_ORPHAN_CLEANUP_WAIT_SECONDS=1 expect_failure run_recovery cleanup
+[[ -d "$HOME/.deployments/$app/deploy.lock/operation" ]]
+sleep 3
+run_recovery cleanup
+unset DELAY_UP_STARTED
 [[ -f "$HOME/$app/storage/framework/down" && ! -e "$HOME/.deployments/$app/deploy.lock" ]]
 
 setup_fixture
