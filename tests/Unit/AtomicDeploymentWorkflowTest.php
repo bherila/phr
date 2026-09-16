@@ -37,13 +37,14 @@ class AtomicDeploymentWorkflowTest extends TestCase
         $workflow = $this->workflow('ci.yml');
 
         $this->assertStringContainsString(
-            'bherila/shared-cpanel-deployment@e97463f105268c9f63449cf5b6730c95386f709d',
+            'bherila/shared-cpanel-deployment@6e9edf640e38b828eb0b273c339474b28ab3dca4',
             $workflow,
         );
         $this->assertStringContainsString('atomic-layout: stable-directory', $workflow);
         $this->assertStringContainsString('initial-live-commit: ${{ vars.ATOMIC_INITIAL_LIVE_COMMIT }}', $workflow);
         $this->assertStringContainsString('recovery-release-id: ${{ vars.ATOMIC_RECOVERY_RELEASE_ID }}', $workflow);
         $this->assertStringContainsString('failure-policy: maintenance', $workflow);
+        $this->assertSame(1, preg_match_all('/^          operational-audit: true$/m', $workflow));
         $this->assertStringContainsString("vars.ATOMIC_DEPLOY_ENABLED != 'false'", $workflow);
         $this->assertMatchesRegularExpression('/persistent-paths:\s*\|\R\s+storage\R\s+public\/ohif/', $workflow);
         $this->assertStringContainsString('quiesce-script: .github/scripts/quiesce-phr-deployment.sh', $workflow);
