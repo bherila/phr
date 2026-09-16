@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 readonly script_dir="$(cd "$(dirname "$0")" && pwd)"
+readonly workflow="$script_dir/../workflows/ci.yml"
+grep -Fq 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' "$workflow"
+while IFS= read -r pin; do
+    [[ "$pin" =~ ^[a-f0-9]{40}$ ]]
+done < <(sed -nE 's/.*uses: [^@]+@([a-f0-9]+)([[:space:]]|$).*/\1/p' "$workflow" | awk 'length($0) > 8')
 readonly fixture_root="$(mktemp -d)"
 trap 'rm -rf "$fixture_root"' EXIT
 mkdir -p "$fixture_root/phr-laravel/public" "$fixture_root/.deployments/phr-laravel/shared/storage/framework" \
