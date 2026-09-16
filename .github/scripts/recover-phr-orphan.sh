@@ -143,25 +143,39 @@ require_file_maintenance() {
 
 no_phr_cron() {
     local contents
-    contents=$(crontab -l 2>/dev/null) || return 1
+    contents=$("$timeout_bin" --kill-after=10s 30s crontab -l 2>/dev/null) || return 1
     ! grep -E "^[[:space:]]*[^#].*(phr-laravel|phr:uptime:run-|# JOB:phr-laravel)" <<<"$contents" >/dev/null
 }
 
 no_phr_processes() {
-    local stable_real process process_uid executable process_cwd argument artisan_path artisan_real pgrep_status=0
+    local stable_real process process_uid process_cwd argument artisan_path artisan_real pgrep_status=0
     /usr/bin/pgrep -u "$(id -u)" -f '[p]hr:uptime:run-(scheduler|worker)' >/dev/null || pgrep_status=$?
     [[ "$pgrep_status" == 1 ]] || return 1
     local -a arguments
     stable_real=$(readlink -f "$stable") || return 1
     [[ -n "$stable_real" && -d "$proc_root" && "$expected_uid" =~ ^[0-9]+$ ]] || return 1
     for process in "$proc_root"/[0-9]*; do
-        [[ -r "$process/status" && -r "$process/cmdline" ]] || continue
-        process_uid=$(awk '/^Uid:/ { print $2; exit }' "$process/status" 2>/dev/null || true)
+        [[ -d "$process" ]] || continue
+        if [[ ! -r "$process/status" ]] || ! process_uid=$(awk '/^Uid:/ { print $2; exit }' "$process/status" 2>/dev/null); then
+            [[ ! -d "$process" ]] && continue
+            return 1
+        fi
+        [[ "$process_uid" =~ ^[0-9]+$ ]] || return 1
         [[ "$process_uid" == "$expected_uid" ]] || continue
-        executable=$(readlink -f "$process/exe" 2>/dev/null || true)
-        case "${executable##*/}" in php | php-cgi | lsphp | ea-php*) ;; *) continue ;; esac
-        process_cwd=$(readlink -f "$process/cwd" 2>/dev/null || true)
-        mapfile -d '' -t arguments <"$process/cmdline" || true
+        if [[ ! -r "$process/cmdline" ]] || ! mapfile -d '' -t arguments <"$process/cmdline"; then
+            [[ ! -d "$process" ]] && continue
+            return 1
+        fi
+        if [[ ${#arguments[@]} == 0 ]]; then
+            # Zombies cannot execute work; all other live empty argv is unknown.
+            [[ "$(awk '/^State:/ {print $2; exit}' "$process/status")" == Z ]] && continue
+            [[ ! -d "$process" ]] && continue
+            return 1
+        fi
+        if ! process_cwd=$(readlink -e "$process/cwd" 2>/dev/null); then
+            [[ ! -d "$process" ]] && continue
+            return 1
+        fi
         for argument in "${arguments[@]}"; do
             case "$argument" in
                 artisan | */artisan)
@@ -280,7 +294,7 @@ rewrite_owned_cron() {
     valid_owned_cron "$cron_snapshot" || return 1
     current=$(mktemp "$lock/.current-cron.XXXXXX") || return 1
     next=$(mktemp "$lock/.next-cron.XXXXXX") || return 1
-    crontab -l >"$current" 2>/dev/null || return 1
+    "$timeout_bin" --kill-after=10s 30s crontab -l >"$current" 2>/dev/null || return 1
     awk 'NR == FNR {owned[$0] = 1; next}
         $0 in owned {next}
         /phr-laravel|phr:uptime:run-/ {exit 1}
@@ -288,8 +302,8 @@ rewrite_owned_cron() {
     if [[ "$mode" == restore ]]; then
         cat "$cron_snapshot" >>"$next" || return 1
     fi
-    crontab "$next" || return 1
-    crontab -l 2>/dev/null | cmp -s - "$next" || return 1
+    "$timeout_bin" --kill-after=10s 30s crontab "$next" || return 1
+    "$timeout_bin" --kill-after=10s 30s crontab -l 2>/dev/null | cmp -s - "$next" || return 1
     rm -f -- "$current" "$next"
 }
 
@@ -301,7 +315,7 @@ pause_owned_cron() { with_cron_mutex pause_owned_cron_impl; }
 require_restored_cron() {
     local current line count=0
     valid_owned_cron "$cron_snapshot" || return 1
-    current=$(crontab -l 2>/dev/null) || return 1
+    current=$("$timeout_bin" --kill-after=10s 30s crontab -l 2>/dev/null) || return 1
     while IFS= read -r line; do
         if grep -Fxq -- "$line" "$cron_snapshot"; then count=$((count + 1))
         elif [[ "$line" == *phr-laravel* || "$line" == *phr:uptime:run-* ]]; then return 1
@@ -520,9 +534,13 @@ supervise() {
         if [[ "$phase" == verified ]]; then
             supervisor_operation
             restore_owned_cron
+            [[ ! -e "$abort_request" && ! -L "$abort_request" ]]
+            [[ "$(cat "$lock/phase")" == verified ]]
             exact_identity
             environment_is_unchanged
             require_serving
+            [[ ! -e "$abort_request" && ! -L "$abort_request" ]]
+            [[ "$(cat "$lock/phase")" == verified ]]
             supervisor_verified=true
             rm -rf -- "$operation"
             trap - EXIT
@@ -567,7 +585,7 @@ mark_verified() {
 }
 
 wait_supervisor() {
-    local deadline wait_seconds=${PHR_ORPHAN_SUPERVISOR_WAIT_SECONDS:-30}
+    local deadline wait_seconds=${PHR_ORPHAN_SUPERVISOR_WAIT_SECONDS:-360}
     [[ "$wait_seconds" =~ ^[1-9][0-9]*$ ]]
     deadline=$((SECONDS + wait_seconds))
     while [[ -e "$operation" || -L "$operation" ]]; do
@@ -597,7 +615,7 @@ release_success() {
 }
 
 cleanup() {
-    local deadline temporary wait_seconds=${PHR_ORPHAN_CLEANUP_WAIT_SECONDS:-60} phase
+    local deadline temporary wait_seconds=${PHR_ORPHAN_CLEANUP_WAIT_SECONDS:-360} phase
     if [[ ! -e "$lock" && ! -L "$lock" ]]; then
         echo 'No recovery lock was acquired; cleanup has no authorized mutation.'
         return 0

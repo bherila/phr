@@ -457,7 +457,7 @@ jobs:
           SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
         run: |
           run_remote() {
-            timeout 150 ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USERNAME@$SSH_HOST" \
+            timeout 390 ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USERNAME@$SSH_HOST" \
               "bash -s -- $(printf '%q ' "$1" phr-laravel "$EXPECTED_RELEASE" "$EXPECTED_COMMIT" "$PRODUCTION_PHP" "$ORPHAN_RECOVERY_OWNER")" \
               < .github/scripts/recover-phr-orphan.sh
           }
@@ -473,6 +473,6 @@ jobs:
           SSH_HOST: ${{ secrets.SSH_HOST }}
           SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
         run: |
-          timeout 150 ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USERNAME@$SSH_HOST" \
+          timeout 660 ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USERNAME@$SSH_HOST" \
             "bash -s -- $(printf '%q ' cleanup phr-laravel "$EXPECTED_RELEASE" "$EXPECTED_COMMIT" "$PRODUCTION_PHP" "$ORPHAN_RECOVERY_OWNER")" \
             < .github/scripts/recover-phr-orphan.sh

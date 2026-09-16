@@ -118,6 +118,17 @@ ln -s "$php_bin" "$PHR_ORPHAN_PROC_ROOT/4242/exe"
 ln -s "$HOME/$app" "$PHR_ORPHAN_PROC_ROOT/4242/cwd"
 expect_failure run_recovery prepare
 [[ ! -e "$HOME/.deployments/$app/deploy.lock" ]]
+for executable in php8.5 php8.4 custom-interpreter; do
+    cp "$php_bin" "$fixture_root/bin/$executable"
+    rm -f "$PHR_ORPHAN_PROC_ROOT/4242/exe"
+    ln -s "$fixture_root/bin/$executable" "$PHR_ORPHAN_PROC_ROOT/4242/exe"
+    printf '%s\0%s\0' "$fixture_root/bin/$executable" artisan > "$PHR_ORPHAN_PROC_ROOT/4242/cmdline"
+    expect_failure run_recovery prepare
+    [[ ! -e "$HOME/.deployments/$app/deploy.lock" ]]
+done
+rm -f "$PHR_ORPHAN_PROC_ROOT/4242/cmdline"
+expect_failure run_recovery prepare
+[[ ! -e "$HOME/.deployments/$app/deploy.lock" ]]
 rm -rf "$PHR_ORPHAN_PROC_ROOT/4242"
 setup_fixture
 printf '%s\n' 'MALICIOUS_CRON_CANARY' >> "$HOME/.deployments/$app/recovery/c765e4086fa2-35100840905-1.cron"
