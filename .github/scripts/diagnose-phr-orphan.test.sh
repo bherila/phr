@@ -5,9 +5,13 @@ readonly workflow="$script_dir/../workflows/ci.yml"
 grep -Fq 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' "$workflow"
 grep -Fq "vars.ATOMIC_DEPLOY_ENABLED != 'false'" "$workflow"
 grep -Fq "github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.operation == 'diagnose-phr-orphan'" "$workflow"
+pins=$(sed -nE 's/.*uses: [^@]+@([a-f0-9]+)([[:space:]]|$).*/\1/p' "$workflow" | awk 'length($0) > 8')
 while IFS= read -r pin; do
     [[ "$pin" =~ ^[a-f0-9]{40}$ ]]
-done < <(sed -nE 's/.*uses: [^@]+@([a-f0-9]+)([[:space:]]|$).*/\1/p' "$workflow" | awk 'length($0) > 8')
+done <<<"$pins"
+# Remote cPanel Bash has no usable /dev/fd. Actual remote scripts must not rely
+# on process substitution; here-strings/direct regular-file reads work there.
+! grep -Eq '<[[:space:]]*<\(|>[[:space:]]*>\(|/dev/fd' "$script_dir/diagnose-phr-orphan.sh" "$script_dir/recover-phr-orphan.sh"
 readonly fixture_root="$(mktemp -d)"
 trap 'rm -rf "$fixture_root"' EXIT
 mkdir -p "$fixture_root/phr-laravel/public" "$fixture_root/.deployments/phr-laravel/shared/storage/framework" \
@@ -29,6 +33,20 @@ output="$(env HOME="$fixture_root" PATH="$fixture_root/bin:$PATH" bash "$script_
     && "$output" == *'failed_transaction=missing'* && "$output" == *'snapshot_scheduler_markers=1'* \
     && "$output" == *'snapshot_worker_markers=1'* && "$output" != *NEVER_PRINT* ]]
 [[ "$before" == "$(find "$fixture_root" -type f -exec sha256sum {} + | sort)" ]]
+printf '%s\n' '#!/bin/bash' 'exit 71' > "$fixture_root/bin/find"
+chmod 700 "$fixture_root/bin/find"
+if output="$(env HOME="$fixture_root" PATH="$fixture_root/bin:$PATH" bash "$script_dir/diagnose-phr-orphan.sh" 2>&1)"; then
+    echo 'Failed inventory unexpectedly reported success.' >&2
+    exit 1
+fi
+[[ "$output" == *REDACTED* && "$output" != *'state_entries=0'* ]]
+rm -f "$fixture_root/bin/find"
+printf '%s\n' 'commit=' >> "$fixture_root/phr-laravel/.deploy-release"
+if output="$(env HOME="$fixture_root" PATH="$fixture_root/bin:$PATH" bash "$script_dir/diagnose-phr-orphan.sh" 2>&1)"; then
+    echo 'Trailing empty duplicate metadata unexpectedly accepted.' >&2
+    exit 1
+fi
+[[ "$output" == *REDACTED* ]]
 printf '%s\n' 'commit=WRONG_SECRET_CANARY' >> "$fixture_root/phr-laravel/.deploy-release"
 if output="$(env HOME="$fixture_root" PATH="$fixture_root/bin:$PATH" bash "$script_dir/diagnose-phr-orphan.sh" 2>&1)"; then
     echo 'Duplicate/wrong metadata unexpectedly accepted.' >&2

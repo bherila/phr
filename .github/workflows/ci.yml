@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   frontend-build:
-    if: ${{ inputs.operation != 'diagnose-phr-orphan' }}
+    if: ${{ inputs.operation != 'diagnose-phr-orphan' && inputs.operation != 'recover-phr-orphan' }}
     name: Frontend Build
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
@@ -47,7 +47,7 @@ jobs:
           retention-days: 2
 
   frontend-static:
-    if: ${{ inputs.operation != 'diagnose-phr-orphan' }}
+    if: ${{ inputs.operation != 'diagnose-phr-orphan' && inputs.operation != 'recover-phr-orphan' }}
     name: Frontend Static Checks
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
@@ -76,7 +76,7 @@ jobs:
         run: pnpm audit --audit-level high --ignore-registry-errors
 
   frontend-tests:
-    if: ${{ inputs.operation != 'diagnose-phr-orphan' }}
+    if: ${{ inputs.operation != 'diagnose-phr-orphan' && inputs.operation != 'recover-phr-orphan' }}
     name: Frontend Tests
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
@@ -92,7 +92,7 @@ jobs:
         run: pnpm run test
 
   backend-static:
-    if: ${{ inputs.operation != 'diagnose-phr-orphan' }}
+    if: ${{ inputs.operation != 'diagnose-phr-orphan' && inputs.operation != 'recover-phr-orphan' }}
     name: Backend Static Checks
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
@@ -111,6 +111,9 @@ jobs:
           bash .github/scripts/verify-phr-candidate.test.sh
           bash .github/scripts/verify-phr-activation.test.sh
           bash .github/scripts/verify-phr-deployment.test.sh
+          bash .github/scripts/diagnose-phr-orphan.test.sh
+          bash .github/scripts/recover-phr-orphan.test.sh
+          bash .github/scripts/verify-phr-orphan-public.test.sh
 
       - name: Test agent mutation digest key installer
         run: bash .github/scripts/configure-agent-mutation-digest-key.test.sh
@@ -150,7 +153,7 @@ jobs:
         run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
 
   backend-tests:
-    if: ${{ inputs.operation != 'diagnose-phr-orphan' }}
+    if: ${{ inputs.operation != 'diagnose-phr-orphan' && inputs.operation != 'recover-phr-orphan' }}
     name: Backend Tests
     # Some page tests render a real Blade view without ->withoutVite(), so they need
     # an actual public/build/manifest.json — reuse frontend-build's artifact instead
@@ -198,7 +201,7 @@ jobs:
         run: php -d memory_limit=1G vendor/bin/phpunit
 
   e2e:
-    if: ${{ inputs.operation != 'diagnose-phr-orphan' }}
+    if: ${{ inputs.operation != 'diagnose-phr-orphan' && inputs.operation != 'recover-phr-orphan' }}
     name: Playwright E2E
     needs: frontend-build
     runs-on: ubuntu-24.04-arm
@@ -261,7 +264,7 @@ jobs:
       - backend-static
       - backend-tests
       - e2e
-    if: ${{ always() && inputs.operation != 'diagnose-phr-orphan' }}
+    if: ${{ always() && inputs.operation != 'diagnose-phr-orphan' && inputs.operation != 'recover-phr-orphan' }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
     steps:
@@ -300,7 +303,7 @@ jobs:
     # every other job explicitly, so a new job added to this workflow must also be added
     # to that check or it becomes invisible to the gate and can fail while the deploy
     # still runs.
-    if: ${{ !cancelled() && vars.ATOMIC_DEPLOY_ENABLED != 'false' && inputs.operation != 'diagnose-phr-orphan' && github.ref == 'refs/heads/main' && needs.test.result == 'success' && needs['frontend-build'].result == 'success' }}
+    if: ${{ !cancelled() && vars.ATOMIC_DEPLOY_ENABLED != 'false' && inputs.operation != 'diagnose-phr-orphan' && inputs.operation != 'recover-phr-orphan' && github.ref == 'refs/heads/main' && needs.test.result == 'success' && needs['frontend-build'].result == 'success' }}
     runs-on: ubuntu-24.04-arm
     environment: prod
     concurrency:
@@ -409,3 +412,67 @@ jobs:
           timeout 150 ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USERNAME@$SSH_HOST" \
             '/usr/bin/timeout --kill-after=10s 120 bash -s' \
             < .github/scripts/diagnose-phr-orphan.sh
+
+  recover-orphan:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && vars.ATOMIC_DEPLOY_ENABLED == 'false' && inputs.operation == 'recover-phr-orphan' && inputs.confirmation == 'RECOVER_PHR_35100840905' }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    environment: prod
+    permissions:
+      contents: read
+    concurrency:
+      group: phr-production-files
+      cancel-in-progress: false
+    env:
+      ORPHAN_RECOVERY_OWNER: orphan-c765e408-${{ github.run_id }}-${{ github.run_attempt }}
+      EXPECTED_RELEASE: legacy-20260916T131957Z-c765e4086fa2-35100840905-1
+      EXPECTED_COMMIT: 153ddfdcb6e8180bf1d1291aa74202e13a92681e
+      PRODUCTION_PHP: /opt/cpanel/ea-php85/root/usr/bin/php
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: webfactory/ssh-agent@e83874834305fe9a4a2997156cb26c5de65a8555 # v0.10.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+      - name: Pin production host key
+        env:
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+      - name: Acquire canonical lock and preserve recovery evidence
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
+        run: |
+          remote_args=$(printf '%q ' prepare phr-laravel "$EXPECTED_RELEASE" "$EXPECTED_COMMIT" "$PRODUCTION_PHP" "$ORPHAN_RECOVERY_OWNER")
+          timeout 330 ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USERNAME@$SSH_HOST" \
+            "set -e; recovery_script=\$(mktemp); trap 'rm -f -- \"\$recovery_script\"' EXIT; cat >\"\$recovery_script\"; chmod 600 \"\$recovery_script\"; /usr/bin/timeout --kill-after=10s 300 bash \"\$recovery_script\" $remote_args" \
+            < .github/scripts/recover-phr-orphan.sh
+      - name: Supervise serving, verify public boundaries, restore recorded cron
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
+        run: |
+          run_remote() {
+            timeout 390 ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USERNAME@$SSH_HOST" \
+              "bash -s -- $(printf '%q ' "$1" phr-laravel "$EXPECTED_RELEASE" "$EXPECTED_COMMIT" "$PRODUCTION_PHP" "$ORPHAN_RECOVERY_OWNER")" \
+              < .github/scripts/recover-phr-orphan.sh
+          }
+          run_remote start-supervisor
+          run_remote wait-serving
+          bash .github/scripts/verify-phr-orphan-public.sh
+          run_remote mark-verified
+          run_remote wait-supervisor
+          run_remote release-success
+      - name: Restore original maintenance and keep owned cron paused on failure
+        if: ${{ failure() || cancelled() }}
+        env:
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+          SSH_USERNAME: ${{ secrets.SSH_USERNAME }}
+        run: |
+          timeout 660 ssh -o BatchMode=yes -o StrictHostKeyChecking=yes "$SSH_USERNAME@$SSH_HOST" \
+            "bash -s -- $(printf '%q ' cleanup phr-laravel "$EXPECTED_RELEASE" "$EXPECTED_COMMIT" "$PRODUCTION_PHP" "$ORPHAN_RECOVERY_OWNER")" \
+            < .github/scripts/recover-phr-orphan.sh
