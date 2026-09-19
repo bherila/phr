@@ -79,10 +79,12 @@ jobs:
           PUBLIC_URL: /ohif/
         run: yarn run build
 
-      - name: Sanity check build output
+      # Deploy only needs this job, so a bundle that fails here never reaches
+      # public/ohif/. Checks every file index.html references and the two
+      # settings patch-config.mjs applies; see the script's header.
+      - name: Verify build output
         run: |
-          test -f Viewers/platform/app/dist/index.html
-          test -d Viewers/platform/app/dist/assets
+          bash phr/.github/ohif/verify-dist.sh Viewers/platform/app/dist
           du -sh Viewers/platform/app/dist
 
       - name: Upload build artifact
