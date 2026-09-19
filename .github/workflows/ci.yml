@@ -99,6 +99,7 @@ jobs:
           bash .github/scripts/verify-phr-activation.test.sh
           bash .github/scripts/verify-phr-deployment.test.sh
           bash .github/scripts/verify-phr-ohif-artifact.test.sh
+          bash .github/ohif/verify-dist.test.sh
 
       - name: Test agent mutation digest key installer
         run: bash .github/scripts/configure-agent-mutation-digest-key.test.sh
