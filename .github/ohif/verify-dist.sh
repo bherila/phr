@@ -18,7 +18,7 @@ index="$dist/index.html"
 [ -s "$index" ] || fail "missing or empty index.html"
 grep -Eqi '<title>[^<]*OHIF[^<]*</title>' "$index" || fail "index.html is not the OHIF entry page"
 
-refs="$(grep -oE '(src|href)="[^"]*"' "$index" | sed -E 's/^(src|href)="([^"]*)"$/\2/')"
+refs="$( (grep -oE '(src|href)="[^"]*"' "$index" || true) | sed -E 's/^(src|href)="([^"]*)"$/\2/')"
 [ -n "$refs" ] || fail "index.html references no files"
 grep -q '^/ohif/app\.bundle\.[0-9a-f]*\.js$' <<<"$refs" || fail "index.html does not load the app bundle"
 
