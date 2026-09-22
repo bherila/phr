@@ -20,6 +20,7 @@ use Bherila\GenAiLaravel\ToolChoice;
 use Bherila\GenAiLaravel\ToolConfig;
 use Bherila\GenAiLaravel\ToolDefinition;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -113,7 +114,11 @@ final readonly class PhrExternalGenAiRequestService
             ], ToolChoice::tool(PhrGenAiRequestPreparationService::SUBMISSION_TOOL)))
             ->enqueue(new EnqueueOptions(
                 queue: self::MAILBOX,
-                idempotencyKey: sprintf('phr-import:%d:%d', $job->id, $job->mcp_generation),
+                // Keyed on the generation this call captured, not on whatever
+                // the row reads now: the key must name the revision the work
+                // was authorized for, so two callers of the same revision share
+                // one request and a successor generation gets its own.
+                idempotencyKey: sprintf('phr-import:%d:%d', $job->id, $ownedGeneration),
                 metadata: ['phr_import_job_id' => (int) $job->id],
             ));
 
@@ -136,12 +141,25 @@ final readonly class PhrExternalGenAiRequestService
         if ($initial !== null) {
             $link['status'] = $initial;
         }
-        GenAiImportJob::query()
-            ->whereKey($job->id)
-            ->where('execution_mode', GenAiImportJob::EXECUTION_EXTERNAL)
+        // The compare-and-swap that installs the link, on the same row revision
+        // every other write in this call is fenced on. External mode and a null
+        // link are not enough to identify it: a mode change away and back leaves
+        // the row external, pending and unlinked again on a *later* generation,
+        // and a terminalization leaves mode and generation untouched while
+        // failing the row. Either state satisfies the mode+null predicate, so
+        // without the generation and nonterminal guards this request would
+        // attach itself to - and silently restart - a job it no longer owns.
+        $this->ownedRevision($job, $ownedMode, $ownedGeneration)
             ->whereNull('mcp_request_id')
             ->update($link);
         $job->refresh();
+        // Identity, not the affected-row count: two callers of the same
+        // revision are handed the same request by the package's idempotency
+        // key, and the one whose UPDATE matched no rows because the other got
+        // there first is still looking at its own request on the row. Reading
+        // `0 rows` as lost ownership would have it cancel the request both of
+        // them are using (and affected-row counts do not mean the same thing
+        // on every driver anyway).
         if ($job->mcp_request_id !== $linked->id) {
             $this->discardRequestThatLostTheLinkRace($linked);
 
@@ -171,12 +189,21 @@ final readonly class PhrExternalGenAiRequestService
      * The explicit id is still required for a database whose foreign keys are
      * not being enforced, where the stale id does survive the delete.
      *
+     * That null allowance is also why the nonterminal clause of
+     * {@see self::ownedRevision()} is load-bearing here rather than incidental.
+     * A concurrent terminalization writes exactly the state this call is
+     * looking for - same mode, same generation, null link - and only the
+     * status tells the two apart. Without it a vanished-link reset would
+     * happily clear a `failed` row and queue a fresh request against it.
+     *
      * The re-read then decides whether this call may go on to queue work. It is
      * not what makes the write safe - the predicate is - so a successor landing
-     * after it simply loses the link compare-and-swap further down instead.
-     * Not owning the row is reported as the transient failure it is, leaving
-     * the import queued for the next recovery pass rather than queueing a
-     * second request against a job another call has already linked.
+     * after it simply loses the link compare-and-swap further down instead. It
+     * asks the same question the predicate asks, over the same five facts, so
+     * neither a relink nor a terminalization can slip between them. Not owning
+     * the row is reported as the transient failure it is, leaving the import
+     * queued for the next recovery pass rather than queueing a second request
+     * against a job another call has already linked.
      */
     private function clearVanishedLink(
         GenAiImportJob $job,
@@ -184,10 +211,7 @@ final readonly class PhrExternalGenAiRequestService
         string $ownedMode,
         int $ownedGeneration,
     ): void {
-        GenAiImportJob::query()
-            ->whereKey($job->id)
-            ->where('execution_mode', $ownedMode)
-            ->where('mcp_generation', $ownedGeneration)
+        $this->ownedRevision($job, $ownedMode, $ownedGeneration)
             ->where(fn ($query) => $query
                 ->where('mcp_request_id', $vanishedLink)
                 ->orWhereNull('mcp_request_id'))
@@ -197,11 +221,43 @@ final readonly class PhrExternalGenAiRequestService
             ]);
 
         $job->refresh();
-        if ($job->mcp_request_id !== null
-            || $job->execution_mode !== $ownedMode
-            || (int) $job->mcp_generation !== $ownedGeneration) {
+        if ($job->mcp_request_id !== null || ! $this->stillOwnsRevision($job, $ownedMode, $ownedGeneration)) {
             throw new RuntimeException('The import was relinked while a vanished external request was being cleared.');
         }
+    }
+
+    /**
+     * A query over the one row revision this call owns: the job, in the
+     * execution mode and generation that authorized the work, still
+     * nonterminal.
+     *
+     * Every compare-and-swap in this class starts here, so "the revision I
+     * own" is defined once instead of being respelled - differently - at each
+     * write. The nonterminal clause is the part that is easy to leave out and
+     * the hardest to see missing: {@see self::terminalizeUnauthorizedJob()}
+     * fails a row and clears its link *without* bumping the generation, so a
+     * terminalized row still answers to the mode and generation a concurrent
+     * call captured, and its cleared link is indistinguishable from the
+     * never-linked state that call started from. Matching it would restart
+     * work a user has already been told is finished.
+     *
+     * @return Builder<GenAiImportJob>
+     */
+    private function ownedRevision(GenAiImportJob $job, string $ownedMode, int $ownedGeneration): Builder
+    {
+        return GenAiImportJob::query()
+            ->whereKey($job->id)
+            ->where('execution_mode', $ownedMode)
+            ->where('mcp_generation', $ownedGeneration)
+            ->whereIn('status', PhrExternalImportStatusMap::NONTERMINAL_PHR_STATUSES);
+    }
+
+    /** {@see self::ownedRevision()} asked of a row that has just been re-read. */
+    private function stillOwnsRevision(GenAiImportJob $job, string $ownedMode, int $ownedGeneration): bool
+    {
+        return $job->execution_mode === $ownedMode
+            && (int) $job->mcp_generation === $ownedGeneration
+            && in_array($job->status, PhrExternalImportStatusMap::NONTERMINAL_PHR_STATUSES, true);
     }
 
     /**
@@ -278,16 +334,12 @@ final readonly class PhrExternalGenAiRequestService
         // makes a successor - including one that toggled back to external -
         // own the row, and this stale terminalization match zero rows.
         $linkedId = $linked?->id;
-        $released = GenAiImportJob::query()
-            ->whereKey($job->id)
-            ->where('execution_mode', $ownedMode)
-            ->where('mcp_generation', $ownedGeneration)
+        $released = $this->ownedRevision($job, $ownedMode, $ownedGeneration)
             ->when(
                 $linkedId !== null,
                 fn ($query) => $query->where('mcp_request_id', $linkedId),
                 fn ($query) => $query->whereNull('mcp_request_id'),
             )
-            ->whereIn('status', PhrExternalImportStatusMap::NONTERMINAL_PHR_STATUSES)
             ->update([
                 'mcp_request_id' => null,
                 'status' => 'failed',
