@@ -240,6 +240,55 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  ohif-transport-integration:
+    name: OHIF Transport Integration
+    # The real-transport half of the OHIF convergence tests: a real sshd on
+    # loopback, real rsync on both ends, and the pinned deployment action's own
+    # begin/preflight. The stub suite in backend-static cannot catch what a
+    # real receiver does (it passed with `$HOME` in the destination, and does
+    # not notice `--checksum` going missing), so this gates deploys too.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      # Read from the deploy step rather than repeated here, so bumping the
+      # action cannot leave this suite testing the previous version.
+      - name: Resolve the pinned deployment action
+        id: action
+        run: |
+          shas=$(grep -oE 'bherila/shared-cpanel-deployment@[0-9a-f]{40}' .github/workflows/*.yml | sed 's/.*@//' | sort -u)
+          if [ "$(printf '%s\n' "$shas" | grep -c .)" != 1 ]; then
+            echo "::error::Expected exactly one pinned shared-cpanel-deployment SHA, found: $shas"
+            exit 1
+          fi
+          echo "sha=$shas" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the pinned deployment action
+        uses: actions/checkout@v7
+        with:
+          repository: bherila/shared-cpanel-deployment
+          ref: ${{ steps.action.outputs.sha }}
+          path: .shared-cpanel-deployment
+          persist-credentials: false
+
+      - name: Install OpenSSH server
+        run: |
+          if [ ! -x /usr/sbin/sshd ]; then
+            sudo apt-get update -q
+            sudo apt-get install -y -q --no-install-recommends openssh-server
+          fi
+
+      - name: Run OHIF real-transport suite
+        env:
+          # Turns "cannot run here" into a failure, so a runner that loses
+          # sshd does not silently lose this suite.
+          PHR_OHIF_INTEGRATION_REQUIRED: 'true'
+          PHR_SHARED_ACTION_DIR: ${{ github.workspace }}/.shared-cpanel-deployment
+        run: sudo --preserve-env=PHR_OHIF_INTEGRATION_REQUIRED,PHR_SHARED_ACTION_DIR bash .github/scripts/converge-ohif-dist.integration.test.sh
+
   test:
     name: Run Tests
     needs:
@@ -249,6 +298,7 @@ jobs:
       - backend-static
       - backend-tests
       - e2e
+      - ohif-transport-integration
     if: ${{ always() }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
@@ -269,6 +319,7 @@ jobs:
           check "backend-static" "${{ needs.backend-static.result }}"
           check "backend-tests" "${{ needs.backend-tests.result }}"
           check "e2e" "${{ needs.e2e.result }}"
+          check "ohif-transport-integration" "${{ needs.ohif-transport-integration.result }}"
 
   deploy:
     name: Deploy to Production
