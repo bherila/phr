@@ -38,6 +38,10 @@ on:
 concurrency:
   group: ohif-dist
   cancel-in-progress: false
+  # Retain pending builds rather than cancelling and replacing them; see the
+  # deploy job below and issue #126. This workflow runs only on dispatch and on
+  # pushes to main, so there is no pull-request supersede behaviour to preserve.
+  queue: max
 
 permissions:
   contents: read
@@ -111,6 +115,9 @@ jobs:
       # The Laravel deploy moves/selects the same persistent public/ohif tree.
       group: phr-production-files
       cancel-in-progress: false
+      # Matches CI's deploy job: retain pending production writers instead of
+      # replacing them. Bounded at 100 pending, and not an ordering guarantee.
+      queue: max
     permissions:
       contents: read
     steps:
@@ -127,36 +134,25 @@ jobs:
           name: ohif-dist
           path: ohif-dist
 
-      # Same key-based auth as ci.yml's `deploy` job (SSH_PRIVATE_KEY +
-      # SSH_KNOWN_HOSTS). Host key is pinned via SSH_KNOWN_HOSTS (no
-      # StrictHostKeyChecking=no). The ssh config entry keeps transport flags
-      # out of the convergence script, so it stays exercisable offline with a
-      # stubbed ssh in .github/scripts/converge-ohif-dist.test.sh.
-      - name: Set up SSH deploy key
+      # Same scoped alias pattern as ci.yml's deploy job and as the shared
+      # cPanel action: a dedicated key and known_hosts file, appended rather
+      # than overwriting whatever else the runner holds. Host key pinned; no
+      # StrictHostKeyChecking=no.
+      - name: Configure SSH for OHIF convergence
         env:
+          SSH_ALIAS: phr-ohif
+          SSH_HOST_NAME: ${{ secrets.SSH_HOST }}
+          SSH_USER_NAME: ${{ secrets.SSH_USERNAME }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-        run: |
-          set -euo pipefail
-          install -d -m 700 ~/.ssh
-          printf '%s\n' "$SSH_PRIVATE_KEY" >~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          printf '%s\n' "$SSH_KNOWN_HOSTS" >~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
-          {
-            printf 'Host %s\n' "$SSH_HOST"
-            printf '  IdentityFile ~/.ssh/id_ed25519\n'
-            printf '  IdentitiesOnly yes\n'
-          } >~/.ssh/config
-          chmod 600 ~/.ssh/config
+        run: bash .github/scripts/configure-ohif-ssh.sh
 
       # Publishes only when the live bundle differs, and records what it
       # published so CI's deploy job can tell whether it still has work to do.
       # --delete stays scoped to public/ohif; see the script's header.
       - name: Converge the deployed OHIF bundle
         env:
-          OHIF_SSH_TARGET: ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}
+          OHIF_SSH_TARGET: phr-ohif
           OHIF_DEPLOY_DIR: phr-laravel
           OHIF_BUNDLE_DIR: ohif-dist
         run: bash .github/scripts/converge-ohif-dist.sh
