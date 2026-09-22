@@ -6,6 +6,7 @@ use App\GenAiProcessor\Mail\GenAiJobCompleteMail;
 use App\GenAiProcessor\Models\GenAiImportJob;
 use App\GenAiProcessor\Services\PhrGenAiRequestPreparationService;
 use App\GenAiProcessor\Services\PhrImportProposalApplicationService;
+use App\GenAiProcessor\Support\PhrExternalImportStatusMap;
 use App\Models\PhrDocument;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
@@ -46,7 +47,7 @@ final readonly class PhrMcpCompletionDelivery implements CompletionDelivery
             GenAiImportJob::query()
                 ->whereKey($job->id)
                 ->where('mcp_request_id', $request->id)
-                ->whereIn('status', ['pending', 'processing'])
+                ->whereIn('status', PhrExternalImportStatusMap::NONTERMINAL_PHR_STATUSES)
                 ->update([
                     'status' => 'failed',
                     'error_message' => 'The external client could not process this import.',
@@ -69,7 +70,7 @@ final readonly class PhrMcpCompletionDelivery implements CompletionDelivery
             GenAiImportJob::query()
                 ->whereKey($job->id)
                 ->where('mcp_request_id', $request->id)
-                ->whereIn('status', ['pending', 'processing'])
+                ->whereIn('status', PhrExternalImportStatusMap::NONTERMINAL_PHR_STATUSES)
                 ->update([
                     'status' => 'failed',
                     'error_message' => 'External processing was cancelled because access or source state changed.',
