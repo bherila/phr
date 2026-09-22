@@ -105,6 +105,7 @@ jobs:
           bash .github/scripts/verify-phr-candidate.test.sh
           bash .github/scripts/verify-phr-activation.test.sh
           bash .github/scripts/verify-phr-deployment.test.sh
+          bash .github/scripts/verify-frontend-manifest.test.sh
           bash .github/scripts/verify-phr-ohif-artifact.test.sh
           bash .github/scripts/converge-ohif-dist.test.sh
           bash .github/scripts/configure-ohif-ssh.test.sh
@@ -460,6 +461,17 @@ jobs:
       # release would never be reached -- the repair would be unreachable in
       # exactly the case it exists for. Converging first also means that proof
       # now covers the bundle this deploy just published.
+      # A broken frontend build artifact is a runner problem, not evidence that
+      # production is broken, so it is caught here -- after the artifact lands
+      # and before anything touches the server. The post-deploy verifier runs
+      # the same check again from the same file; this step is what keeps a
+      # local defect from costing an OHIF convergence and a release first.
+      - name: Preflight the frontend build manifest
+        env:
+          PHR_MANIFEST_PATH: public/build/manifest.json
+          PHR_MANIFEST_BUILD_ROOT: public/build
+        run: bash .github/scripts/verify-frontend-manifest.sh
+
       - name: Resolve the newest built OHIF bundle
         id: ohif
         env:
