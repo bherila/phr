@@ -5,11 +5,11 @@ namespace App\Console\Commands\GenAi;
 use App\GenAiProcessor\Jobs\ParseImportJob;
 use App\GenAiProcessor\Models\GenAiImportJob;
 use App\GenAiProcessor\Support\PhrExternalImportStatusMap;
+use App\Support\Logging\SafeLog;
 use Bherila\GenAiLaravel\Mcp\Models\McpRequest;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Throwable;
 
 class RequeueStaleGenAiJobs extends Command
@@ -230,7 +230,7 @@ class RequeueStaleGenAiJobs extends Command
             // The row remains pending. Its updated_at claim prevents a hot
             // retry loop, and the pending recovery pass will try it again
             // after --pending-minutes.
-            Log::error('Failed to redispatch recovered GenAI job', [
+            SafeLog::error('Failed to redispatch recovered GenAI job', [
                 'job_id' => $jobId,
                 'exception' => $error::class,
             ]);

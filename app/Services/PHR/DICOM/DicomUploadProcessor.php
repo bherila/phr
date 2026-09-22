@@ -9,11 +9,11 @@ use App\Models\PhrDicomStudy;
 use App\Models\PhrDicomUpload;
 use App\Models\PhrPatient;
 use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
+use App\Support\Logging\SafeLog;
 use App\Support\Storage\PhrStorageKey;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -283,10 +283,15 @@ class DicomUploadProcessor
         try {
             $disk->deleteDirectory($upload->r2_prefix);
         } catch (Throwable $cleanupError) {
-            Log::warning('phr.dicom.cleanup_delete_prefix_failed', [
+            // Best-effort storage cleanup; the upload row still transitions to
+            // STATUS_FAILED below regardless. `r2_prefix` embeds the owning
+            // patient id (see PhrStorageKey::dicomUpload()), so it - and the
+            // raw exception message, which PR #152 proved can carry SQL
+            // bindings - never go into the log context, only the upload id
+            // and exception class.
+            SafeLog::warning('phr.dicom.cleanup_delete_prefix_failed', [
                 'upload_id' => $upload->id,
-                'prefix' => $upload->r2_prefix,
-                'error' => $cleanupError->getMessage(),
+                'exception' => $cleanupError::class,
             ]);
         }
 
