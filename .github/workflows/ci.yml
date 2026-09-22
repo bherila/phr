@@ -12,6 +12,13 @@ concurrency:
   # A main run may already be quiescing production. Never cancel it between the
   # durable remote phases; pull-request runs can still supersede one another.
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  # Keep the default `queue: single` to coalesce pending main CI runs rather
+  # than deploy every intermediate push; the `phr-production-files` groups use
+  # `max` for a different reason (see the deploy job). With ordinary
+  # forward-moving pushes, a newer commit contains the earlier changes. This is
+  # pending-run coalescing, not a commit-order or anti-rollback guarantee:
+  # replacement is not an ancestry check, and an older run that is re-run keeps
+  # its original SHA. See #126.
 
 jobs:
   frontend-build:
@@ -100,6 +107,7 @@ jobs:
           bash .github/scripts/verify-phr-deployment.test.sh
           bash .github/scripts/verify-phr-ohif-artifact.test.sh
           bash .github/scripts/converge-ohif-dist.test.sh
+          bash .github/scripts/configure-ohif-ssh.test.sh
           bash .github/ohif/verify-dist.test.sh
 
       - name: Test agent mutation digest key installer
@@ -298,6 +306,18 @@ jobs:
       # this job, rather than GitHub concurrency, is what keeps writes whole.
       group: phr-production-files
       cancel-in-progress: false
+      # `single`, the default, keeps at most one pending job per group and
+      # cancels-and-replaces it when another arrives. That silently discarded
+      # production writers: an arriving OHIF deploy could replace a pending
+      # application deploy, and the OHIF job ships no application code, so if
+      # that pending deploy carried the newest `main` its commits never went
+      # out at all. `max` retains up to 100 pending instead.
+      #
+      # This is a bounded retention improvement, not a durable queue: past 100
+      # pending, further runs are still cancelled, and waiting order is not
+      # source-commit order. See issue #126, which stays open for the ordering
+      # and latest-desired-state guarantees this does not provide.
+      queue: max
     permissions:
       contents: read
       # Resolving and downloading the OHIF Dist bundle from its own run.
@@ -334,14 +354,16 @@ jobs:
       # --- OHIF convergence (issue #126) -------------------------------------
       #
       # The OHIF bundle is published by its own workflow's deploy job, which
-      # shares this job's `phr-production-files` concurrency group. GitHub keeps
-      # only one pending job per group, so an application deploy arriving while
-      # an OHIF deploy waits will evict it. That is harmless in the other
-      # direction -- an application deploy always ships current `main`, so the
-      # run that evicts one subsumes it -- but an OHIF deploy carried one
-      # specific artifact that nothing else would ever publish, and the
-      # application rsync excludes `ohif`. An evicted OHIF deploy was therefore
-      # lost permanently and silently.
+      # shares this job's `phr-production-files` concurrency group, so either
+      # can displace the other while pending. An evicted OHIF deploy carried
+      # one specific artifact that nothing else would ever publish, and the
+      # application rsync excludes `ohif`, so it was lost permanently.
+      #
+      # The reverse is not symmetric and an earlier version of this comment
+      # wrongly claimed it was. An arriving OHIF deploy can displace a pending
+      # *application* deploy, and the OHIF job ships no application code -- so
+      # that eviction is not repaired here either. `queue: max` above is what
+      # addresses that direction; convergence below addresses this one.
       #
       # Serializing on the remote lock instead is not available: the shared
       # action takes it with a single `mkdir`, no retry, and hard-fails asking
@@ -403,38 +425,26 @@ jobs:
           run-id: ${{ steps.ohif.outputs.run_id }}
           github-token: ${{ github.token }}
 
-      # The shared action manages its own SSH for the application release and
-      # leaves nothing behind for later steps, so convergence brings its own.
-      # Host key pinned from SSH_KNOWN_HOSTS; no StrictHostKeyChecking=no.
-      - name: Set up SSH for OHIF convergence
+      # A dedicated alias with its own key and known_hosts file, appended rather
+      # than overwritten. This job authorizes the private MCP bridge over SSH
+      # earlier, and the shared cPanel action writes its own alias the same way;
+      # the previous inline step overwrote ~/.ssh/config and ~/.ssh/known_hosts
+      # wholesale, which would have discarded both. Host key pinned; no
+      # StrictHostKeyChecking=no.
+      - name: Configure SSH for OHIF convergence
         if: ${{ steps.ohif.outputs.run_id != '' }}
         env:
+          SSH_ALIAS: phr-ohif
+          SSH_HOST_NAME: ${{ secrets.SSH_HOST }}
+          SSH_USER_NAME: ${{ secrets.SSH_USERNAME }}
           SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-        run: |
-          set -euo pipefail
-          install -d -m 700 ~/.ssh
-          printf '%s\n' "$SSH_PRIVATE_KEY" >~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          # Appended, not overwritten: this step now runs before the release,
-          # and the MCP bridge ssh-agent step earlier in this job may already
-          # have put a github.com entry here.
-          printf '%s\n' "$SSH_KNOWN_HOSTS" >>~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
-          # Keeps transport flags out of the convergence script, so it stays
-          # exercisable offline with a stubbed ssh in its own test harness.
-          {
-            printf 'Host %s\n' "$SSH_HOST"
-            printf '  IdentityFile ~/.ssh/id_ed25519\n'
-            printf '  IdentitiesOnly yes\n'
-          } >~/.ssh/config
-          chmod 600 ~/.ssh/config
+        run: bash .github/scripts/configure-ohif-ssh.sh
 
       - name: Converge the deployed OHIF bundle
         if: ${{ steps.ohif.outputs.run_id != '' }}
         env:
-          OHIF_SSH_TARGET: ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}
+          OHIF_SSH_TARGET: phr-ohif
           OHIF_DEPLOY_DIR: phr-laravel
           OHIF_BUNDLE_DIR: ohif-desired
         run: bash .github/scripts/converge-ohif-dist.sh
