@@ -48,6 +48,21 @@ verify_root="$(mktemp -d)"
 readonly verify_root
 trap 'rm -rf "$verify_root"' EXIT
 
+# shellcheck source=./verify-frontend-manifest.sh
+source "$script_dir/verify-frontend-manifest.sh"
+
+# Manifest validation is local-only (no network, no SSH) and runs first, before
+# this script makes any HTTP or SSH call. A broken build artifact is a
+# verifier-input problem, not evidence that production is broken, and this
+# ordering means the post-deploy verifier also fails closed with zero remote
+# calls when it is -- it is not relying solely on the separate CI preflight
+# step (.github/scripts/verify-frontend-manifest.sh run standalone right
+# after actions/download-artifact, before any remote mutation) to catch it.
+readonly max_manifest_assets=12
+manifest_assets="$verify_root/manifest-assets.tsv"
+readonly manifest_assets
+verify_frontend_manifest "$manifest_path" "$(dirname "$manifest_path")" "$manifest_assets" "$max_manifest_assets"
+
 request() {
     local name="$1" url="$2"
     shift 2
@@ -117,64 +132,6 @@ login_content_type="$(header_value content-type)"
 login_content_type="${login_content_type%%;*}"
 if [[ "${login_content_type,,}" != text/html ]]; then
     echo 'Login page did not report an HTML content type.' >&2
-    exit 1
-fi
-
-[[ -f "$manifest_path" ]] || { echo "Frontend build manifest not found at ${manifest_path}." >&2; exit 1; }
-manifest_assets="$verify_root/manifest-assets.tsv"
-# shellcheck disable=SC2016 # The PHP program is intentionally a literal string.
-PHR_VERIFY_MANIFEST="$manifest_path" PHR_VERIFY_OUT="$manifest_assets" "$php_runner" -r '
-    $data = json_decode((string) file_get_contents(getenv("PHR_VERIFY_MANIFEST")), true, 8, JSON_THROW_ON_ERROR);
-    if (!is_array($data)) {
-        fwrite(STDERR, "Frontend build manifest is not a JSON object.\n");
-        exit(1);
-    }
-    $files = [];
-    foreach ($data as $entry) {
-        if (!is_array($entry) || ($entry["isEntry"] ?? false) !== true) {
-            continue;
-        }
-        $file = $entry["file"] ?? null;
-        if (!is_string($file) || $file === "") {
-            fwrite(STDERR, "Frontend build manifest entry is missing its file.\n");
-            exit(1);
-        }
-        $files[$file] = true;
-        foreach ((array) ($entry["css"] ?? []) as $css) {
-            if (!is_string($css) || $css === "") {
-                fwrite(STDERR, "Frontend build manifest entry has an invalid CSS reference.\n");
-                exit(1);
-            }
-            $files[$css] = true;
-        }
-    }
-    if ($files === []) {
-        fwrite(STDERR, "Frontend build manifest has no entry points to verify.\n");
-        exit(1);
-    }
-    $out = fopen(getenv("PHR_VERIFY_OUT"), "w");
-    foreach (array_keys($files) as $file) {
-        if (str_ends_with($file, ".js")) {
-            $kind = "js";
-        } elseif (str_ends_with($file, ".css")) {
-            $kind = "css";
-        } else {
-            fwrite(STDERR, "Frontend build manifest entry has an unexpected asset type.\n");
-            exit(1);
-        }
-        fwrite($out, $file."\t".$kind."\n");
-    }
-' || exit 1
-
-# Bounded on purpose: this only checks the manifest's entry points (isEntry: true) and
-# the CSS each entry pulls in, never the full chunk graph (vendor/ui-core/imaging
-# splits, etc.). That is a handful of hashed files, not the dozens a full-site crawl
-# would touch, and it runs against production during a deploy. The cap below is a
-# sanity backstop against that set growing unboundedly if the Vite config changes.
-readonly max_manifest_assets=12
-manifest_asset_count="$(wc -l <"$manifest_assets" | tr -d ' ')"
-if (( manifest_asset_count > max_manifest_assets )); then
-    echo "Frontend build manifest has ${manifest_asset_count} entry-point assets, exceeding the bounded check limit of ${max_manifest_assets}." >&2
     exit 1
 fi
 
