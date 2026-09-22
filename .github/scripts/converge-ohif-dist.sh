@@ -18,10 +18,18 @@
 # GitHub-level serializer has to stay, and the fix is to stop the OHIF writer
 # being the kind of work that eviction can lose.
 #
-# This script is that fix. It runs inside the one deploy job, after the
-# application release is serving, and moves the live bundle to the desired one
-# only when they differ. Because every deploy converges both subsystems, an
-# evicted run is subsumed by the run that evicted it, for both.
+# This script is that fix. Both writers in the group run it: CI's deploy job
+# runs it *before* the shared cPanel action releases the application (the
+# action's verification then proves the bundle this step published), and the
+# OHIF workflow's deploy job runs it as its only remote write. It moves the
+# live bundle to the newest built one only when the recorded digest says they
+# differ, so an application deploy that evicts a pending OHIF deploy converges
+# OHIF on its behalf.
+#
+# The repair is one-directional, not symmetric. The OHIF deploy job ships no
+# application code, so an OHIF deploy that evicts a pending application deploy
+# does not subsume it; that application change waits for the next CI deploy.
+# What this script guarantees is only that no OHIF bundle is lost to eviction.
 #
 # # Where the bundle actually lives
 #
@@ -86,6 +94,12 @@ readonly entrypoint="$OHIF_BUNDLE_DIR/index.html"
 # Cleared before the tree is touched and rewritten only after the transfer
 # succeeds, so the record is present only while it describes what is live.
 readonly digest_name='.ohif-digest'
+# The record format this script trusts. Records written before it -- a bare
+# sha256 -- came from a transfer that used rsync's size+mtime quick check, so
+# one can claim a bundle whose bytes never actually landed. Only a record in
+# this format, which is written exclusively after a `--checksum` transfer, may
+# short-circuit a deploy; anything else is an untrusted cache entry.
+readonly record_prefix='v2:'
 
 # Remote paths come in two flavours and the difference is load-bearing.
 #
@@ -155,13 +169,24 @@ remote_bash() {
     "$ssh_bin" "$OHIF_SSH_TARGET" 'bash -s'
 }
 
-# Report the remote layout as key=value lines. Reads only: this runs before any
-# decision is made, so it must never create or modify anything.
-inspect_remote() {
-    {
-        printf 'deploy_dir=%q\n' "$OHIF_DEPLOY_DIR"
-        cat <<'REMOTE'
-set -u
+# Remote definitions shared by the read-only inspection and by every step that
+# mutates the remote tree. The mutating steps re-run these checks themselves,
+# immediately before they act, so the layout they write into is the one that
+# was validated rather than whatever occupies the path by then.
+#
+# `app_state` mirrors the pinned shared action (bherila/shared-cpanel-deployment,
+# scripts/atomic-release.sh): `selected_target` treats a real directory holding
+# `artisan` as the application, and takes a symlink's *literal* target, which
+# `validate_release_target` accepts only when it is exactly
+# `.deployments/<deploy-dir>/releases/<plain-name>` and names a real directory
+# holding `artisan`. Any other symlink -- including one that resolves to a tree
+# that merely looks like Laravel -- is `bad-symlink`, not an application root.
+# (The `releases`/control-directory symlink checks are stricter than the action,
+# which only checks the leaf; the action refuses symlinked control paths
+# elsewhere, so this never refuses a layout the action would accept.)
+remote_prelude() {
+    printf 'deploy_dir=%q\n' "$OHIF_DEPLOY_DIR"
+    cat <<'REMOTE'
 app_root=$HOME/$deploy_dir
 control=$HOME/.deployments/$deploy_dir
 shared=$control/shared
@@ -175,21 +200,45 @@ path_type() {
     fi
 }
 
-# Mirrors the shared action's `selected_target` closely enough to tell an
-# application root apart from a directory that merely occupies the name.
 app_state() {
-    if [ -L "$app_root" ]; then echo symlink
+    local target release
+    if [ -L "$app_root" ]; then
+        target=$(readlink "$app_root") || { echo bad-symlink; return; }
+        release=${target##*/}
+        case $release in
+            '' | . | .. | .* | *[!A-Za-z0-9._-]*) echo bad-symlink; return ;;
+        esac
+        if [ "$target" = ".deployments/$deploy_dir/releases/$release" ] \
+            && [ ! -L "$HOME/.deployments" ] && [ ! -L "$control" ] \
+            && [ -d "$control/releases" ] && [ ! -L "$control/releases" ] \
+            && [ -d "$HOME/$target" ] && [ ! -L "$HOME/$target" ] \
+            && [ -f "$HOME/$target/artisan" ]; then
+            echo release-symlink
+        else
+            echo bad-symlink
+        fi
     elif [ -d "$app_root" ]; then
         if [ -f "$app_root/artisan" ]; then echo laravel; else echo other; fi
     elif [ -e "$app_root" ]; then echo other
     else echo absent
     fi
 }
+REMOTE
+}
 
+# Report the remote layout as key=value lines. Reads only: this runs before any
+# decision is made, so it must never create or modify anything.
+#
 # `readlink -m` canonicalizes without requiring the path to exist, so a
 # dangling link still reports the target it *intends*, which is exactly what
 # has to be compared against the canonical managed directory.
+inspect_remote() {
+    {
+        remote_prelude
+        cat <<'REMOTE'
+set -u
 printf 'app=%s\n' "$(app_state)"
+printf 'app_link=%s\n' "$(readlink "$app_root" 2>/dev/null || true)"
 printf 'app_public=%s\n' "$(path_type "$app_root/public")"
 printf 'live=%s\n' "$(path_type "$app_root/public/ohif")"
 printf 'live_link=%s\n' "$(readlink "$app_root/public/ohif" 2>/dev/null || true)"
@@ -208,7 +257,7 @@ REMOTE
 declare -A fact=()
 while IFS='=' read -r key value; do
     case "$key" in
-        app|app_public|live|live_link|live_canon|deployments|control|shared|shared_public|managed|managed_canon|ok)
+        app|app_link|app_public|live|live_link|live_canon|deployments|control|shared|shared_public|managed|managed_canon|ok)
             fact["$key"]="$value" ;;
     esac
 done < <(inspect_remote)
@@ -249,6 +298,30 @@ for control_path in deployments:'~/.deployments' control:"~/.deployments/$OHIF_D
     esac
 done
 
+# The application root and its `public` ancestor, checked once for every
+# layout rather than per branch, so no branch can write through either. The
+# rules are the pinned action's: an app-root symlink must be a managed release
+# link (`app_state` above), and a persistent path may not traverse a symlinked
+# or non-directory ancestor -- `ensure_safe_ancestors`, which `preflight` runs
+# against the selected root and `link_persistent_path` against every root it
+# links. A `public` that is a symlink would let the legacy-directory transfer,
+# or the restored live link, land in whatever tree it points at.
+case "${fact[app]}" in
+    laravel|release-symlink|absent) ;;
+    bad-symlink)
+        # shellcheck disable=SC2088  # A message, not a path to expand.
+        refuse "~/$OHIF_DEPLOY_DIR is a symlink to '${fact[app_link]}', which is not a managed release directory (.deployments/$OHIF_DEPLOY_DIR/releases/<name> holding artisan). The deployment action refuses it too; resolve it by hand before deploying OHIF." ;;
+    *)
+        # shellcheck disable=SC2088  # A message, not a path to expand.
+        refuse "~/$OHIF_DEPLOY_DIR exists but is neither an application root nor a managed release symlink (${fact[app]}). The deployment action will refuse it too; resolve it by hand before deploying OHIF." ;;
+esac
+case "${fact[app_public]}" in
+    absent|dir) ;;
+    *)
+        # shellcheck disable=SC2088  # A message, not a path to expand.
+        refuse "~/$OHIF_DEPLOY_DIR/public is a ${fact[app_public]}, not a real directory. The deployment action refuses a persistent path under a symlinked or non-directory ancestor; refusing to write through it." ;;
+esac
+
 # `mode` records which layout was recognised; `destination` is the remote path
 # the bundle is transferred into; `create_destination` says whether this script
 # may establish it (only ever the canonical managed directory).
@@ -280,9 +353,11 @@ case "${fact[live]}" in
         if [[ "${fact[managed]}" != absent ]]; then
             refuse "Both the live OHIF directory $remote_live and the managed shared directory $remote_managed exist. Refusing to choose between or delete either copy; reconcile them by hand."
         fi
-        case "${fact[app]}" in
-            laravel|symlink) ;;
-            *) refuse "The live OHIF path $remote_live is a real directory but ~/$OHIF_DEPLOY_DIR is not an application root (${fact[app]}). Refusing to write into an unrecognised layout." ;;
+        # The application root and `public` were proven above; a real `public`
+        # under a real or managed-release root is the only place this may be.
+        case "${fact[app]}:${fact[app_public]}" in
+            laravel:dir|release-symlink:dir) ;;
+            *) refuse "The live OHIF path $remote_live is a real directory but ~/$OHIF_DEPLOY_DIR is not an application root with a real public directory (app=${fact[app]}, public=${fact[app_public]}). Refusing to write into an unrecognised layout." ;;
         esac
         destination_rel="$live_rel"
         mode='legacy-directory'
@@ -293,7 +368,7 @@ case "${fact[live]}" in
             create_destination=true
         fi
         case "${fact[app]}" in
-            laravel|symlink)
+            laravel|release-symlink)
                 if [[ "${fact[app_public]}" == dir ]]; then
                     # The confirmed recovery case: the managed tree is the only
                     # copy and the live link is gone. Creating a directory here
@@ -315,8 +390,9 @@ case "${fact[live]}" in
                 mode='bootstrap-stage'
                 ;;
             *)
-                # shellcheck disable=SC2088  # A message, not a path to expand.
-                refuse "~/$OHIF_DEPLOY_DIR exists but is neither an application root nor a managed release symlink (${fact[app]}). The deployment action will refuse it too; resolve it by hand before deploying OHIF."
+                # Unreachable while the application-root gate above holds;
+                # kept so a future state cannot fall through to a write.
+                refuse "Unrecognised application root state '${fact[app]}'."
                 ;;
         esac
         ;;
@@ -335,7 +411,7 @@ echo "OHIF layout: app=${fact[app]} live=${fact[live]} managed=${fact[managed]};
 # Read only after the destination has been resolved and the structure proven,
 # so a matching digest can never short-circuit past a layout that still needs
 # repairing.
-read_live_digest() {
+read_live_record() {
     {
         printf 'destination_rel=%q\n' "$destination_rel"
         printf 'digest_name=%q\n' "$digest_name"
@@ -346,28 +422,79 @@ REMOTE
     } | remote_bash | tr -d '[:space:]'
 }
 
-# An unreadable, absent, or malformed record reads as empty, which simply
-# means "converge". Note that the validation below is defensive rather than
-# load-bearing: a malformed value could never equal a real digest anyway, so
-# it would force a redeploy with or without the check.
-live_digest="$(read_live_digest)"
-if [[ ! "$live_digest" =~ ^[0-9a-f]{64}$ ]]; then
-    live_digest=''
+# Only a `v2:` record is evidence of what is live, because only this script's
+# `--checksum` transfer writes one. A bare sha256 is a legacy record from the
+# quick-check transfer: it may claim bytes that never landed (same size, same
+# mtime, different content), so it is an untrusted cache entry and forces the
+# full convergence below, which repairs the tree and replaces it with a `v2:`
+# record. An absent or unrecognised record is treated the same way. Nothing
+# but a trusted record equal to the desired one takes the no-op path.
+live_record="$(read_live_record)"
+live_digest=''
+case "$live_record" in
+    '')
+        record_state=absent ;;
+    "$record_prefix"*)
+        if [[ "${live_record#"$record_prefix"}" =~ ^[0-9a-f]{64}$ ]]; then
+            record_state=trusted
+            live_digest="${live_record#"$record_prefix"}"
+        else
+            record_state=unrecognised
+        fi
+        ;;
+    *)
+        if [[ "$live_record" =~ ^[0-9a-f]{64}$ ]]; then record_state=legacy; else record_state=unrecognised; fi
+        ;;
+esac
+readonly live_record record_state live_digest
+
+# Everything that mutates the remote tree runs this first, on the remote side
+# and in the same shell as the mutation. It re-proves what the inspection
+# proved about the application root, its `public` ancestor, and the managed
+# control chain, so a layout that changed after inspection is refused rather
+# than written through. (It narrows the window; it cannot make the later rsync
+# atomic with it.)
+remote_guard() {
+    remote_prelude
+    printf 'expect_app=%q\n' "${fact[app]}"
+    printf 'expect_app_link=%q\n' "${fact[app_link]}"
+    cat <<'REMOTE'
+set -eu
+guard_fail() { echo "$1; not writing." >&2; exit 1; }
+[ "$(app_state)" = "$expect_app" ] \
+    || guard_fail "~/$deploy_dir is now '$(app_state)', not the '$expect_app' that was inspected"
+if [ "$expect_app" != absent ]; then
+    [ "$(readlink "$app_root" 2>/dev/null || true)" = "$expect_app_link" ] \
+        || guard_fail "~/$deploy_dir was retargeted after inspection"
+    case $(path_type "$app_root/public") in
+        absent | dir) ;;
+        *) guard_fail "~/$deploy_dir/public is not a real directory" ;;
+    esac
 fi
-readonly live_digest
+for directory in "$HOME/.deployments" "$control" "$shared" "$shared/public" "$shared/public/ohif"; do
+    case $(path_type "$directory") in
+        absent | dir) ;;
+        *) guard_fail "Deployment control path $directory is not a real directory" ;;
+    esac
+done
+REMOTE
+}
 
 # Restoring the missing live symlink happens whether or not the bundle itself
 # needed transferring, because its absence blocks the *next* application
 # release: the action's `prepare` requires an established release to link every
 # persistent path to managed shared state, and errors out when it does not.
+# The guard re-validates the application root and `public` first, and the link
+# is only ever created where nothing exists: a path that reappeared is never
+# replaced.
 restore_link_if_needed() {
     [[ "$restore_live_link" == true ]] || return 0
     {
-        printf 'deploy_dir=%q\n' "$OHIF_DEPLOY_DIR"
+        remote_guard
         cat <<'REMOTE'
-set -eu
-live=$HOME/$deploy_dir/public/ohif
-managed=$HOME/.deployments/$deploy_dir/shared/public/ohif
+live=$app_root/public/ohif
+managed=$shared/public/ohif
+[ -d "$app_root/public" ] && [ ! -L "$app_root/public" ] || { echo "~/$deploy_dir/public is not a real directory; not linking into it." >&2; exit 1; }
 [ ! -e "$live" ] && [ ! -L "$live" ] || { echo "The live OHIF path reappeared; not replacing it." >&2; exit 1; }
 [ -d "$managed" ] && [ ! -L "$managed" ] || { echo "The managed shared OHIF directory is not a real directory; not linking to it." >&2; exit 1; }
 ln -s "$managed" "$live"
@@ -377,17 +504,22 @@ REMOTE
     echo "Restored the live OHIF symlink $remote_live -> $remote_managed."
 }
 
-if [[ "$live_digest" == "$desired_digest" ]]; then
+if [[ "$record_state" == trusted && "$live_digest" == "$desired_digest" ]]; then
     echo "OHIF bundle already converged at ${desired_digest:0:12}; nothing to transfer."
     restore_link_if_needed
     exit 0
 fi
 
-if [[ -n "$live_digest" ]]; then
-    echo "Converging OHIF bundle ${live_digest:0:12} -> ${desired_digest:0:12}."
-else
-    echo "Converging OHIF bundle to ${desired_digest:0:12}; no recorded live bundle."
-fi
+case "$record_state" in
+    trusted)
+        echo "Converging OHIF bundle ${live_digest:0:12} -> ${desired_digest:0:12}." ;;
+    legacy)
+        echo "The recorded OHIF digest ${live_record:0:12} is a legacy record from a quick-check transfer and is not trusted; forcing a full checksum convergence to ${desired_digest:0:12}." ;;
+    unrecognised)
+        echo "The recorded OHIF digest is not in a recognised format and is not trusted; forcing a full checksum convergence to ${desired_digest:0:12}." ;;
+    *)
+        echo "Converging OHIF bundle to ${desired_digest:0:12}; no recorded live bundle." ;;
+esac
 
 # Only ever the canonical managed directory, and only when the inspection
 # proved every ancestor is absent or already a real directory. The control
@@ -395,17 +527,15 @@ fi
 # `ensure_safe_ancestors` use, so a later release finds the layout it expects.
 if [[ "$create_destination" == true ]]; then
     {
-        printf 'deploy_dir=%q\n' "$OHIF_DEPLOY_DIR"
+        remote_guard
         cat <<'REMOTE'
-set -eu
-control=$HOME/.deployments/$deploy_dir
 # Only ever create what is missing. `install -d` would also re-apply the mode
 # to directories that already exist, and these are the deployment action's own
 # control directories, not this script's to re-permission.
-for directory in "$HOME/.deployments" "$control" "$control/shared" "$control/shared/public"; do
+for directory in "$HOME/.deployments" "$control" "$shared" "$shared/public"; do
     [ -d "$directory" ] || install -d -m 700 "$directory"
 done
-[ -d "$control/shared/public/ohif" ] || install -d -m 755 "$control/shared/public/ohif"
+[ -d "$shared/public/ohif" ] || install -d -m 755 "$shared/public/ohif"
 REMOTE
     } | remote_bash
     echo "Established the managed shared OHIF directory $remote_managed."
@@ -417,12 +547,16 @@ fi
 # having none: rsync deletes and rewrites files as it goes, so the moment the
 # transfer starts the old digest is a false claim about a tree that no longer
 # matches it. An interrupted deploy therefore leaves no record, and the next
-# deploy converges rather than trusting a stale one.
+# deploy converges rather than trusting a stale one. The guard runs first, and
+# the destination itself must be a real directory by now: it either existed or
+# was just established above.
 {
+    remote_guard
     printf 'destination_rel=%q\n' "$destination_rel"
     printf 'digest_name=%q\n' "$digest_name"
     cat <<'REMOTE'
-set -eu
+[ -d "$HOME/$destination_rel" ] && [ ! -L "$HOME/$destination_rel" ] \
+    || guard_fail "The OHIF destination ~/$destination_rel is not a real directory"
 rm -f "$HOME/$destination_rel/$digest_name"
 REMOTE
 } | remote_bash
@@ -440,23 +574,25 @@ REMOTE
 # digest this script then records as converged -- and because the record then
 # matches, every later deploy would short-circuit and never repair it. The
 # bundle is small and deploys are infrequent, so paying for a checksum pass is
-# the cheap side of that trade. (The real-transport suite pins this down with a
-# fixture whose two versions share a size and a timestamp.)
+# the cheap side of that trade. It is also why a bare legacy record, written
+# before this transfer used --checksum, is not trusted by the gate above. (The
+# real-transport suite pins both down with a fixture whose two versions share a
+# size and a timestamp, and marks the resulting failure `STALE-CONTENT:`.)
 "$rsync_bin" -a --checksum --delete "--exclude=$digest_name" \
     "$OHIF_BUNDLE_DIR/" "$OHIF_SSH_TARGET:$destination/"
 
 {
     printf 'destination_rel=%q\n' "$destination_rel"
     printf 'digest_name=%q\n' "$digest_name"
-    printf 'digest=%q\n' "$desired_digest"
+    printf 'record=%q\n' "$record_prefix$desired_digest"
     cat <<'REMOTE'
 set -eu
-printf '%s\n' "$digest" > "$HOME/$destination_rel/$digest_name"
+printf '%s\n' "$record" > "$HOME/$destination_rel/$digest_name"
 REMOTE
 } | remote_bash
 
-confirmed="$(read_live_digest)"
-if [[ "$confirmed" != "$desired_digest" ]]; then
+confirmed="$(read_live_record)"
+if [[ "$confirmed" != "$record_prefix$desired_digest" ]]; then
     echo 'The OHIF bundle digest did not read back as the bundle that was just deployed.' >&2
     exit 1
 fi

@@ -156,6 +156,7 @@ readonly live="$app_root/public/ohif"
 readonly control="$server_home/.deployments/phr-laravel"
 readonly shared="$control/shared"
 readonly managed="$shared/public/ohif"
+readonly unrelated="$server_home/unrelated-tree"
 
 # --- the server -------------------------------------------------------------
 mkdir -p "$server_home/.ssh" "$client_home/.ssh"
@@ -335,6 +336,9 @@ touch -d '2026-01-01T00:00:00Z' "$root_dir/v1/index.html" "$root_dir/v2/index.ht
     || fail 'fixture: the two entrypoints must share a byte count to exercise the quick check.'
 ! cmp -s "$root_dir/v1/index.html" "$root_dir/v2/index.html" \
     || fail 'fixture: the two entrypoints must differ in content.'
+v1_digest="$(digest_of "$root_dir/v1")"
+v2_digest="$(digest_of "$root_dir/v2")"
+readonly v1_digest v2_digest
 
 # --- the pinned deployment action -------------------------------------------
 action=''
@@ -412,7 +416,7 @@ scenario 'healthy managed symlink converges over real ssh into the managed direc
 OHIF_BUNDLE_DIR="$root_dir/v1" run_converge >/dev/null
 [[ "$(tag_at "$managed")" == v3.12.0 ]] || fail 'The bundle did not reach the managed shared directory.'
 [[ -L "$live" && "$(readlink "$live")" == "$managed" ]] || fail 'The live symlink did not survive.'
-[[ "$(cat "$managed/.ohif-digest")" =~ ^[0-9a-f]{64}$ ]] || fail 'No digest was recorded.'
+[[ "$(cat "$managed/.ohif-digest")" == "v2:$v1_digest" ]] || fail 'No v2 digest record was written.'
 end_scenario
 
 if action_scenario 'the pinned action preflight accepts the converged healthy layout'; then
@@ -441,6 +445,54 @@ grep -q 'already converged' <<<"$out" || fail "A converged bundle was not recogn
 [[ "$(rsync_calls)" == 0 ]] || fail 'A no-op run still invoked rsync.'
 [[ "$(stat -c '%i %Y %s' "$managed/.ohif-digest")" == "$before_record" ]] || fail 'A no-op run rewrote the digest record.'
 [[ "$(stat -c '%i %Y' "$managed/index.html")" == "$before_entry" ]] || fail 'A no-op run rewrote the tree.'
+end_scenario
+
+# --- a legacy record that lies about what is live ---------------------------
+#
+# The regression the versioned record exists for. Before the transfer used
+# --checksum, it could skip a same-size, same-mtime entrypoint and still write
+# a record naming the new bundle: remote bytes are A, the (bare, legacy) record
+# says digest(B). A script that trusts that record short-circuits forever. The
+# fixed script must treat it as untrusted, converge A -> B for real, write a
+# `v2:` record, and only then become a no-op.
+reset_server; make_app; make_shared
+mkdir -p "$managed"; cp -a "$root_dir/v1/." "$managed/"
+printf '%s\n' "$v2_digest" >"$managed/.ohif-digest"
+ln -s "$managed" "$live"; own_server
+[[ "$(stat -c '%s %Y' "$managed/index.html")" == "$(stat -c '%s %Y' "$root_dir/v2/index.html")" ]] \
+    || fail 'fixture: live and desired entrypoints must share size and mtime.'
+[[ "$(tag_at "$managed")" == v3.12.0 ]] || fail 'fixture: the live bundle is not A.'
+scenario 'a legacy record naming the desired bundle over stale bytes is repaired'
+out="$(OHIF_BUNDLE_DIR="$root_dir/v2" PHR_OHIF_RSYNC_BIN="$root_dir/rsync-recorder" run_converge)" \
+    || fail "The legacy-record convergence failed: $out"
+[[ "$(tag_at "$managed")" == v3.13.0 ]] \
+    || fail "STALE-CONTENT: a legacy record naming the desired bundle left stale bytes live: the live entrypoint is still $(tag_at "$managed"), not v3.13.0. (Trusted the record, or skipped a same-size, same-mtime file.)"
+cmp -s "$managed/index.html" "$root_dir/v2/index.html" \
+    || fail 'STALE-CONTENT: the live entrypoint does not match the desired bundle byte for byte.'
+[[ "$(rsync_calls)" == 1 ]] || fail 'The legacy-record convergence did not run exactly one transfer.'
+[[ "$(cat "$managed/.ohif-digest")" == "v2:$v2_digest" ]] || fail 'The legacy record was not replaced with a v2 record.'
+end_scenario
+
+scenario 'the run after a legacy-record repair is a genuine no-op'
+before_record="$(stat -c '%i %Y %s' "$managed/.ohif-digest")"
+sleep 1.1
+out="$(OHIF_BUNDLE_DIR="$root_dir/v2" PHR_OHIF_RSYNC_BIN="$root_dir/rsync-recorder" run_converge)"
+grep -q 'already converged' <<<"$out" || fail "The repaired bundle was not recognised as converged: $out"
+[[ "$(rsync_calls)" == 1 ]] || fail 'The run after the repair invoked rsync again.'
+[[ "$(stat -c '%i %Y %s' "$managed/.ohif-digest")" == "$before_record" ]] || fail 'The run after the repair rewrote the record.'
+end_scenario
+
+# --- a trusted record over the right bytes ----------------------------------
+reset_server; make_app; make_shared
+mkdir -p "$managed"; cp -a "$root_dir/v2/." "$managed/"
+printf 'v2:%s\n' "$v2_digest" >"$managed/.ohif-digest"
+ln -s "$managed" "$live"; own_server
+scenario 'a trusted v2 record matching the desired bundle transfers nothing'
+before_record="$(stat -c '%i %Y %s' "$managed/.ohif-digest")"
+out="$(OHIF_BUNDLE_DIR="$root_dir/v2" PHR_OHIF_RSYNC_BIN="$root_dir/rsync-recorder" run_converge)"
+grep -q 'already converged' <<<"$out" || fail "A trusted matching record was not honoured: $out"
+[[ "$(rsync_calls)" == 0 ]] || fail 'A trusted matching record still invoked rsync.'
+[[ "$(stat -c '%i %Y %s' "$managed/.ohif-digest")" == "$before_record" ]] || fail 'A trusted record was rewritten.'
 end_scenario
 
 # --- the confirmed bug: the old mkdir, judged by the real preflight ---------
@@ -518,6 +570,110 @@ if action_scenario 'the pinned action preflight still sees a migratable legacy d
     end_scenario
 fi
 
+# --- containment: the deploy path or `public` pointing somewhere else --------
+#
+# Each fixture routes the write path into an unrelated tree that holds a real
+# `ohif` directory, a record, and sentinels. The script must refuse before it
+# deletes the record or runs rsync, and every sentinel -- including the ones
+# inside that `ohif`, which a `--delete` transfer would remove -- must survive
+# byte-identical. Assertions are ordered so a script that writes through
+# reports CONTAINMENT: rather than merely "accepted".
+make_unrelated_ohif() {
+    local ohif_dir="$1"
+    mkdir -p "$unrelated"
+    printf 'unrelated\n' >"$unrelated/SENTINEL"
+    make_tree "$ohif_dir" v3.10.0
+    printf 'unrelated-ohif\n' >"$ohif_dir/SENTINEL"
+    printf 'v2:%s\n' "$v1_digest" >"$ohif_dir/.ohif-digest"
+}
+expect_contained() {
+    local label="$1" ohif_dir="$2" status=0 record
+    record="$(cat "$ohif_dir/.ohif-digest")"
+    OHIF_BUNDLE_DIR="$root_dir/v1" PHR_OHIF_RSYNC_BIN="$root_dir/rsync-recorder" run_converge \
+        >"$root_dir/contain.out" 2>&1 || status=$?
+    [[ "$(rsync_calls)" == 0 ]] || fail "CONTAINMENT: $label: rsync ran against the unrelated tree."
+    [[ -f "$ohif_dir/.ohif-digest" && "$(cat "$ohif_dir/.ohif-digest")" == "$record" ]] \
+        || fail "CONTAINMENT: $label: the unrelated tree's record was deleted or changed."
+    [[ "$(tag_at "$ohif_dir")" == v3.10.0 ]] || fail "CONTAINMENT: $label: the unrelated bundle changed."
+    [[ "$(sentinels)" == "$scenario_sentinels" ]] || fail "CONTAINMENT: $label: a sentinel changed."
+    [[ "$status" -ne 0 ]] || fail "$label: the script reported success: $(cat "$root_dir/contain.out")"
+    grep -q 'Nothing was changed on the remote host' "$root_dir/contain.out" \
+        || fail "$label: refused late or for an unexpected reason: $(cat "$root_dir/contain.out")"
+}
+
+reset_server; make_shared
+mkdir -p "$unrelated/public"; : >"$unrelated/artisan"
+make_unrelated_ohif "$unrelated/public/ohif"
+ln -s unrelated-tree "$app_root"; own_server
+scenario 'an app-root symlink to an unrelated Laravel-looking tree is refused over real ssh'
+expect_contained 'app-root symlink to an unrelated tree' "$unrelated/public/ohif"
+grep -q 'not a managed release directory' "$root_dir/contain.out" \
+    || fail "Unexpected refusal for an unmanaged app-root symlink: $(cat "$root_dir/contain.out")"
+end_scenario
+
+if action_scenario 'the pinned action refuses the same unmanaged app-root symlink'; then
+    scenario 'the pinned action refuses the same unmanaged app-root symlink'
+    clear_transaction
+    if preflight_out="$(run_real_preflight appsym)"; then
+        fail "The pinned action accepted an unmanaged app-root symlink: $preflight_out"
+    fi
+    grep -q 'outside the managed release tree' <<<"$preflight_out" \
+        || fail "The action refused for an unexpected reason: $preflight_out"
+    echo "  confirmed: $(grep -o '::error::.*' <<<"$preflight_out" | head -1)"
+    clear_transaction
+    end_scenario
+fi
+
+reset_server; make_app; make_shared
+rm -rf "$app_root/public"
+make_unrelated_ohif "$unrelated/ohif"
+ln -s "$unrelated" "$app_root/public"; own_server
+scenario 'a symlinked public under a real Laravel root is refused over real ssh'
+expect_contained 'public symlink to an unrelated tree' "$unrelated/ohif"
+grep -q 'public is a symlink' "$root_dir/contain.out" \
+    || fail "Unexpected refusal for a symlinked public: $(cat "$root_dir/contain.out")"
+end_scenario
+
+if action_scenario 'the pinned action refuses the same symlinked public'; then
+    scenario 'the pinned action refuses the same symlinked public'
+    clear_transaction
+    if preflight_out="$(run_real_preflight pubsym)"; then
+        fail "The pinned action accepted a symlinked public ancestor: $preflight_out"
+    fi
+    grep -q 'traverses unsafe ancestor' <<<"$preflight_out" \
+        || fail "The action refused for an unexpected reason: $preflight_out"
+    echo "  confirmed: $(grep -o '::error::.*' <<<"$preflight_out" | head -1)"
+    clear_transaction
+    end_scenario
+fi
+
+# --- a managed release app-root symlink stays supported ---------------------
+make_release_app() {
+    mkdir -p "$control/releases/r1/public"
+    : >"$control/releases/r1/artisan"
+    printf 'release=r1\ncommit=abcdef1234567\n' >"$control/releases/r1/.deploy-release"
+    printf 'release\n' >"$control/releases/r1/SENTINEL"
+    ln -s .deployments/phr-laravel/releases/r1 "$app_root"
+}
+reset_server; make_shared; make_release_app; make_tree "$managed" v3.11.0; own_server
+scenario 'a missing live link under a managed release symlink is restored over real ssh'
+OHIF_BUNDLE_DIR="$root_dir/v2" run_converge >/dev/null
+[[ -L "$control/releases/r1/public/ohif" ]] || fail 'The live link was not restored inside the managed release.'
+[[ "$(readlink "$live")" == "$managed" ]] || fail 'The restored link does not point at the managed directory.'
+[[ "$(tag_at "$managed")" == v3.13.0 ]] || fail 'The managed tree was not converged.'
+end_scenario
+
+if action_scenario 'the pinned action preflight accepts the managed release layout'; then
+    scenario 'the pinned action preflight accepts the managed release layout'
+    clear_transaction
+    preflight_out="$(run_real_preflight relsym)" \
+        || fail "The pinned action's preflight rejected the managed release layout: $preflight_out"
+    grep -q 'Preflight persistent path public/ohif: live=symlink' <<<"$preflight_out" \
+        || fail "The action did not see a live symlink in the managed release: $preflight_out"
+    clear_transaction
+    end_scenario
+fi
+
 # --- genuine bootstrap ------------------------------------------------------
 reset_server
 scenario 'a bootstrap stages into managed storage over real ssh'
@@ -562,7 +718,7 @@ scenario 'the deploy after an interrupted real transfer converges'
 OHIF_BUNDLE_DIR="$root_dir/v2" run_converge >/dev/null
 [[ "$(tag_at "$managed")" == v3.13.0 ]] \
     || fail "STALE-CONTENT: a retry after a failed transfer did not converge: the live entrypoint is still $(tag_at "$managed"). A same-size, same-mtime file was skipped by rsync's quick check."
-[[ "$(cat "$managed/.ohif-digest")" =~ ^[0-9a-f]{64}$ ]] || fail 'A retry did not restore the digest record.'
+[[ "$(cat "$managed/.ohif-digest")" == "v2:$v2_digest" ]] || fail 'A retry did not restore the digest record.'
 end_scenario
 
 # --- a marker path of the wrong type ----------------------------------------
