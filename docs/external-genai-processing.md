@@ -110,6 +110,38 @@ a process restart. It runs `genai:mcp:prune` daily. Package pruning removes only
 queue-owned manifests and metadata; PHR-owned source evidence and staging lifecycle
 remain under PHR control.
 
+## Status coherence
+
+The queue request row is authoritative for an external import's status; PHR's
+own recovery timer is only a dispatch lock. `PhrExternalImportStatusMap` holds
+the one mapping between queue state and the status a user sees: a queued
+request reads as *pending*, a leased request reads as *processing* only while
+its lease is still live, an expired request reads as *failed*, and completion,
+terminal failure and cancellation are left to durable delivery and to the
+execution-mode transaction that own those writes. A retryable failure therefore
+returns the import to *pending* and keeps the queue's own retry backoff and
+attempt count; recovery never reports work in flight when no client holds a
+lease.
+
+Reconciliation re-reads the queue request under a lock and derives the status
+inside the same transaction as the write, so a caller holding an older instance
+of the request — for example the one `enqueue()` returned just before a client
+claimed it — can never write a status representing an older queue state than one
+already applied.
+
+Recovery inspects a bounded batch of imports ordered by id, so both external
+passes filter on eligibility in SQL rather than skipping rows afterwards. The
+reconciliation pass selects only imports whose queue state maps to a status they
+are not already showing, and the pending pass excludes imports the queue still
+owns. Skipping those rows after the limit would let a batch of unchangeable rows
+sit at the head of the ordering and starve every later import.
+
+Each import also carries an execution generation. Changing execution mode bumps
+it, so a provider request still in flight from the previous generation can no
+longer write to the row — its result, its metadata, and its handoff are all
+conditional on the generation that started it. A completed import and its
+proposals survive a slow request from a superseded generation.
+
 Logs and audits contain identifiers, status, timing, and executor class/model
 metadata only. They never include prompts, completion payloads, document names,
 storage paths, or file contents.
