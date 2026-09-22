@@ -6,6 +6,7 @@ use App\GenAiProcessor\Mail\GenAiJobCompleteMail;
 use App\GenAiProcessor\Mail\GenAiJobDeferredMail;
 use App\GenAiProcessor\Models\GenAiDailyQuota;
 use App\GenAiProcessor\Models\GenAiImportJob;
+use App\GenAiProcessor\Services\PhrExternalEnqueueUnauthorized;
 use App\GenAiProcessor\Services\PhrExternalGenAiRequestService;
 use App\GenAiProcessor\Services\PhrGenAiRequestPreparationService;
 use App\GenAiProcessor\Services\PhrImportExecutionModeChanged;
@@ -318,6 +319,13 @@ class ParseImportJob implements ShouldQueue
             // redispatch cannot leave an import "processing" with no live lease.
             PhrExternalImportStatusMap::reconcile($request);
             Log::info('ParseImportJob: queued for external processing', ['job_id' => $job->id]);
+        } catch (PhrExternalEnqueueUnauthorized) {
+            // The enqueue path already failed the job and cancelled any
+            // orphaned request. Leaving it pending here would restart the
+            // recovery loop this terminal state exists to stop.
+            Log::info('ParseImportJob: external import terminalized after authorization was lost', [
+                'job_id' => $job->id,
+            ]);
         } catch (\Throwable $exception) {
             GenAiImportJob::query()
                 ->whereKey($job->id)
