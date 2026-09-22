@@ -181,6 +181,22 @@ if PHR_TEST_ASSET_CONTENT_TYPE='text/plain' "$verifier" >/dev/null 2>&1; then
     echo 'Frontend asset with the wrong MIME type accepted.' >&2; exit 1
 fi
 
+# The bound is only a bound if something proves it bites. A manifest whose
+# entry points outgrow the cap must fail rather than quietly fan out into
+# dozens of production requests during a deploy.
+oversized_manifest="$test_root/manifest-oversized.json"
+{
+    printf '{'
+    for i in $(seq 1 13); do
+        [[ "$i" == 1 ]] || printf ','
+        printf '"e%s.tsx":{"file":"assets/e%s-test.js","isEntry":true}' "$i" "$i"
+    done
+    printf '}\n'
+} >"$oversized_manifest"
+if PHR_VERIFY_MANIFEST="$oversized_manifest" "$verifier" >/dev/null 2>&1; then
+    echo 'An unbounded frontend manifest was accepted.' >&2; exit 1
+fi
+
 for status in 200 301 404 503; do
     if PHR_TEST_VIEWER_STATUS="$status" "$verifier" >/dev/null 2>&1; then
         echo 'Unexpected viewer status accepted.' >&2; exit 1
