@@ -92,6 +92,90 @@ final class ExternalGenAiAuthorizationLoggingTest extends TestCase
             });
     }
 
+    /**
+     * SafeLog::error() must swallow a throwing log destination so the
+     * resolver's fail-closed boolean contract is preserved end to end: the
+     * underlying grant-lookup failure AND the log write both fail, and
+     * authorize() still returns false instead of letting either exception
+     * propagate. This also proves the PHI canary embedded in the triggering
+     * QueryException's message/bindings never reaches either sink - not the
+     * primary Log call (asserted via its captured context) and not SafeLog's
+     * error_log() fallback (asserted on the fallback file's contents).
+     */
+    public function test_unexpected_grant_lookup_failure_with_throwing_logger_still_fails_closed_without_propagating(): void
+    {
+        [$user, , $document, $job] = $this->externalJob();
+        (new ParseImportJob($job->id))->handle();
+        $job->refresh();
+        $requestId = (string) $job->mcp_request_id;
+        $this->assertNotSame('', $requestId);
+        [$context, $mailbox, $request] = $this->authorizationInputs($user, $requestId);
+
+        $phiCanary = 'CANARY-PHI-patient-mrn-90011-DO-NOT-LOG';
+
+        $this->app->instance(PhrPatientAccessService::class, new class($phiCanary) extends PhrPatientAccessService
+        {
+            public function __construct(private readonly string $canary) {}
+
+            public function writablePatient(int $patientId, int $userId): PhrPatient
+            {
+                throw new QueryException(
+                    'mysql',
+                    'select * from phr_patients where id = ? and mrn = ?',
+                    [$patientId, $this->canary],
+                    new RuntimeException('SQLSTATE[HY000] [2002] Connection refused; mrn='.$this->canary),
+                );
+            }
+        });
+
+        $errorLogFile = tempnam(sys_get_temp_dir(), 'safelog-canary-');
+        $previousErrorLogIni = ini_get('error_log');
+        ini_set('error_log', $errorLogFile);
+
+        try {
+            Log::shouldReceive('error')
+                ->once()
+                ->withArgs(function (string $message, array $logContext) use ($job, $requestId): bool {
+                    $this->assertSame(
+                        'External GenAI mailbox authorization check failed unexpectedly; denying access.',
+                        $message,
+                    );
+                    $this->assertSame(
+                        ['job_id', 'request_id_hash', 'exception'],
+                        array_keys($logContext),
+                        'The log context must carry only these keys - nothing else, and certainly no PHI.',
+                    );
+                    $this->assertSame($job->id, $logContext['job_id']);
+                    $this->assertSame(hash('sha256', $requestId), $logContext['request_id_hash']);
+                    $this->assertSame(QueryException::class, $logContext['exception']);
+
+                    return true;
+                })
+                ->andThrow(new RuntimeException('log destination unavailable: storage/logs is read-only'));
+
+            $result = app(PhrMcpMailboxAccessResolver::class)
+                ->authorize($context, $mailbox, AgentApiScopes::GENAI_WORK, $request);
+
+            $this->assertFalse($result, 'A transient grant-lookup failure must still fail closed, even with a throwing logger.');
+
+            $fallbackContents = file_get_contents($errorLogFile);
+            $this->assertIsString($fallbackContents);
+            $this->assertStringContainsString(
+                'External GenAI mailbox authorization check failed unexpectedly',
+                $fallbackContents,
+                'SafeLog must still land a bounded diagnostic in its independent fallback sink.',
+            );
+            $this->assertStringNotContainsString($phiCanary, $fallbackContents);
+            $this->assertStringNotContainsString('Connection refused', $fallbackContents);
+            $this->assertStringNotContainsString('read-only', $fallbackContents);
+        } finally {
+            ini_set('error_log', $previousErrorLogIni === false ? '' : $previousErrorLogIni);
+            if (file_exists($errorLogFile)) {
+                unlink($errorLogFile);
+            }
+        }
+    }
+
     public function test_genuine_authorization_denial_still_denies_access_without_an_error_log(): void
     {
         [$user, $patient, , $job] = $this->externalJob(owner: false);

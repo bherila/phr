@@ -5,6 +5,7 @@ namespace App\GenAiProcessor\Services;
 use App\GenAiProcessor\Jobs\ParseImportJob;
 use App\GenAiProcessor\Models\GenAiImportJob;
 use App\Models\User;
+use App\Support\Logging\SafeLog;
 use Bherila\GenAiLaravel\Mcp\McpQueueService;
 use Bherila\GenAiLaravel\Mcp\Models\McpRequest;
 use Illuminate\Support\Facades\DB;
@@ -64,7 +65,7 @@ final readonly class PhrGenAiExecutionModeService
             try {
                 ParseImportJob::dispatch((int) $jobId);
             } catch (Throwable $exception) {
-                Log::warning('GenAI mode change left import pending for recovery.', [
+                SafeLog::warning('GenAI mode change left import pending for recovery.', [
                     'job_id' => $jobId,
                     'exception' => $exception::class,
                 ]);

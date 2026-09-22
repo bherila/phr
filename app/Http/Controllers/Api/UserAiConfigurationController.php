@@ -8,11 +8,11 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\UserAiConfigurationRequest;
 use App\Models\UserAiConfiguration;
 use App\Services\UserAiModelCatalog;
+use App\Support\Logging\SafeLog;
 use Bherila\GenAiLaravel\Exceptions\GenAiFatalException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 class UserAiConfigurationController extends Controller
 {
@@ -254,7 +254,7 @@ class UserAiConfigurationController extends Controller
         try {
             return $this->modelCatalog->listModels($provider, $apiKey, $region, $sessionToken);
         } catch (GenAiFatalException $e) {
-            Log::warning('Failed to validate AI configuration credentials', [
+            SafeLog::warning('Failed to validate AI configuration credentials', [
                 'provider' => $provider,
                 'exception' => $e::class,
             ]);
@@ -263,7 +263,7 @@ class UserAiConfigurationController extends Controller
                 abort(response()->json(['error' => 'Invalid API credentials.'], 422));
             }
         } catch (\Exception $e) {
-            Log::warning('Failed to validate AI configuration credentials', [
+            SafeLog::warning('Failed to validate AI configuration credentials', [
                 'provider' => $provider,
                 'exception' => $e::class,
             ]);
