@@ -12,7 +12,10 @@ use Bherila\GenAiLaravel\Mcp\ExecutionContext;
 use Bherila\GenAiLaravel\Mcp\Models\McpDelivery;
 use Bherila\GenAiLaravel\Mcp\Models\McpMailbox;
 use Bherila\GenAiLaravel\Mcp\Models\McpRequest;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Laravel\Passport\AccessToken;
 use Laravel\Passport\Passport;
 use Throwable;
@@ -129,7 +132,24 @@ final readonly class PhrMcpMailboxAccessResolver implements MailboxAccessResolve
 
         try {
             $this->patientAccess->writablePatient((int) $document->patient_id, $userId);
-        } catch (Throwable) {
+        } catch (AuthorizationException|ModelNotFoundException) {
+            // The grant was downgraded, revoked, or the patient itself is
+            // gone. This is an ordinary, expected authorization outcome, not
+            // an incident, so it stays unlogged rather than adding noise.
+            return false;
+        } catch (Throwable $exception) {
+            // Anything else - a storage or database failure while checking
+            // the grant - is unexpected. Failing closed here is still
+            // correct (this is an authorization decision on health records),
+            // but the denial must not be silent: log enough to correlate it
+            // with the underlying failure, without any patient-identifying
+            // data in the context.
+            Log::error('External GenAI mailbox authorization check failed unexpectedly; denying access.', [
+                'job_id' => $job->id,
+                'request_id_hash' => hash('sha256', (string) $request->id),
+                'exception' => $exception::class,
+            ]);
+
             return false;
         }
 
