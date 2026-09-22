@@ -6,11 +6,11 @@ use App\GenAiProcessor\Support\GenAiCredentialErrorClassifier;
 use App\Http\Controllers\Controller;
 use App\Models\UserAiConfiguration;
 use App\Services\UserAiModelCatalog;
+use App\Support\Logging\SafeLog;
 use Bherila\GenAiLaravel\Exceptions\GenAiFatalException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Log;
 
 class UserAiModelsController extends Controller
 {
@@ -86,7 +86,7 @@ class UserAiModelsController extends Controller
 
             return response()->json(['models' => $models]);
         } catch (GenAiFatalException $e) {
-            Log::warning('Failed to fetch AI models', [
+            SafeLog::warning('Failed to fetch AI models', [
                 'provider' => $provider,
                 'exception' => $e::class,
             ]);
@@ -97,7 +97,7 @@ class UserAiModelsController extends Controller
 
             return response()->json(['error' => 'Failed to fetch models. Please check your credentials and try again.'], 422);
         } catch (\Exception $e) {
-            Log::warning('Failed to fetch AI models', [
+            SafeLog::warning('Failed to fetch AI models', [
                 'provider' => $provider,
                 'exception' => $e::class,
             ]);

@@ -9,8 +9,8 @@ use App\Models\PhrDocument;
 use App\Models\PhrPatient;
 use App\Models\User;
 use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
+use App\Support\Logging\SafeLog;
 use App\Support\Storage\PhrStorageKey;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
@@ -219,7 +219,7 @@ final readonly class PhrDocumentProcessingService
         } catch (Throwable $exception) {
             // The pending-row recovery command will redispatch this job. Keep
             // logs PHI-safe by recording only the job ID and exception class.
-            Log::warning('Import job dispatch deferred to queue recovery.', [
+            SafeLog::warning('Import job dispatch deferred to queue recovery.', [
                 'job_id' => $job->id,
                 'exception' => $exception::class,
             ]);

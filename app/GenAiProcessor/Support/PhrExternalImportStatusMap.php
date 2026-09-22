@@ -182,6 +182,98 @@ final class PhrExternalImportStatusMap
     }
 
     /**
+     * Recover one import revision whose external enqueue failed after the
+     * revision was already linked to a request, by conforming it to that
+     * request rather than guessing.
+     *
+     * A linked row is exactly the case where the failed attempt knows least
+     * and the durable request knows most: a client may hold - or may have
+     * just gained - a live lease on it, and forcing the import to `pending`
+     * then contradicts the table above. The target therefore comes from
+     * {@see self::phrStatusForRequest()}, derived from the request row as it
+     * reads under a lock, never from the failure.
+     *
+     * This is {@see self::reconcileRequestId()} narrowed to one owned
+     * revision, not a call to it, for three reasons:
+     *
+     * - reconcile() matches every external row linked to the request, with no
+     *   generation or job fence. Recovery is a compare-and-swap on the
+     *   revision the failed attempt captured - execution mode, generation, the
+     *   link it started from, still nonterminal - and those predicates have to
+     *   sit in the same UPDATE, inside the transaction that holds the request
+     *   lock, so a successor that relinked, regenerated or terminalized the
+     *   row in the meantime matches nothing.
+     * - reconcile() reports only "a row changed" and treats a pruned request
+     *   as nothing to do. Recovery has to tell a pruned request (nothing owns
+     *   the work, so the import falls back to PHR's own recovery, as
+     *   {@see self::queueOwnsWork()} says of null) from a request whose state
+     *   the map has no opinion about (leave the row to that write's owner).
+     * - A recovery that lands on `pending` also records why the import is
+     *   waiting, in the same write.
+     *
+     * Lock order is reconcileRequestId()'s: the request row first, under
+     * `lockForUpdate`, then the import row through the UPDATE. No PHR path
+     * locks an import row and then a request row.
+     *
+     * Nothing here is caught. When the database cannot establish the request's
+     * state the transaction rolls back and the exception propagates, so the
+     * caller leaves the import as it was instead of writing a guess over it.
+     *
+     * Returns the locked request's status (`request_status`, null when it has
+     * been pruned) and the status this call wrote (`import_status`, null when
+     * the map has no opinion or the attempt no longer owns the row).
+     *
+     * @return array{request_status: string|null, import_status: string|null}
+     */
+    public static function recoverLinkedRevision(
+        int $jobId,
+        string $ownedMode,
+        int $ownedGeneration,
+        string $ownedLink,
+        string $pendingMessage,
+    ): array {
+        return DB::transaction(static function () use ($jobId, $ownedMode, $ownedGeneration, $ownedLink, $pendingMessage): array {
+            $request = McpRequest::query()->whereKey($ownedLink)->lockForUpdate()->first();
+            $requestStatus = $request instanceof McpRequest ? $request->status->value : null;
+            // A pruned request owns no work, so the import waits for PHR's own
+            // pending recovery to re-enqueue it.
+            $target = $request instanceof McpRequest ? self::phrStatusForRequest($request) : 'pending';
+            if ($target === null) {
+                return ['request_status' => $requestStatus, 'import_status' => null];
+            }
+
+            $values = ['status' => $target, 'updated_at' => now()];
+            if ($target === 'pending') {
+                // Only a row that is waiting says why. A `processing` row has
+                // a client working it, and an `expired` request's `failed` is
+                // written without an annotation on every other path too.
+                $values['error_message'] = $pendingMessage;
+            }
+            $written = GenAiImportJob::query()
+                ->whereKey($jobId)
+                ->where('execution_mode', $ownedMode)
+                ->where('mcp_generation', $ownedGeneration)
+                ->when(
+                    $request instanceof McpRequest,
+                    fn (Builder $query) => $query->where('mcp_request_id', $ownedLink),
+                    // `mcp_request_id` is a `nullOnDelete` foreign key, so once
+                    // the request is pruned a null link and the pruned link are
+                    // the same observation - the predicate the enqueue
+                    // service's vanished-link reset uses. The nonterminal
+                    // clause below is what keeps a same-generation
+                    // terminalization, which also nulls the link, out of it.
+                    fn (Builder $query) => $query->where(fn (Builder $link) => $link
+                        ->where('mcp_request_id', $ownedLink)
+                        ->orWhereNull('mcp_request_id')),
+                )
+                ->whereIn('status', self::NONTERMINAL_PHR_STATUSES)
+                ->update($values);
+
+            return ['request_status' => $requestStatus, 'import_status' => $written === 1 ? $target : null];
+        });
+    }
+
+    /**
      * Narrow a {@see GenAiImportJob} query to external rows whose durable
      * request demands a status the row is not already showing.
      *
