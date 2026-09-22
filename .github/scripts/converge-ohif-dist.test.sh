@@ -29,6 +29,9 @@ if [[ "${PHR_TEST_DIGEST_WRITE_FAILS:-false}" == true && "$*" == *'cat > '*.ohif
     cat >/dev/null
     exit 0
 fi
+# A real remote shell expands both `~` and `$HOME`; running the command under a
+# shell with HOME pointed at the fake server reproduces that faithfully. No
+# substitution is done here -- see the rsync stub for why that matters.
 HOME="$PHR_TEST_REMOTE_HOME" exec bash -c "$*"
 SCRIPT
 
@@ -48,7 +51,22 @@ while [[ $# -gt 0 ]]; do
 done
 source="${args[0]}"
 destination="${args[1]#*:}"
-destination="${destination/\$HOME/$PHR_TEST_REMOTE_HOME}"
+# Secluded-args is the default since rsync 3.2.4, so the remote path is sent
+# over the protocol rather than through the remote shell. `$HOME` therefore
+# arrives backslash-escaped and the receiver creates a directory literally
+# named `$HOME`; only a leading `~`, which rsync expands itself, works. An
+# earlier version of this stub substituted `$HOME` here, which made a broken
+# destination look fine and hid a bug that would have failed every deploy.
+# Refusing it outright is what stops that returning.
+if [[ "$destination" == *'$HOME'* ]]; then
+    echo 'rsync destination uses $HOME, which a real receiver will not expand.' >&2
+    exit 1
+fi
+case "$destination" in
+    '~/'*) destination="$PHR_TEST_REMOTE_HOME/${destination#\~/}" ;;
+    /*) ;;
+    *) echo "rsync destination is neither absolute nor ~-relative: $destination" >&2; exit 1 ;;
+esac
 printf '%s -> %s\n' "$source" "$destination" >>"$PHR_TEST_RSYNC_LOG"
 mkdir -p "$destination"
 # --delete, minus the excluded record. Real rsync deletes and rewrites as it

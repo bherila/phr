@@ -56,7 +56,13 @@ readonly entrypoint="$OHIF_BUNDLE_DIR/index.html"
 # Cleared before the tree is touched and rewritten only after the transfer
 # succeeds, so the record is present only while it describes what is live.
 readonly digest_name='.ohif-digest'
-readonly remote_root="\$HOME/$OHIF_DEPLOY_DIR/public/ohif"
+# A leading `~` and not `$HOME`. Since rsync 3.2.4 secluded-args is the
+# default, so the remote path travels over the protocol instead of through the
+# remote shell and `$HOME` arrives backslash-escaped: the receiver then tries to
+# create a directory literally named `$HOME`. rsync expands a leading `~`
+# itself, and the remote shell expands it for the ssh commands below, so this
+# one form is correct in both places.
+readonly remote_root="~/$OHIF_DEPLOY_DIR/public/ohif"
 
 if [[ ! -f "$entrypoint" || -L "$entrypoint" ]]; then
     echo 'The desired OHIF bundle has no regular index.html; refusing to deploy it.' >&2

@@ -331,6 +331,114 @@ jobs:
           name: frontend-build
           path: public/build/
 
+      # --- OHIF convergence (issue #126) -------------------------------------
+      #
+      # The OHIF bundle is published by its own workflow's deploy job, which
+      # shares this job's `phr-production-files` concurrency group. GitHub keeps
+      # only one pending job per group, so an application deploy arriving while
+      # an OHIF deploy waits will evict it. That is harmless in the other
+      # direction -- an application deploy always ships current `main`, so the
+      # run that evicts one subsumes it -- but an OHIF deploy carried one
+      # specific artifact that nothing else would ever publish, and the
+      # application rsync excludes `ohif`. An evicted OHIF deploy was therefore
+      # lost permanently and silently.
+      #
+      # Serializing on the remote lock instead is not available: the shared
+      # action takes it with a single `mkdir`, no retry, and hard-fails asking
+      # for manual recovery when it is held, so a losing writer breaks rather
+      # than queues. The GitHub-level serializer has to stay.
+      #
+      # So this job converges OHIF too, through the same idempotent script and
+      # the same digest record the OHIF workflow writes. Whichever writer runs
+      # repairs the other, which bounds the loss to "until the next deploy"
+      # instead of forever. Nothing is published when the digests already
+      # agree, so an ordinary application deploy pays one ssh round trip.
+      #
+      # This runs *before* the release below, and that ordering is load-bearing.
+      # The shared action's verification-script is verify-phr-deployment.sh,
+      # which proves the live OHIF entrypoint and its assets through
+      # verify-phr-ohif-artifact.sh. A half-finished OHIF transfer therefore
+      # fails the application deploy outright, and convergence placed after the
+      # release would never be reached -- the repair would be unreachable in
+      # exactly the case it exists for. Converging first also means that proof
+      # now covers the bundle this deploy just published.
+      - name: Resolve the newest built OHIF bundle
+        id: ohif
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Resolved from the artifact, not from the OHIF run's conclusion.
+          # A run whose own deploy job was evicted ends `cancelled`, so keying
+          # off run status would permanently hide exactly the bundle this is
+          # here to repair. The artifact exists as soon as the build job
+          # uploaded it, which is the moment the bundle becomes publishable.
+          # The API returns artifacts newest first; `expired` covers both the
+          # retention window and a manual delete. The page is taken at the
+          # maximum size because the branch filter is applied here rather than
+          # by the API: `workflow_dispatch` can build this artifact from any
+          # ref, so enough newer non-main artifacts would otherwise push the
+          # newest main one off the page. 100 is a bound, not a guarantee --
+          # unbounded pagination inside a deploy step is its own cost.
+          run_id="$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=ohif-dist&per_page=100" \
+            --jq '[.artifacts[]
+                   | select(.expired == false)
+                   | select(.workflow_run.head_branch == "main")][0].workflow_run.id // empty')"
+          if [[ -n "$run_id" ]]; then
+            echo "run_id=$run_id" >>"$GITHUB_OUTPUT"
+          else
+            # Nothing to converge to is not a deployment failure. The live
+            # bundle is left exactly as it is.
+            echo 'No usable OHIF bundle to converge to; leaving the live one alone.'
+            echo "run_id=" >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Download the newest OHIF bundle
+        if: ${{ steps.ohif.outputs.run_id != '' }}
+        uses: actions/download-artifact@v8
+        with:
+          name: ohif-dist
+          path: ohif-desired
+          run-id: ${{ steps.ohif.outputs.run_id }}
+          github-token: ${{ github.token }}
+
+      # The shared action manages its own SSH for the application release and
+      # leaves nothing behind for later steps, so convergence brings its own.
+      # Host key pinned from SSH_KNOWN_HOSTS; no StrictHostKeyChecking=no.
+      - name: Set up SSH for OHIF convergence
+        if: ${{ steps.ohif.outputs.run_id != '' }}
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" >~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          # Appended, not overwritten: this step now runs before the release,
+          # and the MCP bridge ssh-agent step earlier in this job may already
+          # have put a github.com entry here.
+          printf '%s\n' "$SSH_KNOWN_HOSTS" >>~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+          # Keeps transport flags out of the convergence script, so it stays
+          # exercisable offline with a stubbed ssh in its own test harness.
+          {
+            printf 'Host %s\n' "$SSH_HOST"
+            printf '  IdentityFile ~/.ssh/id_ed25519\n'
+            printf '  IdentitiesOnly yes\n'
+          } >~/.ssh/config
+          chmod 600 ~/.ssh/config
+
+      - name: Converge the deployed OHIF bundle
+        if: ${{ steps.ohif.outputs.run_id != '' }}
+        env:
+          OHIF_SSH_TARGET: ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}
+          OHIF_DEPLOY_DIR: phr-laravel
+          OHIF_BUNDLE_DIR: ohif-desired
+        run: bash .github/scripts/converge-ohif-dist.sh
+
       - name: Deploy with the shared cPanel action
         uses: bherila/shared-cpanel-deployment@6e9edf640e38b828eb0b273c339474b28ab3dca4 # v2.1.2
         with:
@@ -385,94 +493,3 @@ jobs:
           extra-cron-lines: |
             */5 * * * * cd "$HOME/phr-laravel" && PHR_CRON_MEMORY_LIMIT=1G /usr/bin/flock -n "$HOME/phr-laravel/storage/framework/phr-queue-worker.lock" /opt/cpanel/ea-php85/root/usr/bin/php artisan phr:uptime:run-worker >> /dev/null 2>&1 # JOB:phr-laravel-queue-worker
           verification-script: .github/scripts/verify-phr-deployment.sh
-
-      # --- OHIF convergence (issue #126) -------------------------------------
-      #
-      # The OHIF bundle is published by its own workflow's deploy job, which
-      # shares this job's `phr-production-files` concurrency group. GitHub keeps
-      # only one pending job per group, so an application deploy arriving while
-      # an OHIF deploy waits will evict it. That is harmless in the other
-      # direction -- an application deploy always ships current `main`, so the
-      # run that evicts one subsumes it -- but an OHIF deploy carried one
-      # specific artifact that nothing else would ever publish, and the
-      # application rsync excludes `ohif`. An evicted OHIF deploy was therefore
-      # lost permanently and silently.
-      #
-      # Serializing on the remote lock instead is not available: the shared
-      # action takes it with a single `mkdir`, no retry, and hard-fails asking
-      # for manual recovery when it is held, so a losing writer breaks rather
-      # than queues. The GitHub-level serializer has to stay.
-      #
-      # So this job converges OHIF too, through the same idempotent script and
-      # the same digest record the OHIF workflow writes. Whichever writer runs
-      # repairs the other, which bounds the loss to "until the next deploy"
-      # instead of forever. Nothing is published when the digests already
-      # agree, so an ordinary application deploy pays one ssh round trip.
-      - name: Resolve the newest built OHIF bundle
-        id: ohif
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          # Resolved from the artifact, not from the OHIF run's conclusion.
-          # A run whose own deploy job was evicted ends `cancelled`, so keying
-          # off run status would permanently hide exactly the bundle this is
-          # here to repair. The artifact exists as soon as the build job
-          # uploaded it, which is the moment the bundle becomes publishable.
-          # The API returns artifacts newest first; `expired` covers both the
-          # retention window and a manual delete.
-          run_id="$(gh api \
-            "repos/${GITHUB_REPOSITORY}/actions/artifacts?name=ohif-dist&per_page=20" \
-            --jq '[.artifacts[]
-                   | select(.expired == false)
-                   | select(.workflow_run.head_branch == "main")][0].workflow_run.id // empty')"
-          if [[ -n "$run_id" ]]; then
-            echo "run_id=$run_id" >>"$GITHUB_OUTPUT"
-          else
-            # Nothing to converge to is not a deployment failure. The live
-            # bundle is left exactly as it is.
-            echo 'No usable OHIF bundle to converge to; leaving the live one alone.'
-            echo "run_id=" >>"$GITHUB_OUTPUT"
-          fi
-
-      - name: Download the newest OHIF bundle
-        if: ${{ steps.ohif.outputs.run_id != '' }}
-        uses: actions/download-artifact@v8
-        with:
-          name: ohif-dist
-          path: ohif-desired
-          run-id: ${{ steps.ohif.outputs.run_id }}
-          github-token: ${{ github.token }}
-
-      # The shared action manages its own SSH for the application release and
-      # leaves nothing behind for later steps, so convergence brings its own.
-      # Host key pinned from SSH_KNOWN_HOSTS; no StrictHostKeyChecking=no.
-      - name: Set up SSH for OHIF convergence
-        if: ${{ steps.ohif.outputs.run_id != '' }}
-        env:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
-          SSH_HOST: ${{ secrets.SSH_HOST }}
-        run: |
-          set -euo pipefail
-          install -d -m 700 ~/.ssh
-          printf '%s\n' "$SSH_PRIVATE_KEY" >~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          printf '%s\n' "$SSH_KNOWN_HOSTS" >~/.ssh/known_hosts
-          chmod 600 ~/.ssh/known_hosts
-          # Keeps transport flags out of the convergence script, so it stays
-          # exercisable offline with a stubbed ssh in its own test harness.
-          {
-            printf 'Host %s\n' "$SSH_HOST"
-            printf '  IdentityFile ~/.ssh/id_ed25519\n'
-            printf '  IdentitiesOnly yes\n'
-          } >~/.ssh/config
-          chmod 600 ~/.ssh/config
-
-      - name: Converge the deployed OHIF bundle
-        if: ${{ steps.ohif.outputs.run_id != '' }}
-        env:
-          OHIF_SSH_TARGET: ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}
-          OHIF_DEPLOY_DIR: phr-laravel
-          OHIF_BUNDLE_DIR: ohif-desired
-        run: bash .github/scripts/converge-ohif-dist.sh
