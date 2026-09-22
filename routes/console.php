@@ -18,6 +18,10 @@ Schedule::command('phr:uptime:run-task', ['phr:data-hub:prune-audits'])->daily()
 Schedule::command('phr:uptime:run-task', ['phr:agent-api:prune-audits'])->daily()->withoutOverlapping(30);
 Schedule::command('phr:uptime:run-task', ['phr:agent-api:prune-oauth-credentials'])->daily()->withoutOverlapping(30);
 Schedule::command('phr:uptime:run-task', ['genai:requeue-stale'])->everyFiveMinutes()->withoutOverlapping(10);
+// An external request that no import job references can never be claimed, so
+// it is swept even when the inline cancellation that should have removed it
+// failed transiently or its process died before linking it.
+Schedule::command('genai:cancel-orphaned-requests')->everyFifteenMinutes()->withoutOverlapping(10);
 Schedule::command('genai:mcp:deliver')->everyMinute()->withoutOverlapping(10);
 Schedule::command('genai:mcp:prune')->daily()->withoutOverlapping(10);
 Schedule::command('phr:uptime:prune', ['--days' => 30])->daily()->withoutOverlapping(10);

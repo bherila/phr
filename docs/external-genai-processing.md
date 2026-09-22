@@ -21,7 +21,20 @@ account status and current manager/owner grant for the source document on every
 claim, lease renewal, attachment read, and completion. It checks them again when
 durable completion delivery creates proposals. Revoking the OAuth credential,
 removing the patient grant, deleting the source document, changing execution mode,
-or letting the lease expire prevents stale work from being used.
+or letting the lease expire prevents stale work from being used. PHR re-checks the
+same account, document, and grant before it re-queues an import against an existing
+request: once that authorization is gone the import fails and the orphaned request is
+cancelled, so unusable work does not linger in the queue.
+
+## Orphaned request sweep
+
+A request that no import job references can never be claimed usefully again, and
+the cancellation that should remove it can fail transiently or be lost to a crash
+between creating a request and linking it. `genai:cancel-orphaned-requests` runs
+every fifteen minutes and cancels any `phr-imports` request older than
+`--min-age-minutes` (default 15) that no `genai_import_jobs.mcp_request_id`
+points at. The age floor keeps an enqueue that is still between creating its
+request and linking it out of the sweep.
 
 One narrow exception exists so a lost HTTP response cannot strand a client. After a
 completion has been delivered and its proposals created, the account that recorded
