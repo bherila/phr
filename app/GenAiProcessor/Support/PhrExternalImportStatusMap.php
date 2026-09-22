@@ -6,6 +6,10 @@ use App\GenAiProcessor\Models\GenAiImportJob;
 use Bherila\GenAiLaravel\Mcp\Enums\McpRequestStatus;
 use Bherila\GenAiLaravel\Mcp\McpQueueService;
 use Bherila\GenAiLaravel\Mcp\Models\McpRequest;
+use Carbon\CarbonInterface;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Query\Builder as QueryBuilder;
+use Illuminate\Support\Facades\DB;
 
 /**
  * The single source of truth for PHR import statuses that are derived from
@@ -63,6 +67,10 @@ use Bherila\GenAiLaravel\Mcp\Models\McpRequest;
  * - Rows are matched by `mcp_request_id`, so a row whose generation has moved
  *   on (execution-mode changes null the link and bump `mcp_generation`) can
  *   never be reconciled from a superseded request.
+ * - A reconciling write never represents an older queue state than one already
+ *   applied: {@see self::reconcile()} re-reads the request row under a lock and
+ *   derives the target inside that same transaction, so the caller's in-memory
+ *   instance supplies identity only, never state.
  */
 final class PhrExternalImportStatusMap
 {
@@ -134,29 +142,181 @@ final class PhrExternalImportStatusMap
     /**
      * Conform every PHR row linked to this request to the mapping table.
      *
+     * The argument supplies identity only. A caller can hold an instance that
+     * is already several state changes old — `enqueue()` returns the request it
+     * read before handing it back, and a client may claim it in that window —
+     * and writing a status derived from that snapshot would let an older queue
+     * state overwrite a newer one, which is exactly what this map exists to
+     * prevent. The request row is therefore re-read under a lock and the target
+     * derived inside the same transaction as the write, so reconciliation is
+     * serialized against the package's own claim/fail transactions.
+     *
      * Returns true when a row actually changed. Safe to call repeatedly.
      */
     public static function reconcile(McpRequest $request): bool
     {
-        $target = self::phrStatusForRequest($request);
-        if ($target === null) {
-            return false;
-        }
-
-        return GenAiImportJob::query()
-            ->where('mcp_request_id', $request->id)
-            ->where('execution_mode', GenAiImportJob::EXECUTION_EXTERNAL)
-            ->whereIn('status', self::NONTERMINAL_PHR_STATUSES)
-            ->where('status', '!=', $target)
-            ->update(['status' => $target, 'updated_at' => now()]) > 0;
+        return self::reconcileRequestId((string) $request->getKey());
     }
 
     /** Reconcile by request id, tolerating a request that has since been pruned. */
     public static function reconcileRequestId(string $requestId): bool
     {
-        $request = McpRequest::query()->find($requestId);
+        return DB::transaction(static function () use ($requestId): bool {
+            $request = McpRequest::query()->whereKey($requestId)->lockForUpdate()->first();
+            if (! $request instanceof McpRequest) {
+                return false;
+            }
 
-        return $request instanceof McpRequest && self::reconcile($request);
+            $target = self::phrStatusForRequest($request);
+            if ($target === null) {
+                return false;
+            }
+
+            return GenAiImportJob::query()
+                ->where('mcp_request_id', $request->id)
+                ->where('execution_mode', GenAiImportJob::EXECUTION_EXTERNAL)
+                ->whereIn('status', self::NONTERMINAL_PHR_STATUSES)
+                ->where('status', '!=', $target)
+                ->update(['status' => $target, 'updated_at' => now()]) > 0;
+        });
+    }
+
+    /**
+     * Narrow a {@see GenAiImportJob} query to external rows whose durable
+     * request demands a status the row is not already showing.
+     *
+     * Eligibility belongs in SQL rather than in a skip after the fact. The
+     * recovery command inspects a bounded, id-ordered batch, so a batch filled
+     * with rows reconciliation cannot change re-selects those same rows on
+     * every scheduled run and starves every later import out of the pass. The
+     * predicate is generated from {@see self::MAP}, so the mapping table stays
+     * the only place a package status becomes a PHR status.
+     *
+     * @param  Builder<GenAiImportJob>  $query
+     * @return Builder<GenAiImportJob>
+     */
+    public static function scopeReconcilable(Builder $query): Builder
+    {
+        $jobs = $query->getModel()->getTable();
+        $now = now();
+
+        return $query
+            ->where($jobs.'.execution_mode', GenAiImportJob::EXECUTION_EXTERNAL)
+            ->whereIn($jobs.'.status', self::NONTERMINAL_PHR_STATUSES)
+            ->whereNotNull($jobs.'.mcp_request_id')
+            ->where(static function (Builder $eligible) use ($jobs, $now): void {
+                foreach (McpRequestStatus::cases() as $status) {
+                    $withLease = self::phrStatusFor($status, true);
+                    $withoutLease = self::phrStatusFor($status, false);
+                    if ($withLease === $withoutLease) {
+                        // Lease liveness cannot change the outcome, so one
+                        // branch covers the package status; `null` on both
+                        // sides means the map states no opinion at all.
+                        if ($withLease !== null) {
+                            self::orReconcilableBranch($eligible, $jobs, $status, null, $withLease, $now);
+                        }
+
+                        continue;
+                    }
+                    if ($withLease !== null) {
+                        self::orReconcilableBranch($eligible, $jobs, $status, true, $withLease, $now);
+                    }
+                    if ($withoutLease !== null) {
+                        self::orReconcilableBranch($eligible, $jobs, $status, false, $withoutLease, $now);
+                    }
+                }
+            });
+    }
+
+    /**
+     * Narrow a {@see GenAiImportJob} query to rows the external queue does not
+     * own — the rows {@see self::queueOwnsWork()} answers false for.
+     *
+     * Same reason as above: PHR's pending recovery must leave a queue-owned
+     * request to the package's own backoff, and skipping it in PHP after the
+     * `LIMIT` lets a batch of permanently skipped rows hide every later job.
+     *
+     * @param  Builder<GenAiImportJob>  $query
+     * @return Builder<GenAiImportJob>
+     */
+    public static function scopeQueueDoesNotOwnWork(Builder $query): Builder
+    {
+        $jobs = $query->getModel()->getTable();
+        $requests = (new McpRequest)->getTable();
+
+        return $query->where(static function (Builder $eligible) use ($jobs, $requests): void {
+            $eligible
+                ->where($jobs.'.execution_mode', '!=', GenAiImportJob::EXECUTION_EXTERNAL)
+                ->orWhereNull($jobs.'.mcp_request_id')
+                // A pruned request owns nothing, which is what
+                // queueOwnsWork(null) already says.
+                ->orWhereNotExists(static function (QueryBuilder $request) use ($jobs, $requests): void {
+                    $request->selectRaw('1')
+                        ->from($requests)
+                        ->whereColumn($requests.'.id', $jobs.'.mcp_request_id')
+                        ->whereIn($requests.'.status', array_map(
+                            static fn (McpRequestStatus $status): string => $status->value,
+                            self::QUEUE_OWNED_PACKAGE_STATUSES,
+                        ));
+                });
+        });
+    }
+
+    /**
+     * One `(the request is in this state) AND (the row does not already show
+     * the status that state maps to)` disjunct of {@see self::scopeReconcilable()}.
+     *
+     * @param  Builder<GenAiImportJob>  $query
+     * @param  bool|null  $hasLiveLease  null when lease liveness cannot change the outcome
+     */
+    private static function orReconcilableBranch(
+        Builder $query,
+        string $jobs,
+        McpRequestStatus $status,
+        ?bool $hasLiveLease,
+        string $target,
+        CarbonInterface $now,
+    ): void {
+        $requests = (new McpRequest)->getTable();
+
+        $query->orWhere(static function (Builder $branch) use ($jobs, $requests, $status, $hasLiveLease, $target, $now): void {
+            $branch
+                ->where($jobs.'.status', '!=', $target)
+                ->whereExists(static function (QueryBuilder $request) use ($jobs, $requests, $status, $hasLiveLease, $now): void {
+                    $request->selectRaw('1')
+                        ->from($requests)
+                        ->whereColumn($requests.'.id', $jobs.'.mcp_request_id')
+                        ->where($requests.'.status', $status->value);
+                    if ($hasLiveLease !== null) {
+                        self::whereLeaseLiveness($request, $requests, $hasLiveLease, $now);
+                    }
+                });
+        });
+    }
+
+    /**
+     * {@see self::hasLiveLease()} expressed over the request table.
+     *
+     * The negative case is spelled out instead of wrapped in `NOT`, so a
+     * `leased` row with a null `lease_expires_at` still reads as "no live
+     * lease" rather than vanishing into three-valued logic.
+     */
+    private static function whereLeaseLiveness(QueryBuilder $request, string $requests, bool $hasLiveLease, CarbonInterface $now): void
+    {
+        if ($hasLiveLease) {
+            $request
+                ->where($requests.'.status', McpRequestStatus::Leased->value)
+                ->where($requests.'.lease_expires_at', '>', $now);
+
+            return;
+        }
+
+        $request->where(static function (QueryBuilder $lease) use ($requests, $now): void {
+            $lease
+                ->where($requests.'.status', '!=', McpRequestStatus::Leased->value)
+                ->orWhereNull($requests.'.lease_expires_at')
+                ->orWhere($requests.'.lease_expires_at', '<=', $now);
+        });
     }
 
     /**

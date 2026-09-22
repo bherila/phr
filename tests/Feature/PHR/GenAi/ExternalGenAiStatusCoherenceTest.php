@@ -15,9 +15,12 @@ use App\Support\AgentApi\AgentApiScopes;
 use Bherila\GenAiLaravel\Mcp\Enums\McpRequestStatus;
 use Bherila\GenAiLaravel\Mcp\ExecutionContext;
 use Bherila\GenAiLaravel\Mcp\McpQueueService;
+use Bherila\GenAiLaravel\Mcp\Models\McpMailbox;
 use Bherila\GenAiLaravel\Mcp\Models\McpRequest;
+use Carbon\CarbonInterface;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
@@ -261,6 +264,137 @@ final class ExternalGenAiStatusCoherenceTest extends TestCase
         $this->assertFalse(PhrExternalImportStatusMap::handOffApiGenerationToExternal($job->id, 0));
     }
 
+    public function test_reconciliation_reaches_a_later_import_behind_a_full_batch_of_settled_rows(): void
+    {
+        [$user, $mailbox] = $this->externalMailboxOwner();
+
+        // Two older imports the mapping table already agrees with. Reconciling
+        // them changes nothing, so an id-ordered batch that does not filter on
+        // eligibility re-selects exactly these two on every scheduled run.
+        $settled = [
+            $this->linkedExternalImport($user, $mailbox, McpRequestStatus::Pending, null, 'pending'),
+            $this->linkedExternalImport($user, $mailbox, McpRequestStatus::Pending, null, 'pending'),
+        ];
+        // A later import whose lease has expired: no client is working it, so
+        // the map demands `pending`. It must not be starved by the two above.
+        $starved = $this->linkedExternalImport($user, $mailbox, McpRequestStatus::Leased, now()->subMinute(), 'processing');
+        $this->assertGreaterThan((int) $settled[1]->id, (int) $starved->id);
+
+        $this->artisan('genai:requeue-stale', ['--batch' => 2])->assertSuccessful();
+
+        $this->assertSame('pending', $starved->refresh()->status, 'A full batch of settled rows starved a later import out of reconciliation.');
+        foreach ($settled as $job) {
+            $this->assertSame('pending', $job->refresh()->status);
+        }
+    }
+
+    public function test_recovery_reaches_a_later_stranded_import_behind_a_full_batch_of_queue_owned_rows(): void
+    {
+        [$user, $mailbox] = $this->externalMailboxOwner();
+        $cutoff = now()->subMinutes(30);
+
+        // Queue-owned external imports are always left to the package backoff,
+        // and skipping one leaves its `updated_at` untouched, so an unfiltered
+        // batch keeps them at the head of the id ordering forever.
+        $queueOwned = [
+            $this->linkedExternalImport($user, $mailbox, McpRequestStatus::Pending, null, 'pending', $cutoff),
+            $this->linkedExternalImport($user, $mailbox, McpRequestStatus::Pending, null, 'pending', $cutoff),
+        ];
+        $stranded = $this->syntheticImport($user, [
+            'status' => 'pending',
+            'execution_mode' => GenAiImportJob::EXECUTION_API,
+        ], $cutoff);
+        $this->assertGreaterThan((int) $queueOwned[1]->id, (int) $stranded->id);
+
+        $this->artisan('genai:requeue-stale', ['--batch' => 2])->assertSuccessful();
+
+        Bus::assertDispatchedTimes(ParseImportJob::class, 1);
+        Bus::assertDispatched(
+            ParseImportJob::class,
+            fn (ParseImportJob $dispatched): bool => $dispatched->jobId === (int) $stranded->id,
+        );
+        $this->assertTrue($stranded->refresh()->updated_at->greaterThan($cutoff));
+        foreach ($queueOwned as $job) {
+            $this->assertSame($cutoff->timestamp, $job->refresh()->updated_at->timestamp, 'A skipped queue-owned row must keep the package backoff display state.');
+        }
+    }
+
+    public function test_reconciliation_ignores_a_stale_request_that_predates_a_live_lease(): void
+    {
+        [$user, $job] = $this->queuedExternalJob();
+        // The snapshot an in-flight enqueue would still be holding: the request
+        // as it was before any client claimed it.
+        $stale = McpRequest::query()->findOrFail($job->mcp_request_id);
+        $this->assertSame(McpRequestStatus::Pending, $stale->status);
+
+        [$queue, $context] = $this->drainTools($user, $job);
+        $this->assertIsArray($queue->claim($context, 'phr-imports'));
+        $this->assertSame('processing', $job->refresh()->status);
+
+        $this->assertFalse(PhrExternalImportStatusMap::reconcile($stale));
+
+        $this->assertSame('processing', $job->refresh()->status, 'A stale request overwrote a newer status derived from a live lease.');
+        $this->assertSame(McpRequestStatus::Leased, McpRequest::query()->findOrFail($job->mcp_request_id)->status);
+    }
+
+    public function test_reconciliation_ignores_a_stale_lease_that_the_queue_has_already_released(): void
+    {
+        [$user, $job] = $this->queuedExternalJob();
+        [$queue, $context] = $this->drainTools($user, $job);
+        $requestId = (string) $job->mcp_request_id;
+        $claim = $queue->claim($context, 'phr-imports');
+        $staleLease = McpRequest::query()->findOrFail($requestId);
+        $this->assertTrue(PhrExternalImportStatusMap::hasLiveLease($staleLease));
+
+        $queue->fail($context, $requestId, $claim['request']['lease_token'], 'transient', 'Synthetic transient failure', true);
+        $this->assertSame('pending', $job->refresh()->status);
+
+        $this->assertFalse(PhrExternalImportStatusMap::reconcile($staleLease));
+
+        $this->assertSame('pending', $job->refresh()->status, 'A stale lease revived `processing` with no client holding the request.');
+        $this->assertSame(0, $job->retry_count);
+    }
+
+    public function test_a_claim_during_a_re_enqueue_survives_the_reconciliation_that_follows_it(): void
+    {
+        // A redispatched external import re-enters `enqueue()`, which returns
+        // the request it is already linked to. Only a linked import is
+        // claimable, so this is the reachable shape of the race: the snapshot
+        // is read, a client claims, and the older call still holds the
+        // pre-claim instance it is about to reconcile from.
+        [$user, $job] = $this->queuedExternalJob();
+        $requestId = (string) $job->mcp_request_id;
+        $claimed = false;
+        $outerDepth = DB::transactionLevel();
+
+        // Deterministic interleaving: the instant the re-enqueue path reads the
+        // request back, an external client claims it. The depth guard pins the
+        // hook to that committed read rather than to any nested query.
+        McpRequest::retrieved(function (McpRequest $request) use ($user, $requestId, $outerDepth, &$claimed): void {
+            if ($claimed
+                || $request->getKey() !== $requestId
+                || DB::transactionLevel() !== $outerDepth
+                || $request->status !== McpRequestStatus::Pending) {
+                return;
+            }
+            $claimed = true;
+            [$queue, $context] = $this->toolsForMailbox($user, (string) $request->mailbox_id);
+            $this->assertIsArray($queue->claim($context, 'phr-imports'));
+        });
+
+        (new ParseImportJob((int) $job->id))->handle();
+
+        $this->assertTrue($claimed, 'The interleaving hook must have claimed the request during the re-enqueue.');
+        $request = McpRequest::query()->findOrFail($requestId);
+        $this->assertSame(McpRequestStatus::Leased, $request->status);
+        $this->assertTrue(PhrExternalImportStatusMap::hasLiveLease($request));
+        $this->assertSame(
+            'processing',
+            $job->refresh()->status,
+            'A stale enqueue snapshot wrote the import back to `pending` under a live lease.',
+        );
+    }
+
     /**
      * Run a complete external generation for this import: switch the account to
      * external processing, let the dispatched successor enqueue the work, then
@@ -292,6 +426,12 @@ final class ExternalGenAiStatusCoherenceTest extends TestCase
             ->where('id', $job->refresh()->mcp_request_id)
             ->value('mailbox_id');
 
+        return $this->toolsForMailbox($user, $mailboxId);
+    }
+
+    /** @return array{McpQueueService, ExecutionContext} */
+    private function toolsForMailbox(User $user, string $mailboxId): array
+    {
         return [app(McpQueueService::class), new ExecutionContext(
             principalKey: sprintf('phr:user:%d:oauth:%s', $user->id, hash('sha256', 'synthetic-'.$user->id)),
             mailboxIds: [$mailboxId],
@@ -325,6 +465,77 @@ final class ExternalGenAiStatusCoherenceTest extends TestCase
         ]);
 
         return [$user, $job->refresh()];
+    }
+
+    /**
+     * A user with an enabled external mailbox, without the full document
+     * fixture: the recovery command only ever reads import rows and the
+     * durable request they link to.
+     *
+     * @return array{User, McpMailbox}
+     */
+    private function externalMailboxOwner(): array
+    {
+        $user = User::factory()->create([
+            'user_role' => 'user',
+            'genai_execution_mode' => GenAiImportJob::EXECUTION_EXTERNAL,
+        ]);
+        $mailbox = McpMailbox::query()->create([
+            'owner_type' => User::class,
+            'owner_id' => (string) $user->id,
+            'name' => 'phr-imports',
+            'enabled' => true,
+        ]);
+
+        return [$user, $mailbox];
+    }
+
+    /** An external import linked to a durable request in a chosen package state. */
+    private function linkedExternalImport(
+        User $user,
+        McpMailbox $mailbox,
+        McpRequestStatus $requestStatus,
+        ?CarbonInterface $leaseExpiresAt,
+        string $phrStatus,
+        ?CarbonInterface $updatedAt = null,
+    ): GenAiImportJob {
+        $request = McpRequest::query()->create([
+            'mailbox_id' => $mailbox->id,
+            'queue' => 'phr-imports',
+            'status' => $requestStatus,
+            'payload' => ['synthetic' => true],
+            'available_at' => now(),
+            'leased_at' => $leaseExpiresAt === null ? null : now()->subMinutes(20),
+            'lease_expires_at' => $leaseExpiresAt,
+        ]);
+
+        return $this->syntheticImport($user, [
+            'status' => $phrStatus,
+            'execution_mode' => GenAiImportJob::EXECUTION_EXTERNAL,
+            'mcp_request_id' => $request->id,
+        ], $updatedAt);
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     */
+    private function syntheticImport(User $user, array $attributes, ?CarbonInterface $updatedAt = null): GenAiImportJob
+    {
+        $job = GenAiImportJob::query()->create([
+            'user_id' => $user->id,
+            'job_type' => 'phr_document',
+            'file_hash' => hash('sha256', 'synthetic-'.$user->id.'-'.uniqid('', true)),
+            'original_filename' => 'synthetic-filler.pdf',
+            's3_path' => 'genai-import/'.$user->id.'/synthetic/filler.pdf',
+            'mime_type' => 'application/pdf',
+            'file_size_bytes' => strlen($this->documentBytes()),
+            ...$attributes,
+        ]);
+        if ($updatedAt !== null) {
+            $job->forceFill(['updated_at' => $updatedAt])->saveQuietly();
+        }
+
+        return $job->refresh();
     }
 
     /** @return array{User, GenAiImportJob} */

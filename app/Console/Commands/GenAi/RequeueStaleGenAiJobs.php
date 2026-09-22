@@ -138,13 +138,16 @@ class RequeueStaleGenAiJobs extends Command
      * client currently holds a live lease. This pass never changes retry
      * counters or package backoff — it only stops the user-visible status
      * from claiming work is in flight when the queue says otherwise.
+     *
+     * The batch is drawn from rows the mapping table actually disagrees with.
+     * Reconciling a row the map already agrees with is a no-op that leaves it
+     * in the same id-ordered position, so selecting on link alone would hand
+     * every scheduled run the same oldest rows and never reach an import
+     * behind them.
      */
     private function reconcileExternalJobs(int $batch): int
     {
-        $jobs = GenAiImportJob::query()
-            ->where('execution_mode', GenAiImportJob::EXECUTION_EXTERNAL)
-            ->whereIn('status', PhrExternalImportStatusMap::NONTERMINAL_PHR_STATUSES)
-            ->whereNotNull('mcp_request_id')
+        $jobs = PhrExternalImportStatusMap::scopeReconcilable(GenAiImportJob::query())
             ->oldest('id')
             ->limit($batch)
             ->get(['id', 'mcp_request_id']);
@@ -157,20 +160,31 @@ class RequeueStaleGenAiJobs extends Command
         return $reconciled;
     }
 
+    /**
+     * Redispatch pending imports nothing else is going to pick up.
+     *
+     * An external request that the queue still owns carries the package's own
+     * retry backoff in `available_at`; redispatching it would only re-claim the
+     * row locally and reset that display state. Those rows are excluded before
+     * the limit rather than skipped after it: skipping leaves `updated_at`
+     * untouched, so a batch of backed-off requests would stay at the head of
+     * the id ordering and hide every later stranded job forever.
+     */
     private function redispatchStrandedPendingJobs(Carbon $now, Carbon $cutoff, int $batch): int
     {
-        $jobs = GenAiImportJob::query()
-            ->where('status', 'pending')
-            ->where('updated_at', '<=', $cutoff)
+        $jobs = PhrExternalImportStatusMap::scopeQueueDoesNotOwnWork(
+            GenAiImportJob::query()
+                ->where('status', 'pending')
+                ->where('updated_at', '<=', $cutoff)
+        )
             ->oldest('id')
             ->limit($batch)
             ->get(['id', 'execution_mode', 'mcp_request_id']);
 
         $dispatched = 0;
         foreach ($jobs as $job) {
-            // An external request that the queue still owns carries the
-            // package's own retry backoff in `available_at`. Redispatching it
-            // would only re-claim the row locally and reset that display state.
+            // The selection above is a snapshot; a client can claim a request
+            // between it and this write, so ownership is re-checked here.
             if ($this->externalQueueOwnsWork($job)) {
                 continue;
             }
