@@ -15,6 +15,7 @@ use App\GenAiProcessor\Support\PhrExternalImportStatusMap;
 use App\Models\User;
 use App\Services\GenAiFileHelper;
 use App\Services\PHR\Import\PhrStructuredDataImporter;
+use App\Support\Logging\SafeLog;
 use Bherila\GenAiLaravel\Exceptions\GenAiFatalException;
 use Bherila\GenAiLaravel\Exceptions\GenAiRateLimitException;
 use Bherila\GenAiLaravel\Mcp\Models\McpRequest;
@@ -349,7 +350,12 @@ class ParseImportJob implements ShouldQueue
             // an import that is finished - and finished unsuccessfully - as
             // in flight, which is exactly the diagnostic someone debugging a
             // stuck import would trust. Report what the row actually says.
-            Log::info('ParseImportJob: external enqueue reconciled', [
+            //
+            // SafeLog, because this is written after the enqueue and its
+            // reconciliation have already succeeded, inside the try whose
+            // generic catch is business recovery. A throwing log destination
+            // there would turn a finished success into a recovery write.
+            SafeLog::info('ParseImportJob: external enqueue reconciled', [
                 'job_id' => $job->id,
                 'import_status' => $job->status,
                 'request_status' => $reconciled?->status->value,
@@ -358,7 +364,13 @@ class ParseImportJob implements ShouldQueue
             // The enqueue path already failed the job and cancelled any
             // orphaned request. Leaving it pending here would restart the
             // recovery loop this terminal state exists to stop.
-            Log::info('ParseImportJob: external import terminalized after authorization was lost', [
+            //
+            // SafeLog: the outcome is already decided, and a throwing log
+            // destination would escape handle() - recording a finished job as
+            // a failed queue job, reaching the API path's "unexpected error"
+            // catch on a handoff, and making a synchronous dispatcher report a
+            // failed dispatch.
+            SafeLog::info('ParseImportJob: external import terminalized after authorization was lost', [
                 'job_id' => $job->id,
             ]);
         } catch (\Throwable $exception) {
@@ -386,7 +398,9 @@ class ParseImportJob implements ShouldQueue
                     'error_message' => self::EXTERNAL_DEFERRED_MESSAGE,
                     'updated_at' => now(),
                 ]);
-            Log::warning('ParseImportJob: external enqueue deferred to recovery', [
+            // SafeLog for the same reason as above: the recovery write has
+            // landed, and nothing about it should depend on the log.
+            SafeLog::warning('ParseImportJob: external enqueue deferred to recovery', [
                 'job_id' => $job->id,
                 'exception' => $exception::class,
                 // False means this attempt no longer owned the row, so the
@@ -430,7 +444,7 @@ class ParseImportJob implements ShouldQueue
                 self::EXTERNAL_DEFERRED_MESSAGE,
             );
         } catch (\Throwable $recoveryException) {
-            Log::warning('ParseImportJob: external enqueue recovery left the import unchanged', [
+            SafeLog::warning('ParseImportJob: external enqueue recovery left the import unchanged', [
                 'job_id' => $job->id,
                 'exception' => $exception::class,
                 'recovery_exception' => $recoveryException::class,
@@ -439,7 +453,7 @@ class ParseImportJob implements ShouldQueue
             return;
         }
 
-        Log::warning('ParseImportJob: external enqueue deferred to recovery', [
+        SafeLog::warning('ParseImportJob: external enqueue deferred to recovery', [
             'job_id' => $job->id,
             'exception' => $exception::class,
             // False means this attempt no longer owned the row, or the request

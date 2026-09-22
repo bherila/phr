@@ -40,11 +40,22 @@ final class ExternalGenAiEnqueueLifecycleTest extends TestCase
 {
     use RefreshDatabase;
 
+    /** @var list<string> */
+    private array $errorLogFiles = [];
+
     protected function setUp(): void
     {
         parent::setUp();
         Storage::fake('s3');
         Bus::fake();
+    }
+
+    protected function tearDown(): void
+    {
+        foreach ($this->errorLogFiles as $file) {
+            @unlink($file);
+        }
+        parent::tearDown();
     }
 
     public function test_deleted_source_document_terminalizes_an_existing_link_and_stops_recovery(): void
@@ -845,6 +856,74 @@ final class ExternalGenAiEnqueueLifecycleTest extends TestCase
     // tests, and say nothing about how `lockForUpdate` behaves under real
     // contention.
 
+    public function test_logger_failure_after_a_successful_reused_enqueue_changes_nothing(): void
+    {
+        [, , , $job] = $this->externalJob();
+        (new ParseImportJob($job->id))->handle();
+        $requestId = (string) $job->refresh()->mcp_request_id;
+        $generation = (int) $job->mcp_generation;
+        $retryCount = (int) $job->retry_count;
+
+        // A client holds a live lease, so reusing the link and reconciling it
+        // is a complete success: the import is genuinely in flight.
+        McpRequest::query()->whereKey($requestId)->update([
+            'status' => McpRequestStatus::Leased->value,
+            'lease_expires_at' => now()->addMinutes(5),
+            'attempt_count' => 1,
+        ]);
+        $leased = $this->requestRow($requestId);
+        $diagnostics = $this->captureDiagnostics();
+        // Only the diagnostic written after that success fails - a full or
+        // read-only log destination, as far as the caller can tell.
+        $this->throwWhenLogged('ParseImportJob: external enqueue reconciled');
+        $fallback = $this->redirectErrorLog();
+
+        // Returning at all is part of the assertion: nothing escapes handle().
+        (new ParseImportJob($job->id))->handle();
+
+        $job->refresh();
+        $this->assertSame('processing', $job->status);
+        $this->assertNull($job->error_message);
+        $this->assertSame($requestId, $job->mcp_request_id);
+        $this->assertSame($generation, (int) $job->mcp_generation);
+        $this->assertSame($retryCount, (int) $job->retry_count);
+        $this->assertSame($leased, $this->requestRow($requestId));
+        // A failed diagnostic is not a failed enqueue, so no business recovery
+        // ran and none was reported.
+        $this->assertArrayNotHasKey('ParseImportJob: external enqueue deferred to recovery', $diagnostics->context);
+        $this->assertArrayNotHasKey('ParseImportJob: external enqueue recovery left the import unchanged', $diagnostics->context);
+        // The event itself is not lost: it reaches the fallback sink.
+        $this->assertStringContainsString('ParseImportJob: external enqueue reconciled', (string) file_get_contents($fallback));
+    }
+
+    public function test_logger_failure_after_an_authorization_terminalization_does_not_escape_the_job(): void
+    {
+        [, , $document, $job] = $this->externalJob();
+        (new ParseImportJob($job->id))->handle();
+        $requestId = (string) $job->refresh()->mcp_request_id;
+        $document->delete();
+        $this->throwWhenLogged('ParseImportJob: external import terminalized after authorization was lost');
+        $fallback = $this->redirectErrorLog();
+
+        // Returning at all is the assertion: the terminalization is the
+        // outcome, and a broken log destination must not turn it into a
+        // failed queue job.
+        (new ParseImportJob($job->id))->handle();
+
+        $job->refresh();
+        $this->assertSame('failed', $job->status);
+        $this->assertNull($job->mcp_request_id);
+        $this->assertSame(
+            'External processing was cancelled because access or source state changed.',
+            $job->error_message,
+        );
+        $this->assertSame('cancelled', $this->requestStatus($requestId));
+        $this->assertStringContainsString(
+            'ParseImportJob: external import terminalized after authorization was lost',
+            (string) file_get_contents($fallback),
+        );
+    }
+
     public function test_transient_reuse_failure_while_the_request_gains_a_live_lease_keeps_the_import_processing(): void
     {
         [, , , $job] = $this->externalJob();
@@ -1108,6 +1187,31 @@ final class ExternalGenAiEnqueueLifecycleTest extends TestCase
         });
 
         return $diagnostics;
+    }
+
+    /** Make the log destination throw for one event, and only that one. */
+    private function throwWhenLogged(string $message): void
+    {
+        Log::listen(function (MessageLogged $entry) use ($message): void {
+            if ($entry->message === $message) {
+                throw new RuntimeException('The log destination is unavailable.');
+            }
+        });
+    }
+
+    /**
+     * Point SafeLog's `error_log()` fallback at a file this test can read.
+     * PHPUnit resets the `error_log` directive for every test method, so this
+     * has to run inside the test body.
+     */
+    private function redirectErrorLog(): string
+    {
+        $file = tempnam(sys_get_temp_dir(), 'genai-safelog-');
+        $this->assertIsString($file);
+        $this->errorLogFiles[] = $file;
+        ini_set('error_log', $file);
+
+        return $file;
     }
 
     /** @return array<string, mixed>|null */
