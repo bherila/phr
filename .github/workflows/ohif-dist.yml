@@ -7,7 +7,15 @@ name: OHIF Dist
 #
 # The main CI rsync (ci.yml) excludes the `ohif` directory so app deploys
 # don't clobber the OHIF dist that lives at ~/phr-laravel/public/ohif/ on the
-# server. This workflow is the only thing that should ever write there.
+# server.
+#
+# Issue #126: this is no longer the only thing that writes there. Both this
+# job and CI's deploy job now publish through .github/scripts/converge-ohif-dist.sh
+# against a shared digest record, so publishing is idempotent and either writer
+# can repair the other. That is what makes an evicted deploy here recoverable:
+# GitHub keeps one pending job per concurrency group, so an arriving
+# application deploy can evict this one, and before the shared convergence step
+# the bundle it was carrying was then lost permanently.
 #
 # Deploys to ~/phr-laravel/public/ohif/ using this repo's key-based deploy
 # credentials (see ci.yml's `deploy` job for the same pattern).
@@ -106,6 +114,13 @@ jobs:
     permissions:
       contents: read
     steps:
+      - name: Checkout phr (for the convergence script)
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            .github/scripts
+          sparse-checkout-cone-mode: false
+
       - name: Download build artifact
         uses: actions/download-artifact@v8
         with:
@@ -114,34 +129,37 @@ jobs:
 
       # Same key-based auth as ci.yml's `deploy` job (SSH_PRIVATE_KEY +
       # SSH_KNOWN_HOSTS). Host key is pinned via SSH_KNOWN_HOSTS (no
-      # StrictHostKeyChecking=no).
+      # StrictHostKeyChecking=no). The ssh config entry keeps transport flags
+      # out of the convergence script, so it stays exercisable offline with a
+      # stubbed ssh in .github/scripts/converge-ohif-dist.test.sh.
       - name: Set up SSH deploy key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+          SSH_HOST: ${{ secrets.SSH_HOST }}
         run: |
+          set -euo pipefail
           install -d -m 700 ~/.ssh
-          printf '%s\n' "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_PRIVATE_KEY" >~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          printf '%s\n' "${{ secrets.SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          printf '%s\n' "$SSH_KNOWN_HOSTS" >~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
+          {
+            printf 'Host %s\n' "$SSH_HOST"
+            printf '  IdentityFile ~/.ssh/id_ed25519\n'
+            printf '  IdentitiesOnly yes\n'
+          } >~/.ssh/config
+          chmod 600 ~/.ssh/config
 
-      - name: Ensure remote target directory exists
-        run: |
-          ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes \
-            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
-            "mkdir -p ~/phr-laravel/public/ohif"
-
-      # Destination is scoped to public/ohif/ only — --delete can remove
-      # stale files *inside* that directory (old OHIF asset hashes) but
-      # rsync never sees or touches anything outside the paths given here,
-      # so it cannot reach the rest of ~/phr-laravel/ (app code, .env,
-      # phr-documents, phr-exports). Trailing slashes on both source and
-      # destination matter: they deploy the *contents* of ohif-dist/ into
-      # public/ohif/, not a nested ohif-dist/ directory inside it.
-      - name: Deploy OHIF dist to public/ohif/
-        run: |
-          rsync -av --delete \
-            -e "ssh -i ~/.ssh/id_ed25519 -o IdentitiesOnly=yes" \
-            ohif-dist/ \
-            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}:~/phr-laravel/public/ohif/
+      # Publishes only when the live bundle differs, and records what it
+      # published so CI's deploy job can tell whether it still has work to do.
+      # --delete stays scoped to public/ohif; see the script's header.
+      - name: Converge the deployed OHIF bundle
+        env:
+          OHIF_SSH_TARGET: ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }}
+          OHIF_DEPLOY_DIR: phr-laravel
+          OHIF_BUNDLE_DIR: ohif-dist
+        run: bash .github/scripts/converge-ohif-dist.sh
 
       - name: Summarize
         env:
