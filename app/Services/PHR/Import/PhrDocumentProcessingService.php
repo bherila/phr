@@ -13,6 +13,7 @@ use App\Support\Storage\PhrStorageKey;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use InvalidArgumentException;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
@@ -27,15 +28,23 @@ final readonly class PhrDocumentProcessingService
         private PhrImportRetryPolicy $retryPolicy,
     ) {}
 
-    public function create(PhrPatient $patient, int $actorUserId, int $documentId): ImportJobMutationResult
-    {
+    /** @param  string  $jobType  The PHR GenAI job type to extract; browser and agent callers always stage a whole document. */
+    public function create(
+        PhrPatient $patient,
+        int $actorUserId,
+        int $documentId,
+        string $jobType = 'phr_document',
+    ): ImportJobMutationResult {
+        if (! PhrStructuredDataImporter::isPhrJobType($jobType)) {
+            throw new InvalidArgumentException("Unsupported PHR job type: {$jobType}");
+        }
         $newStagingPath = null;
         $obsoleteStagingPath = null;
 
         try {
             $result = $this->artifactWriteGuard->run(
                 (int) $patient->id,
-                function (PhrPatient $lockedPatient) use ($actorUserId, $documentId, &$newStagingPath, &$obsoleteStagingPath): ImportJobMutationResult {
+                function (PhrPatient $lockedPatient) use ($actorUserId, $documentId, $jobType, &$newStagingPath, &$obsoleteStagingPath): ImportJobMutationResult {
                     $document = PhrDocument::query()
                         ->where('patient_id', $lockedPatient->id)
                         ->findOrFail($documentId);
@@ -54,7 +63,7 @@ final readonly class PhrDocumentProcessingService
                     $this->copyToStaging($document, $newStagingPath);
                     $job = GenAiImportJob::query()->create([
                         'user_id' => $actorUserId,
-                        'job_type' => 'phr_document',
+                        'job_type' => $jobType,
                         'file_hash' => $document->file_hash ?? hash('sha256', $newStagingPath),
                         'original_filename' => $document->original_filename ?? 'document',
                         's3_path' => $newStagingPath,
