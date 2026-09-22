@@ -6,6 +6,7 @@ use App\GenAiProcessor\Models\GenAiImportJob;
 use App\Models\User;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Support\AgentApi\AgentApiScopes;
+use App\Support\Logging\SafeLog;
 use Bherila\GenAiLaravel\Contracts\MailboxAccessResolver;
 use Bherila\GenAiLaravel\Mcp\Enums\McpRequestStatus;
 use Bherila\GenAiLaravel\Mcp\ExecutionContext;
@@ -15,7 +16,6 @@ use Bherila\GenAiLaravel\Mcp\Models\McpRequest;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
 use Laravel\Passport\AccessToken;
 use Laravel\Passport\Passport;
 use Throwable;
@@ -144,7 +144,7 @@ final readonly class PhrMcpMailboxAccessResolver implements MailboxAccessResolve
             // but the denial must not be silent: log enough to correlate it
             // with the underlying failure, without any patient-identifying
             // data in the context.
-            Log::error('External GenAI mailbox authorization check failed unexpectedly; denying access.', [
+            SafeLog::error('External GenAI mailbox authorization check failed unexpectedly; denying access.', [
                 'job_id' => $job->id,
                 'request_id_hash' => hash('sha256', (string) $request->id),
                 'exception' => $exception::class,

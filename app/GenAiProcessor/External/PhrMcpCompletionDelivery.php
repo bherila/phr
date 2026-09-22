@@ -11,6 +11,7 @@ use App\Models\PhrDocument;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Models\User;
+use App\Support\Logging\SafeLog;
 use Bherila\GenAiLaravel\Contracts\CompletionDelivery;
 use Bherila\GenAiLaravel\Mcp\Models\McpDelivery;
 use Bherila\GenAiLaravel\Mcp\Models\McpRequest;
@@ -104,7 +105,7 @@ final readonly class PhrMcpCompletionDelivery implements CompletionDelivery
             try {
                 Mail::to($job->user->email)->send(new GenAiJobCompleteMail($job));
             } catch (\Throwable $exception) {
-                Log::warning('Failed to send external GenAI completion mail.', [
+                SafeLog::warning('Failed to send external GenAI completion mail.', [
                     'job_id' => $job->id,
                     'exception' => $exception::class,
                 ]);
