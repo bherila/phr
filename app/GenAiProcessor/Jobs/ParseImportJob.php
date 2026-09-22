@@ -350,10 +350,6 @@ class ParseImportJob implements ShouldQueue
             // redispatch cannot leave an import "processing" with no live lease.
             PhrExternalImportStatusMap::reconcile($request);
             $job->refresh();
-            // Re-read rather than reported from the snapshot enqueue() handed
-            // back: reconcile() derives its target inside its own locked
-            // transaction, and a client may have claimed the request since.
-            $reconciled = McpRequest::query()->find($request->getKey());
             // enqueue() reconciles the import against its durable request
             // rather than forcing a queued outcome, and the map turns an
             // already-`expired` request straight into `failed`. Reporting
@@ -365,11 +361,12 @@ class ParseImportJob implements ShouldQueue
             // SafeLog, because this is written after the enqueue and its
             // reconciliation have already succeeded, inside the try whose
             // generic catch is business recovery. A throwing log destination
-            // there would turn a finished success into a recovery write.
+            // there would turn a finished success into a recovery write - and
+            // so would a failing diagnostic-only read, hence the helper.
             SafeLog::info('ParseImportJob: external enqueue reconciled', [
                 'job_id' => $job->id,
                 'import_status' => $job->status,
-                'request_status' => $reconciled?->status->value,
+                'request_status' => $this->requestStatusForDiagnostic($request),
             ]);
         } catch (PhrExternalEnqueueUnauthorized) {
             // The enqueue path already failed the job and cancelled any
@@ -418,6 +415,25 @@ class ParseImportJob implements ShouldQueue
                 // deferral belongs to whoever does.
                 'deferred' => $deferred === 1,
             ]);
+        }
+    }
+
+    /**
+     * The request's current status for the reconciled diagnostic, or null when
+     * it cannot be read.
+     *
+     * Re-read rather than taken from the snapshot enqueue() handed back:
+     * reconcile() derives its target inside its own locked transaction, and a
+     * client may have claimed the request since. The read exists only for the
+     * diagnostic and runs inside queueExternally()'s try, so a failure here
+     * must not reach the generic catch and recover an enqueue that succeeded.
+     */
+    private function requestStatusForDiagnostic(McpRequest $request): ?string
+    {
+        try {
+            return McpRequest::query()->find($request->getKey())?->status->value;
+        } catch (\Throwable) {
+            return null;
         }
     }
 

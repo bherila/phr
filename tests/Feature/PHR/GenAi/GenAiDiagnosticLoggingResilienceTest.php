@@ -263,6 +263,29 @@ final class GenAiDiagnosticLoggingResilienceTest extends TestCase
         Bus::assertDispatched(ParseImportJob::class, 1);
     }
 
+    public function test_a_failing_diagnostic_read_does_not_recover_a_successful_reused_enqueue(): void
+    {
+        [, $job, $requestId] = $this->linkedExternalJob();
+        $before = $this->jobRow($job->id);
+        $request = DB::table('genai_mcp_requests')->where('id', $requestId)->first();
+        $failed = $this->failRequestReadsIssuedByParseImportJob();
+
+        // A stale-pending redispatch: enqueue() reuses the link and conforms
+        // the import to its still-queued request. Only the job's own re-read
+        // of the request, made for the diagnostic, fails.
+        (new ParseImportJob($job->id))->handle();
+
+        $this->assertTrue($failed->hit, 'Fixture precondition: the diagnostic read must have been attempted and failed.');
+        $this->assertSame($before, $this->jobRow($job->id), 'A successful enqueue was rewritten by recovery.');
+        $this->assertEquals($request, DB::table('genai_mcp_requests')->where('id', $requestId)->first());
+        $this->assertNotContains('ParseImportJob: external enqueue deferred to recovery', $this->loggedMessages());
+        $this->assertNotContains('ParseImportJob: external enqueue recovery left the import unchanged', $this->loggedMessages());
+        $this->assertSame(
+            ['job_id' => $job->id, 'import_status' => 'pending', 'request_status' => null],
+            $this->loggedContext('ParseImportJob: external enqueue reconciled'),
+        );
+    }
+
     public function test_terminalization_logs_a_fixed_reason_code_and_never_exception_text(): void
     {
         [, $job, $requestId] = $this->linkedExternalJob();
@@ -457,6 +480,41 @@ final class GenAiDiagnosticLoggingResilienceTest extends TestCase
         });
     }
 
+    /**
+     * Fail every read of genai_mcp_requests that ParseImportJob issues itself,
+     * as opposed to through the enqueue service or the status map. The job's
+     * only direct read of a request is the one its reconciled diagnostic
+     * makes, so this fails exactly that read and nothing the enqueue needs.
+     */
+    private function failRequestReadsIssuedByParseImportJob(): object
+    {
+        $failed = new class
+        {
+            public bool $hit = false;
+        };
+        DB::listen(function (QueryExecuted $query) use ($failed): void {
+            if (! str_starts_with(strtolower(ltrim($query->sql)), 'select')
+                || ! str_contains($query->sql, 'genai_mcp_requests')) {
+                return;
+            }
+            foreach (debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS) as $frame) {
+                $class = $frame['class'] ?? '';
+                if (! str_starts_with($class, 'App\\')) {
+                    continue;
+                }
+                if ($class === ParseImportJob::class) {
+                    $failed->hit = true;
+
+                    throw new RuntimeException('diagnostic-only read failed');
+                }
+
+                return;
+            }
+        });
+
+        return $failed;
+    }
+
     private function fallback(): string
     {
         return is_string($this->fallbackFile) ? (string) file_get_contents($this->fallbackFile) : '';
@@ -468,10 +526,15 @@ final class GenAiDiagnosticLoggingResilienceTest extends TestCase
         return array_map(static fn (MessageLogged $entry): string => $entry->message, $this->logged);
     }
 
-    /** @return array<string, mixed>|null */
+    /**
+     * The context of the most recent write of $message - fixtures that run the
+     * job themselves log the same events earlier in the test.
+     *
+     * @return array<string, mixed>|null
+     */
     private function loggedContext(string $message): ?array
     {
-        foreach ($this->logged as $entry) {
+        foreach (array_reverse($this->logged) as $entry) {
             if ($entry->message === $message) {
                 return $entry->context;
             }
