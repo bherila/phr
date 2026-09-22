@@ -4,6 +4,8 @@ namespace App\Console\Commands\GenAi;
 
 use App\GenAiProcessor\Jobs\ParseImportJob;
 use App\GenAiProcessor\Models\GenAiImportJob;
+use App\GenAiProcessor\Support\PhrExternalImportStatusMap;
+use Bherila\GenAiLaravel\Mcp\Models\McpRequest;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -28,14 +30,19 @@ class RequeueStaleGenAiJobs extends Command
 
         $due = $this->recoverDueJobs($now, $batch);
         [$stale, $failed] = $this->recoverStaleProcessingJobs($now, $staleCutoff, $batch);
+        // Reconcile before redispatching so the pending pass sees a truthful
+        // status: this is what stops a local timer from leaving an import
+        // "processing" while no external client holds a lease.
+        $reconciled = $this->reconcileExternalJobs($batch);
         $pending = $this->redispatchStrandedPendingJobs($now, $pendingCutoff, $batch);
 
         $this->info(sprintf(
-            'GenAI recovery complete: %d deferred, %d stale, and %d pending job(s) dispatched; %d exhausted stale job(s) failed.',
+            'GenAI recovery complete: %d deferred, %d stale, and %d pending job(s) dispatched; %d exhausted stale job(s) failed; %d external job(s) reconciled.',
             $due,
             $stale,
             $pending,
             $failed,
+            $reconciled,
         ));
 
         return self::SUCCESS;
@@ -124,6 +131,32 @@ class RequeueStaleGenAiJobs extends Command
         return [$dispatched, $failed];
     }
 
+    /**
+     * Conform external imports to their durable package request.
+     *
+     * The package row is authoritative: it is the only record of whether a
+     * client currently holds a live lease. This pass never changes retry
+     * counters or package backoff — it only stops the user-visible status
+     * from claiming work is in flight when the queue says otherwise.
+     */
+    private function reconcileExternalJobs(int $batch): int
+    {
+        $jobs = GenAiImportJob::query()
+            ->where('execution_mode', GenAiImportJob::EXECUTION_EXTERNAL)
+            ->whereIn('status', PhrExternalImportStatusMap::NONTERMINAL_PHR_STATUSES)
+            ->whereNotNull('mcp_request_id')
+            ->oldest('id')
+            ->limit($batch)
+            ->get(['id', 'mcp_request_id']);
+
+        $reconciled = 0;
+        foreach ($jobs as $job) {
+            $reconciled += (int) PhrExternalImportStatusMap::reconcileRequestId((string) $job->mcp_request_id);
+        }
+
+        return $reconciled;
+    }
+
     private function redispatchStrandedPendingJobs(Carbon $now, Carbon $cutoff, int $batch): int
     {
         $jobs = GenAiImportJob::query()
@@ -131,10 +164,16 @@ class RequeueStaleGenAiJobs extends Command
             ->where('updated_at', '<=', $cutoff)
             ->oldest('id')
             ->limit($batch)
-            ->get(['id']);
+            ->get(['id', 'execution_mode', 'mcp_request_id']);
 
         $dispatched = 0;
         foreach ($jobs as $job) {
+            // An external request that the queue still owns carries the
+            // package's own retry backoff in `available_at`. Redispatching it
+            // would only re-claim the row locally and reset that display state.
+            if ($this->externalQueueOwnsWork($job)) {
+                continue;
+            }
             // Touching the row is the command's compare-and-swap claim. A
             // concurrent recovery invocation will no longer consider it stale.
             $updated = GenAiImportJob::query()
@@ -149,6 +188,17 @@ class RequeueStaleGenAiJobs extends Command
         }
 
         return $dispatched;
+    }
+
+    private function externalQueueOwnsWork(GenAiImportJob $job): bool
+    {
+        if ($job->execution_mode !== GenAiImportJob::EXECUTION_EXTERNAL || $job->mcp_request_id === null) {
+            return false;
+        }
+
+        return PhrExternalImportStatusMap::queueOwnsWork(
+            McpRequest::query()->find($job->mcp_request_id)
+        );
     }
 
     private function positiveOption(string $name): int

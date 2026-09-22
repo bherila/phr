@@ -5,7 +5,7 @@ namespace App\Providers;
 use App\GenAiProcessor\External\PhrMcpAttachmentResolver;
 use App\GenAiProcessor\External\PhrMcpCompletionDelivery;
 use App\GenAiProcessor\External\PhrMcpMailboxAccessResolver;
-use App\GenAiProcessor\Models\GenAiImportJob;
+use App\GenAiProcessor\Support\PhrExternalImportStatusMap;
 use App\Support\AgentApi\AccountAwareAccessTokenRepository;
 use App\Support\AgentApi\AccountAwareAuthCodeRepository;
 use App\Support\AgentApi\AccountAwareRefreshTokenRepository;
@@ -88,22 +88,15 @@ class AppServiceProvider extends ServiceProvider
         Passport::personalAccessTokensExpireIn(now()->addMinutes(AgentApiTokenPolicy::ACCESS_TOKEN_LIFETIME_MINUTES));
         Passport::authorizationView('bherila-auth::oauth.authorize');
         HandleCors::skipWhen(fn (Request $request): bool => $request->is('api/v1/mcp') || $request->is('api/v1/genai/*'));
+        // The durable package request row is authoritative for external import
+        // status; these listeners only ask PhrExternalImportStatusMap what that
+        // row now means. A terminal package failure maps to no opinion here
+        // because PhrMcpCompletionDelivery owns that write and its retry count.
         Event::listen(McpRequestClaimed::class, static function (McpRequestClaimed $event): void {
-            GenAiImportJob::query()
-                ->where('mcp_request_id', $event->requestId)
-                ->where('execution_mode', GenAiImportJob::EXECUTION_EXTERNAL)
-                ->where('status', 'pending')
-                ->update(['status' => 'processing', 'updated_at' => now()]);
+            PhrExternalImportStatusMap::reconcileRequestId($event->requestId);
         });
         Event::listen(McpRequestFailed::class, static function (McpRequestFailed $event): void {
-            if ($event->terminal) {
-                return;
-            }
-            GenAiImportJob::query()
-                ->where('mcp_request_id', $event->requestId)
-                ->where('execution_mode', GenAiImportJob::EXECUTION_EXTERNAL)
-                ->where('status', 'processing')
-                ->update(['status' => 'pending', 'updated_at' => now()]);
+            PhrExternalImportStatusMap::reconcileRequestId($event->requestId);
         });
 
         // Authorization Code + PKCE is the supported interactive grant. Passport

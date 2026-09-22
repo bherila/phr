@@ -10,6 +10,7 @@ use App\GenAiProcessor\Services\PhrExternalGenAiRequestService;
 use App\GenAiProcessor\Services\PhrGenAiRequestPreparationService;
 use App\GenAiProcessor\Services\PhrImportExecutionModeChanged;
 use App\GenAiProcessor\Services\PhrImportProposalApplicationService;
+use App\GenAiProcessor\Support\PhrExternalImportStatusMap;
 use App\Models\User;
 use App\Services\GenAiFileHelper;
 use App\Services\PHR\Import\PhrStructuredDataImporter;
@@ -78,6 +79,12 @@ class ParseImportJob implements ShouldQueue
         }
 
         $job->refresh();
+
+        // The execution generation this run belongs to. Any later write that
+        // hands work to the external queue must be scoped to it, because an
+        // execution-mode change bumps the generation and dispatches a successor
+        // run that may finish first.
+        $apiGeneration = (int) $job->mcp_generation;
 
         if (! PhrStructuredDataImporter::isPhrJobType($job->job_type)) {
             $job->markFailed('Unsupported job type: '.$job->job_type);
@@ -156,7 +163,10 @@ class ParseImportJob implements ShouldQueue
                 return;
             }
 
-            $job->update([
+            // From here on this run is racing any successor generation the
+            // execution-mode transaction may have dispatched, so every write
+            // is scoped to the generation that claimed the row.
+            $this->writeApiGeneration($job, $apiGeneration, [
                 'ai_configuration_id' => $activeConfig?->id,
                 'ai_provider' => $client->provider(),
                 'ai_model' => $client->model(),
@@ -186,14 +196,14 @@ class ParseImportJob implements ShouldQueue
                 $jobUpdates['output_tokens'] = $outputTokens;
             }
             if (! empty($jobUpdates)) {
-                $job->update($jobUpdates);
+                $this->writeApiGeneration($job, $apiGeneration, $jobUpdates);
             }
 
             $text = $this->extractResponseText(is_array($response) ? $response : []);
             $data = $this->decodeStructuredText($text);
 
             if ($data === null) {
-                $job->markFailed('AI returned text, but it was not valid TOON or JSON.');
+                $this->failApiGeneration($job, $apiGeneration, 'AI returned text, but it was not valid TOON or JSON.');
 
                 return;
             }
@@ -202,14 +212,7 @@ class ParseImportJob implements ShouldQueue
             $user->refresh();
             if ($user->genAiExecutionMode() === GenAiImportJob::EXECUTION_EXTERNAL
                 || $job->execution_mode === GenAiImportJob::EXECUTION_EXTERNAL) {
-                $job->forceFill([
-                    'execution_mode' => GenAiImportJob::EXECUTION_EXTERNAL,
-                    'status' => 'pending',
-                    'raw_response' => null,
-                    'input_tokens' => null,
-                    'output_tokens' => null,
-                ])->save();
-                $this->queueExternally($job);
+                $this->handOffToExternalQueue($job, $apiGeneration);
 
                 return;
             }
@@ -220,16 +223,7 @@ class ParseImportJob implements ShouldQueue
                 // The preference transaction won after this API request began.
                 // Discard its output and hand the still-pending work to the
                 // selected external queue; never let the stale API result win.
-                $job->refresh();
-                $user->refresh();
-                $job->forceFill([
-                    'execution_mode' => GenAiImportJob::EXECUTION_EXTERNAL,
-                    'status' => 'pending',
-                    'raw_response' => null,
-                    'input_tokens' => null,
-                    'output_tokens' => null,
-                ])->save();
-                $this->queueExternally($job);
+                $this->handOffToExternalQueue($job, $apiGeneration);
 
                 return;
             }
@@ -248,10 +242,10 @@ class ParseImportJob implements ShouldQueue
                     'exception' => $mailEx::class,
                 ]);
             }
-        } catch (GenAiRateLimitException $e) {
-            $job->markFailed('API rate limit exceeded. Please wait and try again.');
+        } catch (GenAiRateLimitException) {
+            $this->failApiGeneration($job, $apiGeneration, 'API rate limit exceeded. Please wait and try again.');
         } catch (GenAiFatalException) {
-            $job->update([
+            $this->writeApiGeneration($job, $apiGeneration, [
                 'status' => 'failed',
                 'error_message' => 'The configured AI provider rejected the import request.',
                 'retry_count' => GenAiImportJob::MAX_RETRIES,
@@ -261,7 +255,7 @@ class ParseImportJob implements ShouldQueue
                 'job_id' => $job->id,
                 'exception' => $e::class,
             ]);
-            $job->markFailed('An unexpected import error occurred.');
+            $this->failApiGeneration($job, $apiGeneration, 'An unexpected import error occurred.');
         } finally {
             if (is_resource($fileStream)) {
                 fclose($fileStream);
@@ -269,10 +263,60 @@ class ParseImportJob implements ShouldQueue
         }
     }
 
+    /**
+     * Apply a write only this run's API execution generation may make.
+     *
+     * @param  array<string, mixed>  $values
+     */
+    private function writeApiGeneration(GenAiImportJob $job, int $apiGeneration, array $values): bool
+    {
+        $applied = PhrExternalImportStatusMap::updateApiGeneration($job->id, $apiGeneration, $values);
+        if ($applied) {
+            $job->refresh();
+        }
+
+        return $applied;
+    }
+
+    /** Fail this run's API execution generation, charging it one PHR retry. */
+    private function failApiGeneration(GenAiImportJob $job, int $apiGeneration, string $errorMessage): void
+    {
+        $this->writeApiGeneration($job, $apiGeneration, [
+            'status' => 'failed',
+            'error_message' => $errorMessage,
+            'retry_count' => DB::raw('retry_count + 1'),
+        ]);
+    }
+
+    /**
+     * Hand this run's still-nonterminal API generation to the external queue.
+     *
+     * The write is conditional on the generation this run claimed, so a
+     * successor external run that already delivered a completion keeps its
+     * terminal status and its proposals. When this run has been superseded it
+     * simply stops: the execution-mode transaction already dispatched the
+     * successor that owns the row.
+     */
+    private function handOffToExternalQueue(GenAiImportJob $job, int $apiGeneration): void
+    {
+        if (! PhrExternalImportStatusMap::handOffApiGenerationToExternal($job->id, $apiGeneration)) {
+            Log::info('ParseImportJob: stale API handoff was superseded', ['job_id' => $job->id]);
+
+            return;
+        }
+
+        $job->refresh();
+        $this->queueExternally($job);
+    }
+
     private function queueExternally(GenAiImportJob $job): void
     {
         try {
-            app(PhrExternalGenAiRequestService::class)->enqueue($job);
+            $request = app(PhrExternalGenAiRequestService::class)->enqueue($job);
+            // The local claim at the top of handle() is only a dispatch lock.
+            // Conform the row to the durable package request so a recovery
+            // redispatch cannot leave an import "processing" with no live lease.
+            PhrExternalImportStatusMap::reconcile($request);
             Log::info('ParseImportJob: queued for external processing', ['job_id' => $job->id]);
         } catch (\Throwable $exception) {
             GenAiImportJob::query()
