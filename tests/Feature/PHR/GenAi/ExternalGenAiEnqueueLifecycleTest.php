@@ -20,7 +20,10 @@ use FilesystemIterator;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
@@ -578,6 +581,287 @@ final class ExternalGenAiEnqueueLifecycleTest extends TestCase
             $offences,
             'PhrExternalImportStatusMap must be the only place a package request status becomes a PHR import status.',
         );
+    }
+
+    public function test_vanished_link_reset_proceeds_after_the_foreign_key_cleared_the_link(): void
+    {
+        // Positive control for the tightened predicate, on the branch the
+        // `nullOnDelete` cascade actually produces: the request row is pruned,
+        // the foreign key clears `mcp_request_id` with it, and this call's
+        // observation of the link survives only in memory. Same mode, same
+        // generation, still nonterminal - nothing superseded this work, so it
+        // must go on to queue a replacement.
+        [, , , $job] = $this->externalJob();
+        (new ParseImportJob($job->id))->handle();
+        $vanishedId = (string) $job->refresh()->mcp_request_id;
+        $generation = (int) $job->mcp_generation;
+
+        $linkAfterCascade = 'not observed';
+        $vanished = false;
+        GenAiImportJob::retrieved(function (GenAiImportJob $read) use (&$vanished, &$linkAfterCascade, $job, $vanishedId): void {
+            if ($vanished || (int) $read->id !== (int) $job->id) {
+                return;
+            }
+            $vanished = true;
+            McpRequest::query()->whereKey($vanishedId)->delete();
+            $linkAfterCascade = GenAiImportJob::query()->getConnection()
+                ->table('genai_import_jobs')->where('id', $job->id)->value('mcp_request_id');
+        });
+
+        $replacement = app(PhrExternalGenAiRequestService::class)->enqueue($job);
+
+        // Stated as an assertion rather than assumed: if foreign keys were not
+        // being enforced for this run, the null-link branch of the predicate
+        // would never be exercised and this test would prove nothing.
+        $this->assertNull(
+            $linkAfterCascade,
+            'The nullOnDelete cascade did not clear the link, so foreign keys are not being enforced.',
+        );
+        $this->assertNotSame($vanishedId, (string) $replacement->id);
+        $job->refresh();
+        $this->assertSame((string) $replacement->id, $job->mcp_request_id);
+        $this->assertSame('pending', $job->status);
+        $this->assertSame($generation, (int) $job->mcp_generation);
+    }
+
+    public function test_vanished_link_reset_leaves_a_same_generation_terminalization_terminal(): void
+    {
+        [, , , $job] = $this->externalJob();
+        (new ParseImportJob($job->id))->handle();
+        $vanishedId = (string) $job->refresh()->mcp_request_id;
+
+        // A concurrent call lost the source authorization and terminalized the
+        // row. That write fails the row and clears the link but does *not*
+        // bump the generation, so execution mode, generation and a null link
+        // all still read exactly as this call captured them: only the status
+        // distinguishes an import a user has been told is finished from the
+        // never-linked state this call started from.
+        $terminalized = false;
+        GenAiImportJob::retrieved(function (GenAiImportJob $read) use (&$terminalized, $job, $vanishedId): void {
+            if ($terminalized || (int) $read->id !== (int) $job->id) {
+                return;
+            }
+            $terminalized = true;
+            McpRequest::query()->whereKey($vanishedId)->delete();
+            GenAiImportJob::query()->whereKey($job->id)->update([
+                'mcp_request_id' => null,
+                'status' => 'failed',
+                'error_message' => 'External processing was cancelled because access or source state changed.',
+            ]);
+        });
+
+        try {
+            app(PhrExternalGenAiRequestService::class)->enqueue($job);
+            $this->fail('The stale reset restarted an import that had already been terminalized.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame(
+                'The import was relinked while a vanished external request was being cleared.',
+                $exception->getMessage(),
+            );
+        }
+
+        $job->refresh();
+        $this->assertSame('failed', $job->status);
+        $this->assertNull($job->mcp_request_id);
+        $this->assertSame(
+            'External processing was cancelled because access or source state changed.',
+            $job->error_message,
+        );
+        $this->assertDatabaseCount('genai_mcp_requests', 0);
+    }
+
+    public function test_request_losing_the_link_race_to_a_mode_change_that_toggled_back_is_cancelled(): void
+    {
+        [$user, , , $job] = $this->externalJob();
+
+        $lostId = $this->enqueueLosingTheLinkRace($job, function () use ($user): void {
+            // Away and back: the row ends external, pending and unlinked -
+            // byte for byte the state this call authorized, except that each
+            // transition bumped the generation. Predicated on external mode
+            // and a null link alone, this call's request attaches itself to
+            // the successor's revision.
+            $modes = app(PhrGenAiExecutionModeService::class);
+            $modes->update($user->refresh(), GenAiImportJob::EXECUTION_API);
+            $modes->update($user->refresh(), GenAiImportJob::EXECUTION_EXTERNAL);
+        });
+
+        $job->refresh();
+        $this->assertSame(GenAiImportJob::EXECUTION_EXTERNAL, $job->execution_mode);
+        $this->assertSame(3, (int) $job->mcp_generation);
+        $this->assertNull($job->mcp_request_id);
+        $this->assertSame('pending', $job->status);
+        $this->assertSame('cancelled', $this->requestStatus($lostId));
+    }
+
+    public function test_request_losing_the_link_race_to_a_retry_is_cancelled(): void
+    {
+        [, , , $job] = $this->externalJob();
+
+        $lostId = $this->enqueueLosingTheLinkRace($job, function () use ($job): void {
+            // The retry path writes exactly this: same execution mode,
+            // pending, unlinked, next generation. The generation is the only
+            // thing that tells this call's revision from the retry's.
+            GenAiImportJob::query()->whereKey($job->id)->update([
+                'mcp_request_id' => null,
+                'mcp_generation' => DB::raw('mcp_generation + 1'),
+                'status' => 'pending',
+                'error_message' => null,
+            ]);
+        });
+
+        $job->refresh();
+        $this->assertSame(GenAiImportJob::EXECUTION_EXTERNAL, $job->execution_mode);
+        $this->assertSame(2, (int) $job->mcp_generation);
+        $this->assertNull($job->mcp_request_id);
+        $this->assertSame('cancelled', $this->requestStatus($lostId));
+    }
+
+    public function test_a_superseded_enqueue_attempt_leaves_a_processing_successor_untouched(): void
+    {
+        [, , , $job] = $this->externalJob();
+        (new ParseImportJob($job->id))->handle();
+        $successorId = (string) $job->refresh()->mcp_request_id;
+        // The successor is genuinely in flight: a client holds a live lease.
+        McpRequest::query()->whereKey($successorId)->update([
+            'status' => McpRequestStatus::Leased->value,
+            'lease_expires_at' => now()->addMinutes(5),
+        ]);
+
+        // The revision the stale attempt is working on behalf of: unlinked,
+        // pending, one generation behind what the successor will write.
+        $job->forceFill([
+            'mcp_request_id' => null,
+            'mcp_generation' => 1,
+            'status' => 'pending',
+        ])->save();
+
+        // The successor lands inside the source re-check, after this attempt
+        // captured its revision and before the enqueue fails. Removing the
+        // staged document makes that failure a transient RuntimeException -
+        // the generic branch of the caller's catch, not the terminalizing one.
+        $this->interleaveDuringWritableLookup(function () use ($job, $successorId): void {
+            GenAiImportJob::query()->whereKey($job->id)->update([
+                'mcp_request_id' => $successorId,
+                'mcp_generation' => 2,
+                'status' => 'processing',
+            ]);
+            Storage::disk('s3')->delete($job->s3_path);
+        });
+
+        (new ParseImportJob($job->id))->handle();
+
+        // Neither the service nor the caller may demote, annotate or relink
+        // the successor's revision.
+        $job->refresh();
+        $this->assertSame($successorId, $job->mcp_request_id);
+        $this->assertSame(2, (int) $job->mcp_generation);
+        $this->assertSame('processing', $job->status);
+        $this->assertNull($job->error_message);
+        $this->assertSame(McpRequestStatus::Leased->value, $this->requestStatus($successorId));
+    }
+
+    public function test_same_generation_callers_share_one_request_and_the_loser_cancels_nothing(): void
+    {
+        // Positive control for the tightened link compare-and-swap, and for
+        // the rule that an affected-row count is not an ownership token. Two
+        // callers of one revision are handed the same request by the package's
+        // idempotency key. The second one's UPDATE matches no rows - the link
+        // is already there - but it has lost nothing: that is its own request
+        // on the row. Reading the zero as a lost race would cancel the request
+        // both callers are using.
+        [, , , $job] = $this->externalJob();
+
+        $winnerRequest = null;
+        $raced = false;
+        GenAiImportJob::retrieved(function (GenAiImportJob $read) use (&$raced, &$winnerRequest, $job): void {
+            if ($raced || (int) $read->id !== (int) $job->id) {
+                return;
+            }
+            $raced = true;
+            $winnerRequest = app(PhrExternalGenAiRequestService::class)->enqueue(GenAiImportJob::query()->findOrFail($job->id));
+        });
+
+        $loserRequest = app(PhrExternalGenAiRequestService::class)->enqueue($job);
+
+        $this->assertInstanceOf(McpRequest::class, $winnerRequest);
+        $this->assertSame((string) $winnerRequest->id, (string) $loserRequest->id);
+        $this->assertDatabaseCount('genai_mcp_requests', 1);
+        $this->assertSame('pending', $this->requestStatus((string) $winnerRequest->id));
+        $job->refresh();
+        $this->assertSame((string) $winnerRequest->id, $job->mcp_request_id);
+        $this->assertSame('pending', $job->status);
+    }
+
+    public function test_an_expired_request_is_reported_as_the_failure_it_is_and_charges_no_retry(): void
+    {
+        [, , , $job] = $this->externalJob();
+        (new ParseImportJob($job->id))->handle();
+        $requestId = (string) $job->refresh()->mcp_request_id;
+        $retryCount = (int) $job->retry_count;
+
+        // The package emits no `failed` delivery for a request that ran out of
+        // time, so `expired` is the only record of it.
+        McpRequest::query()->whereKey($requestId)->update(['status' => McpRequestStatus::Expired->value]);
+
+        // The service half. Handing the McpRequest back rather than throwing is
+        // deliberate: the map turns `expired` into `failed`, so the import is
+        // terminalized on the spot and the caller reconciles against it.
+        $request = app(PhrExternalGenAiRequestService::class)->enqueue($job);
+        $this->assertSame($requestId, (string) $request->id);
+        $this->assertSame(McpRequestStatus::Expired, $request->status);
+        $this->assertSame('failed', $job->refresh()->status);
+
+        // The caller half, from the same observation: stale-pending recovery
+        // redispatches the row before that terminal status has landed.
+        $job->forceFill(['status' => 'pending', 'error_message' => null])->save();
+        $diagnostics = [];
+        Log::listen(function (MessageLogged $entry) use (&$diagnostics): void {
+            $diagnostics[$entry->message] = $entry->context;
+        });
+
+        (new ParseImportJob($job->id))->handle();
+
+        $job->refresh();
+        $this->assertSame('failed', $job->status);
+        $this->assertSame($requestId, $job->mcp_request_id);
+        // Neither revived nor charged a PHR retry it never spent.
+        $this->assertSame($retryCount, (int) $job->retry_count);
+
+        // The diagnostic reports the outcome the import actually reached. An
+        // unconditional "queued for external processing" here would describe a
+        // finished, failed import as still in flight - the one line someone
+        // debugging a stuck import would take at face value.
+        $this->assertArrayNotHasKey('ParseImportJob: queued for external processing', $diagnostics);
+        $this->assertArrayHasKey('ParseImportJob: external enqueue reconciled', $diagnostics);
+        $this->assertSame(
+            ['job_id' => $job->id, 'import_status' => 'failed', 'request_status' => McpRequestStatus::Expired->value],
+            $diagnostics['ParseImportJob: external enqueue reconciled'],
+        );
+    }
+
+    /**
+     * Run a callback inside the patient write-grant re-check and then let the
+     * check succeed, so the enqueue carries on into the staged-document test
+     * with the interleaved state already committed.
+     */
+    private function interleaveDuringWritableLookup(Closure $interleave): void
+    {
+        $access = new class extends PhrPatientAccessService
+        {
+            public ?Closure $interleave = null;
+
+            public function writablePatient(int $patientId, int $userId): PhrPatient
+            {
+                if ($this->interleave !== null) {
+                    ($this->interleave)();
+                    $this->interleave = null;
+                }
+
+                return parent::writablePatient($patientId, $userId);
+            }
+        };
+        $access->interleave = $interleave;
+        $this->app->instance(PhrPatientAccessService::class, $access);
     }
 
     /**

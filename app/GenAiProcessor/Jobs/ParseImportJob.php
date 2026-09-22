@@ -17,6 +17,7 @@ use App\Services\GenAiFileHelper;
 use App\Services\PHR\Import\PhrStructuredDataImporter;
 use Bherila\GenAiLaravel\Exceptions\GenAiFatalException;
 use Bherila\GenAiLaravel\Exceptions\GenAiRateLimitException;
+use Bherila\GenAiLaravel\Mcp\Models\McpRequest;
 use HelgeSverre\Toon\Toon;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -310,15 +311,47 @@ class ParseImportJob implements ShouldQueue
         $this->queueExternally($job);
     }
 
+    /**
+     * Hand a job to the external queue on behalf of one row revision.
+     *
+     * The revision - execution mode, generation and the link this attempt
+     * started from - is captured before the enqueue, not read back after it.
+     * Fencing only the service is not enough: a mode change, a retry or a
+     * recovery redispatch can supersede this attempt while it is inside
+     * enqueue(), and the failure path below then writes to whatever row it
+     * finds. Predicated on external mode and a nonterminal status alone, that
+     * write demotes a successor that is already `processing` back to `pending`
+     * and annotates it with a failure belonging to the attempt it replaced.
+     */
     private function queueExternally(GenAiImportJob $job): void
     {
+        $ownedMode = (string) $job->execution_mode;
+        $ownedGeneration = (int) $job->mcp_generation;
+        $ownedLink = $job->mcp_request_id === null ? null : (string) $job->mcp_request_id;
+
         try {
             $request = app(PhrExternalGenAiRequestService::class)->enqueue($job);
             // The local claim at the top of handle() is only a dispatch lock.
             // Conform the row to the durable package request so a recovery
             // redispatch cannot leave an import "processing" with no live lease.
             PhrExternalImportStatusMap::reconcile($request);
-            Log::info('ParseImportJob: queued for external processing', ['job_id' => $job->id]);
+            $job->refresh();
+            // Re-read rather than reported from the snapshot enqueue() handed
+            // back: reconcile() derives its target inside its own locked
+            // transaction, and a client may have claimed the request since.
+            $reconciled = McpRequest::query()->find($request->getKey());
+            // enqueue() reconciles the import against its durable request
+            // rather than forcing a queued outcome, and the map turns an
+            // already-`expired` request straight into `failed`. Reporting
+            // "queued for external processing" unconditionally would describe
+            // an import that is finished - and finished unsuccessfully - as
+            // in flight, which is exactly the diagnostic someone debugging a
+            // stuck import would trust. Report what the row actually says.
+            Log::info('ParseImportJob: external enqueue reconciled', [
+                'job_id' => $job->id,
+                'import_status' => $job->status,
+                'request_status' => $reconciled?->status->value,
+            ]);
         } catch (PhrExternalEnqueueUnauthorized) {
             // The enqueue path already failed the job and cancelled any
             // orphaned request. Leaving it pending here would restart the
@@ -327,10 +360,21 @@ class ParseImportJob implements ShouldQueue
                 'job_id' => $job->id,
             ]);
         } catch (\Throwable $exception) {
-            GenAiImportJob::query()
+            // The same compare-and-swap the service makes, over the revision
+            // captured above: same mode, same generation, the link this attempt
+            // started from, still nonterminal. A superseded attempt matches no
+            // rows and leaves its successor - and a row something else has
+            // already terminalized - exactly as it found them.
+            $deferred = GenAiImportJob::query()
                 ->whereKey($job->id)
-                ->where('execution_mode', GenAiImportJob::EXECUTION_EXTERNAL)
-                ->whereIn('status', ['pending', 'processing'])
+                ->where('execution_mode', $ownedMode)
+                ->where('mcp_generation', $ownedGeneration)
+                ->when(
+                    $ownedLink !== null,
+                    fn ($query) => $query->where('mcp_request_id', $ownedLink),
+                    fn ($query) => $query->whereNull('mcp_request_id'),
+                )
+                ->whereIn('status', PhrExternalImportStatusMap::NONTERMINAL_PHR_STATUSES)
                 ->update([
                     'status' => 'pending',
                     'error_message' => 'External processing is temporarily unavailable; the import remains queued.',
@@ -339,6 +383,9 @@ class ParseImportJob implements ShouldQueue
             Log::warning('ParseImportJob: external enqueue deferred to recovery', [
                 'job_id' => $job->id,
                 'exception' => $exception::class,
+                // False means this attempt no longer owned the row, so the
+                // deferral belongs to whoever does.
+                'deferred' => $deferred === 1,
             ]);
         }
     }
