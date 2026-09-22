@@ -27,9 +27,9 @@
 # not silently lose this suite. Without it, missing prerequisites skip loudly.
 #
 # PHR_OHIF_CONVERGE_SCRIPT overrides the script under test (default: the
-# sibling converge-ohif-dist.sh), so the suite can be pointed at a deliberately
-# broken copy. Stale-content failures carry the stable marker `STALE-CONTENT:`
-# so such a run can tell the intended failure apart from any other.
+# sibling converge-ohif-dist.sh). converge-ohif-dist.mutation-check.sh uses it
+# to run this suite against a copy with `--checksum` removed, and expects the
+# run to fail at a `STALE-CONTENT:` assertion.
 #
 # Account safety: the throwaway account name is generated per invocation, the
 # run refuses to start if that name (or a group of that name) already exists,
@@ -330,7 +330,8 @@ make_tree "$root_dir/v2" v3.13.0
 # and the script would then publish a digest claiming the new bundle is live --
 # and, because the record would match from then on, never repair it. This is
 # what the transfer's --checksum buys, and it cannot be observed against a stub
-# that simply copies. Assertions that catch it are marked STALE-CONTENT:.
+# that simply copies. Assertions that catch it are marked STALE-CONTENT:, which
+# is what converge-ohif-dist.mutation-check.sh looks for.
 touch -d '2026-01-01T00:00:00Z' "$root_dir/v1/index.html" "$root_dir/v2/index.html"
 [[ "$(stat -c %s "$root_dir/v1/index.html")" == "$(stat -c %s "$root_dir/v2/index.html")" ]] \
     || fail 'fixture: the two entrypoints must share a byte count to exercise the quick check.'
