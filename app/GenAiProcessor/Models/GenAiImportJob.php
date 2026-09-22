@@ -4,12 +4,12 @@ namespace App\GenAiProcessor\Models;
 
 use App\Models\PhrDocument;
 use App\Models\User;
+use App\Support\Logging\SafeLog;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 
@@ -112,7 +112,7 @@ class GenAiImportJob extends Model
                 try {
                     Storage::disk('s3')->delete($job->s3_path);
                 } catch (\Throwable $e) {
-                    Log::warning('Failed to delete S3 file for GenAI job during model delete', [
+                    SafeLog::warning('Failed to delete S3 file for GenAI job during model delete', [
                         'job_id' => $job->id,
                         'exception' => $e::class,
                     ]);
