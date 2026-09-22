@@ -12,6 +12,13 @@ concurrency:
   # A main run may already be quiescing production. Never cancel it between the
   # durable remote phases; pull-request runs can still supersede one another.
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+  # Deliberately the default `queue: single`, unlike the `phr-production-files`
+  # groups, which use `max`. On main a pending run that is replaced is always
+  # replaced by a newer commit that contains it, and that run converges the
+  # latest OHIF bundle too, so latest-wins loses nothing. `max` here would
+  # instead deploy every retained commit in turn, in an order GitHub does not
+  # promise matches commit order -- more production writes, and a chance of an
+  # older commit going live after a newer one.
 
 jobs:
   frontend-build:
