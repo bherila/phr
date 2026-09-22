@@ -26,6 +26,16 @@ same account, document, and grant before it re-queues an import against an exist
 request: once that authorization is gone the import fails and the orphaned request is
 cancelled, so unusable work does not linger in the queue.
 
+## Orphaned request sweep
+
+A request that no import job references can never be claimed usefully again, and
+the cancellation that should remove it can fail transiently or be lost to a crash
+between creating a request and linking it. `genai:cancel-orphaned-requests` runs
+every fifteen minutes and cancels any `phr-imports` request older than
+`--min-age-minutes` (default 15) that no `genai_import_jobs.mcp_request_id`
+points at. The age floor keeps an enqueue that is still between creating its
+request and linking it out of the sweep.
+
 ## MCP drain
 
 Connect the client to `https://phr.bherila.net/api/v1/mcp`, then ask it to drain the

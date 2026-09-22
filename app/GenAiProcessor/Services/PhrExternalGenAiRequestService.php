@@ -23,6 +23,7 @@ use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
+use Throwable;
 
 final readonly class PhrExternalGenAiRequestService
 {
@@ -45,6 +46,13 @@ final readonly class PhrExternalGenAiRequestService
             throw new RuntimeException('The import job no longer accepts external processing.');
         }
 
+        // The execution mode and generation this call is working on behalf of.
+        // Every concurrent successor - a mode change or a retry - bumps
+        // mcp_generation, so this pair identifies the row revision that
+        // authorized the work below and must still own it when it lands.
+        $ownedMode = (string) $job->execution_mode;
+        $ownedGeneration = (int) $job->mcp_generation;
+
         if ($job->mcp_request_id !== null) {
             $linked = McpRequest::query()->find($job->mcp_request_id);
             if ($linked !== null) {
@@ -53,7 +61,7 @@ final readonly class PhrExternalGenAiRequestService
                 // and completion still holds. Once it is gone the request can
                 // never be claimed again, so returning it here would leave
                 // stale-pending recovery redispatching this job forever.
-                $this->authorizeSourceOrTerminalize($job, $linked);
+                $this->authorizeSourceOrTerminalize($job, $linked, $ownedMode, $ownedGeneration);
                 $this->synchronizeDomainStatus($job, $linked);
 
                 return $linked;
@@ -61,7 +69,7 @@ final readonly class PhrExternalGenAiRequestService
             $job->forceFill(['mcp_request_id' => null])->save();
         }
 
-        $user = $this->authorizeSourceOrTerminalize($job, null);
+        $user = $this->authorizeSourceOrTerminalize($job, null, $ownedMode, $ownedGeneration);
         // Every configured disk uses throw => false, so exists() answers false
         // for an unreachable bucket exactly as it does for a deleted object. A
         // missing staged document therefore stays a transient, retryable
@@ -168,12 +176,16 @@ final readonly class PhrExternalGenAiRequestService
      * @param  McpRequest|null  $linked  the request this job is currently
      *                                   linked to, or null on the fresh path
      */
-    private function authorizeSourceOrTerminalize(GenAiImportJob $job, ?McpRequest $linked): User
-    {
+    private function authorizeSourceOrTerminalize(
+        GenAiImportJob $job,
+        ?McpRequest $linked,
+        string $ownedMode,
+        int $ownedGeneration,
+    ): User {
         try {
             return $this->authorizeSource($job);
         } catch (PhrExternalEnqueueUnauthorized $exception) {
-            $this->terminalizeUnauthorizedJob($job, $linked, $exception);
+            $this->terminalizeUnauthorizedJob($job, $linked, $ownedMode, $ownedGeneration, $exception);
 
             throw $exception;
         }
@@ -187,14 +199,22 @@ final readonly class PhrExternalGenAiRequestService
     private function terminalizeUnauthorizedJob(
         GenAiImportJob $job,
         ?McpRequest $linked,
+        string $ownedMode,
+        int $ownedGeneration,
         PhrExternalEnqueueUnauthorized $reason,
     ): void {
-        // Compare-and-swap on the link itself. If another actor has already
-        // relinked, regenerated, or finished this job, its work is not ours to
-        // terminalize or cancel.
+        // Compare-and-swap on the row revision this call authorized. The link
+        // alone is not enough on the fresh path: PhrGenAiExecutionModeService
+        // and the retry path both leave the job pending with a null link, so a
+        // successor's freshly regenerated work looks exactly like the state
+        // this call started from. Pinning the execution mode and generation
+        // makes a successor - including one that toggled back to external -
+        // own the row, and this stale terminalization match zero rows.
         $linkedId = $linked?->id;
         $released = GenAiImportJob::query()
             ->whereKey($job->id)
+            ->where('execution_mode', $ownedMode)
+            ->where('mcp_generation', $ownedGeneration)
             ->when(
                 $linkedId !== null,
                 fn ($query) => $query->where('mcp_request_id', $linkedId),
@@ -235,10 +255,63 @@ final readonly class PhrExternalGenAiRequestService
         $this->cancelOrphanedRequest($request->id);
     }
 
-    private function cancelOrphanedRequest(string $requestId): void
+    /**
+     * Cancel every PHR external request that no import job references any more.
+     *
+     * Cancelling an orphan cannot be made atomic with the state transition that
+     * orphaned it. On the lost-link-race path the package has already committed
+     * the request in its own transaction before PHR's link compare-and-swap
+     * runs, so no PHR transaction can un-create it, and rolling the
+     * terminalization back instead would restore the very pending row that
+     * stale recovery must stop redispatching. The request row is therefore the
+     * durable record of the cleanup still owed, and this sweep is what retries
+     * it: after a transient failure in the inline cancellation, after a crash
+     * between creating a request and linking it, and for any other orphan.
+     *
+     * @param  int  $minimumAgeMinutes  grace period that keeps a request an
+     *                                  in-flight enqueue has created but not
+     *                                  yet linked out of the sweep
+     * @param  int  $batch  maximum number of orphans to inspect in one pass
+     * @return int the number of requests this pass cancelled
+     */
+    public function cancelOrphanedRequests(int $minimumAgeMinutes, int $batch): int
+    {
+        $jobs = (new GenAiImportJob)->getTable();
+        $requests = (new McpRequest)->getTable();
+        $orphans = McpRequest::query()
+            ->where('queue', self::MAILBOX)
+            ->whereIn('status', [McpRequestStatus::Pending->value, McpRequestStatus::Leased->value])
+            ->where('created_at', '<=', now()->subMinutes(max(0, $minimumAgeMinutes)))
+            ->whereNotExists(fn ($query) => $query
+                ->from($jobs)
+                ->whereColumn($jobs.'.mcp_request_id', $requests.'.id'))
+            ->oldest('created_at')
+            ->limit(max(1, $batch))
+            ->pluck('id');
+
+        $cancelled = 0;
+        foreach ($orphans as $requestId) {
+            try {
+                $cancelled += (int) $this->cancelOrphanedRequest((string) $requestId);
+            } catch (Throwable $exception) {
+                // The orphan stays recorded in the queue table, so the next
+                // sweep retries it rather than losing the cleanup again.
+                Log::warning('Orphaned external GenAI request could not be cancelled; it stays queued for the next sweep.', [
+                    'request_id_hash' => hash('sha256', (string) $requestId),
+                    'exception' => $exception::class,
+                ]);
+            }
+        }
+
+        return $cancelled;
+    }
+
+    private function cancelOrphanedRequest(string $requestId): bool
     {
         try {
             $this->queue->cancel($requestId);
+
+            return true;
         } catch (McpQueueException|ModelNotFoundException $exception) {
             // cancel() rejects an already terminal request with 409 and a
             // deleted one with a model-not-found. Either way another actor has
@@ -247,6 +320,8 @@ final readonly class PhrExternalGenAiRequestService
                 'request_id_hash' => hash('sha256', $requestId),
                 'exception' => $exception::class,
             ]);
+
+            return false;
         }
     }
 

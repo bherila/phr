@@ -6,6 +6,7 @@ use App\GenAiProcessor\Jobs\ParseImportJob;
 use App\GenAiProcessor\Models\GenAiImportJob;
 use App\GenAiProcessor\Services\PhrExternalEnqueueUnauthorized;
 use App\GenAiProcessor\Services\PhrExternalGenAiRequestService;
+use App\GenAiProcessor\Services\PhrGenAiExecutionModeService;
 use App\Models\PhrDocument;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
@@ -13,6 +14,8 @@ use App\Models\User;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use Bherila\GenAiLaravel\Mcp\Enums\McpRequestStatus;
 use Bherila\GenAiLaravel\Mcp\Models\McpRequest;
+use Closure;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
@@ -236,6 +239,223 @@ final class ExternalGenAiEnqueueLifecycleTest extends TestCase
 
         $this->assertSame('failed', $this->requestStatus($lostId));
         $this->assertSame('pending', $this->requestStatus($successorId));
+    }
+
+    public function test_fresh_path_terminalize_fails_an_unauthorized_unlinked_job(): void
+    {
+        // The positive control for the tightened predicate: nothing concurrent
+        // happens, so the fresh path must still terminalize.
+        [$user, $patient, , $job] = $this->externalJob(owner: false);
+        PhrPatientUserAccess::query()
+            ->where('patient_id', $patient->id)
+            ->where('user_id', $user->id)
+            ->delete();
+
+        $this->expectException(PhrExternalEnqueueUnauthorized::class);
+        try {
+            app(PhrExternalGenAiRequestService::class)->enqueue($job);
+        } finally {
+            $job->refresh();
+            $this->assertSame('failed', $job->status);
+            $this->assertSame(0, $job->mcp_generation);
+            $this->assertSame(
+                'External processing was cancelled because access or source state changed.',
+                $job->error_message,
+            );
+        }
+    }
+
+    public function test_fresh_path_terminalize_spares_a_job_a_mode_change_regenerated_as_api(): void
+    {
+        [$user, , , $job] = $this->externalJob();
+
+        // The mode-change transaction commits between the authorization check
+        // and the compare-and-swap. It leaves the job in API mode, pending,
+        // with a null link and a bumped generation - which is exactly the state
+        // the fresh path started from, so the link predicate alone still
+        // matches and would fail the successor's freshly regenerated work.
+        $this->interleaveDuringAuthorization(fn () => app(PhrGenAiExecutionModeService::class)
+            ->update($user->refresh(), GenAiImportJob::EXECUTION_API));
+
+        $this->expectException(PhrExternalEnqueueUnauthorized::class);
+        try {
+            app(PhrExternalGenAiRequestService::class)->enqueue($job->refresh());
+        } finally {
+            $job->refresh();
+            $this->assertSame(GenAiImportJob::EXECUTION_API, $job->execution_mode);
+            $this->assertSame(1, $job->mcp_generation);
+            $this->assertSame('pending', $job->status);
+            $this->assertNull($job->error_message);
+        }
+    }
+
+    public function test_fresh_path_terminalize_spares_a_job_regenerated_back_into_external_mode(): void
+    {
+        [$user, , , $job] = $this->externalJob();
+
+        // Toggling away and back leaves the execution mode identical to the one
+        // this call authorized, so only the generation distinguishes the
+        // successor's work from ours.
+        $this->interleaveDuringAuthorization(function () use ($user): void {
+            $modes = app(PhrGenAiExecutionModeService::class);
+            $modes->update($user->refresh(), GenAiImportJob::EXECUTION_API);
+            $modes->update($user->refresh(), GenAiImportJob::EXECUTION_EXTERNAL);
+        });
+
+        $this->expectException(PhrExternalEnqueueUnauthorized::class);
+        try {
+            app(PhrExternalGenAiRequestService::class)->enqueue($job->refresh());
+        } finally {
+            $job->refresh();
+            $this->assertSame(GenAiImportJob::EXECUTION_EXTERNAL, $job->execution_mode);
+            $this->assertSame(2, $job->mcp_generation);
+            $this->assertSame('pending', $job->status);
+            $this->assertNull($job->error_message);
+        }
+    }
+
+    public function test_orphan_sweep_cancels_a_terminalized_request_whose_cancellation_failed(): void
+    {
+        [, , $document, $job] = $this->externalJob();
+        (new ParseImportJob($job->id))->handle();
+        $requestId = (string) $job->refresh()->mcp_request_id;
+
+        $document->delete();
+        $this->failTheFirstCancellationOf($requestId);
+
+        // queueExternally() absorbs the transient failure, so the request id
+        // only ever existed on that call stack.
+        (new ParseImportJob($job->id))->handle();
+
+        $job->refresh();
+        $this->assertSame('failed', $job->status);
+        $this->assertNull($job->mcp_request_id);
+        // The orphan: still pending, still visible, referenced by nothing, and
+        // attached to a job that recovery will never redispatch.
+        $this->assertSame('pending', $this->requestStatus($requestId));
+
+        $this->travel(20)->minutes();
+        $this->artisan('genai:cancel-orphaned-requests')->assertSuccessful();
+        $this->assertSame('cancelled', $this->requestStatus($requestId));
+    }
+
+    public function test_orphan_sweep_cancels_a_lost_race_request_whose_cancellation_failed(): void
+    {
+        [, , , $job] = $this->externalJob();
+        (new ParseImportJob($job->id))->handle();
+        $successorId = (string) $job->refresh()->mcp_request_id;
+
+        // Free the link and move past the current idempotency key so a second
+        // enqueue creates its own request.
+        $job->forceFill([
+            'mcp_request_id' => null,
+            'mcp_generation' => $job->mcp_generation + 1,
+            'status' => 'pending',
+        ])->save();
+
+        $lostId = null;
+        McpRequest::created(function (McpRequest $created) use (&$lostId, $job, $successorId): void {
+            if ($lostId !== null) {
+                return;
+            }
+            $lostId = (string) $created->id;
+            // A successor enqueue won the compare-and-swap first, and the
+            // cancellation of the loser then hits a database blip.
+            GenAiImportJob::query()->whereKey($job->id)->update(['mcp_request_id' => $successorId]);
+            $this->failTheFirstCancellationOf($lostId);
+        });
+
+        try {
+            app(PhrExternalGenAiRequestService::class)->enqueue($job->refresh());
+            $this->fail('The losing enqueue reported success.');
+        } catch (QueryException $exception) {
+            $this->assertStringContainsString('Connection refused', $exception->getMessage());
+        }
+
+        $this->assertIsString($lostId);
+        $this->assertNotSame($successorId, $lostId);
+        $this->assertSame('pending', $this->requestStatus($lostId));
+
+        $this->travel(20)->minutes();
+        $this->artisan('genai:cancel-orphaned-requests')->assertSuccessful();
+        $this->assertSame('cancelled', $this->requestStatus($lostId));
+        // The successor still owns the link, so the sweep leaves it alone.
+        $this->assertSame('pending', $this->requestStatus($successorId));
+        $this->assertSame($successorId, $job->refresh()->mcp_request_id);
+    }
+
+    public function test_orphan_sweep_spares_linked_and_freshly_created_requests(): void
+    {
+        [, , , $job] = $this->externalJob();
+        (new ParseImportJob($job->id))->handle();
+        $requestId = (string) $job->refresh()->mcp_request_id;
+
+        // Linked, and long past the grace period.
+        $this->travel(60)->minutes();
+        $this->artisan('genai:cancel-orphaned-requests')->assertSuccessful();
+        $this->assertSame('pending', $this->requestStatus($requestId));
+        $this->travelBack();
+
+        // Unlinked but inside the grace period: an enqueue may still be between
+        // creating this request and linking it.
+        GenAiImportJob::query()->whereKey($job->id)->update(['mcp_request_id' => null]);
+        $this->artisan('genai:cancel-orphaned-requests')->assertSuccessful();
+        $this->assertSame('pending', $this->requestStatus($requestId));
+
+        // Past the grace period it is a confirmed orphan.
+        $this->travel(20)->minutes();
+        $this->artisan('genai:cancel-orphaned-requests')->assertSuccessful();
+        $this->assertSame('cancelled', $this->requestStatus($requestId));
+    }
+
+    /**
+     * Force the #114 interleaving deterministically: the callback runs inside
+     * the patient-grant re-check, between the authorization this enqueue relies
+     * on and the compare-and-swap that terminalizes the job.
+     */
+    private function interleaveDuringAuthorization(Closure $interleave): void
+    {
+        $access = new class extends PhrPatientAccessService
+        {
+            public ?Closure $interleave = null;
+
+            public function writablePatient(int $patientId, int $userId): PhrPatient
+            {
+                if ($this->interleave !== null) {
+                    ($this->interleave)();
+                    $this->interleave = null;
+                }
+
+                throw new AuthorizationException('The patient write grant was revoked.');
+            }
+        };
+        $access->interleave = $interleave;
+        $this->app->instance(PhrPatientAccessService::class, $access);
+    }
+
+    /**
+     * Make the very next cancellation write for this request fail with a
+     * transient database error, and let every later attempt through.
+     */
+    private function failTheFirstCancellationOf(string $requestId): void
+    {
+        $attempts = 0;
+        McpRequest::updating(function (McpRequest $model) use ($requestId, &$attempts): void {
+            if ((string) $model->id !== $requestId || $model->status !== McpRequestStatus::Cancelled) {
+                return;
+            }
+            $attempts++;
+            if ($attempts > 1) {
+                return;
+            }
+
+            throw new QueryException(
+                'mysql',
+                'update `genai_mcp_requests` set `status` = ? where `id` = ?',
+                [McpRequestStatus::Cancelled->value, $requestId],
+                new RuntimeException('SQLSTATE[HY000] [2002] Connection refused'),
+            );
+        });
     }
 
     /**
