@@ -63,7 +63,7 @@ unavailable() {
 # --- prerequisites: all of them, before any account or daemon exists --------
 [[ -f "$converge" && -r "$converge" ]] || fail "the script under test is not a readable file: $converge"
 [[ "$(id -u)" == 0 ]] || unavailable 'it needs root to create a throwaway account and run sshd'
-for tool in /usr/sbin/sshd ssh ssh-keygen rsync useradd usermod userdel getent su git sha256sum od; do
+for tool in /usr/sbin/sshd ssh ssh-keygen rsync useradd usermod userdel getent su git sha256sum od pgrep pkill; do
     command -v "$tool" >/dev/null 2>&1 || [[ -x "$tool" ]] \
         || unavailable "'$tool' is not installed"
 done
@@ -134,8 +134,18 @@ cleanup() {
     # A fixture may leave a deliberately unreadable directory behind.
     chmod -R u+rwX "$root_dir" 2>/dev/null || true
     if [[ "$account_created" == true ]]; then
-        userdel "$server_user" 2>/dev/null \
-            || echo "WARNING: could not delete the throwaway account $server_user this run created." >&2
+        # Stopping the listener does not stop sessions it already forked, and
+        # a remote rsync receiver from an interrupted transfer can outlive its
+        # client. userdel refuses an account with live processes, so stop the
+        # ones owned by the account this run created - and only those.
+        pkill -KILL -u "$server_user" 2>/dev/null || true
+        for _ in $(seq 1 50); do pgrep -u "$server_user" >/dev/null 2>&1 || break; sleep 0.1; done
+        local userdel_error
+        if ! userdel_error="$(userdel "$server_user" 2>&1)"; then
+            echo "FAIL: could not delete the throwaway account $server_user this run created: $userdel_error" >&2
+            # A leaked root-created account must not pass silently in CI.
+            [[ "$required" == true ]] && cleanup_status=1
+        fi
     fi
     if [[ "$run_sshd_created" == true ]]; then
         rmdir /run/sshd 2>/dev/null || true
@@ -143,7 +153,16 @@ cleanup() {
     rm -rf "$root_dir"
     return 0
 }
-trap cleanup EXIT
+cleanup_status=0
+on_exit() {
+    local status=$?
+    cleanup
+    if [[ "$status" == 0 && "$cleanup_status" != 0 ]]; then
+        exit "$cleanup_status"
+    fi
+    exit "$status"
+}
+trap on_exit EXIT
 
 # sshd resolves the account's home through this path as an unprivileged user.
 chmod 755 "$root_dir"
