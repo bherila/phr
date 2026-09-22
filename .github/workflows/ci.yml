@@ -248,7 +248,7 @@ jobs:
     # real receiver does (it passed with `$HOME` in the destination, and does
     # not notice `--checksum` going missing), so this gates deploys too.
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -274,20 +274,45 @@ jobs:
           path: .shared-cpanel-deployment
           persist-credentials: false
 
+      # Only infrastructure setup is retried, within a fixed bound. The suite
+      # itself is never retried: a behavioural failure is a real failure.
       - name: Install OpenSSH server
         run: |
           if [ ! -x /usr/sbin/sshd ]; then
-            sudo apt-get update -q
-            sudo apt-get install -y -q --no-install-recommends openssh-server
+            for attempt in 1 2 3; do
+              if sudo apt-get update -q \
+                && sudo apt-get install -y -q --no-install-recommends openssh-server; then
+                break
+              fi
+              [ "$attempt" = 3 ] && exit 1
+              sleep $((attempt * 10))
+            done
           fi
 
+      # Required mode fails, rather than skips, when sshd, the action checkout,
+      # or the exact pinned revision is missing; only these three variables are
+      # passed through sudo.
       - name: Run OHIF real-transport suite
         env:
-          # Turns "cannot run here" into a failure, so a runner that loses
-          # sshd does not silently lose this suite.
           PHR_OHIF_INTEGRATION_REQUIRED: 'true'
           PHR_SHARED_ACTION_DIR: ${{ github.workspace }}/.shared-cpanel-deployment
-        run: sudo --preserve-env=PHR_OHIF_INTEGRATION_REQUIRED,PHR_SHARED_ACTION_DIR bash .github/scripts/converge-ohif-dist.integration.test.sh
+          PHR_SHARED_ACTION_SHA: ${{ steps.action.outputs.sha }}
+        run: sudo --preserve-env=PHR_OHIF_INTEGRATION_REQUIRED,PHR_SHARED_ACTION_DIR,PHR_SHARED_ACTION_SHA bash .github/scripts/converge-ohif-dist.integration.test.sh
+
+      # Proves the suite can still see the defect it exists for: a disposable
+      # copy of the script with `--checksum` removed must fail at a
+      # STALE-CONTENT assertion, and an unmodified copy must not.
+      - name: Check the suite still detects a dropped --checksum
+        env:
+          PHR_OHIF_INTEGRATION_REQUIRED: 'true'
+          PHR_SHARED_ACTION_DIR: ${{ github.workspace }}/.shared-cpanel-deployment
+          PHR_SHARED_ACTION_SHA: ${{ steps.action.outputs.sha }}
+        run: |
+          sudo --preserve-env=PHR_OHIF_INTEGRATION_REQUIRED,PHR_SHARED_ACTION_DIR,PHR_SHARED_ACTION_SHA bash .github/scripts/converge-ohif-dist.mutation-check.sh
+          if sudo --preserve-env=PHR_OHIF_INTEGRATION_REQUIRED,PHR_SHARED_ACTION_DIR,PHR_SHARED_ACTION_SHA bash .github/scripts/converge-ohif-dist.mutation-check.sh --control; then
+            echo '::error::The mutation check passed against an unmodified copy; it is not discriminating.'
+            exit 1
+          fi
 
   test:
     name: Run Tests
