@@ -48,8 +48,20 @@ final readonly class PhrMcpAttachmentResolver implements AttachmentResolver
         // streaming hash (hash_init/hash_update_stream/hash_final) so a mutated
         // object never gets streamed under stale integrity metadata, without ever
         // holding the full (up to 100 MiB) object in PHP memory.
-        if (! $this->liveBytesMatchRecordedHash($job)) {
+        // Only a *completed* read that disagrees with the recorded hash proves the
+        // object was mutated. Every disk in config/filesystems.php sets
+        // throw => false, so an ordinary S3/network failure surfaces as a false
+        // stream or a short read rather than an exception. Terminalizing on those
+        // would convert a transient outage into a permanent import failure and
+        // destroy the lease/retry recovery that already handles them, so an
+        // inconclusive read (null) is left retryable and only a proven mismatch
+        // (false) is terminal.
+        $verified = $this->liveBytesMatchRecordedHash($job, (int) $attachment->size);
+        if ($verified === false) {
             $this->terminalizeIntegrityFailure($request);
+            throw new NotFoundHttpException;
+        }
+        if ($verified === null) {
             throw new NotFoundHttpException;
         }
 
@@ -76,16 +88,34 @@ final readonly class PhrMcpAttachmentResolver implements AttachmentResolver
         return $stream;
     }
 
-    private function liveBytesMatchRecordedHash(GenAiImportJob $job): bool
+    /**
+     * Hash the live object and compare it with the hash recorded at enqueue time.
+     *
+     * Returns true when the bytes are verified, false when a complete read proves
+     * the object no longer matches, and null when the read was inconclusive — the
+     * object could not be opened, or the transfer ended early. Callers must not
+     * treat null as a mismatch: `throw => false` on every configured disk means an
+     * ordinary storage or network failure is indistinguishable from a missing
+     * object at this layer, and only the mismatch case is evidence of mutation.
+     */
+    private function liveBytesMatchRecordedHash(GenAiImportJob $job, int $expectedSize): ?bool
     {
         $stream = Storage::disk('s3')->readStream($job->s3_path);
         if (! is_resource($stream)) {
-            return false;
+            return null;
         }
         try {
             $hashContext = hash_init('sha256');
-            hash_update_stream($hashContext, $stream);
+            $hashedBytes = hash_update_stream($hashContext, $stream);
             $liveHash = hash_final($hashContext);
+            // A transfer that breaks partway hashes a prefix of the object, which
+            // would look exactly like a mutation. The live byte count was already
+            // confirmed against the attachment above, so consuming fewer bytes than
+            // that, or stopping before EOF, means the read failed rather than that
+            // the object changed.
+            if ($hashedBytes !== $expectedSize || ! feof($stream)) {
+                return null;
+            }
         } finally {
             fclose($stream);
         }

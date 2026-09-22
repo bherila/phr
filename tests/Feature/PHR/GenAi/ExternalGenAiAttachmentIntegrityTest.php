@@ -18,6 +18,7 @@ use Bherila\GenAiLaravel\Mcp\Models\McpRequest;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Storage;
+use Mockery;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Tests\TestCase;
 
@@ -122,6 +123,90 @@ final class ExternalGenAiAttachmentIntegrityTest extends TestCase
         $this->assertSame(McpRequestStatus::Leased, McpRequest::query()->findOrFail($requestId)->status);
         $this->assertSame('processing', $job->refresh()->status);
         $this->assertDatabaseMissing('genai_mcp_deliveries', ['request_id' => $requestId, 'type' => 'failed']);
+    }
+
+    public function test_a_transient_storage_read_failure_stays_retryable(): void
+    {
+        [$context, $job, $requestId, $attachment] = $this->claimedExternalJob();
+
+        // Every disk sets throw => false, so an S3 or network failure returns a
+        // false stream rather than raising. That is not evidence of mutation.
+        $this->swapS3ReadStream(false);
+
+        try {
+            app(PhrMcpAttachmentResolver::class)->readStream($attachment, $context);
+            $this->fail('An unreadable attachment must not be streamed.');
+        } catch (NotFoundHttpException) {
+            $this->assertTrue(true);
+        }
+
+        $this->assertStillRetryable($requestId, $job);
+    }
+
+    public function test_a_truncated_read_stays_retryable(): void
+    {
+        [$context, $job, $requestId, $attachment] = $this->claimedExternalJob();
+
+        // A transfer that breaks partway hashes only a prefix, which would look
+        // exactly like a same-size mutation if the short read went undetected.
+        $this->swapS3ReadStream(substr($this->documentBytes(), 0, 8));
+
+        try {
+            app(PhrMcpAttachmentResolver::class)->readStream($attachment, $context);
+            $this->fail('A truncated attachment read must not be streamed.');
+        } catch (NotFoundHttpException) {
+            $this->assertTrue(true);
+        }
+
+        $this->assertStillRetryable($requestId, $job);
+    }
+
+    /**
+     * A retryable read failure must leave the lease/retry recovery that already
+     * handles transient storage outages completely intact.
+     */
+    private function assertStillRetryable(string $requestId, GenAiImportJob $job): void
+    {
+        $this->assertSame(McpRequestStatus::Leased, McpRequest::query()->findOrFail($requestId)->status);
+        $this->assertDatabaseMissing('genai_mcp_deliveries', ['request_id' => $requestId, 'type' => 'failed']);
+        $this->assertSame('processing', $job->refresh()->status);
+        $this->assertNull($job->error_message);
+    }
+
+    private function swapS3ReadStream(false|string $result): void
+    {
+        $real = Storage::disk('s3');
+        $mock = Mockery::mock($real);
+        $mock->shouldReceive('readStream')->andReturnUsing(static function () use ($result) {
+            if ($result === false) {
+                return false;
+            }
+            $stream = fopen('php://memory', 'r+');
+            fwrite($stream, $result);
+            rewind($stream);
+
+            return $stream;
+        });
+        $mock->shouldReceive('exists')->andReturnUsing(static fn (string $path): bool => $real->exists($path));
+        $mock->shouldReceive('size')->andReturnUsing(static fn (string $path): int => $real->size($path));
+        Storage::set('s3', $mock);
+    }
+
+    /** @return array{ExecutionContext, GenAiImportJob, string, McpAttachment} */
+    private function claimedExternalJob(): array
+    {
+        [, , , $job] = $this->externalJob();
+        (new ParseImportJob($job->id))->handle();
+        $job->refresh();
+        $requestId = $job->mcp_request_id;
+        $this->assertIsString($requestId);
+        $mailboxId = (string) $job->getConnection()->table('genai_mcp_requests')->where('id', $requestId)->value('mailbox_id');
+        $context = $this->context($job->user, $mailboxId);
+
+        $this->assertIsArray(app(McpQueueService::class)->claim($context, 'phr-imports'));
+        $this->assertSame('processing', $job->refresh()->status);
+
+        return [$context, $job, $requestId, McpAttachment::query()->where('request_id', $requestId)->sole()];
     }
 
     /** @return array{User, PhrPatient, PhrDocument, GenAiImportJob} */
