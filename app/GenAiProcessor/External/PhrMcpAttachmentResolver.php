@@ -5,9 +5,12 @@ namespace App\GenAiProcessor\External;
 use App\GenAiProcessor\Models\GenAiImportJob;
 use App\Support\AgentApi\AgentApiScopes;
 use Bherila\GenAiLaravel\Contracts\AttachmentResolver;
+use Bherila\GenAiLaravel\Mcp\Enums\McpRequestStatus;
 use Bherila\GenAiLaravel\Mcp\ExecutionContext;
 use Bherila\GenAiLaravel\Mcp\Models\McpAttachment;
+use Bherila\GenAiLaravel\Mcp\Models\McpDelivery;
 use Bherila\GenAiLaravel\Mcp\Models\McpRequest;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -35,11 +38,128 @@ final readonly class PhrMcpAttachmentResolver implements AttachmentResolver
             || (int) Storage::disk('s3')->size($job->s3_path) !== (int) $attachment->size) {
             throw new NotFoundHttpException;
         }
+
+        // The checks above only compare database-recorded metadata against other
+        // database-recorded metadata (job->file_hash vs attachment->sha256, both
+        // written from the same value at enqueue time) plus the live S3 byte
+        // *count*. None of that proves the S3 object's bytes are still what was
+        // hashed at enqueue time: a same-size mutation of the private object passes
+        // every check above. Recompute the SHA-256 of the live bytes with a
+        // streaming hash (hash_init/hash_update_stream/hash_final) so a mutated
+        // object never gets streamed under stale integrity metadata, without ever
+        // holding the full (up to 100 MiB) object in PHP memory.
+        // Only a *completed* read that disagrees with the recorded hash proves the
+        // object was mutated. Every disk in config/filesystems.php sets
+        // throw => false, so an ordinary S3/network failure surfaces as a false
+        // stream or a short read rather than an exception. Terminalizing on those
+        // would convert a transient outage into a permanent import failure and
+        // destroy the lease/retry recovery that already handles them, so an
+        // inconclusive read (null) is left retryable and only a proven mismatch
+        // (false) is terminal.
+        $verified = $this->liveBytesMatchRecordedHash($job, (int) $attachment->size);
+        if ($verified === false) {
+            $this->terminalizeIntegrityFailure($request);
+            throw new NotFoundHttpException;
+        }
+        if ($verified === null) {
+            throw new NotFoundHttpException;
+        }
+
+        // Ordering/TOCTOU note: verification above already consumed one full read of
+        // the S3 object to hash it, so that same stream cannot be handed back to the
+        // caller. We re-open a second, independent read here instead of buffering
+        // the verified bytes in memory (which would defeat the point of streaming
+        // verification for up to 100 MiB objects). This leaves a window, between the
+        // verifying read finishing and this second read starting, in which the
+        // object could theoretically be mutated again and stream unverified bytes.
+        // That window is not closed by anything below. We accept it here because: it
+        // requires an attacker able to mutate this private S3 object in the first
+        // place (the same precondition the whole check defends against), the window
+        // is a single request's worth of wall-clock time rather than an unbounded
+        // lease lifetime, and closing it fully would require reading a specific S3
+        // object *version* for both operations, which this disk/bucket does not
+        // currently guarantee is enabled. If the bucket adopts versioning, pinning
+        // both reads to one version id would remove this window entirely.
         $stream = Storage::disk('s3')->readStream($job->s3_path);
         if (! is_resource($stream)) {
             throw new NotFoundHttpException;
         }
 
         return $stream;
+    }
+
+    /**
+     * Hash the live object and compare it with the hash recorded at enqueue time.
+     *
+     * Returns true when the bytes are verified, false when a complete read proves
+     * the object no longer matches, and null when the read was inconclusive — the
+     * object could not be opened, or the transfer ended early. Callers must not
+     * treat null as a mismatch: `throw => false` on every configured disk means an
+     * ordinary storage or network failure is indistinguishable from a missing
+     * object at this layer, and only the mismatch case is evidence of mutation.
+     */
+    private function liveBytesMatchRecordedHash(GenAiImportJob $job, int $expectedSize): ?bool
+    {
+        $stream = Storage::disk('s3')->readStream($job->s3_path);
+        if (! is_resource($stream)) {
+            return null;
+        }
+        try {
+            $hashContext = hash_init('sha256');
+            $hashedBytes = hash_update_stream($hashContext, $stream);
+            $liveHash = hash_final($hashContext);
+            // A transfer that breaks partway hashes a prefix of the object, which
+            // would look exactly like a mutation. The live byte count was already
+            // confirmed against the attachment above, so consuming fewer bytes than
+            // that, or stopping before EOF, means the read failed rather than that
+            // the object changed.
+            if ($hashedBytes !== $expectedSize || ! feof($stream)) {
+                return null;
+            }
+        } finally {
+            fclose($stream);
+        }
+
+        return hash_equals(strtolower($job->file_hash), $liveHash);
+    }
+
+    /**
+     * Fail the MCP request closed, the same way the package's own lease-exhaustion
+     * path (McpQueueService::failExhaustedLeases) terminalizes stuck work: mark the
+     * request Failed directly (so it can never be reclaimed and re-leased again) and
+     * record a 'failed' delivery so genai:mcp:deliver applies the terminal
+     * genai_import_jobs status through PhrMcpCompletionDelivery's existing
+     * ['pending','processing'] -> 'failed' transition, exactly as it does for any
+     * other external failure delivery.
+     */
+    private function terminalizeIntegrityFailure(McpRequest $request): void
+    {
+        DB::connection()->transaction(function () use ($request): void {
+            $locked = McpRequest::query()->whereKey($request->id)->lockForUpdate()->first();
+            if (! $locked instanceof McpRequest || in_array($locked->status, [
+                McpRequestStatus::Completed,
+                McpRequestStatus::Failed,
+                McpRequestStatus::Expired,
+                McpRequestStatus::Cancelled,
+            ], true)) {
+                return;
+            }
+            $error = [
+                'code' => 'attachment_integrity_failed',
+                'message' => 'The source attachment no longer matches its recorded integrity hash.',
+            ];
+            $locked->forceFill([
+                'status' => McpRequestStatus::Failed,
+                'failed_at' => now(),
+                'error' => $error,
+                'lease_token_hash' => null,
+                'lease_expires_at' => null,
+                'lease_principal' => null,
+            ])->save();
+            McpDelivery::query()->firstOrCreate(
+                ['request_id' => $locked->id, 'type' => 'failed'],
+                ['payload' => ['error' => $error], 'available_at' => now()],
+            );
+        });
     }
 }
