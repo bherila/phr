@@ -34,7 +34,7 @@ final class DicomUploadCleanupLoggingTest extends TestCase
 {
     private const PATIENT_ID = 987654;
 
-    private const CLINICAL_CANARY = 'SYNTHETIC-CANARY cardiac CT for Jane Roe DOB 1970-01-01';
+    private const CLINICAL_CANARY = 'SYNTHETIC-CANARY impression: no acute cardiopulmonary findings';
 
     private ?string $errorLogFile = null;
 
