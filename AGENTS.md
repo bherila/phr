@@ -11,11 +11,11 @@ lint, Jest, Pint, PHPUnit) that must pass before committing.
 ## Parallel git worktrees
 
 Needed whenever you run agents or validation (PHPUnit, PHPStan) in more than one
-git worktree of this repo at once. Do not `ln -s /home/user/phr/vendor "$WT/vendor"`
+git worktree of this repo at once. Do not symlink the main checkout's `vendor/` into the worktree
 — it is silently wrong. Composer's `vendor/composer/autoload_psr4.php` derives
 `$baseDir` from `dirname(dirname(__DIR__))`, and PHP resolves `__DIR__` through
 symlinks to the real target, so a symlinked `vendor/` anchors autoloading to
-`/home/user/phr` regardless of which worktree required it. PHPUnit then runs the
+the main checkout regardless of which worktree required it. PHPUnit then runs the
 worktree's tests against the main checkout's unmodified sources — a false green,
 not a loader error, so nothing in the test output flags it.
 
@@ -26,17 +26,29 @@ existing bundle, never reinstalls it):
 
 ```
 cd "$WT"
+SRC=$(git rev-parse --path-format=absolute --git-common-dir)/..   # the main checkout
+SRC=$(cd "$SRC" && pwd)
+cmp -s "$SRC/composer.lock" composer.lock || echo 'composer.lock differs — see below'
 mkdir vendor
-for e in /home/user/phr/vendor/*; do
+for e in "$SRC"/vendor/*; do
   n=$(basename "$e")
   case "$n" in composer|bin|autoload.php) continue;; esac
   ln -s "$e" "vendor/$n"
 done
-cp -r /home/user/phr/vendor/composer vendor/composer
-cp -r /home/user/phr/vendor/bin      vendor/bin
-cp    /home/user/phr/vendor/autoload.php vendor/autoload.php
-cp    /home/user/phr/.env .env
+cp -r "$SRC/vendor/composer" vendor/composer
+cp -r "$SRC/vendor/bin"      vendor/bin
+cp    "$SRC/vendor/autoload.php" vendor/autoload.php
+cp    "$SRC/.env" .env
 ```
+
+`$SRC` is derived from git rather than hard-coded, so the recipe works wherever the
+repository is cloned. Every path below is relative to it.
+
+If the `cmp` reports a difference, stop: the worktree declares dependencies the
+shared bundle does not contain, so PHPUnit and PHPStan would validate against the
+wrong versions and report misleading results. Either work from a worktree whose
+`composer.lock` matches the main checkout, or get a bundle built for that lock (see
+"Cloud sessions" above) before constructing these links.
 
 `vendor/composer`, `vendor/bin`, and `vendor/autoload.php` must be real copies (a
 few MB); everything else stays a symlink so the worktree doesn't pay the full 215MB
@@ -46,7 +58,7 @@ vendor bundle cost.
 worktree.** The failure mode above is silent: "I ran the tests and they passed"
 proves nothing, because a symlinked `vendor/` produces exactly that outcome while
 testing the wrong sources. Run this one-liner in the worktree and confirm the path
-it prints is inside the worktree, not `/home/user/phr`:
+it prints is inside the worktree, not `$SRC`:
 
 ```
 php -r 'require "vendor/autoload.php"; $r = new ReflectionClass("App\\Models\\User"); echo $r->getFileName(), "\n";'
@@ -58,11 +70,11 @@ own sources under this layout.
 `vendor/bin/phpstan` does not, by default: it fatals with `Cannot redeclare class
 ComposerAutoloaderInit…`, because the phpstan phar resolves the shared real
 `vendor/composer` path and double-loads the autoloader. Fix: also make
-`vendor/phpstan` a real copy (`rm vendor/phpstan && cp -r /home/user/phr/vendor/phpstan vendor/phpstan`,
+`vendor/phpstan` a real copy (`rm vendor/phpstan && cp -r "$SRC/vendor/phpstan" vendor/phpstan`,
 ~27MB). With that copy in place, `vendor/bin/phpstan analyse` runs clean and
 correctly reports errors in the worktree's own edited files.
 
-Nothing under `/home/user/phr/vendor` may be modified by this recipe (only read
+Nothing under `$SRC/vendor` may be modified by this recipe (only read
 from), and it never runs `composer install`/`update` or `pnpm install` — see
 "Cloud sessions" above for why.
 
