@@ -36,6 +36,17 @@ every fifteen minutes and cancels any `phr-imports` request older than
 points at. The age floor keeps an enqueue that is still between creating its
 request and linking it out of the sweep.
 
+One narrow exception exists so a lost HTTP response cannot strand a client. After a
+completion has been delivered and its proposals created, the account that recorded
+that completion may replay the byte-identical completion against that same request
+and receive the original receipt. The replay is authorized only when the import job
+reached `parsed`/`imported`, the linked request is `completed` with its recorded
+completion hash and receipt, its durable delivery was acknowledged, and the caller is
+the same principal that completed it. It still requires the current account status,
+source document, and manager/owner patient grant. New claims, lease renewals, failure
+submissions, different completion data, and any other principal remain rejected, and
+a replay never re-runs delivery or creates a second proposal.
+
 ## MCP drain
 
 Connect the client to `https://phr.bherila.net/api/v1/mcp`, then ask it to drain the
@@ -82,9 +93,9 @@ the exact shape described by `submission_schema`. OAuth access-token refresh kee
 the same lease principal for that user, client, and credential family, while the
 lease token remains a required second factor. Retrying an identical completion with
 the same lease is safe while the linked request remains authorized; different data
-conflicts. Persist the returned receipt because replay after proposal delivery is a
-separate follow-up. Report only sanitized error codes/messages to the failure
-endpoint.
+conflicts. That identical retry keeps working after proposal delivery, so a client
+whose completion response was lost can replay it and read the same receipt. Report
+only sanitized error codes/messages to the failure endpoint.
 
 Hosted connectors that cannot attach the OAuth header when downloading a file are
 not compatible with health-document processing. Use a supported REST-capable local
