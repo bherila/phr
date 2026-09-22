@@ -55,6 +55,35 @@ final class SafeLogTest extends TestCase
             ->with('safelog.test.healthy_error', ['job_id' => 7]);
     }
 
+    public function test_info_level_writes_through_at_info_when_the_logger_is_healthy(): void
+    {
+        $this->redirectErrorLogTo();
+        Log::spy();
+
+        SafeLog::info('safelog.test.healthy_info', ['job_id' => 3]);
+
+        Log::shouldHaveReceived('info')
+            ->once()
+            ->with('safelog.test.healthy_info', ['job_id' => 3]);
+        Log::shouldNotHaveReceived('warning');
+        $this->assertSame('', trim($this->readFallbackSink()));
+    }
+
+    public function test_info_level_falls_back_at_info_without_throwing_when_the_log_facade_throws(): void
+    {
+        $this->redirectErrorLogTo();
+        Log::shouldReceive('info')
+            ->once()
+            ->andThrow(new RuntimeException('log destination unavailable - raw text that must not appear'));
+
+        SafeLog::info('safelog.test.throwing_info', ['job_id' => 11]);
+
+        $fallback = $this->readFallbackSink();
+        $this->assertStringContainsString('[phr.safelog.info] safelog.test.throwing_info', $fallback);
+        $this->assertStringContainsString('"job_id":11', $fallback);
+        $this->assertStringNotContainsString('raw text that must not appear', $fallback);
+    }
+
     public function test_falls_back_without_throwing_when_the_log_facade_throws(): void
     {
         $this->redirectErrorLogTo();

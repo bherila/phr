@@ -11,7 +11,7 @@ use Throwable;
  * `config/logging.php` runs the `stack` channel with `ignore_exceptions` set
  * to `false`, so a broken log destination (full or read-only
  * `storage/logs`, a misconfigured `LOG_STACK` channel) makes
- * `Log::error()` / `Log::warning()` throw. Every call site that reaches for
+ * `Log::error()` / `Log::warning()` / `Log::info()` throw. Every call site that reaches for
  * this helper already sits inside a `catch` whose only job is to degrade
  * gracefully and return a safe value; a throwing logger would turn that
  * into an uncaught exception, converting a handled degradation into an
@@ -51,6 +51,20 @@ final class SafeLog
     private function __construct() {}
 
     /**
+     * For a success-path diagnostic written after the work it describes has
+     * already succeeded, where a throwing logger would otherwise be caught
+     * by the surrounding business `catch` and treated as a failure of that
+     * work. Same contract as warning()/error(); the level stays `info`
+     * rather than being raised to fit the helper.
+     *
+     * @param  array<string, scalar|null>  $context  a pre-approved, per-event context allowlist
+     */
+    public static function info(string $message, array $context = []): void
+    {
+        self::write('info', $message, $context);
+    }
+
+    /**
      * @param  array<string, scalar|null>  $context  a pre-approved, per-event context allowlist
      */
     public static function warning(string $message, array $context = []): void
@@ -76,6 +90,7 @@ final class SafeLog
         try {
             match ($level) {
                 'error' => Log::error($message, $safeContext),
+                'info' => Log::info($message, $safeContext),
                 default => Log::warning($message, $safeContext),
             };
 
@@ -123,11 +138,13 @@ final class SafeLog
     }
 
     /**
-     * A last-resort write that is independent of the failing Log stack:
-     * PHP's own `error_log()` goes to the SAPI/php.ini-configured
-     * destination, never through Monolog or Laravel's logging config, so
-     * the same failure cannot repeat here. Guarded end-to-end: a failure of
-     * this fallback must not throw either.
+     * A last-resort write that bypasses the Log stack: PHP's own
+     * `error_log()` goes to the SAPI/php.ini-configured destination, never
+     * through Monolog or Laravel's logging config, so a failure in either of
+     * those does not repeat here. It is not an independent failure domain,
+     * though - that destination can itself be full, unwritable or
+     * misconfigured, possibly for the same reason the primary failed. Hence
+     * the guard: a failure of this fallback must not throw either.
      *
      * @param  array<string, scalar|null>  $context
      */
