@@ -239,17 +239,65 @@ class StoragePrunerTest extends TestCase
         );
     }
 
+    /**
+     * Pins the application clock to one whole-second instant for a purge test.
+     *
+     * Purge expiry is decided from batch names, not file mtimes, so freezing the clock
+     * here is safe; the mtime-based tests above deliberately keep the real clock.
+     * tearDown() clears the test clock.
+     */
+    private function freezeClockForPurge(): Carbon
+    {
+        $now = Carbon::parse('2026-08-02 12:00:00');
+        Carbon::setTestNow($now);
+
+        return $now->copy();
+    }
+
     public function test_purge_only_removes_batches_past_the_holding_period(): void
     {
         Storage::fake('phr_dicom');
-        $this->disk()->put(StoragePruner::QUARANTINE_ROOT.'/2026-01-01-000000/old.dcm', 'aaaa');
-        $this->disk()->put(StoragePruner::QUARANTINE_ROOT.'/'.Carbon::now()->format('Y-m-d-His').'/fresh.dcm', 'aaaa');
+        $now = $this->freezeClockForPurge();
+        // Each batch name is computed once and reused for both the write and the
+        // assertions, so the test never re-derives a name from a later clock reading.
+        $oldBatch = $now->copy()->subDays(31)->format('Y-m-d-His');
+        $freshBatch = $now->copy()->format('Y-m-d-His');
+        $oldKey = StoragePruner::QUARANTINE_ROOT.'/'.$oldBatch.'/old.dcm';
+        $freshKey = StoragePruner::QUARANTINE_ROOT.'/'.$freshBatch.'/fresh.dcm';
+        $this->disk()->put($oldKey, 'old-bytes');
+        $this->disk()->put($freshKey, 'fresh-bytes');
 
         $result = $this->pruner()->purgeQuarantine(holdDays: 30, apply: true);
 
-        $this->assertSame(['2026-01-01-000000'], $result['batches']);
-        $this->assertTrue($this->disk()->exists(
-            StoragePruner::QUARANTINE_ROOT.'/'.Carbon::now()->format('Y-m-d-His').'/fresh.dcm'
-        ));
+        $this->assertSame([$oldBatch], $result['batches']);
+        $this->assertSame(1, $result['files']);
+        $this->assertFalse($this->disk()->exists($oldKey));
+        $this->assertSame(
+            [StoragePruner::QUARANTINE_ROOT.'/'.$freshBatch],
+            $this->disk()->directories(StoragePruner::QUARANTINE_ROOT),
+        );
+        $this->assertSame('fresh-bytes', $this->disk()->get($freshKey), 'A batch inside its holding period must keep its bytes.');
+    }
+
+    public function test_purge_treats_a_batch_exactly_at_the_cutoff_as_expired(): void
+    {
+        Storage::fake('phr_dicom');
+        $now = $this->freezeClockForPurge();
+        $cutoff = $now->copy()->subDays(30);
+        $atCutoffBatch = $cutoff->copy()->format('Y-m-d-His');
+        $oneSecondNewerBatch = $cutoff->copy()->addSecond()->format('Y-m-d-His');
+        $atCutoffKey = StoragePruner::QUARANTINE_ROOT.'/'.$atCutoffBatch.'/at-cutoff.dcm';
+        $oneSecondNewerKey = StoragePruner::QUARANTINE_ROOT.'/'.$oneSecondNewerBatch.'/one-second-newer.dcm';
+        $this->disk()->put($atCutoffKey, 'at-cutoff-bytes');
+        $this->disk()->put($oneSecondNewerKey, 'one-second-newer-bytes');
+
+        $result = $this->pruner()->purgeQuarantine(holdDays: 30, apply: true);
+
+        // StoragePruner skips only batches strictly newer than the cutoff, so a batch
+        // stamped exactly at the cutoff has served its holding period.
+        $this->assertSame([$atCutoffBatch], $result['batches']);
+        $this->assertSame(1, $result['files']);
+        $this->assertFalse($this->disk()->exists($atCutoffKey));
+        $this->assertSame('one-second-newer-bytes', $this->disk()->get($oneSecondNewerKey));
     }
 }
