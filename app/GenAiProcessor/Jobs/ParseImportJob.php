@@ -45,6 +45,8 @@ class ParseImportJob implements ShouldQueue
 
     public int $tries = 1;
 
+    private const EXTERNAL_DEFERRED_MESSAGE = 'External processing is temporarily unavailable; the import remains queued.';
+
     public function __construct(
         public int $jobId
     ) {
@@ -360,24 +362,28 @@ class ParseImportJob implements ShouldQueue
                 'job_id' => $job->id,
             ]);
         } catch (\Throwable $exception) {
-            // The same compare-and-swap the service makes, over the revision
-            // captured above: same mode, same generation, the link this attempt
-            // started from, still nonterminal. A superseded attempt matches no
-            // rows and leaves its successor - and a row something else has
-            // already terminalized - exactly as it found them.
+            if ($ownedLink !== null) {
+                $this->recoverLinkedRevision($job, $ownedMode, $ownedGeneration, $ownedLink, $exception);
+
+                return;
+            }
+            // No request owned this revision's work when the attempt started,
+            // so there is no durable state to defer to: the import waits for
+            // PHR's own pending recovery. The same compare-and-swap the
+            // service makes, over the revision captured above: same mode, same
+            // generation, still unlinked, still nonterminal. A superseded
+            // attempt - including one whose own enqueue linked the row before
+            // failing - matches no rows and leaves the row exactly as it
+            // found it.
             $deferred = GenAiImportJob::query()
                 ->whereKey($job->id)
                 ->where('execution_mode', $ownedMode)
                 ->where('mcp_generation', $ownedGeneration)
-                ->when(
-                    $ownedLink !== null,
-                    fn ($query) => $query->where('mcp_request_id', $ownedLink),
-                    fn ($query) => $query->whereNull('mcp_request_id'),
-                )
+                ->whereNull('mcp_request_id')
                 ->whereIn('status', PhrExternalImportStatusMap::NONTERMINAL_PHR_STATUSES)
                 ->update([
                     'status' => 'pending',
-                    'error_message' => 'External processing is temporarily unavailable; the import remains queued.',
+                    'error_message' => self::EXTERNAL_DEFERRED_MESSAGE,
                     'updated_at' => now(),
                 ]);
             Log::warning('ParseImportJob: external enqueue deferred to recovery', [
@@ -388,6 +394,60 @@ class ParseImportJob implements ShouldQueue
                 'deferred' => $deferred === 1,
             ]);
         }
+    }
+
+    /**
+     * Recover a failed enqueue whose revision was already linked to a request.
+     *
+     * The failure says nothing about the request: a transient error while
+     * re-checking authorization for reuse can land while a client holds - or
+     * has just gained - a live lease on it. Writing `pending` over that would
+     * contradict the durable request the status map declares authoritative, so
+     * the import is conformed to the request instead, under the request lock
+     * and on the captured revision, by
+     * {@see PhrExternalImportStatusMap::recoverLinkedRevision()}.
+     *
+     * If that recovery cannot read the request either - the database itself is
+     * failing - nothing is known that would justify any status, so the import
+     * is left exactly as it is. The recovery command's reconciliation pass
+     * re-derives a linked external row from its request once the database is
+     * back; a guessed status written now would only be something for it to
+     * undo, and until then it reads exactly like a real one.
+     */
+    private function recoverLinkedRevision(
+        GenAiImportJob $job,
+        string $ownedMode,
+        int $ownedGeneration,
+        string $ownedLink,
+        \Throwable $exception,
+    ): void {
+        try {
+            $recovered = PhrExternalImportStatusMap::recoverLinkedRevision(
+                $job->id,
+                $ownedMode,
+                $ownedGeneration,
+                $ownedLink,
+                self::EXTERNAL_DEFERRED_MESSAGE,
+            );
+        } catch (\Throwable $recoveryException) {
+            Log::warning('ParseImportJob: external enqueue recovery left the import unchanged', [
+                'job_id' => $job->id,
+                'exception' => $exception::class,
+                'recovery_exception' => $recoveryException::class,
+            ]);
+
+            return;
+        }
+
+        Log::warning('ParseImportJob: external enqueue deferred to recovery', [
+            'job_id' => $job->id,
+            'exception' => $exception::class,
+            // False means this attempt no longer owned the row, or the request
+            // is in a state whose PHR status another writer owns.
+            'deferred' => $recovered['import_status'] !== null,
+            'import_status' => $recovered['import_status'],
+            'request_status' => $recovered['request_status'],
+        ]);
     }
 
     /**

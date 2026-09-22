@@ -839,6 +839,196 @@ final class ExternalGenAiEnqueueLifecycleTest extends TestCase
         );
     }
 
+    // The recovery tests below force their interleavings deterministically on
+    // SQLite `:memory:`, one connection, one process. They pin the predicates
+    // and the order of the reads and writes; they are NOT InnoDB concurrency
+    // tests, and say nothing about how `lockForUpdate` behaves under real
+    // contention.
+
+    public function test_transient_reuse_failure_while_the_request_gains_a_live_lease_keeps_the_import_processing(): void
+    {
+        [, , , $job] = $this->externalJob();
+        (new ParseImportJob($job->id))->handle();
+        $requestId = (string) $job->refresh()->mcp_request_id;
+        $generation = (int) $job->mcp_generation;
+        $retryCount = (int) $job->retry_count;
+        $this->assertSame('pending', $job->status);
+
+        // A stale-pending redispatch reuses the link. While it re-checks the
+        // source authorization a client claims the request, and the re-check
+        // itself then fails transiently.
+        $leased = null;
+        $this->failTransientlyDuringWritableLookup(function () use ($requestId, &$leased): void {
+            McpRequest::query()->whereKey($requestId)->update([
+                'status' => McpRequestStatus::Leased->value,
+                'lease_expires_at' => now()->addMinutes(5),
+                'attempt_count' => 1,
+            ]);
+            $leased = $this->requestRow($requestId);
+        });
+        $diagnostics = $this->captureDiagnostics();
+
+        (new ParseImportJob($job->id))->handle();
+
+        // The durable request says a client is working it; the failure of an
+        // unrelated re-check does not get to say otherwise.
+        $job->refresh();
+        $this->assertSame('processing', $job->status);
+        $this->assertNull($job->error_message);
+        $this->assertSame($requestId, $job->mcp_request_id);
+        $this->assertSame($generation, (int) $job->mcp_generation);
+        $this->assertSame($retryCount, (int) $job->retry_count);
+        // Recovery reads the request; it never writes it.
+        $this->assertSame($leased, $this->requestRow($requestId));
+        $this->assertSame([
+            'job_id' => $job->id,
+            'exception' => QueryException::class,
+            'deferred' => true,
+            'import_status' => 'processing',
+            'request_status' => McpRequestStatus::Leased->value,
+        ], $diagnostics->context['ParseImportJob: external enqueue deferred to recovery'] ?? null);
+    }
+
+    public function test_transient_reuse_failure_conforms_the_import_to_every_unleased_request_state(): void
+    {
+        foreach ($this->queueStates() as $label => [$attributes, $status, $hasLiveLease]) {
+            if ($hasLiveLease) {
+                continue;
+            }
+            // The previous state's failing access service must not stop this
+            // state's first enqueue from linking.
+            $this->app->forgetInstance(PhrPatientAccessService::class);
+            [, , , $job] = $this->externalJob();
+            (new ParseImportJob($job->id))->handle();
+            $requestId = (string) $job->refresh()->mcp_request_id;
+            McpRequest::query()->whereKey($requestId)->update($attributes);
+            $before = $this->requestRow($requestId);
+            $this->failTransientlyDuringWritableLookup();
+
+            (new ParseImportJob($job->id))->handle();
+
+            $job->refresh();
+            $mapped = PhrExternalImportStatusMap::phrStatusFor($status, false);
+            // A null answer leaves the row where this run's dispatch claim put
+            // it: the delivery or mode change that owns that state writes it.
+            $this->assertSame($mapped ?? 'processing', $job->status, $label);
+            $this->assertSame(
+                $mapped === 'pending' ? 'External processing is temporarily unavailable; the import remains queued.' : null,
+                $job->error_message,
+                $label,
+            );
+            $this->assertSame($requestId, $job->mcp_request_id, $label);
+            $this->assertSame($before, $this->requestRow($requestId), $label);
+        }
+    }
+
+    public function test_database_failure_during_linked_recovery_leaves_the_import_untouched(): void
+    {
+        [, , , $job] = $this->externalJob();
+        (new ParseImportJob($job->id))->handle();
+        $requestId = (string) $job->refresh()->mcp_request_id;
+
+        // The re-check fails transiently, and so does the recovery's own read
+        // of the request: the database is what is failing.
+        $snapshot = null;
+        $this->failTransientlyDuringWritableLookup(function () use ($job, $requestId, &$snapshot): void {
+            McpRequest::query()->whereKey($requestId)->update([
+                'status' => McpRequestStatus::Leased->value,
+                'lease_expires_at' => now()->addMinutes(5),
+            ]);
+            $snapshot = $this->jobRow($job->id);
+            $armed = true;
+            McpRequest::retrieved(function (McpRequest $read) use (&$armed, $requestId): void {
+                if (! $armed || (string) $read->id !== $requestId) {
+                    return;
+                }
+                $armed = false;
+
+                throw $this->transientQueryException();
+            });
+        });
+        $diagnostics = $this->captureDiagnostics();
+
+        (new ParseImportJob($job->id))->handle();
+
+        // Exactly as this run's dispatch claim left it - not a guessed
+        // `pending` written over a request nobody could read.
+        $this->assertIsArray($snapshot);
+        $this->assertSame('processing', $this->jobRow($job->id)['status']);
+        $this->assertSame($snapshot, $this->jobRow($job->id));
+        $this->assertArrayNotHasKey('ParseImportJob: external enqueue deferred to recovery', $diagnostics->context);
+        $this->assertSame([
+            'job_id' => $job->id,
+            'exception' => QueryException::class,
+            'recovery_exception' => QueryException::class,
+        ], $diagnostics->context['ParseImportJob: external enqueue recovery left the import unchanged'] ?? null);
+    }
+
+    public function test_transient_failure_with_no_link_still_defers_the_import_to_pending(): void
+    {
+        [, , , $job] = $this->externalJob();
+        // Nothing has ever been queued for this revision, so there is no
+        // durable request to defer to.
+        Storage::disk('s3')->delete($job->s3_path);
+        $diagnostics = $this->captureDiagnostics();
+
+        (new ParseImportJob($job->id))->handle();
+
+        $job->refresh();
+        $this->assertSame('pending', $job->status);
+        $this->assertNull($job->mcp_request_id);
+        $this->assertSame(
+            'External processing is temporarily unavailable; the import remains queued.',
+            $job->error_message,
+        );
+        $this->assertDatabaseCount('genai_mcp_requests', 0);
+        $this->assertSame([
+            'job_id' => $job->id,
+            'exception' => RuntimeException::class,
+            'deferred' => true,
+        ], $diagnostics->context['ParseImportJob: external enqueue deferred to recovery'] ?? null);
+    }
+
+    public function test_request_pruned_under_a_linked_attempt_defers_the_import_to_pending(): void
+    {
+        [, , , $job] = $this->externalJob();
+        (new ParseImportJob($job->id))->handle();
+        $prunedId = (string) $job->refresh()->mcp_request_id;
+
+        // Pruned after this run captured its link and before enqueue() reads
+        // the job: the third read of the row in handle() - the lookup, the
+        // re-read after the dispatch claim, then enqueue()'s own refresh. The
+        // `nullOnDelete` foreign key clears the link, enqueue() resets it and
+        // takes the fresh path, and the staged document is unreachable there.
+        $reads = 0;
+        GenAiImportJob::retrieved(function (GenAiImportJob $read) use (&$reads, $job, $prunedId): void {
+            if ((int) $read->id !== (int) $job->id || ++$reads !== 3) {
+                return;
+            }
+            McpRequest::query()->whereKey($prunedId)->delete();
+            Storage::disk('s3')->delete($job->s3_path);
+        });
+        $diagnostics = $this->captureDiagnostics();
+
+        (new ParseImportJob($job->id))->handle();
+
+        $job->refresh();
+        $this->assertSame('pending', $job->status);
+        $this->assertNull($job->mcp_request_id);
+        $this->assertSame(
+            'External processing is temporarily unavailable; the import remains queued.',
+            $job->error_message,
+        );
+        // The linked recovery, not the never-linked one, made this decision.
+        $this->assertSame([
+            'job_id' => $job->id,
+            'exception' => RuntimeException::class,
+            'deferred' => true,
+            'import_status' => 'pending',
+            'request_status' => null,
+        ], $diagnostics->context['ParseImportJob: external enqueue deferred to recovery'] ?? null);
+    }
+
     /**
      * Run a callback inside the patient write-grant re-check and then let the
      * check succeed, so the enqueue carries on into the staged-document test
@@ -862,6 +1052,78 @@ final class ExternalGenAiEnqueueLifecycleTest extends TestCase
         };
         $access->interleave = $interleave;
         $this->app->instance(PhrPatientAccessService::class, $access);
+    }
+
+    /**
+     * Run an optional callback inside the patient write-grant re-check and
+     * then fail that check with a transient database error: the narrowest
+     * real seam on enqueue()'s link-reuse path.
+     */
+    private function failTransientlyDuringWritableLookup(?Closure $interleave = null): void
+    {
+        $test = $this;
+        $access = new class($test) extends PhrPatientAccessService
+        {
+            public ?Closure $interleave = null;
+
+            public function __construct(private readonly ExternalGenAiEnqueueLifecycleTest $test) {}
+
+            public function writablePatient(int $patientId, int $userId): PhrPatient
+            {
+                if ($this->interleave !== null) {
+                    ($this->interleave)();
+                    $this->interleave = null;
+                }
+
+                throw $this->test->transientQueryException();
+            }
+        };
+        $access->interleave = $interleave;
+        $this->app->instance(PhrPatientAccessService::class, $access);
+    }
+
+    public function transientQueryException(): QueryException
+    {
+        return new QueryException(
+            'mysql',
+            'select 1',
+            [],
+            new RuntimeException('SQLSTATE[HY000] [2002] Connection refused'),
+        );
+    }
+
+    /**
+     * Record every log message's context by message, for exact assertions on
+     * what a diagnostic says.
+     */
+    private function captureDiagnostics(): object
+    {
+        $diagnostics = new class
+        {
+            /** @var array<string, array<string, mixed>> */
+            public array $context = [];
+        };
+        Log::listen(function (MessageLogged $entry) use ($diagnostics): void {
+            $diagnostics->context[$entry->message] = $entry->context;
+        });
+
+        return $diagnostics;
+    }
+
+    /** @return array<string, mixed>|null */
+    private function requestRow(string $requestId): ?array
+    {
+        $row = DB::table('genai_mcp_requests')->where('id', $requestId)->first();
+
+        return $row === null ? null : (array) $row;
+    }
+
+    /** @return array<string, mixed>|null */
+    private function jobRow(int $jobId): ?array
+    {
+        $row = DB::table('genai_import_jobs')->where('id', $jobId)->first();
+
+        return $row === null ? null : (array) $row;
     }
 
     /**
