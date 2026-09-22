@@ -13,6 +13,7 @@ fake_curl="$test_root/curl"
 fake_ssh="$test_root/ssh"
 fake_crontab="$test_root/crontab"
 ssh_log="$test_root/ssh.log"
+curl_log="$test_root/curl.log"
 
 cat >"$fake_curl" <<'SCRIPT'
 #!/usr/bin/env bash
@@ -38,6 +39,7 @@ while [[ $# -gt 0 ]]; do
         *) shift ;;
     esac
 done
+printf '%s %s\n' "$method" "$url" >>"$PHR_TEST_CURL_LOG"
 status=200
 cache='public, max-age=300'
 challenge=''
@@ -139,6 +141,17 @@ cat >"$fake_manifest" <<'JSON'
 }
 JSON
 
+# The manifest preflight now also requires every referenced file to exist on
+# disk (relative to the manifest's own directory, matching how the real
+# verifier resolves public/build/manifest.json against public/build/). The
+# non-entry vendor chunk is deliberately left absent: it is never validated
+# because it is not isEntry:true.
+mkdir -p "$test_root/assets"
+: >"$test_root/assets/app-test123.css"
+: >"$test_root/assets/pages-test456.js"
+: >"$test_root/assets/pages-test789.css"
+: >"$test_root/assets/standalone-testabc.js"
+
 export DEPLOY_SSH_TARGET=cpanel-deploy@host.example.test
 export DEPLOY_PHP_BINARY=/opt/cpanel/ea-php85/root/usr/bin/php
 export DEPLOY_DIR=phr-laravel
@@ -154,6 +167,21 @@ export PHR_VERIFY_SSH_BIN="$fake_ssh"
 export PHR_VERIFY_MANIFEST="$fake_manifest"
 export PHR_TEST_CRONTAB="$fake_crontab"
 export PHR_TEST_SSH_LOG="$ssh_log"
+export PHR_TEST_CURL_LOG="$curl_log"
+
+reset_remote_logs() {
+    : >"$ssh_log"
+    : >"$curl_log"
+}
+
+assert_no_remote_calls() {
+    local label="$1"
+    if [[ -s "$ssh_log" || -s "$curl_log" ]]; then
+        echo "[$label] expected zero SSH/HTTP calls, but got:" >&2
+        cat "$ssh_log" "$curl_log" >&2
+        exit 1
+    fi
+}
 
 # shellcheck disable=SC2016 # $HOME must remain literal in the cron fixtures.
 printf '%s\n' \
@@ -181,21 +209,88 @@ if PHR_TEST_ASSET_CONTENT_TYPE='text/plain' "$verifier" >/dev/null 2>&1; then
     echo 'Frontend asset with the wrong MIME type accepted.' >&2; exit 1
 fi
 
-# The bound is only a bound if something proves it bites. A manifest whose
+# --- Manifest preflight: these are LOCAL failures (no network, no SSH) and
+# must be caught before the verifier makes a single remote call. The helper
+# under test is .github/scripts/verify-frontend-manifest.sh, sourced by
+# verify-phr-deployment.sh as its very first check; verify-frontend-manifest.test.sh
+# exercises the helper directly. Here we prove the same contract holds
+# end-to-end through the real verifier binary, with the fake ssh/curl logs as
+# the evidence.
+expect_manifest_failure() {
+    local label="$1" manifest_file="$2" expected_substring="$3"
+    reset_remote_logs
+    local output status
+    output="$(PHR_VERIFY_MANIFEST="$manifest_file" "$verifier" 2>&1)" && status=0 || status=$?
+    assert_no_remote_calls "$label"
+    if [[ "$status" == 0 ]]; then
+        echo "[$label] expected the verifier to fail but it succeeded." >&2
+        exit 1
+    fi
+    if [[ "$output" != *"$expected_substring"* ]]; then
+        echo "[$label] unexpected message: $output" >&2
+        exit 1
+    fi
+    echo "[$label] observed: $output"
+}
+
+fixtures="$test_root/manifest-fixtures"
+mkdir -p "$fixtures"
+
+# 1. Missing manifest.
+expect_manifest_failure 'missing manifest' "$fixtures/does-not-exist.json" 'not found at'
+
+# 2. Malformed JSON.
+mkdir -p "$fixtures/malformed"
+printf '{not valid json' >"$fixtures/malformed/manifest.json"
+expect_manifest_failure 'malformed JSON' "$fixtures/malformed/manifest.json" 'not valid JSON'
+
+# 3. Empty entry set.
+mkdir -p "$fixtures/empty"
+printf '{"a.tsx":{"file":"assets/a.js","isEntry":false}}' >"$fixtures/empty/manifest.json"
+expect_manifest_failure 'empty entry set' "$fixtures/empty/manifest.json" 'no entry points'
+
+# 4. Missing local entry file: valid, safe manifest, but the JS file it
+# names was never written into the build tree.
+mkdir -p "$fixtures/missing-entry"
+printf '{"a.tsx":{"file":"assets/missing.js","isEntry":true}}' >"$fixtures/missing-entry/manifest.json"
+expect_manifest_failure 'missing local entry file' "$fixtures/missing-entry/manifest.json" 'missing on disk'
+
+# 5. Missing local CSS: the entry JS exists, but the CSS it pulls in does not.
+mkdir -p "$fixtures/missing-css/assets"
+: >"$fixtures/missing-css/assets/present.js"
+printf '{"a.tsx":{"file":"assets/present.js","isEntry":true,"css":["assets/missing.css"]}}' >"$fixtures/missing-css/manifest.json"
+expect_manifest_failure 'missing local CSS' "$fixtures/missing-css/manifest.json" 'missing on disk'
+
+# 6. Absolute path.
+mkdir -p "$fixtures/absolute"
+printf '{"a.tsx":{"file":"/etc/passwd","isEntry":true}}' >"$fixtures/absolute/manifest.json"
+expect_manifest_failure 'absolute path' "$fixtures/absolute/manifest.json" 'unsafe path'
+
+# 7. ".." traversal.
+mkdir -p "$fixtures/traversal"
+printf '{"a.tsx":{"file":"../../etc/passwd.js","isEntry":true}}' >"$fixtures/traversal/manifest.json"
+expect_manifest_failure '.. traversal' "$fixtures/traversal/manifest.json" 'unsafe path'
+
+# 8. Disallowed asset type.
+mkdir -p "$fixtures/ext"
+printf '{"a.tsx":{"file":"assets/app.map","isEntry":true}}' >"$fixtures/ext/manifest.json"
+expect_manifest_failure 'disallowed extension' "$fixtures/ext/manifest.json" 'unexpected asset type'
+
+# 9. The bound is only a bound if something proves it bites. A manifest whose
 # entry points outgrow the cap must fail rather than quietly fan out into
-# dozens of production requests during a deploy.
-oversized_manifest="$test_root/manifest-oversized.json"
+# dozens of production requests during a deploy. Every referenced file is
+# created so the cap is what actually fires, not an incidental missing file.
+mkdir -p "$fixtures/cap/assets"
 {
     printf '{'
     for i in $(seq 1 13); do
         [[ "$i" == 1 ]] || printf ','
         printf '"e%s.tsx":{"file":"assets/e%s-test.js","isEntry":true}' "$i" "$i"
+        : >"$fixtures/cap/assets/e$i-test.js"
     done
     printf '}\n'
-} >"$oversized_manifest"
-if PHR_VERIFY_MANIFEST="$oversized_manifest" "$verifier" >/dev/null 2>&1; then
-    echo 'An unbounded frontend manifest was accepted.' >&2; exit 1
-fi
+} >"$fixtures/cap/manifest.json"
+expect_manifest_failure 'cap exceeded' "$fixtures/cap/manifest.json" 'exceeding the bounded check limit'
 
 for status in 200 301 404 503; do
     if PHR_TEST_VIEWER_STATUS="$status" "$verifier" >/dev/null 2>&1; then
