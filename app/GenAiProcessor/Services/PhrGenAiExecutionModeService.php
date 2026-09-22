@@ -9,7 +9,6 @@ use App\Support\Logging\SafeLog;
 use Bherila\GenAiLaravel\Mcp\McpQueueService;
 use Bherila\GenAiLaravel\Mcp\Models\McpRequest;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Throwable;
 
 final readonly class PhrGenAiExecutionModeService
@@ -55,7 +54,11 @@ final readonly class PhrGenAiExecutionModeService
                     $this->queue->cancel($request);
                 }
             } catch (Throwable $exception) {
-                Log::info('External GenAI request was already terminal while changing execution mode.', [
+                // SafeLog: the mode change has already committed. A failing log
+                // destination here must neither skip the remaining
+                // cancellations nor the successor dispatches below, nor
+                // report the committed change to the caller as a failure.
+                SafeLog::info('External GenAI request was already terminal while changing execution mode.', [
                     'request_id_hash' => hash('sha256', $requestId),
                     'exception' => $exception::class,
                 ]);

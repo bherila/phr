@@ -6,6 +6,7 @@ use App\GenAiProcessor\Models\GenAiImportJob;
 use App\GenAiProcessor\Support\PhrExternalImportStatusMap;
 use App\Models\User;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Support\Logging\SafeLog;
 use Bherila\GenAiLaravel\GenAiRequest;
 use Bherila\GenAiLaravel\Mcp\EnqueueOptions;
 use Bherila\GenAiLaravel\Mcp\Enums\McpRequestStatus;
@@ -22,7 +23,6 @@ use Bherila\GenAiLaravel\ToolDefinition;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 use Throwable;
@@ -273,17 +273,24 @@ final readonly class PhrExternalGenAiRequestService
     {
         $user = $job->user;
         if (! $user instanceof User || ! $user->canLogin()) {
-            throw new PhrExternalEnqueueUnauthorized('The import owner is not available for external processing.');
+            throw new PhrExternalEnqueueUnauthorized(
+                PhrExternalEnqueueUnauthorized::OWNER_UNAVAILABLE,
+                'The import owner is not available for external processing.',
+            );
         }
         $document = $job->sourceDocument()->whereNull('deleted_at')->first();
         if ($document === null) {
-            throw new PhrExternalEnqueueUnauthorized('The source document is no longer available.');
+            throw new PhrExternalEnqueueUnauthorized(
+                PhrExternalEnqueueUnauthorized::SOURCE_DOCUMENT_UNAVAILABLE,
+                'The source document is no longer available.',
+            );
         }
         try {
             $this->patientAccess->writablePatient((int) $document->patient_id, (int) $user->id);
         } catch (AuthorizationException|ModelNotFoundException $exception) {
             // The grant was downgraded, revoked, or the patient itself is gone.
             throw new PhrExternalEnqueueUnauthorized(
+                PhrExternalEnqueueUnauthorized::PATIENT_GRANT_UNAVAILABLE,
                 'The patient write grant for the source document is no longer available.',
                 previous: $exception,
             );
@@ -354,9 +361,13 @@ final readonly class PhrExternalGenAiRequestService
         if ($linkedId !== null) {
             $this->cancelOrphanedRequest($linkedId);
         }
-        Log::info('External GenAI import terminalized after authorization was lost.', [
+        // SafeLog: the job is already failed and its request cancelled, and the
+        // caller relies on PhrExternalEnqueueUnauthorized - not a log failure -
+        // reaching it to know the loss is permanent. The fixed reason code,
+        // never the message or its previous chain, is what gets recorded.
+        SafeLog::info('External GenAI import terminalized after authorization was lost.', [
             'job_id' => $job->id,
-            'reason' => $reason->getMessage(),
+            'reason_code' => $reason->reasonCode,
         ]);
     }
 
@@ -415,7 +426,9 @@ final readonly class PhrExternalGenAiRequestService
             } catch (Throwable $exception) {
                 // The orphan stays recorded in the queue table, so the next
                 // sweep retries it rather than losing the cleanup again.
-                Log::warning('Orphaned external GenAI request could not be cancelled; it stays queued for the next sweep.', [
+                // SafeLog: a failing log destination must not end the sweep
+                // and strand the orphans still ahead of it in this batch.
+                SafeLog::warning('Orphaned external GenAI request could not be cancelled; it stays queued for the next sweep.', [
                     'request_id_hash' => hash('sha256', (string) $requestId),
                     'exception' => $exception::class,
                 ]);
@@ -435,7 +448,9 @@ final readonly class PhrExternalGenAiRequestService
             // cancel() rejects an already terminal request with 409 and a
             // deleted one with a model-not-found. Either way another actor has
             // finished the request and there is nothing left to cancel.
-            Log::info('Orphaned external GenAI request was already terminal.', [
+            // SafeLog: this is the expected outcome, and a failing log
+            // destination must not turn it into a failed cancellation.
+            SafeLog::info('Orphaned external GenAI request was already terminal.', [
                 'request_id_hash' => hash('sha256', $requestId),
                 'exception' => $exception::class,
             ]);

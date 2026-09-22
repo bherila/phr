@@ -26,7 +26,6 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 
@@ -54,12 +53,20 @@ class ParseImportJob implements ShouldQueue
         $this->onQueue('genai-imports');
     }
 
+    /**
+     * Every diagnostic in this job is written through SafeLog. handle() has
+     * one broad try whose generic catch is business recovery, and $tries = 1:
+     * a log write that threw inside that try would be handled as a failure of
+     * the import, and one that threw outside it - or from the catch itself -
+     * would escape and fail the queue job. Neither is the outcome the
+     * diagnostic describes.
+     */
     public function handle(): void
     {
         $job = GenAiImportJob::find($this->jobId);
 
         if (! $job) {
-            Log::info('ParseImportJob: skipping stale dispatch', ['job_id' => $this->jobId]);
+            SafeLog::info('ParseImportJob: skipping stale dispatch', ['job_id' => $this->jobId]);
 
             return;
         }
@@ -78,7 +85,7 @@ class ParseImportJob implements ShouldQueue
             ]);
 
         if ($claimed !== 1) {
-            Log::info('ParseImportJob: skipping stale dispatch', ['job_id' => $this->jobId]);
+            SafeLog::info('ParseImportJob: skipping stale dispatch', ['job_id' => $this->jobId]);
 
             return;
         }
@@ -154,12 +161,12 @@ class ParseImportJob implements ShouldQueue
 
             if (! $this->claimQuota($user->id, $user, $job->id)) {
                 $job->markQueuedTomorrow();
-                Log::info('ParseImportJob: quota exhausted, deferred', ['job_id' => $job->id]);
+                SafeLog::info('ParseImportJob: quota exhausted, deferred', ['job_id' => $job->id]);
 
                 try {
                     Mail::to($user->email)->send(new GenAiJobDeferredMail($job));
                 } catch (\Throwable $mailEx) {
-                    Log::warning('Failed to send deferred mail', [
+                    SafeLog::warning('Failed to send deferred mail', [
                         'job_id' => $job->id,
                         'exception' => $mailEx::class,
                     ]);
@@ -223,7 +230,7 @@ class ParseImportJob implements ShouldQueue
             }
 
             try {
-                app(PhrImportProposalApplicationService::class)->applyApiResult($job->id, $data);
+                $created = app(PhrImportProposalApplicationService::class)->applyApiResult($job->id, $data);
             } catch (PhrImportExecutionModeChanged) {
                 // The preference transaction won after this API request began.
                 // Discard its output and hand the still-pending work to the
@@ -234,15 +241,19 @@ class ParseImportJob implements ShouldQueue
             }
             $job->refresh();
 
-            Log::info('ParseImportJob: success', [
+            SafeLog::info('ParseImportJob: success', [
                 'job_id' => $job->id,
-                'result_count' => $job->results()->count(),
+                // The count the application already returned rather than a
+                // fresh query: context is built before SafeLog is called, so a
+                // diagnostic-only read that failed here would still reach the
+                // generic catch below after the proposals were committed.
+                'created_count' => $created,
             ]);
 
             try {
                 Mail::to($user->email)->send(new GenAiJobCompleteMail($job));
             } catch (\Throwable $mailEx) {
-                Log::warning('Failed to send completion mail', [
+                SafeLog::warning('Failed to send completion mail', [
                     'job_id' => $job->id,
                     'exception' => $mailEx::class,
                 ]);
@@ -256,7 +267,7 @@ class ParseImportJob implements ShouldQueue
                 'retry_count' => GenAiImportJob::MAX_RETRIES,
             ]);
         } catch (\Throwable $e) {
-            Log::error('ParseImportJob: unexpected error', [
+            SafeLog::error('ParseImportJob: unexpected error', [
                 'job_id' => $job->id,
                 'exception' => $e::class,
             ]);
@@ -305,7 +316,7 @@ class ParseImportJob implements ShouldQueue
     private function handOffToExternalQueue(GenAiImportJob $job, int $apiGeneration): void
     {
         if (! PhrExternalImportStatusMap::handOffApiGenerationToExternal($job->id, $apiGeneration)) {
-            Log::info('ParseImportJob: stale API handoff was superseded', ['job_id' => $job->id]);
+            SafeLog::info('ParseImportJob: stale API handoff was superseded', ['job_id' => $job->id]);
 
             return;
         }
@@ -339,10 +350,6 @@ class ParseImportJob implements ShouldQueue
             // redispatch cannot leave an import "processing" with no live lease.
             PhrExternalImportStatusMap::reconcile($request);
             $job->refresh();
-            // Re-read rather than reported from the snapshot enqueue() handed
-            // back: reconcile() derives its target inside its own locked
-            // transaction, and a client may have claimed the request since.
-            $reconciled = McpRequest::query()->find($request->getKey());
             // enqueue() reconciles the import against its durable request
             // rather than forcing a queued outcome, and the map turns an
             // already-`expired` request straight into `failed`. Reporting
@@ -354,11 +361,12 @@ class ParseImportJob implements ShouldQueue
             // SafeLog, because this is written after the enqueue and its
             // reconciliation have already succeeded, inside the try whose
             // generic catch is business recovery. A throwing log destination
-            // there would turn a finished success into a recovery write.
+            // there would turn a finished success into a recovery write - and
+            // so would a failing diagnostic-only read, hence the helper.
             SafeLog::info('ParseImportJob: external enqueue reconciled', [
                 'job_id' => $job->id,
                 'import_status' => $job->status,
-                'request_status' => $reconciled?->status->value,
+                'request_status' => $this->requestStatusForDiagnostic($request),
             ]);
         } catch (PhrExternalEnqueueUnauthorized) {
             // The enqueue path already failed the job and cancelled any
@@ -407,6 +415,25 @@ class ParseImportJob implements ShouldQueue
                 // deferral belongs to whoever does.
                 'deferred' => $deferred === 1,
             ]);
+        }
+    }
+
+    /**
+     * The request's current status for the reconciled diagnostic, or null when
+     * it cannot be read.
+     *
+     * Re-read rather than taken from the snapshot enqueue() handed back:
+     * reconcile() derives its target inside its own locked transaction, and a
+     * client may have claimed the request since. The read exists only for the
+     * diagnostic and runs inside queueExternally()'s try, so a failure here
+     * must not reach the generic catch and recover an enqueue that succeeded.
+     */
+    private function requestStatusForDiagnostic(McpRequest $request): ?string
+    {
+        try {
+            return McpRequest::query()->find($request->getKey())?->status->value;
+        } catch (\Throwable) {
+            return null;
         }
     }
 
