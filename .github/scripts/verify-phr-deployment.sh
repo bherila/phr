@@ -38,6 +38,12 @@ readonly memory_limit='1G'
 readonly site_url="${DEPLOY_SITE_URL%/}"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly script_dir
+repo_root="$(cd "$script_dir/../.." && pwd)"
+readonly repo_root
+# The deploy job downloads the `frontend-build` artifact to public/build/ before
+# running this verifier (see .github/workflows/ci.yml), so the manifest on disk here
+# is exactly the build being deployed. Tests override this to a fixture manifest.
+readonly manifest_path="${PHR_VERIFY_MANIFEST:-$repo_root/public/build/manifest.json}"
 verify_root="$(mktemp -d)"
 readonly verify_root
 trap 'rm -rf "$verify_root"' EXIT
@@ -68,6 +74,23 @@ header_value() {
     ' "$RESPONSE_HEADERS"
 }
 
+assert_asset_content_type() {
+    local label="$1" kind="$2" content_type
+    content_type="$(header_value content-type)"
+    content_type="${content_type%%;*}"
+    content_type="${content_type,,}"
+    case "$kind" in
+        js)
+            [[ "$content_type" == 'text/javascript' || "$content_type" == 'application/javascript' ]] && return 0
+            ;;
+        css)
+            [[ "$content_type" == 'text/css' ]] && return 0
+            ;;
+    esac
+    echo "Deployed asset ${label} did not report the expected content type." >&2
+    exit 1
+}
+
 assert_private_challenge() {
     local label="$1" cache_control challenge content_options
     if [[ "$RESPONSE_STATUS" != 401 ]]; then
@@ -87,6 +110,82 @@ assert_private_challenge() {
 
 request up "$site_url/up"
 [[ "$RESPONSE_STATUS" == 200 ]] || { echo "Production verification failed for /up with HTTP ${RESPONSE_STATUS}." >&2; exit 1; }
+
+request login "$site_url/login"
+[[ "$RESPONSE_STATUS" == 200 ]] || { echo "Login page returned HTTP ${RESPONSE_STATUS}, expected 200." >&2; exit 1; }
+login_content_type="$(header_value content-type)"
+login_content_type="${login_content_type%%;*}"
+if [[ "${login_content_type,,}" != text/html ]]; then
+    echo 'Login page did not report an HTML content type.' >&2
+    exit 1
+fi
+
+[[ -f "$manifest_path" ]] || { echo "Frontend build manifest not found at ${manifest_path}." >&2; exit 1; }
+manifest_assets="$verify_root/manifest-assets.tsv"
+# shellcheck disable=SC2016 # The PHP program is intentionally a literal string.
+PHR_VERIFY_MANIFEST="$manifest_path" PHR_VERIFY_OUT="$manifest_assets" "$php_runner" -r '
+    $data = json_decode((string) file_get_contents(getenv("PHR_VERIFY_MANIFEST")), true, 8, JSON_THROW_ON_ERROR);
+    if (!is_array($data)) {
+        fwrite(STDERR, "Frontend build manifest is not a JSON object.\n");
+        exit(1);
+    }
+    $files = [];
+    foreach ($data as $entry) {
+        if (!is_array($entry) || ($entry["isEntry"] ?? false) !== true) {
+            continue;
+        }
+        $file = $entry["file"] ?? null;
+        if (!is_string($file) || $file === "") {
+            fwrite(STDERR, "Frontend build manifest entry is missing its file.\n");
+            exit(1);
+        }
+        $files[$file] = true;
+        foreach ((array) ($entry["css"] ?? []) as $css) {
+            if (!is_string($css) || $css === "") {
+                fwrite(STDERR, "Frontend build manifest entry has an invalid CSS reference.\n");
+                exit(1);
+            }
+            $files[$css] = true;
+        }
+    }
+    if ($files === []) {
+        fwrite(STDERR, "Frontend build manifest has no entry points to verify.\n");
+        exit(1);
+    }
+    $out = fopen(getenv("PHR_VERIFY_OUT"), "w");
+    foreach (array_keys($files) as $file) {
+        if (str_ends_with($file, ".js")) {
+            $kind = "js";
+        } elseif (str_ends_with($file, ".css")) {
+            $kind = "css";
+        } else {
+            fwrite(STDERR, "Frontend build manifest entry has an unexpected asset type.\n");
+            exit(1);
+        }
+        fwrite($out, $file."\t".$kind."\n");
+    }
+' || exit 1
+
+# Bounded on purpose: this only checks the manifest's entry points (isEntry: true) and
+# the CSS each entry pulls in, never the full chunk graph (vendor/ui-core/imaging
+# splits, etc.). That is a handful of hashed files, not the dozens a full-site crawl
+# would touch, and it runs against production during a deploy. The cap below is a
+# sanity backstop against that set growing unboundedly if the Vite config changes.
+readonly max_manifest_assets=12
+manifest_asset_count="$(wc -l <"$manifest_assets" | tr -d ' ')"
+if (( manifest_asset_count > max_manifest_assets )); then
+    echo "Frontend build manifest has ${manifest_asset_count} entry-point assets, exceeding the bounded check limit of ${max_manifest_assets}." >&2
+    exit 1
+fi
+
+while IFS=$'\t' read -r asset_file asset_kind; do
+    [[ -n "$asset_file" ]] || continue
+    asset_label="build/${asset_file}"
+    request "asset-${asset_file//\//_}" "$site_url/build/$asset_file"
+    [[ "$RESPONSE_STATUS" == 200 ]] || { echo "Deployed asset ${asset_label} returned HTTP ${RESPONSE_STATUS}, expected 200." >&2; exit 1; }
+    assert_asset_content_type "$asset_label" "$asset_kind"
+done <"$manifest_assets"
+
 request ohif "$site_url/ohif/viewer/dicomjson" --proto '=https' --max-redirs 0
 [[ "$RESPONSE_STATUS" == 302 ]] || { echo 'OHIF viewer did not preserve its authentication boundary.' >&2; exit 1; }
 viewer_location=$(header_value location)
@@ -176,4 +275,4 @@ for spec in "phr-laravel-scheduler|$scheduler_line" "phr-laravel-queue-worker|$w
     fi
 done
 
-echo 'Production PHR HTTP, OAuth, MCP, OHIF, queue, key, memory, and cron checks passed.'
+echo 'Production PHR HTTP, login, assets, OAuth, MCP, OHIF, queue, key, memory, and cron checks passed.'
