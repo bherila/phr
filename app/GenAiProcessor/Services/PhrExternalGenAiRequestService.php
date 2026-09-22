@@ -8,7 +8,9 @@ use App\Services\PHR\Access\PhrPatientAccessService;
 use Bherila\GenAiLaravel\GenAiRequest;
 use Bherila\GenAiLaravel\Mcp\EnqueueOptions;
 use Bherila\GenAiLaravel\Mcp\Enums\McpRequestStatus;
+use Bherila\GenAiLaravel\Mcp\Exceptions\McpQueueException;
 use Bherila\GenAiLaravel\Mcp\McpClientFactory;
+use Bherila\GenAiLaravel\Mcp\McpQueueService;
 use Bherila\GenAiLaravel\Mcp\Models\McpMailbox;
 use Bherila\GenAiLaravel\Mcp\Models\McpRequest;
 use Bherila\GenAiLaravel\Mcp\StoredAttachment;
@@ -16,6 +18,9 @@ use Bherila\GenAiLaravel\Schema;
 use Bherila\GenAiLaravel\ToolChoice;
 use Bherila\GenAiLaravel\ToolConfig;
 use Bherila\GenAiLaravel\ToolDefinition;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 
@@ -25,6 +30,7 @@ final readonly class PhrExternalGenAiRequestService
 
     public function __construct(
         private McpClientFactory $clients,
+        private McpQueueService $queue,
         private PhrGenAiRequestPreparationService $preparation,
         private PhrPatientAccessService $patientAccess,
     ) {}
@@ -42,6 +48,12 @@ final readonly class PhrExternalGenAiRequestService
         if ($job->mcp_request_id !== null) {
             $linked = McpRequest::query()->find($job->mcp_request_id);
             if ($linked !== null) {
+                // An existing link may only be reused while the authorization
+                // PHR re-checks on every claim, lease renewal, attachment read,
+                // and completion still holds. Once it is gone the request can
+                // never be claimed again, so returning it here would leave
+                // stale-pending recovery redispatching this job forever.
+                $this->authorizeSourceOrTerminalize($job, $linked);
                 $this->synchronizeDomainStatus($job, $linked);
 
                 return $linked;
@@ -49,15 +61,11 @@ final readonly class PhrExternalGenAiRequestService
             $job->forceFill(['mcp_request_id' => null])->save();
         }
 
-        $user = $job->user;
-        if (! $user instanceof User || ! $user->canLogin()) {
-            throw new RuntimeException('The import owner is not available for external processing.');
-        }
-        $document = $job->sourceDocument()->whereNull('deleted_at')->first();
-        if ($document === null) {
-            throw new RuntimeException('The source document is no longer available.');
-        }
-        $this->patientAccess->writablePatient((int) $document->patient_id, (int) $user->id);
+        $user = $this->authorizeSourceOrTerminalize($job, null);
+        // Every configured disk uses throw => false, so exists() answers false
+        // for an unreachable bucket exactly as it does for a deleted object. A
+        // missing staged document therefore stays a transient, retryable
+        // failure and never terminalizes the import.
         if (! Storage::disk('s3')->exists($job->s3_path)) {
             throw new RuntimeException('The staged source document is no longer available.');
         }
@@ -113,10 +121,133 @@ final readonly class PhrExternalGenAiRequestService
             ]);
         $job->refresh();
         if ($job->mcp_request_id !== $linked->id) {
+            $this->discardRequestThatLostTheLinkRace($linked);
+
             throw new RuntimeException('The import execution mode changed while work was queued.');
         }
 
         return $linked;
+    }
+
+    /**
+     * Re-check the account, source document, and patient write grant that the
+     * claim, lease renewal, attachment read, and completion paths re-check.
+     *
+     * Only a permanent loss of that authorization is reported as
+     * PhrExternalEnqueueUnauthorized. A storage or database failure raised
+     * while checking is left to propagate unchanged so the caller keeps the
+     * import pending for the next recovery pass instead of terminalizing it.
+     */
+    private function authorizeSource(GenAiImportJob $job): User
+    {
+        $user = $job->user;
+        if (! $user instanceof User || ! $user->canLogin()) {
+            throw new PhrExternalEnqueueUnauthorized('The import owner is not available for external processing.');
+        }
+        $document = $job->sourceDocument()->whereNull('deleted_at')->first();
+        if ($document === null) {
+            throw new PhrExternalEnqueueUnauthorized('The source document is no longer available.');
+        }
+        try {
+            $this->patientAccess->writablePatient((int) $document->patient_id, (int) $user->id);
+        } catch (AuthorizationException|ModelNotFoundException $exception) {
+            // The grant was downgraded, revoked, or the patient itself is gone.
+            throw new PhrExternalEnqueueUnauthorized(
+                'The patient write grant for the source document is no longer available.',
+                previous: $exception,
+            );
+        }
+
+        return $user;
+    }
+
+    /**
+     * Authorize the source for either enqueue path, terminalizing the import
+     * before rethrowing when the authorization is permanently gone.
+     *
+     * @param  McpRequest|null  $linked  the request this job is currently
+     *                                   linked to, or null on the fresh path
+     */
+    private function authorizeSourceOrTerminalize(GenAiImportJob $job, ?McpRequest $linked): User
+    {
+        try {
+            return $this->authorizeSource($job);
+        } catch (PhrExternalEnqueueUnauthorized $exception) {
+            $this->terminalizeUnauthorizedJob($job, $linked, $exception);
+
+            throw $exception;
+        }
+    }
+
+    /**
+     * Terminalize work that can never be claimed again: fail the job so
+     * stale-pending recovery stops redispatching it, unlink it, and cancel the
+     * request that is now orphaned.
+     */
+    private function terminalizeUnauthorizedJob(
+        GenAiImportJob $job,
+        ?McpRequest $linked,
+        PhrExternalEnqueueUnauthorized $reason,
+    ): void {
+        // Compare-and-swap on the link itself. If another actor has already
+        // relinked, regenerated, or finished this job, its work is not ours to
+        // terminalize or cancel.
+        $linkedId = $linked?->id;
+        $released = GenAiImportJob::query()
+            ->whereKey($job->id)
+            ->when(
+                $linkedId !== null,
+                fn ($query) => $query->where('mcp_request_id', $linkedId),
+                fn ($query) => $query->whereNull('mcp_request_id'),
+            )
+            ->whereIn('status', ['pending', 'processing'])
+            ->update([
+                'mcp_request_id' => null,
+                'status' => 'failed',
+                'error_message' => 'External processing was cancelled because access or source state changed.',
+                'scheduled_for' => null,
+                'updated_at' => now(),
+            ]);
+        if ($released !== 1) {
+            return;
+        }
+        $job->refresh();
+        if ($linkedId !== null) {
+            $this->cancelOrphanedRequest($linkedId);
+        }
+        Log::info('External GenAI import terminalized after authorization was lost.', [
+            'job_id' => $job->id,
+            'reason' => $reason->getMessage(),
+        ]);
+    }
+
+    /**
+     * The compare-and-swap that links a freshly created request lost: an
+     * execution-mode or generation change, or a successor request, won instead.
+     * Cancel only the request this call created, and only once the job is
+     * confirmed not to reference it, so a legitimate successor survives.
+     */
+    private function discardRequestThatLostTheLinkRace(McpRequest $request): void
+    {
+        if (GenAiImportJob::query()->where('mcp_request_id', $request->id)->exists()) {
+            return;
+        }
+        $this->cancelOrphanedRequest($request->id);
+    }
+
+    private function cancelOrphanedRequest(string $requestId): void
+    {
+        try {
+            $this->queue->cancel($requestId);
+        } catch (McpQueueException|ModelNotFoundException $exception) {
+            // cancel() rejects an already terminal request with 409 and a
+            // deleted one with a model-not-found. Either way another actor has
+            // finished the request and there is nothing left to cancel.
+            Log::info('Orphaned external GenAI request was already terminal.', [
+                'request_id_hash' => hash('sha256', $requestId),
+                'exception' => $exception::class,
+            ]);
+        }
     }
 
     private function synchronizeDomainStatus(GenAiImportJob $job, McpRequest $request): void
