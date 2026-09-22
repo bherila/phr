@@ -129,6 +129,22 @@ of the request — for example the one `enqueue()` returned just before a client
 claimed it — can never write a status representing an older queue state than one
 already applied.
 
+Enqueue is not an exception to that map. The status an import gains together
+with its queue link comes from the same table, so a request that reads `leased`
+with a lapsed lease leaves the import *pending* rather than reporting work in
+flight that no client holds, and enqueue then reconciles the row against the
+locked request exactly as the recovery pass does. Where the map states no
+opinion — a completed, failed or cancelled request — enqueue leaves the status
+to the durable delivery or execution-mode transaction that owns that write.
+
+Queueing work against an import is a compare-and-swap throughout. Clearing a
+link whose queue request has vanished is one too: it writes only while the row
+still shows the link this call observed — or the null the `nullOnDelete` foreign
+key left in its place — and still carries the execution mode and generation the
+call started with. A successor that created its own request and linked it in
+that window keeps its link, and the superseded call leaves the import queued for
+the next recovery pass instead of queueing a second request behind it.
+
 Recovery inspects a bounded batch of imports ordered by id, so both external
 passes filter on eligibility in SQL rather than skipping rows afterwards. The
 reconciliation pass selects only imports whose queue state maps to a status they

@@ -7,6 +7,7 @@ use App\GenAiProcessor\Models\GenAiImportJob;
 use App\GenAiProcessor\Services\PhrExternalEnqueueUnauthorized;
 use App\GenAiProcessor\Services\PhrExternalGenAiRequestService;
 use App\GenAiProcessor\Services\PhrGenAiExecutionModeService;
+use App\GenAiProcessor\Support\PhrExternalImportStatusMap;
 use App\Models\PhrDocument;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
@@ -15,12 +16,16 @@ use App\Services\PHR\Access\PhrPatientAccessService;
 use Bherila\GenAiLaravel\Mcp\Enums\McpRequestStatus;
 use Bherila\GenAiLaravel\Mcp\Models\McpRequest;
 use Closure;
+use FilesystemIterator;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Storage;
+use RecursiveDirectoryIterator;
+use RecursiveIteratorIterator;
 use RuntimeException;
+use SplFileInfo;
 use Tests\TestCase;
 
 /**
@@ -406,6 +411,337 @@ final class ExternalGenAiEnqueueLifecycleTest extends TestCase
         $this->travel(20)->minutes();
         $this->artisan('genai:cancel-orphaned-requests')->assertSuccessful();
         $this->assertSame('cancelled', $this->requestStatus($requestId));
+    }
+
+    public function test_vanished_link_reset_spares_a_successors_fresh_link(): void
+    {
+        [, , , $job] = $this->externalJob();
+        (new ParseImportJob($job->id))->handle();
+        $vanishedId = (string) $job->refresh()->mcp_request_id;
+
+        // The successor's request, created the ordinary way so it is a genuine
+        // queue row rather than a hand-built stand-in.
+        $job->forceFill([
+            'mcp_request_id' => null,
+            'mcp_generation' => $job->mcp_generation + 1,
+            'status' => 'pending',
+        ])->save();
+        $successorId = (string) app(PhrExternalGenAiRequestService::class)->enqueue($job)->id;
+        $this->assertNotSame($vanishedId, $successorId);
+
+        // The state this call starts from: linked to the request that is about
+        // to vanish, on a generation of its own so the package cannot replay
+        // the successor's idempotency key back to it.
+        $job->forceFill([
+            'mcp_request_id' => $vanishedId,
+            'mcp_generation' => $job->refresh()->mcp_generation + 1,
+            'status' => 'pending',
+        ])->save();
+
+        $this->vanishAndRelinkDuringTheJobRead($job, $vanishedId, $successorId);
+
+        try {
+            app(PhrExternalGenAiRequestService::class)->enqueue($job);
+            $this->fail('The stale reset proceeded as though it still owned the row.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame(
+                'The import was relinked while a vanished external request was being cleared.',
+                $exception->getMessage(),
+            );
+        }
+
+        // The successor keeps its link, and no second request was queued
+        // against a job this call no longer owned.
+        $job->refresh();
+        $this->assertSame($successorId, $job->mcp_request_id);
+        $this->assertSame('pending', $this->requestStatus($successorId));
+        $this->assertDatabaseCount('genai_mcp_requests', 1);
+    }
+
+    public function test_vanished_link_reset_requeues_when_nothing_concurrent_happens(): void
+    {
+        // The positive control for the tightened predicate: the link this call
+        // observed is still on the row, so the reset must clear it and requeue.
+        [, , , $job] = $this->externalJob();
+        (new ParseImportJob($job->id))->handle();
+        $vanishedId = (string) $job->refresh()->mcp_request_id;
+
+        $job->forceFill(['mcp_generation' => $job->mcp_generation + 1])->save();
+        $this->vanishDuringTheJobRead($job, $vanishedId);
+
+        $replacement = app(PhrExternalGenAiRequestService::class)->enqueue($job);
+
+        $this->assertNotSame($vanishedId, (string) $replacement->id);
+        $job->refresh();
+        $this->assertSame((string) $replacement->id, $job->mcp_request_id);
+        $this->assertSame('pending', $job->status);
+    }
+
+    public function test_expired_lease_at_enqueue_leaves_the_import_pending(): void
+    {
+        [, , , $job] = $this->externalJob();
+        // A client claimed the request the instant it was created and then went
+        // away without renewing. The row still reads `leased`, but the package
+        // hands an expired lease to the next claimer, so nobody is working it.
+        $this->forceCreatedRequestState([
+            'status' => McpRequestStatus::Leased->value,
+            'lease_expires_at' => now()->subMinutes(5),
+        ]);
+        // The dispatch claim at the top of ParseImportJob leaves the row here.
+        $job->forceFill(['status' => 'processing'])->save();
+
+        $request = app(PhrExternalGenAiRequestService::class)->enqueue($job);
+
+        // Asserted at the enqueue() boundary: no reconciliation has run since,
+        // so this is what enqueue() itself wrote.
+        $this->assertSame(McpRequestStatus::Leased, $request->refresh()->status);
+        $this->assertFalse(PhrExternalImportStatusMap::hasLiveLease($request));
+        $this->assertSame('pending', $job->refresh()->status);
+    }
+
+    public function test_reused_link_returns_the_import_to_pending_once_its_lease_expires(): void
+    {
+        [, , , $job] = $this->externalJob();
+        (new ParseImportJob($job->id))->handle();
+        $requestId = (string) $job->refresh()->mcp_request_id;
+
+        // A client holds a live lease: the import is genuinely in flight.
+        McpRequest::query()->whereKey($requestId)->update([
+            'status' => McpRequestStatus::Leased->value,
+            'lease_expires_at' => now()->addMinutes(5),
+        ]);
+        app(PhrExternalGenAiRequestService::class)->enqueue($job);
+        $this->assertSame('processing', $job->refresh()->status);
+
+        // The lease lapsed without a renewal. The inverse transition is what
+        // #119 was missing: nothing could move the row back.
+        McpRequest::query()->whereKey($requestId)->update(['lease_expires_at' => now()->subMinute()]);
+        app(PhrExternalGenAiRequestService::class)->enqueue($job);
+        $this->assertSame('pending', $job->refresh()->status);
+    }
+
+    public function test_enqueue_conforms_the_import_to_the_status_map_for_every_queue_state(): void
+    {
+        // The single-source assertion, stated behaviourally: for every queue
+        // state a request can be in when enqueue() reads it, the status the
+        // import ends up with is the one PhrExternalImportStatusMap names - and
+        // where the map states no opinion, the row is left to its owner.
+        $forced = null;
+        McpRequest::created(function (McpRequest $created) use (&$forced): void {
+            if ($forced === null) {
+                return;
+            }
+            McpRequest::query()->whereKey($created->id)->update($forced);
+        });
+
+        foreach ($this->queueStates() as $label => [$attributes, $status, $hasLiveLease]) {
+            [, , , $job] = $this->externalJob();
+            $forced = $attributes;
+            $expected = PhrExternalImportStatusMap::phrStatusFor($status, $hasLiveLease) ?? $job->status;
+
+            app(PhrExternalGenAiRequestService::class)->enqueue($job);
+
+            $this->assertSame($expected, $job->refresh()->status, $label);
+        }
+    }
+
+    public function test_no_phr_status_is_derived_from_a_package_status_outside_the_map(): void
+    {
+        // The structural half of the single-source assertion. A PHR status may
+        // be compared against anywhere, but it may only be *produced* by a
+        // statement that also inspects a package request status inside the one
+        // mapping table. That is the exact shape of the two derivations this
+        // change removed, and of any copy someone reintroduces later.
+        $map = (string) realpath(app_path('GenAiProcessor/Support/PhrExternalImportStatusMap.php'));
+        $this->assertFileExists($map);
+        $phrStatuses = [
+            ...PhrExternalImportStatusMap::NONTERMINAL_PHR_STATUSES,
+            ...PhrExternalImportStatusMap::TERMINAL_PHR_STATUSES,
+        ];
+
+        $offences = [];
+        foreach ($this->phpSourceFiles(app_path()) as $file) {
+            if (realpath($file) === $map) {
+                continue;
+            }
+            $source = (string) file_get_contents($file);
+            if (! str_contains($source, 'McpRequestStatus')) {
+                continue;
+            }
+            foreach ($this->phrStatusesProducedBesidePackageStatus($source, $phrStatuses) as $line) {
+                $offences[] = str_replace(base_path().DIRECTORY_SEPARATOR, '', $file).':'.$line;
+            }
+        }
+
+        $this->assertSame(
+            [],
+            $offences,
+            'PhrExternalImportStatusMap must be the only place a package request status becomes a PHR import status.',
+        );
+    }
+
+    /**
+     * Every queue state a request can be in when enqueue() reads it back,
+     * paired with the package status and lease liveness the map keys on.
+     *
+     * @return array<string, array{array<string, mixed>, McpRequestStatus, bool}>
+     */
+    private function queueStates(): array
+    {
+        return [
+            'queued' => [['status' => McpRequestStatus::Pending->value], McpRequestStatus::Pending, false],
+            'leased with a live lease' => [
+                ['status' => McpRequestStatus::Leased->value, 'lease_expires_at' => now()->addMinutes(5)],
+                McpRequestStatus::Leased,
+                true,
+            ],
+            'leased with an expired lease' => [
+                ['status' => McpRequestStatus::Leased->value, 'lease_expires_at' => now()->subMinutes(5)],
+                McpRequestStatus::Leased,
+                false,
+            ],
+            'leased with no recorded lease expiry' => [
+                ['status' => McpRequestStatus::Leased->value, 'lease_expires_at' => null],
+                McpRequestStatus::Leased,
+                false,
+            ],
+            'expired' => [['status' => McpRequestStatus::Expired->value], McpRequestStatus::Expired, false],
+            'completed' => [['status' => McpRequestStatus::Completed->value], McpRequestStatus::Completed, false],
+            'failed' => [['status' => McpRequestStatus::Failed->value], McpRequestStatus::Failed, false],
+            'cancelled' => [['status' => McpRequestStatus::Cancelled->value], McpRequestStatus::Cancelled, false],
+        ];
+    }
+
+    /**
+     * Force the state the next request the package creates is read back in,
+     * from inside the queue service's own insert.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    private function forceCreatedRequestState(array $attributes): void
+    {
+        $forced = false;
+        McpRequest::created(function (McpRequest $created) use (&$forced, $attributes): void {
+            if ($forced) {
+                return;
+            }
+            $forced = true;
+            McpRequest::query()->whereKey($created->id)->update($attributes);
+        });
+    }
+
+    /**
+     * The same window as above with no successor in it: the request is pruned
+     * after this call read the link, so the row still carries the link the
+     * reset compares against.
+     */
+    private function vanishDuringTheJobRead(GenAiImportJob $job, string $vanishingId): void
+    {
+        $vanished = false;
+        GenAiImportJob::retrieved(function (GenAiImportJob $read) use (&$vanished, $job, $vanishingId): void {
+            if ($vanished || (int) $read->id !== (int) $job->id) {
+                return;
+            }
+            $vanished = true;
+            McpRequest::query()->whereKey($vanishingId)->delete();
+        });
+    }
+
+    /**
+     * Force the #150 interleaving deterministically: the whole successor story
+     * lands inside the job read at the top of enqueue(), between the read that
+     * observes the link and the reset that clears it.
+     *
+     * The request is pruned first - the foreign key is `nullOnDelete`, so that
+     * is also how the row's own link goes away - and a successor enqueue then
+     * creates its own request and wins the link compare-and-swap. The caller's
+     * instance keeps the attributes it was hydrated with, which is exactly the
+     * stale view the unconditional reset used to write from.
+     */
+    private function vanishAndRelinkDuringTheJobRead(
+        GenAiImportJob $job,
+        string $vanishingId,
+        string $successorId,
+    ): void {
+        $raced = false;
+        GenAiImportJob::retrieved(function (GenAiImportJob $read) use (&$raced, $job, $vanishingId, $successorId): void {
+            if ($raced || (int) $read->id !== (int) $job->id) {
+                return;
+            }
+            $raced = true;
+            McpRequest::query()->whereKey($vanishingId)->delete();
+            GenAiImportJob::query()->whereKey($job->id)->update(['mcp_request_id' => $successorId]);
+        });
+    }
+
+    /** @return list<string> */
+    private function phpSourceFiles(string $directory): array
+    {
+        $files = [];
+        $tree = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($directory, FilesystemIterator::SKIP_DOTS));
+        foreach ($tree as $entry) {
+            if ($entry instanceof SplFileInfo && $entry->isFile() && $entry->getExtension() === 'php') {
+                $files[] = $entry->getPathname();
+            }
+        }
+        sort($files);
+
+        return $files;
+    }
+
+    /**
+     * Lines where a PHR status literal is produced - assigned, returned, or
+     * placed on the value side of `=>`, `?` or `:` - inside a statement that
+     * also names McpRequestStatus. Comments are ignored, and a literal that is
+     * only compared against (`in_array($job->status, ['parsed', 'imported'])`)
+     * is not a derivation and does not count.
+     *
+     * @param  list<string>  $phrStatuses
+     * @return list<int>
+     */
+    private function phrStatusesProducedBesidePackageStatus(string $source, array $phrStatuses): array
+    {
+        $ignored = [T_WHITESPACE, T_COMMENT, T_DOC_COMMENT];
+        $boundaries = [';', '{', '}'];
+        $producers = ['=', '?', ':', T_DOUBLE_ARROW, T_RETURN];
+        $names = [T_STRING, T_NAME_QUALIFIED, T_NAME_FULLY_QUALIFIED, T_NAME_RELATIVE];
+
+        $lines = [];
+        $candidates = [];
+        $namesPackageStatus = false;
+        $previous = null;
+        foreach (token_get_all($source) as $token) {
+            if (is_array($token) && in_array($token[0], $ignored, true)) {
+                continue;
+            }
+            $id = is_array($token) ? $token[0] : $token;
+            $text = is_array($token) ? $token[1] : $token;
+            if (in_array($id, $boundaries, true)) {
+                if ($namesPackageStatus) {
+                    $lines = [...$lines, ...$candidates];
+                }
+                $candidates = [];
+                $namesPackageStatus = false;
+                $previous = null;
+
+                continue;
+            }
+            if (in_array($id, $names, true) && str_contains($text, 'McpRequestStatus')) {
+                $namesPackageStatus = true;
+            }
+            if ($id === T_CONSTANT_ENCAPSED_STRING
+                && in_array(trim($text, "'\""), $phrStatuses, true)
+                && $previous !== null
+                && in_array($previous, $producers, true)) {
+                $candidates[] = is_array($token) ? $token[2] : 0;
+            }
+            $previous = $id;
+        }
+        if ($namesPackageStatus) {
+            $lines = [...$lines, ...$candidates];
+        }
+
+        return $lines;
     }
 
     /**

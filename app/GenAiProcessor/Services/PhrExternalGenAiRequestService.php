@@ -3,6 +3,7 @@
 namespace App\GenAiProcessor\Services;
 
 use App\GenAiProcessor\Models\GenAiImportJob;
+use App\GenAiProcessor\Support\PhrExternalImportStatusMap;
 use App\Models\User;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use Bherila\GenAiLaravel\GenAiRequest;
@@ -42,7 +43,7 @@ final readonly class PhrExternalGenAiRequestService
         if ($job->execution_mode !== GenAiImportJob::EXECUTION_EXTERNAL) {
             throw new RuntimeException('Only external import jobs can be queued for subscription processing.');
         }
-        if (! in_array($job->status, ['pending', 'processing'], true)) {
+        if (! in_array($job->status, PhrExternalImportStatusMap::NONTERMINAL_PHR_STATUSES, true)) {
             throw new RuntimeException('The import job no longer accepts external processing.');
         }
 
@@ -54,7 +55,11 @@ final readonly class PhrExternalGenAiRequestService
         $ownedGeneration = (int) $job->mcp_generation;
 
         if ($job->mcp_request_id !== null) {
-            $linked = McpRequest::query()->find($job->mcp_request_id);
+            // The link this call observed. Every write that acts on it is
+            // conditioned on the row still being the one this call read, so a
+            // successor that relinked the job in the meantime owns it instead.
+            $ownedLink = (string) $job->mcp_request_id;
+            $linked = McpRequest::query()->find($ownedLink);
             if ($linked !== null) {
                 // An existing link may only be reused while the authorization
                 // PHR re-checks on every claim, lease renewal, attachment read,
@@ -62,11 +67,11 @@ final readonly class PhrExternalGenAiRequestService
                 // never be claimed again, so returning it here would leave
                 // stale-pending recovery redispatching this job forever.
                 $this->authorizeSourceOrTerminalize($job, $linked, $ownedMode, $ownedGeneration);
-                $this->synchronizeDomainStatus($job, $linked);
+                $this->conformToDurableRequest($job, $linked);
 
                 return $linked;
             }
-            $job->forceFill(['mcp_request_id' => null])->save();
+            $this->clearVanishedLink($job, $ownedLink, $ownedMode, $ownedGeneration);
         }
 
         $user = $this->authorizeSourceOrTerminalize($job, null, $ownedMode, $ownedGeneration);
@@ -113,28 +118,90 @@ final readonly class PhrExternalGenAiRequestService
             ));
 
         $linked = McpRequest::query()->findOrFail($request->id);
+        $link = [
+            'mcp_request_id' => $linked->id,
+            'ai_configuration_id' => null,
+            'ai_provider' => 'mcp',
+            'ai_model' => null,
+            'error_message' => null,
+            'scheduled_for' => null,
+            'updated_at' => now(),
+        ];
+        // The status the row gains together with the link comes from the one
+        // mapping table, so lease liveness is honoured here exactly as every
+        // reconciling pass honours it. A null answer means the map states no
+        // opinion for that queue state, and the status is then left to the
+        // owner of that write rather than guessed at here.
+        $initial = PhrExternalImportStatusMap::phrStatusForRequest($linked);
+        if ($initial !== null) {
+            $link['status'] = $initial;
+        }
         GenAiImportJob::query()
             ->whereKey($job->id)
             ->where('execution_mode', GenAiImportJob::EXECUTION_EXTERNAL)
             ->whereNull('mcp_request_id')
-            ->update([
-                'mcp_request_id' => $linked->id,
-                'ai_configuration_id' => null,
-                'ai_provider' => 'mcp',
-                'ai_model' => null,
-                'status' => $linked->status === McpRequestStatus::Leased ? 'processing' : 'pending',
-                'error_message' => null,
-                'scheduled_for' => null,
-                'updated_at' => now(),
-            ]);
+            ->update($link);
         $job->refresh();
         if ($job->mcp_request_id !== $linked->id) {
             $this->discardRequestThatLostTheLinkRace($linked);
 
             throw new RuntimeException('The import execution mode changed while work was queued.');
         }
+        $this->conformToDurableRequest($job, $linked);
 
         return $linked;
+    }
+
+    /**
+     * Clear a link whose request row has vanished, as a compare-and-swap on the
+     * row revision this call observed.
+     *
+     * Same shape as the two compare-and-swaps below. The link was read into
+     * memory a few statements earlier, and a successor enqueue that saw the
+     * same vanished request, created its own and won the link race in that
+     * window leaves a row this call no longer owns. An unconditional
+     * `UPDATE ... WHERE id = ?` would set that fresh link back to null and
+     * orphan the successor's request (issue #150).
+     *
+     * The link predicate admits a null as well as the vanished id because
+     * `genai_import_jobs.mcp_request_id` is a `nullOnDelete` foreign key: when
+     * the request row goes away the column is cleared with it, so a null link
+     * and the vanished link are the same observation, made either side of that
+     * cascade. Any *other* link is a successor's, and is never written over.
+     * The explicit id is still required for a database whose foreign keys are
+     * not being enforced, where the stale id does survive the delete.
+     *
+     * The re-read then decides whether this call may go on to queue work. It is
+     * not what makes the write safe - the predicate is - so a successor landing
+     * after it simply loses the link compare-and-swap further down instead.
+     * Not owning the row is reported as the transient failure it is, leaving
+     * the import queued for the next recovery pass rather than queueing a
+     * second request against a job another call has already linked.
+     */
+    private function clearVanishedLink(
+        GenAiImportJob $job,
+        string $vanishedLink,
+        string $ownedMode,
+        int $ownedGeneration,
+    ): void {
+        GenAiImportJob::query()
+            ->whereKey($job->id)
+            ->where('execution_mode', $ownedMode)
+            ->where('mcp_generation', $ownedGeneration)
+            ->where(fn ($query) => $query
+                ->where('mcp_request_id', $vanishedLink)
+                ->orWhereNull('mcp_request_id'))
+            ->update([
+                'mcp_request_id' => null,
+                'updated_at' => now(),
+            ]);
+
+        $job->refresh();
+        if ($job->mcp_request_id !== null
+            || $job->execution_mode !== $ownedMode
+            || (int) $job->mcp_generation !== $ownedGeneration) {
+            throw new RuntimeException('The import was relinked while a vanished external request was being cleared.');
+        }
     }
 
     /**
@@ -220,7 +287,7 @@ final readonly class PhrExternalGenAiRequestService
                 fn ($query) => $query->where('mcp_request_id', $linkedId),
                 fn ($query) => $query->whereNull('mcp_request_id'),
             )
-            ->whereIn('status', ['pending', 'processing'])
+            ->whereIn('status', PhrExternalImportStatusMap::NONTERMINAL_PHR_STATUSES)
             ->update([
                 'mcp_request_id' => null,
                 'status' => 'failed',
@@ -325,10 +392,27 @@ final readonly class PhrExternalGenAiRequestService
         }
     }
 
-    private function synchronizeDomainStatus(GenAiImportJob $job, McpRequest $request): void
+    /**
+     * Conform the import to its durable request through the one mapping table.
+     *
+     * This used to be a local `leased -> processing` conditional with no
+     * inverse, so nothing here could return a row to `pending` once the lease
+     * behind it expired (issue #119). {@see PhrExternalImportStatusMap::reconcile()}
+     * re-reads the request under a lock and derives the target inside that
+     * transaction, so the snapshot this call holds supplies identity only and
+     * an older queue state can never overwrite a newer one.
+     *
+     * No transaction is open on either path that reaches this point - the
+     * package commits its own enqueue transaction before returning - so the
+     * reconciling transaction starts at the outermost level. It takes the
+     * request lock before touching `genai_import_jobs`, the same order the
+     * reconciliation pass uses, and no PHR path locks an import row and then a
+     * request row.
+     */
+    private function conformToDurableRequest(GenAiImportJob $job, McpRequest $request): void
     {
-        if ($request->status === McpRequestStatus::Leased && $job->status === 'pending') {
-            $job->update(['status' => 'processing']);
+        if (PhrExternalImportStatusMap::reconcile($request)) {
+            $job->refresh();
         }
     }
 
