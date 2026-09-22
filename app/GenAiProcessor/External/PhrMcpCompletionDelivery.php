@@ -16,8 +16,8 @@ use Bherila\GenAiLaravel\Contracts\CompletionDelivery;
 use Bherila\GenAiLaravel\Mcp\Models\McpDelivery;
 use Bherila\GenAiLaravel\Mcp\Models\McpRequest;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Throwable;
 use UnexpectedValueException;
 
 final readonly class PhrMcpCompletionDelivery implements CompletionDelivery
@@ -77,7 +77,9 @@ final readonly class PhrMcpCompletionDelivery implements CompletionDelivery
                     'error_message' => 'External processing was cancelled because access or source state changed.',
                     'updated_at' => now(),
                 ]);
-            Log::info('External GenAI completion rejected after reauthorization.', [
+            // SafeLog: the rejection is already recorded. A throwing log
+            // destination would leave this delivery unacknowledged and retried.
+            SafeLog::info('External GenAI completion rejected after reauthorization.', [
                 'job_id' => $job->id,
                 'exception' => $exception::class,
             ]);
@@ -96,15 +98,19 @@ final readonly class PhrMcpCompletionDelivery implements CompletionDelivery
             'output_tokens' => null,
         ])->save();
 
-        Log::info('External GenAI import completion applied.', [
+        // SafeLog: the completion is applied and committed. A throwing log
+        // destination - or a failing diagnostic-only count query - must not
+        // leave the delivery unacknowledged, which would replay it with
+        // nothing left to create and so never send the completion mail.
+        SafeLog::info('External GenAI import completion applied.', [
             'job_id' => $job->id,
-            'result_count' => $job->results()->count(),
+            'result_count' => $this->resultCountForDiagnostic($job),
             'created_count' => $created,
         ]);
         if ($created > 0 && $job->user instanceof User) {
             try {
                 Mail::to($job->user->email)->send(new GenAiJobCompleteMail($job));
-            } catch (\Throwable $exception) {
+            } catch (Throwable $exception) {
                 SafeLog::warning('Failed to send external GenAI completion mail.', [
                     'job_id' => $job->id,
                     'exception' => $exception::class,
@@ -113,6 +119,21 @@ final readonly class PhrMcpCompletionDelivery implements CompletionDelivery
         }
 
         return true;
+    }
+
+    /**
+     * The proposal count for the completion diagnostic, or null when it cannot
+     * be read. Context is built before SafeLog is ever called, so this read
+     * would otherwise be the one part of a best-effort diagnostic that can
+     * still throw.
+     */
+    private function resultCountForDiagnostic(GenAiImportJob $job): ?int
+    {
+        try {
+            return $job->results()->count();
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     /** @return array<array-key, mixed> */
