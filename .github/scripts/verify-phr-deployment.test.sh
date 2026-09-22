@@ -44,7 +44,20 @@ challenge=''
 allow_origin=''
 payload='{}'
 location=''
+content_type=''
 case "$url" in
+    */login)
+        status="${PHR_TEST_LOGIN_STATUS:-200}"
+        content_type="${PHR_TEST_LOGIN_CONTENT_TYPE:-text/html; charset=UTF-8}"
+        ;;
+    */build/*)
+        status="${PHR_TEST_ASSET_STATUS:-200}"
+        case "$url" in
+            *.css) content_type="${PHR_TEST_ASSET_CONTENT_TYPE:-text/css}" ;;
+            *.js) content_type="${PHR_TEST_ASSET_CONTENT_TYPE:-text/javascript}" ;;
+            *) content_type="${PHR_TEST_ASSET_CONTENT_TYPE:-application/octet-stream}" ;;
+        esac
+        ;;
     */ohif/viewer/dicomjson)
         status="${PHR_TEST_VIEWER_STATUS:-302}"
         location="${PHR_TEST_VIEWER_LOCATION:-https://phr.example.test/login}"
@@ -79,6 +92,7 @@ esac
     printf 'Cache-Control: %s\r\n' "$cache"
     printf 'X-Content-Type-Options: nosniff\r\n'
     [[ -z "$location" ]] || printf 'Location: %s\r\n' "$location"
+    [[ -z "$content_type" ]] || printf 'Content-Type: %s\r\n' "$content_type"
     [[ -z "$challenge" ]] || printf 'WWW-Authenticate: %s\r\n' "$challenge"
     [[ -z "$allow_origin" ]] || printf 'Access-Control-Allow-Origin: %s\r\n' "$allow_origin"
     printf '\r\n'
@@ -99,6 +113,32 @@ fi
 SCRIPT
 chmod +x "$fake_curl" "$fake_ssh"
 
+fake_manifest="$test_root/manifest.json"
+cat >"$fake_manifest" <<'JSON'
+{
+    "resources/css/app.css": {
+        "file": "assets/app-test123.css",
+        "src": "resources/css/app.css",
+        "isEntry": true
+    },
+    "resources/js/phr/pages.tsx": {
+        "file": "assets/pages-test456.js",
+        "src": "resources/js/phr/pages.tsx",
+        "isEntry": true,
+        "css": ["assets/pages-test789.css"]
+    },
+    "resources/js/phr/imaging/explore3d/standalone.tsx": {
+        "file": "assets/standalone-testabc.js",
+        "src": "resources/js/phr/imaging/explore3d/standalone.tsx",
+        "isEntry": true
+    },
+    "_shared-vendor.js": {
+        "file": "assets/vendor-testxyz.js",
+        "isEntry": false
+    }
+}
+JSON
+
 export DEPLOY_SSH_TARGET=cpanel-deploy@host.example.test
 export DEPLOY_PHP_BINARY=/opt/cpanel/ea-php85/root/usr/bin/php
 export DEPLOY_DIR=phr-laravel
@@ -111,6 +151,7 @@ export DEPLOY_LIVE_COMMIT="$DEPLOY_SOURCE_COMMIT"
 export DEPLOY_LIVE_STATE=serving
 export PHR_VERIFY_CURL_BIN="$fake_curl"
 export PHR_VERIFY_SSH_BIN="$fake_ssh"
+export PHR_VERIFY_MANIFEST="$fake_manifest"
 export PHR_TEST_CRONTAB="$fake_crontab"
 export PHR_TEST_SSH_LOG="$ssh_log"
 
@@ -123,6 +164,22 @@ printf '%s\n' \
 
 "$verifier" >/dev/null
 grep -Fq "$DEPLOY_CANDIDATE_DIR" "$ssh_log"
+
+for status in 500 302; do
+    if PHR_TEST_LOGIN_STATUS="$status" "$verifier" >/dev/null 2>&1; then
+        echo "Unexpected login status ${status} accepted." >&2; exit 1
+    fi
+done
+if PHR_TEST_LOGIN_CONTENT_TYPE='application/json' "$verifier" >/dev/null 2>&1; then
+    echo 'Unexpected JSON login content type accepted.' >&2; exit 1
+fi
+
+if PHR_TEST_ASSET_STATUS=404 "$verifier" >/dev/null 2>&1; then
+    echo 'Missing frontend asset accepted.' >&2; exit 1
+fi
+if PHR_TEST_ASSET_CONTENT_TYPE='text/plain' "$verifier" >/dev/null 2>&1; then
+    echo 'Frontend asset with the wrong MIME type accepted.' >&2; exit 1
+fi
 
 for status in 200 301 404 503; do
     if PHR_TEST_VIEWER_STATUS="$status" "$verifier" >/dev/null 2>&1; then
