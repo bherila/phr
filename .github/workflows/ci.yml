@@ -249,6 +249,80 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  ohif-transport-integration:
+    name: OHIF Transport Integration
+    # The real-transport half of the OHIF convergence tests: a real sshd on
+    # loopback, real rsync on both ends, and the pinned deployment action's own
+    # begin/preflight. The stub suite in backend-static cannot catch what a
+    # real receiver does (it passed with `$HOME` in the destination, and does
+    # not notice `--checksum` going missing), so this gates deploys too.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      # Read from the deploy step rather than repeated here, so bumping the
+      # action cannot leave this suite testing the previous version.
+      - name: Resolve the pinned deployment action
+        id: action
+        run: |
+          shas=$(grep -oE 'bherila/shared-cpanel-deployment@[0-9a-f]{40}' .github/workflows/*.yml | sed 's/.*@//' | sort -u)
+          if [ "$(printf '%s\n' "$shas" | grep -c .)" != 1 ]; then
+            echo "::error::Expected exactly one pinned shared-cpanel-deployment SHA, found: $shas"
+            exit 1
+          fi
+          echo "sha=$shas" >> "$GITHUB_OUTPUT"
+
+      - name: Check out the pinned deployment action
+        uses: actions/checkout@v7
+        with:
+          repository: bherila/shared-cpanel-deployment
+          ref: ${{ steps.action.outputs.sha }}
+          path: .shared-cpanel-deployment
+          persist-credentials: false
+
+      # Only infrastructure setup is retried, within a fixed bound. The suite
+      # itself is never retried: a behavioural failure is a real failure.
+      - name: Install OpenSSH server
+        run: |
+          if [ ! -x /usr/sbin/sshd ]; then
+            for attempt in 1 2 3; do
+              if sudo apt-get update -q \
+                && sudo apt-get install -y -q --no-install-recommends openssh-server; then
+                break
+              fi
+              [ "$attempt" = 3 ] && exit 1
+              sleep $((attempt * 10))
+            done
+          fi
+
+      # Required mode fails, rather than skips, when sshd, the action checkout,
+      # or the exact pinned revision is missing; only these three variables are
+      # passed through sudo.
+      - name: Run OHIF real-transport suite
+        env:
+          PHR_OHIF_INTEGRATION_REQUIRED: 'true'
+          PHR_SHARED_ACTION_DIR: ${{ github.workspace }}/.shared-cpanel-deployment
+          PHR_SHARED_ACTION_SHA: ${{ steps.action.outputs.sha }}
+        run: sudo --preserve-env=PHR_OHIF_INTEGRATION_REQUIRED,PHR_SHARED_ACTION_DIR,PHR_SHARED_ACTION_SHA bash .github/scripts/converge-ohif-dist.integration.test.sh
+
+      # Proves the suite can still see the defect it exists for: a disposable
+      # copy of the script with `--checksum` removed must fail at a
+      # STALE-CONTENT assertion, and an unmodified copy must not.
+      - name: Check the suite still detects a dropped --checksum
+        env:
+          PHR_OHIF_INTEGRATION_REQUIRED: 'true'
+          PHR_SHARED_ACTION_DIR: ${{ github.workspace }}/.shared-cpanel-deployment
+          PHR_SHARED_ACTION_SHA: ${{ steps.action.outputs.sha }}
+        run: |
+          sudo --preserve-env=PHR_OHIF_INTEGRATION_REQUIRED,PHR_SHARED_ACTION_DIR,PHR_SHARED_ACTION_SHA bash .github/scripts/converge-ohif-dist.mutation-check.sh
+          if sudo --preserve-env=PHR_OHIF_INTEGRATION_REQUIRED,PHR_SHARED_ACTION_DIR,PHR_SHARED_ACTION_SHA bash .github/scripts/converge-ohif-dist.mutation-check.sh --control; then
+            echo '::error::The mutation check passed against an unmodified copy; it is not discriminating.'
+            exit 1
+          fi
+
   test:
     name: Run Tests
     needs:
@@ -258,6 +332,7 @@ jobs:
       - backend-static
       - backend-tests
       - e2e
+      - ohif-transport-integration
     if: ${{ always() }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
@@ -278,6 +353,7 @@ jobs:
           check "backend-static" "${{ needs.backend-static.result }}"
           check "backend-tests" "${{ needs.backend-tests.result }}"
           check "e2e" "${{ needs.e2e.result }}"
+          check "ohif-transport-integration" "${{ needs.ohif-transport-integration.result }}"
 
   deploy:
     name: Deploy to Production
