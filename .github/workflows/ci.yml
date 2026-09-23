@@ -538,7 +538,7 @@ jobs:
         run: bash .github/scripts/converge-ohif-dist.sh
 
       - name: Deploy with the shared cPanel action
-        uses: bherila/shared-cpanel-deployment@6e9edf640e38b828eb0b273c339474b28ab3dca4 # v2.1.2
+        uses: bherila/shared-cpanel-deployment@d137328a37eea2b5893712c8f547513c70ba7d07 # v2.2.1
         with:
           ssh-host: ${{ secrets.SSH_HOST }}
           ssh-username: ${{ secrets.SSH_USERNAME }}
