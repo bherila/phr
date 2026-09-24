@@ -91,9 +91,12 @@ class PhrHealthLogCommand extends BasePhrCommand
             $patient = $this->writablePatient($accessService);
             $actorId = $this->intOptionRequired('actor');
         } catch (AuthorizationException|ModelNotFoundException|\InvalidArgumentException $exception) {
-            $this->error($exception instanceof ModelNotFoundException || $exception instanceof AuthorizationException
-                ? 'The patient is not accessible to the acting user.'
-                : 'Invalid health log command options.');
+            $message = match (true) {
+                $exception instanceof ModelNotFoundException => 'The patient is not accessible to the acting user.',
+                $exception instanceof AuthorizationException => 'You do not have write access to this patient.',
+                default => 'Invalid health log command options.',
+            };
+            $this->error($message);
 
             return self::FAILURE;
         }
