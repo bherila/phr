@@ -165,6 +165,22 @@ class PhrHealthLogCommandTest extends TestCase
         $this->assertSame(0, PhrHealthLogEntry::query()->count());
     }
 
+    public function test_invalid_json_details_are_not_echoed_to_console(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->createPatient($owner);
+        $canary = 'SYNTHETIC-HEALTH-DETAIL-CANARY';
+
+        $this->artisan('phr:health-log:record', [
+            '--patient' => $patient->id,
+            '--actor' => $owner->id,
+            '--log' => 'Sensitive detail',
+            '--details' => '{"note":"'.$canary.'"',
+        ])->assertFailed()
+            ->expectsOutputToContain('--details must be a valid JSON object.')
+            ->doesntExpectOutputToContain($canary);
+    }
+
     private function createPatient(User $owner, string $displayName = 'Test Patient'): PhrPatient
     {
         return PhrPatient::query()->create([

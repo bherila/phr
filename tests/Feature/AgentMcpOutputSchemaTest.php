@@ -15,10 +15,13 @@ use Bherila\McpLaravelBridge\Http\AgentApiTransport;
 use Bherila\McpLaravelBridge\Http\AgentApiTransportResponse;
 use Bherila\McpLaravelBridge\Mcp\ToolDefinition;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Log\Events\MessageLogged;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Testing\TestResponse;
 use Laravel\Passport\Client;
 use Laravel\Passport\Passport;
 use Mcp\Capability\Discovery\SchemaValidator;
+use RuntimeException;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\Concerns\ConfiguresPassportKeys;
 use Tests\TestCase;
@@ -222,6 +225,10 @@ final class AgentMcpOutputSchemaTest extends TestCase
 
     public function test_a_result_that_breaks_its_output_contract_is_refused_without_leaking_it(): void
     {
+        $logCanary = 'SYNTHETIC-LOG-DESTINATION-PATH-CANARY';
+        Log::listen(static function (MessageLogged $entry) use ($logCanary): void {
+            throw new RuntimeException('/private/log/path/'.$logCanary);
+        });
         $actor = $this->actingAsAgent('mcp-output-drift@example.test');
         $this->patient($actor, 'Synthetic Output Drift Patient');
 
@@ -246,10 +253,12 @@ final class AgentMcpOutputSchemaTest extends TestCase
 
         $body = (string) $response->getContent();
         $this->assertSame(-32603, $response->json('error.code'));
+        $this->assertSame('The PHR API returned a response that failed its output contract.', $response->json('error.message'));
         $this->assertNull($response->json('result'));
         // Neither the offending value nor the validator's pointers may escape.
         $this->assertStringNotContainsString('synthetic-leak', $body);
         $this->assertStringNotContainsString('undeclared_column', $body);
+        $this->assertStringNotContainsString($logCanary, $body);
     }
 
     /** @return list<ToolDefinition> */
