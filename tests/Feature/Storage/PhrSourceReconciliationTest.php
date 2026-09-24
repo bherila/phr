@@ -115,10 +115,13 @@ class PhrSourceReconciliationTest extends TestCase
 
     public function test_report_validates_patient_source_and_extension_arguments(): void
     {
+        $canary = 'SYNTHETIC-SOURCE-PATH-CANARY';
         $this->artisan('phr:storage:reconcile-source-evidence', [
-            '--patient' => '0',
+            '--patient' => $canary,
             '--source' => $this->sourceDirectory,
-        ])->assertExitCode(2);
+        ])->assertExitCode(2)
+            ->expectsOutputToContain('Invalid source evidence reconciliation options.')
+            ->doesntExpectOutputToContain($canary);
         $this->artisan('phr:storage:reconcile-source-evidence', [
             '--patient' => '999999',
             '--source' => $this->sourceDirectory,

@@ -121,8 +121,8 @@ class PhrDicomGarbageCollect extends Command
         foreach (PhrStorageMap::disks()[DicomUploadProcessor::DISK] as $prefix) {
             try {
                 $keys = [...$keys, ...$disk->allFiles($prefix)];
-            } catch (Throwable $error) {
-                $this->error("Failed to list DICOM storage [{$prefix}]: ".$error->getMessage());
+            } catch (Throwable) {
+                $this->error('Failed to list DICOM storage objects.');
             }
         }
 

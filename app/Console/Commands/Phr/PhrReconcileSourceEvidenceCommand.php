@@ -39,8 +39,8 @@ final class PhrReconcileSourceEvidenceCommand extends BasePhrCommand
                     ));
                 },
             );
-        } catch (InvalidArgumentException $exception) {
-            $this->error($exception->getMessage());
+        } catch (InvalidArgumentException) {
+            $this->error('Invalid source evidence reconciliation options.');
 
             return self::INVALID;
         } catch (Throwable) {
