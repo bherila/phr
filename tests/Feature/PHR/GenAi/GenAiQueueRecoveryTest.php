@@ -93,10 +93,86 @@ class GenAiQueueRecoveryTest extends TestCase
         $this->artisan('genai:requeue-stale')->assertSuccessful();
 
         $this->assertSame(now()->timestamp, $pending->refresh()->updated_at?->timestamp);
+        $this->assertSame(1, $pending->retry_count);
         Queue::assertPushed(ParseImportJob::class, 1);
         Queue::assertPushed(
             ParseImportJob::class,
             fn (ParseImportJob $job): bool => $job->jobId === $pending->id,
+        );
+    }
+
+    public function test_it_caps_redispatch_attempts_for_permanently_stranded_pending_jobs(): void
+    {
+        Queue::fake();
+        $this->travelTo(Carbon::parse('2026-07-30 12:00:00 UTC'));
+        $user = $this->createUser();
+        $job = $this->createJob($user, 'pending', ['retry_count' => 0]);
+        $this->setUpdatedAt($job, now()->subMinutes(6));
+
+        for ($attempt = 1; $attempt <= GenAiImportJob::MAX_RETRIES; $attempt++) {
+            $this->artisan('genai:requeue-stale')->assertSuccessful();
+
+            $job->refresh();
+            $this->assertSame('pending', $job->status);
+            $this->assertSame($attempt, $job->retry_count);
+            $this->assertSame(now()->timestamp, $job->updated_at?->timestamp);
+            Queue::assertPushed(ParseImportJob::class, $attempt);
+
+            $this->travel(6)->minutes();
+        }
+
+        // The job has now reached MAX_RETRIES. The next recovery pass must terminalize it.
+        $this->artisan('genai:requeue-stale')->assertSuccessful();
+
+        $job->refresh();
+        $this->assertSame('failed', $job->status);
+        $this->assertSame(GenAiImportJob::MAX_RETRIES, $job->retry_count);
+        $this->assertStringContainsString('Job stranded in pending after exhausting redispatch attempts.', (string) $job->error_message);
+        // No additional dispatch should have been pushed.
+        Queue::assertPushed(ParseImportJob::class, GenAiImportJob::MAX_RETRIES);
+
+        // Subsequent recovery passes must leave the failed terminal job untouched.
+        $this->travel(6)->minutes();
+        $this->artisan('genai:requeue-stale')->assertSuccessful();
+
+        $job->refresh();
+        $this->assertSame('failed', $job->status);
+        Queue::assertPushed(ParseImportJob::class, GenAiImportJob::MAX_RETRIES);
+    }
+
+    public function test_it_redispatches_stranded_pending_jobs_and_fails_exhausted_jobs(): void
+    {
+        Queue::fake();
+        $this->travelTo(Carbon::parse('2026-07-30 12:00:00 UTC'));
+        $user = $this->createUser();
+
+        $stranded = $this->createJob($user, 'pending', ['retry_count' => 1]);
+        $this->setUpdatedAt($stranded, now()->subMinutes(6));
+
+        $recent = $this->createJob($user, 'pending');
+        $this->setUpdatedAt($recent, now()->subMinutes(4));
+
+        $exhausted = $this->createJob($user, 'pending', [
+            'retry_count' => GenAiImportJob::MAX_RETRIES,
+        ]);
+        $this->setUpdatedAt($exhausted, now()->subMinutes(6));
+
+        $this->artisan('genai:requeue-stale')->assertSuccessful();
+
+        $this->assertSame('pending', $stranded->refresh()->status);
+        $this->assertSame(2, $stranded->retry_count);
+        $this->assertSame('pending', $recent->refresh()->status);
+        $this->assertSame(0, $recent->retry_count);
+        $this->assertSame('failed', $exhausted->refresh()->status);
+        $this->assertStringContainsString('exhausting redispatch attempts', (string) $exhausted->error_message);
+
+        Queue::assertPushed(
+            ParseImportJob::class,
+            fn (ParseImportJob $job): bool => $job->jobId === $stranded->id,
+        );
+        Queue::assertNotPushed(
+            ParseImportJob::class,
+            fn (ParseImportJob $job): bool => in_array($job->jobId, [$recent->id, $exhausted->id], true),
         );
     }
 

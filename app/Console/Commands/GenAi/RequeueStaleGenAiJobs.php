@@ -29,19 +29,20 @@ class RequeueStaleGenAiJobs extends Command
         $batch = min(1000, $this->positiveOption('batch'));
 
         $due = $this->recoverDueJobs($now, $batch);
-        [$stale, $failed] = $this->recoverStaleProcessingJobs($now, $staleCutoff, $batch);
+        [$stale, $failedStale] = $this->recoverStaleProcessingJobs($now, $staleCutoff, $batch);
         // Reconcile before redispatching so the pending pass sees a truthful
         // status: this is what stops a local timer from leaving an import
         // "processing" while no external client holds a lease.
         $reconciled = $this->reconcileExternalJobs($batch);
-        $pending = $this->redispatchStrandedPendingJobs($now, $pendingCutoff, $batch);
+        [$pending, $failedPending] = $this->redispatchStrandedPendingJobs($now, $pendingCutoff, $batch);
 
         $this->info(sprintf(
-            'GenAI recovery complete: %d deferred, %d stale, and %d pending job(s) dispatched; %d exhausted stale job(s) failed; %d external job(s) reconciled.',
+            'GenAI recovery complete: %d deferred, %d stale, and %d pending job(s) dispatched; %d exhausted stale and %d exhausted pending job(s) failed; %d external job(s) reconciled.',
             $due,
             $stale,
             $pending,
-            $failed,
+            $failedStale,
+            $failedPending,
             $reconciled,
         ));
 
@@ -169,8 +170,10 @@ class RequeueStaleGenAiJobs extends Command
      * the limit rather than skipped after it: skipping leaves `updated_at`
      * untouched, so a batch of backed-off requests would stay at the head of
      * the id ordering and hide every later stranded job forever.
+     *
+     * @return array{int, int}
      */
-    private function redispatchStrandedPendingJobs(Carbon $now, Carbon $cutoff, int $batch): int
+    private function redispatchStrandedPendingJobs(Carbon $now, Carbon $cutoff, int $batch): array
     {
         $jobs = PhrExternalImportStatusMap::scopeQueueDoesNotOwnWork(
             GenAiImportJob::query()
@@ -179,29 +182,49 @@ class RequeueStaleGenAiJobs extends Command
         )
             ->oldest('id')
             ->limit($batch)
-            ->get(['id', 'execution_mode', 'mcp_request_id']);
+            ->get(['id', 'execution_mode', 'mcp_request_id', 'retry_count']);
 
         $dispatched = 0;
+        $failed = 0;
         foreach ($jobs as $job) {
             // The selection above is a snapshot; a client can claim a request
             // between it and this write, so ownership is re-checked here.
             if ($this->externalQueueOwnsWork($job)) {
                 continue;
             }
+
+            if ($job->retry_count >= GenAiImportJob::MAX_RETRIES) {
+                $updated = GenAiImportJob::query()
+                    ->whereKey($job->id)
+                    ->where('status', 'pending')
+                    ->where('updated_at', '<=', $cutoff)
+                    ->update([
+                        'status' => 'failed',
+                        'error_message' => 'Job stranded in pending after exhausting redispatch attempts.',
+                        'updated_at' => $now,
+                    ]);
+                $failed += $updated;
+
+                continue;
+            }
+
             // Touching the row is the command's compare-and-swap claim. A
             // concurrent recovery invocation will no longer consider it stale.
             $updated = GenAiImportJob::query()
                 ->whereKey($job->id)
                 ->where('status', 'pending')
                 ->where('updated_at', '<=', $cutoff)
-                ->update(['updated_at' => $now]);
+                ->update([
+                    'retry_count' => DB::raw('retry_count + 1'),
+                    'updated_at' => $now,
+                ]);
 
             if ($updated === 1) {
                 $dispatched += (int) $this->dispatch($job->id);
             }
         }
 
-        return $dispatched;
+        return [$dispatched, $failed];
     }
 
     private function externalQueueOwnsWork(GenAiImportJob $job): bool
