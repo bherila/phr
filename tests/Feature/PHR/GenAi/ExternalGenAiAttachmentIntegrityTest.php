@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\PHR\GenAi;
 
+use App\GenAiProcessor\External\HashVerifyingReadStream;
 use App\GenAiProcessor\External\PhrMcpAttachmentResolver;
 use App\GenAiProcessor\Jobs\ParseImportJob;
 use App\GenAiProcessor\Models\GenAiImportJob;
@@ -17,8 +18,10 @@ use Bherila\GenAiLaravel\Mcp\Models\McpAttachment;
 use Bherila\GenAiLaravel\Mcp\Models\McpRequest;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Storage;
 use Mockery;
+use RuntimeException;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 use Tests\TestCase;
 
@@ -67,12 +70,15 @@ final class ExternalGenAiAttachmentIntegrityTest extends TestCase
         $attachment = McpAttachment::query()->where('request_id', $requestId)->sole();
         $resolver = app(PhrMcpAttachmentResolver::class);
 
-        try {
-            $resolver->readStream($attachment, $context);
-            $this->fail('A same-size mutated attachment was streamed without a SHA-256 mismatch being detected.');
-        } catch (NotFoundHttpException) {
-            $this->assertTrue(true);
-        }
+        // The object is read once and hashed as it streams, so a mismatch is only
+        // detectable at EOF: readStream() itself succeeds, and the verdict lands
+        // while the caller drains the stream.
+        $stream = $resolver->readStream($attachment, $context);
+        $this->assertIsResource($stream);
+        $delivered = stream_get_contents($stream);
+        fclose($stream);
+        $this->assertNotSame($this->mutatedSameSizeBytes(), $delivered, 'The complete mutated object must never be delivered.');
+        $this->assertLessThan(strlen($original), strlen((string) $delivered));
 
         // The request must be terminalized immediately so it cannot be reclaimed and
         // hashed again forever; it should not merely wait out its lease.
@@ -125,6 +131,99 @@ final class ExternalGenAiAttachmentIntegrityTest extends TestCase
         $this->assertDatabaseMissing('genai_mcp_deliveries', ['request_id' => $requestId, 'type' => 'failed']);
     }
 
+    public function test_an_attachment_fetch_reads_the_object_bytes_exactly_once(): void
+    {
+        [$context, $job, $requestId, $attachment] = $this->claimedExternalJob();
+        $reads = $this->swapS3ReadStream($this->documentBytes());
+
+        $stream = app(PhrMcpAttachmentResolver::class)->readStream($attachment, $context);
+        $this->assertSame($this->documentBytes(), stream_get_contents($stream));
+        fclose($stream);
+
+        $this->assertSame(1, $reads->count);
+        $this->assertStillRetryable($requestId, $job);
+    }
+
+    public function test_a_multi_chunk_mutation_detected_only_at_eof_terminalizes_and_withholds_the_final_chunk(): void
+    {
+        [$context, $job, $requestId, $attachment] = $this->claimedExternalJob();
+        $original = '%PDF-1.4 '.str_repeat('a', 200_000);
+        $this->recordAttachmentBytes($job, $attachment, $original);
+        // Only the very last byte differs, so no prefix of the stream can reveal
+        // the mutation: the verdict is only available once the final byte is read.
+        $mutated = substr_replace($original, 'b', -1, 1);
+        Storage::disk('s3')->put($job->s3_path, $mutated);
+
+        $stream = app(PhrMcpAttachmentResolver::class)->readStream($attachment, $context);
+        $delivered = '';
+        while (! feof($stream)) {
+            $chunk = fread($stream, 8192);
+            if ($chunk === false || $chunk === '') {
+                break;
+            }
+            // Nothing is decided while the stream is still short of EOF.
+            if (strlen($delivered) + strlen($chunk) < strlen($original)) {
+                $this->assertSame(McpRequestStatus::Leased, McpRequest::query()->findOrFail($requestId)->status);
+            }
+            $delivered .= $chunk;
+        }
+        fclose($stream);
+
+        $this->assertStringStartsWith($delivered, $mutated);
+        $this->assertLessThan(strlen($mutated), strlen($delivered), 'The chunk that completed the mismatching hash must be withheld.');
+        $this->assertSame(McpRequestStatus::Failed, McpRequest::query()->findOrFail($requestId)->status);
+        $this->assertDatabaseHas('genai_mcp_deliveries', ['request_id' => $requestId, 'type' => 'failed']);
+    }
+
+    public function test_a_mutated_stream_closed_before_eof_stays_retryable(): void
+    {
+        [$context, $job, $requestId, $attachment] = $this->claimedExternalJob();
+        // Larger than PHP's 8 KiB stream read buffer, so the first read cannot
+        // already reach EOF.
+        $original = '%PDF-1.4 '.str_repeat('a', 200_000);
+        $this->recordAttachmentBytes($job, $attachment, $original);
+        $mutated = substr_replace($original, 'b', -1, 1);
+        Storage::disk('s3')->put($job->s3_path, $mutated);
+
+        // A client that disconnects part way never reaches the verdict; an
+        // unfinished read is inconclusive, not proof of mutation.
+        $stream = app(PhrMcpAttachmentResolver::class)->readStream($attachment, $context);
+        $this->assertSame(substr($mutated, 0, 4), fread($stream, 4));
+        fclose($stream);
+
+        $this->assertStillRetryable($requestId, $job);
+    }
+
+    public function test_an_object_that_grew_after_the_size_check_delivers_only_the_verified_bytes(): void
+    {
+        [$context, $job, $requestId, $attachment] = $this->claimedExternalJob();
+        $this->swapS3ReadStream($this->documentBytes().'appended after the size check');
+
+        $stream = app(PhrMcpAttachmentResolver::class)->readStream($attachment, $context);
+        $this->assertSame($this->documentBytes(), stream_get_contents($stream));
+        fclose($stream);
+
+        $this->assertStillRetryable($requestId, $job);
+    }
+
+    public function test_a_failing_mismatch_handler_is_reported_without_escaping_the_read(): void
+    {
+        $bytes = str_repeat('z', 20_000);
+        $inner = fopen('php://memory', 'r+');
+        fwrite($inner, $bytes);
+        rewind($inner);
+        $exceptions = Exceptions::fake();
+
+        $stream = HashVerifyingReadStream::wrap($inner, hash('sha256', 'something else'), strlen($bytes), static function (): void {
+            throw new RuntimeException('synthetic terminalization failure');
+        });
+        $delivered = stream_get_contents($stream);
+        fclose($stream);
+
+        $this->assertLessThan(strlen($bytes), strlen((string) $delivered));
+        $exceptions->assertReported(RuntimeException::class);
+    }
+
     public function test_a_transient_storage_read_failure_stays_retryable(): void
     {
         [$context, $job, $requestId, $attachment] = $this->claimedExternalJob();
@@ -151,12 +250,12 @@ final class ExternalGenAiAttachmentIntegrityTest extends TestCase
         // exactly like a same-size mutation if the short read went undetected.
         $this->swapS3ReadStream(substr($this->documentBytes(), 0, 8));
 
-        try {
-            app(PhrMcpAttachmentResolver::class)->readStream($attachment, $context);
-            $this->fail('A truncated attachment read must not be streamed.');
-        } catch (NotFoundHttpException) {
-            $this->assertTrue(true);
-        }
+        // The truncation is only visible once the transfer ends, so the caller
+        // receives the short prefix (a Content-Length mismatch for an HTTP client)
+        // and the request is left for lease recovery rather than terminalized.
+        $stream = app(PhrMcpAttachmentResolver::class)->readStream($attachment, $context);
+        $this->assertSame(substr($this->documentBytes(), 0, 8), stream_get_contents($stream));
+        fclose($stream);
 
         $this->assertStillRetryable($requestId, $job);
     }
@@ -173,11 +272,16 @@ final class ExternalGenAiAttachmentIntegrityTest extends TestCase
         $this->assertNull($job->error_message);
     }
 
-    private function swapS3ReadStream(false|string $result): void
+    private function swapS3ReadStream(false|string $result): object
     {
+        $reads = new class
+        {
+            public int $count = 0;
+        };
         $real = Storage::disk('s3');
         $mock = Mockery::mock($real);
-        $mock->shouldReceive('readStream')->andReturnUsing(static function () use ($result) {
+        $mock->shouldReceive('readStream')->andReturnUsing(static function () use ($result, $reads) {
+            $reads->count++;
             if ($result === false) {
                 return false;
             }
@@ -190,6 +294,15 @@ final class ExternalGenAiAttachmentIntegrityTest extends TestCase
         $mock->shouldReceive('exists')->andReturnUsing(static fn (string $path): bool => $real->exists($path));
         $mock->shouldReceive('size')->andReturnUsing(static fn (string $path): int => $real->size($path));
         Storage::set('s3', $mock);
+
+        return $reads;
+    }
+
+    private function recordAttachmentBytes(GenAiImportJob $job, McpAttachment $attachment, string $bytes): void
+    {
+        Storage::disk('s3')->put($job->s3_path, $bytes);
+        $job->forceFill(['file_hash' => hash('sha256', $bytes), 'file_size_bytes' => strlen($bytes)])->save();
+        $attachment->forceFill(['sha256' => hash('sha256', $bytes), 'size' => strlen($bytes)])->save();
     }
 
     /** @return array{ExecutionContext, GenAiImportJob, string, McpAttachment} */
