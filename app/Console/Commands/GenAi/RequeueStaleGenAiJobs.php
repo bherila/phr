@@ -10,6 +10,7 @@ use Bherila\GenAiLaravel\Mcp\Models\McpRequest;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Throwable;
 
 class RequeueStaleGenAiJobs extends Command
@@ -27,6 +28,9 @@ class RequeueStaleGenAiJobs extends Command
         $staleCutoff = $now->copy()->subMinutes($this->positiveOption('stale-minutes'));
         $pendingCutoff = $now->copy()->subMinutes($this->positiveOption('pending-minutes'));
         $batch = min(1000, $this->positiveOption('batch'));
+        // Measured before this run dispatches anything, so it describes what
+        // the worker has not yet drained rather than what this run just added.
+        $importQueueHasBacklog = $this->importQueueHasBacklog();
 
         $due = $this->recoverDueJobs($now, $batch);
         [$stale, $failedStale] = $this->recoverStaleProcessingJobs($now, $staleCutoff, $batch);
@@ -34,7 +38,9 @@ class RequeueStaleGenAiJobs extends Command
         // status: this is what stops a local timer from leaving an import
         // "processing" while no external client holds a lease.
         $reconciled = $this->reconcileExternalJobs($batch);
-        [$pending, $failedPending] = $this->redispatchStrandedPendingJobs($now, $pendingCutoff, $batch);
+        [$pending, $failedPending] = $importQueueHasBacklog
+            ? [0, 0]
+            : $this->redispatchStrandedPendingJobs($now, $pendingCutoff, $batch);
 
         $this->info(sprintf(
             'GenAI recovery complete: %d deferred, %d stale, and %d pending job(s) dispatched; %d exhausted stale and %d exhausted pending job(s) failed; %d external job(s) reconciled.',
@@ -171,6 +177,12 @@ class RequeueStaleGenAiJobs extends Command
      * untouched, so a batch of backed-off requests would stay at the head of
      * the id ordering and hide every later stranded job forever.
      *
+     * Each redispatch is charged to `retry_count`, and a row that reaches
+     * `MAX_RETRIES` is failed instead of redispatched again. The caller skips
+     * this pass entirely while the import queue still holds messages: a row
+     * waiting behind a worker backlog is slow, not stranded, and charging it
+     * for the wait would fail — unretryably — every import in a large batch.
+     *
      * @return array{int, int}
      */
     private function redispatchStrandedPendingJobs(Carbon $now, Carbon $cutoff, int $batch): array
@@ -225,6 +237,25 @@ class RequeueStaleGenAiJobs extends Command
         }
 
         return [$dispatched, $failed];
+    }
+
+    /**
+     * Whether ParseImportJob messages are still waiting for, or held by, the worker.
+     *
+     * An unreadable queue is treated as empty, so the pending pass still runs
+     * and its attempt ceiling still bounds a queue that is persistently broken.
+     */
+    private function importQueueHasBacklog(): bool
+    {
+        try {
+            return Queue::size(ParseImportJob::QUEUE) > 0;
+        } catch (Throwable $error) {
+            SafeLog::warning('Failed to read GenAI import queue size', [
+                'exception' => $error::class,
+            ]);
+
+            return false;
+        }
     }
 
     private function externalQueueOwnsWork(GenAiImportJob $job): bool
