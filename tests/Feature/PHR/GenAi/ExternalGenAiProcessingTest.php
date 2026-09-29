@@ -246,6 +246,39 @@ final class ExternalGenAiProcessingTest extends TestCase
             ->assertDontSee('synthetic-secret');
     }
 
+    public function test_a_download_of_a_mutated_attachment_is_cut_short_and_terminalizes_the_request(): void
+    {
+        [$user, , $document, $job] = $this->externalJob();
+        $original = '%PDF-1.4 '.str_repeat('x', 300_000);
+        Storage::disk('s3')->put($job->s3_path, $original);
+        $job->forceFill(['file_hash' => hash('sha256', $original), 'file_size_bytes' => strlen($original)])->save();
+        $document->forceFill(['file_hash' => hash('sha256', $original), 'byte_size' => strlen($original)])->save();
+        (new ParseImportJob($job->id))->handle();
+
+        $this->app->instance(ResourceServer::class, Mockery::mock(ResourceServer::class));
+        $client = Client::factory()->create(['name' => 'Synthetic GenAI REST client']);
+        $token = $this->oauthToken($user, $client, Str::random(80));
+        $this->actingAsOAuthToken($user, $client, $token, [AgentApiScopes::GENAI_WORK]);
+        $claim = $this->postJson('/api/v1/genai/claims', ['queue' => 'phr-imports'])->assertOk()->json();
+
+        // A same-size mutation that only the final byte reveals.
+        $mutated = substr_replace($original, 'y', -1, 1);
+        Storage::disk('s3')->put($job->s3_path, $mutated);
+
+        $download = $this->get($claim['request']['attachments'][0]['download_url'])->assertOk();
+        $body = $download->streamedContent();
+        $this->assertLessThan(strlen($mutated), strlen($body), 'The body must fall short of Content-Length.');
+        $this->assertStringStartsWith($body, $mutated);
+
+        $this->postJson('/api/v1/genai/requests/'.$claim['request']['id'].'/complete', [
+            'lease_token' => $claim['request']['lease_token'],
+            'response' => $this->completionResponse(),
+            'executor' => ['client' => 'synthetic-client', 'model' => 'synthetic-model'],
+        ])->assertStatus(409);
+        $this->artisan('genai:mcp:deliver')->assertSuccessful();
+        $this->assertSame('failed', $job->refresh()->status);
+    }
+
     public function test_oauth_refresh_keeps_the_same_principal_for_claim_renew_and_complete(): void
     {
         [$user, , , $job] = $this->externalJob();
