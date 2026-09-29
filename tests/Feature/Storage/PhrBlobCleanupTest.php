@@ -102,8 +102,11 @@ class PhrBlobCleanupTest extends TestCase
 
     public function test_cleanup_rejects_invalid_or_incompatible_scopes(): void
     {
-        $this->artisan('phr:storage:cleanup-legacy-keys', ['--artifact' => 'unknown'])
-            ->assertExitCode(2);
+        $canary = 'SYNTHETIC-CLEANUP-OPTION-CANARY';
+        $this->artisan('phr:storage:cleanup-legacy-keys', ['--artifact' => $canary])
+            ->assertExitCode(2)
+            ->expectsOutputToContain('Invalid storage cleanup options.')
+            ->doesntExpectOutputToContain($canary);
         $this->artisan('phr:storage:cleanup-legacy-keys', [
             '--disk' => 'phr_documents',
             '--artifact' => 'exports',

@@ -91,9 +91,12 @@ class PhrHealthLogCommand extends BasePhrCommand
             $patient = $this->writablePatient($accessService);
             $actorId = $this->intOptionRequired('actor');
         } catch (AuthorizationException|ModelNotFoundException|\InvalidArgumentException $exception) {
-            $this->error($exception instanceof ModelNotFoundException
-                ? 'The patient is not accessible to the acting user.'
-                : $exception->getMessage());
+            $message = match (true) {
+                $exception instanceof ModelNotFoundException => 'The patient is not accessible to the acting user.',
+                $exception instanceof AuthorizationException => 'You do not have write access to this patient.',
+                default => 'Invalid health log command options.',
+            };
+            $this->error($message);
 
             return self::FAILURE;
         }
@@ -202,8 +205,8 @@ class PhrHealthLogCommand extends BasePhrCommand
         try {
             $object = json_decode($value, false, 512, JSON_THROW_ON_ERROR);
             $details = json_decode($value, true, 512, JSON_THROW_ON_ERROR);
-        } catch (JsonException $exception) {
-            $this->error('--details must be a valid JSON object: '.$exception->getMessage());
+        } catch (JsonException) {
+            $this->error('--details must be a valid JSON object.');
 
             return false;
         }

@@ -22,8 +22,8 @@ final class PhrMigrateStorageKeysCommand extends BasePhrCommand
             $artifact = $this->validatedChoice('artifact', PhrBlobMigrationService::ARTIFACTS);
             $patientId = $this->optionalPatientId();
             $this->validateCompatibleScope($disk, $artifact);
-        } catch (InvalidArgumentException $exception) {
-            $this->error($exception->getMessage());
+        } catch (InvalidArgumentException) {
+            $this->error('Invalid storage migration options.');
 
             return self::INVALID;
         }
