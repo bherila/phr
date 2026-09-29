@@ -2,12 +2,15 @@
 
 namespace Tests\Feature\Storage;
 
+use App\Console\Commands\Phr\PhrStorageScopeOptions;
 use App\Models\PhrDocument;
 use App\Models\PhrPatient;
 use App\Models\User;
 use App\Support\Storage\PhrStorageMap;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use InvalidArgumentException;
+use Mockery\MockInterface;
 use Tests\TestCase;
 
 class PhrBlobCleanupTest extends TestCase
@@ -105,14 +108,39 @@ class PhrBlobCleanupTest extends TestCase
         $canary = 'SYNTHETIC-CLEANUP-OPTION-CANARY';
         $this->artisan('phr:storage:cleanup-legacy-keys', ['--artifact' => $canary])
             ->assertExitCode(2)
-            ->expectsOutputToContain('Invalid storage cleanup options.')
+            ->expectsOutputToContain('--artifact must be one of: documents, dicom-originals, dicom-derived, exports, native-backups.')
+            ->doesntExpectOutputToContain($canary);
+        $this->artisan('phr:storage:cleanup-legacy-keys', ['--disk' => $canary])
+            ->assertExitCode(2)
+            ->expectsOutputToContain('--disk must be one of: phr_documents, phr_dicom, phr_exports.')
             ->doesntExpectOutputToContain($canary);
         $this->artisan('phr:storage:cleanup-legacy-keys', [
             '--disk' => 'phr_documents',
             '--artifact' => 'exports',
-        ])->assertExitCode(2);
+        ])
+            ->assertExitCode(2)
+            ->expectsOutputToContain('--disk and --artifact select incompatible storage areas.');
         $this->artisan('phr:storage:cleanup-legacy-keys', ['--patient' => '0'])
-            ->assertExitCode(2);
+            ->assertExitCode(2)
+            ->expectsOutputToContain('--patient must be a positive integer.');
+        $this->artisan('phr:storage:cleanup-legacy-keys', ['--patient' => $canary])
+            ->assertExitCode(2)
+            ->expectsOutputToContain('--patient must be a positive integer.')
+            ->doesntExpectOutputToContain($canary);
+    }
+
+    public function test_cleanup_unexpected_option_failure_prints_only_generic_text(): void
+    {
+        $canary = 'SYNTHETIC-CLEANUP-UNEXPECTED-CANARY phr/documents/patients/1/secret.pdf';
+        $this->mock(PhrStorageScopeOptions::class, function (MockInterface $mock) use ($canary): void {
+            $mock->shouldReceive('parse')->once()->andThrow(new InvalidArgumentException($canary));
+        });
+
+        $this->artisan('phr:storage:cleanup-legacy-keys', ['--artifact' => 'documents'])
+            ->assertExitCode(2)
+            ->expectsOutputToContain('Invalid storage cleanup options.')
+            ->doesntExpectOutputToContain('SYNTHETIC-CLEANUP-UNEXPECTED-CANARY')
+            ->doesntExpectOutputToContain('phr/documents/patients');
     }
 
     /** @return array{User, PhrPatient} */

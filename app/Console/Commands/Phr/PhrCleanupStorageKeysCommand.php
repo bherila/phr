@@ -15,13 +15,21 @@ use InvalidArgumentException;
 #[Description('Plan or apply expiry-gated cleanup of verified legacy PHR blobs')]
 final class PhrCleanupStorageKeysCommand extends BasePhrCommand
 {
-    public function handle(PhrBlobCleanupService $cleanup): int
+    public function handle(PhrBlobCleanupService $cleanup, PhrStorageScopeOptions $options): int
     {
         try {
-            $disk = $this->validatedChoice('disk', PhrBlobCleanupService::DISKS);
-            $artifact = $this->validatedChoice('artifact', PhrBlobCleanupService::ARTIFACT_NAMES);
-            $patientId = $this->optionalPatientId();
-            $this->validateCompatibleScope($disk, $artifact);
+            ['disk' => $disk, 'artifact' => $artifact, 'patientId' => $patientId] = $options->parse(
+                $this->option('disk'),
+                $this->option('artifact'),
+                $this->option('patient'),
+                PhrBlobCleanupService::DISKS,
+                PhrBlobCleanupService::ARTIFACT_NAMES,
+            );
+        } catch (PhrStorageOptionException $exception) {
+            // Fixed, code-owned validation text only; see PhrStorageOptionException.
+            $this->error($exception->getMessage());
+
+            return self::INVALID;
         } catch (InvalidArgumentException) {
             $this->error('Invalid storage cleanup options.');
 
@@ -62,49 +70,5 @@ final class PhrCleanupStorageKeysCommand extends BasePhrCommand
         ));
 
         return $summary->failed === 0 ? self::SUCCESS : self::FAILURE;
-    }
-
-    /** @param list<string> $allowed */
-    private function validatedChoice(string $name, array $allowed): ?string
-    {
-        $value = $this->option($name);
-        if ($value === null) {
-            return null;
-        }
-        if (! is_string($value) || ! in_array($value, $allowed, true)) {
-            throw new InvalidArgumentException("--{$name} must be one of: ".implode(', ', $allowed).'.');
-        }
-
-        return $value;
-    }
-
-    private function optionalPatientId(): ?int
-    {
-        $value = $this->option('patient');
-        if ($value === null) {
-            return null;
-        }
-        if (! ctype_digit($value) || (int) $value < 1) {
-            throw new InvalidArgumentException('--patient must be a positive integer.');
-        }
-
-        return (int) $value;
-    }
-
-    private function validateCompatibleScope(?string $disk, ?string $artifact): void
-    {
-        if ($disk === null || $artifact === null) {
-            return;
-        }
-
-        $artifactDisk = match ($artifact) {
-            'documents' => 'phr_documents',
-            'dicom-originals', 'dicom-derived' => 'phr_dicom',
-            'exports', 'native-backups' => 'phr_exports',
-            default => throw new InvalidArgumentException('Unknown artifact scope.'),
-        };
-        if ($artifactDisk !== $disk) {
-            throw new InvalidArgumentException('--disk and --artifact select incompatible storage areas.');
-        }
     }
 }
