@@ -45,12 +45,15 @@ class ParseImportJob implements ShouldQueue
 
     public int $tries = 1;
 
+    /** The queue every import message is pushed to and the worker drains. */
+    public const string QUEUE = 'genai-imports';
+
     private const EXTERNAL_DEFERRED_MESSAGE = 'External processing is temporarily unavailable; the import remains queued.';
 
     public function __construct(
         public int $jobId
     ) {
-        $this->onQueue('genai-imports');
+        $this->onQueue(self::QUEUE);
     }
 
     /**
