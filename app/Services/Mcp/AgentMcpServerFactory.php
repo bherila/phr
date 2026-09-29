@@ -3,6 +3,7 @@
 namespace App\Services\Mcp;
 
 use App\Support\AgentApi\AgentApiResponseSchemaCatalog;
+use App\Support\Logging\McpSafeLogger;
 use Bherila\GenAiLaravel\Mcp\GenAiMcpToolCatalog;
 use Bherila\GenAiLaravel\Mcp\Tools\GenAiMcpTools;
 use Bherila\McpLaravelBridge\Mcp\CredentialSessionNamespace;
@@ -19,7 +20,6 @@ use Mcp\Schema\ToolAnnotations;
 use Mcp\Server;
 use Mcp\Server\Handler\Request\CallToolHandler;
 use Mcp\Server\Session\Psr16SessionStore;
-use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 
 final class AgentMcpServerFactory
@@ -40,7 +40,7 @@ final class AgentMcpServerFactory
     public function make(Request $request): Server
     {
         $logger = new NullLogger;
-        $driftLogger = app(LoggerInterface::class);
+        $driftLogger = new McpSafeLogger;
         $registry = new Registry(logger: $logger);
         $referenceHandler = new ReferenceHandler(app());
         $phrDefinitions = $this->catalog->definitions($this->reads, $this->writes);

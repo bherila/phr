@@ -501,8 +501,11 @@ class PhrBlobMigrationTest extends TestCase
 
     public function test_rejects_invalid_or_incompatible_scopes(): void
     {
-        $this->artisan('phr:storage:migrate-keys', ['--artifact' => 'unknown'])
-            ->assertExitCode(2);
+        $canary = 'SYNTHETIC-MIGRATION-OPTION-CANARY';
+        $this->artisan('phr:storage:migrate-keys', ['--artifact' => $canary])
+            ->assertExitCode(2)
+            ->expectsOutputToContain('Invalid storage migration options.')
+            ->doesntExpectOutputToContain($canary);
         $this->artisan('phr:storage:migrate-keys', [
             '--disk' => 'phr_documents',
             '--artifact' => 'exports',

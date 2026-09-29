@@ -22,8 +22,8 @@ final class PhrCleanupStorageKeysCommand extends BasePhrCommand
             $artifact = $this->validatedChoice('artifact', PhrBlobCleanupService::ARTIFACT_NAMES);
             $patientId = $this->optionalPatientId();
             $this->validateCompatibleScope($disk, $artifact);
-        } catch (InvalidArgumentException $exception) {
-            $this->error($exception->getMessage());
+        } catch (InvalidArgumentException) {
+            $this->error('Invalid storage cleanup options.');
 
             return self::INVALID;
         }
