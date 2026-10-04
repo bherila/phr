@@ -31,10 +31,20 @@ case "$mode" in
         else
             mkdir -m 700 "$lock" || fail
             printf '%s\n' "$owner" > "$lock/owner"
-            temporary=$(mktemp "$control/.generation.XXXXXX")
-            printf '%s\n' "$owner" > "$temporary"
-            chmod 600 "$temporary"
-            mv -T "$temporary" "$control/generation"
+            temporary=''
+            if ! {
+                temporary=$(mktemp "$control/.generation.XXXXXX") \
+                    && printf '%s\n' "$owner" > "$temporary" \
+                    && chmod 600 "$temporary" \
+                    && mv -T "$temporary" "$control/generation"
+            }; then
+                [[ -z "$temporary" ]] || rm -f -- "$temporary"
+                if [[ -f "$lock/owner" && ! -L "$lock/owner" && "$(cat "$lock/owner")" == "$owner" ]]; then
+                    rm "$lock/owner"
+                    rmdir "$lock"
+                fi
+                fail
+            fi
             echo owned
         fi
         exit 0 ;;

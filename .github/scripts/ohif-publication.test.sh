@@ -15,7 +15,7 @@ cat > "$scratch/bin/ssh" <<'SSH'
 set -euo pipefail
 [[ "$1" == fixture-host ]] || exit 2
 shift
-exec env HOME="$FIXTURE_HOME" bash -c "$1"
+exec env HOME="$FIXTURE_HOME" PATH="$FIXTURE_BIN:$PATH" bash -c "$1"
 SSH
 cat > "$scratch/bin/rsync" <<'RSYNC'
 #!/usr/bin/env bash
@@ -28,6 +28,14 @@ relative=${destination#fixture-host:~/}
 args[${#args[@]}-1]="$FIXTURE_HOME/$relative"
 exec "$REAL_RSYNC" "${args[@]}"
 RSYNC
+cat > "$scratch/bin/mktemp" <<'MKTEMP'
+#!/usr/bin/env bash
+if [[ "${FAIL_GENERATION:-}" == 1 && "$*" == */.generation.* ]]; then exit 91; fi
+exec "$REAL_MKTEMP" "$@"
+MKTEMP
+chmod +x "$scratch/bin/mktemp"
+REAL_MKTEMP=$(command -v mktemp)
+export REAL_MKTEMP FIXTURE_BIN="$scratch/bin"
 chmod +x "$scratch/bin/ssh" "$scratch/bin/rsync"
 REAL_RSYNC=$(command -v rsync)
 export REAL_RSYNC FIXTURE_HOME="$fixture_home" PHR_OHIF_SSH_BIN="$scratch/bin/ssh" PHR_OHIF_RSYNC_BIN="$scratch/bin/rsync" \
@@ -41,6 +49,8 @@ root="$control/shared/public/ohif"
 publication="$control/shared/ohif-publication"
 publish() { bash "$script_dir/publish-ohif-dist.sh" > "$scratch/output" 2>&1; }
 reject() { if publish; then cat "$scratch/output"; exit 1; fi; }
+FAIL_GENERATION=1 reject
+[[ ! -e "$control/deploy.lock" ]]
 publish
 [[ ! -e "$control/deploy.lock" ]]
 grep -Fxq 'run_id=10' "$publication"
