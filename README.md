@@ -181,7 +181,7 @@ deletion with durable artifact cleanup. The native archive format is documented 
 
 ## Running locally
 
-Requirements are PHP 8.3–8.5, Composer, Node.js, and pnpm 11.
+Requirements are PHP 8.4–8.5, Composer, Node.js, and pnpm 11.
 
 ```bash
 composer install
