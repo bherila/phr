@@ -32,6 +32,14 @@ test_source_has_no_execution_side_effects() (
     IFS= read -r line
     [[ "$line" == sentinel ]]
   )
+  (
+    set +e +u
+    set +o pipefail
+    original_shell_flags="$-"
+    source "$setup_script"
+    [[ "$-" == "$original_shell_flags" ]] &&
+      [[ "$(set -o | awk '$1 == "pipefail" { print $2 }')" == off ]]
+  )
 )
 
 test_empty_cleanup_preserves_success() (
