@@ -41,6 +41,7 @@ permissions:
 
 jobs:
   build:
+    if: ${{ github.ref != 'refs/heads/ops/phr-deployment-credential-cutover' }}
     name: Build OHIF Dist
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -162,3 +163,105 @@ jobs:
           OHIF_ARTIFACT_DIGEST: ${{ steps.ohif.outputs.artifact_digest }}
           OHIF_SOURCE_COMMIT: ${{ steps.ohif.outputs.source_commit }}
         run: bash .github/scripts/publish-ohif-dist.sh
+
+  copy-credential:
+    name: Copy deployment credential as GitHub ciphertext
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/ops/phr-deployment-credential-cutover' && inputs.tag == 'copy-credential' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: prod
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: sodium
+      - name: Seal the legacy credential to this repository's GitHub public key
+        env:
+          DEPLOY_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SECRET_PUBLIC_KEY: "iDIdKm2amylO1VumUNUm8iJqlbCwPJfvrrKOgRNOnEg="
+          SECRET_KEY_ID: "3380204578043523366"
+          SECRET_COPY_DESTINATION: ${{ runner.temp }}/production-key-ciphertext.json
+        run: php .github/scripts/seal-production-secret.php
+      - uses: actions/upload-artifact@v7
+        with:
+          name: production-key-ciphertext
+          path: ${{ runner.temp }}/production-key-ciphertext.json
+          retention-days: 1
+          if-no-files-found: error
+
+  verify-credential:
+    name: Verify the new deployment credential against the exact live release
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/ops/phr-deployment-credential-cutover' && inputs.tag == 'verify-credential' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: prod
+    permissions:
+      contents: read
+    concurrency:
+      group: phr-production-files
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - uses: actions/checkout@v7
+      - name: Configure the new SSH credential
+        env:
+          SSH_ALIAS: phr-ohif
+          SSH_HOST_NAME: ${{ secrets.SSH_HOST }}
+          SSH_USER_NAME: ${{ secrets.SSH_USERNAME }}
+          SSH_PRIVATE_KEY: ${{ secrets.PHR_PRODUCTION_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: bash .github/scripts/configure-ohif-ssh.sh
+      - name: Verify exact canonical selected release without writes
+        run: |
+          set -euo pipefail
+          timeout --kill-after=5s 60s ssh phr-ohif 'bash -s' < .github/scripts/read-phr-live-identity.sh | node -e '
+          const fs = require("node:fs");
+          try { const value = JSON.parse(fs.readFileSync(0)); if (value.state !== "selected" || value.commit !== "7b33fe7445aa6d0a002f2e752497282b04c360a2" || value.release !== "7b33fe7445aa-37239370303-1") throw new Error(); }
+          catch { console.error("New deployment credential proof failed."); process.exit(1); }
+          console.log("New credential proved against the exact canonical selected release.");
+          '
+
+  resume-reviewed-release:
+    name: Resume only the exact release left by the failed PHP probe
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/ops/phr-deployment-credential-cutover' && inputs.tag == 'resume-reviewed-release' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: prod
+    permissions:
+      contents: read
+      actions: read
+    concurrency:
+      group: phr-production-files
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/checkout@v7
+        with:
+          repository: bherila/shared-cpanel-deployment
+          ref: f1bd4c18b63365f1463e068c52c66e46c17213dd
+          path: .shared-cpanel-deployment
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+      - uses: actions/download-artifact@v8
+        with:
+          name: frontend-build
+          path: public/build
+          run-id: 37239370303
+          github-token: ${{ github.token }}
+      - name: Configure the verified SSH credential
+        env:
+          SSH_ALIAS: phr-ohif
+          SSH_HOST_NAME: ${{ secrets.SSH_HOST }}
+          SSH_USER_NAME: ${{ secrets.SSH_USERNAME }}
+          SSH_PRIVATE_KEY: ${{ secrets.PHR_PRODUCTION_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: bash .github/scripts/configure-ohif-ssh.sh
+      - name: Verify and resume the exact automated-maintenance incident
+        env:
+          PHR_SHARED_ACTION_DIR: ${{ github.workspace }}/.shared-cpanel-deployment
+        run: bash .github/scripts/resume-reviewed-release.sh
