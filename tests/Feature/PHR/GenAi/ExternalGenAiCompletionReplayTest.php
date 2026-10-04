@@ -12,6 +12,7 @@ use App\Support\AgentApi\AgentApiScopes;
 use Bherila\GenAiLaravel\Mcp\Exceptions\McpQueueException;
 use Bherila\GenAiLaravel\Mcp\ExecutionContext;
 use Bherila\GenAiLaravel\Mcp\McpQueueService;
+use Bherila\GenAiLaravel\Mcp\Models\McpRequest;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Storage;
@@ -326,6 +327,53 @@ final class ExternalGenAiCompletionReplayTest extends TestCase
         } catch (McpQueueException $exception) {
             $this->assertSame(403, $exception->httpStatus);
         }
+    }
+
+    public function test_replay_refuses_missing_completion_identity_fields(): void
+    {
+        [, , , $job, $context, $leaseToken] = $this->deliveredCompletion();
+        $request = McpRequest::query()->findOrFail($job->mcp_request_id);
+
+        foreach (['completion_principal', 'completion_hash', 'completion_receipt_id'] as $field) {
+            $original = $request->getAttribute($field);
+            foreach ([null, ''] as $missing) {
+                $request->forceFill([$field => $missing])->save();
+                try {
+                    app(McpQueueService::class)->complete($context, $request->id, $leaseToken, $this->completionResponse(), [
+                        'client' => 'synthetic-harness', 'model' => 'synthetic-model',
+                    ]);
+                    $this->fail('A completion missing durable identity was replayed.');
+                } catch (McpQueueException $exception) {
+                    $this->assertSame(403, $exception->httpStatus);
+                }
+            }
+            $request->forceFill([$field => $original])->save();
+        }
+        $this->assertDatabaseCount('genai_import_results', 1);
+        $this->assertDatabaseCount('genai_mcp_deliveries', 1);
+    }
+
+    public function test_replay_cannot_nominate_an_unlinked_job_for_the_same_user(): void
+    {
+        [, , , $job, $context, $leaseToken] = $this->deliveredCompletion();
+        $decoy = $job->replicate();
+        $decoy->forceFill([
+            'mcp_request_id' => null,
+            'file_hash' => hash('sha256', 'synthetic-unlinked-job'),
+        ])->save();
+        $request = McpRequest::query()->findOrFail($job->mcp_request_id);
+        $request->forceFill(['metadata' => ['phr_import_job_id' => $decoy->id]])->save();
+
+        try {
+            app(McpQueueService::class)->complete($context, $request->id, $leaseToken, $this->completionResponse(), [
+                'client' => 'synthetic-harness', 'model' => 'synthetic-model',
+            ]);
+            $this->fail('A replay resolved a job not linked to the exact request.');
+        } catch (McpQueueException $exception) {
+            $this->assertSame(403, $exception->httpStatus);
+        }
+        $this->assertDatabaseCount('genai_import_results', 1);
+        $this->assertDatabaseCount('genai_mcp_deliveries', 1);
     }
 
     /**
