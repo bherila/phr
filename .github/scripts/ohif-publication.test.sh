@@ -6,7 +6,9 @@ scratch=$(mktemp -d)
 trap 'rm -rf -- "$scratch"' EXIT
 fixture_home="$scratch/home"
 bundle="$scratch/bundle"
-mkdir -p "$fixture_home" "$bundle" "$scratch/bin"
+mkdir -p "$fixture_home" "$bundle/assets" "$scratch/bin"
+printf 'root marker excluded\n' > "$bundle/.ohif-digest"
+printf 'nested asset included\n' > "$bundle/assets/.ohif-digest"
 printf '<title>OHIF</title><script src="/ohif/app.bundle.abc.js"></script><script src="/ohif/app-config.js"></script>\n' > "$bundle/index.html"
 printf 'console.log("a");\n' > "$bundle/app.bundle.abc.js"
 printf 'window.config = { routerBasename: "/ohif/", defaultDataSourceName: "dicomjson" };\n' > "$bundle/app-config.js"
@@ -54,6 +56,7 @@ FAIL_GENERATION=1 reject
 publish
 [[ ! -e "$control/deploy.lock" ]]
 grep -Fxq 'run_id=10' "$publication"
+cmp "$bundle/assets/.ohif-digest" "$root/assets/.ohif-digest"
 cp "$publication" "$scratch/first-publication"
 # A later desired run publishes its own identity even when the bytes are equal.
 OHIF_RUN_ID=11 OHIF_ARTIFACT_ID=101 publish
@@ -65,6 +68,10 @@ cmp "$publication" "$scratch/current-publication"
 # The same immutable artifact cannot be relabeled with different metadata.
 OHIF_RUN_ID=11 OHIF_ARTIFACT_ID=101 OHIF_ARTIFACT_DIGEST="sha256:$(printf 'b%.0s' {1..64})" reject
 cmp "$publication" "$scratch/current-publication"
+# Nested marker-named files participate in identity and checksum repair.
+printf 'corrupted nested asset\n' > "$root/assets/.ohif-digest"
+OHIF_RUN_ID=11 OHIF_ARTIFACT_ID=101 publish
+cmp "$bundle/assets/.ohif-digest" "$root/assets/.ohif-digest"
 # Corruption with a matching v2 marker is repaired from the exact desired build.
 printf 'console.log("b");\n' > "$root/app.bundle.abc.js"
 touch -r "$bundle/app.bundle.abc.js" "$root/app.bundle.abc.js"

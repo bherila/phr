@@ -105,7 +105,7 @@ actual='' marker=''
 if [[ -e "$root" || -L "$root" ]]; then
     real_dir "$root" || fail
     [[ -z "$(find "$root" ! -type d ! -type f -print -quit)" ]] || fail
-    actual=$(cd "$root" && LC_ALL=C find . -type f ! -name .ohif-digest -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum | sha256sum | cut -d' ' -f1)
+    actual=$(cd "$root" && LC_ALL=C find . -type f ! -path ./.ohif-digest -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum | sha256sum | cut -d' ' -f1)
     if [[ -e "$root/.ohif-digest" ]]; then
         [[ -f "$root/.ohif-digest" && ! -L "$root/.ohif-digest" && "$(wc -c < "$root/.ohif-digest")" -le 129 ]] || fail
         marker=$(cat "$root/.ohif-digest")

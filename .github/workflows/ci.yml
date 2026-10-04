@@ -430,7 +430,7 @@ jobs:
           SSH_ALIAS: phr-ohif
           SSH_HOST_NAME: ${{ secrets.SSH_HOST }}
           SSH_USER_NAME: ${{ secrets.SSH_USERNAME }}
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_PRIVATE_KEY: ${{ secrets.PHR_PRODUCTION_SSH_KEY }}
           SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
         run: bash .github/scripts/configure-ohif-ssh.sh
 
@@ -491,7 +491,7 @@ jobs:
         with:
           ssh-host: ${{ secrets.SSH_HOST }}
           ssh-username: ${{ secrets.SSH_USERNAME }}
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          ssh-private-key: ${{ secrets.PHR_PRODUCTION_SSH_KEY }}
           ssh-known-hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
           deploy-dir: phr-laravel
           site-url: https://phr.bherila.net

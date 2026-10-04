@@ -41,3 +41,11 @@ supersession and OHIF publication summaries provide the explicit decision record
 The observer reads deployment metadata only and does not deploy or read patient
 records. Expired/deleted OHIF artifacts cannot be reconstructed; dispatch a fresh
 build if no retained desired artifact remains.
+
+Historical reruns execute their original workflow definitions. Production uses
+`PHR_PRODUCTION_SSH_KEY`; the legacy `SSH_PRIVATE_KEY` repository/environment
+secret is retired after the new name is verified and prior deployment-capable
+requests have finished. This credential cutover blocks historical workflows
+that contain no policy gate. Do not restore the retired name: that would restore
+their production access. Only the root `./.ohif-digest` is excluded from bundle
+identity/transfer; nested files with that name are ordinary verified assets.

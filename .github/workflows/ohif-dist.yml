@@ -148,7 +148,7 @@ jobs:
           SSH_ALIAS: phr-ohif
           SSH_HOST_NAME: ${{ secrets.SSH_HOST }}
           SSH_USER_NAME: ${{ secrets.SSH_USERNAME }}
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_PRIVATE_KEY: ${{ secrets.PHR_PRODUCTION_SSH_KEY }}
           SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
         run: bash .github/scripts/configure-ohif-ssh.sh
 

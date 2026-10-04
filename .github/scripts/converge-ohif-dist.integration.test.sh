@@ -317,7 +317,7 @@ make_tree() {
 tag_at() { sed -n 's/.*<title>OHIF Viewer \(.*\)<\/title>.*/\1/p' "$1/index.html" 2>/dev/null || true; }
 # The digest the script computes for a bundle, for planting records by hand.
 digest_of() {
-    (cd "$1" && LC_ALL=C find . -type f ! -name .ohif-digest -print0 | LC_ALL=C sort -z \
+    (cd "$1" && LC_ALL=C find . -type f ! -path ./.ohif-digest -print0 | LC_ALL=C sort -z \
         | xargs -0 -r sha256sum | sha256sum | cut -d' ' -f1)
 }
 rsync_calls() { [[ -f "$root_dir/rsync-calls.log" ]] && wc -l <"$root_dir/rsync-calls.log" | tr -d ' ' || echo 0; }

@@ -16,7 +16,7 @@ if [[ -n "$borrow" ]]; then [[ "$borrow" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ && ${#b
 export OHIF_DEPLOY_DIR=phr-laravel
 [[ -d "$OHIF_BUNDLE_DIR" && ! -L "$OHIF_BUNDLE_DIR" && -z "$(find "$OHIF_BUNDLE_DIR" -type l -print -quit)" ]] || exit 1
 bash "$script_dir/../ohif/verify-dist.sh" "$OHIF_BUNDLE_DIR"
-desired=$(cd "$OHIF_BUNDLE_DIR" && LC_ALL=C find . -type f ! -name .ohif-digest -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum | sha256sum | cut -d' ' -f1)
+desired=$(cd "$OHIF_BUNDLE_DIR" && LC_ALL=C find . -type f ! -path ./.ohif-digest -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum | sha256sum | cut -d' ' -f1)
 remote() {
     timeout --kill-after=5s 120s "$ssh_bin" "$OHIF_SSH_TARGET" \
         "timeout --kill-after=5s 90s bash -s -- $(printf '%q ' "$1" phr-laravel "${@:2}")" < "$script_dir/ohif-publication-remote.sh"
