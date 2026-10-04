@@ -39,8 +39,8 @@ class CodexSetupScriptTest extends TestCase
     {
         $script = $this->setupScript();
         $platformCheck = strpos($script, 'composer check-platform-reqs --lock');
-        $phpStep = strrpos($script, "\ninstall_php_dependencies\n");
-        $pnpmStep = strrpos($script, "\nensure_pnpm\n");
+        $phpStep = strrpos($script, "\n  install_php_dependencies\n");
+        $pnpmStep = strrpos($script, "\n  ensure_pnpm\n");
 
         self::assertIsInt($platformCheck);
         self::assertIsInt($phpStep);
