@@ -219,6 +219,29 @@ php -d memory_limit=1G vendor/bin/phpunit
 The Playwright suite uses isolated local storage and a synthetic OAuth provider. Test
 fixtures must remain synthetic.
 
+## Diagnose a deployment left in maintenance
+
+The manual **PHR Maintenance Diagnostic** workflow accepts the exact selected
+release and source commit reported by the failed deployment. Run it from `main`
+after its changes and pinned shared helpers have been reviewed and merged. It uses
+the existing `prod` SSH secrets and queues in the same production concurrency group
+as application and OHIF writes. A present deployment lock, interrupted transaction,
+unexpected live identity or noncanonical control directory prevents probing.
+
+The diagnostic reports only validated aggregate evidence: Laravel maintenance state,
+saved application cron presence, selected runtime paths and database persistence,
+pending migration and queue counts, `/up` and `/login` HTTP statuses, and web PHP
+requirements. `/up` can return 200 while `/login` returns 503 in maintenance; both are
+checked. The web PHP helper creates a random temporary file in `public/` and attempts
+cleanup on every exit. No service state, cron, migrations, keys or patient data are
+changed. A failed web proof reports cleanup as unconfirmed and requires operator
+inspection before recovery.
+
+This workflow provides evidence for a deliberate recovery decision. The shared
+action's `recovery-release-id` finalizes interrupted transactions; it does not resume
+an already finalized release intentionally left in maintenance. The diagnostic
+does not resume that release or dispatch a new deployment.
+
 ## Privacy
 
 This repository is public. Do not commit real patient names, dates of birth, record
