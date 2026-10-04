@@ -253,6 +253,23 @@ action's `recovery-release-id` finalizes interrupted transactions; it does not r
 an already finalized release intentionally left in maintenance. The diagnostic
 does not resume that release or dispatch a new deployment.
 
+### Retire credentials usable by legacy production workflow reruns
+
+The temporary, manual **PHR Production Key Bootstrap** workflow authorizes a
+dedicated ed25519 public key using the existing SSH credential, then proves
+`PHR_PRODUCTION_SSH_KEY` with the exact read-only diagnostic. It only accepts the
+reviewed incident release and commit. Authorization preserves existing keys and
+options, saves a private backup, adds `restrict`, and never resumes service or
+changes application files, cron or migrations. The new private key must already
+be stored in the new secret; dispatch inputs contain the public key only.
+
+After this proof passes, update every ordinary production writer and diagnostic
+to use only the new secret. Stop all production-capable runs using old workflow
+definitions before removing `SSH_PRIVATE_KEY` from every scope visible to this
+repository. Removing that old GitHub secret prevents legacy reruns from obtaining
+their deployment credential. Do not revoke its server key: other applications may
+share it. Retire the temporary bootstrap workflow after the cutover is complete.
+
 ## Privacy
 
 This repository is public. Do not commit real patient names, dates of birth, record
