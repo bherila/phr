@@ -62,6 +62,12 @@ manifest_assets="$verify_root/manifest-assets.tsv"
 readonly manifest_assets
 verify_frontend_manifest "$manifest_path" "$(dirname "$manifest_path")" "$manifest_assets" "$max_manifest_assets"
 
+# Repair static OHIF and prove its identity while this application transaction
+# owns the mutex, before probing the public entrypoint and committing healthy.
+if [[ -n "${OHIF_RUN_ID:-}" ]]; then
+    OHIF_LOCK_OWNER="$DEPLOY_RELEASE_ID" bash "$script_dir/publish-ohif-dist.sh"
+fi
+
 request() {
     local name="$1" url="$2"
     shift 2
