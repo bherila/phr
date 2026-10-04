@@ -36,11 +36,13 @@ class AtomicDeploymentWorkflowTest extends TestCase
     {
         $workflow = $this->workflow('ci.yml');
 
-        $this->assertStringContainsString(
-            'bherila/shared-cpanel-deployment@d137328a37eea2b5893712c8f547513c70ba7d07',
+        $this->assertMatchesRegularExpression(
+            '/bherila\/shared-cpanel-deployment@[a-f0-9]{40}(?:\s|$)/',
             $workflow,
         );
         $this->assertStringContainsString('atomic-layout: stable-directory', $workflow);
+        $this->assertSame(1, preg_match_all('/^          runtime-audit: true$/m', $workflow));
+        $this->assertStringContainsString('post-finalize-script: .github/scripts/verify-phr-finalized.sh', $workflow);
         $this->assertStringContainsString('initial-live-commit: ${{ vars.ATOMIC_INITIAL_LIVE_COMMIT }}', $workflow);
         $this->assertStringContainsString('recovery-release-id: ${{ vars.ATOMIC_RECOVERY_RELEASE_ID }}', $workflow);
         $this->assertStringContainsString('failure-policy: maintenance', $workflow);
