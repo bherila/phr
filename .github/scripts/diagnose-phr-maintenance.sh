@@ -15,8 +15,12 @@ curl_bin=${PHR_DIAG_CURL_BIN:-curl}
 scratch=$(mktemp -d)
 trap 'rm -rf -- "$scratch"' EXIT
 ssh_options=(-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=2)
+bounded() {
+    # Bound captured SSH output, helper scratch files and response bodies locally.
+    (ulimit -f 1024; exec "$@")
+}
 state_proof() {
-    if ! timeout --kill-after=5s 60s "$ssh_bin" "${ssh_options[@]}" "$DIAG_SSH_TARGET" \
+    if ! bounded timeout --kill-after=5s 60s "$ssh_bin" "${ssh_options[@]}" "$DIAG_SSH_TARGET" \
         "bash -s -- $(printf '%q ' "$DIAG_PHP_BINARY" "$DIAG_EXPECTED_RELEASE" "$DIAG_EXPECTED_COMMIT")" \
         <"$script_dir/inspect-phr-maintenance.sh" >"$scratch/state" 2>"$scratch/error"; then
         echo 'PHR identity/state proof failed; diagnostics redacted.' >&2; return 1;
@@ -32,7 +36,7 @@ state_proof() {
 initial_state=$(state_proof) || { echo 'PHR diagnostic refused before probing.' >&2; exit 1; }
 printf '%s\n' "$initial_state"
 failures=0
-if timeout --kill-after=5s 60s "$ssh_bin" "${ssh_options[@]}" "$DIAG_SSH_TARGET" \
+if bounded timeout --kill-after=5s 60s "$ssh_bin" "${ssh_options[@]}" "$DIAG_SSH_TARGET" \
     "bash -s -- $(printf '%q ' phr-laravel "$DIAG_PHP_BINARY" 1G "$DIAG_EXPECTED_RELEASE" "$DIAG_EXPECTED_COMMIT" $'storage\npublic/ohif' selected)" \
     <"$shared/scripts/operational-audit.sh" >"$scratch/audit" 2>"$scratch/error" \
     && [[ $(wc -c <"$scratch/audit") -le 512 ]] \
@@ -48,7 +52,7 @@ else
     failures=$((failures + 1))
 fi
 for endpoint in up login; do
-    if status=$("$curl_bin" --silent --show-error --max-time 20 --output /dev/null \
+    if status=$(bounded "$curl_bin" --silent --show-error --max-time 20 --output /dev/null \
         --write-out '%{http_code}' "https://phr.bherila.net/$endpoint" 2>"$scratch/error") && [[ $status =~ ^[1-5][0-9]{2}$ ]]; then
         printf 'phr-http endpoint=%s status=%s\n' "$endpoint" "$status"
     else
@@ -60,7 +64,7 @@ done
 before_web=$(state_proof) || { echo 'PHR diagnostic stopped before web probe.' >&2; exit 1; }
 [[ "$before_web" == "$initial_state" ]] || { echo 'PHR state changed during diagnosis.' >&2; exit 1; }
 web_status=0
-timeout --kill-after=20s 100s bash "$shared/scripts/verify-web-php.sh" \
+bounded timeout --kill-after=20s 100s bash "$shared/scripts/verify-web-php.sh" \
     "$DIAG_SSH_TARGET" phr-laravel https://phr.bherila.net 8.5 1024M "${ssh_options[@]}" \
     >"$scratch/web" 2>&1 || web_status=$?
 if [[ "$web_status" == 0 ]] && ! grep -Fq 'Could not delete' "$scratch/web"; then

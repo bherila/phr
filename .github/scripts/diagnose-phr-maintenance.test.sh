@@ -70,6 +70,8 @@ set -euo pipefail
 while [[ ${1:-} == -o ]]; do shift 2; done
 [[ $1 == fixture-host ]] || exit 2
 shift
+if [[ ${FLOOD_DIAG_SSH:-} == 1 ]]; then head -c 2097152 /dev/zero; exit; fi
+if [[ ${FAIL_DIAG_CLEANUP:-} == 1 && $1 == 'rm -f '* ]]; then exit 1; fi
 env HOME="$FIXTURE_HOME" bash -c "$1"
 SSH
 cat >"$scratch/bin/curl" <<'CURL'
@@ -124,6 +126,7 @@ rmdir "$control/state/interrupted"
 DIAG_EXPECTED_COMMIT=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb reject
 DIAG_EXPECTED_RELEASE=other-release reject
 NOISY_DIAG_BOOTSTRAP=1 reject
+FLOOD_DIAG_SSH=1 reject
 RACE_DIAG_WRITER=1 reject
 rmdir "$control/deploy.lock"
 mv "$control/state" "$scratch/state"
@@ -145,5 +148,10 @@ reject
 [[ ! -e "$stable/PRIVATE_CONFIG_EXECUTED" ]]
 mv "$scratch/config.php" "$stable/bootstrap/cache/config.php"
 BAD_DIAG_WEB=1 reject
+if FAIL_DIAG_CLEANUP=1 diagnose >"$scratch/output" 2>&1; then echo 'failed cleanup was accepted' >&2; exit 1; fi
+grep -Fxq 'phr-web-runtime validated=no cleanup=unconfirmed' "$scratch/output"
+[[ -n $(find "$stable/public" -maxdepth 1 -name '_deploy-php-check-*.php' -print) ]]
+# Remove the synthetic fixture's deliberately retained probe, never production files.
+find "$stable/public" -maxdepth 1 -name '_deploy-php-check-*.php' -delete
 [[ $(find "$fixture_home" -type f -exec sha256sum {} + | sort) == "$before" ]]
 echo 'Read-only PHR maintenance diagnostics, active writer refusal, redaction and probe cleanup passed.'
