@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { chooseAppPlan, chooseArtifact } from './deployment-policy.mjs'
+import { chooseAppPlan, chooseArtifact, inventoryArtifacts } from './deployment-policy.mjs'
 
 const a = 'a'.repeat(40), b = 'b'.repeat(40), c = 'c'.repeat(40), fork = 'd'.repeat(40)
 const chain = [a, b, c]
@@ -51,4 +51,16 @@ test('incomplete OHIF artifact identity fails closed', () => {
 
 test('a failed rerun does not hide a previously validated run for the same source', async () => {
   assert.equal((await plan({ runs: [request(13, c, false), request(12, c)] })).superseded_by_run, '12')
+})
+
+
+test('artifact pagination discovers a higher source run hidden behind newer uploads', () => {
+  const page1 = Array.from({length:100}, (_, i) => artifact(10, i+100))
+  const all = inventoryArtifacts(page => ({total_count:101,artifacts:page === 1 ? page1 : [artifact(11,1)]}))
+  assert.equal(chooseArtifact(all).run_id, '11')
+})
+test('truncated, oversized and changing artifact inventories fail closed', () => {
+  assert.throws(() => inventoryArtifacts(() => ({total_count:501,artifacts:[]})), /bound/)
+  assert.throws(() => inventoryArtifacts(() => ({total_count:101,artifacts:[artifact(10,1)]})), /incomplete/)
+  assert.throws(() => inventoryArtifacts(page => ({total_count:101,artifacts:page === 1 ? Array.from({length:100},(_,i)=>artifact(10,i+1)) : [artifact(10,1)]})), /changed/)
 })

@@ -18,6 +18,23 @@ export function chooseArtifact(artifacts) {
   return { run_id: String(artifact.workflow_run.id), artifact_id: String(artifact.id), artifact_digest: artifact.digest, source_commit: artifact.workflow_run.head_sha }
 }
 
+export function inventoryArtifacts(fetchPage) {
+  const artifacts = []
+  let total
+  for (let page = 1; page <= 5; page++) {
+    const response = fetchPage(page)
+    if (!Array.isArray(response.artifacts) || !Number.isSafeInteger(response.total_count) || response.total_count < 0) throw new Error('OHIF artifact inventory invalid')
+    total ??= response.total_count
+    if (total > 500) throw new Error('OHIF artifact inventory exceeds the 500-artifact bound')
+    if (response.total_count !== total) throw new Error('OHIF artifact inventory changed during pagination')
+    artifacts.push(...response.artifacts)
+    if (new Set(artifacts.map(a => String(a.id))).size !== artifacts.length) throw new Error('OHIF artifact inventory changed during pagination')
+    if (artifacts.length === total) return artifacts
+    if (response.artifacts.length !== 100 || artifacts.length > total) throw new Error('OHIF artifact inventory is incomplete')
+  }
+  throw new Error('OHIF artifact inventory exceeds the page bound')
+}
+
 export async function chooseAppPlan({ candidate, live, main, runs, ancestor, validated }) {
   if (!sha(candidate.head_sha) || !sha(main) || !id(candidate.id)) throw new Error('Application request identity invalid')
   if (!await ancestor(candidate.head_sha, main)) throw new Error('Application source is outside current main history')
@@ -53,10 +70,10 @@ async function cli(mode) {
   const deadline = Date.now() + 120_000
   const api = path => {
     if (Date.now() > deadline) throw new Error('Deployment metadata inventory exceeded its bound')
-    return JSON.parse(run('gh', ['api', `repos/${repo}/${path}`]))
+    return JSON.parse(run('gh', ['api', `repos/${repo}/${path}`], { timeout: Math.min(30_000, Math.max(1, deadline - Date.now())) }))
   }
   const resolve = () => {
-    const artifact = chooseArtifact(api('actions/artifacts?name=ohif-dist&per_page=100').artifacts ?? [])
+    const artifact = chooseArtifact(inventoryArtifacts(page => api(`actions/artifacts?name=ohif-dist&per_page=100&page=${page}`)))
     if (artifact) {
       const workflow = api('actions/workflows/ohif-dist.yml')
       const source = api(`actions/runs/${artifact.run_id}`)

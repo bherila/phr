@@ -15,7 +15,9 @@ release. Requests outside a full bounded inventory fail closed. To intentionally
 roll back application behavior, merge a reviewed forward revert on main and let
 its normal validation/deployment run.
 
-Both writers resolve the highest main OHIF source run with a retained build
+Both writers inventory at most 500 OHIF artifacts across five bounded pages,
+failing closed on incomplete, oversized or changing inventories. They resolve
+the highest main OHIF source run with a retained build
 artifact, then its highest artifact ID. Artifact upload time does not turn a
 rerun of an old source run into a newer request. A canceled publication still has
 an eligible build. The artifact's workflow, source, ID and archive SHA-256 must

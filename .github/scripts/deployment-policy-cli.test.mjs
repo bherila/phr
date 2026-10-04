@@ -20,7 +20,7 @@ test('CLI metadata gates preserve source/artifact identity and terminal cancella
       'repos/synthetic/phr/commits/main': { sha: b },
       'repos/synthetic/phr/actions/workflows/ci.yml/runs?branch=main&per_page=100': { workflow_runs: [{ id: 2, head_sha: b, head_branch: 'main' }] },
       'repos/synthetic/phr/actions/runs/2/jobs?filter=latest&per_page=100': { total_count: 1, jobs: [{name:'Run Tests',conclusion:'success'}] },
-      'repos/synthetic/phr/actions/artifacts?name=ohif-dist&per_page=100': { artifacts: [{ name: 'ohif-dist', id: 20, expired: false, digest: 'sha256:' + 'a'.repeat(64), workflow_run: {id: 2, head_sha: b, head_branch: 'main'} }] },
+      'repos/synthetic/phr/actions/artifacts?name=ohif-dist&per_page=100&page=1': { total_count: 1, artifacts: [{ name: 'ohif-dist', id: 20, expired: false, digest: 'sha256:' + 'a'.repeat(64), workflow_run: {id: 2, head_sha: b, head_branch: 'main'} }] },
       'repos/synthetic/phr/actions/workflows/ohif-dist.yml': {id: 9},
       'repos/synthetic/phr/actions/runs/2': {workflow_id: 9, head_sha: b, head_branch: 'main'},
     }
