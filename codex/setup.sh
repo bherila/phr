@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2016 # PHP source intentionally uses literal shell strings.
-set -Eeuo pipefail
-
 log() {
   printf '\n==> %s\n' "$*"
 }
@@ -10,15 +8,13 @@ cleanup_paths=()
 
 cleanup() {
   local path
-
   for path in "${cleanup_paths[@]-}"; do
     if [[ -n "$path" ]]; then
       rm -f "$path"
     fi
   done
+  return 0
 }
-
-trap cleanup EXIT
 
 need_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -36,37 +32,49 @@ run_as_root() {
   fi
 }
 
-# Optional image-provided package feeds can be unavailable behind an egress proxy.
-# Never disable Ubuntu archives, the required PHP PPA, or multi-feed source files.
+is_optional_apt_uri() {
+  local uri="$1" host
+  [[ "$uri" == http://* || "$uri" == https://* ]] || return 1
+  host="${uri#*://}"
+  host="${host%%/*}"
+  case "$host" in
+    packages.microsoft.com|download.docker.com|deb.nodesource.com|dl.google.com|dl.yarnpkg.com) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Disable a failed optional feed only when every URI in its source file is an
+# explicitly known optional feed. Ubuntu archives, the PHP PPA, and mixed files
+# must survive a transient apt failure.
 disable_unreachable_apt_sources() {
-  local output="$1" uri host file sources source source_host optional
-  local disabled=0
+  local output="$1"
   local sources_dir="${2:-/etc/apt/sources.list.d}"
+  local disabled=0 uri host file sources source source_host optional matches
+
   while IFS= read -r uri; do
+    is_optional_apt_uri "$uri" || continue
     host="${uri#*://}"
     host="${host%%/*}"
-    case "$host" in
-      packages.microsoft.com|download.docker.com|deb.nodesource.com|dl.google.com|dl.yarnpkg.com) ;;
-      *) continue ;;
-    esac
     for file in "$sources_dir"/*.list "$sources_dir"/*.sources; do
-      [[ -f "$file" ]] || continue
-      grep -Fq "$uri" "$file" || continue
-      sources="$(sed '/^[[:space:]]*#/d' "$file" | grep -oE 'https?://[^[:space:]]+' || true)"
+      [[ -f "$file" && ! -e "$file.disabled" ]] || continue
+      sources="$(sed '/^[[:space:]]*#/d' "$file" | grep -oE '[[:alpha:]][[:alnum:]+.-]*:[^[:space:]]+' || true)"
+      [[ -n "$sources" ]] || continue
       optional=1
+      matches=0
       while IFS= read -r source; do
-        [[ -n "$source" ]] || continue
+        is_optional_apt_uri "$source" || optional=0
         source_host="${source#*://}"
         source_host="${source_host%%/*}"
-        [[ "$source_host" == "$host" ]] || optional=0
+        [[ "$source_host" != "$host" ]] || matches=1
       done <<< "$sources"
-      [[ "$optional" == 1 && ! -e "$file.disabled" ]] || continue
+      [[ "$optional" == 1 && "$matches" == 1 ]] || continue
       log "Disabling unavailable optional apt feed: $host"
-      run_as_root mv -- "$file" "$file.disabled"
+      run_as_root mv -- "$file" "$file.disabled" || return "$?"
       disabled=1
     done
   done <<< "$(printf '%s\n' "$output" | sed -n 's/^Err:[0-9]* \([^ ]*\).*/\1/p' | sort -u)"
-  [[ "$disabled" == 1 ]]
+
+  [[ "$disabled" == "1" ]]
 }
 
 apt_update() {
@@ -88,6 +96,7 @@ apt_update() {
 }
 
 php_runtime_is_ready() {
+  command -v php >/dev/null 2>&1 || return 1
   php -r '
     $required = ["bcmath", "curl", "gd", "intl", "mbstring", "pdo_mysql", "pdo_sqlite", "dom", "xml", "xmlreader", "xmlwriter", "sodium", "sqlite3", "zip"];
     $missing = array_filter($required, fn (string $extension): bool => !extension_loaded($extension));
@@ -220,32 +229,53 @@ install_node_dependencies() {
   pnpm install --frozen-lockfile --prefer-offline
 }
 
+app_key_is_configured() {
+  php -r '
+    try {
+      require "vendor/autoload.php";
+      $values = Dotenv\Dotenv::createArrayBacked(getcwd())->load();
+      exit(isset($values["APP_KEY"]) && $values["APP_KEY"] !== "" ? 0 : 1);
+    } catch (Throwable) {
+      fwrite(STDERR, "Unable to parse local environment configuration.\n");
+      exit(2);
+    }
+  '
+}
+
 prepare_laravel_environment() {
   if [[ ! -f .env && -f .env.example ]]; then
     log "Creating local .env from .env.example"
     cp .env.example .env
   fi
-
-  if [[ -f artisan && -f .env ]] && ! grep -Eq '^APP_KEY=base64:.+' .env; then
+  if [[ -f artisan && -f .env ]]; then
+    if app_key_is_configured; then
+      return 0
+    else
+      local status=$?
+      [[ "$status" == 1 ]] || return "$status"
+    fi
     log "Generating Laravel application key"
     php artisan key:generate --no-interaction --force
   fi
 }
 
 main() {
-  SCRIPT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+  local script_dir repo_root
+  script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+  repo_root="$(cd "$script_dir/.." && pwd)"
+
+  trap cleanup EXIT
 
   export CI="${CI:-1}"
   export PATH="$HOME/.local/bin:$PATH"
 
-  cd "$REPO_ROOT"
+  cd "$repo_root"
 
   need_cmd curl
   need_cmd node
-  need_cmd php
 
   ensure_php_runtime
+  need_cmd php
   ensure_pdftotext
   ensure_composer
   configure_github_auth
@@ -258,5 +288,6 @@ main() {
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  set -Eeuo pipefail
   main "$@"
 fi
