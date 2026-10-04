@@ -74,7 +74,7 @@ async function cli(mode) {
     const live = JSON.parse(run('timeout', ['--kill-after=5s', '60s', process.env.PHR_DEPLOY_SSH_BIN ?? 'ssh', target, 'bash -s'], { input: script, timeout: 65_000 }))
     const ancestor = async (a, b) => {
       try { execFileSync('git', ['merge-base', '--is-ancestor', a, b], { stdio: 'ignore', timeout: 10_000 }); return true }
-      catch (error) { if (error.status === 1) return false; throw new Error('Commit ancestry could not be proven') }
+      catch (error) { if (error.status === 1) return false; throw new Error('Commit ancestry could not be proven', { cause: error }) }
     }
     result = await chooseAppPlan({ candidate, live, main: api('commits/main').sha, runs: api('actions/workflows/ci.yml/runs?branch=main&per_page=100').workflow_runs ?? [], ancestor,
       validated: async request => {
