@@ -340,3 +340,39 @@ on later rsyncs, rejects a partial key pair, and never prints key material.
   column carries a binary collation so the MySQL family compares it bytewise like
   SQLite; without that, upsert identity and resolution disagree about what "the same
   record" is, and only in production.
+
+### External completion replay authorization review (#145)
+
+Reviewed the delivered-completion exception against `PhrMcpMailboxAccessResolver`,
+`PhrMcpCompletionDelivery`, and the locked `bherila/genai-laravel` v0.2.2 source
+(`bebc489389ce381dc307fff65d4f1ba361c4957d`). The resolver matches the nominated
+job by its id, exact `mcp_request_id`, owner user and external execution mode
+before considering replay. A delivered job (`parsed` or `imported`), completed
+request, nonempty stored principal/hash/receipt, matching OAuth-family principal,
+and acknowledged completed delivery are all required. Partial or inconsistent
+terminal metadata fails closed.
+
+The package's `complete()` computes the canonical response-and-executor hash,
+then authorizes and locks the request. Its completed branch additionally compares
+the lease-token hash and principal before returning the stored receipt, and exits
+before request writes, completion events or delivery creation. The delivered
+proposal sink also checks request/job identity and prior proposal delivery. Claim,
+renew, fail and attachment download retain their live-request/lease requirements;
+replay cannot make a terminal request executable again.
+
+The source document must still exist and the caller must retain current patient
+write access. Deletion, grant revocation, account disablement or mailbox disablement
+deny replay. Losing a receipt after deleting its source is an intentional privacy
+tradeoff: the stored receipt includes extraction results, so retaining an old
+credential must not recover data after access is withdrawn. A different principal
+receives 403; the completing principal's changed payload or lease token receives
+409. Database authorization decisions are not claimed to be constant-time, but
+no receipt, proposal delivery or patient content becomes available through those
+failures.
+
+`ExternalGenAiCompletionReplayTest` covers exact and key-reordered replay, altered
+payloads and leases, unrelated principals, current grants and document deletion,
+delivery acknowledgement, terminal work refusal, disabled identities, missing
+completion metadata and a same-user unlinked job. The 16 tests were run against
+the checkout's own sources with the Composer autoloader path verified. No
+authorization widening or code change was needed.
