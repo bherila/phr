@@ -111,7 +111,7 @@ jobs:
           bash .github/scripts/converge-ohif-dist.test.sh
           bash .github/scripts/configure-ohif-ssh.test.sh
           bash .github/ohif/verify-dist.test.sh
-          node --test .github/scripts/deployment-policy.test.mjs
+          node --test .github/scripts/deployment-policy*.test.mjs
           bash .github/scripts/ohif-publication.test.sh
           bash .github/scripts/download-ohif-bundle.test.sh
 

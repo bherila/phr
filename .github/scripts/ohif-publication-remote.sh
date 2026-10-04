@@ -68,8 +68,8 @@ if [[ "$mode" == clear ]]; then
     exit 0
 fi
 if [[ "$mode" == commit ]]; then
-    [[ $# == 7 && $1 =~ ^[1-9][0-9]*$ && $2 =~ ^[1-9][0-9]*$ && $3 =~ ^sha256:[a-f0-9]{64}$ \
-        && $4 =~ ^[a-f0-9]{40}$ && $5 =~ ^[a-f0-9]{64}$ && $6 =~ ^[1-9][0-9]*$ && $7 =~ ^[1-9][0-9]*$ ]] || exit 2
+    [[ $# == 7 && $1 =~ ^[1-9][0-9]{0,15}$ && $2 =~ ^[1-9][0-9]{0,15}$ && $3 =~ ^sha256:[a-f0-9]{64}$ \
+        && $4 =~ ^[a-f0-9]{40}$ && $5 =~ ^[a-f0-9]{64}$ && $6 =~ ^[1-9][0-9]{0,15}$ && $7 =~ ^[1-9][0-9]{0,5}$ ]] || exit 2
     [[ ! -L "$manifest" && ( ! -e "$manifest" || -f "$manifest" ) ]] || fail
     temporary=$(mktemp "$shared/.ohif-publication.XXXXXX")
     printf 'version=1\nrun_id=%s\nartifact_id=%s\nartifact_digest=%s\nsource_commit=%s\nbundle_digest=%s\nwriter_run_id=%s\nwriter_attempt=%s\n' "$@" > "$temporary"
@@ -86,15 +86,15 @@ if [[ -e "$manifest" || -L "$manifest" ]]; then
         [[ ! -v "record[$key]" ]] || fail
         record[$key]=$value
     done < "$manifest"
-    [[ ${#record[@]} == 8 && ${record[version]:-} == 1 && ${record[run_id]:-} =~ ^[1-9][0-9]*$ \
-        && ${record[artifact_id]:-} =~ ^[1-9][0-9]*$ && ${record[artifact_digest]:-} =~ ^sha256:[a-f0-9]{64}$ \
+    [[ ${#record[@]} == 8 && ${record[version]:-} == 1 && ${record[run_id]:-} =~ ^[1-9][0-9]{0,15}$ \
+        && ${record[artifact_id]:-} =~ ^[1-9][0-9]{0,15}$ && ${record[artifact_digest]:-} =~ ^sha256:[a-f0-9]{64}$ \
         && ${record[source_commit]:-} =~ ^[a-f0-9]{40}$ && ${record[bundle_digest]:-} =~ ^[a-f0-9]{64}$ \
-        && ${record[writer_run_id]:-} =~ ^[1-9][0-9]*$ && ${record[writer_attempt]:-} =~ ^[1-9][0-9]*$ ]] || fail
+        && ${record[writer_run_id]:-} =~ ^[1-9][0-9]{0,15}$ && ${record[writer_attempt]:-} =~ ^[1-9][0-9]{0,5}$ ]] || fail
 fi
 actual='' marker=''
 if [[ -e "$root" || -L "$root" ]]; then
     real_dir "$root" || fail
-    [[ -z "$(find "$root" -type l -print -quit)" ]] || fail
+    [[ -z "$(find "$root" ! -type d ! -type f -print -quit)" ]] || fail
     actual=$(cd "$root" && LC_ALL=C find . -type f ! -name .ohif-digest -print0 | LC_ALL=C sort -z | xargs -0 -r sha256sum | sha256sum | cut -d' ' -f1)
     if [[ -e "$root/.ohif-digest" ]]; then
         [[ -f "$root/.ohif-digest" && ! -L "$root/.ohif-digest" && "$(wc -c < "$root/.ohif-digest")" -le 129 ]] || fail
