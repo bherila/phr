@@ -228,11 +228,12 @@ the existing `prod` SSH secrets and queues in the same production concurrency gr
 as application and OHIF writes. A present deployment lock, interrupted transaction,
 unexpected live identity or noncanonical control directory prevents probing.
 
-The diagnostic reports only validated aggregate evidence: Laravel maintenance state,
+The diagnostic reports only validated aggregate evidence: canonical maintenance-file presence,
 saved application cron presence, selected runtime paths and database persistence,
 pending migration and queue counts, `/up` and `/login` HTTP statuses, and web PHP
 requirements. `/up` can return 200 while `/login` returns 503 in maintenance; both are
-checked. The web PHP helper creates a random temporary file in `public/` and attempts
+checked. Maintenance-file presence does not infer the state of an alternative cache
+maintenance driver. The web PHP helper creates a random temporary file in `public/` and attempts
 cleanup on every exit. No service state, cron, migrations, keys or patient data are
 changed. A failed web proof reports cleanup as unconfirmed and requires operator
 inspection before recovery.

@@ -107,7 +107,7 @@ reject() {
 }
 before=$(find "$fixture_home" -type f -exec sha256sum {} + | sort)
 diagnose >"$scratch/output"
-grep -Fxq 'phr-maintenance identity=exact roots=canonical maintenance=yes lock=absent transactions=0 recovery_cron=present' "$scratch/output"
+grep -Fxq 'phr-maintenance identity=exact roots=canonical maintenance_file=present lock=absent transactions=0 recovery_cron=present' "$scratch/output"
 grep -Fxq 'runtime-audit identity=exact paths=canonical writable=yes database=persistent phase=selected' "$scratch/output"
 grep -Fxq 'phr-http endpoint=login status=503' "$scratch/output"
 grep -Fxq 'phr-web-runtime validated=yes cleanup=confirmed' "$scratch/output"
@@ -138,6 +138,11 @@ rm "$control/recovery/$DIAG_EXPECTED_RELEASE.cron"
 mv "$scratch/cron" "$control/recovery/$DIAG_EXPECTED_RELEASE.cron"
 mv "$stable/bootstrap/cache/config.php" "$scratch/config.php"
 reject
+mv "$scratch/config.php" "$stable/bootstrap/cache/config.php"
+cp "$stable/bootstrap/cache/config.php" "$scratch/config.php"
+printf '<?php file_put_contents("%s/PRIVATE_CONFIG_EXECUTED", "PRIVATE_CONFIG_SECRET"); return [];' "$stable" >"$stable/bootstrap/cache/config.php"
+reject
+[[ ! -e "$stable/PRIVATE_CONFIG_EXECUTED" ]]
 mv "$scratch/config.php" "$stable/bootstrap/cache/config.php"
 BAD_DIAG_WEB=1 reject
 [[ $(find "$fixture_home" -type f -exec sha256sum {} + | sort) == "$before" ]]

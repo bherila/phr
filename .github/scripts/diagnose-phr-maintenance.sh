@@ -23,7 +23,7 @@ state_proof() {
     fi
     [[ $(wc -c <"$scratch/state") -le 512 ]] || return 1
     LC_ALL=C awk '
-        NR != 1 || $0 !~ /^phr-maintenance identity=exact roots=canonical maintenance=(yes|no) lock=absent transactions=0 recovery_cron=(present|absent)$/ { invalid=1 }
+        NR != 1 || $0 !~ /^phr-maintenance identity=exact roots=canonical maintenance_file=(present|absent) lock=absent transactions=0 recovery_cron=(present|absent)$/ { invalid=1 }
         NR == 1 { proof=$0 }
         END { if (NR == 1 && !invalid) { print proof } else { exit 1 } }
     ' "$scratch/state"

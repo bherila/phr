@@ -12,12 +12,14 @@ try {
     $control = $home.'/.deployments/phr-laravel';
     $storage = $control.'/shared/storage';
     $assertState = static function () use ($home, $stable, $control, $storage, $release, $commit): void {
-        foreach ([$home, $home.'/.deployments', $control, $control.'/state', $control.'/shared', $storage, $stable] as $directory) {
+        foreach ([$home, $home.'/.deployments', $control, $control.'/state', $control.'/releases', $control.'/shared',
+            $control.'/shared/public', $control.'/shared/public/ohif', $storage, $storage.'/framework', $stable, $stable.'/public'] as $directory) {
             if (!is_dir($directory) || is_link($directory) || realpath($directory) !== $directory) { throw new RuntimeException(); }
         }
         if (file_exists($control.'/deploy.lock') || is_link($control.'/deploy.lock')
             || scandir($control.'/state') !== ['.', '..']
-            || !is_link($stable.'/storage') || realpath($stable.'/storage') !== $storage) { throw new RuntimeException(); }
+            || !is_link($stable.'/storage') || realpath($stable.'/storage') !== $storage
+            || !is_link($stable.'/public/ohif') || realpath($stable.'/public/ohif') !== $control.'/shared/public/ohif') { throw new RuntimeException(); }
         $metadataPath = $stable.'/.deploy-release';
         if (!is_file($metadataPath) || is_link($metadataPath) || filesize($metadataPath) > 4096) { throw new RuntimeException(); }
         $metadata = file_get_contents($metadataPath);
@@ -31,15 +33,13 @@ try {
     $cron = $recovery.'/'.$release.'.cron';
     if (is_link($cron) || (file_exists($cron) && (!is_file($cron) || realpath($cron) !== $cron))) { exit(1); }
     $cronPresent = is_file($cron);
-    chdir($stable);
-    ob_start();
-    require $stable.'/vendor/autoload.php';
-    $app = require $stable.'/bootstrap/app.php';
-    $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
-    $maintenance = $app->isDownForMaintenance();
-    ob_end_clean();
+    // Do not bootstrap the framework before the shared scalar-only config audit.
+    // File presence is reported explicitly; it does not infer a cache-driver state.
+    $down = $storage.'/framework/down';
+    if (is_link($down) || (file_exists($down) && (!is_file($down) || realpath($down) !== $down))) { exit(1); }
+    $maintenancePresent = is_file($down);
     $assertState();
-    echo 'phr-maintenance identity=exact roots=canonical maintenance='.($maintenance ? 'yes' : 'no').
+    echo 'phr-maintenance identity=exact roots=canonical maintenance_file='.($maintenancePresent ? 'present' : 'absent').
         ' lock=absent transactions=0 recovery_cron='.($cronPresent ? 'present' : 'absent')."\n";
 } catch (Throwable) {
     while (ob_get_level() > 0) { ob_end_clean(); }
