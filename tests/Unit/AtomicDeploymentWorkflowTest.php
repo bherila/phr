@@ -71,8 +71,9 @@ class AtomicDeploymentWorkflowTest extends TestCase
         $this->assertStringContainsString("if: \${{ steps.app-plan.outputs.proceed == 'true' }}", $ci);
         foreach ([$ci, $ohif] as $workflow) {
             $this->assertStringContainsString('node .github/scripts/deployment-policy.mjs ohif', $workflow);
-            $this->assertStringContainsString('secrets.PHR_PRODUCTION_SSH_KEY', $workflow);
-            $this->assertStringNotContainsString('secrets.SSH_PRIVATE_KEY', $workflow);
+            $this->assertSame(1, preg_match('/^  deploy:\R.*?(?=^  [a-zA-Z0-9_-]+:|\z)/ms', $workflow, $deployment));
+            $this->assertStringContainsString('secrets.PHR_PRODUCTION_SSH_KEY', $deployment[0]);
+            $this->assertStringNotContainsString('secrets.SSH_PRIVATE_KEY', $deployment[0]);
             $this->assertStringContainsString('OHIF_ARTIFACT_ID: ${{ steps.ohif.outputs.artifact_id }}', $workflow);
             $this->assertStringContainsString('OHIF_ARTIFACT_DIGEST: ${{ steps.ohif.outputs.artifact_digest }}', $workflow);
             $this->assertStringNotContainsString('run: bash .github/scripts/converge-ohif-dist.sh', $workflow);
