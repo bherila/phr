@@ -112,9 +112,6 @@ jobs:
           bash .github/scripts/configure-ohif-ssh.test.sh
           bash .github/ohif/verify-dist.test.sh
 
-      - name: Test Codex setup fallback policy
-        run: bash codex/setup.test.sh
-
       - name: Test agent mutation digest key installer
         run: bash .github/scripts/configure-agent-mutation-digest-key.test.sh
 
@@ -137,6 +134,9 @@ jobs:
 
       - name: Install Composer dependencies
         run: composer install --no-interaction
+
+      - name: Test Codex setup decisions
+        run: bash codex/setup.test.sh
 
       - name: Validate synthetic C-CDA document
         run: pnpm run validate:ccda
