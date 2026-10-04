@@ -34,7 +34,6 @@ fi
 readonly curl_bin="${PHR_VERIFY_CURL_BIN:-curl}"
 readonly ssh_bin="${PHR_VERIFY_SSH_BIN:-ssh}"
 readonly php_runner="${PHR_VERIFY_PHP_BIN:-php}"
-readonly memory_limit='1G'
 readonly site_url="${DEPLOY_SITE_URL%/}"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly script_dir
@@ -220,16 +219,8 @@ timeout 60 "$ssh_bin" "$DEPLOY_SSH_TARGET" \
 crontab_file="$verify_root/crontab"
 "$ssh_bin" "$DEPLOY_SSH_TARGET" 'crontab -l' >"$crontab_file"
 
-readonly scheduler_line="*/5 * * * * cd \"\$HOME/$DEPLOY_DIR\" && PHR_CRON_MEMORY_LIMIT=1G $DEPLOY_PHP_BINARY -d memory_limit=$memory_limit artisan phr:uptime:run-scheduler >> /dev/null 2>&1 # JOB:phr-laravel-scheduler"
-readonly worker_line="*/5 * * * * cd \"\$HOME/$DEPLOY_DIR\" && PHR_CRON_MEMORY_LIMIT=1G /usr/bin/flock -n \"\$HOME/$DEPLOY_DIR/storage/framework/phr-queue-worker.lock\" $DEPLOY_PHP_BINARY -d memory_limit=$memory_limit artisan phr:uptime:run-worker >> /dev/null 2>&1 # JOB:phr-laravel-queue-worker"
-
-for spec in "phr-laravel-scheduler|$scheduler_line" "phr-laravel-queue-worker|$worker_line"; do
-    IFS='|' read -r job_name expected_line <<<"$spec"
-    if [[ "$(grep -Ec "# JOB:${job_name}[[:space:]]*$" "$crontab_file")" != 1 \
-        || "$(grep -Fxc "$expected_line" "$crontab_file" || true)" != 1 ]]; then
-        echo "Production cron is missing the one canonical ${job_name} entry." >&2
-        exit 1
-    fi
-done
+# shellcheck source=./verify-phr-cron.sh
+source "$script_dir/verify-phr-cron.sh"
+verify_phr_cron "$crontab_file"
 
 echo 'Production PHR HTTP, login, assets, OAuth, MCP, OHIF, queue, key, memory, and cron checks passed.'

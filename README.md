@@ -216,6 +216,16 @@ composer audit --locked --no-interaction
 php -d memory_limit=1G vendor/bin/phpunit
 ```
 
+Production deployments opt into the shared action's canonical runtime audit after
+final-path cache refresh and again after finalization. Missing or escaped cached
+runtime paths fail without provisioning directories. The post-finalizer PHR hook
+checks exact serving identity, lock absence, an empty transaction inventory, the
+persistent OAuth key pair, and the two canonical scheduler/worker entries with 1G
+limits. The shared audit additionally checks persistent database configuration,
+pending migrations and aggregate queue counts. Diagnostics consume no queued work
+and emit no patient data or key contents. A newer deployment generation supersedes
+post-unlock diagnostics rather than falsely failing an earlier healthy release.
+
 The Playwright suite uses isolated local storage and a synthetic OAuth provider. Test
 fixtures must remain synthetic.
 
