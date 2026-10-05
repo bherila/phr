@@ -9,6 +9,8 @@ export RESUME_SSH_TARGET=fixture-host RESUME_EXPECTED_RELEASE=aaaaaaaaaaaa-12345
     RESUME_EXPECTED_COMMIT=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa GITHUB_REPOSITORY=bherila/phr
 RESUME_PHP_BINARY=$(command -v php)
 export RESUME_PHP_BINARY FIXTURE_HOME="$scratch/home" FIXTURE_CRON="$scratch/cron" FIXTURE_CALLS="$scratch/calls" FIXTURE_TIMEOUT_PID="$scratch/timeout-pid"
+FIXTURE_REAL_CMP=$(command -v cmp)
+export FIXTURE_REAL_CMP
 mkdir "$scratch/bin"
 php /dev/stdin "$scratch" <<'PHP'
 <?php
@@ -34,8 +36,20 @@ while [[ ${1:-} == -o ]]; do shift 2; done
 [[ $1 == fixture-host ]] || exit 2
 shift
 printf 'ssh\n' >>"$FIXTURE_CALLS"
-env HOME="$FIXTURE_HOME" bash -c "$1"
+env HOME="$FIXTURE_HOME" FIXTURE_REMOTE=1 bash -c "$1"
 SSH
+cat >"$scratch/bin/cmp" <<'CMP'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ ${FIXTURE_NO_DEV_FD:-} == 1 && ${FIXTURE_REMOTE:-} == 1 ]]; then
+    for argument in "$@"; do
+        case $argument in
+            /dev/fd/*|/proc/self/fd/*) printf 'blocked-dev-fd\n' >>"$FIXTURE_CALLS"; exit 2 ;;
+        esac
+    done
+fi
+exec "$FIXTURE_REAL_CMP" "$@"
+CMP
 cat >"$scratch/bin/curl" <<'CURL'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -219,6 +233,16 @@ assert_private
 [[ $(grep -c '# JOB:phr-laravel-queue-worker$' "$FIXTURE_CRON") == 1 ]]
 head -n 2 "$FIXTURE_CRON" | cmp -s - "$scratch/foreign-cron"
 grep -Fq 'result=serving' "$scratch/output"
+reset_fixture
+# CageFS has no /dev/fd: exercise the real host scripts, including both web probes.
+FIXTURE_NO_DEV_FD=1 run_resume || { cat "$scratch/output" >&2; exit 1; }
+assert_private
+[[ ! -e $shared/storage/framework/down && ! -e $control/deploy.lock ]]
+[[ $(grep -c '# JOB:phr-laravel-scheduler$' "$FIXTURE_CRON") == 1 ]]
+[[ $(grep -c '# JOB:phr-laravel-queue-worker$' "$FIXTURE_CRON") == 1 ]]
+head -n 2 "$FIXTURE_CRON" | cmp -s - "$scratch/foreign-cron"
+grep -Fq 'result=serving' "$scratch/output"
+if grep -q blocked-dev-fd "$FIXTURE_CALLS"; then echo 'Host proof still requires /dev/fd.' >&2; exit 1; fi
 reset_fixture
 : >"$FIXTURE_CRON"
 FIXTURE_CRON_MISSING=1 run_resume
