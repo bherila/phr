@@ -8,7 +8,12 @@ proving the writer stopped before using the documented recovery procedure.
 
 Before production writes, the application gate checks its exact checkout against
 its frontend artifact source, current main ancestry, the live release metadata,
-and up to 100 CI runs. A validated descendant supersedes an older request; an
+and up to 100 trusted main push/dispatch CI runs from this repository. Fork and
+pull-request runs are excluded before ancestry checks, and missing reported
+commits are fetched before comparison. Validation examines at most 500 jobs across
+all attempts: an earlier successful gate remains valid after a failed rerun.
+Incomplete, changing or oversized job inventories fail closed.
+A validated descendant supersedes an older request; an
 unvalidated descendant does not. An older source cannot replace newer live code,
 even if manually rerun. Each skip records the replacing commit and run or live
 release. Requests outside a full bounded inventory fail closed. To intentionally
