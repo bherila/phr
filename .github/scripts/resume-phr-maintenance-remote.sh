@@ -18,7 +18,8 @@ umask 077
 ulimit -f 1024
 one_record() {
     local path=$1 expected=$2
-    [[ $(wc -c <"$path") -le 512 ]] && cmp -s "$path" <(printf '%s\n' "$expected")
+    # CageFS does not expose /dev/fd; compare complete bytes over a pipe instead.
+    [[ $(wc -c <"$path") -le 512 ]] && printf '%s\n' "$expected" | cmp -s -- "$path" -
 }
 state() {
     local mode=$1 maintenance=$2

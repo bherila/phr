@@ -13,7 +13,7 @@ name=${name%\"}
     "$RESUME_MARKER_HASH" "$RESUME_MARKER_MTIME" "$RESUME_INCIDENT_START" "$RESUME_INCIDENT_END" "$RESUME_MARKER_GUARD" \
     >"$RESUME_SCRATCH/probe-state" 2>"$RESUME_SCRATCH/probe-error"
 [[ $(wc -c <"$RESUME_SCRATCH/probe-state") == 27 ]] \
-    && cmp -s "$RESUME_SCRATCH/probe-state" <(printf 'phr-resume state=validated\n') || exit 1
+    && printf 'phr-resume state=validated\n' | cmp -s -- "$RESUME_SCRATCH/probe-state" - || exit 1
 path="$HOME/phr-laravel/public/$name"
 if [[ $command_text == "umask 022 && cat > \"\$HOME/phr-laravel/public/$name\"" ]]; then
     [[ ! -e $path && ! -L $path ]] || exit 1
