@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - .github/scripts/install-phr-production-key*.sh
+      - .github/scripts/verify-phr-production-key-pair.sh
+      - tests/Unit/ProductionKeyBootstrapWorkflowTest.php
       - .github/workflows/production-key-bootstrap.yml
   workflow_dispatch:
     inputs:
@@ -35,7 +37,7 @@ jobs:
           persist-credentials: false
       - name: Validate synthetic SSH authorization fixtures
         run: |
-          shellcheck .github/scripts/install-phr-production-key*.sh
+          shellcheck .github/scripts/install-phr-production-key*.sh .github/scripts/verify-phr-production-key-pair.sh
           bash .github/scripts/install-phr-production-key.test.sh
 
   authorize:
@@ -60,16 +62,19 @@ jobs:
           ref: 395b0d8b10db1181e50f4eec27d7bce27b1522d6 # reviewed merged shared #41
           path: .shared-cpanel-deployment
           persist-credentials: false
-      - name: Require both credential scopes and the incident identity
+      - name: Validate both credential scopes, key pair and incident identity before SSH
         env:
+          PUBLIC_KEY: ${{ inputs.public_key }}
           BOOTSTRAP_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
           POLICY_PRIVATE_KEY: ${{ secrets.PHR_PRODUCTION_SSH_KEY }}
           EXPECTED_RELEASE: ${{ inputs.expected_release }}
           EXPECTED_COMMIT: ${{ inputs.expected_commit }}
         run: |
+          set -euo pipefail
           test -n "$BOOTSTRAP_PRIVATE_KEY" && test -n "$POLICY_PRIVATE_KEY"
           test "$EXPECTED_RELEASE" = 7b33fe7445aa-37239370303-1
           test "$EXPECTED_COMMIT" = 7b33fe7445aa6d0a002f2e752497282b04c360a2
+          bash .github/scripts/verify-phr-production-key-pair.sh
       - name: Configure legacy credential only for SSH authorization bootstrap
         env:
           SSH_ALIAS: phr-key-bootstrap
@@ -113,10 +118,6 @@ jobs:
           printf 'Host phr-policy-verify\n    ControlMaster no\n    ControlPath none\n    IdentityAgent none\n' > "$temporary"
           cat "$HOME/.ssh/config" >> "$temporary"
           mv "$temporary" "$HOME/.ssh/config"
-          # Bind the supplied public key to the actual new private secret without logging it.
-          expected=$(printf '%s' "$PUBLIC_KEY" | cut -d' ' -f1,2)
-          actual=$(ssh-keygen -y -f "$HOME/.ssh/phr-policy-verify.key" | cut -d' ' -f1,2)
-          test "$actual" = "$expected"
       - name: Prove the dedicated credential with read-only exact diagnostics
         env:
           DIAG_SSH_TARGET: phr-policy-verify

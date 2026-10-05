@@ -30,9 +30,19 @@ class ProductionKeyBootstrapWorkflowTest extends TestCase
         $this->assertStringContainsString('ControlMaster no', $dedicated);
         $this->assertStringContainsString('ControlPath none', $dedicated);
         $this->assertStringContainsString('IdentityAgent none', $dedicated);
-        $this->assertStringContainsString('ssh-keygen -y -f "$HOME/.ssh/phr-policy-verify.key"', $dedicated);
-        $this->assertStringContainsString('test "$actual" = "$expected"', $dedicated);
         $this->assertStringContainsString('DIAG_SSH_TARGET: phr-policy-verify', $dedicated);
         $this->assertStringContainsString('bash .github/scripts/diagnose-phr-maintenance.sh', $dedicated);
+        $preflight = strpos($workflow, 'bash .github/scripts/verify-phr-production-key-pair.sh');
+        $legacy = strpos($workflow, '- name: Configure legacy credential');
+        $authorization = strpos($workflow, '- name: Authorize the restricted public key');
+        $this->assertIsInt($preflight);
+        $this->assertIsInt($legacy);
+        $this->assertIsInt($authorization);
+        $this->assertLessThan($legacy, $preflight);
+        $this->assertLessThan($authorization, $preflight);
+        $pairHelper = file_get_contents(base_path('.github/scripts/verify-phr-production-key-pair.sh'));
+        $this->assertStringContainsString("ssh-keygen -y -P ''", $pairHelper);
+        $this->assertStringContainsString('</dev/null', $pairHelper);
+        $this->assertStringContainsString('timeout --kill-after=2s 10s', $pairHelper);
     }
 }
