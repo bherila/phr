@@ -62,10 +62,12 @@ web() {
     ! grep -Fq 'Could not delete' "$RESUME_SCRATCH/web"
 }
 read_cron() {
-    if timeout --kill-after=2s 15s crontab -l >"$1" 2>"$RESUME_SCRATCH/error"; then return 0; fi
+    local read_status=0
+    timeout --kill-after=2s 15s crontab -l >"$1" 2>"$RESUME_SCRATCH/error" || read_status=$?
+    if [[ $read_status == 0 ]]; then return 0; fi
     # An absent account spool is an empty crontab, not an unknown failed read.
     # Validate the complete standard error record; never print the account name.
-    if [[ ! -s $1 && $(wc -c <"$RESUME_SCRATCH/error") -le 256 ]] && LC_ALL=C awk '
+    if [[ $read_status == 1 && ! -s $1 && $(wc -c <"$RESUME_SCRATCH/error") -le 256 ]] && LC_ALL=C awk '
         NR != 1 || tolower($0) !~ /^(crontab: )?no crontab for [a-z0-9_.-]+\$?$/ { invalid=1 }
         END { if (NR != 1 || invalid) exit 1 }
     ' "$RESUME_SCRATCH/error"; then : >"$1"; return 0; fi

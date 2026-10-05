@@ -60,7 +60,7 @@ cat >"$scratch/bin/crontab" <<'CRON'
 #!/usr/bin/env bash
 set -euo pipefail
 if [[ $1 == -l ]]; then
-    if [[ ${FIXTURE_CRON_MISSING:-} == 1 && ! -s $FIXTURE_CRON ]]; then echo 'no crontab for fixture-user' >&2; exit 1; fi
+    if [[ ${FIXTURE_CRON_MISSING:-} == 1 && ! -s $FIXTURE_CRON ]]; then echo 'no crontab for fixture-user' >&2; exit "${FIXTURE_CRON_MISSING_STATUS:-1}"; fi
     if [[ ${FIXTURE_CRON_UNKNOWN:-} == 1 ]]; then printf 'permission denied\nPRIVATE_CRON_READ_SECRET' >&2; exit 1; fi
     cat "$FIXTURE_CRON"; exit
 fi
@@ -225,6 +225,13 @@ FIXTURE_CRON_MISSING=1 run_resume
 assert_private
 [[ ! -f $shared/storage/framework/down && ! -e $control/deploy.lock ]]
 [[ $(wc -l <"$FIXTURE_CRON") == 2 ]]
+for read_status in 2 124; do
+    reset_fixture
+    : >"$FIXTURE_CRON"
+    FIXTURE_CRON_MISSING=1 FIXTURE_CRON_MISSING_STATUS=$read_status reject
+    [[ -f $shared/storage/framework/down && ! -e $control/deploy.lock && ! -s $FIXTURE_CRON ]]
+    if grep -q '^up$' "$FIXTURE_CALLS"; then exit 1; fi
+done
 reset_fixture
 FIXTURE_CRON_UNKNOWN=1 reject
 [[ -f $shared/storage/framework/down && ! -e $control/deploy.lock ]]
