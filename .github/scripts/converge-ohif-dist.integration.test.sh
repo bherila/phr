@@ -376,8 +376,10 @@ fi
 run_real_preflight() {
     local release="cand-$1" initial_commit="${2-abcdef1234567}" out status=0
     [[ -n "$action" ]] || return 99
+    # Match an SSH login's accessible cwd instead of inheriting the runner's
+    # private checkout, which the throwaway deploy account cannot traverse.
     out=$(su -s /bin/bash "$server_user" -c \
-        "HOME='$server_home' bash '$action' begin phr-laravel '$release' abcdef1234567 300 2 maintenance '$initial_commit' stable-directory public/ohif" 2>&1) || status=$?
+        "cd '$server_home' && HOME='$server_home' bash '$action' begin phr-laravel '$release' abcdef1234567 300 2 maintenance '$initial_commit' stable-directory public/ohif" 2>&1) || status=$?
     if [[ "$status" -ne 0 ]]; then
         printf '%s\n' "$out"
         return "$status"
@@ -386,7 +388,7 @@ run_real_preflight() {
     chown "$server_user:$server_user" "$control/releases/$release/artisan"
     status=0
     out=$(su -s /bin/bash "$server_user" -c \
-        "HOME='$server_home' bash '$action' preflight phr-laravel '$release' ''" 2>&1) || status=$?
+        "cd '$server_home' && HOME='$server_home' bash '$action' preflight phr-laravel '$release' ''" 2>&1) || status=$?
     printf '%s\n' "$out"
     return "$status"
 }
