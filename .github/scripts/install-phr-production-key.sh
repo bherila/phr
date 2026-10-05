@@ -77,29 +77,54 @@ try {
         echo "phr-production-key identity=exact restricted=yes authorized=unchanged\n";
         exit(0);
     }
-    $next = $original.($original !== '' && !str_ends_with($original, "\n") ? "\n" : '').'restrict ssh-ed25519 '.$key." phr-production-policy\n";
+    // A leading newline keeps our key separate even if a concurrent append has no newline.
+    $addition = "\nrestrict ssh-ed25519 ".$key." phr-production-policy\n";
     $backup = $ssh.'/authorized_keys.phr-policy-backup-'.$run.'-'.$attempt;
     $backupHandle = fopen($backup, 'x+b');
     if ($backupHandle === false || !chmod($backup, 0600) || fwrite($backupHandle, $original) !== strlen($original) || !fflush($backupHandle)) { throw new RuntimeException(); }
     fclose($backupHandle);
-    $temporary = tempnam($ssh, '.phr-authorized-keys-');
-    if ($temporary === false || file_put_contents($temporary, $next) !== strlen($next) || !chmod($temporary, 0600)) { throw new RuntimeException(); }
     $assertState();
-    // Refuse a concurrent uncooperative key writer instead of overwriting its edit.
+    // Existing files use O_APPEND; absent files use exclusive creation. Never rename
+    // over authorized_keys: an uncooperative writer's intervening additions survive.
     clearstatcache();
     if ($existed !== (file_exists($authorized) || is_link($authorized))) { throw new RuntimeException(); }
+    $identity = null;
     if ($existed) {
         $regular($authorized);
         if (file_get_contents($authorized) !== $original) { throw new RuntimeException(); }
+        $identity = stat($authorized);
     }
-    if (!rename($temporary, $authorized)) { throw new RuntimeException(); }
-    $temporary = null;
-    $regular($authorized);
-    if (file_get_contents($authorized) !== $next || (fileperms($authorized) & 0777) !== 0600) { throw new RuntimeException(); }
+    if (!$existed) {
+        $created = fopen($authorized, 'x+b');
+        if ($created === false) { throw new RuntimeException(); }
+        $identity = fstat($created);
+        fclose($created);
+    }
+    $authorizedHandle = fopen($authorized, 'ab');
+    if ($authorizedHandle === false) { throw new RuntimeException(); }
+    $openedKeys = fstat($authorizedHandle);
+    $assertKeyIdentity = static function () use ($authorized, $authorizedHandle, $openedKeys, $identity, $regular, $uid): void {
+        $regular($authorized);
+        $current = stat($authorized);
+        $handle = fstat($authorizedHandle);
+        if (($handle['mode'] & 0170000) !== 0100000 || $handle['uid'] !== $uid
+            || $handle['dev'] !== $openedKeys['dev'] || $handle['ino'] !== $openedKeys['ino']
+            || $current['dev'] !== $handle['dev'] || $current['ino'] !== $handle['ino']
+            || ($identity !== null && ($identity['dev'] !== $handle['dev'] || $identity['ino'] !== $handle['ino']))) { throw new RuntimeException(); }
+    };
+    $assertKeyIdentity();
+    if (!chmod($authorized, 0600)) { throw new RuntimeException(); }
+    $assertKeyIdentity();
+    // One short append write; a partial write fails without restoring a stale backup.
+    if (fwrite($authorizedHandle, $addition) !== strlen($addition) || !fflush($authorizedHandle)) { throw new RuntimeException(); }
+    $assertKeyIdentity();
+    $readback = file_get_contents($authorized);
+    if ($readback === false || !str_starts_with($readback, $original)
+        || !str_contains($readback, $addition) || (fileperms($authorized) & 0777) !== 0600) { throw new RuntimeException(); }
+    fclose($authorizedHandle);
     $assertState();
     echo "phr-production-key identity=exact restricted=yes authorized=installed\n";
 } catch (Throwable) {
-    if (isset($temporary) && is_string($temporary)) { @unlink($temporary); }
     echo "PHR production key installation refused; details redacted.\n";
     exit(1);
 }

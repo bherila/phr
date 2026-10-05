@@ -78,6 +78,74 @@ install_key
 [[ $(sha256sum "$task_home/.ssh/authorized_keys") == "$installed" ]]
 grep -Fxq 'phr-production-key identity=exact restricted=yes authorized=unchanged' "$scratch/output"
 
+# Interpose PHP filesystem calls only in a private fixture copy. This injects an
+# actual foreign append at the last mutation boundary; the old rename loses it.
+python3 - "$here/install-phr-production-key.sh" "$scratch/racing-installer.sh" <<'PYFIXTURE'
+from pathlib import Path
+import sys
+source = Path(sys.argv[1]).read_text()
+assert source.count('<?php\n') == 1
+fixture = r'''
+namespace PhrKeyFixture;
+use \RuntimeException;
+use \Throwable;
+function injectKeyRace(string $path): void {
+    $mode = getenv('FIXTURE_KEY_RACE');
+    if ($mode === 'append') { \file_put_contents($path, "\nforeign-concurrent-key", FILE_APPEND); }
+    elseif ($mode === 'replace') {
+        \rename($path, $path.'.prior-inode');
+        \file_put_contents($path, "foreign-replacement-key\n");
+    }
+}
+function fwrite($handle, $bytes) {
+    $path = \stream_get_meta_data($handle)['uri'];
+    if (str_ends_with($path, '/authorized_keys')) { injectKeyRace($path); }
+    return \fwrite($handle, $bytes);
+}
+function rename($from, $to) {
+    if (str_ends_with($to, '/authorized_keys')) { injectKeyRace($to); }
+    return \rename($from, $to);
+}
+function fopen($path, $mode) {
+    if (getenv('FIXTURE_KEY_RACE') === 'create' && str_ends_with($path, '/authorized_keys') && $mode === 'x+b') {
+        \file_put_contents($path, "foreign-created-key\n");
+    }
+    return \fopen($path, $mode);
+}
+'''
+Path(sys.argv[2]).write_text(source.replace('<?php\n', '<?php\n'+fixture, 1))
+PYFIXTURE
+race_install() {
+    env HOME="$task_home" FIXTURE_KEY_RACE="$1" bash "$scratch/racing-installer.sh" \
+        "$php" "$release" "$commit" "$public_key" 123 1 > "$scratch/output" 2>&1
+}
+reset_fixture
+race_install append
+# No final newline in the foreign append: our leading separator must remain valid.
+grep -Fxq "$foreign" "$task_home/.ssh/authorized_keys"
+grep -Fxq 'foreign-concurrent-key' "$task_home/.ssh/authorized_keys"
+grep -Eq '^restrict ssh-ed25519 [A-Za-z0-9+/]{68} phr-production-policy$' "$task_home/.ssh/authorized_keys"
+cmp <(printf '%s' "$foreign") "$task_home/.ssh/authorized_keys.phr-policy-backup-123-1"
+reset_fixture
+rm "$task_home/.ssh/authorized_keys"
+race_install append
+grep -Fxq 'foreign-concurrent-key' "$task_home/.ssh/authorized_keys"
+grep -Eq '^restrict ssh-ed25519 [A-Za-z0-9+/]{68} phr-production-policy$' "$task_home/.ssh/authorized_keys"
+reset_fixture
+if race_install replace; then echo 'Replaced authorized_keys inode accepted.' >&2; exit 1; fi
+[[ $(cat "$task_home/.ssh/authorized_keys") == foreign-replacement-key ]]
+grep -Fxq 'PHR production key installation refused; details redacted.' "$scratch/output"
+reset_fixture
+rm "$task_home/.ssh/authorized_keys"
+if race_install create; then echo 'Concurrent authorized_keys creation accepted.' >&2; exit 1; fi
+[[ $(cat "$task_home/.ssh/authorized_keys") == foreign-created-key ]]
+grep -Fxq 'PHR production key installation refused; details redacted.' "$scratch/output"
+reset_fixture
+rm "$task_home/.ssh/authorized_keys"
+install_key
+[[ $(stat -c '%a' "$task_home/.ssh/authorized_keys") == 600 ]]
+[[ ! -s "$task_home/.ssh/authorized_keys.phr-policy-backup-123-1" ]]
+
 for key in 'ssh-rsa AAAA wrong-type' 'ssh-ed25519 AAAA short' "$public_key"$'\ncommand=bad' \
     "${public_key% *} invalid comment" "${public_key% *} ;touch-bad"; do
     reset_fixture
