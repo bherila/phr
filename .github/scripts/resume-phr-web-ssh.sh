@@ -5,7 +5,8 @@
 set -euo pipefail
 [[ $# == 2 && $1 == phr-local-probe ]] || exit 2
 command_text=$2
-fetch_pattern='^bash -s -- phr\.bherila\.net /(_deploy-php-check-[a-f0-9]{32}\.php) ([1-9]|1[0-9]|20) $'
+fetch_pattern='^bash -s -- phr\.bherila\.net /(_deploy-php-check-[a-f0-9]{32}\.php) ([1-9]|1[0-9]|20) '
+fetch_pattern+="'' php-runtime $"
 if [[ $command_text =~ $fetch_pattern ]]; then
     name=${BASH_REMATCH[1]}
     fetch_limit=${BASH_REMATCH[2]}
@@ -25,7 +26,7 @@ fi
 path="$HOME/phr-laravel/public/$name"
 if [[ -n $fetch_limit ]]; then
     [[ -f $path && ! -L $path ]] || exit 1
-    exec bash "$RESUME_SCRIPTS/shared/origin-fetch.sh" phr.bherila.net "/$name" "$fetch_limit" </dev/null
+    exec bash "$RESUME_SCRIPTS/shared/origin-fetch.sh" phr.bherila.net "/$name" "$fetch_limit" '' php-runtime </dev/null
 elif [[ $command_text == "umask 022 && cat > \"\$HOME/phr-laravel/public/$name\"" ]]; then
     [[ ! -e $path && ! -L $path ]] || exit 1
     (umask 022; set -o noclobber; cat >"$path")

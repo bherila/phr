@@ -35,7 +35,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: bherila/shared-cpanel-deployment
-          ref: 76e914604ae1e7d07d045f5412371b6634178e47 # v2.3.2
+          ref: 988ddcdd65f3f16a7133cfd44c8c277524d62e53 # reviewed deployment guards and recovery
           path: .shared-cpanel-deployment
           persist-credentials: false
       - name: Install PHP for actual synthetic filesystem and framework fixtures
@@ -70,7 +70,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: bherila/shared-cpanel-deployment
-          ref: 76e914604ae1e7d07d045f5412371b6634178e47 # v2.3.2
+          ref: 988ddcdd65f3f16a7133cfd44c8c277524d62e53 # reviewed deployment guards and recovery
           path: .shared-cpanel-deployment
           persist-credentials: false
       - name: Configure the verified production SSH identity
