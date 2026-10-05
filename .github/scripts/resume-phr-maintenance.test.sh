@@ -22,7 +22,7 @@ cat >"$scratch/bin/gh" <<'GH'
 set -euo pipefail
 [[ $1 == api ]] || exit 2
 if [[ $2 == *'/jobs?'* ]]; then
-    printf '{"total_count":1,"jobs":[{"name":"Deploy to Production","run_id":123456,"status":"completed","conclusion":"failure","started_at":"2026-10-04T22:19:50Z","completed_at":"2026-10-04T22:20:43Z"}]}'
+    printf '{"total_count":1,"jobs":[{"name":"Deploy to Production","run_id":123456,"status":"completed","conclusion":"%s","started_at":"2026-10-04T22:19:50Z","completed_at":"2026-10-04T22:20:43Z"}]}' "${FIXTURE_DEPLOY_CONCLUSION:-failure}"
 else
     printf '{"id":123456,"run_attempt":1,"status":"%s","conclusion":"%s","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","head_branch":"main","path":".github/workflows/ci.yml","event":"push","repository":{"full_name":"bherila/phr"}}' "${FIXTURE_RUN_STATUS:-completed}" "${FIXTURE_RUN_CONCLUSION:-failure}"
 fi
@@ -59,7 +59,11 @@ CURL
 cat >"$scratch/bin/crontab" <<'CRON'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ $1 == -l ]]; then cat "$FIXTURE_CRON"; exit; fi
+if [[ $1 == -l ]]; then
+    if [[ ${FIXTURE_CRON_MISSING:-} == 1 && ! -s $FIXTURE_CRON ]]; then echo 'no crontab for fixture-user' >&2; exit 1; fi
+    if [[ ${FIXTURE_CRON_UNKNOWN:-} == 1 ]]; then printf 'permission denied\nPRIVATE_CRON_READ_SECRET' >&2; exit 1; fi
+    cat "$FIXTURE_CRON"; exit
+fi
 cp -- "$1" "$FIXTURE_CRON"
 printf 'cron-write\n' >>"$FIXTURE_CALLS"
 if [[ ${FIXTURE_CRON_FAIL:-} == 1 ]] && grep -q '# JOB:phr-laravel-scheduler$' "$FIXTURE_CRON"; then
@@ -216,9 +220,22 @@ assert_private
 head -n 2 "$FIXTURE_CRON" | cmp -s - "$scratch/foreign-cron"
 grep -Fq 'result=serving' "$scratch/output"
 reset_fixture
+: >"$FIXTURE_CRON"
+FIXTURE_CRON_MISSING=1 run_resume
+assert_private
+[[ ! -f $shared/storage/framework/down && ! -e $control/deploy.lock ]]
+[[ $(wc -l <"$FIXTURE_CRON") == 2 ]]
+reset_fixture
+FIXTURE_CRON_UNKNOWN=1 reject
+[[ -f $shared/storage/framework/down && ! -e $control/deploy.lock ]]
+if grep -q '^up$' "$FIXTURE_CALLS"; then exit 1; fi
+cmp -s "$FIXTURE_CRON" "$scratch/foreign-cron"
+reset_fixture
 FIXTURE_RUN_STATUS=in_progress reject
 [[ ! -s $FIXTURE_CALLS ]]
 FIXTURE_RUN_CONCLUSION=cancelled reject
+[[ ! -s $FIXTURE_CALLS ]]
+FIXTURE_DEPLOY_CONCLUSION=success reject
 [[ ! -s $FIXTURE_CALLS ]]
 touch -d @1791156000 "$shared/storage/framework/down"
 reject

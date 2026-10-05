@@ -19,8 +19,13 @@ class MaintenanceResumeWorkflowTest extends TestCase
         $this->assertStringNotContainsString('secrets.SSH_PRIVATE_KEY', $workflow);
         $this->assertSame(2, substr_count($workflow, '395b0d8b10db1181e50f4eec27d7bce27b1522d6'));
         $this->assertStringContainsString('actions: read', $workflow);
+        foreach (['diagnose-phr-maintenance*.sh', 'inspect-phr-maintenance.sh', 'verify-phr-cron.sh'] as $consumed) {
+            $this->assertStringContainsString('.github/scripts/'.$consumed, $workflow);
+        }
         $diagnostic = file_get_contents(dirname(__DIR__, 2).'/.github/workflows/maintenance-diagnostic.yml');
         $this->assertStringNotContainsString('resume-phr-maintenance.sh', $diagnostic);
+        $this->assertStringContainsString('secrets.PHR_PRODUCTION_SSH_KEY', $diagnostic);
+        $this->assertStringNotContainsString('secrets.SSH_PRIVATE_KEY', $diagnostic);
     }
 
     public function test_real_laravel_up_and_down_use_private_bootstrap_caches(): void

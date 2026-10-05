@@ -278,6 +278,8 @@ writer queue. Review and merge it before dispatch; verify the new credential fir
 Supply the exact selected release (`<commit-prefix>-<owning-CI-run>-<attempt>`) and
 full source commit. The owning production CI attempt and deployment job must have
 completed; cancelled or active attempts are refused.
+The owning deployment job must have failed; a successful deployment cannot prove
+that it owns a later maintenance marker.
 The existing maintenance marker must date to that original deployment job (with
 at most one minute of clock skew); its captured timestamp and content hash must
 remain unchanged until `up`. A later operator-created marker is refused.

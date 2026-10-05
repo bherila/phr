@@ -32,7 +32,7 @@ assert run['repository']['full_name'] == 'bherila/phr'
 assert jobs['total_count'] == len(jobs['jobs']) <= 100
 deploy = [job for job in jobs['jobs'] if job['name'] == 'Deploy to Production']
 assert len(deploy) == 1 and deploy[0]['run_id'] == int(sys.argv[3])
-assert deploy[0]['status'] == 'completed' and deploy[0]['conclusion'] in ('success', 'failure')
+assert deploy[0]['status'] == 'completed' and deploy[0]['conclusion'] == 'failure'
 def epoch(value):
     return int(datetime.datetime.strptime(value, '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc).timestamp())
 started, completed = epoch(deploy[0]['started_at']), epoch(deploy[0]['completed_at'])

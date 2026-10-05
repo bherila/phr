@@ -70,7 +70,7 @@ jobs:
           SSH_ALIAS: phr-diagnostic
           SSH_HOST_NAME: ${{ secrets.SSH_HOST }}
           SSH_USER_NAME: ${{ secrets.SSH_USERNAME }}
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_PRIVATE_KEY: ${{ secrets.PHR_PRODUCTION_SSH_KEY }}
           SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
         run: bash .shared-cpanel-deployment/scripts/configure-ssh.sh
       - name: Inspect the exact selected PHR release without resuming it

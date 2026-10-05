@@ -4,6 +4,9 @@ on:
   pull_request:
     paths:
       - .github/scripts/resume-phr-*
+      - .github/scripts/diagnose-phr-maintenance*.sh
+      - .github/scripts/inspect-phr-maintenance.sh
+      - .github/scripts/verify-phr-cron.sh
       - .github/workflows/maintenance-resume.yml
   workflow_dispatch:
     inputs:
