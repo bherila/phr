@@ -480,7 +480,7 @@ jobs:
 
       - name: Deploy with the shared cPanel action
         if: ${{ steps.app-plan.outputs.proceed == 'true' }}
-        uses: bherila/shared-cpanel-deployment@f1bd4c18b63365f1463e068c52c66e46c17213dd # canonical runtime audit and final-review fixes (#35, #40)
+        uses: bherila/shared-cpanel-deployment@395b0d8b10db1181e50f4eec27d7bce27b1522d6 # reviewed runtime audit and bounded finalizer hooks
         env:
           OHIF_SSH_TARGET: phr-ohif
           OHIF_BUNDLE_DIR: ohif-desired
