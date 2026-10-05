@@ -35,7 +35,37 @@ export function inventoryArtifacts(fetchPage) {
   throw new Error('OHIF artifact inventory exceeds the page bound')
 }
 
-export async function chooseAppPlan({ candidate, live, main, runs, ancestor, validated }) {
+export function trustedMainRun(run, repo) {
+  return run.head_branch === 'main' && ['push', 'workflow_dispatch'].includes(run.event)
+    && run.repository?.full_name === repo && run.head_repository?.full_name === repo
+}
+
+export function validatedAttempts(fetchPage) {
+  const jobs = []
+  let total
+  for (let page = 1; page <= 5; page++) {
+    const response = fetchPage(page)
+    if (!Array.isArray(response.jobs) || !Number.isSafeInteger(response.total_count) || response.total_count < 0) throw new Error('Validation job inventory invalid')
+    total ??= response.total_count
+    if (total > 500 || total !== response.total_count) throw new Error('Validation job inventory exceeds its bound or changed')
+    jobs.push(...response.jobs)
+    if (new Set(jobs.map(job => String(job.id))).size !== jobs.length) throw new Error('Validation job inventory changed')
+    if (jobs.length === total) {
+      const attempts = new Map()
+      for (const job of jobs.filter(job => job.name === 'Run Tests')) {
+        if (!id(job.run_attempt)) throw new Error('Validation attempt identity invalid')
+        const gates = attempts.get(String(job.run_attempt)) ?? []
+        gates.push(job)
+        attempts.set(String(job.run_attempt), gates)
+      }
+      return [...attempts.values()].some(gates => gates.length === 1 && gates[0].conclusion === 'success')
+    }
+    if (response.jobs.length !== 100 || jobs.length > total) throw new Error('Validation job inventory incomplete')
+  }
+  throw new Error('Validation job inventory exceeds its page bound')
+}
+
+export async function chooseAppPlan({ candidate, live, main, runs, ancestor, validated, repo }) {
   if (!sha(candidate.head_sha) || !sha(main) || !id(candidate.id)) throw new Error('Application request identity invalid')
   if (!await ancestor(candidate.head_sha, main)) throw new Error('Application source is outside current main history')
   if (live.commit) {
@@ -49,7 +79,7 @@ export async function chooseAppPlan({ candidate, live, main, runs, ancestor, val
   let desired = candidate
   const seen = new Set([candidate.head_sha])
   for (const run of runs) {
-    if (run.head_branch !== 'main' || !sha(run.head_sha) || !id(run.id) || seen.has(run.head_sha)) continue
+    if (!trustedMainRun(run, repo) || !sha(run.head_sha) || !id(run.id) || seen.has(run.head_sha)) continue
     if (!await ancestor(candidate.head_sha, run.head_sha) || !await ancestor(run.head_sha, main) || !await validated(run)) continue
     seen.add(run.head_sha)
     if (await ancestor(desired.head_sha, run.head_sha)) desired = run
@@ -89,16 +119,27 @@ async function cli(mode) {
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*(@[A-Za-z0-9][A-Za-z0-9.-]*)?$/.test(target ?? '')) throw new Error('Deployment SSH target invalid')
     const script = readFileSync(new URL('./read-phr-live-identity.sh', import.meta.url), 'utf8')
     const live = JSON.parse(run('timeout', ['--kill-after=5s', '60s', process.env.PHR_DEPLOY_SSH_BIN ?? 'ssh', target, 'bash -s'], { input: script, timeout: 65_000 }))
+    const known = new Set()
+    const ensureCommit = commit => {
+      if (!sha(commit)) throw new Error('Commit identity invalid')
+      if (known.has(commit)) return
+      try { execFileSync('git', ['cat-file', '-e', `${commit}^{commit}`], { stdio: 'ignore', timeout: 10_000 }) }
+      catch {
+        if (Date.now() >= deadline) throw new Error('Commit inventory exceeded its bound')
+        run('git', ['fetch', '--no-tags', 'origin', commit], { timeout: Math.min(30_000, Math.max(1, deadline - Date.now())) })
+        run('git', ['cat-file', '-e', `${commit}^{commit}`])
+      }
+      known.add(commit)
+    }
     const ancestor = async (a, b) => {
+      ensureCommit(a)
+      ensureCommit(b)
       try { execFileSync('git', ['merge-base', '--is-ancestor', a, b], { stdio: 'ignore', timeout: 10_000 }); return true }
       catch (error) { if (error.status === 1) return false; throw new Error('Commit ancestry could not be proven', { cause: error }) }
     }
-    result = await chooseAppPlan({ candidate, live, main: api('commits/main').sha, runs: api('actions/workflows/ci.yml/runs?branch=main&per_page=100').workflow_runs ?? [], ancestor,
+    result = await chooseAppPlan({ candidate, live, repo, main: api('commits/main').sha, runs: api('actions/workflows/ci.yml/runs?branch=main&per_page=100').workflow_runs ?? [], ancestor,
       validated: async request => {
-        const jobs = api(`actions/runs/${request.id}/jobs?filter=latest&per_page=100`)
-        if (jobs.total_count > 100) throw new Error('Validation job inventory exceeded its bound')
-        const gates = jobs.jobs.filter(job => job.name === 'Run Tests')
-        return gates.length === 1 && gates[0].conclusion === 'success'
+        return validatedAttempts(page => api(`actions/runs/${request.id}/jobs?filter=all&per_page=100&page=${page}`))
       },
     })
   } else if (mode === 'ohif') result = resolve() ?? { run_id: '', artifact_id: '', artifact_digest: '', source_commit: '' }

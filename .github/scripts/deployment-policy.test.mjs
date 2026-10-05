@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { chooseAppPlan, chooseArtifact, inventoryArtifacts } from './deployment-policy.mjs'
+import { chooseAppPlan, chooseArtifact, inventoryArtifacts, validatedAttempts } from './deployment-policy.mjs'
 
 const a = 'a'.repeat(40), b = 'b'.repeat(40), c = 'c'.repeat(40), fork = 'd'.repeat(40)
 const chain = [a, b, c]
 const ancestor = async (left, right) => left === right || (chain.includes(left) && chain.includes(right) && chain.indexOf(left) <= chain.indexOf(right))
-const request = (id, head_sha, pass = true) => ({ id, head_sha, head_branch: 'main', pass })
-const plan = overrides => chooseAppPlan({ candidate: request(10, b), live: { state: 'selected', commit: a, release: 'live-9' }, main: c, runs: [], ancestor, validated: async r => r.pass, ...overrides })
+const request = (id, head_sha, pass = true) => ({ id, head_sha, head_branch: 'main', event: 'push', repository: {full_name:'synthetic/phr'}, head_repository: {full_name:'synthetic/phr'}, pass })
+const plan = overrides => chooseAppPlan({ repo: 'synthetic/phr', candidate: request(10, b), live: { state: 'selected', commit: a, release: 'live-9' }, main: c, runs: [], ancestor, validated: async r => r.pass, ...overrides })
 
 test('newer validated main supersedes a queued app request with traceable identity', async () => {
   assert.deepEqual(await plan({ runs: [request(11, c)] }), { proceed: false, reason: 'validated-newer', source_commit: b, superseded_by_commit: c, superseded_by_run: '11' })
@@ -63,4 +63,18 @@ test('truncated, oversized and changing artifact inventories fail closed', () =>
   assert.throws(() => inventoryArtifacts(() => ({total_count:501,artifacts:[]})), /bound/)
   assert.throws(() => inventoryArtifacts(() => ({total_count:101,artifacts:[artifact(10,1)]})), /incomplete/)
   assert.throws(() => inventoryArtifacts(page => ({total_count:101,artifacts:page === 1 ? Array.from({length:100},(_,i)=>artifact(10,i+1)) : [artifact(10,1)]})), /changed/)
+})
+
+
+test('fork and pull-request main runs never enter ancestry or validation probes', async () => {
+  const untrusted = [ {...request(14, fork), event:'pull_request'}, {...request(15, fork), head_repository:{full_name:'fork/phr'}} ]
+  assert.equal((await plan({runs:untrusted, ancestor:async (a,b) => {assert.notEqual(a,fork);assert.notEqual(b,fork);return ancestor(a,b)}, validated:async () => {throw new Error('untrusted validation')}})).proceed,true)
+})
+test('validation preserves a successful prior attempt of the same run', () => {
+  assert.equal(validatedAttempts(() => ({total_count:2,jobs:[{id:1,name:'Run Tests',run_attempt:1,conclusion:'success'},{id:2,name:'Run Tests',run_attempt:2,conclusion:'failure'}]})),true)
+  assert.equal(validatedAttempts(() => ({total_count:2,jobs:[{id:1,name:'Run Tests',run_attempt:1,conclusion:'success'},{id:2,name:'Run Tests',run_attempt:1,conclusion:'failure'}]})),false)
+  const jobs = Array.from({length:100},(_,i)=>({id:i+1,name:'other',run_attempt:2}))
+  assert.equal(validatedAttempts(page => ({total_count:101,jobs:page===1?jobs:[{id:101,name:'Run Tests',run_attempt:1,conclusion:'success'}]})),true)
+  assert.throws(() => validatedAttempts(() => ({total_count:501,jobs:[]})), /bound/)
+  assert.throws(() => validatedAttempts(() => ({total_count:101,jobs:[]})), /incomplete/)
 })
