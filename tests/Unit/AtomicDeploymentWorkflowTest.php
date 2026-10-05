@@ -62,6 +62,27 @@ class AtomicDeploymentWorkflowTest extends TestCase
         $this->assertStringNotContainsString('Create or verify persistent agent mutation digest key', $workflow);
     }
 
+    public function test_production_writers_gate_sources_and_publish_exact_artifact_identities(): void
+    {
+        $ci = $this->workflow('ci.yml');
+        $ohif = $this->workflow('ohif-dist.yml');
+        $this->assertStringContainsString('fetch-depth: 0', $ci);
+        $this->assertStringContainsString('node .github/scripts/deployment-policy.mjs app', $ci);
+        $this->assertStringContainsString("if: \${{ steps.app-plan.outputs.proceed == 'true' }}", $ci);
+        foreach ([$ci, $ohif] as $workflow) {
+            $this->assertStringContainsString('node .github/scripts/deployment-policy.mjs ohif', $workflow);
+            $this->assertSame(1, preg_match('/^  deploy:\R.*?(?=^  [a-zA-Z0-9_-]+:|\z)/ms', $workflow, $deployment));
+            $this->assertStringContainsString('secrets.PHR_PRODUCTION_SSH_KEY', $deployment[0]);
+            $this->assertStringNotContainsString('secrets.SSH_PRIVATE_KEY', $deployment[0]);
+            $this->assertStringContainsString('OHIF_ARTIFACT_ID: ${{ steps.ohif.outputs.artifact_id }}', $workflow);
+            $this->assertStringContainsString('OHIF_ARTIFACT_DIGEST: ${{ steps.ohif.outputs.artifact_digest }}', $workflow);
+            $this->assertStringNotContainsString('run: bash .github/scripts/converge-ohif-dist.sh', $workflow);
+        }
+        $this->assertStringContainsString('OHIF_LOCK_OWNER="$DEPLOY_RELEASE_ID"', file_get_contents(base_path('.github/scripts/verify-phr-deployment.sh')));
+        $this->assertStringContainsString('workflow_run:', $this->workflow('deployment-audit.yml'));
+        $this->assertStringContainsString('retention-days: 90', $this->workflow('deployment-audit.yml'));
+    }
+
     public function test_temporary_incident_dispatch_surface_is_removed(): void
     {
         $workflow = $this->workflow('ci.yml');

@@ -9,16 +9,9 @@ name: OHIF Dist
 # don't clobber the OHIF dist that lives at ~/phr-laravel/public/ohif/ on the
 # server.
 #
-# Issue #126: this is no longer the only thing that writes there. Both this
-# job and CI's deploy job now publish through .github/scripts/converge-ohif-dist.sh
-# against a shared digest record, so publishing is idempotent and either writer
-# can repair the other. That is what makes an evicted deploy here recoverable:
-# GitHub keeps one pending job per concurrency group, so an arriving
-# application deploy can evict this one, and before the shared convergence step
-# the bundle it was carrying was then lost permanently.
-#
-# Deploys to ~/phr-laravel/public/ohif/ using this repo's key-based deploy
-# credentials (see ci.yml's `deploy` job for the same pattern).
+# Both writers publish an exact source/artifact identity through the same remote
+# mutex. A delayed run resolves current desired OHIF instead of replaying its
+# old bundle. Completed/canceled requests are recorded by deployment-audit.yml.
 
 on:
   workflow_dispatch:
@@ -110,6 +103,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs: build
+    if: ${{ github.ref == 'refs/heads/main' }}
     environment: prod
     concurrency:
       # The Laravel deploy moves/selects the same persistent public/ohif tree.
@@ -120,19 +114,30 @@ jobs:
       queue: max
     permissions:
       contents: read
+      actions: read
     steps:
       - name: Checkout phr (for the convergence script)
         uses: actions/checkout@v7
         with:
           sparse-checkout: |
             .github/scripts
+            .github/ohif
           sparse-checkout-cone-mode: false
 
-      - name: Download build artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: ohif-dist
-          path: ohif-dist
+      - name: Resolve desired OHIF publication
+        id: ohif
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node .github/scripts/deployment-policy.mjs ohif
+
+      - name: Download exact desired artifact
+        if: ${{ steps.ohif.outputs.run_id != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OHIF_ARTIFACT_ID: ${{ steps.ohif.outputs.artifact_id }}
+          OHIF_ARTIFACT_DIGEST: ${{ steps.ohif.outputs.artifact_digest }}
+          OHIF_BUNDLE_DIR: ohif-dist
+        run: bash .github/scripts/download-ohif-bundle.sh
 
       # Same scoped alias pattern as ci.yml's deploy job and as the shared
       # cPanel action: a dedicated key and known_hosts file, appended rather
@@ -143,22 +148,17 @@ jobs:
           SSH_ALIAS: phr-ohif
           SSH_HOST_NAME: ${{ secrets.SSH_HOST }}
           SSH_USER_NAME: ${{ secrets.SSH_USERNAME }}
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_PRIVATE_KEY: ${{ secrets.PHR_PRODUCTION_SSH_KEY }}
           SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
         run: bash .github/scripts/configure-ohif-ssh.sh
 
-      # Publishes only when the live bundle differs, and records what it
-      # published so CI's deploy job can tell whether it still has work to do.
-      # --delete stays scoped to public/ohif; see the script's header.
-      - name: Converge the deployed OHIF bundle
+      - name: Publish and prove desired OHIF identity and bytes
+        if: ${{ steps.ohif.outputs.run_id != '' }}
         env:
           OHIF_SSH_TARGET: phr-ohif
-          OHIF_DEPLOY_DIR: phr-laravel
           OHIF_BUNDLE_DIR: ohif-dist
-        run: bash .github/scripts/converge-ohif-dist.sh
-
-      - name: Summarize
-        env:
-          OHIF_TAG: ${{ github.event.inputs.tag || 'v3.12.0' }}
-        run: |
-          echo "Deployed OHIF ${OHIF_TAG} to /ohif/ on ${{ secrets.SSH_HOST }}." >> "$GITHUB_STEP_SUMMARY"
+          OHIF_RUN_ID: ${{ steps.ohif.outputs.run_id }}
+          OHIF_ARTIFACT_ID: ${{ steps.ohif.outputs.artifact_id }}
+          OHIF_ARTIFACT_DIGEST: ${{ steps.ohif.outputs.artifact_digest }}
+          OHIF_SOURCE_COMMIT: ${{ steps.ohif.outputs.source_commit }}
+        run: bash .github/scripts/publish-ohif-dist.sh

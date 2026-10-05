@@ -253,22 +253,21 @@ action's `recovery-release-id` finalizes interrupted transactions; it does not r
 an already finalized release intentionally left in maintenance. The diagnostic
 does not resume that release or dispatch a new deployment.
 
-### Retire credentials usable by legacy production workflow reruns
+### Production credentials and historical workflow reruns
 
-The temporary, manual **PHR Production Key Bootstrap** workflow authorizes a
-dedicated ed25519 public key using the existing SSH credential, then proves
-`PHR_PRODUCTION_SSH_KEY` with the exact read-only diagnostic. It only accepts the
-reviewed incident release and commit. Authorization preserves existing keys and
-options, saves a private backup, adds `restrict`, and never resumes service or
-changes application files, cron or migrations. The new private key must already
-be stored in the new secret; dispatch inputs contain the public key only.
+Production writers and diagnostics use only `PHR_PRODUCTION_SSH_KEY`, backed by a
+dedicated restricted ed25519 key. The reviewed credential cutover preserved foreign
+server keys and verified a fresh connection using the new key alone. The legacy
+`SSH_PRIVATE_KEY` secret was removed from all repository-visible scopes after prior
+production-capable runs finished. A rerun of the original pre-policy deployment
+then failed at SSH configuration before publication or deployment. The completed
+temporary key-bootstrap workflow has been retired.
 
-After this proof passes, update every ordinary production writer and diagnostic
-to use only the new secret. Stop all production-capable runs using old workflow
-definitions before removing `SSH_PRIVATE_KEY` from every scope visible to this
-repository. Removing that old GitHub secret prevents legacy reruns from obtaining
-their deployment credential. Do not revoke its server key: other applications may
-share it. Retire the temporary bootstrap workflow after the cutover is complete.
+See the [credential proof](https://github.com/bherila/phr/actions/runs/37247309536)
+and [historical rerun denial](https://github.com/bherila/phr/actions/runs/37239370303/attempts/2).
+Do not restore the legacy secret name: old workflow definitions would regain their
+production credential. Its server authorization remains intact because other
+applications may share that key.
 
 ## Resume a finalized release left in maintenance
 
@@ -323,3 +322,6 @@ use synthetic data.
 - [Agent API security model](docs/agent-api-security.md)
 - [Patient authorization capability matrix and call-site inventory](docs/patient-authorization-inventory.md)
 - [Native backup format](docs/phr-native-v1.md)
+
+Production ordering, supersession records, OHIF publication proof, and intentional
+rollback procedures are described in [.github/deployment-policy.md](.github/deployment-policy.md).

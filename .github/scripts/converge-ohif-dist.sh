@@ -146,7 +146,7 @@ bundle_digest() {
     local root="$1"
     (
         cd "$root"
-        LC_ALL=C find . -type f ! -name "$digest_name" -print0 \
+        LC_ALL=C find . -type f ! -path "./$digest_name" -print0 \
             | LC_ALL=C sort -z \
             | xargs -0 -r sha256sum \
             | sha256sum \
@@ -578,7 +578,7 @@ REMOTE
 # before this transfer used --checksum, is not trusted by the gate above. (The
 # real-transport suite pins both down with a fixture whose two versions share a
 # size and a timestamp, and marks the resulting failure `STALE-CONTENT:`.)
-"$rsync_bin" -a --checksum --delete "--exclude=$digest_name" \
+"$rsync_bin" -a --checksum --delete "--exclude=/$digest_name" \
     "$OHIF_BUNDLE_DIR/" "$OHIF_SSH_TARGET:$destination/"
 
 {

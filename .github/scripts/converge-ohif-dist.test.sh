@@ -56,7 +56,7 @@ exclude=''
 args=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --exclude=*) exclude="${1#--exclude=}"; shift ;;
+        --exclude=*) exclude="${1#--exclude=}"; exclude="${exclude#/}"; shift ;;
         -a|--checksum|--delete) shift ;;
         *) args+=("$1"); shift ;;
     esac
@@ -170,7 +170,7 @@ tag_at() {
 
 # The digest the script computes for a bundle, for planting records by hand.
 digest_of() {
-    (cd "$1" && LC_ALL=C find . -type f ! -name .ohif-digest -print0 | LC_ALL=C sort -z \
+    (cd "$1" && LC_ALL=C find . -type f ! -path ./.ohif-digest -print0 | LC_ALL=C sort -z \
         | xargs -0 -r sha256sum | sha256sum | cut -d' ' -f1)
 }
 
