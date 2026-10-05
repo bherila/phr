@@ -10,6 +10,13 @@ export RESUME_SSH_TARGET=fixture-host RESUME_EXPECTED_RELEASE=aaaaaaaaaaaa-12345
 RESUME_PHP_BINARY=$(command -v php)
 export RESUME_PHP_BINARY FIXTURE_HOME="$scratch/home" FIXTURE_CRON="$scratch/cron" FIXTURE_CALLS="$scratch/calls" FIXTURE_TIMEOUT_PID="$scratch/timeout-pid"
 mkdir "$scratch/bin"
+php /dev/stdin "$scratch" <<'PHP'
+<?php
+$key = openssl_pkey_new(['private_key_bits'=>2048, 'private_key_type'=>OPENSSL_KEYTYPE_RSA]);
+openssl_pkey_export($key, $pem);
+file_put_contents($argv[1].'/private.key', $pem);
+file_put_contents($argv[1].'/public.key', openssl_pkey_get_details($key)['key']);
+PHP
 cat >"$scratch/bin/gh" <<'GH'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -72,12 +79,14 @@ reset_fixture() {
     control="$FIXTURE_HOME/.deployments/phr-laravel"
     shared="$control/shared"
     stable="$FIXTURE_HOME/phr-laravel"
-    mkdir -p "$control"/{state,releases,recovery} "$shared/storage"/{framework/views,framework/sessions,framework/cache/data,logs,app/private} \
+    mkdir -p "$control"/{state,releases,recovery} "$shared/storage"/{framework/views,framework/sessions,framework/cache/data,logs,app/private/oauth} \
         "$shared/public/ohif" "$stable"/{vendor,bootstrap/cache,resources/views,public}
     ln -s "$shared/storage" "$stable/storage"
     ln -s "$shared/public/ohif" "$stable/public/ohif"
     touch "$shared/storage/app/database.sqlite" "$shared/storage/framework/down"
     touch -d @1791152420 "$shared/storage/framework/down"
+    cp "$scratch/private.key" "$shared/storage/app/private/oauth/oauth-private.key"
+    cp "$scratch/public.key" "$shared/storage/app/private/oauth/oauth-public.key"
     printf 'release=%s\ncommit=%s\n' "$RESUME_EXPECTED_RELEASE" "$RESUME_EXPECTED_COMMIT" >"$stable/.deploy-release"
     printf 'PRIVATE_SAVED_RECOVERY_CRON\n' >"$control/recovery/$RESUME_EXPECTED_RELEASE.cron"
     # shellcheck disable=SC2016 # Cron expands the literal home on the host.
@@ -97,6 +106,7 @@ class AliasLoader {
     protected function ensureFacadeExists($alias) { return ''; }
 }}
 namespace Illuminate\Contracts\Console { interface Kernel {} }
+namespace Illuminate\Encryption { class Encrypter { public static function supported($key,$cipher) { return strlen($key) === 32 && $cipher === 'AES-256-CBC'; } } }
 PHP
     cat >"$stable/bootstrap/app.php" <<'PHP'
 <?php
@@ -127,12 +137,19 @@ class Fixture implements ArrayAccess {
     public function getConfig() { return ['driver'=>'sqlite','database'=>'storage/app/database.sqlite']; }
     public function getName() { return 'sqlite'; }
     public function isDownForMaintenance() { return file_exists(getcwd().'/storage/framework/down'); }
-    public function get($key, $default) { return $default; }
+    public function get($key, $default=null) {
+        return match ($key) { 'app.key'=>'base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=', 'app.cipher'=>'AES-256-CBC', default=>$default };
+    }
     public function offsetGet($key): mixed { return $this; }
     public function offsetSet($key,$value): void {}
     public function offsetExists($key): bool { return true; }
     public function offsetUnset($key): void {}
     public function call($mode,$args) {
+        if ($mode === 'phr:agent-api:verify-oauth-keys') {
+            $private = openssl_pkey_get_private(file_get_contents(getcwd().'/storage/app/private/oauth/oauth-private.key'));
+            $public = openssl_pkey_get_public(file_get_contents(getcwd().'/storage/app/private/oauth/oauth-public.key'));
+            return $private && $public && openssl_pkey_get_details($private)['key'] === openssl_pkey_get_details($public)['key'] ? 0 : 1;
+        }
         file_put_contents(getenv('FIXTURE_CALLS'), $mode."\n", FILE_APPEND);
         if ($mode === 'up') {
             unlink(getcwd().'/storage/framework/down');
@@ -230,6 +247,16 @@ reset_fixture
 FIXTURE_REPLACED_MARKER=1 reject
 [[ -d $control/deploy.lock && -f $shared/storage/framework/down ]]
 if grep -Eq '^(up|down)$' "$FIXTURE_CALLS"; then exit 1; fi
+reset_fixture
+rm "$shared/storage/app/private/oauth/oauth-private.key"
+reject
+[[ ! -e $control/deploy.lock ]]
+if grep -q '^up$' "$FIXTURE_CALLS"; then exit 1; fi
+reset_fixture
+printf 'PRIVATE_INVALID_OAUTH_KEY' >"$shared/storage/app/private/oauth/oauth-public.key"
+reject
+[[ ! -e $control/deploy.lock ]]
+if grep -q '^up$' "$FIXTURE_CALLS"; then exit 1; fi
 for setting in FIXTURE_UP_FAIL FIXTURE_NOISY_UP FIXTURE_HTTP_FAIL FIXTURE_CRON_FAIL; do
     reset_fixture
     export "$setting=1"

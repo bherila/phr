@@ -253,6 +253,23 @@ action's `recovery-release-id` finalizes interrupted transactions; it does not r
 an already finalized release intentionally left in maintenance. The diagnostic
 does not resume that release or dispatch a new deployment.
 
+### Retire credentials usable by legacy production workflow reruns
+
+The temporary, manual **PHR Production Key Bootstrap** workflow authorizes a
+dedicated ed25519 public key using the existing SSH credential, then proves
+`PHR_PRODUCTION_SSH_KEY` with the exact read-only diagnostic. It only accepts the
+reviewed incident release and commit. Authorization preserves existing keys and
+options, saves a private backup, adds `restrict`, and never resumes service or
+changes application files, cron or migrations. The new private key must already
+be stored in the new secret; dispatch inputs contain the public key only.
+
+After this proof passes, update every ordinary production writer and diagnostic
+to use only the new secret. Stop all production-capable runs using old workflow
+definitions before removing `SSH_PRIVATE_KEY` from every scope visible to this
+repository. Removing that old GitHub secret prevents legacy reruns from obtaining
+their deployment credential. Do not revoke its server key: other applications may
+share it. Retire the temporary bootstrap workflow after the cutover is complete.
+
 ## Resume a finalized release left in maintenance
 
 The separate manual **PHR Guarded Maintenance Resume** workflow runs only from
@@ -269,9 +286,12 @@ Before any service change, the workflow requires all read-only diagnostic proofs
 a maintenance file, a saved recovery cron file, no active host lock and no pending
 transaction. It then acquires the host lock with a unique ownership nonce and repeats
 identity, canonical path, persistent database, zero pending migration and web PHP
-proofs under that lock. Only Laravel's existing `up` command is called, with PHP 8.5
-and a 1G limit. Bootstrap caches and facade generation use private temporary paths;
-no migrations, application cache refreshes, source, environment, key or patient data
+proofs under that lock. Service state changes use Laravel's existing maintenance
+commands, with PHP 8.5 and a 1G limit. Bootstrap caches and facade generation use private temporary paths;
+the cached application encryption key is validated and the existing read-only OAuth
+key command verifies the canonical persistent signing pair before `up` and before
+unlocking. Key file hashes must remain unchanged throughout the operation.
+No migrations, application cache refreshes, source, environment, key or patient data
 changes are performed. Only file-backed maintenance is supported.
 
 The exact release must serve `/up` with 200 and `/login` with 200 or 302 before the

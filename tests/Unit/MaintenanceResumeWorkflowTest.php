@@ -27,13 +27,17 @@ class MaintenanceResumeWorkflowTest extends TestCase
     {
         $root = sys_get_temp_dir().'/phr-resume-laravel-'.bin2hex(random_bytes(12));
         $files = new Filesystem;
-        foreach (['vendor', 'bootstrap/cache', 'storage/framework', 'storage/logs', 'private'] as $path) {
+        foreach (['vendor', 'bootstrap/cache', 'storage/framework', 'storage/logs', 'storage/app/private/oauth', 'private'] as $path) {
             $files->makeDirectory($root.'/'.$path, 0700, true);
         }
         $autoload = dirname(__DIR__, 2).'/vendor/autoload.php';
         file_put_contents($root.'/vendor/autoload.php', '<?php require '.var_export($autoload, true).';');
         file_put_contents($root.'/composer.json', '{"extra":{"laravel":{"dont-discover":["*"]}}}');
-        file_put_contents($root.'/bootstrap/app.php', '<?php return Illuminate\\Foundation\\Application::configure(basePath: dirname(__DIR__))->create();');
+        file_put_contents($root.'/bootstrap/app.php', '<?php $app = Illuminate\\Foundation\\Application::configure(basePath: dirname(__DIR__))->withCommands([App\\Console\\Commands\\Phr\\AgentApiVerifyOAuthKeysCommand::class])->create(); Laravel\\Passport\\Passport::loadKeysFrom($app->storagePath("app/private/oauth")); return $app;');
+        $pair = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+        openssl_pkey_export($pair, $pem);
+        file_put_contents($root.'/storage/app/private/oauth/oauth-private.key', $pem);
+        file_put_contents($root.'/storage/app/private/oauth/oauth-public.key', openssl_pkey_get_details($pair)['key']);
         $config = ['app' => ['name' => 'Synthetic resume', 'env' => 'testing', 'debug' => false,
             'key' => 'base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=', 'cipher' => 'AES-256-CBC',
             'url' => 'https://synthetic.invalid', 'timezone' => 'UTC', 'maintenance' => ['driver' => 'file'],
@@ -68,6 +72,16 @@ class MaintenanceResumeWorkflowTest extends TestCase
             $this->assertSame('', $process->getOutput());
             $this->assertFileExists($root.'/storage/framework/down');
             $this->assertSame($before, hash_file('sha256', $root.'/bootstrap/cache/config.php'));
+            $config['app']['maintenance']['driver'] = 'file';
+            file_put_contents($root.'/private/config.php', '<?php return '.var_export($config, true).';');
+            file_put_contents($root.'/storage/app/private/oauth/oauth-public.key', 'synthetic mismatched public key');
+            $process = new Process([PHP_BINARY, '-d', 'memory_limit=1G',
+                dirname(__DIR__, 2).'/.github/scripts/resume-phr-framework.php', 'prove-down', $root.'/private'], $root);
+            $process->setTimeout(30);
+            $process->run();
+            $this->assertFalse($process->isSuccessful());
+            $this->assertSame('', $process->getOutput());
+            $this->assertFileExists($root.'/storage/framework/down');
         } finally {
             $files->deleteDirectory($root);
         }

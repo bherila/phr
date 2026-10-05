@@ -12,6 +12,7 @@ shared="$RESUME_SCRIPTS/shared"
 lock="$HOME/.deployments/phr-laravel/deploy.lock"
 export RESUME_INODE=- RESUME_CACHE_HASH=- RESUME_RECOVERY_HASH=-
 export RESUME_MARKER_HASH=- RESUME_MARKER_MTIME=- RESUME_MARKER_GUARD=true
+export RESUME_OAUTH_PRIVATE_HASH=- RESUME_OAUTH_PUBLIC_HASH=-
 acquired=false published=false may_up=false completed=false
 umask 077
 ulimit -f 1024
@@ -130,6 +131,8 @@ trap 'exit 1' HUP INT TERM
 state idle present || exit 1
 RESUME_MARKER_HASH=$(sha256sum "$HOME/phr-laravel/storage/framework/down"); RESUME_MARKER_HASH=${RESUME_MARKER_HASH%% *}
 RESUME_MARKER_MTIME=$(stat -c '%Y' "$HOME/phr-laravel/storage/framework/down")
+RESUME_OAUTH_PRIVATE_HASH=$(sha256sum "$HOME/phr-laravel/storage/app/private/oauth/oauth-private.key"); RESUME_OAUTH_PRIVATE_HASH=${RESUME_OAUTH_PRIVATE_HASH%% *}
+RESUME_OAUTH_PUBLIC_HASH=$(sha256sum "$HOME/phr-laravel/storage/app/private/oauth/oauth-public.key"); RESUME_OAUTH_PUBLIC_HASH=${RESUME_OAUTH_PUBLIC_HASH%% *}
 state idle present || exit 1
 mkdir -- "$lock" 2>"$RESUME_SCRATCH/error" || exit 1
 acquired=true

@@ -20,6 +20,7 @@ try {
     $storage = $control.'/shared/storage';
     foreach ([$home, $home.'/.deployments', $control, $control.'/state', $control.'/releases', $control.'/shared',
         $control.'/shared/public', $control.'/shared/public/ohif', $storage, $storage.'/framework',
+        $storage.'/app', $storage.'/app/private', $storage.'/app/private/oauth',
         $stable, $stable.'/public', $stable.'/bootstrap', $stable.'/bootstrap/cache', $control.'/recovery'] as $path) {
         if (! is_dir($path) || is_link($path) || realpath($path) !== $path) {
             exit(1);
@@ -65,6 +66,14 @@ try {
     $recovery = $control.'/recovery/'.$release.'.cron';
     $regular($cache, 4 * 1024 * 1024);
     $regular($recovery, 1024 * 1024);
+    foreach (['private', 'public'] as $kind) {
+        $path = $storage.'/app/private/oauth/oauth-'.$kind.'.key';
+        $regular($path, 65536);
+        $hash = getenv('RESUME_OAUTH_'.strtoupper($kind).'_HASH') ?: '-';
+        if (! is_readable($path) || filesize($path) < 1 || ($hash !== '-' && hash_file('sha256', $path) !== $hash)) {
+            exit(1);
+        }
+    }
     if (($cacheHash !== '-' && hash_file('sha256', $cache) !== $cacheHash)
         || ($recoveryHash !== '-' && hash_file('sha256', $recovery) !== $recoveryHash)) {
         exit(1);

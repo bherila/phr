@@ -4,6 +4,7 @@
 // The caller has already verified this immutable config copy with the shared audit.
 declare(strict_types=1);
 use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Encryption\Encrypter;
 use Illuminate\Foundation\AliasLoader;
 
 try {
@@ -58,6 +59,18 @@ try {
     $kernel->bootstrap();
     // Only file maintenance can be resumed here; never mutate a cache/database driver.
     if ($app['config']->get('app.maintenance.driver', 'file') !== 'file') {
+        throw new RuntimeException;
+    }
+    $key = $app['config']->get('app.key');
+    if (! is_string($key)) {
+        throw new RuntimeException;
+    }
+    $key = str_starts_with($key, 'base64:') ? base64_decode(substr($key, 7), true) : $key;
+    if (! is_string($key) || ! Encrypter::supported($key, $app['config']->get('app.cipher'))) {
+        throw new RuntimeException;
+    }
+    if (in_array($mode, ['prove-down', 'prove-up'], true)
+        && $kernel->call('phr:agent-api:verify-oauth-keys', ['--no-interaction' => true]) !== 0) {
         throw new RuntimeException;
     }
     if (in_array($mode, ['up', 'down'], true) && $kernel->call($mode, ['--no-interaction' => true]) !== 0) {
