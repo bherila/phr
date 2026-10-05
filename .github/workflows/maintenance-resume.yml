@@ -1,0 +1,89 @@
+name: PHR Guarded Maintenance Resume
+
+on:
+  pull_request:
+    paths:
+      - .github/scripts/resume-phr-*
+      - .github/workflows/maintenance-resume.yml
+  workflow_dispatch:
+    inputs:
+      expected_release:
+        description: Exact finalized release intentionally left in maintenance
+        required: true
+        type: string
+      expected_commit:
+        description: Exact selected source commit (40 lowercase hexadecimal characters)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  fixtures:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check out the reviewed shared helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: bherila/shared-cpanel-deployment
+          ref: 395b0d8b10db1181e50f4eec27d7bce27b1522d6 # reviewed merged helpers
+          path: .shared-cpanel-deployment
+          persist-credentials: false
+      - name: Install PHP for actual synthetic filesystem and framework fixtures
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: '8.5'
+          extensions: pcntl, posix
+          coverage: none
+      - name: Guarded resume fixtures
+        env:
+          PHR_SHARED_ACTION_DIR: ${{ github.workspace }}/.shared-cpanel-deployment
+        run: |
+          shellcheck .github/scripts/resume-phr-*.sh
+          bash .github/scripts/resume-phr-maintenance.test.sh
+
+  resume:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    needs: fixtures
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: prod
+    concurrency:
+      group: phr-production-files
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Check out the reviewed shared helpers
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: bherila/shared-cpanel-deployment
+          ref: 395b0d8b10db1181e50f4eec27d7bce27b1522d6 # reviewed merged helpers
+          path: .shared-cpanel-deployment
+          persist-credentials: false
+      - name: Configure the verified production SSH identity
+        env:
+          SSH_ALIAS: phr-resume
+          SSH_HOST_NAME: ${{ secrets.SSH_HOST }}
+          SSH_USER_NAME: ${{ secrets.SSH_USERNAME }}
+          SSH_PRIVATE_KEY: ${{ secrets.PHR_PRODUCTION_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.SSH_KNOWN_HOSTS }}
+        run: bash .shared-cpanel-deployment/scripts/configure-ssh.sh
+      - name: Resume only the verified finalized release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESUME_SSH_TARGET: phr-resume
+          RESUME_PHP_BINARY: /opt/cpanel/ea-php85/root/usr/bin/php
+          RESUME_EXPECTED_RELEASE: ${{ inputs.expected_release }}
+          RESUME_EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+          PHR_SHARED_ACTION_DIR: ${{ github.workspace }}/.shared-cpanel-deployment
+        run: bash .github/scripts/resume-phr-maintenance.sh
