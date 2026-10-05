@@ -17,7 +17,7 @@ class MaintenanceResumeWorkflowTest extends TestCase
         $this->assertMatchesRegularExpression('/group: phr-production-files\R\s+cancel-in-progress: false\R\s+queue: max/', $workflow);
         $this->assertStringContainsString('secrets.PHR_PRODUCTION_SSH_KEY', $workflow);
         $this->assertStringNotContainsString('secrets.SSH_PRIVATE_KEY', $workflow);
-        $this->assertSame(2, substr_count($workflow, '395b0d8b10db1181e50f4eec27d7bce27b1522d6'));
+        $this->assertSame(2, substr_count($workflow, 'cf50667c99feff7ac8d785e07b3abca9f0f99513'));
         $this->assertStringContainsString('actions: read', $workflow);
         foreach (['diagnose-phr-maintenance*.sh', 'inspect-phr-maintenance.sh', 'verify-phr-cron.sh'] as $consumed) {
             $this->assertStringContainsString('.github/scripts/'.$consumed, $workflow);
