@@ -270,6 +270,46 @@ repository. Removing that old GitHub secret prevents legacy reruns from obtainin
 their deployment credential. Do not revoke its server key: other applications may
 share it. Retire the temporary bootstrap workflow after the cutover is complete.
 
+## Resume a finalized release left in maintenance
+
+The separate manual **PHR Guarded Maintenance Resume** workflow runs only from
+`main`, using the verified `PHR_PRODUCTION_SSH_KEY` credential and the production
+writer queue. Review and merge it before dispatch; verify the new credential first.
+Supply the exact selected release (`<commit-prefix>-<owning-CI-run>-<attempt>`) and
+full source commit. The owning production CI attempt and deployment job must have
+completed; cancelled or active attempts are refused.
+The owning deployment job must have failed; a successful deployment cannot prove
+that it owns a later maintenance marker.
+The existing maintenance marker must date to that original deployment job (with
+at most one minute of clock skew); its captured timestamp and content hash must
+remain unchanged until `up`. A later operator-created marker is refused.
+
+Before any service change, the workflow requires all read-only diagnostic proofs,
+a maintenance file, a saved recovery cron file, no active host lock and no pending
+transaction. It then acquires the host lock with a unique ownership nonce and repeats
+identity, canonical path, persistent database, zero pending migration and web PHP
+proofs under that lock. Service state changes use Laravel's existing maintenance
+commands, with PHP 8.5 and a 1G limit. Bootstrap caches and facade generation use private temporary paths;
+the cached application encryption key is validated and the existing read-only OAuth
+key command verifies the canonical persistent signing pair before `up` and before
+unlocking. Key file hashes must remain unchanged throughout the operation.
+No migrations, application cache refreshes, source, environment, key or patient data
+changes are performed. Only file-backed maintenance is supported.
+
+The exact release must serve `/up` with 200 and `/login` with 200 or 302 before the
+reviewed shared cron helpers restore the two canonical PHR entries. Other applications'
+entries and the saved recovery file are preserved. The recovery file is never installed
+as a whole account crontab. Failure after attempting `up` tries `down` and an application-only
+cron pause while exact identity, safe config and lock ownership are still provable.
+Uncertain ownership or rollback retains the lock and reports unconfirmed recovery;
+there is no automatic takeover or claim of successful cleanup. Logs contain fixed
+aggregate labels only. A retained lock needs reviewed operator inspection before
+another writer or recovery attempt.
+Both the host session and SSH transport have total deadlines. An SSH timeout or
+disconnect alone does not prove the host has stopped or rollback completed; obtain
+fresh read-only evidence and inspect any retained ownership before retrying. Never
+blindly rerun or remove a retained lock.
+
 ## Privacy
 
 This repository is public. Do not commit real patient names, dates of birth, record
