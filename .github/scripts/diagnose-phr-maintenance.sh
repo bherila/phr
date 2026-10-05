@@ -9,7 +9,7 @@ set -euo pipefail
 }
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 shared=${PHR_SHARED_ACTION_DIR:?Verified shared action checkout required}
-[[ -f "$shared/scripts/operational-audit.sh" && -f "$shared/scripts/verify-web-php.sh" ]] || exit 2
+[[ -f "$shared/scripts/operational-audit.sh" && -f "$shared/scripts/verify-web-php.sh" && -f "$shared/scripts/origin-fetch.sh" ]] || exit 2
 ssh_bin=${PHR_DIAG_SSH_BIN:-ssh}
 curl_bin=${PHR_DIAG_CURL_BIN:-curl}
 scratch=$(mktemp -d)

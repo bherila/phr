@@ -67,7 +67,7 @@ echo 'phr-resume diagnostic=passed maintenance_file=present recovery_cron=presen
 mkdir "$scratch/bundle" "$scratch/bundle/shared"
 cp "$scripts"/resume-phr-{state.php,framework.php,web-ssh.sh,maintenance-remote.sh} \
     "$scripts/verify-phr-cron.sh" "$scratch/bundle/"
-cp "$shared/scripts"/{operational-audit.sh,verify-web-php.sh,prepare-cron-lines.sh,install-cron.sh} "$scratch/bundle/shared/"
+cp "$shared/scripts"/{operational-audit.sh,verify-web-php.sh,origin-fetch.sh,prepare-cron-lines.sh,install-cron.sh} "$scratch/bundle/shared/"
 chmod 700 "$scratch/bundle/resume-phr-web-ssh.sh"
 tar -cf "$scratch/helpers.tar" -C "$scratch/bundle" .
 nonce="resume-$(openssl rand -hex 16)"
