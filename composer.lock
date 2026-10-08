@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "46c6daca81eb5c969008b0f9cbfa34ea",
+    "content-hash": "09cfa2c62a22273996a0d0fa6b312f5c",
     "packages": [
         {
             "name": "aws/aws-crt-php",
@@ -298,20 +298,20 @@
         },
         {
             "name": "bherila/genai-laravel",
-            "version": "v0.2.2",
+            "version": "v0.2.4",
             "source": {
                 "type": "git",
                 "url": "https://github.com/bherila/genai-laravel.git",
-                "reference": "bebc489389ce381dc307fff65d4f1ba361c4957d"
+                "reference": "9350672c21439729aecbcf39157f3d68919ec497"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/bherila/genai-laravel/zipball/bebc489389ce381dc307fff65d4f1ba361c4957d",
-                "reference": "bebc489389ce381dc307fff65d4f1ba361c4957d",
+                "url": "https://api.github.com/repos/bherila/genai-laravel/zipball/9350672c21439729aecbcf39157f3d68919ec497",
+                "reference": "9350672c21439729aecbcf39157f3d68919ec497",
                 "shasum": ""
             },
             "require": {
-                "bherila/mcp-laravel-bridge": "^0.2.0",
+                "bherila/mcp-laravel-bridge": "^0.2.0 || ^0.3.0",
                 "illuminate/contracts": "^13",
                 "illuminate/database": "^13",
                 "illuminate/filesystem": "^13",
@@ -335,7 +335,8 @@
                 "dompdf/dompdf": "Required together with phpoffice/phpword to render DOC / DOCX / ODT / RTF to PDF before sending — preserves formatting and lets providers use their native PDF pipelines (Gemini vision, Anthropic document blocks). Not loaded if absent.",
                 "phpoffice/phpspreadsheet": "Enables automatic XLSX / XLS / ODS / CSV → plain-text conversion when sending spreadsheet files to Anthropic or Gemini (^4|^5). Not loaded if absent.",
                 "phpoffice/phpword": "Enables automatic DOC / DOCX / ODT / RTF → PDF conversion (when dompdf/dompdf is also installed) before sending to Anthropic or Gemini. Not loaded if absent.",
-                "sentry/sentry": "Enables optional Sentry AI monitoring instrumentation when using a Sentry PHP SDK version that supports SpanContext::make (^4.23)."
+                "sentry/sentry": "Enables optional Sentry AI monitoring instrumentation when using a Sentry PHP SDK version that supports SpanContext::make (^4.23).",
+                "symfony/process": "Enables IsolatedConverter, which runs Office-document conversion in a child process under an enforced memory cap and wall-clock limit — the only way this package can bound a hostile upload. Not loaded if absent."
             },
             "type": "library",
             "extra": {
@@ -387,23 +388,23 @@
                 "mcp"
             ],
             "support": {
-                "source": "https://github.com/bherila/genai-laravel/tree/v0.2.2",
+                "source": "https://github.com/bherila/genai-laravel/tree/v0.2.4",
                 "issues": "https://github.com/bherila/genai-laravel/issues"
             },
-            "time": "2026-09-15T18:00:48+00:00"
+            "time": "2026-10-08T10:53:01+00:00"
         },
         {
             "name": "bherila/mcp-laravel-bridge",
-            "version": "dev-main",
+            "version": "v0.3.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/bherila/mcp-laravel-bridge.git",
-                "reference": "9fe4743b9cb7859eee87f93bf99e2a86a0fe4e03"
+                "reference": "61e400f15ea78d5465e7808cc6d3a81ca4df7832"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/bherila/mcp-laravel-bridge/zipball/9fe4743b9cb7859eee87f93bf99e2a86a0fe4e03",
-                "reference": "9fe4743b9cb7859eee87f93bf99e2a86a0fe4e03",
+                "url": "https://api.github.com/repos/bherila/mcp-laravel-bridge/zipball/61e400f15ea78d5465e7808cc6d3a81ca4df7832",
+                "reference": "61e400f15ea78d5465e7808cc6d3a81ca4df7832",
                 "shasum": ""
             },
             "require": {
@@ -421,7 +422,6 @@
                 "orchestra/testbench": "^10.0 || ^11.0",
                 "phpunit/phpunit": "^12.0 || ^13.0"
             },
-            "default-branch": true,
             "type": "library",
             "autoload": {
                 "psr-4": {
@@ -435,9 +435,9 @@
             "description": "Shared MCP-over-REST infrastructure for Laravel applications.",
             "support": {
                 "issues": "https://github.com/bherila/mcp-laravel-bridge/issues",
-                "source": "https://github.com/bherila/mcp-laravel-bridge/tree/main"
+                "source": "https://github.com/bherila/mcp-laravel-bridge/tree/v0.3.0"
             },
-            "time": "2026-10-08T10:17:08+00:00"
+            "time": "2026-10-08T10:48:43+00:00"
         },
         {
             "name": "brick/math",
@@ -12293,18 +12293,9 @@
             "time": "2025-12-08T11:19:18+00:00"
         }
     ],
-    "aliases": [
-        {
-            "package": "bherila/mcp-laravel-bridge",
-            "version": "dev-main",
-            "alias": "0.2.99",
-            "alias_normalized": "0.2.99.0"
-        }
-    ],
+    "aliases": [],
     "minimum-stability": "stable",
-    "stability-flags": {
-        "bherila/mcp-laravel-bridge": 20
-    },
+    "stability-flags": {},
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {

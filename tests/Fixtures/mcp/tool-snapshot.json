@@ -562,7 +562,7 @@
             "description": "Submit the normalized response exactly matching the request submission_schema.",
             "inputSchema": "sha256:1fdfa7a198c95c5c947bc7b2ff01f58b2e9f62191def49a1be5596f7ecb25d33",
             "name": "complete_genai_request",
-            "outputSchema": "sha256:bc62c2c968d4f5a2abc7b12f1665657944910f6a55ee9515babf0c06956144dd",
+            "outputSchema": "sha256:f00c7a97e238dc07d9a4a26735a5e9ac09cec2d0a62d63e90cca9a34ed231f9d",
             "title": "Complete GenAI request"
         },
         "conditions.get": {
