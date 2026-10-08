@@ -109,7 +109,12 @@ The API contract is published at
 [`public/openapi/phr-agent-v1.json`](public/openapi/phr-agent-v1.json), and served with
 the installation's own API and OAuth URLs at `/api/openapi.json`. REST connectors
 authenticate with OAuth or with a personal API token; both are created by the signed-in
-person under **Config → API Access**, limited to the permissions they choose. See
+person under **Config → API Access**, limited to the permissions they choose.
+
+Every agent operation is declared once in a capability registry, with its scopes taken from
+the OpenAPI document. One evaluation per request decides which MCP tools a connection sees,
+and `/api/v1/me` reports the same result: the operations the credential can use now, and
+each withheld one with its reason (a missing scope, or depending on a withheld operation). See
 [`docs/agent-api-security.md`](docs/agent-api-security.md) for the integration threat
 model and security boundaries.
 
