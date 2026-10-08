@@ -445,6 +445,7 @@ const PatientsPage = lazy(() => import('@/phr/patients/PatientsPage'))
 const PatientsManagePage = lazy(() => import('@/phr/patients-manage/PatientsManagePage'))
 const AiProviderSettingsPage = lazy(() => import('@/phr/config/AiProviderSettingsPage'))
 const ConnectedDevicesPanel = lazy(() => import('@/phr/config/ConnectedDevicesPanel'))
+const ApiAccessPanel = lazy(() => import('@/phr/config/ApiAccessPanel'))
 const DataHubPage = lazy(() => import('@/phr/data-hub/DataHubPage'))
 const ImportsPage = lazy(() => import('@/phr/imports/ImportsPage'))
 
@@ -556,11 +557,12 @@ function ImportsColumn({ state }: PhrRenderProps) {
   return <ImportsPage {...(state.patientId !== undefined ? { patientId: state.patientId } : {})} />
 }
 
-type ConfigTab = 'ai-providers' | 'devices'
+type ConfigTab = 'ai-providers' | 'devices' | 'api-access'
 
 const CONFIG_TABS: { id: ConfigTab, label: string }[] = [
   { id: 'ai-providers', label: 'AI Provider Settings' },
   { id: 'devices', label: 'Connected Devices' },
+  { id: 'api-access', label: 'API Access' },
 ]
 
 function ConfigColumn() {
@@ -584,7 +586,9 @@ function ConfigColumn() {
         ))}
       </div>
       <div className="min-h-0 flex-1">
-        {tab === 'ai-providers' ? <AiProviderSettingsPage /> : <ConnectedDevicesPanel />}
+        {tab === 'ai-providers' ? <AiProviderSettingsPage /> : null}
+        {tab === 'devices' ? <ConnectedDevicesPanel /> : null}
+        {tab === 'api-access' ? <ApiAccessPanel /> : null}
       </div>
     </div>
   )

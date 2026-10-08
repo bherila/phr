@@ -6,6 +6,8 @@ enableGlobalVirtualStore: true
 allowBuilds:
   '@parcel/watcher': true
   '@swc/core': true
+  # First-party; its postinstall only marks node_modules no-index on macOS.
+  bwh-auth: true
   spotlight-noindex: true
   unrs-resolver: true
 minimumReleaseAgeExclude:
