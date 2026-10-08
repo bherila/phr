@@ -63,6 +63,11 @@ use BWH\Auth\Http\Middleware\ExpectOAuthResource;
 use Illuminate\Support\Facades\Route;
 use Laravel\Passport\Http\Middleware\CheckToken;
 
+// The agent API contract, with this installation's server and OAuth URLs.
+Route::get('/openapi.json', [AgentDiscoveryController::class, 'openApi'])
+    ->middleware('throttle:60,1')
+    ->name('agent-api.openapi');
+
 Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
     Route::get('/capabilities', [AgentDiscoveryController::class, 'capabilities'])
         ->middleware('throttle:60,1')
