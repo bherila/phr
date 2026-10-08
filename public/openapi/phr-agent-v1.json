@@ -27,7 +27,7 @@
       "get": {
         "operationId": "identity.get",
         "summary": "Get the authorized identity and granted scopes",
-        "security": [{ "oauth2": ["identity:read"] }],
+        "security": [{ "oauth2": ["identity:read"] }, { "apiToken": [] }],
         "responses": {
           "200": {
             "description": "Authorized identity",
@@ -43,7 +43,7 @@
       "get": {
         "operationId": "patients.list",
         "summary": "List patients accessible to the authorized user",
-        "security": [{ "oauth2": ["patients:read"] }],
+        "security": [{ "oauth2": ["patients:read"] }, { "apiToken": [] }],
         "parameters": [
           { "$ref": "#/components/parameters/Limit" },
           { "$ref": "#/components/parameters/Cursor" },
@@ -65,7 +65,7 @@
       "post": {
         "operationId": "patients.create",
         "summary": "Create a new patient owned by the authorized user",
-        "security": [{ "oauth2": ["patients:write"] }],
+        "security": [{ "oauth2": ["patients:write"] }, { "apiToken": [] }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PatientCreateRequest" } } } },
         "responses": {
           "201": { "description": "Patient created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PatientResponse" } } } },
@@ -80,7 +80,7 @@
       "get": {
         "operationId": "patients.get",
         "summary": "Get one accessible patient and the caller's access metadata",
-        "security": [{ "oauth2": ["patients:read"] }],
+        "security": [{ "oauth2": ["patients:read"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
         "responses": {
           "200": {
@@ -98,7 +98,7 @@
       "get": {
         "operationId": "records.search",
         "summary": "Search concise records across core clinical resource types",
-        "security": [{ "oauth2": ["clinical:read"] }],
+        "security": [{ "oauth2": ["clinical:read"] }, { "apiToken": [] }],
         "parameters": [
           { "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/Limit" },
           { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/ResourceTypes" },
@@ -120,7 +120,7 @@
       "get": {
         "operationId": "timeline.list",
         "summary": "List the patient timeline using the unified record projection",
-        "security": [{ "oauth2": ["clinical:read"] }],
+        "security": [{ "oauth2": ["clinical:read"] }, { "apiToken": [] }],
         "parameters": [
           { "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/Limit" },
           { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/ResourceTypes" },
@@ -143,7 +143,7 @@
         "operationId": "changes.list",
         "summary": "List bounded clinical changes using a stable snapshot watermark",
         "description": "Use the watermark returned by the first page for each following cursor page. Deleted and retracted resources are tombstones, never inferred from absence.",
-        "security": [{ "oauth2": ["clinical:read"] }],
+        "security": [{ "oauth2": ["clinical:read"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/ResourceTypes" }, { "$ref": "#/components/parameters/UpdatedAfter" }, { "$ref": "#/components/parameters/Watermark" }],
         "responses": { "200": { "description": "Stable cursor-bounded clinical change page", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ChangeFeedResponse" } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
       }
@@ -151,7 +151,7 @@
     "/patients/{patient}/eobs": {
       "get": {
         "operationId": "eobs.list", "summary": "List explanation-of-benefit records without raw parser payloads",
-        "security": [{ "oauth2": ["clinical:read"] }],
+        "security": [{ "oauth2": ["clinical:read"] }, { "apiToken": [] }],
         "parameters": [
           { "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/Limit" },
           { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/UpdatedAfter" },
@@ -167,7 +167,7 @@
     "/patients/{patient}/eobs/{eob}": {
       "get": {
         "operationId": "eobs.get", "summary": "Get one explanation-of-benefit record",
-        "security": [{ "oauth2": ["clinical:read"] }],
+        "security": [{ "oauth2": ["clinical:read"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/EobId" }],
         "responses": { "200": { "description": "EOB", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EobResponse" } } } },
           "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
@@ -177,7 +177,7 @@
     "/patients/{patient}/eobs/{eob}/lines": {
       "get": {
         "operationId": "eob_lines.list", "summary": "List bounded EOB service lines without raw parser payloads",
-        "security": [{ "oauth2": ["clinical:read"] }],
+        "security": [{ "oauth2": ["clinical:read"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/EobId" },
           { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" },
           { "$ref": "#/components/parameters/UpdatedAfter" }, { "$ref": "#/components/parameters/UpdatedBefore" }],
@@ -189,7 +189,7 @@
     "/patients/{patient}/eobs/{eob}/lines/{line}": {
       "get": {
         "operationId": "eob_lines.get", "summary": "Get one EOB service line",
-        "security": [{ "oauth2": ["clinical:read"] }],
+        "security": [{ "oauth2": ["clinical:read"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/EobId" }, { "$ref": "#/components/parameters/LineId" }],
         "responses": { "200": { "description": "EOB line", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EobLineResponse" } } } },
           "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
@@ -199,7 +199,7 @@
     "/patients/{patient}/evidence-links": {
       "get": {
         "operationId": "evidence.links", "summary": "List typed evidence links from one patient-scoped record",
-        "security": [{ "oauth2": ["clinical:read"] }],
+        "security": [{ "oauth2": ["clinical:read"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" },
           { "name": "resource_type", "in": "query", "required": true, "description": "Document sources additionally require documents:read; other sources require clinical:read only.", "schema": { "type": "string", "enum": ["document", "eob", "office-visit", "procedure"] } },
           { "name": "resource_id", "in": "query", "required": true, "schema": { "type": "integer", "minimum": 1 } },
@@ -212,7 +212,7 @@
     "/patients/{patient}/documents": {
       "get": {
         "operationId": "documents.list", "summary": "List privacy-minimized document metadata",
-        "security": [{ "oauth2": ["documents:read"] }],
+        "security": [{ "oauth2": ["documents:read"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/Limit" },
           { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/UpdatedAfter" },
           { "$ref": "#/components/parameters/UpdatedBefore" }, { "$ref": "#/components/parameters/DateFrom" },
@@ -226,7 +226,7 @@
         "operationId": "documents.upload",
         "summary": "Idempotently upload a patient document",
         "description": "The external identifier is namespaced to the OAuth client. Exact retries do not rewrite bytes, while changed bytes for the same identifier and same-client content-hash duplicates conflict.",
-        "security": [{ "oauth2": ["documents:write"] }],
+        "security": [{ "oauth2": ["documents:write"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
         "requestBody": { "required": true, "content": { "multipart/form-data": { "schema": { "$ref": "#/components/schemas/DocumentUploadRequest" } } } },
         "responses": {
@@ -241,7 +241,7 @@
     "/patients/{patient}/documents/{document}": {
       "get": {
         "operationId": "documents.get", "summary": "Get privacy-minimized document metadata",
-        "security": [{ "oauth2": ["documents:read"] }],
+        "security": [{ "oauth2": ["documents:read"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/DocumentId" }],
         "responses": { "200": { "description": "Document metadata", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DocumentResponse" } } } },
           "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
@@ -251,7 +251,7 @@
     "/patients/{patient}/documents/{document}/download-access": {
       "post": {
         "operationId": "documents.download_access.create", "summary": "Create a one-minute signed download URL that still requires OAuth",
-        "security": [{ "oauth2": ["documents:read"] }],
+        "security": [{ "oauth2": ["documents:read"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/DocumentId" }],
         "responses": { "200": { "description": "Short-lived download access", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DownloadAccess" } } } },
           "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
@@ -261,7 +261,7 @@
     "/patients/{patient}/documents/{document}/file": {
       "get": {
         "operationId": "documents.download", "summary": "Download document bytes using OAuth plus an unexpired signature",
-        "security": [{ "oauth2": ["documents:read"] }],
+        "security": [{ "oauth2": ["documents:read"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/DocumentId" },
           { "name": "expires", "in": "query", "required": true, "schema": { "type": "integer" } },
           { "name": "signature", "in": "query", "required": true, "schema": { "type": "string" } }],
@@ -273,7 +273,7 @@
     "/patients/{patient}/imports": {
       "get": {
         "operationId": "imports.list", "summary": "List structured import jobs",
-        "security": [{ "oauth2": ["imports:read"] }],
+        "security": [{ "oauth2": ["imports:read"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/Limit" },
           { "$ref": "#/components/parameters/Cursor" }, { "name": "status", "in": "query", "schema": { "$ref": "#/components/schemas/ImportJobStatus" } }],
         "responses": { "200": { "description": "Bounded import-job page", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImportJobListResponse" } } } },
@@ -282,7 +282,7 @@
       },
       "post": {
         "operationId": "imports.create", "summary": "Idempotently enqueue structured extraction for a stored document",
-        "security": [{ "oauth2": ["imports:write"] }],
+        "security": [{ "oauth2": ["imports:write"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImportCreateRequest" } } } },
         "responses": { "200": { "description": "The document already has an import job", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImportJobMutationResponse" } } } },
@@ -295,7 +295,7 @@
     "/patients/{patient}/imports/{import}": {
       "get": {
         "operationId": "imports.get", "summary": "Inspect an import job and its proposed records",
-        "security": [{ "oauth2": ["imports:read"] }],
+        "security": [{ "oauth2": ["imports:read"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/ImportId" }],
         "responses": { "200": { "description": "Import job with proposals", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImportJobResponse" } } } },
           "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
@@ -305,7 +305,7 @@
     "/patients/{patient}/imports/{import}/retry": {
       "post": {
         "operationId": "imports.retry", "summary": "Safely retry a failed import job",
-        "security": [{ "oauth2": ["imports:write"] }],
+        "security": [{ "oauth2": ["imports:write"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/ImportId" }],
         "responses": { "200": { "description": "The job is already queued or running", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImportJobMutationResponse" } } } },
           "202": { "description": "Retry accepted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImportJobMutationResponse" } } } },
@@ -317,7 +317,7 @@
       "post": {
         "operationId": "imports.review", "summary": "Accept or reject one proposed import record",
         "description": "Write-only tokens receive a mutation-safe result receipt. Full extracted proposal data additionally requires imports:read.",
-        "security": [{ "oauth2": ["imports:write"] }],
+        "security": [{ "oauth2": ["imports:write"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/ImportId" }, { "$ref": "#/components/parameters/ImportResultId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImportReviewRequest" } } } },
         "responses": { "200": { "description": "Review applied or safely unchanged", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImportReviewResponse" } } } },
@@ -331,7 +331,7 @@
         "operationId": "reconciliations.preview",
         "summary": "Preview a privileged EOB reconciliation",
         "description": "Returns only the deterministic, count-based plan and confirmation digest; it never returns claim, provider, or record content.",
-        "security": [{ "oauth2": ["reconciliation:read"] }],
+        "security": [{ "oauth2": ["reconciliation:read"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/Reconciliation" }],
         "responses": { "200": { "description": "Count-only reconciliation preview", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReconciliationPreviewResponse" } } } },
           "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
@@ -342,7 +342,7 @@
         "operationId": "reconciliations.apply",
         "summary": "Apply an explicitly confirmed EOB reconciliation",
         "description": "The server recalculates the dry-run plan in its mutation transaction and rejects a stale preview digest.",
-        "security": [{ "oauth2": ["reconciliation:write"] }],
+        "security": [{ "oauth2": ["reconciliation:write"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/Reconciliation" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReconciliationApplyRequest" } } } },
         "responses": { "200": { "description": "The exactly previewed reconciliation was applied", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReconciliationApplyResponse" } } } },
@@ -352,13 +352,13 @@
     "/patients/{patient}/exports": {
       "get": {
         "operationId": "exports.list", "summary": "List bounded asynchronous export status",
-        "security": [{ "oauth2": ["exports:read"] }],
+        "security": [{ "oauth2": ["exports:read"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/UpdatedAfter" }, { "$ref": "#/components/parameters/UpdatedBefore" }],
         "responses": { "200": { "description": "Export status page", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExportListResponse" } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
       },
       "post": {
         "operationId": "exports.create", "summary": "Queue a structured export",
-        "security": [{ "oauth2": ["exports:write"] }], "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
+        "security": [{ "oauth2": ["exports:write"] }, { "apiToken": [] }], "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
         "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExportCreateRequest" } } } },
         "responses": { "202": { "description": "Export queued", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExportMutationResponse" } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
       }
@@ -366,27 +366,27 @@
     "/patients/{patient}/exports/{export}/download-access": {
       "post": {
         "operationId": "exports.download_access.create", "summary": "Create short-lived export download access",
-        "security": [{ "oauth2": ["exports:read"] }], "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/ExportId" }],
+        "security": [{ "oauth2": ["exports:read"] }, { "apiToken": [] }], "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/ExportId" }],
         "responses": { "200": { "description": "Bearer-authenticated temporary export URL", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ExportDownloadAccessResponse" } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
       }
     },
     "/patients/{patient}/native-backups": {
       "get": {
         "operationId": "native_backups.list", "summary": "List bounded asynchronous native-backup status",
-        "security": [{ "oauth2": ["exports:read"] }],
+        "security": [{ "oauth2": ["exports:read"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/UpdatedAfter" }, { "$ref": "#/components/parameters/UpdatedBefore" }],
         "responses": { "200": { "description": "Native-backup status page", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NativeBackupListResponse" } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
       },
       "post": {
         "operationId": "native_backups.create", "summary": "Queue a native backup",
-        "security": [{ "oauth2": ["exports:write"] }], "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
+        "security": [{ "oauth2": ["exports:write"] }, { "apiToken": [] }], "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
         "responses": { "202": { "description": "Native backup queued", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NativeBackupMutationResponse" } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
       }
     },
     "/patients/{patient}/native-backups/{backup}/download-access": {
       "post": {
         "operationId": "native_backups.download_access.create", "summary": "Create short-lived native-backup download access",
-        "security": [{ "oauth2": ["exports:read"] }], "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/NativeBackupId" }],
+        "security": [{ "oauth2": ["exports:read"] }, { "apiToken": [] }], "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/NativeBackupId" }],
         "responses": { "200": { "description": "Bearer-authenticated temporary native-backup URL", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NativeBackupDownloadAccessResponse" } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
       }
     },
@@ -395,7 +395,7 @@
         "operationId": "dicom_studies.list",
         "summary": "List bounded DICOM study metadata",
         "description": "Returns study-level metadata and counts only; image pixels, instance metadata, storage keys, and files are never returned.",
-        "security": [{ "oauth2": ["clinical:read"] }],
+        "security": [{ "oauth2": ["clinical:read"] }, { "apiToken": [] }],
         "parameters": [
           { "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" },
           { "$ref": "#/components/parameters/UpdatedAfter" }, { "$ref": "#/components/parameters/UpdatedBefore" },
@@ -411,7 +411,7 @@
       "get": {
         "operationId": "dicom_studies.get",
         "summary": "Get DICOM study metadata",
-        "security": [{ "oauth2": ["clinical:read"] }],
+        "security": [{ "oauth2": ["clinical:read"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "name": "study", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }],
         "responses": { "200": { "description": "DICOM study metadata", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DicomStudyResponse" } } } },
           "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
@@ -422,7 +422,7 @@
         "operationId": "dicom_series.list",
         "summary": "List bounded DICOM series metadata",
         "description": "Returns series metadata and instance counts only; pixels, instance metadata, source paths, and object keys are never returned.",
-        "security": [{ "oauth2": ["clinical:read"] }],
+        "security": [{ "oauth2": ["clinical:read"] }, { "apiToken": [] }],
         "parameters": [
           { "$ref": "#/components/parameters/PatientId" }, { "name": "study", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } },
           { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" }, { "$ref": "#/components/parameters/UpdatedAfter" }, { "$ref": "#/components/parameters/UpdatedBefore" },
@@ -436,7 +436,7 @@
       "post": {
         "operationId": "dicom_uploads.open",
         "summary": "Open a DICOM upload session",
-        "security": [{ "oauth2": ["clinical:write"] }],
+        "security": [{ "oauth2": ["clinical:write"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
         "requestBody": { "required": false, "content": { "application/json": { "schema": { "type": "object", "properties": { "root_name": { "type": ["string", "null"], "maxLength": 255 } }, "additionalProperties": false } } } },
         "responses": { "201": { "description": "Open DICOM upload session", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DicomUploadOpenResponse" } } } },
@@ -447,7 +447,7 @@
       "post": {
         "operationId": "dicom_uploads.upload_file",
         "summary": "Upload one DICOM object to an open session",
-        "security": [{ "oauth2": ["clinical:write"] }],
+        "security": [{ "oauth2": ["clinical:write"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "name": "upload", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }],
         "requestBody": { "required": true, "content": { "multipart/form-data": { "schema": { "type": "object", "required": ["file"], "properties": { "file": { "type": "string", "format": "binary", "description": "One DICOM object, up to the advertised server limit." }, "relative_path": { "type": ["string", "null"], "maxLength": 1024 } }, "additionalProperties": false } } } },
         "responses": { "200": { "description": "DICOM object stored or safely skipped", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DicomUploadFileResponse" } } } },
@@ -458,7 +458,7 @@
       "post": {
         "operationId": "dicom_uploads.finalize",
         "summary": "Finalize a DICOM upload session",
-        "security": [{ "oauth2": ["clinical:write"] }],
+        "security": [{ "oauth2": ["clinical:write"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "name": "upload", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }],
         "responses": { "200": { "description": "Finalized DICOM session", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DicomUploadFinalizeResponse" } } } },
           "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
@@ -468,7 +468,7 @@
       "post": {
         "operationId": "dicom_uploads.cancel",
         "summary": "Cancel an open DICOM upload session",
-        "security": [{ "oauth2": ["clinical:write"] }],
+        "security": [{ "oauth2": ["clinical:write"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "name": "upload", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 1 } }],
         "responses": { "200": { "description": "Cancelled DICOM session", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DicomUploadCancelResponse" } } } },
           "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
@@ -478,7 +478,7 @@
       "post": {
         "operationId": "health_logs.create",
         "summary": "Idempotently create a patient health log",
-        "security": [{ "oauth2": ["clinical:write"] }],
+        "security": [{ "oauth2": ["clinical:write"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HealthLogCreateRequest" } } } },
         "responses": {
@@ -494,7 +494,7 @@
       "get": {
         "operationId": "health_log_entries.list",
         "summary": "List bounded entries for one health log",
-        "security": [{ "oauth2": ["clinical:read"] }],
+        "security": [{ "oauth2": ["clinical:read"] }, { "apiToken": [] }],
         "parameters": [
           { "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/HealthLogId" },
           { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" },
@@ -509,7 +509,7 @@
       "post": {
         "operationId": "health_log_entries.append",
         "summary": "Idempotently append a health log entry",
-        "security": [{ "oauth2": ["clinical:write"] }],
+        "security": [{ "oauth2": ["clinical:write"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/HealthLogId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HealthLogEntryAppendRequest" } } } },
         "responses": {
@@ -525,7 +525,7 @@
       "get": {
         "operationId": "health_log_entries.get",
         "summary": "Get one health log entry",
-        "security": [{ "oauth2": ["clinical:read"] }],
+        "security": [{ "oauth2": ["clinical:read"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/HealthLogId" }, { "$ref": "#/components/parameters/HealthLogEntryId" }],
         "responses": { "200": { "description": "Health log entry", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HealthLogEntryResponse" } } } },
           "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" },
@@ -536,7 +536,7 @@
       "get": {
         "operationId": "respiratory_events.list",
         "summary": "List bounded respiratory device events",
-        "security": [{ "oauth2": ["clinical:read"] }],
+        "security": [{ "oauth2": ["clinical:read"] }, { "apiToken": [] }],
         "parameters": [
           { "$ref": "#/components/parameters/PatientId" }, { "$ref": "#/components/parameters/Limit" }, { "$ref": "#/components/parameters/Cursor" },
           { "$ref": "#/components/parameters/UpdatedAfter" }, { "$ref": "#/components/parameters/UpdatedBefore" },
@@ -555,7 +555,7 @@
         "operationId": "respiratory_events.ingest",
         "summary": "Idempotently ingest a respiratory device event batch",
         "description": "Uses the same per-event validation and duplicate semantics as the Sinus Sentinel device endpoint.",
-        "security": [{ "oauth2": ["clinical:write"] }],
+        "security": [{ "oauth2": ["clinical:write"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RespiratoryEventBatchRequest" } } } },
         "responses": { "200": { "description": "Per-event accepted, duplicate, or rejected results", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RespiratoryEventBatchResponse" } } } },
@@ -567,7 +567,7 @@
       "get": {
         "operationId": "clinical.list",
         "summary": "List one core clinical resource type for an accessible patient",
-        "security": [{ "oauth2": ["clinical:read"] }],
+        "security": [{ "oauth2": ["clinical:read"] }, { "apiToken": [] }],
         "parameters": [
           { "$ref": "#/components/parameters/PatientId" },
           { "$ref": "#/components/parameters/ClinicalResource" },
@@ -597,7 +597,7 @@
         "operationId": "office_visits.upsert",
         "summary": "Idempotently create or update an office visit",
         "description": "Stable external IDs are namespaced to the authenticated OAuth client. A changed existing record requires its current opaque version; an already-applied retry remains safe with a stale version.",
-        "security": [{ "oauth2": ["clinical:write"] }],
+        "security": [{ "oauth2": ["clinical:write"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/OfficeVisitUpsertRequest" } } } },
         "responses": {
@@ -614,7 +614,7 @@
         "operationId": "procedures.upsert",
         "summary": "Idempotently create or update a procedure",
         "description": "Stable external IDs are namespaced to the authenticated OAuth client. A changed existing record requires its current opaque version; an already-applied retry remains safe with a stale version.",
-        "security": [{ "oauth2": ["clinical:write"] }],
+        "security": [{ "oauth2": ["clinical:write"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProcedureUpsertRequest" } } } },
         "responses": {
@@ -631,7 +631,7 @@
         "operationId": "immunizations.upsert",
         "summary": "Idempotently create or update an immunization",
         "description": "Stable external IDs are namespaced to the authenticated OAuth client. A changed existing record requires its current opaque version.",
-        "security": [{ "oauth2": ["clinical:write"] }],
+        "security": [{ "oauth2": ["clinical:write"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ImmunizationUpsertRequest" } } } },
         "responses": {
@@ -647,7 +647,7 @@
       "put": {
         "operationId": "medications.upsert",
         "summary": "Idempotently create or update a medication",
-        "security": [{ "oauth2": ["clinical:write"] }],
+        "security": [{ "oauth2": ["clinical:write"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MedicationUpsertRequest" } } } },
         "responses": {
@@ -663,7 +663,7 @@
       "put": {
         "operationId": "conditions.upsert",
         "summary": "Idempotently create or update a condition",
-        "security": [{ "oauth2": ["clinical:write"] }],
+        "security": [{ "oauth2": ["clinical:write"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ConditionUpsertRequest" } } } },
         "responses": {
@@ -679,7 +679,7 @@
       "put": {
         "operationId": "allergies.upsert",
         "summary": "Idempotently create or update an allergy",
-        "security": [{ "oauth2": ["clinical:write"] }],
+        "security": [{ "oauth2": ["clinical:write"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AllergyUpsertRequest" } } } },
         "responses": {
@@ -695,7 +695,7 @@
       "put": {
         "operationId": "lab_results.upsert",
         "summary": "Idempotently create or update a lab result",
-        "security": [{ "oauth2": ["clinical:write"] }],
+        "security": [{ "oauth2": ["clinical:write"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LabResultUpsertRequest" } } } },
         "responses": {
@@ -711,7 +711,7 @@
       "put": {
         "operationId": "vitals.upsert",
         "summary": "Idempotently create or update a vital",
-        "security": [{ "oauth2": ["clinical:write"] }],
+        "security": [{ "oauth2": ["clinical:write"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/PatientId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VitalUpsertRequest" } } } },
         "responses": {
@@ -728,7 +728,7 @@
         "operationId": "clinical.resolve",
         "summary": "Resolve this connection's own external IDs to record identity and version",
         "description": "Maps a bounded batch of external IDs onto record IDs and current opaque versions for one writable clinical resource. Lookup is scoped to the calling OAuth client's own import source, so it answers whether this connection has written a record before and never discloses another integration's records or a browser-created record. No clinical content is returned, which is why clinical:read alone is sufficient. Call it before upserting to decide what still needs writing: a matching version means skip, a differing version means read the record first, and a rejected review_status means a human refused the record and it must not be re-asserted unchanged.",
-        "security": [{ "oauth2": ["clinical:read"] }],
+        "security": [{ "oauth2": ["clinical:read"] }, { "apiToken": [] }],
         "parameters": [
           { "$ref": "#/components/parameters/PatientId" },
           { "$ref": "#/components/parameters/WritableClinicalResource" }
@@ -746,7 +746,7 @@
       "get": {
         "operationId": "clinical.get",
         "summary": "Get one core clinical record for an accessible patient",
-        "security": [{ "oauth2": ["clinical:read"] }],
+        "security": [{ "oauth2": ["clinical:read"] }, { "apiToken": [] }],
         "parameters": [
           { "$ref": "#/components/parameters/PatientId" },
           { "$ref": "#/components/parameters/ClinicalResource" },
@@ -767,7 +767,7 @@
         "operationId": "clinical.update",
         "summary": "Partially update one existing writable clinical record",
         "description": "Read the record first and supply its current opaque version. Requires clinical:read as well as clinical:write. The update is patient-scoped and never changes import_source or external_id. Omitted fields are preserved; a supplied null source_document_id clears only that link. A stale or unknown version is rejected with 409 before anything is applied, and every effective change resets review_status to pending_review.",
-        "security": [{ "oauth2": ["clinical:read", "clinical:write"] }],
+        "security": [{ "oauth2": ["clinical:read", "clinical:write"] }, { "apiToken": [] }],
         "parameters": [
           { "$ref": "#/components/parameters/PatientId" },
           { "$ref": "#/components/parameters/WritableClinicalResource" },
@@ -787,7 +787,7 @@
         "operationId": "clinical.retract",
         "summary": "Withdraw a clinical record this connection wrote",
         "description": "Marks a record as withdrawn by the integration that wrote it. This means the source is taking back a claim it made in error; it does NOT mean the record is absent from a later export. Institutions age data out past their own retention policies, so absence from a newer import is never a reason to retract. Scope is this connection's own import namespace: a record written by another client, or created in the browser, reports 404 rather than 403, because refusing by name would confirm another integration holds that identifier. Nothing is deleted, the identity stays reserved so an ordinary upsert cannot re-assert it, and the record stops appearing in lists, search, timeline, and clinical exports. Retracting an already-retracted record is settled as unchanged.",
-        "security": [{ "oauth2": ["clinical:write"] }],
+        "security": [{ "oauth2": ["clinical:write"] }, { "apiToken": [] }],
         "parameters": [
           { "$ref": "#/components/parameters/PatientId" },
           { "$ref": "#/components/parameters/WritableClinicalResource" },
@@ -852,7 +852,7 @@
     "/genai/queue/status": {
       "get": {
         "operationId": "genai.queue_status", "summary": "Read private external GenAI queue counts",
-        "security": [{ "oauth2": ["genai:read"] }],
+        "security": [{ "oauth2": ["genai:read"] }, { "apiToken": [] }],
         "parameters": [{ "name": "queue", "in": "query", "schema": { "type": "string", "maxLength": 80 } }],
         "responses": { "200": { "description": "Bounded status counts", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GenAiQueueStatus" } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "429": { "$ref": "#/components/responses/RateLimited" } }
       }
@@ -860,7 +860,7 @@
     "/genai/claims": {
       "post": {
         "operationId": "genai.requests.claim", "summary": "Lease one authorized external GenAI request",
-        "security": [{ "oauth2": ["genai:work"] }],
+        "security": [{ "oauth2": ["genai:work"] }, { "apiToken": [] }],
         "requestBody": { "content": { "application/json": { "schema": { "type": "object", "properties": { "queue": { "type": ["string", "null"], "maxLength": 80 } }, "additionalProperties": false } } } },
         "responses": { "200": { "description": "Lease, prompt, schemas, and authenticated attachment URLs", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GenAiClaimEnvelope" } } } }, "204": { "description": "No currently claimable work" }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "409": { "$ref": "#/components/responses/Conflict" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
       }
@@ -868,14 +868,14 @@
     "/genai/requests/{requestId}": {
       "get": {
         "operationId": "genai.requests.get", "summary": "Read one authorized external request status",
-        "security": [{ "oauth2": ["genai:read"] }], "parameters": [{ "$ref": "#/components/parameters/GenAiRequestId" }],
+        "security": [{ "oauth2": ["genai:read"] }, { "apiToken": [] }], "parameters": [{ "$ref": "#/components/parameters/GenAiRequestId" }],
         "responses": { "200": { "description": "Request status", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
       }
     },
     "/genai/requests/{requestId}/lease": {
       "post": {
         "operationId": "genai.leases.renew", "summary": "Renew an active external processing lease",
-        "security": [{ "oauth2": ["genai:work"] }], "parameters": [{ "$ref": "#/components/parameters/GenAiRequestId" }],
+        "security": [{ "oauth2": ["genai:work"] }, { "apiToken": [] }], "parameters": [{ "$ref": "#/components/parameters/GenAiRequestId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GenAiLeaseRequest" } } } },
         "responses": { "200": { "description": "Renewed lease", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GenAiClaimEnvelope" } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "409": { "$ref": "#/components/responses/Conflict" }, "410": { "$ref": "#/components/responses/Conflict" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
       }
@@ -884,7 +884,7 @@
       "post": {
         "operationId": "genai.requests.complete", "summary": "Submit a schema-validated external completion",
         "description": "Completion commits durable delivery only; PHR reauthorizes and idempotently stages proposals for human review.",
-        "security": [{ "oauth2": ["genai:work"] }], "parameters": [{ "$ref": "#/components/parameters/GenAiRequestId" }],
+        "security": [{ "oauth2": ["genai:work"] }, { "apiToken": [] }], "parameters": [{ "$ref": "#/components/parameters/GenAiRequestId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["lease_token", "response"], "properties": { "lease_token": { "type": "string" }, "response": { "type": "object" }, "executor": { "type": "object", "additionalProperties": { "type": "string" } } }, "additionalProperties": false } } } },
         "responses": { "200": { "description": "Durable completion receipt", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "409": { "$ref": "#/components/responses/Conflict" }, "410": { "$ref": "#/components/responses/Conflict" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
       }
@@ -892,7 +892,7 @@
     "/genai/requests/{requestId}/fail": {
       "post": {
         "operationId": "genai.requests.fail", "summary": "Report a sanitized external processing failure",
-        "security": [{ "oauth2": ["genai:work"] }], "parameters": [{ "$ref": "#/components/parameters/GenAiRequestId" }],
+        "security": [{ "oauth2": ["genai:work"] }, { "apiToken": [] }], "parameters": [{ "$ref": "#/components/parameters/GenAiRequestId" }],
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["lease_token", "error", "retryable"], "properties": { "lease_token": { "type": "string" }, "error": { "type": "object", "required": ["code", "message"], "properties": { "code": { "type": "string", "maxLength": 80 }, "message": { "type": "string", "maxLength": 1000 } }, "additionalProperties": false }, "retryable": { "type": "boolean" } }, "additionalProperties": false } } } },
         "responses": { "200": { "description": "Retry or terminal failure state", "content": { "application/json": { "schema": { "type": "object", "additionalProperties": true } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "409": { "$ref": "#/components/responses/Conflict" }, "410": { "$ref": "#/components/responses/Conflict" }, "422": { "$ref": "#/components/responses/InvalidRequest" }, "429": { "$ref": "#/components/responses/RateLimited" } }
       }
@@ -901,7 +901,7 @@
       "get": {
         "operationId": "genai.attachments.download", "summary": "Stream a leased health-document attachment with OAuth and signature",
         "description": "The temporary URL is not a bearer credential. The same genai:work OAuth Authorization header remains mandatory.",
-        "security": [{ "oauth2": ["genai:work"] }],
+        "security": [{ "oauth2": ["genai:work"] }, { "apiToken": [] }],
         "parameters": [{ "$ref": "#/components/parameters/GenAiRequestId" }, { "$ref": "#/components/parameters/GenAiAttachmentId" }, { "name": "attempt", "in": "query", "required": true, "schema": { "type": "integer", "minimum": 1 } }, { "name": "expires", "in": "query", "required": true, "schema": { "type": "integer" } }, { "name": "signature", "in": "query", "required": true, "schema": { "type": "string" } }],
         "responses": { "200": { "description": "Streamed document bytes", "content": { "application/octet-stream": { "schema": { "type": "string", "format": "binary" } } } }, "401": { "$ref": "#/components/responses/Unauthenticated" }, "403": { "$ref": "#/components/responses/InsufficientScope" }, "404": { "$ref": "#/components/responses/NotFound" }, "410": { "$ref": "#/components/responses/NotFound" }, "429": { "$ref": "#/components/responses/RateLimited" } }
       }
@@ -910,7 +910,7 @@
       "delete": {
         "operationId": "oauth.disconnect",
         "summary": "Immediately revoke the current access token and its refresh token",
-        "security": [{ "oauth2": [] }],
+        "security": [{ "oauth2": [] }, { "apiToken": [] }],
         "responses": {
           "204": { "description": "Token family revoked" },
           "401": { "$ref": "#/components/responses/Unauthenticated" },
@@ -922,6 +922,11 @@
   },
   "components": {
     "securitySchemes": {
+      "apiToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "A personal API token created under API Access in the account settings. It carries the permissions chosen when it was created and expires on the date shown there. It is not accepted by the MCP endpoint."
+      },
       "oauth2": {
         "type": "oauth2",
         "description": "OAuth 2.1 Authorization Code with S256 PKCE. Access tokens expire after 15 minutes and refresh tokens rotate on use.",

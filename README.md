@@ -106,7 +106,10 @@ and audit behavior in one place. Device pairing and respiratory ingest use a nar
 credential path designed for data-producing devices.
 
 The API contract is published at
-[`public/openapi/phr-agent-v1.json`](public/openapi/phr-agent-v1.json). See
+[`public/openapi/phr-agent-v1.json`](public/openapi/phr-agent-v1.json), and served with
+the installation's own API and OAuth URLs at `/api/openapi.json`. REST connectors
+authenticate with OAuth or with a personal API token; both are created by the signed-in
+person under **Config → API Access**, limited to the permissions they choose. See
 [`docs/agent-api-security.md`](docs/agent-api-security.md) for the integration threat
 model and security boundaries.
 

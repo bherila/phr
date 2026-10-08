@@ -52,6 +52,13 @@ return [
     'oauth_server' => AgentOAuthServer::config(AgentApiScopes::descriptions(), [
         'resource_required_scope' => AgentApiScopes::MCP_USE,
         'resource_required_scopes' => [AgentApiScopes::MCP_USE],
+        // A signed-in person's own API tokens and OAuth apps, for connectors that
+        // ask for a key or run their own authorization-code flow.
+        'credentials' => [
+            'enabled' => true,
+            'prefix' => 'account/api-credentials',
+            'token_lifetimes' => ['PT4H', 'P30D', 'P90D', 'P365D'],
+        ],
         'dynamic_clients' => [
             'required_columns' => ['dynamically_registered_at', 'scopes'],
             'registered_at_column' => 'dynamically_registered_at',
