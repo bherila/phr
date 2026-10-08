@@ -1097,7 +1097,7 @@
       },
       "IdentityResponse": {
         "type": "object",
-        "required": ["identity", "scopes"],
+        "required": ["identity", "scopes", "operations"],
         "properties": {
           "identity": {
             "type": "object",
@@ -1109,7 +1109,29 @@
             },
             "additionalProperties": false
           },
-          "scopes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+          "scopes": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+          "operations": {
+            "type": "object",
+            "description": "What this credential can do now, and why everything else is withheld, so a client can plan before calling and ask for the right access instead of probing.",
+            "required": ["available", "withheld"],
+            "properties": {
+              "available": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+              "withheld": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["operation", "reason", "detail"],
+                  "properties": {
+                    "operation": { "type": "string" },
+                    "reason": { "type": "string", "enum": ["deployment_flag", "missing_scope", "missing_permission", "group_not_granted", "policy", "depends_on"] },
+                    "detail": { "type": "string", "description": "The missing scopes (space-separated when all are needed, |-separated when any one is), or the operation depended on." }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          }
         },
         "additionalProperties": false
       },
