@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "8323d46afbb94d2a407daeb7f710b491",
+    "content-hash": "fb3be2642047f153a466b4cd0ff4a738",
     "packages": [
         {
             "name": "aws/aws-crt-php",
@@ -236,16 +236,16 @@
         },
         {
             "name": "bherila/auth-laravel",
-            "version": "v0.12.0",
+            "version": "v0.18.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/bherila/auth-laravel.git",
-                "reference": "cda94048c952eaaf10726be2c71d6f27cc8c6061"
+                "reference": "a43da2eaa58ba0ca7558e1bb22ca91355ad98661"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/bherila/auth-laravel/zipball/cda94048c952eaaf10726be2c71d6f27cc8c6061",
-                "reference": "cda94048c952eaaf10726be2c71d6f27cc8c6061",
+                "url": "https://api.github.com/repos/bherila/auth-laravel/zipball/a43da2eaa58ba0ca7558e1bb22ca91355ad98661",
+                "reference": "a43da2eaa58ba0ca7558e1bb22ca91355ad98661",
                 "shasum": ""
             },
             "require": {
@@ -259,6 +259,7 @@
                 "illuminate/routing": "^13.0",
                 "illuminate/support": "^13.0",
                 "illuminate/validation": "^13.0",
+                "lcobucci/jwt": "^5.6",
                 "php": "^8.4",
                 "symfony/uid": "^7.4 || ^8.0",
                 "web-auth/webauthn-lib": "^5.3.5"
@@ -293,7 +294,7 @@
                 "issues": "https://github.com/bherila/auth-laravel/issues",
                 "source": "https://github.com/bherila/auth-laravel"
             },
-            "time": "2026-09-05T00:39:46+00:00"
+            "time": "2026-10-08T10:11:45+00:00"
         },
         {
             "name": "bherila/genai-laravel",
