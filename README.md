@@ -226,6 +226,9 @@ pending migrations and aggregate queue counts. Diagnostics consume no queued wor
 and emit no patient data or key contents. A newer deployment generation supersedes
 post-unlock diagnostics rather than falsely failing an earlier healthy release.
 
+Configured hook paths, managed cron and audit memory settings are validated before
+remote deployment state changes.
+
 Atomic deployments verify the exact serving release and PHR's HTTP, assets, OAuth,
 MCP, OHIF, queue, key and cron contracts before probing web PHP. An inconclusive
 PHP probe can leave that verified release serving and uncommitted while the run
