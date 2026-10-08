@@ -61,8 +61,15 @@ case "$url" in
         esac
         ;;
     */ohif/viewer/dicomjson)
+        if [[ "${PHR_TEST_TRANSPORT_FAILURE:-false}" == true ]]; then
+            printf 'curl error: https://private.invalid/?token=synthetic-secret\n' >&2
+            printf '000'
+            exit 28
+        fi
         status="${PHR_TEST_VIEWER_STATUS:-302}"
         location="${PHR_TEST_VIEWER_LOCATION:-https://phr.example.test/login}"
+        content_type="${PHR_TEST_VIEWER_CONTENT_TYPE:-text/html; charset=UTF-8}"
+        payload='synthetic-secret response body'
         ;;
     */.well-known/oauth-protected-resource/api/v1)
         payload='{"resource":"https://phr.example.test/api/v1","authorization_servers":["https://phr.example.test"],"scopes_supported":["mcp:use","genai:read","genai:work"]}'
@@ -90,11 +97,19 @@ case "$url" in
         ;;
 esac
 {
+    if [[ "${PHR_TEST_PREVIOUS_HEADERS:-false}" == true ]]; then
+        printf 'HTTP/1.1 503 Previous\r\nCF-Mitigated: challenge\r\nCF-Cache-Status: HIT\r\n\r\n'
+    fi
     printf 'HTTP/1.1 %s Synthetic\r\n' "$status"
     printf 'Cache-Control: %s\r\n' "$cache"
     printf 'X-Content-Type-Options: nosniff\r\n'
     [[ -z "$location" ]] || printf 'Location: %s\r\n' "$location"
     [[ -z "$content_type" ]] || printf 'Content-Type: %s\r\n' "$content_type"
+    if [[ "$url" == */ohif/viewer/dicomjson ]]; then
+        printf 'Set-Cookie: synthetic-secret=session\r\nX-Private-Header: synthetic-secret\r\n'
+        [[ -z "${PHR_TEST_CF_MITIGATED:-}" ]] || printf 'CF-Mitigated: %s\r\n' "$PHR_TEST_CF_MITIGATED"
+        [[ -z "${PHR_TEST_CF_CACHE_STATUS:-}" ]] || printf 'CF-Cache-Status: %s\r\n' "$PHR_TEST_CF_CACHE_STATUS"
+    fi
     [[ -z "$challenge" ]] || printf 'WWW-Authenticate: %s\r\n' "$challenge"
     [[ -z "$allow_origin" ]] || printf 'Access-Control-Allow-Origin: %s\r\n' "$allow_origin"
     printf '\r\n'
@@ -305,6 +320,45 @@ done
 if PHR_TEST_ARTIFACT_FAILURE=true "$verifier" >/dev/null 2>&1; then
     echo 'Failed remote OHIF artifact proof accepted.' >&2; exit 1
 fi
+
+# Diagnostics preserve strict outcomes and expose only fixed metadata values.
+expect_http_failure() {
+    local label="$1" expected="$2" output result
+    shift 2
+    reset_remote_logs
+    output="$(env "$@" "$verifier" 2>&1)" && result=0 || result=$?
+    [[ "$result" != 0 && "$output" == *"$expected"* ]] || {
+        echo "[$label] missing safe failure diagnostic" >&2; exit 1;
+    }
+    [[ "$output" != *synthetic-secret* && "$output" != *private.invalid* && "$output" != *Set-Cookie* ]] || {
+        echo "[$label] private response material appeared in diagnostics" >&2; exit 1;
+    }
+    [[ ! -s "$ssh_log" ]] || { echo "[$label] failed HTTP checks reached SSH" >&2; exit 1; }
+}
+expect_http_failure 'edge challenge' \
+    'check=ohif status=403 curl_exit=0 content_type=text/html cf_mitigated=challenge cf_cache_status=DYNAMIC' \
+    PHR_TEST_VIEWER_STATUS=403 PHR_TEST_CF_MITIGATED=challenge PHR_TEST_CF_CACHE_STATUS=DYNAMIC \
+    PHR_TEST_VIEWER_LOCATION='https://private.invalid/?token=synthetic-secret'
+expect_http_failure 'HTTP200 remains rejected' \
+    'check=ohif status=200 curl_exit=0' PHR_TEST_VIEWER_STATUS=200
+expect_http_failure 'unexpected headers redacted' \
+    'content_type=other cf_mitigated=other cf_cache_status=other' \
+    PHR_TEST_VIEWER_STATUS=503 PHR_TEST_VIEWER_CONTENT_TYPE=synthetic-secret \
+    PHR_TEST_CF_MITIGATED=synthetic-secret PHR_TEST_CF_CACHE_STATUS=synthetic-secret
+expect_http_failure 'final response block' \
+    'cf_mitigated=none cf_cache_status=unavailable' \
+    PHR_TEST_VIEWER_STATUS=503 PHR_TEST_PREVIOUS_HEADERS=true
+expect_http_failure 'transport failure' \
+    'check=ohif status=000 curl_exit=28 content_type=unavailable cf_mitigated=none cf_cache_status=unavailable' \
+    PHR_TEST_TRANSPORT_FAILURE=true
+expect_http_failure 'strict redirect' \
+    'check=ohif status=302 curl_exit=0' \
+    PHR_TEST_VIEWER_LOCATION='https://private.invalid/?token=synthetic-secret'
+# Successful HTTP followed by a host proof failure must not report an HTTP failure.
+host_output="$(PHR_TEST_ARTIFACT_FAILURE=true "$verifier" 2>&1)" && host_status=0 || host_status=$?
+[[ "$host_status" != 0 && "$host_output" != *'PHR HTTP verification failed:'* ]] || {
+    echo 'Host proof failure was incorrectly labelled as an HTTP failure.' >&2; exit 1;
+}
 
 export DEPLOY_CANDIDATE_DIR=.deployments/phr-laravel/releases/abcdef123456-42-1
 if "$verifier" >/dev/null 2>&1; then

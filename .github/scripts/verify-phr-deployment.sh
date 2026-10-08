@@ -45,7 +45,16 @@ readonly repo_root
 readonly manifest_path="${PHR_VERIFY_MANIFEST:-$repo_root/public/build/manifest.json}"
 verify_root="$(mktemp -d)"
 readonly verify_root
-trap 'rm -rf "$verify_root"' EXIT
+cleanup_verification() {
+    local result=$?
+    trap - EXIT
+    if [[ "$result" != 0 && -n "${RESPONSE_NAME:-}" ]]; then
+        http_failure_diagnostics || true
+    fi
+    rm -rf "$verify_root"
+    exit "$result"
+}
+trap cleanup_verification EXIT
 
 # shellcheck source=./verify-frontend-manifest.sh
 source "$script_dir/verify-frontend-manifest.sh"
@@ -71,11 +80,63 @@ fi
 request() {
     local name="$1" url="$2"
     shift 2
+    RESPONSE_NAME="$name"
     RESPONSE_HEADERS="$verify_root/$name.headers"
     RESPONSE_BODY="$verify_root/$name.body"
-    RESPONSE_STATUS="$("$curl_bin" --silent --show-error --retry 3 --retry-all-errors \
+    RESPONSE_CURL_EXIT=0
+    # Curl diagnostics can contain URLs. Keep them private; report only its exit
+    # code and the allowlisted response metadata on a failed verification.
+    if RESPONSE_STATUS="$("$curl_bin" --silent --show-error --retry 3 --retry-all-errors \
         --max-time 20 --dump-header "$RESPONSE_HEADERS" --output "$RESPONSE_BODY" \
-        --write-out '%{http_code}' "$@" "$url")"
+        --write-out '%{http_code}' "$@" "$url" 2>"$verify_root/$name.curl-error")"; then
+        return 0
+    else
+        RESPONSE_CURL_EXIT=$?
+        exit "$RESPONSE_CURL_EXIT"
+    fi
+}
+
+# Select only the final response header block (curl may retry). Never print raw
+# headers, bodies, Location, cookies, or authentication challenges. Even these
+# allowlisted headers are mapped to fixed values before appearing in CI logs.
+diagnostic_header_value() {
+    [[ -f "$RESPONSE_HEADERS" ]] || return 0
+    LC_ALL=C awk -v wanted="$1" '
+        /^HTTP\/[0-9.]+[[:space:]]/ { value = "" }
+        {
+            colon = index($0, ":")
+            if (colon && tolower(substr($0, 1, colon - 1)) == wanted) {
+                value = substr($0, colon + 1)
+                sub(/^[[:space:]]*/, "", value)
+                sub(/\r$/, "", value)
+            }
+        }
+        END { if (length(value) <= 128) print value }
+    ' "$RESPONSE_HEADERS"
+}
+
+http_failure_diagnostics() {
+    local check="$RESPONSE_NAME" status="${RESPONSE_STATUS:-000}"
+    local mime mitigated cache
+    [[ "$check" =~ ^[A-Za-z0-9._/-]{1,128}$ ]] || check=asset
+    [[ "$status" =~ ^[0-9]{3}$ ]] || status=invalid
+    mime="$(diagnostic_header_value content-type)"
+    mime="${mime%%;*}"
+    case "${mime,,}" in
+        text/html|application/json|text/plain|text/css|text/javascript|application/javascript|application/octet-stream) mime="${mime,,}" ;;
+        '') mime=unavailable ;;
+        *) mime=other ;;
+    esac
+    mitigated="$(diagnostic_header_value cf-mitigated)"
+    case "${mitigated,,}" in challenge) mitigated=challenge ;; '') mitigated=none ;; *) mitigated=other ;; esac
+    cache="$(diagnostic_header_value cf-cache-status)"
+    case "${cache^^}" in
+        HIT|MISS|DYNAMIC|BYPASS|EXPIRED|STALE|UPDATING|REVALIDATED) cache="${cache^^}" ;;
+        '') cache=unavailable ;;
+        *) cache=other ;;
+    esac
+    printf 'PHR HTTP verification failed: check=%s status=%s curl_exit=%s content_type=%s cf_mitigated=%s cf_cache_status=%s\n' \
+        "$check" "$status" "$RESPONSE_CURL_EXIT" "$mime" "$mitigated" "$cache" >&2
 }
 
 header_value() {
@@ -213,6 +274,9 @@ if [[ "$RESPONSE_STATUS" != 204 \
     echo 'Hostile-origin MCP preflight did not fail closed without CORS permission.' >&2
     exit 1
 fi
+
+# Subsequent host verification failures must not be labelled as HTTP failures.
+RESPONSE_NAME=''
 
 "$ssh_bin" "$DEPLOY_SSH_TARGET" \
     "bash -s -- $(printf '%q ' "$DEPLOY_CANDIDATE_DIR" "$DEPLOY_PHP_BINARY" "$DEPLOY_DIR")" \

@@ -226,6 +226,9 @@ pending migrations and aggregate queue counts. Diagnostics consume no queued wor
 and emit no patient data or key contents. A newer deployment generation supersedes
 post-unlock diagnostics rather than falsely failing an earlier healthy release.
 
+Configured hook paths, managed cron and audit memory settings are validated before
+remote deployment state changes.
+
 Atomic deployments verify the exact serving release and PHR's HTTP, assets, OAuth,
 MCP, OHIF, queue, key and cron contracts before probing web PHP. An inconclusive
 PHP probe can leave that verified release serving and uncommitted while the run
@@ -233,7 +236,9 @@ fails. HTTP 200 alone cannot grant this exception; failed application checks and
 definitive PHP or memory mismatches follow the maintenance failure policy.
 The shared health and PHP probes run on the host against its own web server,
 while PHR's application verifier checks the public HTTPS endpoints, including
-their OAuth, MCP and OHIF access boundaries.
+their OAuth, MCP and OHIF access boundaries. HTTP failures report the check name, status,
+MIME type, curl exit code and allowlisted Cloudflare indicators. Bodies, cookies,
+redirect URLs and raw curl errors remain private and are removed after verification.
 
 The Playwright suite uses isolated local storage and a synthetic OAuth provider. Test
 fixtures must remain synthetic.

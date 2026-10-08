@@ -32,7 +32,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: bherila/shared-cpanel-deployment
-          ref: 988ddcdd65f3f16a7133cfd44c8c277524d62e53 # reviewed deployment guards and recovery
+          ref: 223c7a976fff738b532adb4a54f680ee75ff4cb3 # reviewed deployment validation, guards and recovery
           path: .shared-cpanel-deployment
           persist-credentials: false
       - name: Shell and synthetic read-only diagnostics
@@ -62,7 +62,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: bherila/shared-cpanel-deployment
-          ref: 988ddcdd65f3f16a7133cfd44c8c277524d62e53 # reviewed deployment guards and recovery
+          ref: 223c7a976fff738b532adb4a54f680ee75ff4cb3 # reviewed deployment validation, guards and recovery
           path: .shared-cpanel-deployment
           persist-credentials: false
       - name: Configure the diagnostic SSH identity
