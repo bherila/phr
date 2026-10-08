@@ -8,8 +8,8 @@ use App\Http\Controllers\PHR\PhrDocumentController;
 use App\Http\Controllers\PHR\PhrExportController;
 use App\Http\Controllers\PHR\PhrNativeBackupController;
 use App\Http\Controllers\UptimeController;
-use BWH\Auth\Http\Controllers\OAuthDynamicClientRegistrationController;
 use BWH\Auth\Http\Controllers\OAuthMetadataController;
+use BWH\Auth\OAuth\Server\AgentOAuthServer;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
@@ -24,18 +24,17 @@ Route::withoutMiddleware([
     ShareErrorsFromSession::class,
     PreventRequestForgery::class,
 ])->group(function (): void {
-    Route::get('/.well-known/oauth-authorization-server', [OAuthMetadataController::class, 'authorizationServer'])
-        ->name('oauth.metadata.authorization-server');
+    // Compatibility aliases for connectors that discovered the resource before
+    // the preset's single RFC 9728 path: both describe the one APP_URL/api/v1
+    // resource, so a client already connected keeps finding its metadata.
     Route::get('/.well-known/oauth-protected-resource', [OAuthMetadataController::class, 'protectedResource'])
         ->name('oauth.metadata.protected-resource-root');
-    Route::get('/.well-known/oauth-protected-resource/api/v1', [OAuthMetadataController::class, 'protectedResource'])
-        ->name('oauth.metadata.protected-resource');
     Route::get('/.well-known/oauth-protected-resource/api/v1/mcp', [OAuthMetadataController::class, 'protectedResource'])
         ->name('oauth.metadata.protected-resource-mcp');
-    Route::post('/oauth/register', OAuthDynamicClientRegistrationController::class)
-        ->middleware('throttle:agent-api-client-registration')
-        ->name('oauth.clients.register');
 });
+
+// Discovery documents and public self-registration, from the agent OAuth preset.
+AgentOAuthServer::routes(registrationThrottle: 'throttle:agent-api-client-registration');
 
 Route::get('/login', function () {
     return view('login');

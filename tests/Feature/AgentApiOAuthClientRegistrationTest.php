@@ -126,7 +126,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         $this->assertNotNull($client->fresh()?->first_authorized_at);
     }
 
-    public function test_mcp_authorization_requires_the_canonical_resource_indicator(): void
+    public function test_mcp_authorization_refuses_a_foreign_resource_and_assumes_an_omitted_one(): void
     {
         $user = User::factory()->create([
             'name' => 'Synthetic MCP Authorization User',
@@ -146,13 +146,15 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         ];
 
         $this->assertOAuthErrorRedirect(
-            $this->actingAs($user)->getJson('/oauth/authorize?'.http_build_query($authorization)),
+            $this->actingAs($user)->getJson('/oauth/authorize?'.http_build_query([
+                ...$authorization,
+                'resource' => 'https://unrelated.example.test/api',
+            ])),
             'invalid_target',
         );
-        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
-            ...$authorization,
-            'resource' => OAuthResourceIndicator::resource(),
-        ]))->assertOk();
+        // A connector that never sends `resource` is bound to the one configured.
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query($authorization))->assertOk();
+        $this->assertSame(OAuthResourceIndicator::resource(), app(OAuthAuthorizationStateStore::class)->resourceFor((string) session('authToken')));
         $redirect = $this->post('/oauth/authorize', [
             'auth_token' => session('authToken'),
         ])->assertRedirect();
@@ -405,12 +407,15 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'resource' => OAuthResourceIndicator::resource(),
         ]))->assertUnauthorized();
 
-        $this->assertNull(app(OAuthAuthorizationStateStore::class)->resourceFor($authToken));
+        // The consent was bound to the configured resource when it opened (an
+        // omitted `resource` is assumed); neither the failed request nor a
+        // resource posted with the approval can change that binding.
+        $this->assertSame(OAuthResourceIndicator::resource(), app(OAuthAuthorizationStateStore::class)->resourceFor($authToken));
         $this->post('/oauth/authorize', [
             'auth_token' => $authToken,
             'resource' => 'https://unrelated.example.test/api',
         ])->assertRedirect();
-        $this->assertNull(AuthCode::query()->sole()->resource_uri);
+        $this->assertSame(OAuthResourceIndicator::resource(), AuthCode::query()->sole()->resource_uri);
     }
 
     public function test_dynamic_registration_has_a_dedicated_pre_authentication_limit(): void

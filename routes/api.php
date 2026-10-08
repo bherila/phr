@@ -71,7 +71,10 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         ->middleware([McpHttpSecurityMiddleware::class, 'throttle:60,1'])
         ->name('mcp.options');
 
+    // Every /api/v1 credential is bound to this one resource (the preset takes
+    // an omitted `resource` as APP_URL/api/v1), so the whole group expects it.
     Route::middleware([
+        ExpectOAuthResource::class,
         'auth:api',
         AuditAgentApiRequest::class,
         EnsureOAuthUserCanLogin::class,
@@ -89,7 +92,6 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
 
         Route::match(['POST', 'DELETE'], '/mcp', AgentMcpController::class)
             ->middleware(McpHttpSecurityMiddleware::class)
-            ->middleware(ExpectOAuthResource::class)
             ->middleware('throttle:agent-api')
             ->middleware(CheckToken::using(AgentApiScopes::MCP_USE))
             ->middleware('genai.mcp.auth')

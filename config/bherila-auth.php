@@ -3,6 +3,7 @@
 use App\Http\Middleware\ThrottleTwoFactorVerify;
 use App\Models\User;
 use App\Support\AgentApi\AgentApiScopes;
+use BWH\Auth\OAuth\Server\AgentOAuthServer;
 
 return [
     'routes' => [
@@ -13,6 +14,17 @@ return [
         'password_resets' => false,
         'change_password' => false,
         'two_factor' => false,
+    ],
+
+    // Every per-client limit keys on Request::ip(). Behind Cloudflare that is the
+    // edge's address unless the edge is trusted, so all of an edge's callers would
+    // share one budget. Only Cloudflare's published ranges are trusted by default;
+    // a direct connection's forwarded headers are ignored. A deployment behind
+    // another proxy lists it in TRUSTED_PROXIES; one with no proxy sets it empty.
+    'trusted_proxies' => [
+        'apply' => (bool) env('BHERILA_AUTH_TRUSTED_PROXIES', true),
+        'trusted' => env('TRUSTED_PROXIES', 'cloudflare'),
+        'cloudflare' => null,
     ],
 
     'oauth_client' => [
@@ -33,15 +45,11 @@ return [
         'end_session_path' => '/oauth/end-session',
     ],
 
-    'oauth_server' => [
-        'enabled' => true,
-        'issuer' => rtrim((string) env('APP_URL', 'http://localhost'), '/'),
-        'resource' => rtrim((string) env('APP_URL', 'http://localhost'), '/').'/api/v1',
-        'authorization_endpoint' => rtrim((string) env('APP_URL', 'http://localhost'), '/').'/oauth/authorize',
-        'token_endpoint' => rtrim((string) env('APP_URL', 'http://localhost'), '/').'/oauth/token',
-        'registration_endpoint' => rtrim((string) env('APP_URL', 'http://localhost'), '/').'/oauth/register',
-        'scopes' => AgentApiScopes::descriptions(),
-        'token_endpoint_auth_methods' => ['none', 'client_secret_basic', 'client_secret_post'],
+    // The agent-API authorization-server profile: every URL derives from APP_URL,
+    // so a fork needs no host-specific settings. The preset binds credentials to
+    // APP_URL/api/v1 (an omitted `resource` is taken as that one), requires S256
+    // PKCE for every client, and allows public-only self-registration.
+    'oauth_server' => AgentOAuthServer::config(AgentApiScopes::descriptions(), [
         'resource_required_scope' => AgentApiScopes::MCP_USE,
         'resource_required_scopes' => [AgentApiScopes::MCP_USE],
         'dynamic_clients' => [
@@ -66,7 +74,7 @@ return [
             'approve_label' => 'Authorize',
             'deny_label' => 'Cancel',
         ],
-    ],
+    ]),
 
     'migrations' => [
         'drop_tables_on_rollback' => false,
