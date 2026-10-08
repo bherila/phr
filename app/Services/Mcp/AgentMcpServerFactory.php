@@ -2,7 +2,9 @@
 
 namespace App\Services\Mcp;
 
+use App\Support\AgentApi\AgentApiPrincipal;
 use App\Support\AgentApi\AgentApiResponseSchemaCatalog;
+use App\Support\AgentApi\AgentOperations;
 use App\Support\Logging\McpSafeLogger;
 use Bherila\GenAiLaravel\Mcp\GenAiMcpToolCatalog;
 use Bherila\GenAiLaravel\Mcp\Tools\GenAiMcpTools;
@@ -35,6 +37,7 @@ final class AgentMcpServerFactory
         private readonly RequestArguments $requestArguments,
         private readonly GenAiMcpToolCatalog $genAiCatalog,
         private readonly GenAiMcpTools $genAiTools,
+        private readonly AgentOperations $operations,
     ) {}
 
     public function make(Request $request): Server
@@ -50,11 +53,11 @@ final class AgentMcpServerFactory
             $genAiDefinitions,
         ), true);
         $definitions = [...$phrDefinitions, ...$genAiDefinitions];
+        // One availability evaluation decides every tool, PHR and GenAI alike.
+        $available = $this->operations->availability()->evaluate(new AgentApiPrincipal($request));
         $exposedDefinitions = array_values(array_filter(
             $definitions,
-            fn (ToolDefinition $definition): bool => isset($genAiToolNames[$definition->name])
-                ? (bool) $request->user('api')?->tokenCan($this->genAiCatalog->requiredScope($definition))
-                : $this->canExpose($request, $definition),
+            static fn (ToolDefinition $definition): bool => $available->isAvailable($definition->name),
         ));
         $exposedToolNames = array_fill_keys(array_map(
             static fn (ToolDefinition $definition): string => $definition->name,
@@ -170,22 +173,6 @@ final class AgentMcpServerFactory
     private function hasTools(array $available, array $required): bool
     {
         return array_diff($required, array_keys($available)) === [];
-    }
-
-    private function canExpose(Request $request, ToolDefinition $definition): bool
-    {
-        if ($definition->responseOperationId() === 'capabilities.get') {
-            return true;
-        }
-
-        $user = $request->user('api');
-        foreach (AgentApiResponseSchemaCatalog::scopesForOperation($definition->responseOperationId()) as $scope) {
-            if (! $user?->tokenCan($scope)) {
-                return false;
-            }
-        }
-
-        return true;
     }
 
     /** @param array<string, true> $available */

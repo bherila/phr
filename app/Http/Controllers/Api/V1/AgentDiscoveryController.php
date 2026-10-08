@@ -4,8 +4,10 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Services\PHR\DICOM\DicomUploadLimits;
+use App\Support\AgentApi\AgentApiPrincipal;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
+use App\Support\AgentApi\AgentOperations;
 use App\Support\PHR\PhrDocumentUploadLimits;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -176,12 +178,13 @@ class AgentDiscoveryController extends Controller
         ]);
     }
 
-    public function me(Request $request): JsonResponse
+    public function me(Request $request, AgentOperations $operations): JsonResponse
     {
         $user = $request->user('api');
         $token = $user?->token();
         $attributes = $token instanceof AccessToken ? $token->toArray() : [];
         $scopes = $attributes['oauth_scopes'] ?? [];
+        $report = $operations->availability()->evaluate(new AgentApiPrincipal($request));
 
         return response()->json([
             'identity' => [
@@ -190,6 +193,10 @@ class AgentDiscoveryController extends Controller
                 'email' => $user?->email,
             ],
             'scopes' => is_array($scopes) ? array_values($scopes) : [],
+            'operations' => [
+                'available' => $report->availableIds(),
+                'withheld' => $report->withheldArray(),
+            ],
         ])->withHeaders($this->privateHeaders());
     }
 
