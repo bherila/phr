@@ -15,6 +15,8 @@ use App\Support\AgentApi\AgentApiTokenPolicy;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use App\Support\AgentApi\OAuthExchangeAccountGuard;
 use App\Support\PHR\PhrDocumentUploadLimits;
+use BWH\Auth\OAuth\Server\OAuthResourceIndicator;
+use BWH\Auth\OAuth\Server\ResourceAccessToken;
 use DateTimeImmutable;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -27,7 +29,6 @@ use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Laravel\Passport\AccessToken;
 use Laravel\Passport\AuthCode;
-use Laravel\Passport\Bridge\AccessToken as PassportAccessTokenEntity;
 use Laravel\Passport\Bridge\AccessTokenRepository as PassportAccessTokenRepository;
 use Laravel\Passport\Bridge\AuthCode as PassportAuthCodeEntity;
 use Laravel\Passport\Bridge\AuthCodeRepository as PassportAuthCodeRepository;
@@ -968,11 +969,14 @@ class AgentApiOAuthFoundationTest extends TestCase
             'expires_at' => now()->addMinutes(15),
         ]);
 
-        $entity = new PassportAccessTokenEntity(
+        // Grants bind every credential to the API resource, so the successor
+        // carries it as Passport's own grant would.
+        $entity = new ResourceAccessToken(
             (string) $user->id,
             [],
             new PassportClientEntity($client->id, $client->name, $client->redirect_uris),
         );
+        $entity->setResource(OAuthResourceIndicator::resource());
         $entity->setIdentifier($tokenId = Str::random(80));
         $entity->setExpiryDateTime(new DateTimeImmutable('+15 minutes'));
         app(PassportAccessTokenRepository::class)->persistNewAccessToken($entity);

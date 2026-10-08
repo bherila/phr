@@ -3,9 +3,7 @@
 use App\Http\Middleware\EnsureOAuthAuthorizationUserCanLogin;
 use App\Http\Middleware\OAuthAuthorizationSecurityHeaders;
 use App\Http\Middleware\SerializeOAuthTokenExchange;
-use BWH\Auth\Http\Middleware\EnforceOAuthPkce;
-use BWH\Auth\Http\Middleware\EnforceOAuthResourceIndicator;
-use BWH\Auth\Http\Middleware\EnsureOAuthServerEnabled;
+use BWH\Auth\OAuth\Server\AgentOAuthServer;
 
 return [
 
@@ -22,14 +20,11 @@ return [
 
     'guard' => 'web',
 
-    'middleware' => [
-        EnsureOAuthServerEnabled::class,
-        EnforceOAuthPkce::class,
-        EnforceOAuthResourceIndicator::class,
+    'middleware' => AgentOAuthServer::passportMiddleware([
         EnsureOAuthAuthorizationUserCanLogin::class,
         SerializeOAuthTokenExchange::class,
         OAuthAuthorizationSecurityHeaders::class,
-    ],
+    ]),
 
     /*
     |--------------------------------------------------------------------------
