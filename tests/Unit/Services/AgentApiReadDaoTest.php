@@ -96,6 +96,55 @@ final class AgentApiReadDaoTest extends TestCase
         $dao->patient(1);
     }
 
+    public function test_a_conflict_tells_the_client_what_to_do(): void
+    {
+        $dao = new AgentApiReadDao(new RecordingAgentApiTransport(new AgentApiTransportResponse(409, [
+            'message' => 'The clinical record changed; fetch it and retry with its current version.',
+        ])));
+
+        $this->expectException(ToolCallException::class);
+        $this->expectExceptionMessage('The clinical record changed; fetch it and retry with its current version.');
+        $dao->patient(1);
+    }
+
+    public function test_a_validation_refusal_names_the_first_failing_field(): void
+    {
+        $dao = new AgentApiReadDao(new RecordingAgentApiTransport(new AgentApiTransportResponse(422, [
+            'message' => 'The limit field must not be greater than 100. (and 1 more error)',
+            'errors' => ['limit' => ['The limit field must not be greater than 100.'], 'cursor' => ['The cursor is invalid.']],
+        ])));
+
+        try {
+            $dao->patient(1);
+            $this->fail('A 422 must throw.');
+        } catch (ToolCallException $exception) {
+            $this->assertSame('The limit field must not be greater than 100. (and 1 more error) The limit field must not be greater than 100.', $exception->getMessage());
+        }
+    }
+
+    public function test_a_refusal_without_a_message_or_with_an_oversized_one_stays_bounded(): void
+    {
+        foreach ([
+            [new AgentApiTransportResponse(422, null), 'The PHR API rejected one or more request values.'],
+            [new AgentApiTransportResponse(409, ['message' => ['not' => 'a string']]), 'The PHR API rejected the request because its current state conflicts.'],
+        ] as [$response, $expected]) {
+            try {
+                (new AgentApiReadDao(new RecordingAgentApiTransport($response)))->patient(1);
+                $this->fail('A refusal must throw.');
+            } catch (ToolCallException $exception) {
+                $this->assertSame($expected, $exception->getMessage());
+            }
+        }
+
+        try {
+            (new AgentApiReadDao(new RecordingAgentApiTransport(new AgentApiTransportResponse(409, ['message' => str_repeat('x', 2000)."\n\u{0007}"]))))->patient(1);
+            $this->fail('A refusal must throw.');
+        } catch (ToolCallException $exception) {
+            $this->assertLessThanOrEqual(500, mb_strwidth($exception->getMessage()));
+            $this->assertDoesNotMatchRegularExpression('/[[:cntrl:]]/', $exception->getMessage());
+        }
+    }
+
     public function test_write_dao_preserves_nullable_concurrency_fields_and_validates_its_response(): void
     {
         $transport = new RecordingAgentApiTransport(new AgentApiTransportResponse(201, [

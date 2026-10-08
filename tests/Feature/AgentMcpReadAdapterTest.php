@@ -498,6 +498,19 @@ final class AgentMcpReadAdapterTest extends TestCase
         ]);
         $this->assertFalse($updated['result']['isError'] ?? true, json_encode($updated, JSON_THROW_ON_ERROR));
         $this->assertSame('updated', $updated['result']['structuredContent']['outcome'] ?? null);
+        // Retrying with the version the update replaced is a conflict, and the
+        // client is told how to recover rather than a generic failure.
+        $stale = $this->callTool($session, 4, 'procedures.update', [
+            'patient_id' => $patient->id,
+            'record_id' => $created['result']['structuredContent']['data']['id'],
+            'expected_version' => $created['result']['structuredContent']['version'],
+            'data' => ['raw_text' => 'Synthetic stale edit.'],
+        ]);
+        $this->assertTrue($stale['result']['isError'] ?? false, json_encode($stale, JSON_THROW_ON_ERROR));
+        $this->assertSame(
+            'The clinical record changed; fetch it and retry with its current version.',
+            $stale['result']['content'][0]['text'] ?? null,
+        );
         $this->assertSame(
             'pending_review',
             $updated['result']['structuredContent']['data']['review_status'] ?? null,

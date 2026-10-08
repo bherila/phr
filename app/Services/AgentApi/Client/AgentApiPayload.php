@@ -19,7 +19,7 @@ final readonly class AgentApiPayload
     public static function from(AgentApiTransportResponse $response, array $requiredKeys): self
     {
         if ($response->status < 200 || $response->status >= 300) {
-            throw new ToolCallException(self::safeFailureMessage($response->status));
+            throw new ToolCallException(self::failureMessage($response->status, $response->json));
         }
         if ($response->json === null) {
             throw new ToolCallException('The PHR API returned an invalid response.');
@@ -99,6 +99,45 @@ final readonly class AgentApiPayload
     public function toArray(): array
     {
         return $this->value;
+    }
+
+    /**
+     * A conflict or validation refusal is written for the caller and says what
+     * to change (re-read the record, pick another external ID, fix a field), so
+     * its message and first field error reach the MCP client. Every other
+     * failure keeps a fixed message: its body is not written for agents.
+     *
+     * @param  array<string, mixed>|null  $body
+     */
+    private static function failureMessage(int $status, ?array $body): string
+    {
+        if (! in_array($status, [409, 422], true)) {
+            return self::safeFailureMessage($status);
+        }
+        $parts = [];
+        foreach ([$body['message'] ?? null, self::firstFieldError($body['errors'] ?? null)] as $part) {
+            $part = is_string($part) ? trim((string) preg_replace('/[[:cntrl:]]+/u', ' ', $part)) : '';
+            if ($part !== '' && ! in_array($part, $parts, true)) {
+                $parts[] = $part;
+            }
+        }
+
+        return $parts === [] ? self::safeFailureMessage($status) : mb_strimwidth(implode(' ', $parts), 0, self::MAX_REFUSAL_LENGTH, '…');
+    }
+
+    private const int MAX_REFUSAL_LENGTH = 500;
+
+    private static function firstFieldError(mixed $errors): ?string
+    {
+        foreach (is_array($errors) ? $errors : [] as $fieldErrors) {
+            foreach (is_array($fieldErrors) ? $fieldErrors : [] as $error) {
+                if (is_string($error) && trim($error) !== '') {
+                    return $error;
+                }
+            }
+        }
+
+        return null;
     }
 
     private static function safeFailureMessage(int $status): string
