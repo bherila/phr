@@ -83,6 +83,29 @@ return [
         ],
     ]),
 
+    // The identity provider's delegated access endpoint (POST /application-access, contract
+    // version 2), answered by App\Services\Accounts\PhrApplicationAccessAdapter. Restated in full
+    // because `mergeConfigFrom` is shallow. Off by default; writes are a separate switch, also off.
+    // See docs/delegated-access.md.
+    'delegated_access' => [
+        'enabled' => env('PHR_DELEGATED_ACCESS_ENABLED', false),
+        'writes_enabled' => env('PHR_DELEGATED_ACCESS_WRITES_ENABLED', false),
+        // Must equal oauth_client.base_url: subjects are resolved in the sign-in provider's namespace.
+        'issuer' => env('PHR_DELEGATED_ACCESS_ISSUER', ''),
+        // This endpoint's exact HTTPS URL, as the provider calls it.
+        'endpoint' => env('PHR_DELEGATED_ACCESS_ENDPOINT', ''),
+        // This application's key in the provider's application registry.
+        'application' => env('PHR_DELEGATED_ACCESS_APPLICATION', ''),
+        // `key-id|/path/to/public.pem`, comma-separated; list a second key only while rotating.
+        'public_keys' => env('PHR_DELEGATED_ACCESS_PUBLIC_KEYS', ''),
+        // Must be set and equal oauth_client.provider: account bindings are stored under that name.
+        'oauth_provider' => env('OAUTH_PROVIDER'),
+        // The nonce table's connection; null for the default. Must be durable and shared by every worker.
+        'nonce_connection' => env('PHR_DELEGATED_ACCESS_NONCE_CONNECTION'),
+        'path' => '/application-access',
+        'per_minute' => 120,
+    ],
+
     'migrations' => [
         'drop_tables_on_rollback' => false,
     ],
