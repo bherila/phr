@@ -29,3 +29,6 @@ Schedule::command('phr:uptime:prune', ['--days' => 30])->daily()->withoutOverlap
 // Auth audit log retention pruning (bherila/auth-laravel).
 // No-op unless BHERILA_AUTH_AUDIT_RETENTION_DAYS is set in .env.
 Schedule::command('bherila-auth:prune-audit-log')->daily()->withoutOverlapping(10);
+
+// Expired delegated access nonces (bherila/auth-laravel). Never deletes one still replayable.
+Schedule::command('bherila-auth:prune-delegated-nonces')->daily()->withoutOverlapping(10);

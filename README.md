@@ -363,6 +363,7 @@ use synthetic data.
 
 - [C-CDA conformance notes](docs/ccda-conformance.md)
 - [Agent API security model](docs/agent-api-security.md)
+- [Delegated access operations](docs/delegated-access.md)
 - [Patient authorization capability matrix and call-site inventory](docs/patient-authorization-inventory.md)
 - [Native backup format](docs/phr-native-v1.md)
 
