@@ -6,6 +6,7 @@ use App\GenAiProcessor\External\PhrMcpAttachmentResolver;
 use App\GenAiProcessor\External\PhrMcpCompletionDelivery;
 use App\GenAiProcessor\External\PhrMcpMailboxAccessResolver;
 use App\GenAiProcessor\Support\PhrExternalImportStatusMap;
+use App\Services\Accounts\PhrApplicationAccessAdapter;
 use App\Support\AgentApi\AccountAwareAccessTokenRepository;
 use App\Support\AgentApi\AccountAwareAuthCodeRepository;
 use App\Support\AgentApi\AccountAwareRefreshTokenRepository;
@@ -19,6 +20,7 @@ use Bherila\GenAiLaravel\Mcp\Events\McpRequestFailed;
 use Bherila\McpLaravelBridge\Http\AgentApiTransport;
 use Bherila\McpLaravelBridge\Http\InternalAgentApiTransport;
 use Bherila\McpLaravelBridge\Http\McpHttpPolicy;
+use BWH\Auth\OAuth\DelegatedAccess\ApplicationAccessAdapter;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Middleware\HandleCors;
 use Illuminate\Http\Request;
@@ -47,6 +49,9 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(MailboxAccessResolver::class, PhrMcpMailboxAccessResolver::class);
         $this->app->bind(AttachmentResolver::class, PhrMcpAttachmentResolver::class);
         $this->app->bind(CompletionDelivery::class, PhrMcpCompletionDelivery::class);
+        // Binding the adapter registers the package's delegated access route. It answers 404 until
+        // bherila-auth.delegated_access.enabled, and refuses writes until writes_enabled.
+        $this->app->bind(ApplicationAccessAdapter::class, PhrApplicationAccessAdapter::class);
         $this->app->singleton(McpHttpPolicy::class, static fn (): McpHttpPolicy => new McpHttpPolicy(
             allowedOrigins: static function (): array {
                 $origins = config('agent_api.mcp_allowed_origins', []);
