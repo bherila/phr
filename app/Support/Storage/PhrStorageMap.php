@@ -103,6 +103,7 @@ class PhrStorageMap
             ->ignoring('users', 'mcp_api_key', because: 'API credential')
             ->ignoring('user_ai_configurations', 'api_key', because: 'API credential')
             ->ignoring('agent_api_audits', 'sampling_key', because: 'rate-limit audit bucket digest, not a storage key')
+            ->ignoring('bherila_auth_delegated_receipts', 'operation_key', because: 'digest of a delegated access operation id, not a storage key')
 
             // Package-owned attachment blobs use the package-configured disk and
             // lifecycle, not a PHR storage-map disk. PHR external imports use
