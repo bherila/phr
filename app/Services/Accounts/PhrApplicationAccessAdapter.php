@@ -121,6 +121,10 @@ final class PhrApplicationAccessAdapter implements ApplicationAccessAdapter
     }
 
     /**
+     * Every account bound to the sign-in provider, a page at a time; with a `query`, only those whose
+     * label or address contains it. A search is the same listing filtered, so it never reaches an
+     * account that is not bound, whatever its address.
+     *
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
      */
@@ -128,10 +132,12 @@ final class PhrApplicationAccessAdapter implements ApplicationAccessAdapter
     {
         $after = $this->cursor->after($actorSubject, 'subjects', $payload);
         $limit = (int) ($payload['limit'] ?? self::PAGE_LIMIT);
+        $search = isset($payload['query']) ? (string) $payload['query'] : null;
 
         $rows = User::query()
             ->where('oauth_provider', $this->issuer())
             ->whereNotNull('oauth_subject')
+            ->when($search !== null, fn (Builder $query) => $this->matching($query, (string) $search))
             ->where('id', '>', $after)
             ->orderBy('id')
             ->limit($limit + 1)
@@ -144,8 +150,27 @@ final class PhrApplicationAccessAdapter implements ApplicationAccessAdapter
                 'subject' => (string) $user->oauth_subject,
                 'label' => self::label($user),
             ])->values()->all(),
-            'next_cursor' => $rows->count() > $limit ? $this->cursor->encode($actorSubject, 'subjects', (int) $page->last()->id) : null,
+            'next_cursor' => $rows->count() > $limit ? $this->cursor->encode($actorSubject, 'subjects', (int) $page->last()->id, $search) : null,
         ];
+    }
+
+    /**
+     * A case-insensitive substring match on what label() shows (the name, or the subject when there
+     * is no name) and on the address. The query's own `%`, `_` and `!` are literal.
+     *
+     * @param  Builder<User>  $query
+     * @return Builder<User>
+     */
+    private function matching(Builder $query, string $search): Builder
+    {
+        $pattern = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower($search, 'UTF-8')).'%';
+
+        return $query->where(static fn (Builder $match) => $match
+            ->whereRaw("LOWER(name) LIKE ? ESCAPE '!'", [$pattern])
+            ->orWhereRaw("LOWER(email) LIKE ? ESCAPE '!'", [$pattern])
+            ->orWhere(static fn (Builder $unnamed) => $unnamed
+                ->where(static fn (Builder $blank) => $blank->whereNull('name')->orWhereRaw("TRIM(name) = ''"))
+                ->whereRaw("LOWER(oauth_subject) LIKE ? ESCAPE '!'", [$pattern])));
     }
 
     private static function label(User $user): string

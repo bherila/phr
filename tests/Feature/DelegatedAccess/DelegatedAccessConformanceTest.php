@@ -77,6 +77,19 @@ class DelegatedAccessConformanceTest extends TestCase
         $this->assertDelegatedRemoveStripsOnlyTheManagedProjection('subject-manager', 'subject-target');
     }
 
+    public function test_search_stays_within_the_bound_accounts(): void
+    {
+        // Two bound accounts match, one by name and one by address only, so the search pages.
+        $this->delegatedAccount('subject-search-a', 'user', attributes: ['name' => 'Searchable Person']);
+        $this->delegatedAccount('subject-search-b', 'user', attributes: ['name' => 'Someone Else', 'email' => 'SEARCHABLE.b@example.test']);
+        // Outside the view: rows that are not bound to the sign-in provider, matching only the other query.
+        $this->delegatedAccount('subject-hidden-a', 'admin', provider: null, attributes: ['name' => 'OnlyOutsideTheView Legacy']);
+        $this->delegatedAccount('subject-hidden-b', 'user', provider: 'another-provider', attributes: ['email' => 'onlyoutsidetheview@example.test']);
+
+        $this->assertDelegatedSearchStaysInScope('subject-manager', 'subjects', 'searchable', 'OnlyOutsideTheView');
+        $this->assertDelegatedSearchStaysInScope('subject-manager', 'workspaces', 'searchable', 'OnlyOutsideTheView');
+    }
+
     public function test_writes_are_answered_from_their_receipts_through_the_endpoint(): void
     {
         $this->assertDelegatedReceiptsReplayThroughTheEndpoint('subject-manager', 'subject-target');
