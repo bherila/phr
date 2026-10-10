@@ -84,7 +84,7 @@ return [
     ]),
 
     // The identity provider's delegated access endpoint (POST /application-access, contract
-    // version 2), answered by App\Services\Accounts\PhrApplicationAccessAdapter. Restated in full
+    // version 3), answered by App\Services\Accounts\PhrApplicationAccessAdapter. Restated in full
     // because `mergeConfigFrom` is shallow. Off by default; writes are a separate switch, also off.
     // See docs/delegated-access.md.
     'delegated_access' => [
@@ -102,6 +102,9 @@ return [
         'oauth_provider' => env('OAUTH_PROVIDER'),
         // The nonce table's connection; null for the default. Must be durable and shared by every worker.
         'nonce_connection' => env('PHR_DELEGATED_ACCESS_NONCE_CONNECTION'),
+        // The operation receipts table's connection; the nonce connection unless set. Durable and
+        // shared by every worker: a lost receipt lets a repeated write run again.
+        'receipt_connection' => env('PHR_DELEGATED_ACCESS_RECEIPT_CONNECTION', env('PHR_DELEGATED_ACCESS_NONCE_CONNECTION')),
         'path' => '/application-access',
         'per_minute' => 120,
     ],

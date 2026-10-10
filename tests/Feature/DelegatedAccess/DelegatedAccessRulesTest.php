@@ -9,7 +9,6 @@ use BWH\Auth\OAuth\DelegatedAccess\ApplicationAccessAdapter;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedAccessException;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedContract;
 use BWH\Auth\OAuth\DelegatedAccess\DelegatedRefusal;
-use BWH\Auth\OAuth\DelegatedAccess\DelegatedRequestContext;
 use BWH\Auth\OAuth\PendingAccount;
 use BWH\Auth\Testing\AssertsDelegatedAccessAdapter;
 use Illuminate\Http\Client\Request;
@@ -241,12 +240,15 @@ class DelegatedAccessRulesTest extends TestCase
         $person = $this->delegatedAccount('subject-person', 'user');
         $state = $this->callWithJti('jti-read', ['operation' => 'read', 'subject' => 'subject-person']);
 
-        $this->callWithJti('jti-promote', $this->promote('subject-person', $state['revision']));
-        $this->callWithJti('jti-provision', $this->provision('subject-new', admin: false));
+        $promote = $this->promote('subject-person', $state['revision']);
+        $provision = $this->provision('subject-new', admin: false);
+        $this->callWithJti('jti-promote', $promote);
+        $this->callWithJti('jti-provision', $provision);
 
         $rows = AuthAuditLog::query()->orderBy('id')->get();
         $this->assertSame([PhrApplicationAccessAdapter::EVENT_ADMIN_GRANTED, PhrApplicationAccessAdapter::EVENT_PROVISIONED], $rows->pluck('event')->all());
         $this->assertSame(['jti-promote', 'jti-provision'], $rows->pluck('metadata.jti')->all());
+        $this->assertSame([$promote['operation_id'], $provision['operation_id']], $rows->pluck('metadata.operation_id')->all());
         $this->assertSame([$this->manager->id, $this->manager->id], $rows->pluck('acting_user_id')->all());
         $this->assertSame($person->id, $rows[0]->user_id);
         $this->assertSame(['subject-person', 'subject-new'], $rows->pluck('metadata.subject')->all());
@@ -293,7 +295,8 @@ class DelegatedAccessRulesTest extends TestCase
      */
     private function promote(string $subject, string $revision): array
     {
-        return ['operation' => 'update', 'subject' => $subject, 'expected_revision' => $revision, 'access' => ['application_admin' => true, 'workspaces' => []]];
+        return ['operation' => 'update', 'subject' => $subject, 'expected_revision' => $revision, 'access' => ['application_admin' => true, 'workspaces' => []],
+            'operation_id' => DelegatedContract::operationId()];
     }
 
     /**
@@ -301,7 +304,8 @@ class DelegatedAccessRulesTest extends TestCase
      */
     private function demote(string $subject, string $revision): array
     {
-        return ['operation' => 'update', 'subject' => $subject, 'expected_revision' => $revision, 'access' => ['application_admin' => false, 'workspaces' => []]];
+        return ['operation' => 'update', 'subject' => $subject, 'expected_revision' => $revision, 'access' => ['application_admin' => false, 'workspaces' => []],
+            'operation_id' => DelegatedContract::operationId()];
     }
 
     /**
@@ -310,43 +314,7 @@ class DelegatedAccessRulesTest extends TestCase
     private function provision(string $subject, bool $admin, ?string $displayName = null): array
     {
         return ['operation' => 'update', 'subject' => $subject, 'expected_revision' => null,
-            'access' => ['application_admin' => $admin, 'workspaces' => []]]
+            'access' => ['application_admin' => $admin, 'workspaces' => []], 'operation_id' => DelegatedContract::operationId()]
             + ($displayName !== null ? ['display_name' => $displayName] : []);
-    }
-
-    /**
-     * @param  array<string, mixed>  $payload
-     */
-    private function assertRefused(string $outcome, string $actor, array $payload): void
-    {
-        try {
-            $this->delegatedAccessCall($actor, $payload);
-        } catch (DelegatedAccessException $refusal) {
-            $this->assertSame($outcome, $refusal->outcome);
-
-            return;
-        }
-
-        $this->fail("Accepted {$payload['operation']}; expected {$outcome}");
-    }
-
-    /**
-     * Call the adapter as the endpoint does, with a request context whose `jti` is known.
-     *
-     * @param  array<string, mixed>  $payload
-     * @return array<string, mixed>
-     */
-    private function callWithJti(string $jti, array $payload): array
-    {
-        $this->app->instance(DelegatedRequestContext::class, new DelegatedRequestContext(
-            self::DELEGATED_ISSUER, 'subject-manager', self::DELEGATED_APPLICATION, $jti, (string) $payload['operation'],
-        ));
-        try {
-            $fields = $this->app->make(ApplicationAccessAdapter::class)->handle('subject-manager', $payload);
-        } finally {
-            $this->app->forgetInstance(DelegatedRequestContext::class);
-        }
-
-        return (new DelegatedContract)->adapterAnswer($fields, self::DELEGATED_APPLICATION, (string) $payload['operation'], $payload['subject'] ?? null);
     }
 }

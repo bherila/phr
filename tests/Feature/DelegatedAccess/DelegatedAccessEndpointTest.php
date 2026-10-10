@@ -4,8 +4,10 @@ namespace Tests\Feature\DelegatedAccess;
 
 use App\Services\Accounts\PhrApplicationAccessAdapter;
 use BWH\Auth\OAuth\DelegatedAccess\ApplicationAccessAdapter;
+use BWH\Auth\OAuth\DelegatedAccess\DelegatedContract;
 use BWH\Auth\OAuth\DelegatedAccess\NonceStore;
 use DateTimeImmutable;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
 use Lcobucci\JWT\Encoding\ChainedFormatter;
 use Lcobucci\JWT\Encoding\JoseEncoder;
@@ -72,13 +74,22 @@ class DelegatedAccessEndpointTest extends TestCase
         $this->assertTrue($read['allowed_edits']['application_admin']);
 
         $this->send('subject-manager', ['operation' => 'update', 'subject' => 'subject-target', 'expected_revision' => $read['revision'],
-            'access' => ['application_admin' => true, 'workspaces' => []]])
+            'access' => ['application_admin' => true, 'workspaces' => []], 'operation_id' => DelegatedContract::operationId()])
             ->assertForbidden()
             ->assertExactJson(['error' => 'not_authorized']);
         $this->assertSame('user', $this->rawRoles(3));
 
         // An account that may not manage access is refused through the endpoint too.
         $this->send('subject-target', ['operation' => 'capabilities'])->assertForbidden()->assertExactJson(['error' => 'not_authorized']);
+
+        // So is a removal, until writes are enabled.
+        DB::table('users')->where('id', 3)->update(['user_role' => 'user,admin']);
+        $read = $this->send('subject-manager', ['operation' => 'read', 'subject' => 'subject-target'])->assertOk()->json();
+        $this->send('subject-manager', ['operation' => 'remove', 'subject' => 'subject-target', 'expected_revision' => $read['revision'],
+            'operation_id' => DelegatedContract::operationId()])
+            ->assertForbidden()
+            ->assertExactJson(['error' => 'not_authorized']);
+        $this->assertSame('user,admin', $this->rawRoles(3));
     }
 
     public function test_writes_reach_the_adapter_once_enabled(): void
@@ -86,11 +97,29 @@ class DelegatedAccessEndpointTest extends TestCase
         $this->enable(writes: true);
 
         $read = $this->send('subject-manager', ['operation' => 'read', 'subject' => 'subject-target'])->assertOk()->json();
-        $this->send('subject-manager', ['operation' => 'update', 'subject' => 'subject-target', 'expected_revision' => $read['revision'],
-            'access' => ['application_admin' => true, 'workspaces' => []]])
+        $promoted = $this->send('subject-manager', ['operation' => 'update', 'subject' => 'subject-target', 'expected_revision' => $read['revision'],
+            'access' => ['application_admin' => true, 'workspaces' => []], 'operation_id' => DelegatedContract::operationId()])
             ->assertOk()
-            ->assertJsonPath('access.application_admin', true);
+            ->assertJsonPath('access.application_admin', true)
+            ->json();
         $this->assertSame('user,admin', $this->rawRoles(3));
+
+        $removal = ['operation' => 'remove', 'subject' => 'subject-target', 'expected_revision' => $promoted['revision'],
+            'operation_id' => DelegatedContract::operationId()];
+        $removed = $this->send('subject-manager', $removal)
+            ->assertOk()
+            ->assertJsonPath('provisioned', true)
+            ->assertJsonPath('access', ['application_admin' => false, 'workspaces' => []])
+            ->assertJsonPath('allowed_edits.remove', true);
+        $this->assertSame('user', $this->rawRoles(3));
+
+        // A retry of the same removal is answered from its receipt, byte for byte.
+        $again = $this->send('subject-manager', $removal)->assertOk();
+        $this->assertSame($removed->getContent(), $again->getContent());
+        $this->send('subject-manager', ['operation' => 'receipt', 'operation_id' => $removal['operation_id']])
+            ->assertOk()
+            ->assertJsonPath('status', 'known')
+            ->assertJsonPath('response_status', 200);
     }
 
     private function enable(bool $writes): void
@@ -130,7 +159,7 @@ class DelegatedAccessEndpointTest extends TestCase
      */
     private function send(string $actor, array $input): TestResponse
     {
-        $body = (string) json_encode(['contract_version' => 2, 'application' => self::DELEGATED_APPLICATION, ...$input]);
+        $body = (string) json_encode(['contract_version' => DelegatedContract::VERSION_3, 'application' => self::DELEGATED_APPLICATION, ...$input]);
         $now = new DateTimeImmutable('@'.time());
         $assertion = Builder::new(new JoseEncoder, ChainedFormatter::withUnixTimestampDates())
             ->withHeader('typ', 'application-access+jwt')

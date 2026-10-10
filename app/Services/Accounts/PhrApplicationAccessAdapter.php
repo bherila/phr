@@ -20,7 +20,7 @@ use Illuminate\Support\Str;
 
 /**
  * Lets the identity provider's "manage users" screen manage PHR accounts (delegated access
- * contract version 2).
+ * contract version 3).
  *
  * PHR is account-only: it has accounts and an administrator role, and no workspaces. Patient
  * sharing is between people inside PHR and is not exposed here. What can be managed is whether
@@ -38,6 +38,12 @@ use Illuminate\Support\Str;
  *  - an account that cannot sign in is not promoted, since that would re-enable it;
  *  - the last administrator who can still sign in is not demoted.
  *
+ * `remove` takes away what delegation manages, which in PHR is the administrator role and nothing
+ * else: it is a demotion under the same rule, so it adds `user` where `admin` was the only sign-in
+ * role, and is refused (and reported `allowed_edits.remove: false`) for account #1, the actor's own
+ * account and the last administrator who can sign in. The account, its sign-in, its other roles and
+ * its health records stay. Removing a non-administrator is a no-op that keeps the revision.
+ *
  * Only an existing, active PHR administrator bound to the sign-in provider may use any
  * operation. Everyone else is refused every operation, the read-only ones included.
  */
@@ -49,6 +55,8 @@ final class PhrApplicationAccessAdapter implements ApplicationAccessAdapter
     public const EVENT_ADMIN_GRANTED = 'delegated_access_admin_granted';
 
     public const EVENT_ADMIN_REVOKED = 'delegated_access_admin_revoked';
+
+    public const EVENT_REMOVED = 'delegated_access_removed';
 
     private const PAGE_LIMIT = 50;
 
@@ -68,6 +76,7 @@ final class PhrApplicationAccessAdapter implements ApplicationAccessAdapter
             'workspaces' => ['workspaces' => [], 'next_cursor' => null],
             'read' => $this->state($actor, (string) $payload['subject'], $this->bound((string) $payload['subject'])),
             'update' => $this->update($actor, $payload),
+            'remove' => $this->remove($actor, (string) $payload['subject'], (string) $payload['expected_revision']),
             default => throw DelegatedRefusal::of(DelegatedRefusal::INVALID_REQUEST),
         };
     }
@@ -158,7 +167,7 @@ final class PhrApplicationAccessAdapter implements ApplicationAccessAdapter
                 'provisioned' => false,
                 'revision' => null,
                 'access' => null,
-                'allowed_edits' => ['application_admin' => false, 'workspaces' => false, 'provision' => true],
+                'allowed_edits' => ['application_admin' => false, 'workspaces' => false, 'provision' => true, 'remove' => false],
             ];
         }
 
@@ -171,6 +180,7 @@ final class PhrApplicationAccessAdapter implements ApplicationAccessAdapter
                 'application_admin' => $this->adminChangeRefusal($actor, $target, $locked) === null,
                 'workspaces' => false,
                 'provision' => false,
+                'remove' => $this->removeRefusal($actor, $target, $locked) === null,
             ],
         ];
     }
@@ -206,6 +216,17 @@ final class PhrApplicationAccessAdapter implements ApplicationAccessAdapter
         }
 
         return null;
+    }
+
+    /**
+     * Whether the actor may remove the target's access: always, when there is nothing to remove (a
+     * no-op); otherwise exactly when they may change its administrator role. Null when they may.
+     *
+     * @param  Collection<int, User>|null  $locked
+     */
+    private function removeRefusal(User $actor, User $target, ?Collection $locked = null): ?string
+    {
+        return $target->hasRole('admin') ? $this->adminChangeRefusal($actor, $target, $locked) : null;
     }
 
     /**
@@ -272,6 +293,44 @@ final class PhrApplicationAccessAdapter implements ApplicationAccessAdapter
 
             $target->forceFill(['user_role' => self::rolesWithAdmin((string) $target->getRawOriginal('user_role'), $wanted)])->save();
             $this->audit($wanted ? self::EVENT_ADMIN_GRANTED : self::EVENT_ADMIN_REVOKED, $actor, $target);
+
+            $target = User::query()->findOrFail($target->id);
+            $locked = $locked->map(static fn (User $u): User => $u->id === $target->id ? $target : $u);
+
+            return $this->state($actor, $subject, $target, $locked);
+        });
+    }
+
+    /**
+     * Take away the administrator role, the whole of what delegation manages in PHR, under the same
+     * locks and rule as a demotion. The account stays, able to sign in as an ordinary user.
+     *
+     * @return array<string, mixed>
+     */
+    private function remove(User $actor, string $subject, string $expectedRevision): array
+    {
+        return DB::transaction(function () use ($actor, $subject, $expectedRevision): array {
+            $locked = $this->lockAccounts($actor, $subject);
+
+            $actor = $this->administrator((string) $actor->oauth_subject, $locked) ?? throw DelegatedRefusal::of(DelegatedRefusal::NOT_AUTHORIZED);
+            $target = $locked->first(fn (User $u): bool => $u->oauth_provider === $this->issuer() && $u->oauth_subject === $subject)
+                ?? throw DelegatedRefusal::of(DelegatedRefusal::NOT_PROVISIONED);
+
+            if (! hash_equals(self::revision($target), $expectedRevision)) {
+                throw DelegatedRefusal::of(DelegatedRefusal::REVISION_CONFLICT);
+            }
+
+            // Nothing to remove: the same state and revision, nothing written.
+            if (! $target->hasRole('admin')) {
+                return $this->state($actor, $subject, $target, $locked);
+            }
+
+            if ($this->removeRefusal($actor, $target, $locked) !== null) {
+                throw DelegatedRefusal::of(DelegatedRefusal::NOT_AUTHORIZED);
+            }
+
+            $target->forceFill(['user_role' => self::rolesWithAdmin((string) $target->getRawOriginal('user_role'), false)])->save();
+            $this->audit(self::EVENT_REMOVED, $actor, $target, ['application_admin' => false]);
 
             $target = User::query()->findOrFail($target->id);
             $locked = $locked->map(static fn (User $u): User => $u->id === $target->id ? $target : $u);
@@ -380,6 +439,7 @@ final class PhrApplicationAccessAdapter implements ApplicationAccessAdapter
             'ip_address' => $request?->ip(),
             'metadata' => [
                 'jti' => $context?->jti,
+                'operation_id' => $context?->operationId,
                 'issuer' => $context?->issuer,
                 'application' => $context?->application,
                 'subject' => $target->oauth_subject,

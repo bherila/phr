@@ -9,7 +9,8 @@ use Tests\Concerns\SeedsDelegatedAccessAccounts;
 use Tests\TestCase;
 
 /**
- * The package's normative update semantics, checked against PHR's real adapter and users table.
+ * The package's normative semantics (contract version 3), checked against PHR's real adapter and
+ * users table, and the operation receipts through the real endpoint.
  *
  * PHR is account-only, so the membership checks return rather than check, and every answer must
  * report no workspaces.
@@ -28,6 +29,7 @@ class DelegatedAccessConformanceTest extends TestCase
         $this->delegatedAccount('subject-manager', 'admin');
         $this->delegatedAccount('subject-target', 'user');
         $this->delegatedAccount('subject-ordinary', 'user');
+        $this->delegatedAccount('subject-removable', 'reviewer,admin');
     }
 
     protected function delegatedAccessTruth(string $subject): array
@@ -62,6 +64,23 @@ class DelegatedAccessConformanceTest extends TestCase
         $this->assertDelegatedUnadvertisedRoleRefused('subject-manager', 'subject-target');
         $this->assertDelegatedUpdateKeepsUnseenMemberships('subject-manager', 'subject-target');
         $this->assertDelegatedUpdateKeepsUnseenMemberships('subject-manager', 'subject-bootstrap');
+    }
+
+    public function test_removal_takes_the_administrator_role_or_nothing(): void
+    {
+        // Refused whole: the actor's own account, and the protected bootstrap account.
+        $this->assertDelegatedRemoveRefusedWithoutPartialChange('subject-manager', 'subject-manager');
+        $this->assertDelegatedRemoveRefusedWithoutPartialChange('subject-manager', 'subject-bootstrap');
+
+        // Another administrator, then an ordinary account (nothing to remove: a no-op).
+        $this->assertDelegatedRemoveStripsOnlyTheManagedProjection('subject-manager', 'subject-removable');
+        $this->assertDelegatedRemoveStripsOnlyTheManagedProjection('subject-manager', 'subject-target');
+    }
+
+    public function test_writes_are_answered_from_their_receipts_through_the_endpoint(): void
+    {
+        $this->assertDelegatedReceiptsReplayThroughTheEndpoint('subject-manager', 'subject-target');
+        $this->assertDelegatedReceiptsReplayThroughTheEndpoint('subject-manager', 'subject-removable');
     }
 
     public function test_accounts_that_are_not_active_bound_administrators_are_refused_everything(): void
