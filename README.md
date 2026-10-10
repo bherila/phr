@@ -131,7 +131,7 @@ Install it for your user account, then complete the browser login:
 ```bash
 # Codex CLI
 codex mcp add phr --url https://phr.bherila.net/api/v1/mcp \
-  --oauth-resource https://phr.bherila.net/api/v1
+  --oauth-resource https://phr.bherila.net/api/v1/mcp
 codex mcp login phr
 
 # Claude Code CLI
@@ -139,7 +139,10 @@ claude mcp add --transport http --scope user phr https://phr.bherila.net/api/v1/
 claude mcp login phr
 ```
 
-Restart the client if it was already running. The MCP initialization response teaches
+Restart the client if it was already running. The MCP endpoint is its own OAuth
+protected resource, `https://phr.bherila.net/api/v1/mcp` (metadata at
+`/.well-known/oauth-protected-resource/api/v1/mcp`), so its credentials work only there
+and REST credentials are refused by it. The MCP initialization response teaches
 compatible harnesses to call `identity.get`, then use `patients.list` and
 `patients.get` to select and confirm a patient without inferring an ID. Clients that
 implement MCP prompts can also expose the guided `safely-update-clinical-record` and
@@ -215,8 +218,8 @@ php artisan user:set-password you@example.com
 
 PHR is self-contained apart from sign-in: a fork deploys with its own identity
 provider instance and needs no code changes. Every agent-API URL (OAuth issuer,
-protected resource `APP_URL/api/v1`, authorization, token and registration endpoints,
-discovery documents) derives from `APP_URL`.
+protected resources `APP_URL/api/v1` and `APP_URL/api/v1/mcp`, authorization, token and
+registration endpoints, discovery documents) derives from `APP_URL`.
 
 | Setting | Purpose |
 |---|---|
@@ -228,8 +231,12 @@ discovery documents) derives from `APP_URL`.
 | `AGENT_API_MCP_ALLOWED_ORIGINS`, `AGENT_API_MCP_ALLOWED_HOSTS` | Browser origins and `Host` values the MCP endpoint accepts. |
 
 The agent authorization server follows the auth package's agent preset: S256 PKCE for
-every client, public-only self-registration, and credentials bound to
-`APP_URL/api/v1`, with an omitted `resource` taken as that one. Edge configuration
+every client, public-only self-registration, and credentials bound to one of two
+protected resources, each with its own RFC 9728 document at its path-inserted URL:
+REST at `APP_URL/api/v1` (every module scope; an omitted `resource` is taken as this
+one) and MCP at `APP_URL/api/v1/mcp` (`mcp:use` plus the module scopes its tools
+require). A credential issued for one is refused at the other, and every 401 names the
+metadata of the route's own resource. Edge configuration
 (proxy and CDN rules) is deployment-specific and not part of this repository.
 
 ## Validation

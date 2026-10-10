@@ -77,13 +77,20 @@ class AgentApiOAuthFoundationTest extends TestCase
             ->assertJsonPath('code_challenge_methods_supported', ['S256'])
             ->assertJsonPath('scopes_supported', AgentApiScopes::ids());
 
-        $this->getJson('/.well-known/oauth-protected-resource')
-            ->assertOk()
-            ->assertJsonPath('resource', url('/api/v1'))
-            ->assertJsonPath('authorization_servers.0', url('/'));
+        // One RFC 9728 document per protected resource, each only at the
+        // path-inserted URL of its own identifier: nothing describes either
+        // resource from the bare well-known path.
+        $this->getJson('/.well-known/oauth-protected-resource')->assertNotFound();
         $this->getJson('/.well-known/oauth-protected-resource/api/v1')
             ->assertOk()
-            ->assertJsonPath('resource', url('/api/v1'));
+            ->assertJsonPath('resource', url('/api/v1'))
+            ->assertJsonPath('authorization_servers.0', url('/'))
+            ->assertJsonPath('scopes_supported', AgentApiScopes::restIds());
+        $this->getJson('/.well-known/oauth-protected-resource/api/v1/mcp')
+            ->assertOk()
+            ->assertJsonPath('resource', url('/api/v1/mcp'))
+            ->assertJsonPath('authorization_servers.0', url('/'))
+            ->assertJsonPath('scopes_supported', AgentApiScopes::mcpIds());
 
         $this->assertTrue(Passport::$revokeRefreshTokenAfterUse);
         $this->assertFalse(Passport::$implicitGrantEnabled);
@@ -450,8 +457,9 @@ class AgentApiOAuthFoundationTest extends TestCase
             ->assertHeader('Content-Type', 'application/json')
             ->assertHeader(
                 'WWW-Authenticate',
-                'Bearer resource_metadata="'.url('/.well-known/oauth-protected-resource/api/v1').'"',
-            );
+                'Bearer error="invalid_token", error_description="Authentication is required.", resource_metadata="'.url('/.well-known/oauth-protected-resource/api/v1').'"',
+            )
+            ->assertJsonPath('message', 'Unauthenticated.');
 
         $this->assertDatabaseCount('agent_api_audits', 0);
     }
@@ -883,6 +891,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             'client_id' => $client->id,
             'scopes' => json_encode([AgentApiScopes::IDENTITY_READ], JSON_THROW_ON_ERROR),
             'revoked' => false,
+            'resource_uri' => OAuthResourceIndicator::resource('rest'),
             'expires_at' => now()->addMinutes(10),
         ]);
 
@@ -1018,9 +1027,11 @@ class AgentApiOAuthFoundationTest extends TestCase
         $entity->setUserIdentifier((string) $user->id);
         $entity->setClient(new PassportClientEntity($client->id, $client->name, $client->redirect_uris));
         $entity->setExpiryDateTime(new DateTimeImmutable('+10 minutes'));
+        request()->attributes->set(OAuthResourceIndicator::REQUEST_ATTRIBUTE, OAuthResourceIndicator::resource('rest'));
         app(PassportAuthCodeRepository::class)->persistNewAuthCode($entity);
 
         $authorizationCode = AuthCode::query()->findOrFail($codeId);
+        $this->assertSame(OAuthResourceIndicator::resource('rest'), $authorizationCode->resource_uri);
         $this->assertSame(0, $authorizationCode->oauth_security_version);
         $this->assertTrue(app(PassportAuthCodeRepository::class)->isAuthCodeRevoked($codeId));
         $this->assertTrue($authorizationCode->fresh()->revoked);
@@ -1155,6 +1166,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             'scopes' => json_encode([AgentApiScopes::IDENTITY_READ], JSON_THROW_ON_ERROR),
             'revoked' => false,
             'oauth_security_version' => 0,
+            'resource_uri' => OAuthResourceIndicator::resource('rest'),
             'expires_at' => now()->addMinutes(10),
         ]);
 
@@ -1184,6 +1196,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             'scopes' => json_encode([AgentApiScopes::IDENTITY_READ], JSON_THROW_ON_ERROR),
             'revoked' => false,
             'oauth_security_version' => $securityVersion,
+            'resource_uri' => OAuthResourceIndicator::resource('rest'),
             'expires_at' => now()->addMinutes(10),
         ]);
 

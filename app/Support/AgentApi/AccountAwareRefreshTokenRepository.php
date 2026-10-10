@@ -91,12 +91,18 @@ class AccountAwareRefreshTokenRepository extends RefreshTokenRepository
         }
 
         $storedResource = is_string($accessToken->resource_uri) ? $accessToken->resource_uri : null;
-        $requestedResource = request()->exists('resource')
-            ? OAuthResourceIndicator::canonicalize(request()->input('resource'))
+        // Refreshing names the grant's own resource, or omits it and means the
+        // REST resource. A mismatch is refused without consuming the refresh
+        // token, so a client can retry with the resource it was granted for.
+        $requestedResource = OAuthResourceIndicator::requestNamesResource(request())
+            ? OAuthResourceIndicator::requestResource(request())
             : $storedResource;
         if ($requestedResource !== $storedResource) {
-            $revoker->revokeFamilyForAccessToken($accessToken);
-
+            return true;
+        }
+        // A scope ceiling tightened since the grant (an MCP connection scope on a
+        // credential bound to the REST resource) retires the family's renewal.
+        if ($storedResource !== null && ! OAuthResourceIndicator::scopesAllowedFor($storedResource, $accessToken->scopes)) {
             return true;
         }
 

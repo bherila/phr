@@ -78,6 +78,29 @@ final class AgentApiScopes
         return array_keys(self::descriptions());
     }
 
+    /**
+     * The scope ceiling of the REST resource (APP_URL/api/v1): every module
+     * scope, never the MCP connection scope.
+     *
+     * @return list<string>
+     */
+    public static function restIds(): array
+    {
+        return array_values(array_diff(self::ids(), [self::MCP_USE]));
+    }
+
+    /**
+     * The scope ceiling of the MCP resource (APP_URL/api/v1/mcp): the connection
+     * scope plus every module scope, because each MCP tool still requires the
+     * scope of the REST operation it adapts.
+     *
+     * @return list<string>
+     */
+    public static function mcpIds(): array
+    {
+        return self::ids();
+    }
+
     /** @return list<string> */
     public static function parse(string $value): array
     {

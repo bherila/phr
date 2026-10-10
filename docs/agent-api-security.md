@@ -243,10 +243,18 @@ Dynamic registration is limited to public clients: the endpoint never issues a c
 secret and accepts only authorization-code plus refresh grants. Redirects must be HTTPS
 or HTTP loopback URLs and remain exact-match inputs to Passport. Registration is
 IP-throttled, bounded to small JSON requests, and unused registrations are removed after
-24 hours. MCP authorization requests require the canonical `/api/v1` resource indicator;
-the same audience is persisted on the authorization code and access-token row, checked
-again at code exchange and refresh, and never derived from a bearer token supplied by a
-different resource server.
+24 hours. There are two protected resources, each with its own RFC 9728 document at
+its path-inserted URL and its own scope ceiling: REST at `APP_URL/api/v1` (every module
+scope; an omitted `resource` means this one) and MCP at `APP_URL/api/v1/mcp` (`mcp:use`
+plus the module scopes its tools require). MCP authorization requests must name the MCP
+resource, since the REST ceiling never admits `mcp:use`. The audience is persisted on
+the authorization code and access-token row, checked again at code exchange and refresh
+(a mismatch is refused without consuming the code or refresh token), and never derived
+from a bearer token supplied by a different resource server. A credential is accepted
+only on routes expecting its resource, with one deliberate exception: the routes an MCP
+tool hands to its client to call directly with the connection's credential (OAuth-bound
+file downloads, the DICOM multipart upload, the GenAI queue and self-revocation) accept
+either audience. Each 401 names the metadata of the route's own resource.
 
 The MCP Streamable HTTP endpoint adds `mcp:use` as an independent connection scope;
 every tool call still passes through the underlying REST route's narrower data scope.

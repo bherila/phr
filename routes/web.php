@@ -8,32 +8,13 @@ use App\Http\Controllers\PHR\PhrDocumentController;
 use App\Http\Controllers\PHR\PhrExportController;
 use App\Http\Controllers\PHR\PhrNativeBackupController;
 use App\Http\Controllers\UptimeController;
-use BWH\Auth\Http\Controllers\OAuthMetadataController;
 use BWH\Auth\OAuth\Server\AgentOAuthServer;
-use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
-use Illuminate\Cookie\Middleware\EncryptCookies;
-use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
-use Illuminate\Session\Middleware\StartSession;
 use Illuminate\Support\Facades\Route;
-use Illuminate\View\Middleware\ShareErrorsFromSession;
 
-Route::withoutMiddleware([
-    EncryptCookies::class,
-    AddQueuedCookiesToResponse::class,
-    StartSession::class,
-    ShareErrorsFromSession::class,
-    PreventRequestForgery::class,
-])->group(function (): void {
-    // Compatibility aliases for connectors that discovered the resource before
-    // the preset's single RFC 9728 path: both describe the one APP_URL/api/v1
-    // resource, so a client already connected keeps finding its metadata.
-    Route::get('/.well-known/oauth-protected-resource', [OAuthMetadataController::class, 'protectedResource'])
-        ->name('oauth.metadata.protected-resource-root');
-    Route::get('/.well-known/oauth-protected-resource/api/v1/mcp', [OAuthMetadataController::class, 'protectedResource'])
-        ->name('oauth.metadata.protected-resource-mcp');
-});
-
-// Discovery documents and public self-registration, from the agent OAuth preset.
+// Discovery documents and public self-registration, from the agent OAuth preset:
+// one RFC 9728 document per protected resource, each only at the path-inserted
+// URL of its own identifier (/.well-known/oauth-protected-resource/api/v1 and
+// .../api/v1/mcp), so no other path may describe either resource.
 AgentOAuthServer::routes(registrationThrottle: 'throttle:agent-api-client-registration');
 
 Route::get('/login', function () {

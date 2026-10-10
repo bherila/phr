@@ -52,6 +52,7 @@ use App\Http\Controllers\PHR\VitalController as PHRVitalController;
 use App\Http\Middleware\AuditAgentApiRequest;
 use App\Http\Middleware\AuthenticateWebOrMcpRequest;
 use App\Http\Middleware\EnsureOAuthUserCanLogin;
+use App\Http\Middleware\ExpectAnyOAuthResource;
 use App\Http\Middleware\GenAiRestHttpSecurityMiddleware;
 use App\Http\Middleware\PreventAgentApiResponseCaching;
 use App\Support\AgentApi\AgentApiScopes;
@@ -76,10 +77,30 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         ->middleware([McpHttpSecurityMiddleware::class, 'throttle:60,1'])
         ->name('mcp.options');
 
-    // Every /api/v1 credential is bound to this one resource (the preset takes
-    // an omitted `resource` as APP_URL/api/v1), so the whole group expects it.
+    // The MCP endpoint is a protected resource of its own (RFC 9728 section 3.3):
+    // its credentials are bound to APP_URL/api/v1/mcp and refused at every REST
+    // route, and REST credentials are refused here.
     Route::middleware([
-        ExpectOAuthResource::class,
+        ExpectOAuthResource::class.':mcp',
+        'auth:api',
+        AuditAgentApiRequest::class,
+        EnsureOAuthUserCanLogin::class,
+        PreventAgentApiResponseCaching::class,
+    ])->group(function (): void {
+        Route::match(['POST', 'DELETE'], '/mcp', AgentMcpController::class)
+            ->middleware(McpHttpSecurityMiddleware::class)
+            ->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::MCP_USE))
+            ->middleware('genai.mcp.auth')
+            ->name('mcp');
+    });
+
+    // The REST routes an MCP tool hands to its client to call directly with the
+    // connection's own credential: OAuth-bound file downloads, DICOM instances
+    // too large for an MCP message, and self-revocation. They accept a REST or
+    // an MCP credential; every other REST route refuses MCP credentials.
+    Route::middleware([
+        ExpectAnyOAuthResource::class.':rest,mcp',
         'auth:api',
         AuditAgentApiRequest::class,
         EnsureOAuthUserCanLogin::class,
@@ -90,17 +111,33 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         Route::delete('/oauth/token', [AgentTokenController::class, 'destroy'])
             ->name('oauth-token.destroy');
 
+        Route::get('/patients/{patient}/documents/{document}/file', [AgentDocumentController::class, 'file'])
+            ->whereNumber(['patient', 'document'])->middleware(['throttle:agent-api', 'signed'])
+            ->middleware(CheckToken::using(AgentApiScopes::DOCUMENTS_READ))->name('documents.file');
+        Route::get('/patients/{patient}/exports/{export}/file', [AgentExportController::class, 'exportFile'])
+            ->whereNumber(['patient', 'export'])->middleware(['throttle:agent-api', 'signed'])
+            ->middleware(CheckToken::using(AgentApiScopes::EXPORTS_READ))->name('exports.file');
+        Route::get('/patients/{patient}/native-backups/{backup}/file', [AgentExportController::class, 'backupFile'])
+            ->whereNumber(['patient', 'backup'])->middleware(['throttle:agent-api', 'signed'])
+            ->middleware(CheckToken::using(AgentApiScopes::EXPORTS_READ))->name('native-backups.file');
+        Route::post('/patients/{patient}/dicom/uploads/{upload}/files', [AgentDicomUploadController::class, 'storeFile'])
+            ->whereNumber(['patient', 'upload'])->middleware('throttle:agent-api')
+            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))->name('dicom-uploads.files.store');
+    });
+
+    // Every other /api/v1 route accepts only credentials bound to the REST
+    // resource, APP_URL/api/v1 (an omitted `resource` is taken as this one).
+    Route::middleware([
+        ExpectOAuthResource::class.':rest',
+        'auth:api',
+        AuditAgentApiRequest::class,
+        EnsureOAuthUserCanLogin::class,
+        PreventAgentApiResponseCaching::class,
+    ])->group(function (): void {
         Route::get('/me', [AgentDiscoveryController::class, 'me'])
             ->middleware('throttle:agent-api')
             ->middleware(CheckToken::using(AgentApiScopes::IDENTITY_READ))
             ->name('me');
-
-        Route::match(['POST', 'DELETE'], '/mcp', AgentMcpController::class)
-            ->middleware(McpHttpSecurityMiddleware::class)
-            ->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::MCP_USE))
-            ->middleware('genai.mcp.auth')
-            ->name('mcp');
 
         Route::get('/patients', [AgentPatientController::class, 'index'])
             ->middleware('throttle:agent-api')
@@ -160,9 +197,6 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         Route::post('/patients/{patient}/documents/{document}/download-access', [AgentDocumentController::class, 'createDownloadAccess'])
             ->whereNumber(['patient', 'document'])->middleware('throttle:agent-api')
             ->middleware(CheckToken::using(AgentApiScopes::DOCUMENTS_READ))->name('documents.download-access');
-        Route::get('/patients/{patient}/documents/{document}/file', [AgentDocumentController::class, 'file'])
-            ->whereNumber(['patient', 'document'])->middleware(['throttle:agent-api', 'signed'])
-            ->middleware(CheckToken::using(AgentApiScopes::DOCUMENTS_READ))->name('documents.file');
 
         Route::get('/patients/{patient}/imports', [AgentImportController::class, 'index'])
             ->whereNumber('patient')->middleware('throttle:agent-api')
@@ -196,9 +230,6 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         Route::post('/patients/{patient}/exports/{export}/download-access', [AgentExportController::class, 'exportDownloadAccess'])
             ->whereNumber(['patient', 'export'])->middleware('throttle:agent-api')
             ->middleware(CheckToken::using(AgentApiScopes::EXPORTS_READ))->name('exports.download-access');
-        Route::get('/patients/{patient}/exports/{export}/file', [AgentExportController::class, 'exportFile'])
-            ->whereNumber(['patient', 'export'])->middleware(['throttle:agent-api', 'signed'])
-            ->middleware(CheckToken::using(AgentApiScopes::EXPORTS_READ))->name('exports.file');
         Route::get('/patients/{patient}/native-backups', [AgentExportController::class, 'backupsIndex'])
             ->whereNumber('patient')->middleware('throttle:agent-api')
             ->middleware(CheckToken::using(AgentApiScopes::EXPORTS_READ))->name('native-backups.index');
@@ -208,9 +239,6 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         Route::post('/patients/{patient}/native-backups/{backup}/download-access', [AgentExportController::class, 'backupDownloadAccess'])
             ->whereNumber(['patient', 'backup'])->middleware('throttle:agent-api')
             ->middleware(CheckToken::using(AgentApiScopes::EXPORTS_READ))->name('native-backups.download-access');
-        Route::get('/patients/{patient}/native-backups/{backup}/file', [AgentExportController::class, 'backupFile'])
-            ->whereNumber(['patient', 'backup'])->middleware(['throttle:agent-api', 'signed'])
-            ->middleware(CheckToken::using(AgentApiScopes::EXPORTS_READ))->name('native-backups.file');
 
         Route::post('/patients/{patient}/health-logs', [AgentHealthLogController::class, 'store'])
             ->whereNumber('patient')->middleware('throttle:agent-api')
@@ -245,9 +273,6 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         Route::post('/patients/{patient}/dicom/uploads', [AgentDicomUploadController::class, 'open'])
             ->whereNumber('patient')->middleware('throttle:agent-api')
             ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))->name('dicom-uploads.open');
-        Route::post('/patients/{patient}/dicom/uploads/{upload}/files', [AgentDicomUploadController::class, 'storeFile'])
-            ->whereNumber(['patient', 'upload'])->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))->name('dicom-uploads.files.store');
         Route::post('/patients/{patient}/dicom/uploads/{upload}/finalize', [AgentDicomUploadController::class, 'finalize'])
             ->whereNumber(['patient', 'upload'])->middleware('throttle:agent-api')
             ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))->name('dicom-uploads.finalize');
@@ -311,7 +336,9 @@ Route::prefix('v1/genai')->middleware([
     AuditAgentApiRequest::class,
     EnsureOAuthUserCanLogin::class,
     PreventAgentApiResponseCaching::class,
-    ExpectOAuthResource::class,
+    // The GenAI queue serves REST clients and MCP clients alike: an MCP claim
+    // hands its client attachment URLs to download with the connection's credential.
+    ExpectAnyOAuthResource::class.':rest,mcp',
     'throttle:agent-api',
 ])->group(function (): void {
     Route::options('/{path?}', static fn () => response('', 204))

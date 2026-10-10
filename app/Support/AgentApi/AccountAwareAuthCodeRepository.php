@@ -29,8 +29,12 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
             static fn ($scope): string => $scope->getIdentifier(),
             $authCodeEntity->getScopes(),
         );
-        $resourceIsValid = ! in_array(AgentApiScopes::MCP_USE, $scopeIds, true)
-            || $resourceUri === OAuthResourceIndicator::resource();
+        // A code is usable only for a configured resource whose scope ceiling
+        // admits every granted scope (an MCP connection scope never reaches a
+        // REST code), and a scope that needs a resource never goes without one.
+        $resourceIsValid = $resourceUri === null
+            ? ! OAuthResourceIndicator::scopesRequireResource($scopeIds)
+            : OAuthResourceIndicator::scopesAllowedFor($resourceUri, $scopeIds);
         $client = $this->dynamicClients->lockForAuthorization(
             $authCodeEntity->getClient()->getIdentifier(),
         );
@@ -69,12 +73,20 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
         $storedResource = is_string($authorizationCode->resource_uri)
             ? $authorizationCode->resource_uri
             : null;
-        $requestedResource = request()->exists('resource')
-            ? OAuthResourceIndicator::canonicalize(request()->input('resource'))
+        // The exchange names the code's own resource, or omits it and means the
+        // REST resource. A mismatch is refused without consuming the code, so a
+        // client can retry with the resource it was granted for.
+        $requestedResource = OAuthResourceIndicator::requestNamesResource(request())
+            ? OAuthResourceIndicator::requestResource(request())
             : $storedResource;
         if ($requestedResource !== $storedResource) {
-            $authorizationCode->forceFill(['revoked' => true])->save();
-
+            return true;
+        }
+        // A scope ceiling tightened since consent applies to the token the code mints.
+        if ($storedResource !== null && ! OAuthResourceIndicator::scopesAllowedFor(
+            $storedResource,
+            OAuthResourceIndicator::scopeIdentifiers($authorizationCode->scopes),
+        )) {
             return true;
         }
 

@@ -50,6 +50,15 @@ return [
     // APP_URL/api/v1 (an omitted `resource` is taken as that one), requires S256
     // PKCE for every client, and allows public-only self-registration.
     'oauth_server' => AgentOAuthServer::config(AgentApiScopes::descriptions(), [
+        // Two protected resources, each its own audience and RFC 9728 document
+        // (/.well-known/oauth-protected-resource/api/v1 and .../api/v1/mcp): a
+        // token issued for one is refused at the other. Clients that send no
+        // `resource` get REST credentials.
+        'resources' => [
+            'rest' => ['path' => '/api/v1', 'scopes' => AgentApiScopes::restIds()],
+            'mcp' => ['path' => '/api/v1/mcp', 'scopes' => AgentApiScopes::mcpIds()],
+        ],
+        'assume_omitted_resource' => 'rest',
         'resource_required_scope' => AgentApiScopes::MCP_USE,
         'resource_required_scopes' => [AgentApiScopes::MCP_USE],
         // A signed-in person's own API tokens and OAuth apps, for connectors that

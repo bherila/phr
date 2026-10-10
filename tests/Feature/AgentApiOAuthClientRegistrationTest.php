@@ -46,7 +46,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
 
         $this->getJson('/.well-known/oauth-protected-resource/api/v1/mcp')
             ->assertOk()
-            ->assertJsonPath('resource', url('/api/v1'));
+            ->assertJsonPath('resource', url('/api/v1/mcp'));
         $this->assertContains(AgentApiScopes::MCP_USE, AgentApiScopes::ids());
         $this->assertArrayNotHasKey(AgentApiScopes::MCP_USE, AgentApiScopes::reservedDescriptions());
     }
@@ -126,7 +126,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         $this->assertNotNull($client->fresh()?->first_authorized_at);
     }
 
-    public function test_mcp_authorization_refuses_a_foreign_resource_and_assumes_an_omitted_one(): void
+    public function test_mcp_authorization_requires_the_mcp_resource_and_refuses_rest_or_foreign_ones(): void
     {
         $user = User::factory()->create([
             'name' => 'Synthetic MCP Authorization User',
@@ -152,13 +152,34 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             ])),
             'invalid_target',
         );
-        // A connector that never sends `resource` is bound to the one configured.
-        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query($authorization))->assertOk();
-        $this->assertSame(OAuthResourceIndicator::resource(), app(OAuthAuthorizationStateStore::class)->resourceFor((string) session('authToken')));
+        // An omitted `resource` means the REST resource, whose scope ceiling
+        // never admits the MCP connection scope; nor does naming it outright.
+        $this->assertOAuthErrorRedirect(
+            $this->actingAs($user)->get('/oauth/authorize?'.http_build_query($authorization)),
+            'invalid_scope',
+            'https://agent.example.test/callback',
+        );
+        $this->assertOAuthErrorRedirect(
+            $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+                ...$authorization,
+                'resource' => OAuthResourceIndicator::resource('rest'),
+            ])),
+            'invalid_scope',
+            'https://agent.example.test/callback',
+        );
+
+        $mcpResource = OAuthResourceIndicator::resource('mcp');
+        $this->assertSame(url('/api/v1/mcp'), $mcpResource);
+        $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+            ...$authorization,
+            'resource' => $mcpResource,
+        ]))->assertOk();
+        $this->assertSame($mcpResource, app(OAuthAuthorizationStateStore::class)->resourceFor((string) session('authToken')));
         $redirect = $this->post('/oauth/authorize', [
             'auth_token' => session('authToken'),
         ])->assertRedirect();
         parse_str((string) parse_url((string) $redirect->headers->get('Location'), PHP_URL_QUERY), $redirectQuery);
+        $this->assertSame($mcpResource, AuthCode::query()->sole()->resource_uri);
 
         $issued = $this->postJson('/oauth/token', [
             'grant_type' => 'authorization_code',
@@ -166,8 +187,9 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'redirect_uri' => 'https://agent.example.test/callback',
             'code_verifier' => $verifier,
             'code' => $redirectQuery['code'],
-            'resource' => OAuthResourceIndicator::resource(),
+            'resource' => $mcpResource,
         ])->assertOk()->json();
+        $this->assertSame($mcpResource, Token::query()->where('user_id', $user->id)->sole()->resource_uri);
 
         $this->withToken($issued['access_token'])->postJson('/api/v1/mcp', [
             'jsonrpc' => '2.0',
@@ -182,6 +204,20 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             ->assertOk()
             ->assertJsonPath('jsonrpc', '2.0')
             ->assertJsonPath('id', 1);
+
+        // Renewal stays on the MCP resource; omitting it means REST and is
+        // refused without consuming the refresh token.
+        $this->postJson('/oauth/token', [
+            'grant_type' => 'refresh_token',
+            'client_id' => $client->id,
+            'refresh_token' => $issued['refresh_token'],
+        ])->assertBadRequest()->assertJsonPath('error', 'invalid_grant');
+        $this->postJson('/oauth/token', [
+            'grant_type' => 'refresh_token',
+            'client_id' => $client->id,
+            'refresh_token' => $issued['refresh_token'],
+            'resource' => $mcpResource,
+        ])->assertOk();
     }
 
     public function test_dynamic_registration_defaults_unsupplied_scope_to_the_server_catalog(): void
@@ -487,7 +523,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'state' => 'synthetic-cached-resource-state',
             'code_challenge' => $challenge,
             'code_challenge_method' => 'S256',
-            'resource' => OAuthResourceIndicator::resource(),
+            'resource' => OAuthResourceIndicator::resource('mcp'),
         ]))->assertOk();
         $authToken = session('authToken');
         $this->assertIsString($authToken);
@@ -497,7 +533,7 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         $this->post('/oauth/authorize', [
             'auth_token' => $authToken,
         ])->assertRedirect();
-        $this->assertSame(OAuthResourceIndicator::resource(), AuthCode::query()->sole()->resource_uri);
+        $this->assertSame(OAuthResourceIndicator::resource('mcp'), AuthCode::query()->sole()->resource_uri);
         $this->assertNull(app(OAuthAuthorizationStateStore::class)->resourceFor($authToken));
     }
 

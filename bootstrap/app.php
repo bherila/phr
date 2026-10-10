@@ -2,10 +2,12 @@
 
 use App\Http\Middleware\AuditAgentApiRequest;
 use App\Http\Middleware\EnsureOAuthAuthorizationUserCanLogin;
+use App\Http\Middleware\ExpectAnyOAuthResource;
 use App\Http\Middleware\GenAiRestHttpSecurityMiddleware;
 use App\Http\Middleware\ThrottleAgentApiAuthentication;
 use Bherila\McpLaravelBridge\Http\McpHttpSecurityMiddleware;
 use BWH\Auth\Http\Middleware\ExpectOAuthResource;
+use BWH\Auth\OAuth\Server\OAuthProtectedResource;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
 use Illuminate\Foundation\Application;
@@ -38,6 +40,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // Resource-bound bearer tokens are rejected unless the route establishes
         // its expected audience before Passport authenticates the request.
         $middleware->prependToPriorityList(AuthenticatesRequests::class, ExpectOAuthResource::class);
+        $middleware->prependToPriorityList(AuthenticatesRequests::class, ExpectAnyOAuthResource::class);
         $middleware->prependToPriorityList(AuthenticatesRequests::class, McpHttpSecurityMiddleware::class);
         $middleware->prependToPriorityList(AuthenticatesRequests::class, GenAiRestHttpSecurityMiddleware::class);
         // Passport's authorization routes declare their package middleware
@@ -74,22 +77,20 @@ return Application::configure(basePath: dirname(__DIR__))
             return $response;
         });
 
+        // Each agent route's challenge names the metadata of its own protected
+        // resource (MCP at /api/v1/mcp, REST at /api/v1), from configuration
+        // rather than the request host, so a strict RFC 9728 client finds a
+        // document whose `resource` is exactly the URL it called.
         $exceptions->render(function (AuthenticationException $exception, Request $request) {
             if (! $request->is('api/v1/*')) {
                 return null;
             }
 
-            return response()->json(
-                ['message' => 'Unauthenticated.'],
-                401,
-                [
-                    'Cache-Control' => 'private, no-store',
-                    'WWW-Authenticate' => sprintf(
-                        'Bearer resource_metadata="%s"',
-                        url('/.well-known/oauth-protected-resource/api/v1'),
-                    ),
-                ],
-            );
+            $response = OAuthProtectedResource::unauthenticated($request)
+                ?? OAuthProtectedResource::unauthorizedResponse('invalid_token', 'Authentication is required.');
+            $response->setData(['message' => 'Unauthenticated.', ...(array) $response->getData(true)]);
+
+            return $response;
         });
 
         // Unauthenticated /api/* requests must render 401 JSON regardless of the
