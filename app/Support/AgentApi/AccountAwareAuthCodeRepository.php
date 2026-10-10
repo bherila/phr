@@ -4,6 +4,7 @@ namespace App\Support\AgentApi;
 
 use App\Models\User;
 use BWH\Auth\OAuth\Server\OAuthResourceIndicator;
+use BWH\Auth\OAuth\Server\ProviderIdentityTokens;
 use Laravel\Passport\Bridge\AuthCodeRepository;
 use Laravel\Passport\Passport;
 use League\OAuth2\Server\Entities\AuthCodeEntityInterface;
@@ -42,7 +43,8 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
             throw OAuthServerException::invalidGrant('The authorization grant is invalid.');
         }
 
-        Passport::authCode()->forceFill([
+        $model = Passport::authCode();
+        $model->forceFill([
             'id' => $authCodeEntity->getIdentifier(),
             'user_id' => $userId,
             'client_id' => $authCodeEntity->getClient()->getIdentifier(),
@@ -51,6 +53,7 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
             'oauth_security_version' => $securityVersion,
             'resource_uri' => $resourceUri,
             'expires_at' => $authCodeEntity->getExpiryDateTime(),
+            ...ProviderIdentityStamp::forIssue($model, $userId),
         ])->save();
 
         $this->dynamicClients->markAuthorized($client);
@@ -104,6 +107,14 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
 
             return true;
         }
+
+        // The code's provider stamp, checked against the account's binding and
+        // handed to the token it mints (a no-op until enforcement is enabled).
+        $providerIdentity = app(ProviderIdentityTokens::class);
+        if ($providerIdentity->revoked($authorizationCode, remote: false)) {
+            return true;
+        }
+        $providerIdentity->carry(request(), $authorizationCode);
 
         $this->accountGuard->recordValidatedGrant(
             $authorizationCode->user_id,

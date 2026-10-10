@@ -7,6 +7,7 @@ use App\Http\Middleware\GenAiRestHttpSecurityMiddleware;
 use App\Http\Middleware\ThrottleAgentApiAuthentication;
 use Bherila\McpLaravelBridge\Http\McpHttpSecurityMiddleware;
 use BWH\Auth\Http\Middleware\ExpectOAuthResource;
+use BWH\Auth\Http\Middleware\RequireActiveProviderSession;
 use BWH\Auth\OAuth\Server\OAuthProtectedResource;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
@@ -33,6 +34,11 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Ends a browser session whose identity ended at the identity provider.
+        // A no-op until BHERILA_AUTH_PROVIDER_IDENTITY_ENABLED; bearer requests
+        // carry no session user and are checked by the token repositories.
+        $middleware->web(append: [RequireActiveProviderSession::class]);
+
         // Agent API audits must wrap throttling so rejected 429 attempts retain the
         // same metadata-only evidence as successful authenticated requests.
         $middleware->prependToPriorityList(ThrottleRequests::class, AuditAgentApiRequest::class);

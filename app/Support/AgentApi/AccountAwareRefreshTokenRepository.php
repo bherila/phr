@@ -36,8 +36,13 @@ class AccountAwareRefreshTokenRepository extends RefreshTokenRepository
             'expires_at' => $refreshTokenEntity->getExpiryDateTime(),
         ];
         $owner = $accessToken->getUserIdentifier();
-        if ($owner !== null && $model->getConnection()->getSchemaBuilder()->hasColumn($model->getTable(), ProviderIdentityTokens::OWNER_COLUMN)) {
+        if ($owner !== null && ProviderIdentityStamp::hasColumns($model)) {
+            // The owner and the provider stamp of the access token it was issued
+            // with, so the refresh token stays checkable once that row is purged.
+            $issuedWith = Passport::token()->newQuery()->find($accessTokenId);
             $attributes[ProviderIdentityTokens::OWNER_COLUMN] = (string) $owner;
+            $attributes[ProviderIdentityTokens::SUBJECT_COLUMN] = $issuedWith?->getAttribute(ProviderIdentityTokens::SUBJECT_COLUMN);
+            $attributes[ProviderIdentityTokens::GENERATION_COLUMN] = $issuedWith?->getAttribute(ProviderIdentityTokens::GENERATION_COLUMN);
         }
         $model->forceFill($attributes)->save();
 
@@ -131,6 +136,16 @@ class AccountAwareRefreshTokenRepository extends RefreshTokenRepository
         if ($storedResource !== null && ! OAuthResourceIndicator::scopesAllowedFor($storedResource, $accessToken->scopes)) {
             return true;
         }
+
+        // Renewal checks the person freshly against the grant's provider stamp
+        // and hands it to the new token (a no-op until enforcement is enabled).
+        // An unavailable provider throws before anything is consumed.
+        $providerIdentity = app(ProviderIdentityTokens::class);
+        $stamped = $refreshToken->getAttribute(ProviderIdentityTokens::OWNER_COLUMN) !== null ? $refreshToken : $accessToken;
+        if ($providerIdentity->revoked($stamped, fresh: true)) {
+            return true;
+        }
+        $providerIdentity->carry(request(), $stamped);
 
         $this->accountGuard->recordValidatedGrant(
             $accessToken->user_id,
