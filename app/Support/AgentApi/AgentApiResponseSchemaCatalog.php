@@ -13,9 +13,9 @@ final class AgentApiResponseSchemaCatalog
     private static ?array $operations = null;
 
     /**
-     * Every operation in the document by operationId: its HTTP binding, its
-     * OAuth scopes (null for one declared with no security at all) and its
-     * prose.
+     * Every REST operation by operationId, as {@see AgentRestDocumentation}
+     * declares it: its HTTP binding, its OAuth scopes (null for a public one)
+     * and its prose.
      *
      * @return array<string, array{method: string, path: string, scopes: list<string>|null, summary: string, description: string}>
      */
@@ -24,22 +24,15 @@ final class AgentApiResponseSchemaCatalog
         if (self::$operations !== null) {
             return self::$operations;
         }
-        $document = json_decode((string) file_get_contents(public_path('openapi/phr-agent-v1.json')), true, flags: JSON_THROW_ON_ERROR);
         $operations = [];
-        foreach ($document['paths'] ?? [] as $path => $item) {
-            foreach (is_array($item) ? $item : [] as $method => $operation) {
-                if (! is_array($operation) || ! is_string($operation['operationId'] ?? null)) {
-                    continue;
-                }
-                $security = $operation['security'] ?? null;
-                $operations[$operation['operationId']] = [
-                    'method' => strtoupper((string) $method),
-                    'path' => (string) $path,
-                    'scopes' => $security === [] ? null : array_values(array_filter($security[0]['oauth2'] ?? [], 'is_string')),
-                    'summary' => (string) ($operation['summary'] ?? ''),
-                    'description' => (string) ($operation['description'] ?? ''),
-                ];
-            }
+        foreach (AgentRestDocumentation::operations() as $id => $declared) {
+            $operations[$id] = [
+                'method' => $declared['method'],
+                'path' => $declared['path'],
+                'scopes' => $declared['scopes'],
+                'summary' => $declared['summary'],
+                'description' => is_string($declared['description']) ? $declared['description'] : '',
+            ];
         }
 
         return self::$operations = $operations;

@@ -332,7 +332,8 @@ class AgentApiOAuthFoundationTest extends TestCase
             'genai.attachments.download',
             'oauth.disconnect',
         ];
-        $this->assertSame(
+        // The generated document orders paths by operation id, not as listed here.
+        $this->assertEqualsCanonicalizing(
             $operationIds,
             collect($document['paths'])->flatMap(fn (array $path): array => array_column($path, 'operationId'))->values()->all(),
         );

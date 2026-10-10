@@ -7,6 +7,7 @@ use App\Services\PHR\DICOM\DicomUploadLimits;
 use App\Support\AgentApi\AgentApiPrincipal;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
+use App\Support\AgentApi\AgentOpenApi;
 use App\Support\AgentApi\AgentOperations;
 use App\Support\PHR\PhrDocumentUploadLimits;
 use Illuminate\Http\JsonResponse;
@@ -16,22 +17,14 @@ use Laravel\Passport\AccessToken;
 class AgentDiscoveryController extends Controller
 {
     /**
-     * The shipped contract with this installation's addresses filled in: its
-     * API base URL and OAuth endpoints, all derived from APP_URL, so a
-     * connector importing the document needs nothing typed by hand.
+     * The contract, generated from the operation registry and addressed to
+     * this installation: its API base URL and OAuth endpoints come from
+     * configuration, so a connector importing the document needs nothing typed
+     * by hand.
      */
     public function openApi(): JsonResponse
     {
-        /** @var array<string, mixed> $document */
-        $document = json_decode((string) file_get_contents(public_path('openapi/phr-agent-v1.json')), true, flags: JSON_THROW_ON_ERROR);
-        $document['servers'] = [['url' => (string) config('bherila-auth.oauth_server.resource')]];
-        $flow = &$document['components']['securitySchemes']['oauth2']['flows']['authorizationCode'];
-        $flow['authorizationUrl'] = (string) config('bherila-auth.oauth_server.authorization_endpoint');
-        $flow['tokenUrl'] = (string) config('bherila-auth.oauth_server.token_endpoint');
-        $flow['refreshUrl'] = (string) config('bherila-auth.oauth_server.token_endpoint');
-        unset($flow);
-
-        return response()->json($document, 200, ['Cache-Control' => 'max-age=300, public'], JSON_UNESCAPED_SLASHES);
+        return response()->json(AgentOpenApi::forInstallation()->full(), 200, ['Cache-Control' => 'max-age=300, public'], JSON_UNESCAPED_SLASHES);
     }
 
     public function capabilities(): JsonResponse

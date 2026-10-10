@@ -304,7 +304,8 @@ on later rsyncs, rejects a partial key pair, and never prints key material.
 
 ## Release invariants
 
-- Add each route to the versioned OpenAPI document and capabilities response.
+- Declare each route in `AgentRestDocumentation` (its schemas in the OpenAPI document's
+  components), regenerate the checked document, and add it to the capabilities response.
 - Require the narrowest applicable scope on the route.
 - Resolve every patient identifier through the shared patient-access service.
 - Keep list responses cursor-paginated with a maximum page size of 100.
