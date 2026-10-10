@@ -4,6 +4,7 @@ namespace App\Support\AgentApi;
 
 use App\Models\User;
 use BWH\Auth\OAuth\Server\OAuthResourceIndicator;
+use BWH\Auth\OAuth\Server\ProviderIdentityTokens;
 use Laravel\Passport\Bridge\AuthCodeRepository;
 use Laravel\Passport\Passport;
 use League\OAuth2\Server\Entities\AuthCodeEntityInterface;
@@ -29,8 +30,12 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
             static fn ($scope): string => $scope->getIdentifier(),
             $authCodeEntity->getScopes(),
         );
-        $resourceIsValid = ! in_array(AgentApiScopes::MCP_USE, $scopeIds, true)
-            || $resourceUri === OAuthResourceIndicator::resource();
+        // A code is usable only for a configured resource whose scope ceiling
+        // admits every granted scope (an MCP connection scope never reaches a
+        // REST code), and a scope that needs a resource never goes without one.
+        $resourceIsValid = $resourceUri === null
+            ? ! OAuthResourceIndicator::scopesRequireResource($scopeIds)
+            : OAuthResourceIndicator::scopesAllowedFor($resourceUri, $scopeIds);
         $client = $this->dynamicClients->lockForAuthorization(
             $authCodeEntity->getClient()->getIdentifier(),
         );
@@ -38,7 +43,8 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
             throw OAuthServerException::invalidGrant('The authorization grant is invalid.');
         }
 
-        Passport::authCode()->forceFill([
+        $model = Passport::authCode();
+        $model->forceFill([
             'id' => $authCodeEntity->getIdentifier(),
             'user_id' => $userId,
             'client_id' => $authCodeEntity->getClient()->getIdentifier(),
@@ -47,6 +53,7 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
             'oauth_security_version' => $securityVersion,
             'resource_uri' => $resourceUri,
             'expires_at' => $authCodeEntity->getExpiryDateTime(),
+            ...ProviderIdentityStamp::forIssue($model, $userId),
         ])->save();
 
         $this->dynamicClients->markAuthorized($client);
@@ -69,18 +76,26 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
         $storedResource = is_string($authorizationCode->resource_uri)
             ? $authorizationCode->resource_uri
             : null;
-        $requestedResource = request()->exists('resource')
-            ? OAuthResourceIndicator::canonicalize(request()->input('resource'))
+        // The exchange names the code's own resource, or omits it and means the
+        // REST resource. A mismatch is refused without consuming the code, so a
+        // client can retry with the resource it was granted for.
+        $requestedResource = OAuthResourceIndicator::requestNamesResource(request())
+            ? OAuthResourceIndicator::requestResource(request())
             : $storedResource;
         if ($requestedResource !== $storedResource) {
-            $authorizationCode->forceFill(['revoked' => true])->save();
-
+            return true;
+        }
+        // A scope ceiling tightened since consent applies to the token the code mints.
+        if ($storedResource !== null && ! OAuthResourceIndicator::scopesAllowedFor(
+            $storedResource,
+            OAuthResourceIndicator::scopeIdentifiers($authorizationCode->scopes),
+        )) {
             return true;
         }
 
         $user = User::query()->find($authorizationCode->user_id);
 
-        if (! $user instanceof User || ! $user->canLogin()) {
+        if (! $user instanceof User || ! $user->mayHoldOAuthCredentials()) {
             app(OAuthCredentialRevoker::class)->revokeForUserIdentifier($authorizationCode->user_id);
 
             return true;
@@ -92,6 +107,14 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
 
             return true;
         }
+
+        // The code's provider stamp, checked against the account's binding and
+        // handed to the token it mints (a no-op until enforcement is enabled).
+        $providerIdentity = app(ProviderIdentityTokens::class);
+        if ($providerIdentity->revoked($authorizationCode, remote: false)) {
+            return true;
+        }
+        $providerIdentity->carry(request(), $authorizationCode);
 
         $this->accountGuard->recordValidatedGrant(
             $authorizationCode->user_id,

@@ -49,7 +49,45 @@ return [
     // so a fork needs no host-specific settings. The preset binds credentials to
     // APP_URL/api/v1 (an omitted `resource` is taken as that one), requires S256
     // PKCE for every client, and allows public-only self-registration.
+    // Provider identity enforcement: end browser sessions and OAuth credentials
+    // whose identity was disabled, deleted, reset or ungranted at the identity
+    // provider. Off until BHERILA_AUTH_PROVIDER_IDENTITY_ENABLED=true; while
+    // off, sign-in still records each session's baseline and credentials carry
+    // it, so enabling enforcement later retires only what predates that.
+    'provider_identity' => [
+        'enabled' => (bool) env('BHERILA_AUTH_PROVIDER_IDENTITY_ENABLED', false),
+        // A store every web worker shares and that supports locks (database,
+        // redis, file); null uses the default cache store.
+        'cache_store' => env('BHERILA_AUTH_PROVIDER_IDENTITY_CACHE_STORE') ?: null,
+        'binding' => [
+            'provider_column' => 'oauth_provider',
+            'subject_column' => 'oauth_subject',
+        ],
+        'expired_redirect_route' => 'login',
+        'except_routes' => ['logout'],
+        'bearer_guard' => 'api',
+    ],
+
     'oauth_server' => AgentOAuthServer::config(AgentApiScopes::descriptions(), [
+        // Two protected resources, each its own audience and RFC 9728 document
+        // (/.well-known/oauth-protected-resource/api/v1 and .../api/v1/mcp): a
+        // token issued for one is refused at the other. Clients that send no
+        // `resource` get REST credentials.
+        'resources' => [
+            'rest' => ['path' => '/api/v1', 'scopes' => AgentApiScopes::restIds()],
+            'mcp' => ['path' => '/api/v1/mcp', 'scopes' => AgentApiScopes::mcpIds()],
+        ],
+        'assume_omitted_resource' => 'rest',
+        // Browser origins allowed to call discovery, registration and the token
+        // endpoint directly (comma-separated; `*` for any). Empty, the default,
+        // sends no CORS headers. The MCP endpoint's own origin policy is
+        // AGENT_API_MCP_ALLOWED_ORIGINS, enforced by the application.
+        'cors' => [
+            'allowed_origins' => array_values(array_filter(array_map(
+                'trim',
+                explode(',', (string) env('OAUTH_SERVER_CORS_ALLOWED_ORIGINS', '')),
+            ))),
+        ],
         'resource_required_scope' => AgentApiScopes::MCP_USE,
         'resource_required_scopes' => [AgentApiScopes::MCP_USE],
         // A signed-in person's own API tokens and OAuth apps, for connectors that

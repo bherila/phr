@@ -7,6 +7,8 @@ use BWH\Auth\Concerns\LogsAuthEvents;
 use BWH\Auth\Concerns\SignsOutThroughProvider;
 use BWH\Auth\OAuth\OAuthClient;
 use BWH\Auth\OAuth\ProviderApplications;
+use BWH\Auth\OAuth\Session\ProviderSession;
+use BWH\Auth\OAuth\Session\ProviderStatusUnavailable;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
@@ -26,7 +28,7 @@ class OAuthLoginController extends Controller
         return $oauth->redirect($request);
     }
 
-    public function callback(Request $request, OAuthClient $oauth): RedirectResponse
+    public function callback(Request $request, OAuthClient $oauth, ProviderSession $providerSession): RedirectResponse
     {
         $identity = $oauth->identityFromCallback($request);
 
@@ -51,6 +53,17 @@ class OAuthLoginController extends Controller
 
         Auth::login($user);
         $request->session()->regenerate();
+
+        // Record this login's provider generation, the baseline enforcement
+        // checks the session against. With enforcement off this never fails
+        // the sign-in; with it on, a login that cannot be verified is undone.
+        try {
+            $providerSession->establish($request, $identity, Auth::guard());
+        } catch (ProviderStatusUnavailable) {
+            $this->auditLoginFailed($request, $user, $identity->email, 'Provider session unverified', 'oauth');
+
+            abort(503, 'Sign-in verification is unavailable. Please retry.');
+        }
 
         // Cached for the session rather than fetched per request: this is navigation chrome,
         // and the callback is the only moment an access token for the provider is in hand.

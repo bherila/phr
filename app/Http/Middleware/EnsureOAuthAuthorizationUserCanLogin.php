@@ -35,7 +35,7 @@ final class EnsureOAuthAuthorizationUserCanLogin
         }
 
         $user = User::query()->find($authenticated->getAuthIdentifier());
-        if ($user instanceof User && $user->canLogin()) {
+        if ($user instanceof User && $user->mayHoldOAuthCredentials()) {
             // Persist the generation validated at the authorization boundary in
             // request-local state. Auth-code persistence must not bless a grant
             // with a newer generation read after a disable/re-enable transition.

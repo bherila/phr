@@ -10,11 +10,14 @@ use App\Models\User;
 use App\Support\AgentApi\AccountAwareAccessTokenRepository;
 use App\Support\AgentApi\AccountAwareAuthCodeRepository;
 use App\Support\AgentApi\AccountAwareRefreshTokenRepository;
+use App\Support\AgentApi\AccountCredentialOwnerPolicy;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentApiTokenPolicy;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use App\Support\AgentApi\OAuthExchangeAccountGuard;
 use App\Support\PHR\PhrDocumentUploadLimits;
+use BWH\Auth\OAuth\Credentials\CredentialOwnerPolicy;
+use BWH\Auth\OAuth\Credentials\OAuthCredentialOwners;
 use BWH\Auth\OAuth\Server\OAuthResourceIndicator;
 use BWH\Auth\OAuth\Server\ResourceAccessToken;
 use DateTimeImmutable;
@@ -77,13 +80,20 @@ class AgentApiOAuthFoundationTest extends TestCase
             ->assertJsonPath('code_challenge_methods_supported', ['S256'])
             ->assertJsonPath('scopes_supported', AgentApiScopes::ids());
 
-        $this->getJson('/.well-known/oauth-protected-resource')
-            ->assertOk()
-            ->assertJsonPath('resource', url('/api/v1'))
-            ->assertJsonPath('authorization_servers.0', url('/'));
+        // One RFC 9728 document per protected resource, each only at the
+        // path-inserted URL of its own identifier: nothing describes either
+        // resource from the bare well-known path.
+        $this->getJson('/.well-known/oauth-protected-resource')->assertNotFound();
         $this->getJson('/.well-known/oauth-protected-resource/api/v1')
             ->assertOk()
-            ->assertJsonPath('resource', url('/api/v1'));
+            ->assertJsonPath('resource', url('/api/v1'))
+            ->assertJsonPath('authorization_servers.0', url('/'))
+            ->assertJsonPath('scopes_supported', AgentApiScopes::restIds());
+        $this->getJson('/.well-known/oauth-protected-resource/api/v1/mcp')
+            ->assertOk()
+            ->assertJsonPath('resource', url('/api/v1/mcp'))
+            ->assertJsonPath('authorization_servers.0', url('/'))
+            ->assertJsonPath('scopes_supported', AgentApiScopes::mcpIds());
 
         $this->assertTrue(Passport::$revokeRefreshTokenAfterUse);
         $this->assertFalse(Passport::$implicitGrantEnabled);
@@ -208,6 +218,7 @@ class AgentApiOAuthFoundationTest extends TestCase
         $this->assertSame(900, $issued['expires_in']);
         $originalAccessToken = Token::query()->where('user_id', $user->id)->sole();
         $originalRefreshToken = RefreshToken::query()->where('access_token_id', $originalAccessToken->id)->sole();
+        $this->assertSame((string) $user->id, $originalRefreshToken->provider_user_id);
         $this->assertSame($user->fresh()->oauth_security_version, $originalAccessToken->oauth_security_version);
 
         $this->withToken($issued['access_token'])->getJson('/api/v1/me')
@@ -450,8 +461,9 @@ class AgentApiOAuthFoundationTest extends TestCase
             ->assertHeader('Content-Type', 'application/json')
             ->assertHeader(
                 'WWW-Authenticate',
-                'Bearer resource_metadata="'.url('/.well-known/oauth-protected-resource/api/v1').'"',
-            );
+                'Bearer error="invalid_token", error_description="Authentication is required.", resource_metadata="'.url('/.well-known/oauth-protected-resource/api/v1').'"',
+            )
+            ->assertJsonPath('message', 'Unauthenticated.');
 
         $this->assertDatabaseCount('agent_api_audits', 0);
     }
@@ -716,6 +728,45 @@ class AgentApiOAuthFoundationTest extends TestCase
         ]);
     }
 
+    public function test_the_credential_owner_policy_is_the_login_eligibility_rule(): void
+    {
+        $policy = app(CredentialOwnerPolicy::class);
+        $this->assertInstanceOf(AccountCredentialOwnerPolicy::class, $policy);
+        $admin = $this->createAdminUser();
+        $user = $this->createUser();
+        $disabled = $this->createUser(['user_role' => '']);
+
+        $this->assertTrue($policy->mayHoldCredentials($admin));
+        $this->assertTrue($policy->mayHoldCredentials($user));
+        $this->assertFalse($policy->mayHoldCredentials($disabled));
+        $this->assertFalse($disabled->mayHoldOAuthCredentials());
+        // The package asks the same policy through its owner lookup.
+        $owners = app(OAuthCredentialOwners::class);
+        $this->assertFalse($owners->refused($user->id));
+        $this->assertTrue($owners->refused($disabled->id));
+        $this->assertTrue($owners->refused(PHP_INT_MAX));
+    }
+
+    public function test_disabling_an_account_revokes_refresh_tokens_that_outlived_their_access_token(): void
+    {
+        // User id 1 is intentionally always an administrator and cannot be disabled.
+        $this->createAdminUser();
+        $user = $this->createUser();
+        // A refresh token whose access-token row was purged is found only by the
+        // owner record the auth package keeps on it.
+        $orphanedRefresh = RefreshToken::query()->forceCreate([
+            'id' => Str::random(80),
+            'access_token_id' => Str::random(80),
+            'provider_user_id' => (string) $user->id,
+            'revoked' => false,
+            'expires_at' => now()->addDays(30),
+        ]);
+
+        $user->forceFill(['user_role' => ''])->save();
+
+        $this->assertTrue($orphanedRefresh->fresh()->revoked);
+    }
+
     public function test_refresh_repository_fails_closed_when_account_was_disabled_outside_eloquent(): void
     {
         // User id 1 is intentionally always an administrator and cannot be disabled.
@@ -883,6 +934,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             'client_id' => $client->id,
             'scopes' => json_encode([AgentApiScopes::IDENTITY_READ], JSON_THROW_ON_ERROR),
             'revoked' => false,
+            'resource_uri' => OAuthResourceIndicator::resource('rest'),
             'expires_at' => now()->addMinutes(10),
         ]);
 
@@ -1018,9 +1070,11 @@ class AgentApiOAuthFoundationTest extends TestCase
         $entity->setUserIdentifier((string) $user->id);
         $entity->setClient(new PassportClientEntity($client->id, $client->name, $client->redirect_uris));
         $entity->setExpiryDateTime(new DateTimeImmutable('+10 minutes'));
+        request()->attributes->set(OAuthResourceIndicator::REQUEST_ATTRIBUTE, OAuthResourceIndicator::resource('rest'));
         app(PassportAuthCodeRepository::class)->persistNewAuthCode($entity);
 
         $authorizationCode = AuthCode::query()->findOrFail($codeId);
+        $this->assertSame(OAuthResourceIndicator::resource('rest'), $authorizationCode->resource_uri);
         $this->assertSame(0, $authorizationCode->oauth_security_version);
         $this->assertTrue(app(PassportAuthCodeRepository::class)->isAuthCodeRevoked($codeId));
         $this->assertTrue($authorizationCode->fresh()->revoked);
@@ -1155,6 +1209,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             'scopes' => json_encode([AgentApiScopes::IDENTITY_READ], JSON_THROW_ON_ERROR),
             'revoked' => false,
             'oauth_security_version' => 0,
+            'resource_uri' => OAuthResourceIndicator::resource('rest'),
             'expires_at' => now()->addMinutes(10),
         ]);
 
@@ -1184,6 +1239,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             'scopes' => json_encode([AgentApiScopes::IDENTITY_READ], JSON_THROW_ON_ERROR),
             'revoked' => false,
             'oauth_security_version' => $securityVersion,
+            'resource_uri' => OAuthResourceIndicator::resource('rest'),
             'expires_at' => now()->addMinutes(10),
         ]);
 

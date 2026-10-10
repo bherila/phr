@@ -108,7 +108,7 @@ final class AccountAwareAccessTokenRepository extends AccessTokenRepository
         }
 
         $user = User::query()->find($token->user_id);
-        if (! $user instanceof User || ! $user->canLogin()) {
+        if (! $user instanceof User || ! $user->mayHoldOAuthCredentials()) {
             app(OAuthCredentialRevoker::class)->revokeForUserIdentifier($token->user_id);
 
             return true;
