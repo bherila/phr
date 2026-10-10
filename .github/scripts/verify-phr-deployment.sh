@@ -226,8 +226,27 @@ PHR_VERIFY_JSON="$RESPONSE_BODY" PHR_VERIFY_SITE="$site_url" "$php_runner" -r '
     if (($data["resource"] ?? null) !== $site."/api/v1"
         || ($data["authorization_servers"][0] ?? null) !== $site
         || ! is_array($scopes)
-        || array_diff(["mcp:use", "genai:read", "genai:work"], $scopes) !== []) {
+        || array_diff(["genai:read", "genai:work"], $scopes) !== []
+        || in_array("mcp:use", $scopes, true)) {
         fwrite(STDERR, "Protected-resource metadata does not match the deployed Agent API.\n");
+        exit(1);
+    }
+' || exit 1
+
+# RFC 9728 3.3: the MCP endpoint is its own protected resource, so its metadata
+# names exactly /api/v1/mcp and is the only document that offers the connection scope.
+request mcp-metadata "$site_url/.well-known/oauth-protected-resource/api/v1/mcp"
+[[ "$RESPONSE_STATUS" == 200 ]] || { echo "MCP protected-resource metadata returned HTTP ${RESPONSE_STATUS}." >&2; exit 1; }
+# shellcheck disable=SC2016 # The PHP program is intentionally a literal string.
+PHR_VERIFY_JSON="$RESPONSE_BODY" PHR_VERIFY_SITE="$site_url" "$php_runner" -r '
+    $data = json_decode((string) file_get_contents(getenv("PHR_VERIFY_JSON")), true, 16, JSON_THROW_ON_ERROR);
+    $site = rtrim((string) getenv("PHR_VERIFY_SITE"), "/");
+    $scopes = $data["scopes_supported"] ?? [];
+    if (($data["resource"] ?? null) !== $site."/api/v1/mcp"
+        || ($data["authorization_servers"][0] ?? null) !== $site
+        || ! is_array($scopes)
+        || array_diff(["mcp:use", "genai:read", "genai:work"], $scopes) !== []) {
+        fwrite(STDERR, "MCP protected-resource metadata does not match the deployed Agent API.\n");
         exit(1);
     }
 ' || exit 1

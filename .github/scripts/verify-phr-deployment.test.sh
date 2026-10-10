@@ -71,8 +71,12 @@ case "$url" in
         content_type="${PHR_TEST_VIEWER_CONTENT_TYPE:-text/html; charset=UTF-8}"
         payload='synthetic-secret response body'
         ;;
+    */.well-known/oauth-protected-resource/api/v1/mcp)
+        payload='{"resource":"https://phr.example.test/api/v1/mcp","authorization_servers":["https://phr.example.test"],"scopes_supported":["mcp:use","genai:read","genai:work"]}'
+        [[ -z "${PHR_TEST_MCP_METADATA:-}" ]] || payload="$PHR_TEST_MCP_METADATA"
+        ;;
     */.well-known/oauth-protected-resource/api/v1)
-        payload='{"resource":"https://phr.example.test/api/v1","authorization_servers":["https://phr.example.test"],"scopes_supported":["mcp:use","genai:read","genai:work"]}'
+        payload='{"resource":"https://phr.example.test/api/v1","authorization_servers":["https://phr.example.test"],"scopes_supported":["genai:read","genai:work"]}'
         [[ -z "${PHR_TEST_METADATA:-}" ]] || payload="$PHR_TEST_METADATA"
         ;;
     */api/v1/capabilities)
@@ -374,12 +378,29 @@ if "$verifier" >/dev/null 2>&1; then
 fi
 export DEPLOY_SSH_TARGET=cpanel-deploy@host.example.test
 
-export PHR_TEST_METADATA='{"resource":"https://wrong.example/api/v1","authorization_servers":["https://phr.example.test"],"scopes_supported":["mcp:use","genai:read","genai:work"]}'
+export PHR_TEST_METADATA='{"resource":"https://wrong.example/api/v1","authorization_servers":["https://phr.example.test"],"scopes_supported":["genai:read","genai:work"]}'
 if "$verifier" >/dev/null 2>&1; then
     echo 'Expected mismatched protected-resource metadata to fail.' >&2
     exit 1
 fi
+export PHR_TEST_METADATA='{"resource":"https://phr.example.test/api/v1","authorization_servers":["https://phr.example.test"],"scopes_supported":["mcp:use","genai:read","genai:work"]}'
+if "$verifier" >/dev/null 2>&1; then
+    echo 'Expected REST metadata offering the MCP connection scope to fail.' >&2
+    exit 1
+fi
 unset PHR_TEST_METADATA
+
+export PHR_TEST_MCP_METADATA='{"resource":"https://phr.example.test/api/v1","authorization_servers":["https://phr.example.test"],"scopes_supported":["mcp:use","genai:read","genai:work"]}'
+if "$verifier" >/dev/null 2>&1; then
+    echo 'Expected MCP metadata naming the parent resource to fail.' >&2
+    exit 1
+fi
+export PHR_TEST_MCP_METADATA='{"resource":"https://phr.example.test/api/v1/mcp","authorization_servers":["https://phr.example.test"],"scopes_supported":["genai:read","genai:work"]}'
+if "$verifier" >/dev/null 2>&1; then
+    echo 'Expected MCP metadata without the connection scope to fail.' >&2
+    exit 1
+fi
+unset PHR_TEST_MCP_METADATA
 
 export PHR_TEST_CAPABILITIES='{"api_version":"v1","limits":{"maximum_page_size":100},"oauth":{"authorization_code_pkce":false}}'
 if "$verifier" >/dev/null 2>&1; then
