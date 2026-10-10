@@ -3,6 +3,8 @@
 namespace App\Support\AgentApi;
 
 use App\Models\OAuthTokenFamily;
+use App\Models\User;
+use BWH\Auth\OAuth\Credentials\OAuthCredentialOwners;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Laravel\Passport\Passport;
@@ -71,6 +73,19 @@ final class OAuthCredentialRevoker
     }
 
     /**
+     * Revoke every credential an account holds, for disabling or deleting it:
+     * the auth package's owner-wide revocation (which also finds refresh tokens
+     * by their own owner record), then every rotation family and anything left.
+     */
+    public function revokeAccount(User $user): void
+    {
+        if ($this->passportTablesExist()) {
+            app(OAuthCredentialOwners::class)->revokeAll($user);
+        }
+        $this->revokeForUserIdentifier($user->getAuthIdentifier());
+    }
+
+    /**
      * Revoke every credential Passport has issued or prepared for an account.
      *
      * Authorization codes are independent of access-token families, so they
@@ -116,5 +131,15 @@ final class OAuthCredentialRevoker
         Passport::token()->newQuery()
             ->whereIn('id', $tokenIds)
             ->update(['revoked' => true]);
+    }
+
+    private function passportTablesExist(): bool
+    {
+        $connection = config('passport.connection');
+        $schema = Schema::connection(is_string($connection) ? $connection : null);
+
+        return $schema->hasTable('oauth_auth_codes')
+            && $schema->hasTable('oauth_access_tokens')
+            && $schema->hasTable('oauth_refresh_tokens');
     }
 }

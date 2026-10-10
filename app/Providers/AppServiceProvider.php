@@ -10,6 +10,7 @@ use App\Services\Accounts\PhrApplicationAccessAdapter;
 use App\Support\AgentApi\AccountAwareAccessTokenRepository;
 use App\Support\AgentApi\AccountAwareAuthCodeRepository;
 use App\Support\AgentApi\AccountAwareRefreshTokenRepository;
+use App\Support\AgentApi\AccountCredentialOwnerPolicy;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentApiTokenPolicy;
 use Bherila\GenAiLaravel\Contracts\AttachmentResolver;
@@ -20,6 +21,7 @@ use Bherila\GenAiLaravel\Mcp\Events\McpRequestFailed;
 use Bherila\McpLaravelBridge\Http\AgentApiTransport;
 use Bherila\McpLaravelBridge\Http\InternalAgentApiTransport;
 use Bherila\McpLaravelBridge\Http\McpHttpPolicy;
+use BWH\Auth\OAuth\Credentials\CredentialOwnerPolicy;
 use BWH\Auth\OAuth\DelegatedAccess\ApplicationAccessAdapter;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Middleware\HandleCors;
@@ -46,6 +48,9 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(AccessTokenRepository::class, AccountAwareAccessTokenRepository::class);
         $this->app->bind(AuthCodeRepository::class, AccountAwareAuthCodeRepository::class);
         $this->app->bind(RefreshTokenRepository::class, AccountAwareRefreshTokenRepository::class);
+        // Who may hold OAuth credentials at all; the auth package checks it at
+        // every issue, exchange, refresh and use, as PHR's repositories do.
+        $this->app->singleton(CredentialOwnerPolicy::class, AccountCredentialOwnerPolicy::class);
         $this->app->bind(MailboxAccessResolver::class, PhrMcpMailboxAccessResolver::class);
         $this->app->bind(AttachmentResolver::class, PhrMcpAttachmentResolver::class);
         $this->app->bind(CompletionDelivery::class, PhrMcpCompletionDelivery::class);

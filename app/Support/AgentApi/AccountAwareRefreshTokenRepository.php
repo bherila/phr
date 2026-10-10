@@ -4,10 +4,13 @@ namespace App\Support\AgentApi;
 
 use App\Models\User;
 use BWH\Auth\OAuth\Server\OAuthResourceIndicator;
+use BWH\Auth\OAuth\Server\ProviderIdentityTokens;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Support\Facades\DB;
 use Laravel\Passport\Bridge\RefreshTokenRepository;
+use Laravel\Passport\Events\RefreshTokenCreated;
 use Laravel\Passport\Passport;
+use League\OAuth2\Server\Entities\RefreshTokenEntityInterface;
 
 class AccountAwareRefreshTokenRepository extends RefreshTokenRepository
 {
@@ -16,6 +19,29 @@ class AccountAwareRefreshTokenRepository extends RefreshTokenRepository
         private OAuthExchangeAccountGuard $accountGuard,
     ) {
         parent::__construct($events);
+    }
+
+    /**
+     * Passport's persistence, plus the owner record the auth package keeps on a
+     * refresh token, so OAuthCredentialOwners::revokeAll() finds it by owner.
+     */
+    public function persistNewRefreshToken(RefreshTokenEntityInterface $refreshTokenEntity): void
+    {
+        $model = Passport::refreshToken();
+        $accessToken = $refreshTokenEntity->getAccessToken();
+        $attributes = [
+            'id' => $id = $refreshTokenEntity->getIdentifier(),
+            'access_token_id' => $accessTokenId = $accessToken->getIdentifier(),
+            'revoked' => false,
+            'expires_at' => $refreshTokenEntity->getExpiryDateTime(),
+        ];
+        $owner = $accessToken->getUserIdentifier();
+        if ($owner !== null && $model->getConnection()->getSchemaBuilder()->hasColumn($model->getTable(), ProviderIdentityTokens::OWNER_COLUMN)) {
+            $attributes[ProviderIdentityTokens::OWNER_COLUMN] = (string) $owner;
+        }
+        $model->forceFill($attributes)->save();
+
+        $this->events->dispatch(new RefreshTokenCreated($id, $accessTokenId));
     }
 
     public function isRefreshTokenRevoked(string $tokenId): bool
@@ -71,7 +97,7 @@ class AccountAwareRefreshTokenRepository extends RefreshTokenRepository
             ? null
             : User::query()->find($accessToken->user_id);
 
-        if (! $user instanceof User || ! $user->canLogin()) {
+        if (! $user instanceof User || ! $user->mayHoldOAuthCredentials()) {
             if ($accessToken->user_id !== null) {
                 $revoker->revokeForUserIdentifier($accessToken->user_id);
             } else {

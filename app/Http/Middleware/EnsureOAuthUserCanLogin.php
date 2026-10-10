@@ -14,7 +14,7 @@ class EnsureOAuthUserCanLogin
     {
         $user = $request->user('api');
 
-        if (! $user instanceof User || ! $user->canLogin()) {
+        if (! $user instanceof User || ! $user->mayHoldOAuthCredentials()) {
             $user?->revokeOAuthTokens();
 
             throw new AuthenticationException;

@@ -92,12 +92,12 @@ final class OAuthExchangeAccountGuard
                 && $issuedToken->oauth_security_version !== null
                 && (int) $issuedToken->oauth_security_version === (int) $user?->oauth_security_version);
 
-        if ($user instanceof User && $user->canLogin() && $versionMatches && $familyIsActive) {
+        if ($user instanceof User && $user->mayHoldOAuthCredentials() && $versionMatches && $familyIsActive) {
             return true;
         }
 
         $revoker = app(OAuthCredentialRevoker::class);
-        if ($user instanceof User && $user->canLogin() && $issuedToken !== null) {
+        if ($user instanceof User && $user->mayHoldOAuthCredentials() && $issuedToken !== null) {
             $revoker->revokeFamilyForAccessToken($issuedToken);
         } else {
             $revoker->revokeForUserIdentifier($userIdentifier);

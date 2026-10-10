@@ -10,11 +10,14 @@ use App\Models\User;
 use App\Support\AgentApi\AccountAwareAccessTokenRepository;
 use App\Support\AgentApi\AccountAwareAuthCodeRepository;
 use App\Support\AgentApi\AccountAwareRefreshTokenRepository;
+use App\Support\AgentApi\AccountCredentialOwnerPolicy;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentApiTokenPolicy;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use App\Support\AgentApi\OAuthExchangeAccountGuard;
 use App\Support\PHR\PhrDocumentUploadLimits;
+use BWH\Auth\OAuth\Credentials\CredentialOwnerPolicy;
+use BWH\Auth\OAuth\Credentials\OAuthCredentialOwners;
 use BWH\Auth\OAuth\Server\OAuthResourceIndicator;
 use BWH\Auth\OAuth\Server\ResourceAccessToken;
 use DateTimeImmutable;
@@ -215,6 +218,7 @@ class AgentApiOAuthFoundationTest extends TestCase
         $this->assertSame(900, $issued['expires_in']);
         $originalAccessToken = Token::query()->where('user_id', $user->id)->sole();
         $originalRefreshToken = RefreshToken::query()->where('access_token_id', $originalAccessToken->id)->sole();
+        $this->assertSame((string) $user->id, $originalRefreshToken->provider_user_id);
         $this->assertSame($user->fresh()->oauth_security_version, $originalAccessToken->oauth_security_version);
 
         $this->withToken($issued['access_token'])->getJson('/api/v1/me')
@@ -722,6 +726,45 @@ class AgentApiOAuthFoundationTest extends TestCase
             'route_name' => 'agent-api.v1.me',
             'response_status' => 401,
         ]);
+    }
+
+    public function test_the_credential_owner_policy_is_the_login_eligibility_rule(): void
+    {
+        $policy = app(CredentialOwnerPolicy::class);
+        $this->assertInstanceOf(AccountCredentialOwnerPolicy::class, $policy);
+        $admin = $this->createAdminUser();
+        $user = $this->createUser();
+        $disabled = $this->createUser(['user_role' => '']);
+
+        $this->assertTrue($policy->mayHoldCredentials($admin));
+        $this->assertTrue($policy->mayHoldCredentials($user));
+        $this->assertFalse($policy->mayHoldCredentials($disabled));
+        $this->assertFalse($disabled->mayHoldOAuthCredentials());
+        // The package asks the same policy through its owner lookup.
+        $owners = app(OAuthCredentialOwners::class);
+        $this->assertFalse($owners->refused($user->id));
+        $this->assertTrue($owners->refused($disabled->id));
+        $this->assertTrue($owners->refused(PHP_INT_MAX));
+    }
+
+    public function test_disabling_an_account_revokes_refresh_tokens_that_outlived_their_access_token(): void
+    {
+        // User id 1 is intentionally always an administrator and cannot be disabled.
+        $this->createAdminUser();
+        $user = $this->createUser();
+        // A refresh token whose access-token row was purged is found only by the
+        // owner record the auth package keeps on it.
+        $orphanedRefresh = RefreshToken::query()->forceCreate([
+            'id' => Str::random(80),
+            'access_token_id' => Str::random(80),
+            'provider_user_id' => (string) $user->id,
+            'revoked' => false,
+            'expires_at' => now()->addDays(30),
+        ]);
+
+        $user->forceFill(['user_role' => ''])->save();
+
+        $this->assertTrue($orphanedRefresh->fresh()->revoked);
     }
 
     public function test_refresh_repository_fails_closed_when_account_was_disabled_outside_eloquent(): void

@@ -10,6 +10,7 @@ use Bherila\GenAiLaravel\Clients\AnthropicClient;
 use Bherila\GenAiLaravel\Clients\BedrockClient;
 use Bherila\GenAiLaravel\Clients\GeminiClient;
 use Bherila\GenAiLaravel\Contracts\GenAiClient;
+use BWH\Auth\OAuth\Credentials\CredentialOwnerPolicy;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
@@ -36,7 +37,7 @@ class User extends Authenticatable implements OAuthenticatable
     protected static function booted(): void
     {
         static::updated(function (User $user): void {
-            if ($user->wasChanged('user_role') && ! $user->canLogin()) {
+            if ($user->wasChanged('user_role') && ! $user->mayHoldOAuthCredentials()) {
                 $user->revokeOAuthTokens();
             }
         });
@@ -195,7 +196,16 @@ class User extends Authenticatable implements OAuthenticatable
      */
     public function revokeOAuthTokens(): void
     {
-        app(OAuthCredentialRevoker::class)->revokeForUserIdentifier($this->getAuthIdentifier());
+        app(OAuthCredentialRevoker::class)->revokeAccount($this);
+    }
+
+    /**
+     * Whether this account may hold OAuth credentials, as the application's
+     * CredentialOwnerPolicy decides (the same answer the auth package uses).
+     */
+    public function mayHoldOAuthCredentials(): bool
+    {
+        return app(CredentialOwnerPolicy::class)->mayHoldCredentials($this);
     }
 
     /**
