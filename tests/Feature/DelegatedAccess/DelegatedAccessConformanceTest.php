@@ -3,6 +3,7 @@
 namespace Tests\Feature\DelegatedAccess;
 
 use App\Models\User;
+use BWH\Auth\Models\AuthAuditLog;
 use BWH\Auth\Testing\AssertsDelegatedAccessAdapter;
 use Illuminate\Support\Facades\DB;
 use Tests\Concerns\SeedsDelegatedAccessAccounts;
@@ -88,6 +89,14 @@ class DelegatedAccessConformanceTest extends TestCase
 
         $this->assertDelegatedSearchStaysInScope('subject-manager', 'subjects', 'searchable', 'OnlyOutsideTheView');
         $this->assertDelegatedSearchStaysInScope('subject-manager', 'workspaces', 'searchable', 'OnlyOutsideTheView');
+    }
+
+    public function test_metadata_is_well_formed(): void
+    {
+        $removable = User::query()->where('oauth_subject', 'subject-removable')->sole();
+        AuthAuditLog::query()->create(['user_id' => $removable->id, 'event' => AuthAuditLog::EVENT_LOGIN_SUCCEEDED, 'auth_method' => 'oauth', 'succeeded' => true]);
+
+        $this->assertDelegatedMetadataIsWellFormed('subject-manager', 'subject-removable');
     }
 
     public function test_writes_are_answered_from_their_receipts_through_the_endpoint(): void

@@ -14,6 +14,7 @@ use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -43,6 +44,11 @@ use Illuminate\Support\Str;
  * role, and is refused (and reported `allowed_edits.remove: false`) for account #1, the actor's own
  * account and the last administrator who can sign in. The account, its sign-in, its other roles and
  * its health records stay. Removing a non-administrator is a no-op that keeps the revision.
+ *
+ * States and `subjects` entries carry two read-only observations PHR already records:
+ * `provisioned_at` (when the account row was created) and `last_seen_at` (its latest successful
+ * sign-in in the authentication audit log). `first_sign_in_at` is not reported: the audit log can
+ * be pruned and is younger than many accounts, so its earliest entry is not a first sign-in.
  *
  * Only an existing, active PHR administrator bound to the sign-in provider may use any
  * operation. Everyone else is refused every operation, the read-only ones included.
@@ -141,14 +147,16 @@ final class PhrApplicationAccessAdapter implements ApplicationAccessAdapter
             ->where('id', '>', $after)
             ->orderBy('id')
             ->limit($limit + 1)
-            ->get(['id', 'name', 'oauth_subject']);
+            ->get(['id', 'name', 'oauth_subject', 'created_at']);
 
         $page = $rows->take($limit);
+        $signIns = self::lastSignIns($page->pluck('id')->all());
 
         return [
             'subjects' => $page->map(static fn (User $user): array => [
                 'subject' => (string) $user->oauth_subject,
                 'label' => self::label($user),
+                ...self::observations($user, $signIns),
             ])->values()->all(),
             'next_cursor' => $rows->count() > $limit ? $this->cursor->encode($actorSubject, 'subjects', (int) $page->last()->id, $search) : null,
         ];
@@ -207,7 +215,48 @@ final class PhrApplicationAccessAdapter implements ApplicationAccessAdapter
                 'provision' => false,
                 'remove' => $this->removeRefusal($actor, $target, $locked) === null,
             ],
+            ...self::observations($target, self::lastSignIns([$target->id])),
         ];
+    }
+
+    /**
+     * Read-only metadata: never authorization, never part of the revision.
+     *
+     * @param  array<int, string>  $signIns  latest successful sign-in by account id
+     * @return array{provisioned_at: string|null, last_seen_at: string|null}
+     */
+    private static function observations(User $user, array $signIns): array
+    {
+        return [
+            'provisioned_at' => $user->created_at?->toIso8601String(),
+            'last_seen_at' => $signIns[$user->id] ?? null,
+        ];
+    }
+
+    /**
+     * Each account's latest successful sign-in, by password, code or provider and by passkey, from
+     * the authentication audit log (indexed on user and time), as ISO-8601.
+     *
+     * @param  array<int, mixed>  $ids
+     * @return array<int, string>
+     */
+    private static function lastSignIns(array $ids): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+
+        $timezone = (string) config('app.timezone');
+
+        return AuthAuditLog::query()
+            ->whereIn('user_id', $ids)
+            ->whereIn('event', [AuthAuditLog::EVENT_LOGIN_SUCCEEDED, AuthAuditLog::EVENT_PASSKEY_LOGIN_SUCCEEDED])
+            ->where('succeeded', true)
+            ->groupBy('user_id')
+            ->selectRaw('user_id, MAX(created_at) AS last_sign_in')
+            ->pluck('last_sign_in', 'user_id')
+            ->map(static fn (mixed $at): string => Date::parse((string) $at, $timezone)->toIso8601String())
+            ->all();
     }
 
     /**

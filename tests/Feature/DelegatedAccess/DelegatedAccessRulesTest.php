@@ -267,7 +267,8 @@ class DelegatedAccessRulesTest extends TestCase
         $this->assertNotNull($first['next_cursor']);
 
         $second = $this->delegatedAccessCall('subject-manager', ['operation' => 'subjects', 'limit' => 2, 'cursor' => $first['next_cursor']]);
-        $this->assertSame([['subject' => 'subject-a', 'label' => 'Person A'], ['subject' => 'subject-b', 'label' => 'Person B']], $second['subjects']);
+        $this->assertSame([['subject' => 'subject-a', 'label' => 'Person A'], ['subject' => 'subject-b', 'label' => 'Person B']],
+            array_map(static fn (array $entry): array => ['subject' => $entry['subject'], 'label' => $entry['label']], $second['subjects']));
         $this->assertNull($second['next_cursor']);
 
         // A cursor is bound to the actor that received it (the package's own refusal, so called directly).
