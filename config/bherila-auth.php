@@ -58,7 +58,7 @@ return [
         'enabled' => (bool) env('BHERILA_AUTH_PROVIDER_IDENTITY_ENABLED', false),
         // A store every web worker shares and that supports locks (database,
         // redis, file); null uses the default cache store.
-        'cache_store' => env('BHERILA_AUTH_PROVIDER_IDENTITY_CACHE_STORE'),
+        'cache_store' => env('BHERILA_AUTH_PROVIDER_IDENTITY_CACHE_STORE') ?: null,
         'binding' => [
             'provider_column' => 'oauth_provider',
             'subject_column' => 'oauth_subject',
