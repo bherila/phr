@@ -105,14 +105,15 @@ instead of querying models directly, keeping validation, authorization, rate lim
 and audit behavior in one place. Device pairing and respiratory ingest use a narrower
 credential path designed for data-producing devices.
 
-The API contract is published at
-[`public/openapi/phr-agent-v1.json`](public/openapi/phr-agent-v1.json), and served with
-the installation's own API and OAuth URLs at `/api/openapi.json`. REST connectors
+The API contract is generated from the operation registry and served with the
+installation's own API and OAuth URLs at `/api/openapi.json`. Its checked copy,
+[`public/openapi/phr-agent-v1.json`](public/openapi/phr-agent-v1.json), is pinned to the
+generated document by a test (`UPDATE_OPERATION_SNAPSHOTS=1` rewrites it); schemas live in
+its components, and everything else comes from `app/Support/AgentApi/AgentRestDocumentation.php`. REST connectors
 authenticate with OAuth or with a personal API token; both are created by the signed-in
 person under **Config → API Access**, limited to the permissions they choose.
 
-Every agent operation is declared once in a capability registry, with its scopes taken from
-the OpenAPI document. One evaluation per request decides which MCP tools a connection sees,
+Every agent operation is declared once in a capability registry. One evaluation per request decides which MCP tools a connection sees,
 and `/api/v1/me` reports the same result: the operations the credential can use now, and
 each withheld one with its reason (a missing scope, or depending on a withheld operation). See
 [`docs/agent-api-security.md`](docs/agent-api-security.md) for the integration threat

@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "3f142597f4c59a84f37c0350b5f60047",
+    "content-hash": "e63c533ef811be5ff26f7c05457366ff",
     "packages": [
         {
             "name": "aws/aws-crt-php",
@@ -298,20 +298,20 @@
         },
         {
             "name": "bherila/genai-laravel",
-            "version": "v0.2.4",
+            "version": "v0.2.5",
             "source": {
                 "type": "git",
                 "url": "https://github.com/bherila/genai-laravel.git",
-                "reference": "9350672c21439729aecbcf39157f3d68919ec497"
+                "reference": "0fc0a68bdf42d8867fcd13052916708b30865974"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/bherila/genai-laravel/zipball/9350672c21439729aecbcf39157f3d68919ec497",
-                "reference": "9350672c21439729aecbcf39157f3d68919ec497",
+                "url": "https://api.github.com/repos/bherila/genai-laravel/zipball/0fc0a68bdf42d8867fcd13052916708b30865974",
+                "reference": "0fc0a68bdf42d8867fcd13052916708b30865974",
                 "shasum": ""
             },
             "require": {
-                "bherila/mcp-laravel-bridge": "^0.2.0 || ^0.3.0",
+                "bherila/mcp-laravel-bridge": "^0.2.0 || ^0.3.0 || ^0.4.0",
                 "illuminate/contracts": "^13",
                 "illuminate/database": "^13",
                 "illuminate/filesystem": "^13",
@@ -388,23 +388,23 @@
                 "mcp"
             ],
             "support": {
-                "source": "https://github.com/bherila/genai-laravel/tree/v0.2.4",
+                "source": "https://github.com/bherila/genai-laravel/tree/v0.2.5",
                 "issues": "https://github.com/bherila/genai-laravel/issues"
             },
-            "time": "2026-10-08T10:53:01+00:00"
+            "time": "2026-10-10T08:29:32+00:00"
         },
         {
             "name": "bherila/mcp-laravel-bridge",
-            "version": "v0.3.0",
+            "version": "v0.4.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/bherila/mcp-laravel-bridge.git",
-                "reference": "61e400f15ea78d5465e7808cc6d3a81ca4df7832"
+                "reference": "deff39379ad2212ca947a584ba4b832b98f4d07e"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/bherila/mcp-laravel-bridge/zipball/61e400f15ea78d5465e7808cc6d3a81ca4df7832",
-                "reference": "61e400f15ea78d5465e7808cc6d3a81ca4df7832",
+                "url": "https://api.github.com/repos/bherila/mcp-laravel-bridge/zipball/deff39379ad2212ca947a584ba4b832b98f4d07e",
+                "reference": "deff39379ad2212ca947a584ba4b832b98f4d07e",
                 "shasum": ""
             },
             "require": {
@@ -435,9 +435,9 @@
             "description": "Shared MCP-over-REST infrastructure for Laravel applications.",
             "support": {
                 "issues": "https://github.com/bherila/mcp-laravel-bridge/issues",
-                "source": "https://github.com/bherila/mcp-laravel-bridge/tree/v0.3.0"
+                "source": "https://github.com/bherila/mcp-laravel-bridge/tree/v0.4.2"
             },
-            "time": "2026-10-08T10:48:43+00:00"
+            "time": "2026-10-10T19:28:44+00:00"
         },
         {
             "name": "brick/math",

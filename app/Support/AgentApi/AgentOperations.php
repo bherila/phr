@@ -15,6 +15,7 @@ use Bherila\McpLaravelBridge\Capabilities\Operation;
 use Bherila\McpLaravelBridge\Capabilities\OperationRegistry;
 use Bherila\McpLaravelBridge\Capabilities\Requirement;
 use Bherila\McpLaravelBridge\Capabilities\RestBinding;
+use Bherila\McpLaravelBridge\Capabilities\SchemaRef;
 use Bherila\McpLaravelBridge\Capabilities\WriteSafety;
 use Bherila\McpLaravelBridge\Mcp\ToolDefinition;
 
@@ -90,7 +91,7 @@ final class AgentOperations
             requirement: $operation->requirement,
             idempotent: $operation->idempotent,
             safety: $operation->safety,
-            rest: new RestBinding($declared['method'], $declared['path']),
+            rest: self::restBinding($operation->id),
             mcp: $operation->mcp,
             input: $operation->input,
             output: $operation->output,
@@ -110,7 +111,32 @@ final class AgentOperations
             effect: $reads ? Effect::Read : Effect::LocalWrite,
             requirement: AgentMcpToolCatalog::requirementFor($id),
             safety: $reads ? new WriteSafety : new WriteSafety(note: 'As declared by the OpenAPI operation.'),
-            rest: new RestBinding($declared['method'], $declared['path']),
+            rest: self::restBinding($id),
+        );
+    }
+
+    /**
+     * The REST binding and everything the contract says about it, from
+     * {@see AgentRestDocumentation}; the document is generated from these.
+     */
+    private static function restBinding(string $id): RestBinding
+    {
+        $declared = AgentRestDocumentation::operations()[$id];
+        $schema = static fn (string|array $schema): array|SchemaRef => is_string($schema) ? SchemaRef::openApi($schema) : $schema;
+
+        return new RestBinding(
+            method: $declared['method'],
+            path: $declared['path'],
+            successStatuses: array_keys($declared['success']),
+            requestContentTypes: $declared['request_types'] ?? ['application/json'],
+            summary: $declared['summary'],
+            description: $declared['description'],
+            parameters: $declared['parameters'],
+            requestSchema: isset($declared['request']) ? $schema($declared['request']) : false,
+            responseSchema: isset($declared['response']) ? $schema($declared['response']) : null,
+            responseDescriptions: $declared['success'],
+            responses: $declared['responses'] ?? [],
+            requestBodyRequired: $declared['request_required'] ?? true,
         );
     }
 }

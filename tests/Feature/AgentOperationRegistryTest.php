@@ -16,8 +16,9 @@ use Illuminate\Http\Request;
 use Tests\TestCase;
 
 /**
- * The agent operations registry is complete and agrees with the shipped
- * OpenAPI document, which stays the source of every REST binding and scope.
+ * The agent operations registry is complete: every REST operation declared in
+ * AgentRestDocumentation, from which the OpenAPI document is generated, and
+ * every MCP tool.
  */
 final class AgentOperationRegistryTest extends TestCase
 {
