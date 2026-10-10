@@ -58,13 +58,14 @@ final class ApiCredentialsTest extends TestCase
             ->assertOk()
             ->assertJsonPath('identity.email', 'credentials-token@example.test');
 
-        // The document offers API tokens on REST operations only: the MCP
-        // connection scope is never grantable to one.
+        // The document offers API tokens on REST operations only: a personal
+        // token is bound to the REST resource, so the MCP endpoint, a protected
+        // resource of its own, refuses its audience outright.
         Auth::forgetGuards();
         $this->withToken($issued['token'])->postJson('/api/v1/mcp', [
             'jsonrpc' => '2.0', 'id' => 1, 'method' => 'initialize',
             'params' => ['protocolVersion' => '2025-06-18', 'capabilities' => [], 'clientInfo' => ['name' => 'Synthetic', 'version' => '1']],
-        ], ['Mcp-Protocol-Version' => '2025-06-18'])->assertForbidden();
+        ], ['Mcp-Protocol-Version' => '2025-06-18'])->assertUnauthorized();
 
         Auth::forgetGuards();
         $listed = $this->actingAs($user)->getJson('/account/api-credentials')->assertOk()->json('data.tokens');
