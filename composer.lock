@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "2dbb6639aa8b90aac379bbf4240f8b94",
+    "content-hash": "e63c533ef811be5ff26f7c05457366ff",
     "packages": [
         {
             "name": "aws/aws-crt-php",
@@ -395,16 +395,16 @@
         },
         {
             "name": "bherila/mcp-laravel-bridge",
-            "version": "v0.4.1",
+            "version": "v0.4.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/bherila/mcp-laravel-bridge.git",
-                "reference": "2a34e6d994a93809f220be88348f93229a507cba"
+                "reference": "deff39379ad2212ca947a584ba4b832b98f4d07e"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/bherila/mcp-laravel-bridge/zipball/2a34e6d994a93809f220be88348f93229a507cba",
-                "reference": "2a34e6d994a93809f220be88348f93229a507cba",
+                "url": "https://api.github.com/repos/bherila/mcp-laravel-bridge/zipball/deff39379ad2212ca947a584ba4b832b98f4d07e",
+                "reference": "deff39379ad2212ca947a584ba4b832b98f4d07e",
                 "shasum": ""
             },
             "require": {
@@ -435,9 +435,9 @@
             "description": "Shared MCP-over-REST infrastructure for Laravel applications.",
             "support": {
                 "issues": "https://github.com/bherila/mcp-laravel-bridge/issues",
-                "source": "https://github.com/bherila/mcp-laravel-bridge/tree/v0.4.1"
+                "source": "https://github.com/bherila/mcp-laravel-bridge/tree/v0.4.2"
             },
-            "time": "2026-10-10T19:07:50+00:00"
+            "time": "2026-10-10T19:28:44+00:00"
         },
         {
             "name": "brick/math",
