@@ -51,6 +51,33 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         $this->assertArrayNotHasKey(AgentApiScopes::MCP_USE, AgentApiScopes::reservedDescriptions());
     }
 
+    public function test_oauth_machine_endpoints_give_cors_only_to_configured_origins(): void
+    {
+        // Off by default: a fork opts in per browser origin.
+        $this->assertSame([], config('bherila-auth.oauth_server.cors.allowed_origins'));
+        $this->withHeader('Origin', 'https://agent.example.test')
+            ->getJson('/.well-known/oauth-protected-resource/api/v1/mcp')
+            ->assertOk()
+            ->assertHeaderMissing('Access-Control-Allow-Origin');
+
+        config(['bherila-auth.oauth_server.cors.allowed_origins' => ['https://agent.example.test']]);
+        foreach (['/.well-known/oauth-authorization-server', '/.well-known/oauth-protected-resource/api/v1', '/.well-known/oauth-protected-resource/api/v1/mcp'] as $path) {
+            $this->withHeader('Origin', 'https://agent.example.test')->getJson($path)
+                ->assertOk()
+                ->assertHeader('Access-Control-Allow-Origin', 'https://agent.example.test')
+                ->assertHeaderMissing('Access-Control-Allow-Credentials');
+        }
+        $this->call('OPTIONS', '/oauth/token', server: [
+            'HTTP_ORIGIN' => 'https://agent.example.test',
+            'HTTP_ACCESS_CONTROL_REQUEST_METHOD' => 'POST',
+        ])->assertNoContent()
+            ->assertHeader('Access-Control-Allow-Origin', 'https://agent.example.test');
+        $this->withHeader('Origin', 'https://unlisted.example.test')
+            ->getJson('/.well-known/oauth-protected-resource/api/v1/mcp')
+            ->assertOk()
+            ->assertHeaderMissing('Access-Control-Allow-Origin');
+    }
+
     public function test_dynamic_registration_issues_only_a_public_bounded_client(): void
     {
         $response = $this->postJson('/oauth/register', [

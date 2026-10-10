@@ -229,6 +229,7 @@ registration endpoints, discovery documents) derives from `APP_URL`.
 | `PASSPORT_PRIVATE_KEY`, `PASSPORT_PUBLIC_KEY` | Token signing keys. When unset they are read from `storage/app/private/oauth`; never commit them. |
 | `BHERILA_AUTH_TRUSTED_PROXIES`, `TRUSTED_PROXIES` | Whose `X-Forwarded-For`/`-Proto` to believe (default: on, `cloudflare`). Use a comma-separated list for another proxy, `*` only when a firewall admits nothing but the proxy, or empty with no proxy in front. Per-client rate limits key on the resulting address. |
 | `AGENT_API_MCP_ALLOWED_ORIGINS`, `AGENT_API_MCP_ALLOWED_HOSTS` | Browser origins and `Host` values the MCP endpoint accepts. |
+| `OAUTH_SERVER_CORS_ALLOWED_ORIGINS` | Browser origins (comma-separated, or `*`) given CORS on OAuth discovery, registration and the token endpoint, for browser-based agents. Empty by default: no CORS headers. Independent of the MCP endpoint's own origin check above. |
 
 The agent authorization server follows the auth package's agent preset: S256 PKCE for
 every client, public-only self-registration, and credentials bound to one of two

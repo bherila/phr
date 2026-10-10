@@ -59,6 +59,16 @@ return [
             'mcp' => ['path' => '/api/v1/mcp', 'scopes' => AgentApiScopes::mcpIds()],
         ],
         'assume_omitted_resource' => 'rest',
+        // Browser origins allowed to call discovery, registration and the token
+        // endpoint directly (comma-separated; `*` for any). Empty, the default,
+        // sends no CORS headers. The MCP endpoint's own origin policy is
+        // AGENT_API_MCP_ALLOWED_ORIGINS, enforced by the application.
+        'cors' => [
+            'allowed_origins' => array_values(array_filter(array_map(
+                'trim',
+                explode(',', (string) env('OAUTH_SERVER_CORS_ALLOWED_ORIGINS', '')),
+            ))),
+        ],
         'resource_required_scope' => AgentApiScopes::MCP_USE,
         'resource_required_scopes' => [AgentApiScopes::MCP_USE],
         // A signed-in person's own API tokens and OAuth apps, for connectors that
