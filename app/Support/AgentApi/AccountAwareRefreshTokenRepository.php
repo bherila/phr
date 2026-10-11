@@ -123,11 +123,9 @@ class AccountAwareRefreshTokenRepository extends RefreshTokenRepository
 
         $storedResource = is_string($accessToken->resource_uri) ? $accessToken->resource_uri : null;
         // Refreshing names the grant's own resource, or omits it and means the
-        // REST resource. A mismatch is refused without consuming the refresh
+        // resource the grant was made for. A mismatch is refused without consuming the refresh
         // token, so a client can retry with the resource it was granted for.
-        $requestedResource = OAuthResourceIndicator::requestNamesResource(request())
-            ? OAuthResourceIndicator::requestResource(request())
-            : $storedResource;
+        $requestedResource = OAuthResourceIndicator::exchangeResource(request(), $storedResource);
         if ($requestedResource !== $storedResource) {
             return true;
         }

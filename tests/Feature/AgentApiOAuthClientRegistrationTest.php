@@ -179,13 +179,9 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             ])),
             'invalid_target',
         );
-        // An omitted `resource` means the REST resource, whose scope ceiling
-        // never admits the MCP connection scope; nor does naming it outright.
-        $this->assertOAuthErrorRedirect(
-            $this->actingAs($user)->get('/oauth/authorize?'.http_build_query($authorization)),
-            'invalid_scope',
-            'https://agent.example.test/callback',
-        );
+        // The REST resource's scope ceiling never admits the MCP connection
+        // scope. An omitted `resource` is bound to the endpoint those scopes
+        // belong to instead, so it is not refused (see AgentApiProtectedResourcesTest).
         $this->assertOAuthErrorRedirect(
             $this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
                 ...$authorization,
@@ -232,19 +228,21 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             ->assertJsonPath('jsonrpc', '2.0')
             ->assertJsonPath('id', 1);
 
-        // Renewal stays on the MCP resource; omitting it means REST and is
-        // refused without consuming the refresh token.
+        // Renewal stays on the MCP resource: omitting it renews the grant's own
+        // resource, while naming the REST one is refused without consuming the
+        // refresh token.
         $this->postJson('/oauth/token', [
             'grant_type' => 'refresh_token',
             'client_id' => $client->id,
             'refresh_token' => $issued['refresh_token'],
+            'resource' => OAuthResourceIndicator::resource('rest'),
         ])->assertBadRequest()->assertJsonPath('error', 'invalid_grant');
         $this->postJson('/oauth/token', [
             'grant_type' => 'refresh_token',
             'client_id' => $client->id,
             'refresh_token' => $issued['refresh_token'],
-            'resource' => $mcpResource,
         ])->assertOk();
+        $this->assertSame([$mcpResource], Token::query()->where('user_id', $user->id)->where('revoked', false)->pluck('resource_uri')->all());
     }
 
     public function test_dynamic_registration_defaults_unsupplied_scope_to_the_server_catalog(): void

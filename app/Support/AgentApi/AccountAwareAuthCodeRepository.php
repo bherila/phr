@@ -77,11 +77,9 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
             ? $authorizationCode->resource_uri
             : null;
         // The exchange names the code's own resource, or omits it and means the
-        // REST resource. A mismatch is refused without consuming the code, so a
+        // resource the grant was made for. A mismatch is refused without consuming the code, so a
         // client can retry with the resource it was granted for.
-        $requestedResource = OAuthResourceIndicator::requestNamesResource(request())
-            ? OAuthResourceIndicator::requestResource(request())
-            : $storedResource;
+        $requestedResource = OAuthResourceIndicator::exchangeResource(request(), $storedResource);
         if ($requestedResource !== $storedResource) {
             return true;
         }
