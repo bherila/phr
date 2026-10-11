@@ -173,7 +173,7 @@ assert_asset_content_type() {
 }
 
 assert_private_challenge() {
-    local label="$1" cache_control challenge content_options
+    local label="$1" metadata_path="$2" cache_control challenge content_options metadata=''
     if [[ "$RESPONSE_STATUS" != 401 ]]; then
         echo "Unauthenticated ${label} verification returned HTTP ${RESPONSE_STATUS}, expected 401." >&2
         exit 1
@@ -181,8 +181,16 @@ assert_private_challenge() {
     cache_control="$(header_value cache-control)"
     challenge="$(header_value www-authenticate)"
     content_options="$(header_value x-content-type-options)"
+    # RFC 9728 5.1: the challenge may carry RFC 6750 error parameters; what must
+    # hold is that it is a Bearer challenge naming exactly one metadata document,
+    # and that document is the one for the resource that was called.
+    if [[ "$challenge" =~ ^Bearer[[:space:]] \
+        && "$challenge" =~ (^Bearer[[:space:]]|,[[:space:]]*)resource_metadata=\"([^\"]*)\" ]]; then
+        metadata="${BASH_REMATCH[2]}"
+    fi
     if [[ ",${cache_control// /}," != *,no-store,* \
-        || "$challenge" != "Bearer resource_metadata=\"$site_url/.well-known/oauth-protected-resource/api/v1\"" \
+        || "$metadata" != "$site_url/.well-known/oauth-protected-resource${metadata_path}" \
+        || "$(grep -o 'resource_metadata=' <<<"$challenge" | wc -l | tr -d ' ')" != 1 \
         || "$content_options" != nosniff ]]; then
         echo "Unauthenticated ${label} response did not preserve the canonical private OAuth challenge." >&2
         exit 1
@@ -274,13 +282,13 @@ PHR_VERIFY_JSON="$RESPONSE_BODY" PHR_VERIFY_SITE="$site_url" "$php_runner" -r '
 ' || exit 1
 
 request queue "$site_url/api/v1/genai/queue/status"
-assert_private_challenge 'GenAI queue'
+assert_private_challenge 'GenAI queue' /api/v1
 
 readonly initialize_payload='{"jsonrpc":"2.0","id":"deploy-check","method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"deploy-check","version":"1"}}}'
 request mcp "$site_url/api/v1/mcp" \
     --request POST --header 'Content-Type: application/json' \
     --header 'Mcp-Protocol-Version: 2025-06-18' --data "$initialize_payload"
-assert_private_challenge 'MCP'
+assert_private_challenge 'MCP' /api/v1/mcp
 
 request hostile-origin "$site_url/api/v1/mcp" \
     --request OPTIONS --header 'Origin: https://hostile.invalid' \

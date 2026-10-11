@@ -86,7 +86,7 @@ case "$url" in
     */api/v1/genai/queue/status)
         status="${PHR_TEST_QUEUE_STATUS:-401}"
         cache="${PHR_TEST_QUEUE_CACHE:-private, no-store, max-age=0}"
-        challenge="${PHR_TEST_QUEUE_CHALLENGE:-Bearer resource_metadata=\"https://phr.example.test/.well-known/oauth-protected-resource/api/v1\"}"
+        challenge="${PHR_TEST_QUEUE_CHALLENGE:-Bearer error=\"invalid_token\", error_description=\"Authentication is required.\", resource_metadata=\"https://phr.example.test/.well-known/oauth-protected-resource/api/v1\"}"
         ;;
     */api/v1/mcp)
         if [[ "$method" == OPTIONS && -n "$origin" ]]; then
@@ -96,7 +96,7 @@ case "$url" in
         else
             status="${PHR_TEST_MCP_STATUS:-401}"
             cache='private, no-store, max-age=0'
-            challenge='Bearer resource_metadata="https://phr.example.test/.well-known/oauth-protected-resource/api/v1"'
+            challenge="${PHR_TEST_MCP_CHALLENGE:-Bearer error=\"invalid_token\", error_description=\"Authentication is required.\", resource_metadata=\"https://phr.example.test/.well-known/oauth-protected-resource/api/v1/mcp\"}"
         fi
         ;;
 esac
@@ -401,6 +401,30 @@ if "$verifier" >/dev/null 2>&1; then
     exit 1
 fi
 unset PHR_TEST_MCP_METADATA
+
+export PHR_TEST_MCP_CHALLENGE='Bearer resource_metadata="https://phr.example.test/.well-known/oauth-protected-resource/api/v1"'
+if "$verifier" >/dev/null 2>&1; then
+    echo 'Expected an MCP challenge naming the REST metadata to fail.' >&2
+    exit 1
+fi
+export PHR_TEST_MCP_CHALLENGE='Bearer resource_metadata="https://phr.example.test/.well-known/oauth-protected-resource/api/v1/mcp", resource_metadata="https://evil.example/x"'
+if "$verifier" >/dev/null 2>&1; then
+    echo 'Expected an MCP challenge with two metadata documents to fail.' >&2
+    exit 1
+fi
+unset PHR_TEST_MCP_CHALLENGE
+
+export PHR_TEST_QUEUE_CHALLENGE='Bearer resource_metadata="https://phr.example.test/.well-known/oauth-protected-resource/api/v1/mcp"'
+if "$verifier" >/dev/null 2>&1; then
+    echo 'Expected a queue challenge naming the MCP metadata to fail.' >&2
+    exit 1
+fi
+export PHR_TEST_QUEUE_CHALLENGE='Basic realm="phr"'
+if "$verifier" >/dev/null 2>&1; then
+    echo 'Expected a non-Bearer queue challenge to fail.' >&2
+    exit 1
+fi
+unset PHR_TEST_QUEUE_CHALLENGE
 
 export PHR_TEST_CAPABILITIES='{"api_version":"v1","limits":{"maximum_page_size":100},"oauth":{"authorization_code_pkce":false}}'
 if "$verifier" >/dev/null 2>&1; then
