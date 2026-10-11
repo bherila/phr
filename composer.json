@@ -3,32 +3,36 @@
     "name": "bherila/phr",
     "type": "project",
     "description": "Personal Health Record app serving phr.bherila.net.",
-    "keywords": ["laravel", "framework", "health-records"],
+    "keywords": [
+        "laravel",
+        "framework",
+        "health-records"
+    ],
     "license": "MIT",
     "require": {
         "php": ">=8.4 <8.6",
-        "barryvdh/laravel-dompdf": "^3.1",
-        "bherila/auth-laravel": "^0.23.1",
+        "barryvdh/laravel-dompdf": "^3.1.2",
+        "bherila/auth-laravel": "^0.24.0",
         "bherila/genai-laravel": "^0.2.5",
         "bherila/mcp-laravel-bridge": "^0.4.2",
-        "helgesverre/toon": "^3.1",
-        "laravel/framework": "^13.8",
-        "laravel/passport": "^13.0",
-        "laravel/tinker": "^3.0",
-        "league/flysystem-aws-s3-v3": "^3.0",
-        "maennchen/zipstream-php": "^3.2",
-        "mcp/sdk": "^0.7.1"
+        "helgesverre/toon": "^3.2.1",
+        "laravel/framework": "^13.35.0",
+        "laravel/passport": "^13.9.0",
+        "laravel/tinker": "^3.0.2",
+        "league/flysystem-aws-s3-v3": "^3.35.3",
+        "maennchen/zipstream-php": "^3.2.2",
+        "mcp/sdk": "^0.8.1"
     },
     "require-dev": {
-        "fakerphp/faker": "^1.23",
-        "larastan/larastan": "^3.8",
-        "laravel/pail": "^1.2.5",
-        "laravel/pint": "^1.27",
-        "mockery/mockery": "^1.6",
-        "nunomaduro/collision": "^8.6",
-        "phpunit/phpunit": "^13.2",
-        "smalot/pdfparser": "^2.12",
-        "spatie/laravel-typescript-transformer": "^2.6"
+        "fakerphp/faker": "^1.24.1",
+        "larastan/larastan": "^3.13.0",
+        "laravel/pail": "^1.2.7",
+        "laravel/pint": "^1.32.1",
+        "mockery/mockery": "^1.6.15",
+        "nunomaduro/collision": "^8.9.5",
+        "phpunit/phpunit": "^13.4.1",
+        "smalot/pdfparser": "^2.12.5",
+        "spatie/laravel-typescript-transformer": "^3.3.0"
     },
     "repositories": [
         {

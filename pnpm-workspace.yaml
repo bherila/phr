@@ -12,13 +12,40 @@ allowBuilds:
   unrs-resolver: true
 minimumReleaseAgeExclude:
   - bwh-auth
+  - '@eslint-react/ast@5.26.0'
+  - '@eslint-react/core@5.26.0'
+  - '@eslint-react/eslint-plugin@5.26.0'
+  - '@eslint-react/eslint@5.26.0'
+  - '@eslint-react/jsx@5.26.0'
+  - '@eslint-react/shared@5.26.0'
+  - '@eslint-react/var@5.26.0'
+  - '@swc/core-darwin-arm64@1.16.18'
+  - '@swc/core-darwin-x64@1.16.18'
+  - '@swc/core-linux-arm-gnueabihf@1.16.18'
+  - '@swc/core-linux-arm64-gnu@1.16.18'
+  - '@swc/core-linux-arm64-musl@1.16.18'
+  - '@swc/core-linux-ppc64-gnu@1.16.18'
+  - '@swc/core-linux-s390x-gnu@1.16.18'
+  - '@swc/core-linux-x64-gnu@1.16.18'
+  - '@swc/core-linux-x64-musl@1.16.18'
+  - '@swc/core-win32-arm64-msvc@1.16.18'
+  - '@swc/core-win32-ia32-msvc@1.16.18'
+  - '@swc/core-win32-x64-msvc@1.16.18'
+  - '@swc/core@1.16.18'
+  - eslint-plugin-react-dom@5.26.0
+  - eslint-plugin-react-jsx@5.26.0
+  - eslint-plugin-react-naming-convention@5.26.0
+  - eslint-plugin-react-rsc@5.26.0
+  - eslint-plugin-react-web-api@5.26.0
+  - eslint-plugin-react-x@5.26.0
+  - zod@4.6.6
 onlyBuiltDependencies:
   - '@swc/core'
   - unrs-resolver
 
 overrides:
   # concurrently 10.0.5 pins a shell-quote release affected by GHSA-pqg4-j6r4-53mv.
-  'concurrently>shell-quote': 1.11.0
-  'brace-expansion@<2.0.0': 1.1.18
+  'concurrently>shell-quote': 1.12.0
+  'brace-expansion@<2.0.0': 1.1.21
   'brace-expansion@>=2.0.0 <3.0.0': 2.1.7
   'brace-expansion@>=4.0.0 <6.0.0': 5.0.12
