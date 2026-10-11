@@ -7,6 +7,7 @@
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>@yield('title', 'PHR | ' . config('app.name', 'Personal Health Record'))</title>
     <meta name="color-scheme" content="dark light">
+    <meta name="darkreader-lock">
     <script id="app-initial-data" type="application/json">
       {!! json_encode([
         'appName' => config('app.name', 'Personal Health Record'),
