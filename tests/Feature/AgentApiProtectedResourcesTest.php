@@ -119,6 +119,66 @@ class AgentApiProtectedResourcesTest extends TestCase
         );
     }
 
+    public function test_a_client_that_omits_resource_is_bound_by_the_scopes_it_requests(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Synthetic Omitted Resource User',
+            'email' => 'omitted-resource@example.test',
+            'user_role' => 'user',
+        ]);
+        $client = Client::query()->create([
+            'name' => 'Synthetic Omitted Resource Client',
+            'secret' => null,
+            'provider' => 'users',
+            'redirect_uris' => [self::REDIRECT_URI],
+            'grant_types' => ['authorization_code', 'refresh_token'],
+            'revoked' => false,
+        ]);
+
+        $mcpToken = $this->issue($user, $client, AgentApiScopes::MCP_USE.' '.AgentApiScopes::IDENTITY_READ, null);
+        $this->assertSame(
+            [url('/api/v1/mcp')],
+            Token::query()->where('user_id', $user->id)->pluck('resource_uri')->all(),
+        );
+
+        Auth::forgetGuards();
+        $this->withToken($mcpToken)->postJson('/api/v1/mcp', $this->initializeMessage(), ['Mcp-Protocol-Version' => '2025-06-18'])
+            ->assertOk()
+            ->assertJsonPath('id', 1);
+        Auth::forgetGuards();
+        $this->withToken($mcpToken)->getJson('/api/v1/me')->assertUnauthorized();
+
+    }
+
+    public function test_a_client_that_omits_resource_and_asks_only_for_rest_scopes_is_bound_to_rest(): void
+    {
+        $user = User::factory()->create([
+            'name' => 'Synthetic Omitted Rest User',
+            'email' => 'omitted-rest@example.test',
+            'user_role' => 'user',
+        ]);
+        $client = Client::query()->create([
+            'name' => 'Synthetic Omitted Rest Client',
+            'secret' => null,
+            'provider' => 'users',
+            'redirect_uris' => [self::REDIRECT_URI],
+            'grant_types' => ['authorization_code', 'refresh_token'],
+            'revoked' => false,
+        ]);
+
+        $restToken = $this->issue($user, $client, AgentApiScopes::IDENTITY_READ, null);
+        $this->assertSame(
+            [url('/api/v1')],
+            Token::query()->where('user_id', $user->id)->pluck('resource_uri')->all(),
+        );
+
+        Auth::forgetGuards();
+        $this->withToken($restToken)->getJson('/api/v1/me')->assertOk();
+        Auth::forgetGuards();
+        $this->withToken($restToken)->postJson('/api/v1/mcp', $this->initializeMessage(), ['Mcp-Protocol-Version' => '2025-06-18'])
+            ->assertUnauthorized();
+    }
+
     public function test_routes_an_mcp_tool_hands_to_its_client_accept_either_credential(): void
     {
         $user = User::factory()->create([
