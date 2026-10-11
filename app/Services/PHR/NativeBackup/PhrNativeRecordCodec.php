@@ -80,7 +80,7 @@ final class PhrNativeRecordCodec
 
         $types = [];
         foreach (Schema::getColumns($table) as $column) {
-            $types[$column['name']] = (string) ($column['type_name'] ?? $column['type'] ?? 'string');
+            $types[$column['name']] = $column['type_name'];
         }
 
         return $this->columnTypes[$table] = $types;

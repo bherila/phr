@@ -70,7 +70,6 @@ class UserAiModelsController extends Controller
             $sessionToken = $config->session_token ?? '';
         }
         $usesStoredCredentials = $usesStoredApiKey
-            && $config !== null
             && ! $clearSessionToken
             && $region === ($config->region ?? 'us-east-1')
             && $sessionToken === ($config->session_token ?? '');
