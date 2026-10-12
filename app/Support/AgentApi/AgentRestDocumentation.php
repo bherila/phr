@@ -20,12 +20,13 @@ final class AgentRestDocumentation
      * inline schema; `success` maps each success status to its description;
      * `responses` maps every other status to a response component or object.
      *
-     * @return array<string, array{method: string, path: string, summary: string, description: string|false, scopes: list<string>|null, parameters: list<string|array<string, mixed>>, request?: string|array<string, mixed>, request_types?: list<string>, request_required?: bool, success: array<int, string>, response?: string|array<string, mixed>, responses?: array<int|string, string|array<string, mixed>>}>
+     * @return array<string, array{method: string, path: string, route_name: string, summary: string, description: string|false, scopes: list<string>|null, parameters: list<string|array<string, mixed>>, request?: string|array<string, mixed>, request_types?: list<string>, request_required?: bool, success: array<int, string>, response?: string|array<string, mixed>, responses?: array<int|string, string|array<string, mixed>>}>
      */
     public static function operations(): array
     {
         return [
             'allergies.upsert' => [
+                'route_name' => 'agent-api.v1.clinical.allergies.upsert',
                 'method' => 'PUT',
                 'path' => '/patients/{patient}/allergies',
                 'summary' => 'Idempotently create or update an allergy',
@@ -45,6 +46,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'capabilities.get' => [
+                'route_name' => 'agent-api.v1.capabilities',
                 'method' => 'GET',
                 'path' => '/capabilities',
                 'summary' => 'Discover API operations, scopes, and limits',
@@ -56,6 +58,7 @@ final class AgentRestDocumentation
                 'responses' => ['429' => 'RateLimited'],
             ],
             'changes.list' => [
+                'route_name' => 'agent-api.v1.changes.index',
                 'method' => 'GET',
                 'path' => '/patients/{patient}/changes',
                 'summary' => 'List bounded clinical changes using a stable snapshot watermark',
@@ -73,6 +76,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'clinical.get' => [
+                'route_name' => 'agent-api.v1.clinical.show',
                 'method' => 'GET',
                 'path' => '/patients/{patient}/{resource}/{record}',
                 'summary' => 'Get one core clinical record for an accessible patient',
@@ -89,6 +93,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'clinical.list' => [
+                'route_name' => 'agent-api.v1.clinical.index',
                 'method' => 'GET',
                 'path' => '/patients/{patient}/{resource}',
                 'summary' => 'List one core clinical resource type for an accessible patient',
@@ -116,6 +121,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'clinical.resolve' => [
+                'route_name' => 'agent-api.v1.clinical.resolve',
                 'method' => 'POST',
                 'path' => '/patients/{patient}/{resource}/resolve',
                 'summary' => 'Resolve this connection\'s own external IDs to record identity and version',
@@ -134,6 +140,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'clinical.retract' => [
+                'route_name' => 'agent-api.v1.clinical.retract',
                 'method' => 'POST',
                 'path' => '/patients/{patient}/{resource}/{record}/retract',
                 'summary' => 'Withdraw a clinical record this connection wrote',
@@ -153,6 +160,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'clinical.update' => [
+                'route_name' => 'agent-api.v1.clinical.update',
                 'method' => 'PATCH',
                 'path' => '/patients/{patient}/{resource}/{record}',
                 'summary' => 'Partially update one existing writable clinical record',
@@ -172,6 +180,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'conditions.upsert' => [
+                'route_name' => 'agent-api.v1.clinical.conditions.upsert',
                 'method' => 'PUT',
                 'path' => '/patients/{patient}/conditions',
                 'summary' => 'Idempotently create or update a condition',
@@ -191,6 +200,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'dicom_series.list' => [
+                'route_name' => 'agent-api.v1.dicom-series.index',
                 'method' => 'GET',
                 'path' => '/patients/{patient}/dicom/studies/{study}/series',
                 'summary' => 'List bounded DICOM series metadata',
@@ -225,6 +235,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'dicom_studies.get' => [
+                'route_name' => 'agent-api.v1.dicom-studies.show',
                 'method' => 'GET',
                 'path' => '/patients/{patient}/dicom/studies/{study}',
                 'summary' => 'Get DICOM study metadata',
@@ -249,6 +260,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'dicom_studies.list' => [
+                'route_name' => 'agent-api.v1.dicom-studies.index',
                 'method' => 'GET',
                 'path' => '/patients/{patient}/dicom/studies',
                 'summary' => 'List bounded DICOM study metadata',
@@ -279,6 +291,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'dicom_uploads.cancel' => [
+                'route_name' => 'agent-api.v1.dicom-uploads.cancel',
                 'method' => 'POST',
                 'path' => '/patients/{patient}/dicom/uploads/{upload}/cancel',
                 'summary' => 'Cancel an open DICOM upload session',
@@ -303,6 +316,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'dicom_uploads.finalize' => [
+                'route_name' => 'agent-api.v1.dicom-uploads.finalize',
                 'method' => 'POST',
                 'path' => '/patients/{patient}/dicom/uploads/{upload}/finalize',
                 'summary' => 'Finalize a DICOM upload session',
@@ -328,6 +342,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'dicom_uploads.open' => [
+                'route_name' => 'agent-api.v1.dicom-uploads.open',
                 'method' => 'POST',
                 'path' => '/patients/{patient}/dicom/uploads',
                 'summary' => 'Open a DICOM upload session',
@@ -351,6 +366,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'dicom_uploads.upload_file' => [
+                'route_name' => 'agent-api.v1.dicom-uploads.files.store',
                 'method' => 'POST',
                 'path' => '/patients/{patient}/dicom/uploads/{upload}/files',
                 'summary' => 'Upload one DICOM object to an open session',
@@ -391,6 +407,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'documents.download' => [
+                'route_name' => 'agent-api.v1.documents.file',
                 'method' => 'GET',
                 'path' => '/patients/{patient}/documents/{document}/file',
                 'summary' => 'Download document bytes using OAuth plus an unexpired signature',
@@ -427,6 +444,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'documents.download_access.create' => [
+                'route_name' => 'agent-api.v1.documents.download-access',
                 'method' => 'POST',
                 'path' => '/patients/{patient}/documents/{document}/download-access',
                 'summary' => 'Create a one-minute signed download URL that still requires OAuth',
@@ -443,6 +461,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'documents.get' => [
+                'route_name' => 'agent-api.v1.documents.show',
                 'method' => 'GET',
                 'path' => '/patients/{patient}/documents/{document}',
                 'summary' => 'Get privacy-minimized document metadata',
@@ -459,6 +478,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'documents.list' => [
+                'route_name' => 'agent-api.v1.documents.index',
                 'method' => 'GET',
                 'path' => '/patients/{patient}/documents',
                 'summary' => 'List privacy-minimized document metadata',
@@ -487,6 +507,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'documents.upload' => [
+                'route_name' => 'agent-api.v1.documents.store',
                 'method' => 'POST',
                 'path' => '/patients/{patient}/documents',
                 'summary' => 'Idempotently upload a patient document',
@@ -507,6 +528,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'eob_lines.get' => [
+                'route_name' => 'agent-api.v1.eob-lines.show',
                 'method' => 'GET',
                 'path' => '/patients/{patient}/eobs/{eob}/lines/{line}',
                 'summary' => 'Get one EOB service line',
@@ -523,6 +545,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'eob_lines.list' => [
+                'route_name' => 'agent-api.v1.eob-lines.index',
                 'method' => 'GET',
                 'path' => '/patients/{patient}/eobs/{eob}/lines',
                 'summary' => 'List bounded EOB service lines without raw parser payloads',
@@ -540,6 +563,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'eobs.get' => [
+                'route_name' => 'agent-api.v1.eobs.show',
                 'method' => 'GET',
                 'path' => '/patients/{patient}/eobs/{eob}',
                 'summary' => 'Get one explanation-of-benefit record',
@@ -556,6 +580,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'eobs.list' => [
+                'route_name' => 'agent-api.v1.eobs.index',
                 'method' => 'GET',
                 'path' => '/patients/{patient}/eobs',
                 'summary' => 'List explanation-of-benefit records without raw parser payloads',
@@ -588,6 +613,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'evidence.links' => [
+                'route_name' => 'agent-api.v1.evidence.links',
                 'method' => 'GET',
                 'path' => '/patients/{patient}/evidence-links',
                 'summary' => 'List typed evidence links from one patient-scoped record',
@@ -622,6 +648,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'exports.create' => [
+                'route_name' => 'agent-api.v1.exports.store',
                 'method' => 'POST',
                 'path' => '/patients/{patient}/exports',
                 'summary' => 'Queue a structured export',
@@ -641,6 +668,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'exports.download_access.create' => [
+                'route_name' => 'agent-api.v1.exports.download-access',
                 'method' => 'POST',
                 'path' => '/patients/{patient}/exports/{export}/download-access',
                 'summary' => 'Create short-lived export download access',
@@ -657,6 +685,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'exports.list' => [
+                'route_name' => 'agent-api.v1.exports.index',
                 'method' => 'GET',
                 'path' => '/patients/{patient}/exports',
                 'summary' => 'List bounded asynchronous export status',
@@ -674,6 +703,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'genai.attachments.download' => [
+                'route_name' => 'genai.mcp.attachments.show',
                 'method' => 'GET',
                 'path' => '/genai/requests/{requestId}/attachments/{attachmentId}',
                 'summary' => 'Stream a leased health-document attachment with OAuth and signature',
@@ -717,6 +747,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'genai.leases.renew' => [
+                'route_name' => 'agent-api.v1.genai.requests.renew',
                 'method' => 'POST',
                 'path' => '/genai/requests/{requestId}/lease',
                 'summary' => 'Renew an active external processing lease',
@@ -736,6 +767,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'genai.queue_status' => [
+                'route_name' => 'agent-api.v1.genai.status',
                 'method' => 'GET',
                 'path' => '/genai/queue/status',
                 'summary' => 'Read private external GenAI queue counts',
@@ -747,6 +779,7 @@ final class AgentRestDocumentation
                 'responses' => ['401' => 'Unauthenticated', '403' => 'InsufficientScope', '429' => 'RateLimited'],
             ],
             'genai.requests.claim' => [
+                'route_name' => 'agent-api.v1.genai.claim',
                 'method' => 'POST',
                 'path' => '/genai/claims',
                 'summary' => 'Lease one authorized external GenAI request',
@@ -773,6 +806,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'genai.requests.complete' => [
+                'route_name' => 'agent-api.v1.genai.requests.complete',
                 'method' => 'POST',
                 'path' => '/genai/requests/{requestId}/complete',
                 'summary' => 'Submit a schema-validated external completion',
@@ -801,6 +835,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'genai.requests.fail' => [
+                'route_name' => 'agent-api.v1.genai.requests.fail',
                 'method' => 'POST',
                 'path' => '/genai/requests/{requestId}/fail',
                 'summary' => 'Report a sanitized external processing failure',
@@ -837,6 +872,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'genai.requests.get' => [
+                'route_name' => 'agent-api.v1.genai.requests.show',
                 'method' => 'GET',
                 'path' => '/genai/requests/{requestId}',
                 'summary' => 'Read one authorized external request status',
@@ -853,6 +889,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'health_log_entries.append' => [
+                'route_name' => 'agent-api.v1.health-log-entries.store',
                 'method' => 'POST',
                 'path' => '/patients/{patient}/health-logs/{healthLog}/entries',
                 'summary' => 'Idempotently append a health log entry',
@@ -872,6 +909,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'health_log_entries.get' => [
+                'route_name' => 'agent-api.v1.health-log-entries.show',
                 'method' => 'GET',
                 'path' => '/patients/{patient}/health-logs/{healthLog}/entries/{entry}',
                 'summary' => 'Get one health log entry',
@@ -888,6 +926,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'health_log_entries.list' => [
+                'route_name' => 'agent-api.v1.health-log-entries.index',
                 'method' => 'GET',
                 'path' => '/patients/{patient}/health-logs/{healthLog}/entries',
                 'summary' => 'List bounded entries for one health log',
@@ -922,6 +961,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'health_logs.create' => [
+                'route_name' => 'agent-api.v1.health-logs.store',
                 'method' => 'POST',
                 'path' => '/patients/{patient}/health-logs',
                 'summary' => 'Idempotently create a patient health log',
@@ -941,6 +981,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'identity.get' => [
+                'route_name' => 'agent-api.v1.me',
                 'method' => 'GET',
                 'path' => '/me',
                 'summary' => 'Get the authorized identity and granted scopes',
@@ -952,6 +993,7 @@ final class AgentRestDocumentation
                 'responses' => ['401' => 'Unauthenticated', '403' => 'InsufficientScope', '429' => 'RateLimited'],
             ],
             'immunizations.upsert' => [
+                'route_name' => 'agent-api.v1.clinical.immunizations.upsert',
                 'method' => 'PUT',
                 'path' => '/patients/{patient}/immunizations',
                 'summary' => 'Idempotently create or update an immunization',
@@ -971,6 +1013,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'imports.create' => [
+                'route_name' => 'agent-api.v1.imports.store',
                 'method' => 'POST',
                 'path' => '/patients/{patient}/imports',
                 'summary' => 'Idempotently enqueue structured extraction for a stored document',
@@ -990,6 +1033,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'imports.get' => [
+                'route_name' => 'agent-api.v1.imports.show',
                 'method' => 'GET',
                 'path' => '/patients/{patient}/imports/{import}',
                 'summary' => 'Inspect an import job and its proposed records',
@@ -1006,6 +1050,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'imports.list' => [
+                'route_name' => 'agent-api.v1.imports.index',
                 'method' => 'GET',
                 'path' => '/patients/{patient}/imports',
                 'summary' => 'List structured import jobs',
@@ -1032,6 +1077,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'imports.retry' => [
+                'route_name' => 'agent-api.v1.imports.retry',
                 'method' => 'POST',
                 'path' => '/patients/{patient}/imports/{import}/retry',
                 'summary' => 'Safely retry a failed import job',
@@ -1049,6 +1095,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'imports.review' => [
+                'route_name' => 'agent-api.v1.imports.results.review',
                 'method' => 'POST',
                 'path' => '/patients/{patient}/imports/{import}/results/{result}/review',
                 'summary' => 'Accept or reject one proposed import record',
@@ -1068,6 +1115,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'lab_results.upsert' => [
+                'route_name' => 'agent-api.v1.clinical.lab_results.upsert',
                 'method' => 'PUT',
                 'path' => '/patients/{patient}/lab-results',
                 'summary' => 'Idempotently create or update a lab result',
@@ -1087,6 +1135,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'mcp.exchange' => [
+                'route_name' => 'agent-api.v1.mcp',
                 'method' => 'POST',
                 'path' => '/mcp',
                 'summary' => 'Exchange MCP Streamable HTTP JSON-RPC messages',
@@ -1144,6 +1193,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'mcp.session.delete' => [
+                'route_name' => 'agent-api.v1.mcp.session.delete',
                 'method' => 'DELETE',
                 'path' => '/mcp',
                 'summary' => 'End an MCP session',
@@ -1172,6 +1222,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'medications.upsert' => [
+                'route_name' => 'agent-api.v1.clinical.medications.upsert',
                 'method' => 'PUT',
                 'path' => '/patients/{patient}/medications',
                 'summary' => 'Idempotently create or update a medication',
@@ -1191,6 +1242,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'native_backups.create' => [
+                'route_name' => 'agent-api.v1.native-backups.store',
                 'method' => 'POST',
                 'path' => '/patients/{patient}/native-backups',
                 'summary' => 'Queue a native backup',
@@ -1207,6 +1259,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'native_backups.download_access.create' => [
+                'route_name' => 'agent-api.v1.native-backups.download-access',
                 'method' => 'POST',
                 'path' => '/patients/{patient}/native-backups/{backup}/download-access',
                 'summary' => 'Create short-lived native-backup download access',
@@ -1223,6 +1276,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'native_backups.list' => [
+                'route_name' => 'agent-api.v1.native-backups.index',
                 'method' => 'GET',
                 'path' => '/patients/{patient}/native-backups',
                 'summary' => 'List bounded asynchronous native-backup status',
@@ -1240,6 +1294,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'oauth.disconnect' => [
+                'route_name' => 'agent-api.v1.oauth-token.destroy',
                 'method' => 'DELETE',
                 'path' => '/oauth/token',
                 'summary' => 'Immediately revoke the current access token and its refresh token',
@@ -1250,6 +1305,7 @@ final class AgentRestDocumentation
                 'responses' => ['401' => 'Unauthenticated', '403' => 'InsufficientScope', '429' => 'RateLimited'],
             ],
             'office_visits.upsert' => [
+                'route_name' => 'agent-api.v1.clinical.office_visits.upsert',
                 'method' => 'PUT',
                 'path' => '/patients/{patient}/office-visits',
                 'summary' => 'Idempotently create or update an office visit',
@@ -1269,6 +1325,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'patients.create' => [
+                'route_name' => 'agent-api.v1.patients.store',
                 'method' => 'POST',
                 'path' => '/patients',
                 'summary' => 'Create a new patient owned by the authorized user',
@@ -1286,6 +1343,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'patients.get' => [
+                'route_name' => 'agent-api.v1.patients.show',
                 'method' => 'GET',
                 'path' => '/patients/{patient}',
                 'summary' => 'Get one accessible patient and the caller\'s access metadata',
@@ -1302,6 +1360,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'patients.list' => [
+                'route_name' => 'agent-api.v1.patients.index',
                 'method' => 'GET',
                 'path' => '/patients',
                 'summary' => 'List patients accessible to the authorized user',
@@ -1318,6 +1377,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'procedures.upsert' => [
+                'route_name' => 'agent-api.v1.clinical.procedures.upsert',
                 'method' => 'PUT',
                 'path' => '/patients/{patient}/procedures',
                 'summary' => 'Idempotently create or update a procedure',
@@ -1337,6 +1397,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'reconciliations.apply' => [
+                'route_name' => 'agent-api.v1.reconciliations.apply',
                 'method' => 'POST',
                 'path' => '/patients/{patient}/reconciliations/{reconciliation}/apply',
                 'summary' => 'Apply an explicitly confirmed EOB reconciliation',
@@ -1356,6 +1417,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'reconciliations.preview' => [
+                'route_name' => 'agent-api.v1.reconciliations.preview',
                 'method' => 'GET',
                 'path' => '/patients/{patient}/reconciliations/{reconciliation}/preview',
                 'summary' => 'Preview a privileged EOB reconciliation',
@@ -1373,6 +1435,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'records.search' => [
+                'route_name' => 'agent-api.v1.records.search',
                 'method' => 'GET',
                 'path' => '/patients/{patient}/records/search',
                 'summary' => 'Search concise records across core clinical resource types',
@@ -1405,6 +1468,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'respiratory_events.ingest' => [
+                'route_name' => 'agent-api.v1.respiratory-events.batch',
                 'method' => 'POST',
                 'path' => '/patients/{patient}/respiratory-events/batch',
                 'summary' => 'Idempotently ingest a respiratory device event batch',
@@ -1423,6 +1487,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'respiratory_events.list' => [
+                'route_name' => 'agent-api.v1.respiratory-events.index',
                 'method' => 'GET',
                 'path' => '/patients/{patient}/respiratory-events',
                 'summary' => 'List bounded respiratory device events',
@@ -1466,6 +1531,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'timeline.list' => [
+                'route_name' => 'agent-api.v1.timeline.index',
                 'method' => 'GET',
                 'path' => '/patients/{patient}/timeline',
                 'summary' => 'List the patient timeline using the unified record projection',
@@ -1498,6 +1564,7 @@ final class AgentRestDocumentation
                 ],
             ],
             'vitals.upsert' => [
+                'route_name' => 'agent-api.v1.clinical.vitals.upsert',
                 'method' => 'PUT',
                 'path' => '/patients/{patient}/vitals',
                 'summary' => 'Idempotently create or update a vital',

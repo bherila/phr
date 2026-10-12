@@ -238,7 +238,7 @@ class AgentApiProtectedResourcesTest extends TestCase
                     && (str_starts_with($entry, ExpectOAuthResource::class) || str_starts_with($entry, ExpectAnyOAuthResource::class)),
             ));
             $expected = match (true) {
-                $name === 'agent-api.v1.mcp' => [ExpectOAuthResource::class.':mcp'],
+                $route->uri() === 'api/v1/mcp' => [ExpectOAuthResource::class.':mcp'],
                 in_array($name, $handoff, true), str_starts_with($route->uri(), 'api/v1/genai') => [ExpectAnyOAuthResource::class.':rest,mcp'],
                 default => [ExpectOAuthResource::class.':rest'],
             };

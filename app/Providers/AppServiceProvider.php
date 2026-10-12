@@ -11,16 +11,23 @@ use App\Support\AgentApi\AccountAwareAccessTokenRepository;
 use App\Support\AgentApi\AccountAwareAuthCodeRepository;
 use App\Support\AgentApi\AccountAwareRefreshTokenRepository;
 use App\Support\AgentApi\AccountCredentialOwnerPolicy;
+use App\Support\AgentApi\AgentApiPrincipalResolver;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentApiTokenPolicy;
+use App\Support\AgentApi\AgentOperations;
 use Bherila\GenAiLaravel\Contracts\AttachmentResolver;
 use Bherila\GenAiLaravel\Contracts\CompletionDelivery;
 use Bherila\GenAiLaravel\Contracts\MailboxAccessResolver;
 use Bherila\GenAiLaravel\Mcp\Events\McpRequestClaimed;
 use Bherila\GenAiLaravel\Mcp\Events\McpRequestFailed;
+use Bherila\McpLaravelBridge\Capabilities\Availability;
+use Bherila\McpLaravelBridge\Capabilities\ConfigDeploymentFlags;
+use Bherila\McpLaravelBridge\Capabilities\OperationRegistry;
+use Bherila\McpLaravelBridge\Capabilities\PrincipalResolver;
 use Bherila\McpLaravelBridge\Http\AgentApiTransport;
 use Bherila\McpLaravelBridge\Http\InternalAgentApiTransport;
 use Bherila\McpLaravelBridge\Http\McpHttpPolicy;
+use Bherila\McpLaravelBridge\Http\OperationRoutes;
 use BWH\Auth\OAuth\Credentials\CredentialOwnerPolicy;
 use BWH\Auth\OAuth\DelegatedAccess\ApplicationAccessAdapter;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -45,6 +52,12 @@ class AppServiceProvider extends ServiceProvider
         // unused device-code routes and grant from being registered at all.
         Passport::$deviceCodeGrantEnabled = false;
         $this->app->bind(AgentApiTransport::class, InternalAgentApiTransport::class);
+        // These stay transient: registry MCP handlers resolve a transport that
+        // carries the current request, including on nested MCP-to-REST calls.
+        $this->app->bind(OperationRegistry::class, fn (): OperationRegistry => $this->app->make(AgentOperations::class)->restRegistry());
+        $this->app->bind(Availability::class, fn (): Availability => new Availability($this->app->make(OperationRegistry::class), new ConfigDeploymentFlags([])));
+        $this->app->bind(PrincipalResolver::class, AgentApiPrincipalResolver::class);
+        OperationRoutes::macro();
         $this->app->bind(AccessTokenRepository::class, AccountAwareAccessTokenRepository::class);
         $this->app->bind(AuthCodeRepository::class, AccountAwareAuthCodeRepository::class);
         $this->app->bind(RefreshTokenRepository::class, AccountAwareRefreshTokenRepository::class);

@@ -2,7 +2,6 @@
 
 namespace App\Services\Mcp;
 
-use App\Support\AgentApi\AgentApiPrincipal;
 use App\Support\AgentApi\AgentApiResponseSchemaCatalog;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use Bherila\McpLaravelBridge\Capabilities\Effect;
@@ -250,7 +249,7 @@ final class AgentMcpToolCatalog
 
         return match (true) {
             $declared['scopes'] === null => Requirement::publicAccess(),
-            $declared['scopes'] === [] => new Requirement(permissions: [AgentApiPrincipal::AUTHENTICATED]),
+            $declared['scopes'] === [] => Requirement::authenticated(),
             default => new Requirement($declared['scopes']),
         };
     }

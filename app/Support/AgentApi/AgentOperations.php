@@ -62,6 +62,54 @@ final class AgentOperations
         return new Availability($this->registry(), new ConfigDeploymentFlags([]));
     }
 
+    /**
+     * The HTTP projection of the same declarations. Reconciliation's preview
+     * dependency guides MCP discovery; REST accepts a digest obtained with a
+     * separate credential, so apply retains its write-only HTTP requirement.
+     */
+    public function restRegistry(): OperationRegistry
+    {
+        $operations = [];
+        foreach ($this->registry()->all() as $operation) {
+            if ($operation->rest !== null) {
+                $operations[] = $operation->id === 'reconciliations.apply'
+                    ? $operation->with(requiresOperations: [])
+                    : $operation;
+            }
+        }
+
+        return (new OperationRegistry)->register(...$operations);
+    }
+
+    /**
+     * The public capabilities inventory keeps its historical response shape.
+     *
+     * @return array<string, array{available: bool, scope: string|null, scopes?: list<string>}>
+     */
+    public function capabilities(): array
+    {
+        $operations = [];
+        foreach ($this->availability()->implemented() as $operation) {
+            if ($operation->rest === null) {
+                continue;
+            }
+            $scopes = $operation->requirement->scopes;
+            $operations[$operation->id] = [
+                'available' => true,
+                'scope' => $scopes === [] ? null : $scopes[array_key_last($scopes)],
+            ];
+            if (count($scopes) > 1) {
+                $operations[$operation->id]['scopes'] = $scopes;
+            }
+        }
+        // Legacy discovery alias for the POST /mcp operation.
+        if (isset($operations['mcp.exchange'])) {
+            $operations['mcp.connect'] = $operations['mcp.exchange'];
+        }
+
+        return $operations;
+    }
+
     private function genAiOperation(ToolDefinition $definition): Operation
     {
         return new Operation(
@@ -83,20 +131,7 @@ final class AgentOperations
             return $operation;
         }
 
-        return new Operation(
-            id: $operation->id,
-            title: $operation->title,
-            description: $operation->description,
-            effect: $operation->effect,
-            requirement: $operation->requirement,
-            idempotent: $operation->idempotent,
-            safety: $operation->safety,
-            rest: self::restBinding($operation->id),
-            mcp: $operation->mcp,
-            input: $operation->input,
-            output: $operation->output,
-            requiresOperations: $operation->requiresOperations,
-        );
+        return $operation->with(rest: self::restBinding($operation->id));
     }
 
     /** @param  array{method: string, path: string, scopes: list<string>|null, summary: string, description: string}  $declared */
@@ -127,6 +162,7 @@ final class AgentOperations
         return new RestBinding(
             method: $declared['method'],
             path: $declared['path'],
+            routeName: $declared['route_name'],
             successStatuses: array_keys($declared['success']),
             requestContentTypes: $declared['request_types'] ?? ['application/json'],
             summary: $declared['summary'],

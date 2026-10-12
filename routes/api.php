@@ -55,14 +55,13 @@ use App\Http\Middleware\EnsureOAuthUserCanLogin;
 use App\Http\Middleware\ExpectAnyOAuthResource;
 use App\Http\Middleware\GenAiRestHttpSecurityMiddleware;
 use App\Http\Middleware\PreventAgentApiResponseCaching;
-use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use Bherila\GenAiLaravel\Mcp\Http\AttachmentController as GenAiAttachmentController;
 use Bherila\GenAiLaravel\Mcp\Http\McpApiController as GenAiMcpApiController;
+use Bherila\McpLaravelBridge\Http\GateOperation;
 use Bherila\McpLaravelBridge\Http\McpHttpSecurityMiddleware;
 use BWH\Auth\Http\Middleware\ExpectOAuthResource;
 use Illuminate\Support\Facades\Route;
-use Laravel\Passport\Http\Middleware\CheckToken;
 
 // The agent API contract, with this installation's server and OAuth URLs.
 Route::get('/openapi.json', [AgentDiscoveryController::class, 'openApi'])
@@ -70,9 +69,8 @@ Route::get('/openapi.json', [AgentDiscoveryController::class, 'openApi'])
     ->name('agent-api.openapi');
 
 Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
-    Route::get('/capabilities', [AgentDiscoveryController::class, 'capabilities'])
-        ->middleware('throttle:60,1')
-        ->name('capabilities');
+    Route::operation('capabilities.get', [AgentDiscoveryController::class, 'capabilities'])
+        ->middleware('throttle:60,1');
     Route::options('/mcp', AgentMcpController::class)
         ->middleware([McpHttpSecurityMiddleware::class, 'throttle:60,1'])
         ->name('mcp.options');
@@ -87,12 +85,14 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         EnsureOAuthUserCanLogin::class,
         PreventAgentApiResponseCaching::class,
     ])->group(function (): void {
-        Route::match(['POST', 'DELETE'], '/mcp', AgentMcpController::class)
+        Route::operation('mcp.exchange', AgentMcpController::class)
             ->middleware(McpHttpSecurityMiddleware::class)
             ->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::MCP_USE))
-            ->middleware('genai.mcp.auth')
-            ->name('mcp');
+            ->middleware('genai.mcp.auth');
+        Route::operation('mcp.session.delete', AgentMcpController::class)
+            ->middleware(McpHttpSecurityMiddleware::class)
+            ->middleware('throttle:agent-api')
+            ->middleware('genai.mcp.auth');
     });
 
     // The REST routes an MCP tool hands to its client to call directly with the
@@ -108,21 +108,20 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
     ])->group(function (): void {
         // Self-revocation is deliberately outside the ordinary traffic bucket. A
         // saturated API limit must never prevent a client from disconnecting.
-        Route::delete('/oauth/token', [AgentTokenController::class, 'destroy'])
-            ->name('oauth-token.destroy');
+        Route::operation('oauth.disconnect', [AgentTokenController::class, 'destroy']);
 
-        Route::get('/patients/{patient}/documents/{document}/file', [AgentDocumentController::class, 'file'])
-            ->whereNumber(['patient', 'document'])->middleware(['throttle:agent-api', 'signed'])
-            ->middleware(CheckToken::using(AgentApiScopes::DOCUMENTS_READ))->name('documents.file');
+        Route::operation('documents.download', [AgentDocumentController::class, 'file'])
+            ->whereNumber(['patient', 'document'])->middleware(['throttle:agent-api', 'signed']);
+        // These signed artifact URLs are returned by download-access operations;
+        // they reuse those requirements without adding public contract paths.
         Route::get('/patients/{patient}/exports/{export}/file', [AgentExportController::class, 'exportFile'])
             ->whereNumber(['patient', 'export'])->middleware(['throttle:agent-api', 'signed'])
-            ->middleware(CheckToken::using(AgentApiScopes::EXPORTS_READ))->name('exports.file');
+            ->middleware(GateOperation::class.':exports.download_access.create')->name('exports.file');
         Route::get('/patients/{patient}/native-backups/{backup}/file', [AgentExportController::class, 'backupFile'])
             ->whereNumber(['patient', 'backup'])->middleware(['throttle:agent-api', 'signed'])
-            ->middleware(CheckToken::using(AgentApiScopes::EXPORTS_READ))->name('native-backups.file');
-        Route::post('/patients/{patient}/dicom/uploads/{upload}/files', [AgentDicomUploadController::class, 'storeFile'])
-            ->whereNumber(['patient', 'upload'])->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))->name('dicom-uploads.files.store');
+            ->middleware(GateOperation::class.':native_backups.download_access.create')->name('native-backups.file');
+        Route::operation('dicom_uploads.upload_file', [AgentDicomUploadController::class, 'storeFile'])
+            ->whereNumber(['patient', 'upload'])->middleware('throttle:agent-api');
     });
 
     // Every other /api/v1 route accepts only credentials bound to the REST
@@ -134,203 +133,143 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         EnsureOAuthUserCanLogin::class,
         PreventAgentApiResponseCaching::class,
     ])->group(function (): void {
-        Route::get('/me', [AgentDiscoveryController::class, 'me'])
-            ->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::IDENTITY_READ))
-            ->name('me');
+        Route::operation('identity.get', [AgentDiscoveryController::class, 'me'])
+            ->middleware('throttle:agent-api');
 
-        Route::get('/patients', [AgentPatientController::class, 'index'])
-            ->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::PATIENTS_READ))
-            ->name('patients.index');
-        Route::post('/patients', [AgentPatientController::class, 'store'])
-            ->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::PATIENTS_WRITE))
-            ->name('patients.store');
-        Route::get('/patients/{patient}', [AgentPatientController::class, 'show'])
+        Route::operation('patients.list', [AgentPatientController::class, 'index'])
+            ->middleware('throttle:agent-api');
+        Route::operation('patients.create', [AgentPatientController::class, 'store'])
+            ->middleware('throttle:agent-api');
+        Route::operation('patients.get', [AgentPatientController::class, 'show'])
             ->whereNumber('patient')
-            ->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::PATIENTS_READ))
-            ->name('patients.show');
+            ->middleware('throttle:agent-api');
 
-        Route::get('/patients/{patient}/records/search', [AgentRecordSearchController::class, 'search'])
+        Route::operation('records.search', [AgentRecordSearchController::class, 'search'])
             ->whereNumber('patient')
-            ->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))
-            ->name('records.search');
-        Route::get('/patients/{patient}/timeline', [AgentRecordSearchController::class, 'timeline'])
+            ->middleware('throttle:agent-api');
+        Route::operation('timeline.list', [AgentRecordSearchController::class, 'timeline'])
             ->whereNumber('patient')
-            ->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))
-            ->name('timeline.index');
-        Route::get('/patients/{patient}/changes', [AgentRecordSearchController::class, 'changes'])
+            ->middleware('throttle:agent-api');
+        Route::operation('changes.list', [AgentRecordSearchController::class, 'changes'])
             ->whereNumber('patient')
-            ->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))
-            ->name('changes.index');
+            ->middleware('throttle:agent-api');
 
-        Route::get('/patients/{patient}/eobs', [AgentEvidenceController::class, 'eobs'])
-            ->whereNumber('patient')->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))->name('eobs.index');
-        Route::get('/patients/{patient}/eobs/{eob}', [AgentEvidenceController::class, 'eob'])
-            ->whereNumber(['patient', 'eob'])->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))->name('eobs.show');
-        Route::get('/patients/{patient}/eobs/{eob}/lines', [AgentEvidenceController::class, 'eobLines'])
-            ->whereNumber(['patient', 'eob'])->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))->name('eob-lines.index');
-        Route::get('/patients/{patient}/eobs/{eob}/lines/{line}', [AgentEvidenceController::class, 'eobLine'])
-            ->whereNumber(['patient', 'eob', 'line'])->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))->name('eob-lines.show');
-        Route::get('/patients/{patient}/evidence-links', [AgentEvidenceController::class, 'links'])
-            ->whereNumber('patient')->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))->name('evidence.links');
+        Route::operation('eobs.list', [AgentEvidenceController::class, 'eobs'])
+            ->whereNumber('patient')->middleware('throttle:agent-api');
+        Route::operation('eobs.get', [AgentEvidenceController::class, 'eob'])
+            ->whereNumber(['patient', 'eob'])->middleware('throttle:agent-api');
+        Route::operation('eob_lines.list', [AgentEvidenceController::class, 'eobLines'])
+            ->whereNumber(['patient', 'eob'])->middleware('throttle:agent-api');
+        Route::operation('eob_lines.get', [AgentEvidenceController::class, 'eobLine'])
+            ->whereNumber(['patient', 'eob', 'line'])->middleware('throttle:agent-api');
+        Route::operation('evidence.links', [AgentEvidenceController::class, 'links'])
+            ->whereNumber('patient')->middleware('throttle:agent-api');
 
-        Route::get('/patients/{patient}/documents', [AgentDocumentController::class, 'index'])
-            ->whereNumber('patient')->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::DOCUMENTS_READ))->name('documents.index');
-        Route::post('/patients/{patient}/documents', [AgentDocumentController::class, 'store'])
-            ->whereNumber('patient')->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::DOCUMENTS_WRITE))->name('documents.store');
-        Route::get('/patients/{patient}/documents/{document}', [AgentDocumentController::class, 'show'])
-            ->whereNumber(['patient', 'document'])->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::DOCUMENTS_READ))->name('documents.show');
-        Route::post('/patients/{patient}/documents/{document}/download-access', [AgentDocumentController::class, 'createDownloadAccess'])
-            ->whereNumber(['patient', 'document'])->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::DOCUMENTS_READ))->name('documents.download-access');
+        Route::operation('documents.list', [AgentDocumentController::class, 'index'])
+            ->whereNumber('patient')->middleware('throttle:agent-api');
+        Route::operation('documents.upload', [AgentDocumentController::class, 'store'])
+            ->whereNumber('patient')->middleware('throttle:agent-api');
+        Route::operation('documents.get', [AgentDocumentController::class, 'show'])
+            ->whereNumber(['patient', 'document'])->middleware('throttle:agent-api');
+        Route::operation('documents.download_access.create', [AgentDocumentController::class, 'createDownloadAccess'])
+            ->whereNumber(['patient', 'document'])->middleware('throttle:agent-api');
 
-        Route::get('/patients/{patient}/imports', [AgentImportController::class, 'index'])
-            ->whereNumber('patient')->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::IMPORTS_READ))->name('imports.index');
-        Route::post('/patients/{patient}/imports', [AgentImportController::class, 'store'])
-            ->whereNumber('patient')->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::IMPORTS_WRITE))->name('imports.store');
-        Route::get('/patients/{patient}/imports/{import}', [AgentImportController::class, 'show'])
-            ->whereNumber(['patient', 'import'])->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::IMPORTS_READ))->name('imports.show');
-        Route::post('/patients/{patient}/imports/{import}/retry', [AgentImportController::class, 'retry'])
-            ->whereNumber(['patient', 'import'])->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::IMPORTS_WRITE))->name('imports.retry');
-        Route::post('/patients/{patient}/imports/{import}/results/{result}/review', [AgentImportController::class, 'review'])
-            ->whereNumber(['patient', 'import', 'result'])->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::IMPORTS_WRITE))->name('imports.results.review');
+        Route::operation('imports.list', [AgentImportController::class, 'index'])
+            ->whereNumber('patient')->middleware('throttle:agent-api');
+        Route::operation('imports.create', [AgentImportController::class, 'store'])
+            ->whereNumber('patient')->middleware('throttle:agent-api');
+        Route::operation('imports.get', [AgentImportController::class, 'show'])
+            ->whereNumber(['patient', 'import'])->middleware('throttle:agent-api');
+        Route::operation('imports.retry', [AgentImportController::class, 'retry'])
+            ->whereNumber(['patient', 'import'])->middleware('throttle:agent-api');
+        Route::operation('imports.review', [AgentImportController::class, 'review'])
+            ->whereNumber(['patient', 'import', 'result'])->middleware('throttle:agent-api');
 
-        Route::get('/patients/{patient}/reconciliations/{reconciliation}/preview', [AgentReconciliationController::class, 'preview'])
-            ->whereNumber('patient')->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::RECONCILIATION_READ))->name('reconciliations.preview');
-        Route::post('/patients/{patient}/reconciliations/{reconciliation}/apply', [AgentReconciliationController::class, 'apply'])
-            ->whereNumber('patient')->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::RECONCILIATION_WRITE))->name('reconciliations.apply');
+        Route::operation('reconciliations.preview', [AgentReconciliationController::class, 'preview'])
+            ->whereNumber('patient')->middleware('throttle:agent-api');
+        Route::operation('reconciliations.apply', [AgentReconciliationController::class, 'apply'])
+            ->whereNumber('patient')->middleware('throttle:agent-api');
 
-        Route::get('/patients/{patient}/exports', [AgentExportController::class, 'exportsIndex'])
-            ->whereNumber('patient')->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::EXPORTS_READ))->name('exports.index');
-        Route::post('/patients/{patient}/exports', [AgentExportController::class, 'exportsStore'])
-            ->whereNumber('patient')->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::EXPORTS_WRITE))->name('exports.store');
-        Route::post('/patients/{patient}/exports/{export}/download-access', [AgentExportController::class, 'exportDownloadAccess'])
-            ->whereNumber(['patient', 'export'])->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::EXPORTS_READ))->name('exports.download-access');
-        Route::get('/patients/{patient}/native-backups', [AgentExportController::class, 'backupsIndex'])
-            ->whereNumber('patient')->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::EXPORTS_READ))->name('native-backups.index');
-        Route::post('/patients/{patient}/native-backups', [AgentExportController::class, 'backupsStore'])
-            ->whereNumber('patient')->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::EXPORTS_WRITE))->name('native-backups.store');
-        Route::post('/patients/{patient}/native-backups/{backup}/download-access', [AgentExportController::class, 'backupDownloadAccess'])
-            ->whereNumber(['patient', 'backup'])->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::EXPORTS_READ))->name('native-backups.download-access');
+        Route::operation('exports.list', [AgentExportController::class, 'exportsIndex'])
+            ->whereNumber('patient')->middleware('throttle:agent-api');
+        Route::operation('exports.create', [AgentExportController::class, 'exportsStore'])
+            ->whereNumber('patient')->middleware('throttle:agent-api');
+        Route::operation('exports.download_access.create', [AgentExportController::class, 'exportDownloadAccess'])
+            ->whereNumber(['patient', 'export'])->middleware('throttle:agent-api');
+        Route::operation('native_backups.list', [AgentExportController::class, 'backupsIndex'])
+            ->whereNumber('patient')->middleware('throttle:agent-api');
+        Route::operation('native_backups.create', [AgentExportController::class, 'backupsStore'])
+            ->whereNumber('patient')->middleware('throttle:agent-api');
+        Route::operation('native_backups.download_access.create', [AgentExportController::class, 'backupDownloadAccess'])
+            ->whereNumber(['patient', 'backup'])->middleware('throttle:agent-api');
 
-        Route::post('/patients/{patient}/health-logs', [AgentHealthLogController::class, 'store'])
-            ->whereNumber('patient')->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))->name('health-logs.store');
-        Route::get('/patients/{patient}/health-logs/{healthLog}/entries', [AgentHealthLogController::class, 'entries'])
-            ->whereNumber(['patient', 'healthLog'])->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))->name('health-log-entries.index');
-        Route::post('/patients/{patient}/health-logs/{healthLog}/entries', [AgentHealthLogController::class, 'append'])
-            ->whereNumber(['patient', 'healthLog'])->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))->name('health-log-entries.store');
-        Route::get('/patients/{patient}/health-logs/{healthLog}/entries/{entry}', [AgentHealthLogController::class, 'entry'])
-            ->whereNumber(['patient', 'healthLog', 'entry'])->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))->name('health-log-entries.show');
-        Route::get('/patients/{patient}/respiratory-events', [AgentRespiratoryEventController::class, 'index'])
-            ->whereNumber('patient')->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))->name('respiratory-events.index');
-        Route::post('/patients/{patient}/respiratory-events/batch', [AgentRespiratoryEventController::class, 'batch'])
-            ->whereNumber('patient')->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))->name('respiratory-events.batch');
+        Route::operation('health_logs.create', [AgentHealthLogController::class, 'store'])
+            ->whereNumber('patient')->middleware('throttle:agent-api');
+        Route::operation('health_log_entries.list', [AgentHealthLogController::class, 'entries'])
+            ->whereNumber(['patient', 'healthLog'])->middleware('throttle:agent-api');
+        Route::operation('health_log_entries.append', [AgentHealthLogController::class, 'append'])
+            ->whereNumber(['patient', 'healthLog'])->middleware('throttle:agent-api');
+        Route::operation('health_log_entries.get', [AgentHealthLogController::class, 'entry'])
+            ->whereNumber(['patient', 'healthLog', 'entry'])->middleware('throttle:agent-api');
+        Route::operation('respiratory_events.list', [AgentRespiratoryEventController::class, 'index'])
+            ->whereNumber('patient')->middleware('throttle:agent-api');
+        Route::operation('respiratory_events.ingest', [AgentRespiratoryEventController::class, 'batch'])
+            ->whereNumber('patient')->middleware('throttle:agent-api');
 
         // DICOM metadata remains bounded; file bytes are sent one-at-a-time to a
         // short-lived upload session and are never returned by these endpoints.
-        Route::get('/patients/{patient}/dicom/studies', [AgentDicomController::class, 'index'])
-            ->whereNumber('patient')->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))->name('dicom-studies.index');
-        Route::get('/patients/{patient}/dicom/studies/{study}', [AgentDicomController::class, 'show'])
-            ->whereNumber(['patient', 'study'])->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))->name('dicom-studies.show');
-        Route::get('/patients/{patient}/dicom/studies/{study}/series', [AgentDicomController::class, 'series'])
-            ->whereNumber(['patient', 'study'])->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))->name('dicom-series.index');
-        Route::post('/patients/{patient}/dicom/uploads', [AgentDicomUploadController::class, 'open'])
-            ->whereNumber('patient')->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))->name('dicom-uploads.open');
-        Route::post('/patients/{patient}/dicom/uploads/{upload}/finalize', [AgentDicomUploadController::class, 'finalize'])
-            ->whereNumber(['patient', 'upload'])->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))->name('dicom-uploads.finalize');
-        Route::post('/patients/{patient}/dicom/uploads/{upload}/cancel', [AgentDicomUploadController::class, 'cancel'])
-            ->whereNumber(['patient', 'upload'])->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))->name('dicom-uploads.cancel');
+        Route::operation('dicom_studies.list', [AgentDicomController::class, 'index'])
+            ->whereNumber('patient')->middleware('throttle:agent-api');
+        Route::operation('dicom_studies.get', [AgentDicomController::class, 'show'])
+            ->whereNumber(['patient', 'study'])->middleware('throttle:agent-api');
+        Route::operation('dicom_series.list', [AgentDicomController::class, 'series'])
+            ->whereNumber(['patient', 'study'])->middleware('throttle:agent-api');
+        Route::operation('dicom_uploads.open', [AgentDicomUploadController::class, 'open'])
+            ->whereNumber('patient')->middleware('throttle:agent-api');
+        Route::operation('dicom_uploads.finalize', [AgentDicomUploadController::class, 'finalize'])
+            ->whereNumber(['patient', 'upload'])->middleware('throttle:agent-api');
+        Route::operation('dicom_uploads.cancel', [AgentDicomUploadController::class, 'cancel'])
+            ->whereNumber(['patient', 'upload'])->middleware('throttle:agent-api');
 
-        Route::get('/patients/{patient}/{resource}', [AgentClinicalReadController::class, 'index'])
+        Route::operation('clinical.list', [AgentClinicalReadController::class, 'index'])
             ->whereNumber('patient')
             ->whereIn('resource', AgentClinicalResourceCatalog::ids())
-            ->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))
-            ->name('clinical.index');
+            ->middleware('throttle:agent-api');
         // Resolution answers "have I written this before?" against the caller's
         // own import source. It reads no clinical content, so it needs only the
         // read scope even though a write is what it exists to plan.
-        Route::post('/patients/{patient}/{resource}/resolve', [AgentClinicalReadController::class, 'resolve'])
+        Route::operation('clinical.resolve', [AgentClinicalReadController::class, 'resolve'])
             ->whereNumber('patient')
             ->whereIn('resource', AgentClinicalResourceCatalog::writableIds())
-            ->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))
-            ->name('clinical.resolve');
+            ->middleware('throttle:agent-api');
         foreach (AgentClinicalResourceCatalog::writableIds() as $writableResource) {
-            Route::put("/patients/{patient}/{$writableResource}", [AgentClinicalWriteController::class, 'upsert'])
+            Route::operation(AgentClinicalResourceCatalog::upsertOperationId($writableResource), [AgentClinicalWriteController::class, 'upsert'])
                 ->defaults('resource', $writableResource)
                 ->whereNumber('patient')
-                ->middleware('throttle:agent-api')
-                ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))
-                ->name('clinical.'.str_replace('-', '_', $writableResource).'.upsert');
+                ->middleware('throttle:agent-api');
         }
         // ID-targeted patching reaches legacy and browser-created rows, needs a
         // record ID and version that only a read can supply, and returns the
         // patched resource. It therefore requires read as well as write.
-        Route::patch('/patients/{patient}/{resource}/{record}', [AgentClinicalWriteController::class, 'update'])
+        Route::operation('clinical.update', [AgentClinicalWriteController::class, 'update'])
             ->whereNumber(['patient', 'record'])
             ->whereIn('resource', AgentClinicalResourceCatalog::writableIds())
-            ->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE))
-            ->name('clinical.update');
+            ->middleware('throttle:agent-api');
         // Withdrawing a claim needs only write. The mutation presenter already
         // degrades to a receipt without read scope, and an upsert hands a
         // write-only client the version this precondition needs.
-        Route::post('/patients/{patient}/{resource}/{record}/retract', [AgentClinicalWriteController::class, 'retract'])
+        Route::operation('clinical.retract', [AgentClinicalWriteController::class, 'retract'])
             ->whereNumber(['patient', 'record'])
             ->whereIn('resource', AgentClinicalResourceCatalog::writableIds())
-            ->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_WRITE))
-            ->name('clinical.retract');
-        Route::get('/patients/{patient}/{resource}/{record}', [AgentClinicalReadController::class, 'show'])
+            ->middleware('throttle:agent-api');
+        Route::operation('clinical.get', [AgentClinicalReadController::class, 'show'])
             ->whereNumber(['patient', 'record'])
             ->whereIn('resource', AgentClinicalResourceCatalog::ids())
-            ->middleware('throttle:agent-api')
-            ->middleware(CheckToken::using(AgentApiScopes::CLINICAL_READ))
-            ->name('clinical.show');
+            ->middleware('throttle:agent-api');
     });
 });
 
-Route::prefix('v1/genai')->middleware([
+Route::prefix('v1')->middleware([
     GenAiRestHttpSecurityMiddleware::class,
     'auth:api',
     AuditAgentApiRequest::class,
@@ -341,42 +280,28 @@ Route::prefix('v1/genai')->middleware([
     ExpectAnyOAuthResource::class.':rest,mcp',
     'throttle:agent-api',
 ])->group(function (): void {
-    Route::options('/{path?}', static fn () => response('', 204))
+    Route::options('/genai/{path?}', static fn () => response('', 204))
         ->where('path', '.*')
         ->name('agent-api.v1.genai.options');
-    Route::get('/queue/status', [GenAiMcpApiController::class, 'status'])
-        ->middleware(CheckToken::using(AgentApiScopes::GENAI_READ))
-        ->middleware('genai.mcp.auth')
-        ->name('agent-api.v1.genai.status');
-    Route::post('/claims', [GenAiMcpApiController::class, 'claim'])
-        ->middleware(CheckToken::using(AgentApiScopes::GENAI_WORK))
-        ->middleware('genai.mcp.auth')
-        ->name('agent-api.v1.genai.claim');
-    Route::get('/requests/{requestId}', [GenAiMcpApiController::class, 'show'])
+    Route::operation('genai.queue_status', [GenAiMcpApiController::class, 'status'])
+        ->middleware('genai.mcp.auth');
+    Route::operation('genai.requests.claim', [GenAiMcpApiController::class, 'claim'])
+        ->middleware('genai.mcp.auth');
+    Route::operation('genai.requests.get', [GenAiMcpApiController::class, 'show'])
         ->whereUuid('requestId')
-        ->middleware(CheckToken::using(AgentApiScopes::GENAI_READ))
-        ->middleware('genai.mcp.auth')
-        ->name('agent-api.v1.genai.requests.show');
-    Route::post('/requests/{requestId}/lease', [GenAiMcpApiController::class, 'renew'])
+        ->middleware('genai.mcp.auth');
+    Route::operation('genai.leases.renew', [GenAiMcpApiController::class, 'renew'])
         ->whereUuid('requestId')
-        ->middleware(CheckToken::using(AgentApiScopes::GENAI_WORK))
-        ->middleware('genai.mcp.auth')
-        ->name('agent-api.v1.genai.requests.renew');
-    Route::post('/requests/{requestId}/complete', [GenAiMcpApiController::class, 'complete'])
+        ->middleware('genai.mcp.auth');
+    Route::operation('genai.requests.complete', [GenAiMcpApiController::class, 'complete'])
         ->whereUuid('requestId')
-        ->middleware(CheckToken::using(AgentApiScopes::GENAI_WORK))
-        ->middleware('genai.mcp.auth')
-        ->name('agent-api.v1.genai.requests.complete');
-    Route::post('/requests/{requestId}/fail', [GenAiMcpApiController::class, 'fail'])
+        ->middleware('genai.mcp.auth');
+    Route::operation('genai.requests.fail', [GenAiMcpApiController::class, 'fail'])
         ->whereUuid('requestId')
-        ->middleware(CheckToken::using(AgentApiScopes::GENAI_WORK))
-        ->middleware('genai.mcp.auth')
-        ->name('agent-api.v1.genai.requests.fail');
-    Route::match(['GET', 'HEAD'], '/requests/{requestId}/attachments/{attachmentId}', GenAiAttachmentController::class)
+        ->middleware('genai.mcp.auth');
+    Route::operation('genai.attachments.download', GenAiAttachmentController::class)
         ->whereUuid(['requestId', 'attachmentId'])
-        ->middleware(CheckToken::using(AgentApiScopes::GENAI_WORK))
-        ->middleware('genai.mcp.auth')
-        ->name('genai.mcp.attachments.show');
+        ->middleware('genai.mcp.auth');
 });
 
 // Per-user AI provider settings used by ParseImportJob via User::resolvedAiClient().
