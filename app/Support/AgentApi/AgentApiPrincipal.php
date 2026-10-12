@@ -2,7 +2,7 @@
 
 namespace App\Support\AgentApi;
 
-use Bherila\McpLaravelBridge\Capabilities\Principal;
+use Bherila\McpLaravelBridge\Capabilities\AuthenticatedPrincipal;
 use Illuminate\Http\Request;
 
 /**
@@ -10,12 +10,14 @@ use Illuminate\Http\Request;
  * scopes its OAuth credential was granted. Patient access is decided per
  * record by the API itself, so no operation is withheld for it here.
  */
-final readonly class AgentApiPrincipal implements Principal
+final readonly class AgentApiPrincipal implements AuthenticatedPrincipal
 {
-    /** Held by any authenticated credential: for operations that need one but no particular scope. */
-    public const string AUTHENTICATED = 'authenticated';
-
     public function __construct(private Request $request) {}
+
+    public function isAuthenticated(): bool
+    {
+        return $this->request->user('api') !== null;
+    }
 
     public function hasScope(string $scope): bool
     {
@@ -24,7 +26,7 @@ final readonly class AgentApiPrincipal implements Principal
 
     public function can(string $permission): bool
     {
-        return $permission !== self::AUTHENTICATED || $this->request->user('api') !== null;
+        return true;
     }
 
     public function allowsGroup(?string $group): bool

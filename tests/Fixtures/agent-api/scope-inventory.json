@@ -1,0 +1,589 @@
+{
+    "allergies.get": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "allergies.list": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "allergies.resolve": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "allergies.retract": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
+    "allergies.update": {
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ],
+        "scope_rule": "all"
+    },
+    "allergies.upsert": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
+    "capabilities.get": {
+        "public": true
+    },
+    "changes.list": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "claim_genai_request": {
+        "scopes": [
+            "genai:work"
+        ]
+    },
+    "clinical.get": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "clinical.list": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "clinical.resolve": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "clinical.retract": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
+    "clinical.update": {
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ],
+        "scope_rule": "all"
+    },
+    "complete_genai_request": {
+        "scopes": [
+            "genai:work"
+        ]
+    },
+    "conditions.get": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "conditions.list": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "conditions.resolve": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "conditions.retract": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
+    "conditions.update": {
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ],
+        "scope_rule": "all"
+    },
+    "conditions.upsert": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
+    "dicom_series.list": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "dicom_studies.get": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "dicom_studies.list": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "dicom_uploads.cancel": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
+    "dicom_uploads.finalize": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
+    "dicom_uploads.open": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
+    "dicom_uploads.upload_file": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
+    "documents.download": {
+        "scopes": [
+            "documents:read"
+        ]
+    },
+    "documents.download_access.create": {
+        "scopes": [
+            "documents:read"
+        ]
+    },
+    "documents.get": {
+        "scopes": [
+            "documents:read"
+        ]
+    },
+    "documents.list": {
+        "scopes": [
+            "documents:read"
+        ]
+    },
+    "documents.upload": {
+        "scopes": [
+            "documents:write"
+        ]
+    },
+    "eob_lines.get": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "eob_lines.list": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "eobs.get": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "eobs.list": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "evidence.links": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "exports.create": {
+        "scopes": [
+            "exports:write"
+        ]
+    },
+    "exports.download_access.create": {
+        "scopes": [
+            "exports:read"
+        ]
+    },
+    "exports.list": {
+        "scopes": [
+            "exports:read"
+        ]
+    },
+    "fail_genai_request": {
+        "scopes": [
+            "genai:work"
+        ]
+    },
+    "genai.attachments.download": {
+        "scopes": [
+            "genai:work"
+        ]
+    },
+    "genai.leases.renew": {
+        "scopes": [
+            "genai:work"
+        ]
+    },
+    "genai.queue_status": {
+        "scopes": [
+            "genai:read"
+        ]
+    },
+    "genai.requests.claim": {
+        "scopes": [
+            "genai:work"
+        ]
+    },
+    "genai.requests.complete": {
+        "scopes": [
+            "genai:work"
+        ]
+    },
+    "genai.requests.fail": {
+        "scopes": [
+            "genai:work"
+        ]
+    },
+    "genai.requests.get": {
+        "scopes": [
+            "genai:read"
+        ]
+    },
+    "genai_queue_status": {
+        "scopes": [
+            "genai:read"
+        ]
+    },
+    "health_log_entries.append": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
+    "health_log_entries.get": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "health_log_entries.list": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "health_logs.create": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
+    "health_logs.get": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "health_logs.list": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "identity.get": {
+        "scopes": [
+            "identity:read"
+        ]
+    },
+    "immunizations.get": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "immunizations.list": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "immunizations.resolve": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "immunizations.retract": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
+    "immunizations.update": {
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ],
+        "scope_rule": "all"
+    },
+    "immunizations.upsert": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
+    "imports.create": {
+        "scopes": [
+            "imports:write"
+        ]
+    },
+    "imports.get": {
+        "scopes": [
+            "imports:read"
+        ]
+    },
+    "imports.list": {
+        "scopes": [
+            "imports:read"
+        ]
+    },
+    "imports.retry": {
+        "scopes": [
+            "imports:write"
+        ]
+    },
+    "imports.review": {
+        "scopes": [
+            "imports:write"
+        ]
+    },
+    "lab_results.get": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "lab_results.list": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "lab_results.resolve": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "lab_results.retract": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
+    "lab_results.update": {
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ],
+        "scope_rule": "all"
+    },
+    "lab_results.upsert": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
+    "mcp.exchange": {
+        "scopes": [
+            "mcp:use"
+        ]
+    },
+    "mcp.session.delete": {
+        "scopes": [
+            "mcp:use"
+        ]
+    },
+    "medications.get": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "medications.list": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "medications.resolve": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "medications.retract": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
+    "medications.update": {
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ],
+        "scope_rule": "all"
+    },
+    "medications.upsert": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
+    "native_backups.create": {
+        "scopes": [
+            "exports:write"
+        ]
+    },
+    "native_backups.download_access.create": {
+        "scopes": [
+            "exports:read"
+        ]
+    },
+    "native_backups.list": {
+        "scopes": [
+            "exports:read"
+        ]
+    },
+    "oauth.disconnect": {
+        "authenticated": true
+    },
+    "office_visits.get": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "office_visits.list": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "office_visits.resolve": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "office_visits.retract": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
+    "office_visits.update": {
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ],
+        "scope_rule": "all"
+    },
+    "office_visits.upsert": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
+    "patients.create": {
+        "scopes": [
+            "patients:write"
+        ]
+    },
+    "patients.get": {
+        "scopes": [
+            "patients:read"
+        ]
+    },
+    "patients.list": {
+        "scopes": [
+            "patients:read"
+        ]
+    },
+    "procedures.get": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "procedures.list": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "procedures.resolve": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "procedures.retract": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
+    "procedures.update": {
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ],
+        "scope_rule": "all"
+    },
+    "procedures.upsert": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
+    "reconciliations.apply": {
+        "scopes": [
+            "reconciliation:write"
+        ],
+        "requires": [
+            "reconciliations.preview"
+        ]
+    },
+    "reconciliations.preview": {
+        "scopes": [
+            "reconciliation:read"
+        ]
+    },
+    "records.search": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "renew_genai_lease": {
+        "scopes": [
+            "genai:work"
+        ]
+    },
+    "respiratory_events.ingest": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
+    "respiratory_events.list": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "timeline.list": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "vitals.get": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "vitals.list": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "vitals.resolve": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "vitals.retract": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
+    "vitals.update": {
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ],
+        "scope_rule": "all"
+    },
+    "vitals.upsert": {
+        "scopes": [
+            "clinical:write"
+        ]
+    }
+}

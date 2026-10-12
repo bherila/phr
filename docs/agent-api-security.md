@@ -5,6 +5,24 @@ authorization services. It does not grant database, filesystem, shell, or blanke
 account access. Every clinical operation must independently require an OAuth scope
 and resolve the requested patient through `PhrPatientAccessService`.
 
+Agent routes use the bridge's `Route::operation()` and `GateOperation` to enforce
+the registry requirement instead of repeating scopes in route middleware. Existing
+authentication, protected-resource binding, account eligibility, throttling, signed
+URLs, patient access, and audit controls still apply. Scope refusals include the
+operation id, `missing_scope` reason, missing scopes in `detail`, and an RFC 6750
+`insufficient_scope` challenge. Self-revocation uses `Requirement::authenticated()`
+and remains outside the ordinary traffic bucket.
+
+The HTTP registry is derived from the same declarations used for MCP discovery and
+OpenAPI. Its one dependency exception is reconciliation apply: MCP discovery
+requires preview access so the client can obtain a digest; REST deliberately accepts
+a digest obtained using a separate credential and requires only reconciliation write.
+The existing apply controller still verifies that digest and patient write access.
+Signed export and native-backup file URLs reuse their download-access operation's
+registry requirement; they remain outside the published OpenAPI paths. Public
+capabilities advertise implemented REST operations from the registry and preserve the
+legacy `mcp.connect` alias and operation/scope response shape.
+
 ## Threat model
 
 The primary threats are a stolen access or refresh token, a malicious OAuth client,

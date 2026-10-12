@@ -119,6 +119,12 @@ each withheld one with its reason (a missing scope, or depending on a withheld o
 [`docs/agent-api-security.md`](docs/agent-api-security.md) for the integration threat
 model and security boundaries.
 
+REST routes use `Route::operation()` to read their paths and requirements from the
+registry. Missing scopes return the withheld operation, reason, and detail alongside
+an `insufficient_scope` bearer challenge. The public capabilities inventory is also
+derived from the registry. Reconciliation preview is a prerequisite for MCP tool
+discovery; REST apply still accepts a preview digest obtained with another credential.
+
 ## Connect an MCP client
 
 PHR's remote MCP endpoint is `https://phr.bherila.net/api/v1/mcp`. It uses OAuth
