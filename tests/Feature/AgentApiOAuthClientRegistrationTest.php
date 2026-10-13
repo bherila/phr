@@ -293,7 +293,9 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
         $this->postJson('/oauth/register', [
             ...$valid,
             'redirect_uris' => ['http://agent.example.test/callback'],
-        ])->assertBadRequest()->assertJsonPath('error_description', 'Client metadata is invalid.');
+        ])->assertBadRequest()
+            ->assertJsonPath('error_description', 'Client metadata is invalid: redirect_uris.')
+            ->assertDontSee('agent.example.test', false);
         $this->postJson('/oauth/register', [
             ...$valid,
             'redirect_uris' => ['https://agent.example.test/callback#fragment'],
