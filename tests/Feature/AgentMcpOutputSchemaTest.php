@@ -205,7 +205,7 @@ final class AgentMcpOutputSchemaTest extends TestCase
             $byName[$tool['name']] = $tool;
         }
 
-        $resolve = $byName[AgentClinicalResourceCatalog::mcpResolveToolId('medications')]['outputSchema'] ?? null;
+        $resolve = $byName[AgentClinicalResourceCatalog::RESOLVE_OPERATION_ID]['outputSchema'] ?? null;
         $this->assertIsArray($resolve);
         $this->assertFalse($resolve['additionalProperties'] ?? true);
         $this->assertSame(
@@ -214,6 +214,18 @@ final class AgentMcpOutputSchemaTest extends TestCase
         );
         $this->assertArrayHasKey('ClinicalResolvedRecord', $resolve['$defs'] ?? []);
 
+        // Output schemas carry no prose (the OpenAPI document keeps it), but a
+        // property that is itself named "description" survives.
+        $this->assertSame(
+            ['type' => ['string', 'null']],
+            $byName['dicom_studies.get']['outputSchema']['$defs']['DicomStudyMetadata']['properties']['description'] ?? null,
+        );
+        $this->assertNotSame([], self::descriptionKeywords(AgentApiResponseSchemaCatalog::forOperation('clinical.get')));
+
+        foreach ($byName as $name => $tool) {
+            $this->assertSame([], self::descriptionKeywords($tool['outputSchema']), "{$name} advertises prose in its output schema.");
+        }
+
         foreach ($byName as $name => $tool) {
             $this->assertNotSame(
                 true,
@@ -221,6 +233,25 @@ final class AgentMcpOutputSchemaTest extends TestCase
                 "{$name} still advertises an open output schema.",
             );
         }
+    }
+
+    /**
+     * Paths of every description keyword in a schema, skipping property and
+     * definition names.
+     *
+     * @param  array<array-key, mixed>  $schema
+     * @return list<string>
+     */
+    private static function descriptionKeywords(array $schema, string $path = '#', bool $namesSubschemas = false): array
+    {
+        $found = ! $namesSubschemas && is_string($schema['description'] ?? null) ? [$path] : [];
+        foreach ($schema as $key => $value) {
+            if (is_array($value) && ! in_array($key, ['const', 'default', 'enum', 'examples'], true)) {
+                $found = [...$found, ...self::descriptionKeywords($value, "{$path}/{$key}", ! $namesSubschemas && in_array($key, ['properties', '$defs'], true))];
+            }
+        }
+
+        return $found;
     }
 
     public function test_a_result_that_breaks_its_output_contract_is_refused_without_leaking_it(): void

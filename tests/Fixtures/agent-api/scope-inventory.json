@@ -1,24 +1,4 @@
 {
-    "allergies.get": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
-    "allergies.list": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
-    "allergies.resolve": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
-    "allergies.retract": {
-        "scopes": [
-            "clinical:write"
-        ]
-    },
     "allergies.update": {
         "scopes": [
             "clinical:read",
@@ -74,26 +54,6 @@
     "complete_genai_request": {
         "scopes": [
             "genai:work"
-        ]
-    },
-    "conditions.get": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
-    "conditions.list": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
-    "conditions.resolve": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
-    "conditions.retract": {
-        "scopes": [
-            "clinical:write"
         ]
     },
     "conditions.update": {
@@ -273,39 +233,9 @@
             "clinical:write"
         ]
     },
-    "health_logs.get": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
-    "health_logs.list": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
     "identity.get": {
         "scopes": [
             "identity:read"
-        ]
-    },
-    "immunizations.get": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
-    "immunizations.list": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
-    "immunizations.resolve": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
-    "immunizations.retract": {
-        "scopes": [
-            "clinical:write"
         ]
     },
     "immunizations.update": {
@@ -345,26 +275,6 @@
             "imports:write"
         ]
     },
-    "lab_results.get": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
-    "lab_results.list": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
-    "lab_results.resolve": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
-    "lab_results.retract": {
-        "scopes": [
-            "clinical:write"
-        ]
-    },
     "lab_results.update": {
         "scopes": [
             "clinical:read",
@@ -385,26 +295,6 @@
     "mcp.session.delete": {
         "scopes": [
             "mcp:use"
-        ]
-    },
-    "medications.get": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
-    "medications.list": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
-    "medications.resolve": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
-    "medications.retract": {
-        "scopes": [
-            "clinical:write"
         ]
     },
     "medications.update": {
@@ -437,26 +327,6 @@
     "oauth.disconnect": {
         "authenticated": true
     },
-    "office_visits.get": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
-    "office_visits.list": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
-    "office_visits.resolve": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
-    "office_visits.retract": {
-        "scopes": [
-            "clinical:write"
-        ]
-    },
     "office_visits.update": {
         "scopes": [
             "clinical:read",
@@ -482,26 +352,6 @@
     "patients.list": {
         "scopes": [
             "patients:read"
-        ]
-    },
-    "procedures.get": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
-    "procedures.list": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
-    "procedures.resolve": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
-    "procedures.retract": {
-        "scopes": [
-            "clinical:write"
         ]
     },
     "procedures.update": {
@@ -552,26 +402,6 @@
     "timeline.list": {
         "scopes": [
             "clinical:read"
-        ]
-    },
-    "vitals.get": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
-    "vitals.list": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
-    "vitals.resolve": {
-        "scopes": [
-            "clinical:read"
-        ]
-    },
-    "vitals.retract": {
-        "scopes": [
-            "clinical:write"
         ]
     },
     "vitals.update": {

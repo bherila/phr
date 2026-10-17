@@ -220,7 +220,7 @@ final class AgentMcpReadAdapterTest extends TestCase
         $this->assertIsArray($tools);
         $toolNames = array_column($tools, 'name');
         foreach (['capabilities.get', 'patients.list', 'patients.create', 'records.search', 'timeline.list',
-            'office_visits.list', 'procedures.get', 'eobs.list', 'documents.get', 'documents.upload',
+            'clinical.list', 'clinical.get', 'eobs.list', 'documents.get', 'documents.upload',
             'dicom_studies.list', 'dicom_studies.get', 'dicom_series.list', 'dicom_uploads.open', 'dicom_uploads.upload_file',
             'dicom_uploads.finalize', 'dicom_uploads.cancel',
             'reconciliations.preview', 'reconciliations.apply',
@@ -234,11 +234,11 @@ final class AgentMcpReadAdapterTest extends TestCase
             'complete_genai_request', 'fail_genai_request',
             'immunizations.upsert', 'medications.upsert', 'conditions.upsert', 'allergies.upsert',
             'lab_results.upsert', 'vitals.upsert', 'office_visits.update', 'procedures.update',
-            'medications.resolve', 'medications.retract'] as $name) {
+            'clinical.resolve', 'clinical.retract'] as $name) {
             $this->assertContains($name, $toolNames);
         }
         $this->assertCount(
-            48 + (count(AgentClinicalResourceCatalog::ids()) * 2) + (count(AgentClinicalResourceCatalog::writableIds()) * 4),
+            52 + (count(AgentClinicalResourceCatalog::writableIds()) * 2),
             $toolNames,
         );
         $writeTools = [
@@ -320,14 +320,12 @@ final class AgentMcpReadAdapterTest extends TestCase
             ['patient_id', 'external_id', 'filename', 'content_base64', 'document_type'],
             $toolsByName->get('documents.upload')['inputSchema']['required'] ?? null,
         );
-        $this->assertArrayNotHasKey(
-            'archived',
-            $toolsByName->get('office_visits.list')['inputSchema']['properties'] ?? [],
-        );
-        $this->assertArrayNotHasKey(
-            'import_source',
-            $toolsByName->get('health_logs.list')['inputSchema']['properties'] ?? [],
-        );
+        foreach (['clinical.list', 'clinical.get'] as $name) {
+            $this->assertSame(AgentClinicalResourceCatalog::ids(), $toolsByName->get($name)['inputSchema']['properties']['resource_type']['enum'] ?? null);
+        }
+        foreach (['clinical.resolve', 'clinical.retract'] as $name) {
+            $this->assertSame(AgentClinicalResourceCatalog::writableIds(), $toolsByName->get($name)['inputSchema']['properties']['resource_type']['enum'] ?? null);
+        }
         $this->assertSame(
             ['name'],
             $toolsByName->get('procedures.upsert')['inputSchema']['properties']['data']['required'] ?? null,
@@ -355,7 +353,7 @@ final class AgentMcpReadAdapterTest extends TestCase
             PhrRespiratoryEvent::EVENT_TYPES,
             $toolsByName->get('respiratory_events.ingest')['inputSchema']['properties']['events']['items']['properties']['event_type']['enum'] ?? null,
         );
-        $resolveSchema = $toolsByName->get('medications.resolve')['inputSchema']['properties']['external_ids'] ?? [];
+        $resolveSchema = $toolsByName->get('clinical.resolve')['inputSchema']['properties']['external_ids'] ?? [];
         $this->assertSame('array', $resolveSchema['type'] ?? null);
         $this->assertSame(1, $resolveSchema['minItems'] ?? null);
         $this->assertSame(
@@ -365,7 +363,8 @@ final class AgentMcpReadAdapterTest extends TestCase
         $this->assertSame('string', $resolveSchema['items']['type'] ?? null);
         $this->assertSame(255, $resolveSchema['items']['maxLength'] ?? null);
 
-        $visible = $this->callTool($session, 3, 'office_visits.list', [
+        $visible = $this->callTool($session, 3, 'clinical.list', [
+            'resource_type' => 'office-visits',
             'patient_id' => $patient->id,
             'import_source' => 'synthetic-source-b',
         ]);
@@ -373,7 +372,8 @@ final class AgentMcpReadAdapterTest extends TestCase
         $this->assertCount(1, $visible['result']['structuredContent']['data'] ?? []);
         $this->assertSame($filteredVisit->id, $visible['result']['structuredContent']['data'][0]['id'] ?? null);
 
-        $hidden = $this->callTool($session, 4, 'office_visits.get', [
+        $hidden = $this->callTool($session, 4, 'clinical.get', [
+            'resource_type' => 'office-visits',
             'patient_id' => $patient->id,
             'record_id' => $hiddenVisit->id,
         ]);
@@ -598,7 +598,8 @@ final class AgentMcpReadAdapterTest extends TestCase
         ]);
         $this->assertFalse($created['result']['isError'] ?? true, json_encode($created, JSON_THROW_ON_ERROR));
 
-        $resolved = $this->callTool($session, 3, 'medications.resolve', [
+        $resolved = $this->callTool($session, 3, 'clinical.resolve', [
+            'resource_type' => 'medications',
             'patient_id' => $patient->id,
             'external_ids' => ['synthetic-mcp-resolve-medication', 'synthetic-mcp-resolve-missing'],
         ]);
@@ -622,6 +623,43 @@ final class AgentMcpReadAdapterTest extends TestCase
         ]);
     }
 
+    /**
+     * One clinical tool now serves every type, so it accepts filters that only
+     * some types support. Each mismatch must be refused, never applied to the
+     * wrong type or silently dropped into an unfiltered page.
+     */
+    public function test_generic_clinical_tools_refuse_arguments_their_resource_type_does_not_support(): void
+    {
+        $actor = $this->user('mcp-generic-clinical@example.test');
+        $patient = $this->patient($actor, 'Synthetic MCP Generic Clinical Patient');
+        Passport::actingAs($actor, [AgentApiScopes::MCP_USE, AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE]);
+        $session = $this->initializeSession();
+
+        $refusals = [
+            'archived on a provenance type' => ['clinical.list', ['resource_type' => 'office-visits', 'archived' => 'only']],
+            'import filter on health logs' => ['clinical.list', ['resource_type' => 'health-logs', 'import_source' => 'synthetic-source']],
+            'source filter on health logs' => ['clinical.list', ['resource_type' => 'health-logs', 'source_document_id' => 1]],
+            'unknown type' => ['clinical.get', ['resource_type' => 'patients', 'record_id' => 1]],
+            'resolve a read-only type' => ['clinical.resolve', ['resource_type' => 'health-logs', 'external_ids' => ['synthetic-id']]],
+            'retract a read-only type' => ['clinical.retract', ['resource_type' => 'health-logs', 'record_id' => 1, 'expected_version' => str_repeat('a', 64)]],
+            'no type' => ['clinical.list', []],
+        ];
+        $id = 2;
+        foreach ($refusals as $label => [$tool, $arguments]) {
+            $response = $this->callTool($session, $id++, $tool, ['patient_id' => $patient->id, ...$arguments]);
+            $this->assertTrue(
+                isset($response['error']) || ($response['result']['isError'] ?? false) === true,
+                "{$label}: ".json_encode($response, JSON_THROW_ON_ERROR),
+            );
+        }
+
+        // The supported combinations still succeed.
+        foreach ([['resource_type' => 'health-logs', 'archived' => 'only'], ['resource_type' => 'office-visits', 'import_source' => 'synthetic-source']] as $arguments) {
+            $response = $this->callTool($session, $id++, 'clinical.list', ['patient_id' => $patient->id, ...$arguments]);
+            $this->assertFalse($response['result']['isError'] ?? true, json_encode($response, JSON_THROW_ON_ERROR));
+        }
+    }
+
     public function test_mcp_clinical_resolve_returns_an_empty_object_when_nothing_is_written_yet(): void
     {
         $actor = $this->user('mcp-resolve-empty@example.test');
@@ -641,7 +679,8 @@ final class AgentMcpReadAdapterTest extends TestCase
         // and the payload parser has to accept that rather than treat it as
         // response drift.
         $session = $this->initializeSession();
-        $response = $this->callToolResponse($session, 2, 'medications.resolve', [
+        $response = $this->callToolResponse($session, 2, 'clinical.resolve', [
+            'resource_type' => 'medications',
             'patient_id' => $patient->id,
             'external_ids' => ['synthetic-mcp-never-written'],
         ]);
@@ -687,7 +726,8 @@ final class AgentMcpReadAdapterTest extends TestCase
 
         // PHP turns a numeric-string object key back into an integer, so a naive
         // list check would read this valid map as response drift.
-        $response = $this->callToolResponse($session, 3, 'medications.resolve', [
+        $response = $this->callToolResponse($session, 3, 'clinical.resolve', [
+            'resource_type' => 'medications',
             'patient_id' => $patient->id,
             'external_ids' => ['0'],
         ]);

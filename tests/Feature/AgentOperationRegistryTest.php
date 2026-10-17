@@ -129,7 +129,12 @@ final class AgentOperationRegistryTest extends TestCase
         $byId = array_column(array_map(static fn (Operation $o): array => [$o->id, $o], $operations), 1, 0);
 
         $this->assertTrue($byId['capabilities.get']->requirement->public);
-        $this->assertSame([AgentApiScopes::CLINICAL_READ], $byId['allergies.list']->requirement->scopes);
+        $this->assertSame([AgentApiScopes::CLINICAL_READ], $byId['clinical.list']->requirement->scopes);
+        // The generic clinical tools share their REST operation's registry
+        // entry, so their requirement is the one that gates the REST route.
+        foreach (['clinical.list', 'clinical.get', AgentClinicalResourceCatalog::RESOLVE_OPERATION_ID, AgentClinicalResourceCatalog::RETRACT_OPERATION_ID] as $id) {
+            $this->assertSame(AgentApiResponseSchemaCatalog::operations()[$id]['scopes'], $byId[$id]->requirement->scopes, $id);
+        }
         $this->assertSame(
             AgentApiResponseSchemaCatalog::operations()[AgentClinicalResourceCatalog::UPDATE_OPERATION_ID]['scopes'],
             $byId['procedures.update']->requirement->scopes,

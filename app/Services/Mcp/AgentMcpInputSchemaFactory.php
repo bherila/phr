@@ -61,25 +61,17 @@ final class AgentMcpInputSchemaFactory
             ];
         }
 
-        $clinicalLists = array_map(
-            static fn (string $resource): string => str_replace('-', '_', $resource).'.list',
-            AgentClinicalResourceCatalog::ids(),
-        );
-        if (in_array($definition->name, $clinicalLists, true)) {
-            if ($definition->name === 'health_logs.list') {
-                unset(
-                    $schema['properties']['import_source'],
-                    $schema['properties']['source_document_id'],
-                );
-            } else {
-                unset($schema['properties']['archived']);
-            }
+        if (in_array($definition->name, ['clinical.list', 'clinical.get'], true)) {
+            $schema['properties']['resource_type']['enum'] = AgentClinicalResourceCatalog::ids();
+        }
+        if (in_array($definition->name, [AgentClinicalResourceCatalog::RESOLVE_OPERATION_ID, AgentClinicalResourceCatalog::RETRACT_OPERATION_ID], true)) {
+            $schema['properties']['resource_type']['enum'] = AgentClinicalResourceCatalog::writableIds();
         }
 
         // Reflection cannot see inside a PHP array parameter, so the batch cap
         // and per-ID constraints have to be declared here or the tool would
         // advertise an unbounded list of anything.
-        if (in_array($definition->name, AgentClinicalResourceCatalog::mcpResolveToolIds(), true)) {
+        if ($definition->name === AgentClinicalResourceCatalog::RESOLVE_OPERATION_ID) {
             $schema['properties']['external_ids'] = [
                 'type' => 'array',
                 'minItems' => 1,

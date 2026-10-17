@@ -35,14 +35,11 @@
             "instructions": "First call identity.get, then patients.list; select only a patient ID returned by PHR, never guess one, and confirm it with patients.get. Use only operations currently exposed in tools/list; missing tools are not authorized for this connection. Authenticate with OAuth Authorization Code plus S256 PKCE and request only the narrow identity:read, patients:read, clinical, document, or import scopes needed for the task.",
             "prompts": [],
             "tools": [
-                "allergies.get",
-                "allergies.list",
-                "allergies.resolve",
                 "capabilities.get",
                 "changes.list",
-                "conditions.get",
-                "conditions.list",
-                "conditions.resolve",
+                "clinical.get",
+                "clinical.list",
+                "clinical.resolve",
                 "dicom_series.list",
                 "dicom_studies.get",
                 "dicom_studies.list",
@@ -53,32 +50,12 @@
                 "evidence.links",
                 "health_log_entries.get",
                 "health_log_entries.list",
-                "health_logs.get",
-                "health_logs.list",
                 "identity.get",
-                "immunizations.get",
-                "immunizations.list",
-                "immunizations.resolve",
-                "lab_results.get",
-                "lab_results.list",
-                "lab_results.resolve",
-                "medications.get",
-                "medications.list",
-                "medications.resolve",
-                "office_visits.get",
-                "office_visits.list",
-                "office_visits.resolve",
                 "patients.get",
                 "patients.list",
-                "procedures.get",
-                "procedures.list",
-                "procedures.resolve",
                 "records.search",
                 "respiratory_events.list",
-                "timeline.list",
-                "vitals.get",
-                "vitals.list",
-                "vitals.resolve"
+                "timeline.list"
             ]
         },
         "clinical writer": {
@@ -94,18 +71,14 @@
                 "safely-update-clinical-record"
             ],
             "tools": [
-                "allergies.get",
-                "allergies.list",
-                "allergies.resolve",
-                "allergies.retract",
                 "allergies.update",
                 "allergies.upsert",
                 "capabilities.get",
                 "changes.list",
-                "conditions.get",
-                "conditions.list",
-                "conditions.resolve",
-                "conditions.retract",
+                "clinical.get",
+                "clinical.list",
+                "clinical.resolve",
+                "clinical.retract",
                 "conditions.update",
                 "conditions.upsert",
                 "dicom_series.list",
@@ -124,49 +97,23 @@
                 "health_log_entries.get",
                 "health_log_entries.list",
                 "health_logs.create",
-                "health_logs.get",
-                "health_logs.list",
                 "identity.get",
-                "immunizations.get",
-                "immunizations.list",
-                "immunizations.resolve",
-                "immunizations.retract",
                 "immunizations.update",
                 "immunizations.upsert",
-                "lab_results.get",
-                "lab_results.list",
-                "lab_results.resolve",
-                "lab_results.retract",
                 "lab_results.update",
                 "lab_results.upsert",
-                "medications.get",
-                "medications.list",
-                "medications.resolve",
-                "medications.retract",
                 "medications.update",
                 "medications.upsert",
-                "office_visits.get",
-                "office_visits.list",
-                "office_visits.resolve",
-                "office_visits.retract",
                 "office_visits.update",
                 "office_visits.upsert",
                 "patients.get",
                 "patients.list",
-                "procedures.get",
-                "procedures.list",
-                "procedures.resolve",
-                "procedures.retract",
                 "procedures.update",
                 "procedures.upsert",
                 "records.search",
                 "respiratory_events.ingest",
                 "respiratory_events.list",
                 "timeline.list",
-                "vitals.get",
-                "vitals.list",
-                "vitals.resolve",
-                "vitals.retract",
                 "vitals.update",
                 "vitals.upsert"
             ]
@@ -186,14 +133,11 @@
                 "review-import-proposal"
             ],
             "tools": [
-                "allergies.get",
-                "allergies.list",
-                "allergies.resolve",
                 "capabilities.get",
                 "changes.list",
-                "conditions.get",
-                "conditions.list",
-                "conditions.resolve",
+                "clinical.get",
+                "clinical.list",
+                "clinical.resolve",
                 "dicom_series.list",
                 "dicom_studies.get",
                 "dicom_studies.list",
@@ -207,37 +151,17 @@
                 "evidence.links",
                 "health_log_entries.get",
                 "health_log_entries.list",
-                "health_logs.get",
-                "health_logs.list",
                 "identity.get",
-                "immunizations.get",
-                "immunizations.list",
-                "immunizations.resolve",
                 "imports.create",
                 "imports.get",
                 "imports.list",
                 "imports.retry",
                 "imports.review",
-                "lab_results.get",
-                "lab_results.list",
-                "lab_results.resolve",
-                "medications.get",
-                "medications.list",
-                "medications.resolve",
-                "office_visits.get",
-                "office_visits.list",
-                "office_visits.resolve",
                 "patients.get",
                 "patients.list",
-                "procedures.get",
-                "procedures.list",
-                "procedures.resolve",
                 "records.search",
                 "respiratory_events.list",
-                "timeline.list",
-                "vitals.get",
-                "vitals.list",
-                "vitals.resolve"
+                "timeline.list"
             ]
         },
         "write without read": {
@@ -250,10 +174,9 @@
             "instructions": "Use only operations currently exposed in tools/list; missing tools are not authorized for this connection. Never guess a patient or record ID. Authenticate with OAuth Authorization Code plus S256 PKCE and request only the narrow identity:read, patients:read, clinical, document, or import scopes needed for the task.",
             "prompts": [],
             "tools": [
-                "allergies.retract",
                 "allergies.upsert",
                 "capabilities.get",
-                "conditions.retract",
+                "clinical.retract",
                 "conditions.upsert",
                 "dicom_uploads.cancel",
                 "dicom_uploads.finalize",
@@ -263,19 +186,13 @@
                 "exports.create",
                 "health_log_entries.append",
                 "health_logs.create",
-                "immunizations.retract",
                 "immunizations.upsert",
-                "lab_results.retract",
                 "lab_results.upsert",
-                "medications.retract",
                 "medications.upsert",
                 "native_backups.create",
-                "office_visits.retract",
                 "office_visits.upsert",
-                "procedures.retract",
                 "procedures.upsert",
                 "respiratory_events.ingest",
-                "vitals.retract",
                 "vitals.upsert"
             ]
         },
@@ -333,20 +250,16 @@
                 "safely-update-clinical-record"
             ],
             "tools": [
-                "allergies.get",
-                "allergies.list",
-                "allergies.resolve",
-                "allergies.retract",
                 "allergies.update",
                 "allergies.upsert",
                 "capabilities.get",
                 "changes.list",
                 "claim_genai_request",
+                "clinical.get",
+                "clinical.list",
+                "clinical.resolve",
+                "clinical.retract",
                 "complete_genai_request",
-                "conditions.get",
-                "conditions.list",
-                "conditions.resolve",
-                "conditions.retract",
                 "conditions.update",
                 "conditions.upsert",
                 "dicom_series.list",
@@ -374,13 +287,7 @@
                 "health_log_entries.get",
                 "health_log_entries.list",
                 "health_logs.create",
-                "health_logs.get",
-                "health_logs.list",
                 "identity.get",
-                "immunizations.get",
-                "immunizations.list",
-                "immunizations.resolve",
-                "immunizations.retract",
                 "immunizations.update",
                 "immunizations.upsert",
                 "imports.create",
@@ -388,34 +295,18 @@
                 "imports.list",
                 "imports.retry",
                 "imports.review",
-                "lab_results.get",
-                "lab_results.list",
-                "lab_results.resolve",
-                "lab_results.retract",
                 "lab_results.update",
                 "lab_results.upsert",
-                "medications.get",
-                "medications.list",
-                "medications.resolve",
-                "medications.retract",
                 "medications.update",
                 "medications.upsert",
                 "native_backups.create",
                 "native_backups.download_access.create",
                 "native_backups.list",
-                "office_visits.get",
-                "office_visits.list",
-                "office_visits.resolve",
-                "office_visits.retract",
                 "office_visits.update",
                 "office_visits.upsert",
                 "patients.create",
                 "patients.get",
                 "patients.list",
-                "procedures.get",
-                "procedures.list",
-                "procedures.resolve",
-                "procedures.retract",
                 "procedures.update",
                 "procedures.upsert",
                 "reconciliations.apply",
@@ -425,68 +316,12 @@
                 "respiratory_events.ingest",
                 "respiratory_events.list",
                 "timeline.list",
-                "vitals.get",
-                "vitals.list",
-                "vitals.resolve",
-                "vitals.retract",
                 "vitals.update",
                 "vitals.upsert"
             ]
         }
     },
     "tools": {
-        "allergies.get": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "Get one Allergies record for an accessible patient through the versioned REST API.",
-            "inputSchema": "sha256:d7fd980afea34da4711020e2b61213ff82c9b970b727e4a384a8ea54ff39f093",
-            "name": "allergies.get",
-            "outputSchema": "sha256:7a2188c841a137c29441051c31f24db8796c6f93cd23f74b36a92b4856367b15",
-            "title": "Get Allergies"
-        },
-        "allergies.list": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "List Allergies for an accessible patient through the versioned REST API.",
-            "inputSchema": "sha256:b3f54804b65400cc6b9c9c2803e72a0e925c08a726c14bb0bd11d5845d23ea49",
-            "name": "allergies.list",
-            "outputSchema": "sha256:c252cf24ef8593b11290b8752407caf0587c452dda3dd366826fb6c4df972a01",
-            "title": "List Allergies"
-        },
-        "allergies.resolve": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "Map a bounded batch of this connection's own external IDs onto Allergies record IDs and current versions. Returns no clinical content, so use it to decide what still needs writing before calling upsert.",
-            "inputSchema": "sha256:66601dd40c92d3cac80ddd90954399199ec5c7720361dd0b5c36467db69ac546",
-            "name": "allergies.resolve",
-            "outputSchema": "sha256:fc2fd07f2f59365ef9876cc23009954b18e8aa7fdf36b642bfd2880d6a09df24",
-            "title": "Resolve Allergies"
-        },
-        "allergies.retract": {
-            "annotations": {
-                "readOnlyHint": false,
-                "destructiveHint": true,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "Withdraw one Allergies record this connection wrote, by its record ID and current version. Use this when the source is taking back a claim it made in error. A record simply missing from a newer export is NOT a reason to retract: institutions age data out past their own retention policies, so absence from a later import says nothing about whether the record was correct. Nothing is deleted and the external ID stays reserved.",
-            "inputSchema": "sha256:656024bf81cf6c59d3262ce1290d5140916a7edc080c10202a64f3f751f546fe",
-            "name": "allergies.retract",
-            "outputSchema": "sha256:20f94ebcdc73cf7c422aa66a85ff006e08c8746a76f7fdb9ddc27f40911fb232",
-            "title": "Retract Allergies"
-        },
         "allergies.update": {
             "annotations": {
                 "readOnlyHint": false,
@@ -497,7 +332,7 @@
             "description": "Partially update one existing Allergies record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
             "inputSchema": "sha256:4eb52d3a49431940d11fcde3c58d19b89d0b1f1c4c20537bd490f962949ce958",
             "name": "allergies.update",
-            "outputSchema": "sha256:a99345a377994012456187c272f7492e7d48459f9ed2d4cac190e44eafd2be56",
+            "outputSchema": "sha256:ecb072c0f7e054dfc22e477f63b04690e55f0c3654f46fc425ad67b059f2919e",
             "title": "Update Allergies"
         },
         "allergies.upsert": {
@@ -510,7 +345,7 @@
             "description": "Idempotently create or update one Allergies record through the versioned REST API.",
             "inputSchema": "sha256:760dd3a47056e7f8f3b51c421feae7676427fe0d32077a093b9defe74ecbc33f",
             "name": "allergies.upsert",
-            "outputSchema": "sha256:a99345a377994012456187c272f7492e7d48459f9ed2d4cac190e44eafd2be56",
+            "outputSchema": "sha256:ecb072c0f7e054dfc22e477f63b04690e55f0c3654f46fc425ad67b059f2919e",
             "title": "Upsert Allergies"
         },
         "capabilities.get": {
@@ -523,7 +358,7 @@
             "description": "Discover the PHR API version, scopes, operations, resources, and limits.",
             "inputSchema": "sha256:bd002e19f8640d2c8613a2e22a7c79fb7eab69bd192f5e19d16984554ce5bff2",
             "name": "capabilities.get",
-            "outputSchema": "sha256:7372f19c3699c0d96a204bd102939ea551feec044717be904748a51ecd6568af",
+            "outputSchema": "sha256:858352f5771a8017596a2eaca995a053a34ddc6dc33e501e4456295f114762a8",
             "title": "Get capabilities"
         },
         "changes.list": {
@@ -536,7 +371,7 @@
             "description": "List bounded clinical change states for one patient. Reuse the returned watermark with every cursor page; deleted and retracted records are tombstones.",
             "inputSchema": "sha256:53f23e9c3ad5380cde6af347c2a0f628849b7152ce1ffbf25f9f15434f7e932f",
             "name": "changes.list",
-            "outputSchema": "sha256:038a3596df2fd306060ded403a26f61287c36dba78e6eaf9c305ba7bef309885",
+            "outputSchema": "sha256:d1bbfd16f57867ff365d0cc2aacebefd8f86482400da244c8096b68084185cac",
             "title": "List changes"
         },
         "claim_genai_request": {
@@ -552,6 +387,58 @@
             "outputSchema": "sha256:36713792f92b071da096809b3641aacc5147037285717fbc38fa1ade84d28843",
             "title": "Claim GenAI request"
         },
+        "clinical.get": {
+            "annotations": {
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+            },
+            "description": "Get one clinical record of the given resource_type for an accessible patient.",
+            "inputSchema": "sha256:7fa0233e670007fbbcbfbf2324e9ea13bb856d07dda96b9e66291ef6b79600f2",
+            "name": "clinical.get",
+            "outputSchema": "sha256:cbab1358e0b03a9a2c1b0f171c565e2a163b333b0a56ee1eeda138c78585a862",
+            "title": "Get clinical record"
+        },
+        "clinical.list": {
+            "annotations": {
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+            },
+            "description": "List one clinical record type, chosen by resource_type, for an accessible patient.",
+            "inputSchema": "sha256:fd05480b3745191d8c3a7b8045cc11cf3e135c787443e758a546fb9c95776fbf",
+            "name": "clinical.list",
+            "outputSchema": "sha256:34e042cb797ae332fcf90eaa666550514267085946e49df86ccd29e8ef249e12",
+            "title": "List clinical records"
+        },
+        "clinical.resolve": {
+            "annotations": {
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+            },
+            "description": "Map a bounded batch of this connection's own external IDs onto record IDs and current versions for one resource_type. Returns no clinical content, so use it to decide what still needs writing before calling upsert.",
+            "inputSchema": "sha256:410c4c31806308a5abdc19d6b8984b5f9f5b821383cc650d1a1ed61d92607e84",
+            "name": "clinical.resolve",
+            "outputSchema": "sha256:551b29373c5192f76b5164481b88be78c7e21caeb9b67b31d45427d763d7aac0",
+            "title": "Resolve clinical records"
+        },
+        "clinical.retract": {
+            "annotations": {
+                "readOnlyHint": false,
+                "destructiveHint": true,
+                "idempotentHint": true,
+                "openWorldHint": false
+            },
+            "description": "Withdraw one clinical record this connection wrote, by its resource_type, record ID, and current version. Use this when the source is taking back a claim it made in error. A record simply missing from a newer export is NOT a reason to retract: institutions age data out past their own retention policies, so absence from a later import says nothing about whether the record was correct. Nothing is deleted and the external ID stays reserved.",
+            "inputSchema": "sha256:674e3ae00f4371fe558c4a8c234a9efa02cf5f4c1a800d555d4d221def18b742",
+            "name": "clinical.retract",
+            "outputSchema": "sha256:b6adb944c79259d6d00db1c555238402649846cb30890af778f5c5516eb0daf3",
+            "title": "Retract clinical record"
+        },
         "complete_genai_request": {
             "annotations": {
                 "readOnlyHint": false,
@@ -565,58 +452,6 @@
             "outputSchema": "sha256:f00c7a97e238dc07d9a4a26735a5e9ac09cec2d0a62d63e90cca9a34ed231f9d",
             "title": "Complete GenAI request"
         },
-        "conditions.get": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "Get one Conditions record for an accessible patient through the versioned REST API.",
-            "inputSchema": "sha256:d7fd980afea34da4711020e2b61213ff82c9b970b727e4a384a8ea54ff39f093",
-            "name": "conditions.get",
-            "outputSchema": "sha256:7a2188c841a137c29441051c31f24db8796c6f93cd23f74b36a92b4856367b15",
-            "title": "Get Conditions"
-        },
-        "conditions.list": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "List Conditions for an accessible patient through the versioned REST API.",
-            "inputSchema": "sha256:b3f54804b65400cc6b9c9c2803e72a0e925c08a726c14bb0bd11d5845d23ea49",
-            "name": "conditions.list",
-            "outputSchema": "sha256:c252cf24ef8593b11290b8752407caf0587c452dda3dd366826fb6c4df972a01",
-            "title": "List Conditions"
-        },
-        "conditions.resolve": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "Map a bounded batch of this connection's own external IDs onto Conditions record IDs and current versions. Returns no clinical content, so use it to decide what still needs writing before calling upsert.",
-            "inputSchema": "sha256:66601dd40c92d3cac80ddd90954399199ec5c7720361dd0b5c36467db69ac546",
-            "name": "conditions.resolve",
-            "outputSchema": "sha256:fc2fd07f2f59365ef9876cc23009954b18e8aa7fdf36b642bfd2880d6a09df24",
-            "title": "Resolve Conditions"
-        },
-        "conditions.retract": {
-            "annotations": {
-                "readOnlyHint": false,
-                "destructiveHint": true,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "Withdraw one Conditions record this connection wrote, by its record ID and current version. Use this when the source is taking back a claim it made in error. A record simply missing from a newer export is NOT a reason to retract: institutions age data out past their own retention policies, so absence from a later import says nothing about whether the record was correct. Nothing is deleted and the external ID stays reserved.",
-            "inputSchema": "sha256:656024bf81cf6c59d3262ce1290d5140916a7edc080c10202a64f3f751f546fe",
-            "name": "conditions.retract",
-            "outputSchema": "sha256:20f94ebcdc73cf7c422aa66a85ff006e08c8746a76f7fdb9ddc27f40911fb232",
-            "title": "Retract Conditions"
-        },
         "conditions.update": {
             "annotations": {
                 "readOnlyHint": false,
@@ -627,7 +462,7 @@
             "description": "Partially update one existing Conditions record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
             "inputSchema": "sha256:2b9ccad37647b3b1d8996d1af7d51efe7d113700210d53b10d4d1f7f21776dd6",
             "name": "conditions.update",
-            "outputSchema": "sha256:a99345a377994012456187c272f7492e7d48459f9ed2d4cac190e44eafd2be56",
+            "outputSchema": "sha256:ecb072c0f7e054dfc22e477f63b04690e55f0c3654f46fc425ad67b059f2919e",
             "title": "Update Conditions"
         },
         "conditions.upsert": {
@@ -640,7 +475,7 @@
             "description": "Idempotently create or update one Conditions record through the versioned REST API.",
             "inputSchema": "sha256:58687f8d9f7842bb321e36bf652d5c2ba55648837c8216d9f26101fd7c4fa347",
             "name": "conditions.upsert",
-            "outputSchema": "sha256:a99345a377994012456187c272f7492e7d48459f9ed2d4cac190e44eafd2be56",
+            "outputSchema": "sha256:ecb072c0f7e054dfc22e477f63b04690e55f0c3654f46fc425ad67b059f2919e",
             "title": "Upsert Conditions"
         },
         "dicom_series.list": {
@@ -653,7 +488,7 @@
             "description": "List bounded series metadata for one DICOM study without returning image pixels or instance metadata.",
             "inputSchema": "sha256:c06972f8cb53ca3b6f4119fe73dc69e0e6d0c185e0b9f01691441411ea4e2880",
             "name": "dicom_series.list",
-            "outputSchema": "sha256:b0b565a0069fdd18d2332d0a34455d82c7894feed4e2b7230cf1a304b722e92e",
+            "outputSchema": "sha256:d598f067d4c04d2c5382f7e7b3975131446a9b76c61c980355b27608f384985a",
             "title": "List imaging series"
         },
         "dicom_studies.get": {
@@ -666,7 +501,7 @@
             "description": "Get one DICOM study metadata record without returning image pixels or instance files.",
             "inputSchema": "sha256:93bce14c8cdb739f0aa74ef6c832e658c8a27bfb2448b2d8f8fd7174d3423aed",
             "name": "dicom_studies.get",
-            "outputSchema": "sha256:dc470f142170945f9763b569ab09a9489cba6bccbfa36bed7444747630df7087",
+            "outputSchema": "sha256:d63ae3a0fc25c5b12d6e1393892fc9fb4e990ba1a17e937e455e96f9ceb899c0",
             "title": "Get imaging study"
         },
         "dicom_studies.list": {
@@ -679,7 +514,7 @@
             "description": "List bounded DICOM study metadata without returning image pixels or instance files.",
             "inputSchema": "sha256:955f69eb15eb93ee23417107514c553f96c55a05d5b5923fe4bad4d04c2285ae",
             "name": "dicom_studies.list",
-            "outputSchema": "sha256:4384dcf05869516a30786393a27f262ccbb3a5410e96dbe021f964f2840a2f06",
+            "outputSchema": "sha256:1e19a323408ecf99cc186ff8f14b516e55b6f3a17d798fafb441fcca5a5d4724",
             "title": "List imaging studies"
         },
         "dicom_uploads.cancel": {
@@ -692,7 +527,7 @@
             "description": "Cancel an open DICOM upload session and reclaim its stored objects.",
             "inputSchema": "sha256:71a923a67b89e24136502f333720cd36378fe9434ec5cbd10f890fb9333ba0e7",
             "name": "dicom_uploads.cancel",
-            "outputSchema": "sha256:3416bec00786abf02d1d47f4a607770b9fb22a53dbba10455687112281a59573",
+            "outputSchema": "sha256:1ec652007e2f3aa01ad20da7b7a75988b63928610dc5f7ee07a94f0d9c1f9b7f",
             "title": "Cancel DICOM upload"
         },
         "dicom_uploads.finalize": {
@@ -705,7 +540,7 @@
             "description": "Finalize an open DICOM upload session after every intended instance has been uploaded.",
             "inputSchema": "sha256:71a923a67b89e24136502f333720cd36378fe9434ec5cbd10f890fb9333ba0e7",
             "name": "dicom_uploads.finalize",
-            "outputSchema": "sha256:11d1aa4ea1aafc6dd6cd3156d0e7d29b27829299ba1dc9dbd3da6b0aeaa2e255",
+            "outputSchema": "sha256:3ec0a70cb0eeadd982c7db6edc48a877e23365f024530e2366ba7fa9039b6dad",
             "title": "Finalize DICOM upload"
         },
         "dicom_uploads.open": {
@@ -718,7 +553,7 @@
             "description": "Open a DICOM upload session. Use dicom_uploads.upload_file only for small instances; upload larger instances through the multipart REST endpoint, then finalize.",
             "inputSchema": "sha256:fa94c961a666fe6c3f1f3d75b08890836ea84d557b3b7ccfe956535f80a9b96c",
             "name": "dicom_uploads.open",
-            "outputSchema": "sha256:86c7807e48c9168f50a673662985dedb22c14d58872d85f2aa7a5dda198a0731",
+            "outputSchema": "sha256:0698b1eeaf7fd47b4108afa8f5818e30a02c1cfdd18d1207279062cd9e9a9e04",
             "title": "Open DICOM upload"
         },
         "dicom_uploads.upload_file": {
@@ -731,7 +566,7 @@
             "description": "Upload one small DICOM instance to an open session. For larger instances use the multipart REST endpoint; never put raw imaging in a chat response.",
             "inputSchema": "sha256:fae74afe8c6d91095c3b933b627b1474cd0f506d380c9434b0eb2e14aeac8d25",
             "name": "dicom_uploads.upload_file",
-            "outputSchema": "sha256:f468f07495cd36ceebdf5e328e4abe831fca5a275b67d32654c83d817c3ea546",
+            "outputSchema": "sha256:56e99f0d09fc79cfb019fc593fc2e281e9941156716f1c65bdbd7ff412818f2c",
             "title": "Upload small DICOM file"
         },
         "documents.download_access.create": {
@@ -757,7 +592,7 @@
             "description": "Get document metadata without returning file contents.",
             "inputSchema": "sha256:7eecf0b777c43a0bdb4a47345c08961d5d8dccb031f6176203dd69cef6374640",
             "name": "documents.get",
-            "outputSchema": "sha256:c76e04e9e1ae43815d56d0a054de612e891554e81285b0bd9cac762a934836a0",
+            "outputSchema": "sha256:028c9a0a0d6396c71e63ce1c5a94afb012c3bf962b7881816944e5a31aacb899",
             "title": "Get document"
         },
         "documents.list": {
@@ -770,7 +605,7 @@
             "description": "List document metadata without returning file contents.",
             "inputSchema": "sha256:0ea57a7b6e42d62a4f92a3267043af5d838a353ca55c349fd35c2a4007efb3e9",
             "name": "documents.list",
-            "outputSchema": "sha256:be28987bc1f217c20c6b44a499f02a161021bb66b53867a3e6a7c76181abddb5",
+            "outputSchema": "sha256:c9b3a2c110403bd41646637036b9ff07ddfb08380c8b16d0178132f9cbcdf56c",
             "title": "List documents"
         },
         "documents.upload": {
@@ -783,7 +618,7 @@
             "description": "Idempotently upload a small document through the versioned REST API. Use the multipart REST endpoint for larger files.",
             "inputSchema": "sha256:4ea297f85c97b6b56d6af8fc2fdb2d8be8e04edbe31924cb10425855467884c5",
             "name": "documents.upload",
-            "outputSchema": "sha256:02e29abf6937fab989036ea2d7b9053ec1318ac50168e469a498bdda6ff7e3a8",
+            "outputSchema": "sha256:9857534f04df1313ffebc4606179d87e556f00ca34c4ec9f256d50f961ab8aa1",
             "title": "Upload document"
         },
         "eob_lines.get": {
@@ -796,7 +631,7 @@
             "description": "Get one line item from an accessible explanation-of-benefits record.",
             "inputSchema": "sha256:acf47b99dc1b4613d6a60161412bd217ac1a0d1b574c6cf9df28798298b22d3f",
             "name": "eob_lines.get",
-            "outputSchema": "sha256:a9db6110d9c359bcf1b9665ceb14bb4b592fcb1aa339d5f30d1bca6b0c30a84a",
+            "outputSchema": "sha256:dded53589a0d6da8d1ee5b0833689e506a07de3279054f2088076fea2465030e",
             "title": "Get EOB line"
         },
         "eob_lines.list": {
@@ -809,7 +644,7 @@
             "description": "List line items for one accessible explanation-of-benefits record.",
             "inputSchema": "sha256:e206db802fbb300a0428688059d21ac30671832b10f6c7c1a2b0a48bbb8b7a77",
             "name": "eob_lines.list",
-            "outputSchema": "sha256:402b55c509356ab4b24351713edfdb9b0434e78062639e0b127a54b8faf7196c",
+            "outputSchema": "sha256:7c72e18d393b690369d0c5575be255bf29836f22fb9283b3b8d24090c2ec647d",
             "title": "List EOB lines"
         },
         "eobs.get": {
@@ -822,7 +657,7 @@
             "description": "Get one explanation-of-benefits record for an accessible patient.",
             "inputSchema": "sha256:51451b81e32eea85ef918b8b43d1eb437ed08f6db252d794c7872755ace103ec",
             "name": "eobs.get",
-            "outputSchema": "sha256:2888da6d86115968a825180208cab246d1e277719a43640729c369533b33a1d2",
+            "outputSchema": "sha256:e61b2c3899dd0ec4048cc0e430d33b48767e192e3fb0cba715572db977b0e352",
             "title": "Get EOB"
         },
         "eobs.list": {
@@ -835,7 +670,7 @@
             "description": "List explanation-of-benefits records for an accessible patient.",
             "inputSchema": "sha256:6b8f38d614dfd7f56cfb11fb79867335539ac6f46639e967bd8c05668404042e",
             "name": "eobs.list",
-            "outputSchema": "sha256:650eafcabf85b5242553a7fd1bad09ba255c2ac5b9f4e8cfca0ad1428b1e5558",
+            "outputSchema": "sha256:11c8ebf499cb83cb7d5b08b717fdd79c1350f6c57c5a0911c45b1ea0bc2a97a6",
             "title": "List EOBs"
         },
         "evidence.links": {
@@ -861,7 +696,7 @@
             "description": "Queue a structured export. Poll exports.list until it is ready, then explicitly request download access.",
             "inputSchema": "sha256:61177259788485f889a7ddb2f3a00398d43b0bb2b95b44bb2c25ab3d7f934109",
             "name": "exports.create",
-            "outputSchema": "sha256:e28fb0735f1283993433baba43ffe3f5393327f4fc4d87fb951ca22fc6f5e52f",
+            "outputSchema": "sha256:b9223285d11e5e0e04429ae4175fc3404d2f051ec9d62f6215f3e275100569ea",
             "title": "Request export"
         },
         "exports.download_access.create": {
@@ -887,7 +722,7 @@
             "description": "List bounded asynchronous export status for an owned patient.",
             "inputSchema": "sha256:dae62fbb7b4f706326d4f5903fa291c64a683d94a135e5a5a1f97ddf76ce81bf",
             "name": "exports.list",
-            "outputSchema": "sha256:864a83d20594417af92322e4b6c65aadf9316f0c83cdf7c069898e2d9c5410c9",
+            "outputSchema": "sha256:40c86ef201a5d95b66e657e044c3952767d87965c0c6228b8e433ecab9a60e38",
             "title": "List exports"
         },
         "fail_genai_request": {
@@ -926,7 +761,7 @@
             "description": "Idempotently append an entry to a patient health log.",
             "inputSchema": "sha256:b85d870996d8028d86ab63d5ad568c9c9eb788950cf6259f62ef8ecc6563cdfb",
             "name": "health_log_entries.append",
-            "outputSchema": "sha256:02c0de478fbc47347592e90bddc3011f53d9998091b3c7e4d156214eb3f71cce",
+            "outputSchema": "sha256:b7d9011fcdc793ad3edce1cdbb873736246a6f77d11d3843e5d73d2456351a0b",
             "title": "Append health log entry"
         },
         "health_log_entries.get": {
@@ -939,7 +774,7 @@
             "description": "Get one entry from an accessible health log.",
             "inputSchema": "sha256:60cf3ab763c55210db02887ca5b6ce6596f1c30f53188d98b8f77eab1ba15051",
             "name": "health_log_entries.get",
-            "outputSchema": "sha256:f51763cee8904cb28c243d132cf62001ee0d9727805c865bc4b4e5da7ba780e6",
+            "outputSchema": "sha256:af01844d1a31809e9451d4384849a875fea08b9da07d9035d75b5e0710e762b5",
             "title": "Get health log entry"
         },
         "health_log_entries.list": {
@@ -952,7 +787,7 @@
             "description": "List bounded entries for one accessible health log.",
             "inputSchema": "sha256:8e93c7cd1c29eeef5af7bb1580f0ca25828fef51677235c2a29c1ab18acddaaf",
             "name": "health_log_entries.list",
-            "outputSchema": "sha256:770662d6c79b894357c7e43dbb65193e789d88fa1a0c2a22f5e7daabe161a850",
+            "outputSchema": "sha256:942fe05f4b9044f9bedd6b288cb6840522dc2985be0ede77d9b80a0af5caf5ee",
             "title": "List health log entries"
         },
         "health_logs.create": {
@@ -965,34 +800,8 @@
             "description": "Idempotently create a patient health log through the versioned REST API.",
             "inputSchema": "sha256:a5bf41be6ca8c8c9aa3dfb62f1ab752869f699f37339700ca574339d47928bb0",
             "name": "health_logs.create",
-            "outputSchema": "sha256:4fe2ce39b42862883d93aee9bea98fe4135512dd59323d305c987db45bc05cb6",
+            "outputSchema": "sha256:cfb90c17edbb12069bb041d8e85a52dd3cee209b9acf3c9186b2ba7b2d5a0917",
             "title": "Create health log"
-        },
-        "health_logs.get": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "Get one Health Logs record for an accessible patient through the versioned REST API.",
-            "inputSchema": "sha256:d7fd980afea34da4711020e2b61213ff82c9b970b727e4a384a8ea54ff39f093",
-            "name": "health_logs.get",
-            "outputSchema": "sha256:7a2188c841a137c29441051c31f24db8796c6f93cd23f74b36a92b4856367b15",
-            "title": "Get Health Logs"
-        },
-        "health_logs.list": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "List Health Logs for an accessible patient through the versioned REST API.",
-            "inputSchema": "sha256:1f755ef8a15d9453613ac143d1f80277408807d52013970855781983799df210",
-            "name": "health_logs.list",
-            "outputSchema": "sha256:c252cf24ef8593b11290b8752407caf0587c452dda3dd366826fb6c4df972a01",
-            "title": "List Health Logs"
         },
         "identity.get": {
             "annotations": {
@@ -1004,60 +813,8 @@
             "description": "Return the authorized account identity and granted OAuth scopes.",
             "inputSchema": "sha256:bd002e19f8640d2c8613a2e22a7c79fb7eab69bd192f5e19d16984554ce5bff2",
             "name": "identity.get",
-            "outputSchema": "sha256:8d322659b4d0eec0f182dc70b284835daa4100bc6f66fb19d5d5d54a29658ff0",
+            "outputSchema": "sha256:6ef3b79e5a8d716afd6130eaf74d0d23e7a059f84d7a7911e26eb6c162f7068a",
             "title": "Get identity"
-        },
-        "immunizations.get": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "Get one Immunizations record for an accessible patient through the versioned REST API.",
-            "inputSchema": "sha256:d7fd980afea34da4711020e2b61213ff82c9b970b727e4a384a8ea54ff39f093",
-            "name": "immunizations.get",
-            "outputSchema": "sha256:7a2188c841a137c29441051c31f24db8796c6f93cd23f74b36a92b4856367b15",
-            "title": "Get Immunizations"
-        },
-        "immunizations.list": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "List Immunizations for an accessible patient through the versioned REST API.",
-            "inputSchema": "sha256:b3f54804b65400cc6b9c9c2803e72a0e925c08a726c14bb0bd11d5845d23ea49",
-            "name": "immunizations.list",
-            "outputSchema": "sha256:c252cf24ef8593b11290b8752407caf0587c452dda3dd366826fb6c4df972a01",
-            "title": "List Immunizations"
-        },
-        "immunizations.resolve": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "Map a bounded batch of this connection's own external IDs onto Immunizations record IDs and current versions. Returns no clinical content, so use it to decide what still needs writing before calling upsert.",
-            "inputSchema": "sha256:66601dd40c92d3cac80ddd90954399199ec5c7720361dd0b5c36467db69ac546",
-            "name": "immunizations.resolve",
-            "outputSchema": "sha256:fc2fd07f2f59365ef9876cc23009954b18e8aa7fdf36b642bfd2880d6a09df24",
-            "title": "Resolve Immunizations"
-        },
-        "immunizations.retract": {
-            "annotations": {
-                "readOnlyHint": false,
-                "destructiveHint": true,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "Withdraw one Immunizations record this connection wrote, by its record ID and current version. Use this when the source is taking back a claim it made in error. A record simply missing from a newer export is NOT a reason to retract: institutions age data out past their own retention policies, so absence from a later import says nothing about whether the record was correct. Nothing is deleted and the external ID stays reserved.",
-            "inputSchema": "sha256:656024bf81cf6c59d3262ce1290d5140916a7edc080c10202a64f3f751f546fe",
-            "name": "immunizations.retract",
-            "outputSchema": "sha256:20f94ebcdc73cf7c422aa66a85ff006e08c8746a76f7fdb9ddc27f40911fb232",
-            "title": "Retract Immunizations"
         },
         "immunizations.update": {
             "annotations": {
@@ -1069,7 +826,7 @@
             "description": "Partially update one existing Immunizations record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
             "inputSchema": "sha256:f9cc442583d09814003ae0d4838da21c25020b72f14390fa167fb1cfe4386587",
             "name": "immunizations.update",
-            "outputSchema": "sha256:a99345a377994012456187c272f7492e7d48459f9ed2d4cac190e44eafd2be56",
+            "outputSchema": "sha256:ecb072c0f7e054dfc22e477f63b04690e55f0c3654f46fc425ad67b059f2919e",
             "title": "Update Immunizations"
         },
         "immunizations.upsert": {
@@ -1082,7 +839,7 @@
             "description": "Idempotently create or update one Immunizations record through the versioned REST API.",
             "inputSchema": "sha256:fbb7a6c9397cf3d6b28f1e77c5590e32b466099b60bd89e873fbecd7a978738e",
             "name": "immunizations.upsert",
-            "outputSchema": "sha256:a99345a377994012456187c272f7492e7d48459f9ed2d4cac190e44eafd2be56",
+            "outputSchema": "sha256:ecb072c0f7e054dfc22e477f63b04690e55f0c3654f46fc425ad67b059f2919e",
             "title": "Upsert Immunizations"
         },
         "imports.create": {
@@ -1147,60 +904,8 @@
             "description": "Accept or reject one proposed record through the versioned REST workflow.",
             "inputSchema": "sha256:a41c2badfb4158f1abaa47142f532b8a5892f14d4792fee2f2f2862ecff9a755",
             "name": "imports.review",
-            "outputSchema": "sha256:795c7296183179228606f5b9ef196e8d85290b921b30b5fc6a22d43bdd2febd2",
+            "outputSchema": "sha256:08c0c45d1fa13f1b554d13bff4106232f549bf8cdad4ce40abacfa3809b55c97",
             "title": "Review import proposal"
-        },
-        "lab_results.get": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "Get one Lab Results record for an accessible patient through the versioned REST API.",
-            "inputSchema": "sha256:d7fd980afea34da4711020e2b61213ff82c9b970b727e4a384a8ea54ff39f093",
-            "name": "lab_results.get",
-            "outputSchema": "sha256:7a2188c841a137c29441051c31f24db8796c6f93cd23f74b36a92b4856367b15",
-            "title": "Get Lab Results"
-        },
-        "lab_results.list": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "List Lab Results for an accessible patient through the versioned REST API.",
-            "inputSchema": "sha256:b3f54804b65400cc6b9c9c2803e72a0e925c08a726c14bb0bd11d5845d23ea49",
-            "name": "lab_results.list",
-            "outputSchema": "sha256:c252cf24ef8593b11290b8752407caf0587c452dda3dd366826fb6c4df972a01",
-            "title": "List Lab Results"
-        },
-        "lab_results.resolve": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "Map a bounded batch of this connection's own external IDs onto Lab Results record IDs and current versions. Returns no clinical content, so use it to decide what still needs writing before calling upsert.",
-            "inputSchema": "sha256:66601dd40c92d3cac80ddd90954399199ec5c7720361dd0b5c36467db69ac546",
-            "name": "lab_results.resolve",
-            "outputSchema": "sha256:fc2fd07f2f59365ef9876cc23009954b18e8aa7fdf36b642bfd2880d6a09df24",
-            "title": "Resolve Lab Results"
-        },
-        "lab_results.retract": {
-            "annotations": {
-                "readOnlyHint": false,
-                "destructiveHint": true,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "Withdraw one Lab Results record this connection wrote, by its record ID and current version. Use this when the source is taking back a claim it made in error. A record simply missing from a newer export is NOT a reason to retract: institutions age data out past their own retention policies, so absence from a later import says nothing about whether the record was correct. Nothing is deleted and the external ID stays reserved.",
-            "inputSchema": "sha256:656024bf81cf6c59d3262ce1290d5140916a7edc080c10202a64f3f751f546fe",
-            "name": "lab_results.retract",
-            "outputSchema": "sha256:20f94ebcdc73cf7c422aa66a85ff006e08c8746a76f7fdb9ddc27f40911fb232",
-            "title": "Retract Lab Results"
         },
         "lab_results.update": {
             "annotations": {
@@ -1212,7 +917,7 @@
             "description": "Partially update one existing Lab Results record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
             "inputSchema": "sha256:09f33af7ba1b0eb1d40388724c9ff267937a986addfbbe3fd100e14a6bb74553",
             "name": "lab_results.update",
-            "outputSchema": "sha256:a99345a377994012456187c272f7492e7d48459f9ed2d4cac190e44eafd2be56",
+            "outputSchema": "sha256:ecb072c0f7e054dfc22e477f63b04690e55f0c3654f46fc425ad67b059f2919e",
             "title": "Update Lab Results"
         },
         "lab_results.upsert": {
@@ -1225,60 +930,8 @@
             "description": "Idempotently create or update one Lab Results record through the versioned REST API.",
             "inputSchema": "sha256:f5c8fb0d2e051dacc0b2655b644cdcab9fe700e8e3e308f0f8306d5973c804b7",
             "name": "lab_results.upsert",
-            "outputSchema": "sha256:a99345a377994012456187c272f7492e7d48459f9ed2d4cac190e44eafd2be56",
+            "outputSchema": "sha256:ecb072c0f7e054dfc22e477f63b04690e55f0c3654f46fc425ad67b059f2919e",
             "title": "Upsert Lab Results"
-        },
-        "medications.get": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "Get one Medications record for an accessible patient through the versioned REST API.",
-            "inputSchema": "sha256:d7fd980afea34da4711020e2b61213ff82c9b970b727e4a384a8ea54ff39f093",
-            "name": "medications.get",
-            "outputSchema": "sha256:7a2188c841a137c29441051c31f24db8796c6f93cd23f74b36a92b4856367b15",
-            "title": "Get Medications"
-        },
-        "medications.list": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "List Medications for an accessible patient through the versioned REST API.",
-            "inputSchema": "sha256:b3f54804b65400cc6b9c9c2803e72a0e925c08a726c14bb0bd11d5845d23ea49",
-            "name": "medications.list",
-            "outputSchema": "sha256:c252cf24ef8593b11290b8752407caf0587c452dda3dd366826fb6c4df972a01",
-            "title": "List Medications"
-        },
-        "medications.resolve": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "Map a bounded batch of this connection's own external IDs onto Medications record IDs and current versions. Returns no clinical content, so use it to decide what still needs writing before calling upsert.",
-            "inputSchema": "sha256:66601dd40c92d3cac80ddd90954399199ec5c7720361dd0b5c36467db69ac546",
-            "name": "medications.resolve",
-            "outputSchema": "sha256:fc2fd07f2f59365ef9876cc23009954b18e8aa7fdf36b642bfd2880d6a09df24",
-            "title": "Resolve Medications"
-        },
-        "medications.retract": {
-            "annotations": {
-                "readOnlyHint": false,
-                "destructiveHint": true,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "Withdraw one Medications record this connection wrote, by its record ID and current version. Use this when the source is taking back a claim it made in error. A record simply missing from a newer export is NOT a reason to retract: institutions age data out past their own retention policies, so absence from a later import says nothing about whether the record was correct. Nothing is deleted and the external ID stays reserved.",
-            "inputSchema": "sha256:656024bf81cf6c59d3262ce1290d5140916a7edc080c10202a64f3f751f546fe",
-            "name": "medications.retract",
-            "outputSchema": "sha256:20f94ebcdc73cf7c422aa66a85ff006e08c8746a76f7fdb9ddc27f40911fb232",
-            "title": "Retract Medications"
         },
         "medications.update": {
             "annotations": {
@@ -1290,7 +943,7 @@
             "description": "Partially update one existing Medications record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
             "inputSchema": "sha256:e42e0e3a1b24791aa59ba9801f65737187d2a73860efd8b8f3c68054c61f9b29",
             "name": "medications.update",
-            "outputSchema": "sha256:a99345a377994012456187c272f7492e7d48459f9ed2d4cac190e44eafd2be56",
+            "outputSchema": "sha256:ecb072c0f7e054dfc22e477f63b04690e55f0c3654f46fc425ad67b059f2919e",
             "title": "Update Medications"
         },
         "medications.upsert": {
@@ -1303,7 +956,7 @@
             "description": "Idempotently create or update one Medications record through the versioned REST API.",
             "inputSchema": "sha256:173b7325003de79df1c295750d6621e13cbb65cce1ba19b99d98904504e1e5b1",
             "name": "medications.upsert",
-            "outputSchema": "sha256:a99345a377994012456187c272f7492e7d48459f9ed2d4cac190e44eafd2be56",
+            "outputSchema": "sha256:ecb072c0f7e054dfc22e477f63b04690e55f0c3654f46fc425ad67b059f2919e",
             "title": "Upsert Medications"
         },
         "native_backups.create": {
@@ -1316,7 +969,7 @@
             "description": "Queue a complete native backup. Poll native_backups.list until it is ready, then explicitly request download access.",
             "inputSchema": "sha256:2e286a5215cdbe324d46ca789bb5fb63023e8a87c11602fe62dfbc2315347ccb",
             "name": "native_backups.create",
-            "outputSchema": "sha256:13e39362db41bc1c4368fc37d9c1fafa967b9a4f37417f62a4685bc49e3b036f",
+            "outputSchema": "sha256:2063dbc4f6ee019f6d7db71e66a181f0e1b30740f808f183003b9d203a5e0bce",
             "title": "Request native backup"
         },
         "native_backups.download_access.create": {
@@ -1342,60 +995,8 @@
             "description": "List bounded asynchronous native-backup status for an owned patient.",
             "inputSchema": "sha256:dae62fbb7b4f706326d4f5903fa291c64a683d94a135e5a5a1f97ddf76ce81bf",
             "name": "native_backups.list",
-            "outputSchema": "sha256:8fce7d7527849a8c26366cd44930946ad13b421fee53b05624ac54544226b4d4",
+            "outputSchema": "sha256:7409e40acf6b99168b91d589fab54fefb10a1adb107d41769fe4013733ae9305",
             "title": "List native backups"
-        },
-        "office_visits.get": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "Get one Office Visits record for an accessible patient through the versioned REST API.",
-            "inputSchema": "sha256:d7fd980afea34da4711020e2b61213ff82c9b970b727e4a384a8ea54ff39f093",
-            "name": "office_visits.get",
-            "outputSchema": "sha256:7a2188c841a137c29441051c31f24db8796c6f93cd23f74b36a92b4856367b15",
-            "title": "Get Office Visits"
-        },
-        "office_visits.list": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "List Office Visits for an accessible patient through the versioned REST API.",
-            "inputSchema": "sha256:b3f54804b65400cc6b9c9c2803e72a0e925c08a726c14bb0bd11d5845d23ea49",
-            "name": "office_visits.list",
-            "outputSchema": "sha256:c252cf24ef8593b11290b8752407caf0587c452dda3dd366826fb6c4df972a01",
-            "title": "List Office Visits"
-        },
-        "office_visits.resolve": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "Map a bounded batch of this connection's own external IDs onto Office Visits record IDs and current versions. Returns no clinical content, so use it to decide what still needs writing before calling upsert.",
-            "inputSchema": "sha256:66601dd40c92d3cac80ddd90954399199ec5c7720361dd0b5c36467db69ac546",
-            "name": "office_visits.resolve",
-            "outputSchema": "sha256:fc2fd07f2f59365ef9876cc23009954b18e8aa7fdf36b642bfd2880d6a09df24",
-            "title": "Resolve Office Visits"
-        },
-        "office_visits.retract": {
-            "annotations": {
-                "readOnlyHint": false,
-                "destructiveHint": true,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "Withdraw one Office Visits record this connection wrote, by its record ID and current version. Use this when the source is taking back a claim it made in error. A record simply missing from a newer export is NOT a reason to retract: institutions age data out past their own retention policies, so absence from a later import says nothing about whether the record was correct. Nothing is deleted and the external ID stays reserved.",
-            "inputSchema": "sha256:656024bf81cf6c59d3262ce1290d5140916a7edc080c10202a64f3f751f546fe",
-            "name": "office_visits.retract",
-            "outputSchema": "sha256:20f94ebcdc73cf7c422aa66a85ff006e08c8746a76f7fdb9ddc27f40911fb232",
-            "title": "Retract Office Visits"
         },
         "office_visits.update": {
             "annotations": {
@@ -1407,7 +1008,7 @@
             "description": "Partially update one existing Office Visits record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
             "inputSchema": "sha256:436bc64f369a565a8f2912785814bd17f35a10d5700ed0d56cd0c024e17ad68b",
             "name": "office_visits.update",
-            "outputSchema": "sha256:a99345a377994012456187c272f7492e7d48459f9ed2d4cac190e44eafd2be56",
+            "outputSchema": "sha256:ecb072c0f7e054dfc22e477f63b04690e55f0c3654f46fc425ad67b059f2919e",
             "title": "Update Office Visits"
         },
         "office_visits.upsert": {
@@ -1420,7 +1021,7 @@
             "description": "Idempotently create or update one Office Visits record through the versioned REST API.",
             "inputSchema": "sha256:5ca4fd67be3f4c7fc14cfabd4f94358ba04067f4bd508c6726da841bf7a19118",
             "name": "office_visits.upsert",
-            "outputSchema": "sha256:a99345a377994012456187c272f7492e7d48459f9ed2d4cac190e44eafd2be56",
+            "outputSchema": "sha256:ecb072c0f7e054dfc22e477f63b04690e55f0c3654f46fc425ad67b059f2919e",
             "title": "Upsert Office Visits"
         },
         "patients.create": {
@@ -1433,7 +1034,7 @@
             "description": "Create a new PHR patient owned by the authorized account and grant that account owner-level access to it. This is not idempotent and has no deduplication key: confirm with patients.list that the person is not already present before calling it, and never retry a call whose outcome is unknown without checking first.",
             "inputSchema": "sha256:c6439b2582cb047a5e6e1ae820edc78879f81efd2558b27675f3ef981c8e2c29",
             "name": "patients.create",
-            "outputSchema": "sha256:7f0a62edcfaba4c34f7f1d026989add7bc96e809d51b7c277ec8a3dc6fc14ced",
+            "outputSchema": "sha256:005d0a7ff7b381e59f52f54fc07ea3ad8175352d5062a1f0f49141f8f218c294",
             "title": "Create patient"
         },
         "patients.get": {
@@ -1446,7 +1047,7 @@
             "description": "Get one accessible patient and its current access metadata.",
             "inputSchema": "sha256:2e286a5215cdbe324d46ca789bb5fb63023e8a87c11602fe62dfbc2315347ccb",
             "name": "patients.get",
-            "outputSchema": "sha256:7f0a62edcfaba4c34f7f1d026989add7bc96e809d51b7c277ec8a3dc6fc14ced",
+            "outputSchema": "sha256:005d0a7ff7b381e59f52f54fc07ea3ad8175352d5062a1f0f49141f8f218c294",
             "title": "Get patient"
         },
         "patients.list": {
@@ -1459,60 +1060,8 @@
             "description": "List only patients accessible to the authorized account, with bounded pagination.",
             "inputSchema": "sha256:9fb775af01c13cc610ffea5266a5571d940cc6ef00f7204c129af937fc1d9470",
             "name": "patients.list",
-            "outputSchema": "sha256:66429226f32bf5ad2ee0469e8b4a2025fd3e68b3679bdf67fceb8535b534f7fc",
+            "outputSchema": "sha256:f5ffc1d14e639f1bc286c72a2dad2812376efb88f02188698f996912a65726a3",
             "title": "List patients"
-        },
-        "procedures.get": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "Get one Procedures record for an accessible patient through the versioned REST API.",
-            "inputSchema": "sha256:d7fd980afea34da4711020e2b61213ff82c9b970b727e4a384a8ea54ff39f093",
-            "name": "procedures.get",
-            "outputSchema": "sha256:7a2188c841a137c29441051c31f24db8796c6f93cd23f74b36a92b4856367b15",
-            "title": "Get Procedures"
-        },
-        "procedures.list": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "List Procedures for an accessible patient through the versioned REST API.",
-            "inputSchema": "sha256:b3f54804b65400cc6b9c9c2803e72a0e925c08a726c14bb0bd11d5845d23ea49",
-            "name": "procedures.list",
-            "outputSchema": "sha256:c252cf24ef8593b11290b8752407caf0587c452dda3dd366826fb6c4df972a01",
-            "title": "List Procedures"
-        },
-        "procedures.resolve": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "Map a bounded batch of this connection's own external IDs onto Procedures record IDs and current versions. Returns no clinical content, so use it to decide what still needs writing before calling upsert.",
-            "inputSchema": "sha256:66601dd40c92d3cac80ddd90954399199ec5c7720361dd0b5c36467db69ac546",
-            "name": "procedures.resolve",
-            "outputSchema": "sha256:fc2fd07f2f59365ef9876cc23009954b18e8aa7fdf36b642bfd2880d6a09df24",
-            "title": "Resolve Procedures"
-        },
-        "procedures.retract": {
-            "annotations": {
-                "readOnlyHint": false,
-                "destructiveHint": true,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "Withdraw one Procedures record this connection wrote, by its record ID and current version. Use this when the source is taking back a claim it made in error. A record simply missing from a newer export is NOT a reason to retract: institutions age data out past their own retention policies, so absence from a later import says nothing about whether the record was correct. Nothing is deleted and the external ID stays reserved.",
-            "inputSchema": "sha256:656024bf81cf6c59d3262ce1290d5140916a7edc080c10202a64f3f751f546fe",
-            "name": "procedures.retract",
-            "outputSchema": "sha256:20f94ebcdc73cf7c422aa66a85ff006e08c8746a76f7fdb9ddc27f40911fb232",
-            "title": "Retract Procedures"
         },
         "procedures.update": {
             "annotations": {
@@ -1524,7 +1073,7 @@
             "description": "Partially update one existing Procedures record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
             "inputSchema": "sha256:f35e6f95811ceeb1c609ddf58cdd00e0dcc112f9beef13786b4b3a3e124ed46a",
             "name": "procedures.update",
-            "outputSchema": "sha256:a99345a377994012456187c272f7492e7d48459f9ed2d4cac190e44eafd2be56",
+            "outputSchema": "sha256:ecb072c0f7e054dfc22e477f63b04690e55f0c3654f46fc425ad67b059f2919e",
             "title": "Update Procedures"
         },
         "procedures.upsert": {
@@ -1537,7 +1086,7 @@
             "description": "Idempotently create or update one Procedures record through the versioned REST API.",
             "inputSchema": "sha256:c772126b4e6dc69eba7a32f80963d39a8fd8020cdda1533813c5a4ef474d9ba5",
             "name": "procedures.upsert",
-            "outputSchema": "sha256:a99345a377994012456187c272f7492e7d48459f9ed2d4cac190e44eafd2be56",
+            "outputSchema": "sha256:ecb072c0f7e054dfc22e477f63b04690e55f0c3654f46fc425ad67b059f2919e",
             "title": "Upsert Procedures"
         },
         "reconciliations.apply": {
@@ -1550,7 +1099,7 @@
             "description": "Apply exactly the reconciliation preview identified by its digest. Request a new preview if this reports a conflict.",
             "inputSchema": "sha256:fa2aff1902ad79e34824b1a9cb4c8eea027dff5ee92703d4073dcac4f673cf20",
             "name": "reconciliations.apply",
-            "outputSchema": "sha256:25660dc6c4f20c7690f8f88de538b99f00726e66391b1836385daada38ba1914",
+            "outputSchema": "sha256:b4411ea4ca8ae8cae4950dcada0b50293f57b101c8900a3b7f0693b1603c5ec6",
             "title": "Apply reconciliation"
         },
         "reconciliations.preview": {
@@ -1563,7 +1112,7 @@
             "description": "Produce a count-only, dry-run EOB reconciliation plan and its confirmation digest.",
             "inputSchema": "sha256:44b119b6281c281cc0275cba88107156d7e5a079ad4ce7771e753ff72753121c",
             "name": "reconciliations.preview",
-            "outputSchema": "sha256:518f084760fb8f43f2d6f0a4c3b09be9136e55fee53123b90d0440175ebb0882",
+            "outputSchema": "sha256:88be5c7ae27d228a6473cdbbb9b6ad34d57355d5850ecba4da7acf9502d1d72a",
             "title": "Preview reconciliation"
         },
         "records.search": {
@@ -1615,7 +1164,7 @@
             "description": "List bounded Sinus Sentinel events for an accessible patient.",
             "inputSchema": "sha256:f8fe2d2410de5ecdff0ea6d600efe8925c893bf6befa8ec8be02ac2b2a412620",
             "name": "respiratory_events.list",
-            "outputSchema": "sha256:42f0a482e009cae969c27b2389f0a430cc544a1d9fcd74164e64bc7504eb20aa",
+            "outputSchema": "sha256:b3cadef74848c70679c2de2774bca8374e6582eb5c063ed2cfcb37000d4172ce",
             "title": "List respiratory events"
         },
         "timeline.list": {
@@ -1631,58 +1180,6 @@
             "outputSchema": "sha256:8fa02f358d25d1e108c396ae2ff9906f5a3da46399fd68f199e3544b4e146cad",
             "title": "List timeline"
         },
-        "vitals.get": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "Get one Vitals record for an accessible patient through the versioned REST API.",
-            "inputSchema": "sha256:d7fd980afea34da4711020e2b61213ff82c9b970b727e4a384a8ea54ff39f093",
-            "name": "vitals.get",
-            "outputSchema": "sha256:7a2188c841a137c29441051c31f24db8796c6f93cd23f74b36a92b4856367b15",
-            "title": "Get Vitals"
-        },
-        "vitals.list": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "List Vitals for an accessible patient through the versioned REST API.",
-            "inputSchema": "sha256:b3f54804b65400cc6b9c9c2803e72a0e925c08a726c14bb0bd11d5845d23ea49",
-            "name": "vitals.list",
-            "outputSchema": "sha256:c252cf24ef8593b11290b8752407caf0587c452dda3dd366826fb6c4df972a01",
-            "title": "List Vitals"
-        },
-        "vitals.resolve": {
-            "annotations": {
-                "readOnlyHint": true,
-                "destructiveHint": false,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "Map a bounded batch of this connection's own external IDs onto Vitals record IDs and current versions. Returns no clinical content, so use it to decide what still needs writing before calling upsert.",
-            "inputSchema": "sha256:66601dd40c92d3cac80ddd90954399199ec5c7720361dd0b5c36467db69ac546",
-            "name": "vitals.resolve",
-            "outputSchema": "sha256:fc2fd07f2f59365ef9876cc23009954b18e8aa7fdf36b642bfd2880d6a09df24",
-            "title": "Resolve Vitals"
-        },
-        "vitals.retract": {
-            "annotations": {
-                "readOnlyHint": false,
-                "destructiveHint": true,
-                "idempotentHint": true,
-                "openWorldHint": false
-            },
-            "description": "Withdraw one Vitals record this connection wrote, by its record ID and current version. Use this when the source is taking back a claim it made in error. A record simply missing from a newer export is NOT a reason to retract: institutions age data out past their own retention policies, so absence from a later import says nothing about whether the record was correct. Nothing is deleted and the external ID stays reserved.",
-            "inputSchema": "sha256:656024bf81cf6c59d3262ce1290d5140916a7edc080c10202a64f3f751f546fe",
-            "name": "vitals.retract",
-            "outputSchema": "sha256:20f94ebcdc73cf7c422aa66a85ff006e08c8746a76f7fdb9ddc27f40911fb232",
-            "title": "Retract Vitals"
-        },
         "vitals.update": {
             "annotations": {
                 "readOnlyHint": false,
@@ -1693,7 +1190,7 @@
             "description": "Partially update one existing Vitals record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
             "inputSchema": "sha256:935755da56dbba355220a4c12552b7427754f7a32d6cb6f56391c1c0f5923c83",
             "name": "vitals.update",
-            "outputSchema": "sha256:a99345a377994012456187c272f7492e7d48459f9ed2d4cac190e44eafd2be56",
+            "outputSchema": "sha256:ecb072c0f7e054dfc22e477f63b04690e55f0c3654f46fc425ad67b059f2919e",
             "title": "Update Vitals"
         },
         "vitals.upsert": {
@@ -1706,7 +1203,7 @@
             "description": "Idempotently create or update one Vitals record through the versioned REST API.",
             "inputSchema": "sha256:1c8f1f283f9e3daa4ed1d087be55d4344acb8cd2cb7e8c88ef118b984ed21819",
             "name": "vitals.upsert",
-            "outputSchema": "sha256:a99345a377994012456187c272f7492e7d48459f9ed2d4cac190e44eafd2be56",
+            "outputSchema": "sha256:ecb072c0f7e054dfc22e477f63b04690e55f0c3654f46fc425ad67b059f2919e",
             "title": "Upsert Vitals"
         }
     }
