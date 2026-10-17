@@ -158,7 +158,7 @@ final class AgentMcpServerFactory
                 ),
                 inputSchema: $this->schemas->for($definition),
                 outputSchema: isset($genAiToolNames[$definition->name])
-                    ? $this->genAiCatalog->outputSchema($definition->name)
+                    ? AgentMcpOutputSchemaFactory::withoutDescriptions($this->genAiCatalog->outputSchema($definition->name))
                     : $this->outputSchemas->for($definition),
             );
         }

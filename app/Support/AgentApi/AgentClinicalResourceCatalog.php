@@ -143,24 +143,6 @@ final class AgentClinicalResourceCatalog
     /** The generic REST/OpenAPI/capabilities identifier for source retraction. */
     public const string RETRACT_OPERATION_ID = 'clinical.retract';
 
-    /** MCP exposes one retraction tool per resource; REST exposes a single generic route. */
-    public static function mcpRetractToolId(string $resource): string
-    {
-        return str_replace('-', '_', $resource).'.retract';
-    }
-
-    /** @return list<string> */
-    public static function mcpRetractToolIds(): array
-    {
-        return array_map(self::mcpRetractToolId(...), self::writableIds());
-    }
-
-    /** MCP exposes one resolve tool per resource; REST exposes a single generic route. */
-    public static function mcpResolveToolId(string $resource): string
-    {
-        return str_replace('-', '_', $resource).'.resolve';
-    }
-
     /** @return list<string> */
     public static function upsertOperationIds(): array
     {
@@ -171,12 +153,6 @@ final class AgentClinicalResourceCatalog
     public static function mcpUpdateToolIds(): array
     {
         return array_map(self::mcpUpdateToolId(...), self::writableIds());
-    }
-
-    /** @return list<string> */
-    public static function mcpResolveToolIds(): array
-    {
-        return array_map(self::mcpResolveToolId(...), self::writableIds());
     }
 
     /**

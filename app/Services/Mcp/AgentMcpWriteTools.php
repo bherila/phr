@@ -96,17 +96,14 @@ final readonly class AgentMcpWriteTools
         };
     }
 
-    public function clinicalRetractHandler(string $resource): Closure
-    {
-        $api = $this->api;
-
-        return function (
-            #[Schema(minimum: 1)] int $patient_id,
-            #[Schema(minimum: 1)] int $record_id,
-            #[Schema(pattern: '^[a-f0-9]{64}$')] string $expected_version,
-        ) use ($api, $resource): array {
-            return $api->clinicalRetract($patient_id, $resource, $record_id, $expected_version)->toArray();
-        };
+    /** @return array<string, mixed> */
+    public function clinicalRetract(
+        string $resource_type,
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $record_id,
+        #[Schema(pattern: '^[a-f0-9]{64}$')] string $expected_version,
+    ): array {
+        return $this->api->clinicalRetract($patient_id, $resource_type, $record_id, $expected_version)->toArray();
     }
 
     /**

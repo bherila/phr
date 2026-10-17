@@ -33,9 +33,9 @@ final class AgentApiContextTest extends TestCase
         $this->assertContains('identity.get', $operations['available']);
         $this->assertContains('patients.list', $operations['available']);
         $this->assertContains('capabilities.get', $operations['available']);
-        $this->assertNotContains('allergies.list', $operations['available']);
+        $this->assertNotContains('clinical.list', $operations['available']);
         $withheld = array_column($operations['withheld'], null, 'operation');
-        $this->assertSame(['operation' => 'allergies.list', 'reason' => 'missing_scope', 'detail' => AgentApiScopes::CLINICAL_READ], $withheld['allergies.list']);
+        $this->assertSame(['operation' => 'clinical.list', 'reason' => 'missing_scope', 'detail' => AgentApiScopes::CLINICAL_READ], $withheld['clinical.list']);
         $this->assertSame('missing_scope', $withheld['mcp.exchange']['reason']);
         // Applying a reconciliation needs its preview, which needs a scope this credential lacks.
         $this->assertSame('missing_scope', $withheld['reconciliations.preview']['reason']);

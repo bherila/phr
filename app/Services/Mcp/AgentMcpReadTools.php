@@ -3,7 +3,6 @@
 namespace App\Services\Mcp;
 
 use App\Services\AgentApi\Client\AgentApiReadDao;
-use Closure;
 use Mcp\Capability\Attribute\Schema;
 
 /** Thin MCP handlers over the typed REST DAO. */
@@ -109,39 +108,48 @@ final class AgentMcpReadTools
         return $this->api->changes($patient_id, $limit, $cursor, $resource_type, $updated_after, $watermark)->toArray();
     }
 
-    public function clinicalListHandler(string $resource): Closure
-    {
-        return function (
-            #[Schema(minimum: 1)] int $patient_id,
-            #[Schema(minimum: 1, maximum: 100)] int $limit = 25,
-            #[Schema(maxLength: 2048)] ?string $cursor = null,
-            #[Schema(format: 'date-time')] ?string $updated_after = null,
-            #[Schema(format: 'date-time')] ?string $updated_before = null,
-            #[Schema(maxLength: 100)] ?string $import_source = null,
-            #[Schema(minimum: 1)] ?int $source_document_id = null,
-            #[Schema(enum: ['include', 'exclude', 'only'])] ?string $archived = null,
-        ) use ($resource): array {
-            return $this->api->clinicalRecords(
-                $patient_id, $resource, $limit, $cursor, $updated_after,
-                $updated_before, $import_source, $source_document_id, $archived,
-            )->toArray();
-        };
+    /**
+     * One tool for every clinical type: the per-type tools differed only in
+     * the route segment, and repeating them multiplied tools/list by nine.
+     *
+     * @return array<string, mixed>
+     */
+    public function clinicalList(
+        string $resource_type,
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1, maximum: 100)] int $limit = 25,
+        #[Schema(maxLength: 2048)] ?string $cursor = null,
+        #[Schema(format: 'date-time')] ?string $updated_after = null,
+        #[Schema(format: 'date-time')] ?string $updated_before = null,
+        #[Schema(maxLength: 100, description: 'Not accepted for health-logs.')] ?string $import_source = null,
+        #[Schema(minimum: 1, description: 'Not accepted for health-logs.')] ?int $source_document_id = null,
+        #[Schema(enum: ['include', 'exclude', 'only'], description: 'Accepted only for health-logs.')] ?string $archived = null,
+    ): array {
+        return $this->api->clinicalRecords(
+            $patient_id, $resource_type, $limit, $cursor, $updated_after,
+            $updated_before, $import_source, $source_document_id, $archived,
+        )->toArray();
     }
 
-    public function clinicalGetHandler(string $resource): Closure
-    {
-        return fn (
-            #[Schema(minimum: 1)] int $patient_id,
-            #[Schema(minimum: 1)] int $record_id,
-        ): array => $this->api->clinicalRecord($patient_id, $resource, $record_id)->toArray();
+    /** @return array<string, mixed> */
+    public function clinicalGet(
+        string $resource_type,
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $record_id,
+    ): array {
+        return $this->api->clinicalRecord($patient_id, $resource_type, $record_id)->toArray();
     }
 
-    public function clinicalResolveHandler(string $resource): Closure
-    {
-        return fn (
-            #[Schema(minimum: 1)] int $patient_id,
-            #[Schema(type: 'array')] array $external_ids,
-        ): array => $this->api->resolveClinicalRecords($patient_id, $resource, array_values(array_map(
+    /**
+     * @param  array<array-key, mixed>  $external_ids
+     * @return array<string, mixed>
+     */
+    public function clinicalResolve(
+        string $resource_type,
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(type: 'array')] array $external_ids,
+    ): array {
+        return $this->api->resolveClinicalRecords($patient_id, $resource_type, array_values(array_map(
             static fn (mixed $externalId): string => (string) $externalId,
             $external_ids,
         )))->toArray();

@@ -179,24 +179,25 @@ final class AgentMcpToolCatalog
             ),
         ];
 
-        foreach (AgentClinicalResourceCatalog::ids() as $resource) {
-            $toolName = str_replace('-', '_', $resource);
-            $title = ucwords(str_replace('-', ' ', $resource));
-            $operations[] = $this->read(
-                "{$toolName}.list",
-                "List {$title}",
-                "List {$title} for an accessible patient through the versioned REST API.",
-                $reads->clinicalListHandler($resource),
-                respondsAs: 'clinical.list',
-            );
-            $operations[] = $this->read(
-                "{$toolName}.get",
-                "Get {$title}",
-                "Get one {$title} record for an accessible patient through the versioned REST API.",
-                $reads->clinicalGetHandler($resource),
-                respondsAs: 'clinical.get',
-            );
-        }
+        // Reads, resolution, and retraction take the clinical type as an
+        // argument, like the REST routes they mirror. Upsert and update stay
+        // per type because each carries that type's own data schema.
+        $operations[] = $this->read('clinical.list', 'List clinical records', 'List one clinical record type, chosen by resource_type, for an accessible patient.', [$reads, 'clinicalList']);
+        $operations[] = $this->read('clinical.get', 'Get clinical record', 'Get one clinical record of the given resource_type for an accessible patient.', [$reads, 'clinicalGet']);
+        $operations[] = $this->read(
+            AgentClinicalResourceCatalog::RESOLVE_OPERATION_ID,
+            'Resolve clinical records',
+            "Map a bounded batch of this connection's own external IDs onto record IDs and current versions for one resource_type. Returns no clinical content, so use it to decide what still needs writing before calling upsert.",
+            [$reads, 'clinicalResolve'],
+        );
+        $operations[] = $this->write(
+            AgentClinicalResourceCatalog::RETRACT_OPERATION_ID,
+            'Retract clinical record',
+            'Withdraw one clinical record this connection wrote, by its resource_type, record ID, and current version. Use this when the source is taking back a claim it made in error. A record simply missing from a newer export is NOT a reason to retract: institutions age data out past their own retention policies, so absence from a later import says nothing about whether the record was correct. Nothing is deleted and the external ID stays reserved.',
+            [$writes, 'clinicalRetract'],
+            $byVersion,
+            effect: Effect::Destructive,
+        );
 
         foreach (AgentClinicalResourceCatalog::writableIds() as $resource) {
             $title = ucwords(str_replace('-', ' ', $resource));
@@ -207,22 +208,6 @@ final class AgentMcpToolCatalog
                 $writes->clinicalUpsertHandler($resource),
                 new WriteSafety(idempotencyKey: IdempotencyKey::Argument, expectedVersion: true),
                 effect: Effect::Destructive,
-            );
-            $operations[] = $this->read(
-                AgentClinicalResourceCatalog::mcpResolveToolId($resource),
-                "Resolve {$title}",
-                "Map a bounded batch of this connection's own external IDs onto {$title} record IDs and current versions. Returns no clinical content, so use it to decide what still needs writing before calling upsert.",
-                $reads->clinicalResolveHandler($resource),
-                respondsAs: AgentClinicalResourceCatalog::RESOLVE_OPERATION_ID,
-            );
-            $operations[] = $this->write(
-                AgentClinicalResourceCatalog::mcpRetractToolId($resource),
-                "Retract {$title}",
-                "Withdraw one {$title} record this connection wrote, by its record ID and current version. Use this when the source is taking back a claim it made in error. A record simply missing from a newer export is NOT a reason to retract: institutions age data out past their own retention policies, so absence from a later import says nothing about whether the record was correct. Nothing is deleted and the external ID stays reserved.",
-                $writes->clinicalRetractHandler($resource),
-                $byVersion,
-                effect: Effect::Destructive,
-                respondsAs: AgentClinicalResourceCatalog::RETRACT_OPERATION_ID,
             );
             $operations[] = $this->write(
                 AgentClinicalResourceCatalog::mcpUpdateToolId($resource),
