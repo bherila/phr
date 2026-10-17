@@ -18,6 +18,7 @@
 /.vscode
 /.zed
 /auth.json
+/build
 /node_modules
 /playwright-report
 /public/build

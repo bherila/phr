@@ -1,0 +1,29 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "phr": {
+      "type": "streamable-http",
+      "url": "https://phr.bherila.net/api/v1/mcp",
+      "extensions": {
+        "com.openai": {
+          "auth": {
+            "type": "oauth",
+            "client": { "mode": "dcr" },
+            "resource": "https://phr.bherila.net/api/v1/mcp",
+            "defaultScopes": [
+              "mcp:use",
+              "identity:read",
+              "patients:read",
+              "clinical:read",
+              "clinical:write",
+              "documents:read",
+              "documents:write",
+              "imports:read",
+              "imports:write"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

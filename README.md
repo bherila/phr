@@ -157,6 +157,17 @@ prompt discovery is filtered to the connection's granted OAuth scopes, and every
 still enforces patient access through the underlying REST route. Because PHR content is
 health information, connect only a client and account you trust.
 
+### ChatGPT
+
+ChatGPT connects through a plugin package rather than a CLI command. Build it with
+`pnpm chatgpt-plugin`, which writes `build/phr-chatgpt-plugin.zip`, and upload that
+under Plugins in ChatGPT (developer mode, or a workspace admin on team plans). The
+package in [`integrations/chatgpt-plugin`](integrations/chatgpt-plugin) holds no server
+code: `mcp.json` points ChatGPT at the endpoint above with OAuth dynamic client
+registration and a narrower default scope set, and a skill teaches the safe
+read-before-write workflow. `tests/Feature/ChatGptPluginTest.php` fails if the skill
+names a tool or resource type the default scopes do not expose.
+
 ### Process imports with your own subscription
 
 In **AI Provider Settings**, choose **My subscription client** to keep document
@@ -195,6 +206,7 @@ deletion with durable artifact cleanup. The native archive format is documented 
 | `resources/views/phr` | Blade mounts and server-rendered PDF views |
 | `routes/api.php` | Session, device, OAuth API, and MCP routes |
 | `docs` | Format, conformance, and security design notes |
+| `integrations/chatgpt-plugin` | ChatGPT plugin package (manifest, MCP server reference, skill) |
 | `tests`, `tests-ts`, `tests/e2e` | Backend, frontend, and browser coverage |
 
 ## Running locally
