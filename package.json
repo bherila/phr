@@ -16,7 +16,8 @@
         "type-check": "tsc --noEmit --jsx react-jsx",
         "lint": "eslint . --cache",
         "lint:fix": "eslint . --fix",
-        "scan-sensitive": "node scripts/scan-sensitive.mjs"
+        "scan-sensitive": "node scripts/scan-sensitive.mjs",
+        "chatgpt-plugin": "bash scripts/build-chatgpt-plugin.sh"
     },
     "devDependencies": {
         "@eslint-react/eslint-plugin": "^5.26.1",

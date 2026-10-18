@@ -343,7 +343,7 @@
                 "openWorldHint": false
             },
             "description": "Idempotently create or update one Allergies record through the versioned REST API.",
-            "inputSchema": "sha256:760dd3a47056e7f8f3b51c421feae7676427fe0d32077a093b9defe74ecbc33f",
+            "inputSchema": "sha256:c45425f76214e46de38c458e7e02df21280004ef863ad2b92b218d6299ac2249",
             "name": "allergies.upsert",
             "outputSchema": "sha256:ecb072c0f7e054dfc22e477f63b04690e55f0c3654f46fc425ad67b059f2919e",
             "title": "Upsert Allergies"
@@ -473,7 +473,7 @@
                 "openWorldHint": false
             },
             "description": "Idempotently create or update one Conditions record through the versioned REST API.",
-            "inputSchema": "sha256:58687f8d9f7842bb321e36bf652d5c2ba55648837c8216d9f26101fd7c4fa347",
+            "inputSchema": "sha256:b0bbfe7017d88a36f25e935e07bd758515c888ada918437aeb4b8bffa4aef9d5",
             "name": "conditions.upsert",
             "outputSchema": "sha256:ecb072c0f7e054dfc22e477f63b04690e55f0c3654f46fc425ad67b059f2919e",
             "title": "Upsert Conditions"
@@ -564,7 +564,7 @@
                 "openWorldHint": false
             },
             "description": "Upload one small DICOM instance to an open session. For larger instances use the multipart REST endpoint; never put raw imaging in a chat response.",
-            "inputSchema": "sha256:fae74afe8c6d91095c3b933b627b1474cd0f506d380c9434b0eb2e14aeac8d25",
+            "inputSchema": "sha256:92c1c9cc3787ce397ee4f71fa7a27c8bda6fe58f6915a83345e3bb2af5358ae1",
             "name": "dicom_uploads.upload_file",
             "outputSchema": "sha256:56e99f0d09fc79cfb019fc593fc2e281e9941156716f1c65bdbd7ff412818f2c",
             "title": "Upload small DICOM file"
@@ -616,7 +616,7 @@
                 "openWorldHint": false
             },
             "description": "Idempotently upload a small document through the versioned REST API. Use the multipart REST endpoint for larger files.",
-            "inputSchema": "sha256:4ea297f85c97b6b56d6af8fc2fdb2d8be8e04edbe31924cb10425855467884c5",
+            "inputSchema": "sha256:c191587fdac812a56868863ce4a851dc848802e6fa6e7ffb652bc639553385a6",
             "name": "documents.upload",
             "outputSchema": "sha256:9857534f04df1313ffebc4606179d87e556f00ca34c4ec9f256d50f961ab8aa1",
             "title": "Upload document"
@@ -759,7 +759,7 @@
                 "openWorldHint": false
             },
             "description": "Idempotently append an entry to a patient health log.",
-            "inputSchema": "sha256:b85d870996d8028d86ab63d5ad568c9c9eb788950cf6259f62ef8ecc6563cdfb",
+            "inputSchema": "sha256:c36cfe93b8474f770ba1712697dc4c8f647bb0cc2ae96d01e4cf3aade9e43e60",
             "name": "health_log_entries.append",
             "outputSchema": "sha256:b7d9011fcdc793ad3edce1cdbb873736246a6f77d11d3843e5d73d2456351a0b",
             "title": "Append health log entry"
@@ -798,7 +798,7 @@
                 "openWorldHint": false
             },
             "description": "Idempotently create a patient health log through the versioned REST API.",
-            "inputSchema": "sha256:a5bf41be6ca8c8c9aa3dfb62f1ab752869f699f37339700ca574339d47928bb0",
+            "inputSchema": "sha256:0d0f16c1c5e4d6a76ada5870e479ad0997cee0638ee483056364c44d26654318",
             "name": "health_logs.create",
             "outputSchema": "sha256:cfb90c17edbb12069bb041d8e85a52dd3cee209b9acf3c9186b2ba7b2d5a0917",
             "title": "Create health log"
@@ -837,7 +837,7 @@
                 "openWorldHint": false
             },
             "description": "Idempotently create or update one Immunizations record through the versioned REST API.",
-            "inputSchema": "sha256:fbb7a6c9397cf3d6b28f1e77c5590e32b466099b60bd89e873fbecd7a978738e",
+            "inputSchema": "sha256:d67618dccf8325bb1886d3c1ddc078ec926beb5ef1dfa413afae8cc21cad812b",
             "name": "immunizations.upsert",
             "outputSchema": "sha256:ecb072c0f7e054dfc22e477f63b04690e55f0c3654f46fc425ad67b059f2919e",
             "title": "Upsert Immunizations"
@@ -928,7 +928,7 @@
                 "openWorldHint": false
             },
             "description": "Idempotently create or update one Lab Results record through the versioned REST API.",
-            "inputSchema": "sha256:f5c8fb0d2e051dacc0b2655b644cdcab9fe700e8e3e308f0f8306d5973c804b7",
+            "inputSchema": "sha256:6b6b3bb392c4c7a87d98980a8ce3b5217e5c8abcdf69121e6aaf24e4d0997e5c",
             "name": "lab_results.upsert",
             "outputSchema": "sha256:ecb072c0f7e054dfc22e477f63b04690e55f0c3654f46fc425ad67b059f2919e",
             "title": "Upsert Lab Results"
@@ -954,7 +954,7 @@
                 "openWorldHint": false
             },
             "description": "Idempotently create or update one Medications record through the versioned REST API.",
-            "inputSchema": "sha256:173b7325003de79df1c295750d6621e13cbb65cce1ba19b99d98904504e1e5b1",
+            "inputSchema": "sha256:18befbbbaa8a803eebc11e8e9f0faa40ce4d7d10f052cf5274ade2885aef3b83",
             "name": "medications.upsert",
             "outputSchema": "sha256:ecb072c0f7e054dfc22e477f63b04690e55f0c3654f46fc425ad67b059f2919e",
             "title": "Upsert Medications"
@@ -1019,7 +1019,7 @@
                 "openWorldHint": false
             },
             "description": "Idempotently create or update one Office Visits record through the versioned REST API.",
-            "inputSchema": "sha256:5ca4fd67be3f4c7fc14cfabd4f94358ba04067f4bd508c6726da841bf7a19118",
+            "inputSchema": "sha256:a570adb23527fb01a7dd0588a8988bacf381f77d7d9f6c824f4ea1f8fcf42622",
             "name": "office_visits.upsert",
             "outputSchema": "sha256:ecb072c0f7e054dfc22e477f63b04690e55f0c3654f46fc425ad67b059f2919e",
             "title": "Upsert Office Visits"
@@ -1032,7 +1032,7 @@
                 "openWorldHint": false
             },
             "description": "Create a new PHR patient owned by the authorized account and grant that account owner-level access to it. This is not idempotent and has no deduplication key: confirm with patients.list that the person is not already present before calling it, and never retry a call whose outcome is unknown without checking first.",
-            "inputSchema": "sha256:c6439b2582cb047a5e6e1ae820edc78879f81efd2558b27675f3ef981c8e2c29",
+            "inputSchema": "sha256:42ee6e59d850ace0f12f1b2a7f5f909f7e0db564dd06abb84e00269b400cb208",
             "name": "patients.create",
             "outputSchema": "sha256:005d0a7ff7b381e59f52f54fc07ea3ad8175352d5062a1f0f49141f8f218c294",
             "title": "Create patient"
@@ -1084,7 +1084,7 @@
                 "openWorldHint": false
             },
             "description": "Idempotently create or update one Procedures record through the versioned REST API.",
-            "inputSchema": "sha256:c772126b4e6dc69eba7a32f80963d39a8fd8020cdda1533813c5a4ef474d9ba5",
+            "inputSchema": "sha256:6a24066071f68e84373bf6d02ed8fa4535d907322d9ad9cfa16c3abd947c6c34",
             "name": "procedures.upsert",
             "outputSchema": "sha256:ecb072c0f7e054dfc22e477f63b04690e55f0c3654f46fc425ad67b059f2919e",
             "title": "Upsert Procedures"
@@ -1201,7 +1201,7 @@
                 "openWorldHint": false
             },
             "description": "Idempotently create or update one Vitals record through the versioned REST API.",
-            "inputSchema": "sha256:1c8f1f283f9e3daa4ed1d087be55d4344acb8cd2cb7e8c88ef118b984ed21819",
+            "inputSchema": "sha256:16ac04415698e52ba2a42c649bd82149f6ec4de1f8e634b5bd3ee50d6f357a18",
             "name": "vitals.upsert",
             "outputSchema": "sha256:ecb072c0f7e054dfc22e477f63b04690e55f0c3654f46fc425ad67b059f2919e",
             "title": "Upsert Vitals"

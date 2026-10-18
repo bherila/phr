@@ -1,0 +1,33 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "phr",
+  "version": "0.1.0",
+  "description": "Read and safely update your personal health records in PHR.",
+  "author": {
+    "name": "Ben Herila",
+    "url": "https://phr.bherila.net"
+  },
+  "homepage": "https://phr.bherila.net",
+  "extensions": {
+    "com.openai": {
+      "onboardingSkill": "./skills/phr-health-records/SKILL.md",
+      "interface": {
+        "displayName": "PHR",
+        "shortDescription": "Your personal health records",
+        "longDescription": "Search and read the patients, clinical records, documents, imaging studies, and imports you can access in PHR, and make version-checked updates that go to human review.",
+        "developerName": "Ben Herila",
+        "category": "Productivity",
+        "capabilities": [],
+        "websiteURL": "https://phr.bherila.net",
+        "defaultPrompt": [
+          "List the patients I can access in PHR",
+          "Show this patient's active medications and allergies",
+          "What imports are waiting for my review?"
+        ],
+        "brandColor": "#0F766E",
+        "logo": "./assets/logo.svg",
+        "composerIcon": "./assets/logo.svg"
+      }
+    }
+  }
+}
