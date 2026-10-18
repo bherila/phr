@@ -21,6 +21,14 @@ use Mcp\Server\RequestContext;
 /** Thin MCP mutation handlers over the typed REST write DAO. */
 final readonly class AgentMcpWriteTools
 {
+    /**
+     * Published to clients, so it must compile in every JSON Schema regex
+     * dialect: ChatGPT's tool discovery rejects \p{C}, which Python's re does
+     * not support. It refuses only C0/C1 controls; the REST form requests still
+     * enforce the full \p{C} rule on external IDs.
+     */
+    private const string NO_CONTROL_CHARACTERS = '^[^\\x00-\\x1F\\x7F-\\x9F]+$';
+
     public function __construct(
         private AgentApiWriteDao $api,
         private RequestArguments $requestArguments,
@@ -28,7 +36,7 @@ final readonly class AgentMcpWriteTools
 
     /** @return array<string, mixed> */
     public function patientsCreate(
-        #[Schema(minLength: 1, maxLength: 255, pattern: '^[^\\p{C}]+$')] string $display_name,
+        #[Schema(minLength: 1, maxLength: 255, pattern: self::NO_CONTROL_CHARACTERS)] string $display_name,
         #[Schema(maxLength: 50)] ?string $relationship = null,
         #[Schema(format: 'date')] ?string $birth_date = null,
         #[Schema(maxLength: 50)] ?string $sex_at_birth = null,
@@ -47,7 +55,7 @@ final readonly class AgentMcpWriteTools
     {
         return function (
             #[Schema(minimum: 1)] int $patient_id,
-            #[Schema(minLength: 1, maxLength: 255, pattern: '^[^\\p{C}]+$')] string $external_id,
+            #[Schema(minLength: 1, maxLength: 255, pattern: self::NO_CONTROL_CHARACTERS)] string $external_id,
             #[Schema(minimum: 1)] ?int $source_document_id,
             #[Schema(pattern: '^[a-f0-9]{64}$')] ?string $expected_version,
             #[Schema(type: 'object')] array $data,
@@ -112,8 +120,8 @@ final readonly class AgentMcpWriteTools
      */
     public function documentsUpload(
         #[Schema(minimum: 1)] int $patient_id,
-        #[Schema(minLength: 1, maxLength: 255, pattern: '^[^\\p{C}]+$')] string $external_id,
-        #[Schema(minLength: 1, maxLength: 255, pattern: '^[^\\p{C}]+$')] string $filename,
+        #[Schema(minLength: 1, maxLength: 255, pattern: self::NO_CONTROL_CHARACTERS)] string $external_id,
+        #[Schema(minLength: 1, maxLength: 255, pattern: self::NO_CONTROL_CHARACTERS)] string $filename,
         #[Schema(minLength: 4, maxLength: DocumentUploadData::MCP_MAX_BASE64_CHARACTERS, pattern: '^[A-Za-z0-9+/]*={0,2}$')] string $content_base64,
         string $document_type,
         #[Schema(maxLength: 255)] ?string $title = null,
@@ -151,7 +159,7 @@ final readonly class AgentMcpWriteTools
     public function dicomUploadsUploadFile(
         #[Schema(minimum: 1)] int $patient_id,
         #[Schema(minimum: 1)] int $upload_id,
-        #[Schema(minLength: 1, maxLength: 255, pattern: '^[^\\p{C}]+$')] string $filename,
+        #[Schema(minLength: 1, maxLength: 255, pattern: self::NO_CONTROL_CHARACTERS)] string $filename,
         #[Schema(minLength: 4, maxLength: DicomUploadFileData::MCP_MAX_BASE64_CHARACTERS, pattern: '^[A-Za-z0-9+/]*={0,2}$')] string $content_base64,
         #[Schema(maxLength: 1024)] ?string $relative_path = null,
     ): array {
@@ -248,7 +256,7 @@ final readonly class AgentMcpWriteTools
     /** @return array<string, mixed> */
     public function healthLogsCreate(
         #[Schema(minimum: 1)] int $patient_id,
-        #[Schema(minLength: 1, maxLength: 255, pattern: '^[^\\p{C}]+$')] string $external_id,
+        #[Schema(minLength: 1, maxLength: 255, pattern: self::NO_CONTROL_CHARACTERS)] string $external_id,
         #[Schema(minLength: 1, maxLength: 120)] string $name,
         string $kind,
         #[Schema(maxLength: 1000)] ?string $description = null,
@@ -271,7 +279,7 @@ final readonly class AgentMcpWriteTools
     public function healthLogEntriesAppend(
         #[Schema(minimum: 1)] int $patient_id,
         #[Schema(minimum: 1)] int $health_log_id,
-        #[Schema(minLength: 1, maxLength: 255, pattern: '^[^\\p{C}]+$')] string $external_id,
+        #[Schema(minLength: 1, maxLength: 255, pattern: self::NO_CONTROL_CHARACTERS)] string $external_id,
         #[Schema(format: 'date-time')] string $occurred_at,
         RequestContext $context,
         #[Schema(maxLength: 255)] ?string $title = null,

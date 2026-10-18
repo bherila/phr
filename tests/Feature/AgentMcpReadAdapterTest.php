@@ -660,6 +660,52 @@ final class AgentMcpReadAdapterTest extends TestCase
         }
     }
 
+    /**
+     * The published external_id pattern refuses only C0/C1 controls so that
+     * every client's regex engine can compile it; the REST rule behind the
+     * tool still refuses the rest of \p{C}, such as a zero-width space.
+     */
+    public function test_mcp_external_ids_still_refuse_every_control_and_format_character(): void
+    {
+        $actor = $this->user('mcp-external-id-controls@example.test');
+        $patient = $this->patient($actor, 'Synthetic MCP External ID Patient');
+        $client = Client::query()->create([
+            'name' => 'Synthetic MCP External ID Client',
+            'secret' => null,
+            'provider' => 'users',
+            'redirect_uris' => ['https://client.example.test/callback'],
+            'grant_types' => ['authorization_code', 'refresh_token'],
+            'revoked' => false,
+        ]);
+        Passport::actingAs($actor, [AgentApiScopes::MCP_USE, AgentApiScopes::CLINICAL_WRITE], 'api', $client);
+        $session = $this->initializeSession();
+
+        // A C0 control fails the published schema; format and private-use
+        // characters pass it and are refused by the REST rule instead.
+        $refusals = [
+            "tab\tseparated" => 'Invalid parameters',
+            "zero\u{200B}width" => 'external id',
+            "private\u{E000}use" => 'external id',
+        ];
+        $id = 2;
+        foreach ($refusals as $externalId => $reason) {
+            $response = $this->callTool($session, $id++, 'health_logs.create', [
+                'patient_id' => $patient->id, 'external_id' => $externalId, 'name' => 'Synthetic log', 'kind' => PhrHealthLog::KINDS[0],
+            ]);
+            $this->assertStringContainsStringIgnoringCase(
+                $reason,
+                json_encode($response['error'] ?? $response['result']['content'] ?? null, JSON_THROW_ON_ERROR),
+                json_encode([$externalId, $response], JSON_THROW_ON_ERROR),
+            );
+        }
+        $this->assertSame(0, PhrHealthLog::query()->count());
+
+        $response = $this->callTool($session, $id, 'health_logs.create', [
+            'patient_id' => $patient->id, 'external_id' => 'synthetic-log-é', 'name' => 'Synthetic log', 'kind' => PhrHealthLog::KINDS[0],
+        ]);
+        $this->assertFalse($response['result']['isError'] ?? true, json_encode($response, JSON_THROW_ON_ERROR));
+    }
+
     public function test_mcp_clinical_resolve_returns_an_empty_object_when_nothing_is_written_yet(): void
     {
         $actor = $this->user('mcp-resolve-empty@example.test');

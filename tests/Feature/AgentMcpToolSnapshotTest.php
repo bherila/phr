@@ -72,6 +72,7 @@ final class AgentMcpToolSnapshotTest extends TestCase
                 'tools' => array_keys($tools),
             ];
             foreach ($tools as $name => $definition) {
+                $definition = self::pin($definition);
                 if (isset($snapshot['tools'][$name])) {
                     $this->assertSame($snapshot['tools'][$name], $definition, "Tool {$name} must not vary by principal");
                 }
@@ -87,6 +88,59 @@ final class AgentMcpToolSnapshotTest extends TestCase
         }
         $this->assertFileExists(self::FIXTURE, 'Create the snapshot with UPDATE_MCP_SNAPSHOT=1.');
         $this->assertSame((string) file_get_contents(self::FIXTURE), $encoded);
+    }
+
+    /**
+     * Clients validate published schemas with their own regex engine, and
+     * ChatGPT fails discovery of the whole catalog on one pattern Python's re
+     * cannot compile. Unicode property escapes (\p, \P), \u escapes, named
+     * groups, and lookbehind are not shared by ECMA-262, Python, and PCRE.
+     */
+    public function test_every_published_pattern_uses_portable_regex_syntax(): void
+    {
+        Passport::actingAs(User::factory()->create(['user_role' => 'user']), AgentApiScopes::ids(), 'api', Client::query()->create([
+            'name' => 'Synthetic Pattern Client',
+            'secret' => null,
+            'provider' => 'users',
+            'redirect_uris' => ['https://client.example.test/callback'],
+            'grant_types' => ['authorization_code', 'refresh_token'],
+            'revoked' => false,
+        ]));
+        $patterns = [];
+        foreach ($this->listFor()[1] as $name => $tool) {
+            array_walk_recursive($tool, static function (mixed $value, int|string $key) use (&$patterns, $name): void {
+                if ($key === 'pattern' && is_string($value)) {
+                    $patterns[] = [$name, $value];
+                }
+            });
+            foreach (['inputSchema', 'outputSchema'] as $schema) {
+                self::collectPatternPropertyKeys($tool[$schema] ?? [], $name, $patterns);
+            }
+        }
+
+        $this->assertNotEmpty($patterns);
+        foreach ($patterns as [$name, $pattern]) {
+            $this->assertDoesNotMatchRegularExpression('/\\\\[pPuk]|\(\?<|\(\?P/', $pattern, "{$name} publishes a non-portable pattern.");
+            $this->assertNotFalse(@preg_match('/'.str_replace('/', '\/', $pattern).'/u', ''), "{$name}: {$pattern}");
+        }
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $schema
+     * @param  list<array{0: string, 1: string}>  $patterns
+     */
+    private static function collectPatternPropertyKeys(array $schema, string $name, array &$patterns): void
+    {
+        foreach ($schema as $key => $value) {
+            if ($key === 'patternProperties' && is_array($value)) {
+                foreach (array_keys($value) as $pattern) {
+                    $patterns[] = [$name, (string) $pattern];
+                }
+            }
+            if (is_array($value)) {
+                self::collectPatternPropertyKeys($value, $name, $patterns);
+            }
+        }
     }
 
     /**
@@ -128,7 +182,7 @@ final class AgentMcpToolSnapshotTest extends TestCase
                 'params' => $cursor === null ? new \stdClass : ['cursor' => $cursor],
             ], $headers)->assertOk()->json('result');
             foreach ($page['tools'] as $tool) {
-                $tools[$tool['name']] = self::pin($tool);
+                $tools[$tool['name']] = $tool;
             }
             $cursor = $page['nextCursor'] ?? null;
         } while ($cursor !== null);
