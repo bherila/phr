@@ -302,6 +302,17 @@ class EhiIntakeServiceTest extends TestCase
         $this->assertNoEhiRows();
     }
 
+    public function test_a_readme_named_table_is_still_patient_scoped(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        $other = "PAT_ID\tSYNTH_A\n".EhiSyntheticPackage::OTHER_PATIENT_KEY."\t1\n";
+
+        $this->assertRefused(EhiPackageRejected::MULTIPLE_PATIENTS, fn () => $this->ehiIntakeDirectory(EhiSyntheticPackage::standard()->with('README.tsv', $other), $patient, $owner->id, 'tsv'));
+        $this->assertRefused(EhiPackageRejected::MULTIPLE_PATIENTS, fn () => $this->ehiIntakeDirectory(EhiSyntheticPackage::standard()->with('docs/readme-tables.txt', $other), $patient, $owner->id, 'txt'));
+        $this->assertNoEhiRows();
+    }
+
     public function test_column_lists_too_large_for_a_backup_record_are_refused(): void
     {
         $owner = $this->createUser();

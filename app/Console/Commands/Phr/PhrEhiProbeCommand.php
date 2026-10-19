@@ -246,7 +246,9 @@ final class PhrEhiProbeCommand extends Command
                 // Pass 1: provisional dialect (no quoting).
                 $stream = $source->open($item['member']->entry);
                 try {
-                    $reader = new EhiTsvReader($stream, $none, $limits);
+                    // Bounded by the validated size, so a file growing in place
+                    // cannot make the probe read without end.
+                    $reader = new EhiTsvReader($stream, $none, $limits, $item['member']->entry->declaredBytes);
                     $state = $reader->state();
                     $states[$state]++;
                     if ($reader->headerProblem() !== null) {
@@ -295,6 +297,9 @@ final class PhrEhiProbeCommand extends Command
                             }
                         }
                     }
+                    if ($reader->overran()) {
+                        throw new EhiPackageRejected(EhiPackageRejected::SIZE_MISMATCH, 'a table member grew while it was probed');
+                    }
                     foreach ($reader->counters() as $key => $count) {
                         if (isset($totals[$key])) {
                             $totals[$key] += $count;
@@ -309,10 +314,13 @@ final class PhrEhiProbeCommand extends Command
                 // Pass 2: RFC 4180 quoting, to compare how the same bytes split.
                 $stream = $source->open($item['member']->entry);
                 try {
-                    $reader = new EhiTsvReader($stream, $rfc, $limits);
+                    $reader = new EhiTsvReader($stream, $rfc, $limits, $item['member']->entry->declaredBytes);
                     $rfcStates[$reader->state()]++;
                     foreach ($reader->rows() as $row) {
                         unset($row);
+                    }
+                    if ($reader->overran()) {
+                        throw new EhiPackageRejected(EhiPackageRejected::SIZE_MISMATCH, 'a table member grew while it was probed');
                     }
                     $counters = $reader->counters();
                     $rfcRecords += $counters['records'];

@@ -47,8 +47,8 @@ use Throwable;
  *
  * @phpstan-type Finding array{code: string, line: ?int, offset: ?int, column: ?string, detail: array<string, int|string|bool|null>|null}
  * @phpstan-type FindingList array{list: list<Finding>, omitted: int}
- * @phpstan-type Classified array{member: EhiValidatedMember, kind: string, table: ?string, unsupported_name: bool, first_line: ?string}
- * @phpstan-type MemberPlan array{member: EhiValidatedMember, kind: string, table: ?string, unsupported_name: bool, first_line: ?string, sha256: string, bytes: int}
+ * @phpstan-type Classified array{member: EhiValidatedMember, kind: string, table: ?string, unsupported_name: bool, table_shaped: bool, first_line: ?string}
+ * @phpstan-type MemberPlan array{member: EhiValidatedMember, kind: string, table: ?string, unsupported_name: bool, table_shaped: bool, first_line: ?string, sha256: string, bytes: int}
  * @phpstan-type AccountPlan array{path: string, table: string, state: string, header: ?list<string>, unknown: ?list<string>, missing: ?list<string>, rows: int, malformed: int, disposition: string}
  * @phpstan-type Plan array{members: list<MemberPlan>, accounts: list<AccountPlan>, missing: list<string>, findings: array<string, FindingList>, package_findings: list<Finding>, patient_key: string, dictionary: EhiDictionary, has_dictionary: bool}
  */
@@ -158,7 +158,7 @@ final class EhiIntakeService
             $line = in_array($extension, self::PEEK_EXTENSIONS, true) ? $this->firstLine($source, $member) : null;
             $firstLines[$member->path] = $line;
             $class = $this->classifier->classify($member->path, $line);
-            $classified[] = ['member' => $member, 'kind' => $class['kind'], 'table' => $class['table'], 'unsupported_name' => isset($class['unsupported_table_name']), 'first_line' => $line];
+            $classified[] = ['member' => $member, 'kind' => $class['kind'], 'table' => $class['table'], 'unsupported_name' => isset($class['unsupported_table_name']), 'table_shaped' => EhiMemberClassifier::isTableShaped($member->path, $line), 'first_line' => $line];
         }
 
         $detection = $this->detector->detect($members, static fn (EhiValidatedMember $member): ?string => $firstLines[$member->path] ?? null);
@@ -238,11 +238,12 @@ final class EhiIntakeService
             if ($member['kind'] === EhiMemberKind::UNKNOWN) {
                 $this->addFinding($findings, $path, $limits, $member['unsupported_name'] ? EhiFindingCode::UNSUPPORTED_TABLE_NAME : EhiFindingCode::UNKNOWN_MEMBER);
             }
-            if ($member['unsupported_name']) {
-                // Not accounted as a table, but still table-shaped: its rows are
-                // patient-scoped like any table's, so another patient's PAT_ID (or
-                // a blank or malformed one) refuses the package. Only that check
-                // is kept; its accounting and findings are discarded.
+            if ($member['table_shaped'] && $member['kind'] !== EhiMemberKind::TABLE) {
+                // Not accounted as a table (an unsupported name, a readme-like
+                // basename), but table-shaped: its rows are patient-scoped like any
+                // table's, so another patient's PAT_ID (or a blank or malformed
+                // one) refuses the package. Only that check is kept; its
+                // accounting and findings are discarded.
                 $scratch = [];
                 $this->accountTable($source, $member, $dictionary, $limits, $dialect, $scratch, $patientKey);
 
@@ -293,7 +294,9 @@ final class EhiIntakeService
         $table = (string) $member['table'];
         $stream = $source->open($member['member']->entry);
         try {
-            $reader = new EhiTsvReader($stream, $dialect, $limits);
+            // Bounded by the hashed size: a member growing in place is read at
+            // most one byte past it, and then fails the digest check below.
+            $reader = new EhiTsvReader($stream, $dialect, $limits, $member['bytes']);
             $state = $reader->state();
             $header = $reader->header();
             if ($reader->headerProblem() !== null) {

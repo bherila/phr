@@ -77,7 +77,7 @@ class PhrEhiCommandsTest extends TestCase
         PhrEhiBlob::query()->update(['verified_at' => now()->subDay()]);
         [$exit, $outputs[]] = $this->runCommand('phr:ehi:verify', ['--patient' => $patient->id, '--actor' => $owner->id, '--package' => $package->id]);
         self::assertSame(0, $exit);
-        self::assertStringContainsString("package {$package->id}: blobs 22, ok 22, missing 0, tampered 0", end($outputs));
+        self::assertStringContainsString("package {$package->id}: members 23 of 23, blobs 22, ok 22, missing 0, tampered 0", end($outputs));
         self::assertSame(22, PhrEhiBlob::query()->where('verified_at', '<', now()->subHour())->count(), 'verify is observational');
 
         foreach ($outputs as $output) {
@@ -183,8 +183,8 @@ class PhrEhiCommandsTest extends TestCase
         [$exit, $output] = $this->runCommand('phr:ehi:verify', ['--patient' => $patient->id, '--actor' => $viewer->id]);
 
         self::assertSame(1, $exit);
-        self::assertStringContainsString("package {$result->package->id}: blobs 22, ok 19, missing 1, tampered 2", $output);
-        self::assertStringContainsString('Verification failed: 3 blob(s) missing or tampered.', $output);
+        self::assertStringContainsString("package {$result->package->id}: members 23 of 23, blobs 22, ok 19, missing 1, tampered 2", $output);
+        self::assertStringContainsString('Verification failed: 3 blob(s) or member(s) missing or tampered.', $output);
         self::assertSame($before, PhrEhiBlob::query()->orderBy('id')->get()->map->getAttributes()->all(), 'verify is observational');
         $this->assertSafe($output, $this->ehiRoot);
 
@@ -197,8 +197,16 @@ class PhrEhiCommandsTest extends TestCase
 
         [$exit, $output] = $this->runCommand('phr:ehi:verify', ['--patient' => $patient->id, '--actor' => $viewer->id]);
         self::assertSame(0, $exit, $output);
-        self::assertStringContainsString("package {$result->package->id}: blobs 22, ok 22, missing 0, tampered 0", $output);
+        self::assertStringContainsString("package {$result->package->id}: members 23 of 23, blobs 22, ok 22, missing 0, tampered 0", $output);
         self::assertSame(1, PhrEhiPackage::query()->count());
+
+        // A blob row deleted outright takes its member row with it (the FK
+        // cascades); the manifest count still exposes the loss.
+        PhrEhiBlob::query()->whereKey($blobs[0]->id)->delete();
+        [$exit, $output] = $this->runCommand('phr:ehi:verify', ['--patient' => $patient->id, '--actor' => $viewer->id]);
+        self::assertSame(1, $exit, $output);
+        self::assertStringContainsString("package {$result->package->id}: members 22 of 23, blobs 21, ok 21, missing 0, tampered 0", $output);
+        self::assertStringContainsString('Verification failed: 1 blob(s) or member(s) missing or tampered.', $output);
     }
 
     /**

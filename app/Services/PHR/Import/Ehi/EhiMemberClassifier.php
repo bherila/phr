@@ -35,6 +35,18 @@ final class EhiMemberClassifier
         'dcm',
     ];
 
+    /**
+     * Shaped like a table whatever its kind: `.tsv`, or `.txt` whose first line
+     * has a tab. Intake patient-scopes every such member, including one kept as
+     * a readme or an unknown member, since any of them could hold PAT_ID rows.
+     */
+    public static function isTableShaped(string $normalizedPath, ?string $firstLine): bool
+    {
+        $extension = strtolower(pathinfo(basename(str_replace('\\', '/', $normalizedPath)), PATHINFO_EXTENSION));
+
+        return $extension === 'tsv' || ($extension === 'txt' && $firstLine !== null && str_contains($firstLine, "\t"));
+    }
+
     /** @return array{kind: string, table: ?string, unsupported_table_name?: true} */
     public function classify(string $normalizedPath, ?string $firstLine): array
     {

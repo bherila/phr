@@ -94,10 +94,14 @@ final class EhiTsvReader
     /** sha256 over every byte read from the stream, in order. */
     private HashContext $hash;
 
+    /** The stream held more than maxBytes: at most maxBytes + 1 bytes were read. */
+    private bool $overran = false;
+
     /**
      * @param  resource  $stream  readable stream positioned at the member start
+     * @param  int|null  $maxBytes  the member's known size: never read more than one byte past it
      */
-    public function __construct($stream, private readonly EhiDialect $dialect, private readonly EhiLimits $limits)
+    public function __construct($stream, private readonly EhiDialect $dialect, private readonly EhiLimits $limits, private readonly ?int $maxBytes = null)
     {
         if (! is_resource($stream)) {
             throw new InvalidArgumentException('EHI table reader requires a readable stream.');
@@ -166,17 +170,27 @@ final class EhiTsvReader
     public function digest(): array
     {
         while (! $this->eof) {
-            $chunk = fread($this->stream, self::CHUNK_BYTES);
+            $want = $this->readSize();
+            $chunk = $want === 0 ? '' : fread($this->stream, $want);
             if ($chunk === false || $chunk === '') {
                 $this->eof = true;
 
                 break;
             }
-            $this->counters['bytes'] += strlen($chunk);
-            hash_update($this->hash, $chunk);
+            $this->account($chunk);
         }
 
         return ['sha256' => hash_final(hash_copy($this->hash)), 'bytes' => $this->counters['bytes']];
+    }
+
+    /**
+     * Whether the stream held more bytes than maxBytes (a member that grew after
+     * it was measured). Reading stopped one byte past the bound, so callers must
+     * treat what was read as incomplete.
+     */
+    public function overran(): bool
+    {
+        return $this->overran;
     }
 
     public function hasBom(): bool
@@ -570,15 +584,34 @@ final class EhiTsvReader
             $this->pos = 0;
         }
 
-        $chunk = fread($this->stream, self::CHUNK_BYTES);
+        $want = $this->readSize();
+        $chunk = $want === 0 ? '' : fread($this->stream, $want);
         if ($chunk === false || $chunk === '') {
             $this->eof = true;
         } else {
             $this->buffer .= $chunk;
-            $this->counters['bytes'] += strlen($chunk);
-            hash_update($this->hash, $chunk);
+            $this->account($chunk);
         }
 
         return $shift;
+    }
+
+    /** Bytes to request next: a chunk, but never more than one byte past maxBytes. */
+    private function readSize(): int
+    {
+        if ($this->maxBytes === null) {
+            return self::CHUNK_BYTES;
+        }
+
+        return max(0, min(self::CHUNK_BYTES, $this->maxBytes + 1 - $this->counters['bytes']));
+    }
+
+    private function account(string $chunk): void
+    {
+        $this->counters['bytes'] += strlen($chunk);
+        hash_update($this->hash, $chunk);
+        if ($this->maxBytes !== null && $this->counters['bytes'] > $this->maxBytes) {
+            $this->overran = true;
+        }
     }
 }

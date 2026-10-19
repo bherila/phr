@@ -55,6 +55,21 @@ class EhiTsvReaderTest extends TestCase
         }
     }
 
+    public function test_reads_stop_one_byte_past_a_known_size(): void
+    {
+        $bytes = "A\tB\n".str_repeat("1\t2\n", 50000);
+        $exact = new EhiTsvReader($this->stream($bytes), EhiDialect::provisional(), $this->limits(), strlen($bytes));
+        iterator_to_array($exact->rows(), false);
+        self::assertFalse($exact->overran());
+        self::assertSame(['sha256' => hash('sha256', $bytes), 'bytes' => strlen($bytes)], $exact->digest());
+
+        // The member grew after it was measured: never read beyond bound + 1.
+        $grown = new EhiTsvReader($this->stream($bytes), EhiDialect::provisional(), $this->limits(), 1000);
+        iterator_to_array($grown->rows(), false);
+        self::assertTrue($grown->overran());
+        self::assertSame(1001, $grown->digest()['bytes']);
+    }
+
     public function test_digest_covers_every_byte_read_or_not(): void
     {
         $bytes = "A\tB\n1\t2\n".str_repeat("3\t4\n", 40000);
