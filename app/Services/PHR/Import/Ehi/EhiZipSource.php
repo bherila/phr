@@ -23,6 +23,9 @@ final class EhiZipSource implements EhiPackageSource
 
     private ?ZipArchive $zip;
 
+    /** @var resource|null the container ZipArchive opened, held for hashing */
+    private $handle;
+
     /** @var list<EhiEntry>|null */
     private ?array $entries = null;
 
@@ -31,11 +34,30 @@ final class EhiZipSource implements EhiPackageSource
 
     public function __construct(private readonly string $path)
     {
-        $zip = new ZipArchive;
-        if (! is_file($path) || $zip->open($path, ZipArchive::RDONLY) !== true) {
+        $handle = is_file($path) ? @fopen($path, 'rb') : false;
+        if (! is_resource($handle)) {
             throw new EhiPackageRejected(EhiPackageRejected::UNREADABLE, 'EHI package archive is not a readable ZIP.');
         }
+        $zip = new ZipArchive;
+        if ($zip->open($path, ZipArchive::RDONLY) !== true) {
+            fclose($handle);
+
+            throw new EhiPackageRejected(EhiPackageRejected::UNREADABLE, 'EHI package archive is not a readable ZIP.');
+        }
+        // ZipArchive opens by path. The held handle is hashed for the archive
+        // metadata, so the path must still name that same file once ZipArchive
+        // has it open; a swapped path would describe another container.
+        clearstatcache(true, $path);
+        $held = fstat($handle);
+        $named = @stat($path);
+        if ($held === false || $named === false || $held['dev'] !== $named['dev'] || $held['ino'] !== $named['ino']) {
+            $zip->close();
+            fclose($handle);
+
+            throw new EhiPackageRejected(EhiPackageRejected::UNREADABLE, 'EHI package archive changed while it was being opened.');
+        }
         $this->zip = $zip;
+        $this->handle = $handle;
     }
 
     public function kind(): string
@@ -116,14 +138,16 @@ final class EhiZipSource implements EhiPackageSource
         if ($this->original !== null) {
             return $this->original;
         }
+        $stream = $this->handle;
+        if (! is_resource($stream)) {
+            throw new EhiPackageRejected(EhiPackageRejected::UNREADABLE, 'EHI package archive could not be re-read.');
+        }
         $maxBytes = $limits->maxContainerBytes();
-        $size = @filesize($this->path);
-        if ($size !== false && $size > $maxBytes) {
+        $stat = fstat($stream);
+        if ($stat !== false && $stat['size'] > $maxBytes) {
             throw new EhiPackageRejected(EhiPackageRejected::PACKAGE_TOO_LARGE, 'EHI package archive is larger than any package within the intake limits.');
         }
-
-        $stream = @fopen($this->path, 'rb');
-        if (! is_resource($stream)) {
+        if (! rewind($stream)) {
             throw new EhiPackageRejected(EhiPackageRejected::UNREADABLE, 'EHI package archive could not be re-read.');
         }
         try {
@@ -143,6 +167,7 @@ final class EhiZipSource implements EhiPackageSource
             }
         } finally {
             fclose($stream);
+            $this->handle = null;
         }
 
         return $this->original = ['sha256' => hash_final($hash), 'bytes' => $bytes];
@@ -154,6 +179,10 @@ final class EhiZipSource implements EhiPackageSource
             $this->zip->close();
             $this->zip = null;
         }
+        if (is_resource($this->handle)) {
+            fclose($this->handle);
+        }
+        $this->handle = null;
         $this->entries = null;
     }
 

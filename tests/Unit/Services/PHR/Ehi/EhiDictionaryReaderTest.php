@@ -2,7 +2,9 @@
 
 namespace Tests\Unit\Services\PHR\Ehi;
 
+use App\Services\PHR\Import\Ehi\EhiDictionary;
 use App\Services\PHR\Import\Ehi\EhiDictionaryReader;
+use App\Services\PHR\Import\Ehi\EhiDictionaryTable;
 use PHPUnit\Framework\TestCase;
 
 class EhiDictionaryReaderTest extends TestCase
@@ -25,6 +27,20 @@ class EhiDictionaryReaderTest extends TestCase
         self::assertSame(['ORDER_PROC_ID', 'ORD_DATE_REAL', 'LINE'], $table->primaryKey);
         self::assertSame(1, $dictionary->primaryKeyMarkers);
         self::assertSame(1, $dictionary->primaryKeyTableCount());
+    }
+
+    public function test_table_lookup_falls_back_to_one_ascii_case_fold(): void
+    {
+        $patient = new EhiDictionaryTable('Patient', [['name' => 'PAT_ID', 'type' => 'VARCHAR']], ['PAT_ID']);
+        $dictionary = new EhiDictionary([$patient], 'test');
+
+        self::assertSame($patient, $dictionary->table('Patient'));
+        self::assertSame($patient, $dictionary->table('PATIENT'), 'a mixed-case heading documents PATIENT.tsv');
+        self::assertNull($dictionary->table('PAT_ENC'));
+
+        $ambiguous = new EhiDictionary([$patient, new EhiDictionaryTable('PATIENT', [['name' => 'PAT_ID', 'type' => null]], [])], 'test');
+        self::assertSame('PATIENT', $ambiguous->table('PATIENT')?->name, 'an exact name still wins');
+        self::assertNull($ambiguous->table('patient'), 'two names that fold together match neither');
     }
 
     public function test_primary_key_ordinals_order_the_key(): void

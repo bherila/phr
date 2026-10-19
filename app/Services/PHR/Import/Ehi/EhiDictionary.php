@@ -11,6 +11,9 @@ final readonly class EhiDictionary
     /** @var array<string, EhiDictionaryTable> keyed and sorted by table name (byte order) */
     public array $tables;
 
+    /** @var array<string, string|false> ASCII-upper-cased name => exact name, or false when two names fold together */
+    private array $folded;
+
     /**
      * @param  array<string, EhiDictionaryTable>|list<EhiDictionaryTable>  $tables
      */
@@ -36,6 +39,12 @@ final readonly class EhiDictionary
         }
         ksort($byName, SORT_STRING);
         $this->tables = $byName;
+        $folded = [];
+        foreach (array_keys($byName) as $name) {
+            $key = strtoupper((string) $name);
+            $folded[$key] = isset($folded[$key]) ? false : (string) $name;
+        }
+        $this->folded = $folded;
     }
 
     public function isEmpty(): bool
@@ -43,9 +52,19 @@ final readonly class EhiDictionary
         return $this->tables === [];
     }
 
+    /**
+     * The exact name first; otherwise the one table whose name equals it under
+     * ASCII case folding (headings like "Table: Patient" document PATIENT.tsv).
+     * Two documented names that fold together are ambiguous and match neither.
+     */
     public function table(string $name): ?EhiDictionaryTable
     {
-        return $this->tables[$name] ?? null;
+        if (isset($this->tables[$name])) {
+            return $this->tables[$name];
+        }
+        $exact = $this->folded[strtoupper($name)] ?? false;
+
+        return $exact === false ? null : $this->tables[$exact];
     }
 
     public function columnCount(): int

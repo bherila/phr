@@ -70,6 +70,14 @@ final class EhiIntakeService
      */
     public const string REJECT_PATIENT_KEY_CHANGED = 'source_patient_key_changed';
 
+    /**
+     * A table's header, unknown, and missing column lists together are too large
+     * for one native backup record (a quarter of the restore reader's record
+     * limit, leaving room for escaping), so its account could be backed up but
+     * never restored.
+     */
+    public const string REJECT_ACCOUNT_COLUMNS_TOO_LARGE = 'account_columns_too_large';
+
     /** The source patient key is longer than a package or source can record. */
     public const string REJECT_PATIENT_KEY_TOO_LONG = 'source_patient_key_too_long';
 
@@ -230,6 +238,16 @@ final class EhiIntakeService
             if ($member['kind'] === EhiMemberKind::UNKNOWN) {
                 $this->addFinding($findings, $path, $limits, $member['unsupported_name'] ? EhiFindingCode::UNSUPPORTED_TABLE_NAME : EhiFindingCode::UNKNOWN_MEMBER);
             }
+            if ($member['unsupported_name']) {
+                // Not accounted as a table, but still table-shaped: its rows are
+                // patient-scoped like any table's, so another patient's PAT_ID (or
+                // a blank or malformed one) refuses the package. Only that check
+                // is kept; its accounting and findings are discarded.
+                $scratch = [];
+                $this->accountTable($source, $member, $dictionary, $limits, $dialect, $scratch, $patientKey);
+
+                continue;
+            }
             if ($member['kind'] !== EhiMemberKind::TABLE || $member['table'] === null) {
                 continue;
             }
@@ -285,7 +303,7 @@ final class EhiIntakeService
             $unknown = null;
             $missing = null;
             if ($header !== null && ! $dictionary->isEmpty()) {
-                $documented = $dictionary->table($table) ?? $dictionary->table(strtoupper($table));
+                $documented = $dictionary->table($table);
                 if ($documented === null) {
                     $this->addFinding($findings, $path, $limits, EhiFindingCode::UNKNOWN_TABLE);
                 } else {
@@ -301,6 +319,11 @@ final class EhiIntakeService
                     }
                     $missing = array_values(array_diff($documented->columnNames(), $header));
                 }
+            }
+
+            $columnsBytes = strlen(json_encode([$header, $unknown, $missing], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+            if ($columnsBytes > intdiv((int) config('phr.native_restore_max_record_bytes'), 4)) {
+                throw new EhiPackageRejected(self::REJECT_ACCOUNT_COLUMNS_TOO_LARGE, sprintf('EHI package refused (%s): a table\'s column lists are too large for a native backup record.', self::REJECT_ACCOUNT_COLUMNS_TOO_LARGE));
             }
 
             $keyIndex = $header === null ? false : array_search(self::PATIENT_KEY_COLUMN, $header, true);
@@ -402,13 +425,17 @@ final class EhiIntakeService
                 ->lockForUpdate()
                 ->first();
 
+            // A member row lost with its blob row (the FK cascades) leaves the
+            // manifest incomplete: preservation is resumed and re-creates it.
+            $complete = $package !== null
+                && PhrEhiPackageMember::query()->where('package_id', $package->id)->count() === count($plan['members']);
             if ($package !== null
                 && $package->preservation_status === PhrEhiPackage::PRESERVATION_PRESERVED
                 && $package->accounting_status === PhrEhiPackage::ACCOUNTING_ACCOUNTED) {
-                // Accounted under the current rules: a replay. Under any other
-                // dialect, classifier, detector, dictionary reader, or scope
-                // registry version, accounting is redone (a resume below).
-                if ($this->sameVersions($package->checkpoint_json['versions'] ?? null, $this->versions($dialect))) {
+                // Complete and accounted under the current rules: a replay. Under
+                // any other dialect, classifier, detector, dictionary reader, or
+                // scope registry version, accounting is redone (a resume below).
+                if ($complete && $this->sameVersions($package->checkpoint_json['versions'] ?? null, $this->versions($dialect))) {
                     $package->forceFill(['intake_count' => $package->intake_count + 1, 'last_intake_at' => $now])->save();
 
                     return [$package, 'replayed'];
@@ -427,7 +454,7 @@ final class EhiIntakeService
                 'failure_category' => null,
             ];
             if ($package !== null) {
-                $preserved = $package->preservation_status === PhrEhiPackage::PRESERVATION_PRESERVED;
+                $preserved = $complete && $package->preservation_status === PhrEhiPackage::PRESERVATION_PRESERVED;
                 $package->forceFill([
                     ...$lease,
                     'intake_count' => $package->intake_count + 1,

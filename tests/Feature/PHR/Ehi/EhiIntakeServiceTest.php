@@ -290,6 +290,49 @@ class EhiIntakeServiceTest extends TestCase
         $this->assertNoEhiRows();
     }
 
+    public function test_an_unsupported_name_table_is_still_patient_scoped(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        $foreign = EhiSyntheticPackage::standard()->with("Caf\u{00E9}.tsv", "PAT_ID\tSYNTH_A\n".EhiSyntheticPackage::OTHER_PATIENT_KEY."\t1\n");
+        $blank = EhiSyntheticPackage::standard()->with("Caf\u{00E9}.tsv", "PAT_ID\tSYNTH_A\n\t1\n");
+
+        $this->assertRefused(EhiPackageRejected::MULTIPLE_PATIENTS, fn () => $this->ehiIntakeDirectory($foreign, $patient, $owner->id, 'foreign'));
+        $this->assertRefused(EhiIntakeService::REJECT_UNSCOPED_PATIENT_ROW, fn () => $this->ehiIntakeDirectory($blank, $patient, $owner->id, 'blank'));
+        $this->assertNoEhiRows();
+    }
+
+    public function test_column_lists_too_large_for_a_backup_record_are_refused(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        // A quarter of this record limit is smaller than the standard PATIENT
+        // header plus its unknown and missing columns.
+        config(['phr.native_restore_max_record_bytes' => 256]);
+
+        $this->assertRefused(EhiIntakeService::REJECT_ACCOUNT_COLUMNS_TOO_LARGE, fn () => $this->ehiIntakeDirectory(EhiSyntheticPackage::standard(), $patient, $owner->id));
+        $this->assertNoEhiRows();
+    }
+
+    public function test_a_member_row_lost_with_its_blob_row_is_recreated_not_replayed_over(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        $package = $this->ehiIntakeDirectory(EhiSyntheticPackage::standard(), $patient, $owner->id)->package;
+        $blob = PhrEhiBlob::query()->where('sha256', hash('sha256', EhiSyntheticPackage::standard()->files['PAT_ENC.tsv']))->sole();
+        $blob->delete();
+        self::assertSame(EhiSyntheticPackage::MEMBERS - 1, PhrEhiPackageMember::query()->where('package_id', $package->id)->count(), 'the member row cascades');
+
+        $again = $this->ehiIntakeDirectory(EhiSyntheticPackage::standard(), $patient, $owner->id);
+
+        self::assertFalse($again->replayed);
+        self::assertTrue($again->resumed);
+        self::assertSame(PhrEhiPackage::PRESERVATION_PRESERVED, $again->package->preservation_status);
+        self::assertSame(EhiSyntheticPackage::MEMBERS, PhrEhiPackageMember::query()->where('package_id', $package->id)->count());
+        self::assertSame(EhiSyntheticPackage::DISTINCT_BLOBS, PhrEhiBlob::query()->count());
+        self::assertTrue($this->ehiIntakeDirectory(EhiSyntheticPackage::standard(), $patient, $owner->id)->replayed);
+    }
+
     public function test_a_first_line_that_differs_from_the_hashed_bytes_is_refused(): void
     {
         $owner = $this->createUser();

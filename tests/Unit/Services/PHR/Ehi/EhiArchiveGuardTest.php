@@ -191,6 +191,19 @@ class EhiArchiveGuardTest extends TestCase
         }
     }
 
+    public function test_the_container_hash_describes_the_zip_that_was_opened(): void
+    {
+        $path = $this->writeZip('opened.zip', ['first.tsv' => "A\n"]);
+        $opened = hash_file('sha256', $path);
+        $source = new EhiZipSource($path);
+        // The path is atomically replaced after the source opened it.
+        $other = $this->writeZip('other.zip', ['second.tsv' => "B\n"]);
+        self::assertTrue(rename($other, $path));
+
+        self::assertSame($opened, $source->originalArchive($this->limits())['sha256']);
+        $source->close();
+    }
+
     public function test_duplicate_zip_names_are_refused(): void
     {
         $path = $this->writeZip('dup.zip', ['first.tsv' => "A\n", 'other.tsv' => "B\n"]);
