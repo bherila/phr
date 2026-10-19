@@ -145,12 +145,12 @@ class EhiIntakeServiceTest extends TestCase
         ], $result->summary->findingsByCode);
         $malformed = PhrEhiFinding::query()->where('code', EhiFindingCode::MALFORMED_ROW)->sole();
         self::assertSame(4, $malformed->line_number);
-        self::assertSame($accounts['PAT_ENC']->member_id, $malformed->member_id);
+        self::assertSame($accounts['PAT_ENC']->member_id, $malformed->member_id); // sensitive-scan-ignore: package member FK, not an insurance member id
         self::assertSame(['code' => 'field_count_mismatch', 'expected_fields' => 3, 'actual_fields' => 2], $malformed->detail_json);
         $column = PhrEhiFinding::query()->where('code', EhiFindingCode::UNKNOWN_COLUMN)->sole();
         self::assertSame('SYNTH_EXTRA_COL', $column->column_name);
         $unknownTable = PhrEhiFinding::query()->where('code', EhiFindingCode::UNKNOWN_TABLE)->sole();
-        self::assertSame($accounts[EhiSyntheticPackage::MARKER]->member_id, $unknownTable->member_id);
+        self::assertSame($accounts[EhiSyntheticPackage::MARKER]->member_id, $unknownTable->member_id); // sensitive-scan-ignore: package member FK, not an insurance member id
 
         // Findings never carry a cell value.
         foreach (PhrEhiFinding::query()->get() as $finding) {

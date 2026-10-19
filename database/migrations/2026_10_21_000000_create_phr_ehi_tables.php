@@ -113,7 +113,7 @@ return new class extends Migration
             $table->foreignId('patient_id')->constrained('phr_patients')->cascadeOnDelete();
             $table->foreignId('package_id')->constrained('phr_ehi_packages')->cascadeOnDelete();
             // Null when the dictionary declares a table the package does not supply.
-            $table->foreignId('member_id')->nullable()->constrained('phr_ehi_package_members')->cascadeOnDelete();
+            $table->foreignId('member_id')->nullable()->constrained('phr_ehi_package_members')->cascadeOnDelete(); // sensitive-scan-ignore: package member FK, not an insurance member id
             $table->string('table_name', 128);
             $table->string('state', 32);
             $table->json('header_columns_json')->nullable();
@@ -134,7 +134,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('patient_id')->constrained('phr_patients')->cascadeOnDelete();
             $table->foreignId('package_id')->constrained('phr_ehi_packages')->cascadeOnDelete();
-            $table->foreignId('member_id')->nullable()->constrained('phr_ehi_package_members')->cascadeOnDelete();
+            $table->foreignId('member_id')->nullable()->constrained('phr_ehi_package_members')->cascadeOnDelete(); // sensitive-scan-ignore: package member FK, not an insurance member id
             $table->string('code', 64);
             $table->string('severity', 16);
             $table->unsignedInteger('line_number')->nullable();
