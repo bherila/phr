@@ -67,15 +67,24 @@ final class PhrNativeRestorePlanner
                 }
             }
             $actorIds[$ownerNativeId] = $actorUserId;
+            $archived = [];
+            foreach (PhrNativeBackupCatalog::included() as $table => $definition) {
+                foreach ($archive->records($table) as $record) {
+                    $archived[$table][(string) $record['nativeId']] = true;
+                }
+            }
             try {
                 foreach ($this->snapshotService->rows($targetPatientId, $lockCurrentRows) as $table => $rows) {
                     $definition = PhrNativeBackupCatalog::included()[$table];
                     foreach ($rows as $row) {
-                        // Records created after the archive have no v1 identity yet
-                        // and are outside this restore's conflict set. They remain
-                        // untouched. A mapped current record still fails closed if
-                        // one of its own relationships has lost identity metadata.
-                        if (! isset($identitiesByRecordId[$table][(int) $row->id])) {
+                        // Records the archive does not contain (created after it,
+                        // whether or not they have an identity yet: patients,
+                        // documents and EOBs get theirs when written) are outside
+                        // this restore's conflict set. They remain untouched. A
+                        // mapped current record still fails closed if one of its
+                        // own relationships has lost identity metadata.
+                        $nativeId = $identitiesByRecordId[$table][(int) $row->id] ?? null;
+                        if ($nativeId === null || ! isset($archived[$table][$nativeId])) {
                             continue;
                         }
                         $projected = $this->projector->project($targetPatientId, $table, $definition, $row, $identitiesByRecordId);

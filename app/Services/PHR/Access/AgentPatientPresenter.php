@@ -4,13 +4,20 @@ namespace App\Services\PHR\Access;
 
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
+use App\Services\PHR\Identity\PhrPublicIds;
 
 final class AgentPatientPresenter
 {
-    public function __construct(private PhrPatientAccessService $accessService) {}
+    public function __construct(
+        private PhrPatientAccessService $accessService,
+        private PhrPublicIds $publicIds,
+    ) {}
 
-    /** @return array<string, mixed> */
-    public function payload(PhrPatient $patient, int $userId, bool $includeNotes = false): array
+    /**
+     * @param  string|null  $publicId  the patient's public id when the caller already read it in bulk
+     * @return array<string, mixed>
+     */
+    public function payload(PhrPatient $patient, int $userId, bool $includeNotes = false, ?string $publicId = null): array
     {
         $isOwner = (int) $patient->owner_user_id === $userId;
         $grant = $isOwner
@@ -21,6 +28,7 @@ final class AgentPatientPresenter
 
         $payload = [
             'id' => $patient->id,
+            'public_id' => $publicId ?? $this->publicIds->forPatient((int) $patient->id),
             'display_name' => $patient->display_name,
             'relationship' => $patient->relationship,
             'birth_date' => $patient->birth_date?->toDateString(),

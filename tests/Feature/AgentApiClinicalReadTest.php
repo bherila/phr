@@ -272,10 +272,13 @@ class AgentApiClinicalReadTest extends TestCase
             ['table' => 'phr_patients', 'record_id' => $patient->id],
             ['table' => 'phr_office_visits', 'record_id' => $visit->id],
         ] as $identity) {
-            PhrNativeRecordIdentity::query()->create([
+            // The patient already has its identity (its public id) from when it
+            // was written; a restore updates such a row in place.
+            PhrNativeRecordIdentity::query()->updateOrCreate([
                 'patient_id' => $patient->id,
                 'record_table' => $identity['table'],
                 'record_id' => $identity['record_id'],
+            ], [
                 'native_id' => (string) Str::uuid(),
                 // A graph commit is visible just before the finalizer publishes
                 // its timestamp. This sentinel must behave as newly restored.

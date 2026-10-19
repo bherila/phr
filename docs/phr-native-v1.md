@@ -27,6 +27,13 @@ two real rows. Database IDs are not portable and must not be exposed. Persisting
 opaque UUID avoids all three failures: it survives edits and re-backups, and the
 test-only reader recreates the mapping beside a restored row whose database ID changed.
 
+For patients, documents and EOBs the identity is also the record's agent-API
+`public_id`, so it is created when the record is written (or, for a row written
+without model events, the first time the API returns it) rather than at the first
+backup, and it is unique per record type across the installation. A restore preview
+compares only the rows the archive contains: a record written after the archive keeps
+its own identity and stays outside the restore's conflict set.
+
 ## Deliberate boundaries
 
 - Soft-deleted documents are included with `deleted_at` and any source bytes preserved.

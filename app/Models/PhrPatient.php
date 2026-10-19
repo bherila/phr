@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\HasPublicId;
 use App\Traits\SerializesDatesAsLocal;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
@@ -36,6 +37,7 @@ use Illuminate\Support\Carbon;
  */
 class PhrPatient extends Model
 {
+    use HasPublicId;
     use SerializesDatesAsLocal;
 
     protected $fillable = [

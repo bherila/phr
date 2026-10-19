@@ -6062,6 +6062,8 @@
                 "required": [
                     "id",
                     "patient_id",
+                    "public_id",
+                    "patient_public_id",
                     "title",
                     "document_type",
                     "observed_at",
@@ -6085,6 +6087,12 @@
                     },
                     "patient_id": {
                         "type": "integer"
+                    },
+                    "public_id": {
+                        "$ref": "#/components/schemas/PublicId"
+                    },
+                    "patient_public_id": {
+                        "$ref": "#/components/schemas/PublicId"
                     },
                     "title": {
                         "type": [
@@ -6349,12 +6357,20 @@
                 "type": "object",
                 "required": [
                     "document_id",
+                    "patient_public_id",
+                    "document_public_id",
                     "expires_at",
                     "download_url"
                 ],
                 "properties": {
                     "document_id": {
                         "type": "integer"
+                    },
+                    "patient_public_id": {
+                        "$ref": "#/components/schemas/PublicId"
+                    },
+                    "document_public_id": {
+                        "$ref": "#/components/schemas/PublicId"
                     },
                     "expires_at": {
                         "type": "string",
@@ -6373,7 +6389,10 @@
                 "required": [
                     "id",
                     "patient_id",
+                    "public_id",
+                    "patient_public_id",
                     "source_document_id",
+                    "source_document_public_id",
                     "import_source",
                     "external_id",
                     "claim_type",
@@ -6388,11 +6407,24 @@
                     "patient_id": {
                         "type": "integer"
                     },
+                    "public_id": {
+                        "$ref": "#/components/schemas/PublicId"
+                    },
+                    "patient_public_id": {
+                        "$ref": "#/components/schemas/PublicId"
+                    },
                     "source_document_id": {
                         "type": [
                             "integer",
                             "null"
                         ]
+                    },
+                    "source_document_public_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
                     },
                     "import_source": {
                         "type": "string"
@@ -8812,6 +8844,7 @@
                 "type": "object",
                 "required": [
                     "id",
+                    "public_id",
                     "display_name",
                     "relationship",
                     "birth_date",
@@ -8824,6 +8857,9 @@
                 "properties": {
                     "id": {
                         "type": "integer"
+                    },
+                    "public_id": {
+                        "$ref": "#/components/schemas/PublicId"
                     },
                     "display_name": {
                         "type": [
@@ -9095,6 +9131,11 @@
                     }
                 ],
                 "unevaluatedProperties": false
+            },
+            "PublicId": {
+                "type": "string",
+                "format": "uuid",
+                "description": "Opaque public id, unique per record type across this installation and unchanged by a native restore, which renumbers integer ids. Refer to a record by the pair (patient public id, record public id); integer ids are routing locators only."
             },
             "ReconciliationApplyRequest": {
                 "type": "object",

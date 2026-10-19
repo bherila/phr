@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\GenAiProcessor\Models\GenAiImportJob;
+use App\Traits\HasPublicId;
 use App\Traits\SerializesDatesAsLocal;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
@@ -41,6 +42,7 @@ use Illuminate\Support\Carbon;
  */
 class PhrDocument extends Model
 {
+    use HasPublicId;
     use SerializesDatesAsLocal;
     use SoftDeletes;
 

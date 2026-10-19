@@ -9,6 +9,7 @@ use App\Http\Requests\AgentApi\StoreAgentDocumentRequest;
 use App\Models\PhrDocument;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\Documents\PhrDocumentUploadService;
+use App\Services\PHR\Identity\PhrPublicIds;
 use App\Support\AgentApi\AgentApiClientIdentity;
 use App\Support\AgentApi\AgentApiCursor;
 use App\Support\AgentApi\AgentApiExternalId;
@@ -29,6 +30,7 @@ final class AgentDocumentController extends Controller
     public function __construct(
         private PhrPatientAccessService $accessService,
         private PhrDocumentUploadService $documentUploads,
+        private PhrPublicIds $publicIds,
     ) {}
 
     public function index(Request $request, int $patient): JsonResponse
@@ -81,9 +83,14 @@ final class AgentDocumentController extends Controller
             AgentApiCursor::decode(isset($validated['cursor']) ? (string) $validated['cursor'] : null),
         );
 
+        $publicIds = $this->publicIds->forRecords($patientId, PhrPublicIds::DOCUMENTS, $page->getCollection()->pluck('id'));
+        $patientPublicId = $this->publicIds->forPatient($patientId);
+
         return response()->json([
             'resource_type' => 'document', 'patient_id' => $patientId,
-            'data' => $page->getCollection()->map(fn (PhrDocument $document): array => $this->payload($document))->values(),
+            'data' => $page->getCollection()
+                ->map(fn (PhrDocument $document): array => $this->payload($document, $publicIds[(int) $document->id], $patientPublicId))
+                ->values(),
             'pagination' => ['limit' => $limit, 'has_more' => $page->hasMorePages(), 'next_cursor' => $page->nextCursor()?->encode()],
         ]);
     }
@@ -134,6 +141,11 @@ final class AgentDocumentController extends Controller
 
         return response()->json([
             'document_id' => $resolved->id,
+            // The stable reference to what this locator resolved to, so a caller
+            // holding integer ids from before a restore can confirm they still
+            // name the same patient and document before trusting the bytes.
+            'patient_public_id' => $this->publicIds->forPatient((int) $resolved->patient_id),
+            'document_public_id' => $this->publicIds->assign($resolved),
             'expires_at' => $expiresAt->toIso8601String(),
             // The signed URL is deliberately not a bearer URL. The file route
             // still requires an OAuth token with documents:read, so either
@@ -224,10 +236,12 @@ final class AgentDocumentController extends Controller
     }
 
     /** @return array<string, mixed> */
-    private function payload(PhrDocument $document): array
+    private function payload(PhrDocument $document, ?string $publicId = null, ?string $patientPublicId = null): array
     {
         return [
             'id' => $document->id, 'patient_id' => $document->patient_id,
+            'public_id' => $publicId ?? $this->publicIds->assign($document),
+            'patient_public_id' => $patientPublicId ?? $this->publicIds->forPatient((int) $document->patient_id),
             'title' => $document->title, 'document_type' => $document->document_type,
             'observed_at' => $document->observed_at?->toIso8601String(),
             'original_filename' => $document->original_filename,

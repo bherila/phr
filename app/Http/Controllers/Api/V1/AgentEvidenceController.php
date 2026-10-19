@@ -9,6 +9,7 @@ use App\Models\PhrEobLine;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrProcedure;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Services\PHR\Identity\PhrPublicIds;
 use App\Support\AgentApi\AgentApiCursor;
 use App\Support\AgentApi\AgentApiExternalId;
 use App\Support\AgentApi\AgentApiScopes;
@@ -16,6 +17,7 @@ use App\Support\AgentApi\AgentApiUpdateWindow;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use App\Support\AgentApi\AgentEvidenceCursor;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -27,7 +29,17 @@ final class AgentEvidenceController extends Controller
 {
     private const array LINKABLE_TYPES = ['document', 'eob', 'office-visit', 'procedure'];
 
-    public function __construct(private PhrPatientAccessService $accessService) {}
+    /**
+     * Public ids read in bulk for the page being serialized: [table][record id].
+     *
+     * @var array<string, array<int, string>>
+     */
+    private array $publicIdCache = [];
+
+    public function __construct(
+        private PhrPatientAccessService $accessService,
+        private PhrPublicIds $publicIds,
+    ) {}
 
     public function eobs(Request $request, int $patient): JsonResponse
     {
@@ -48,7 +60,11 @@ final class AgentEvidenceController extends Controller
             $query->whereRaw("{$eobDate} <= ?", [Carbon::parse((string) $validated['date_to'])->toDateString()]);
         }
 
-        return $this->modelPage($request, $patientId, 'eob', $query, $validated, fn (PhrEob $eob): array => $this->eobPayload($eob));
+        return $this->modelPage(
+            $request, $patientId, 'eob', $query, $validated,
+            fn (PhrEob $eob): array => $this->eobPayload($eob),
+            fn (Collection $eobs) => $this->primeEobPublicIds($patientId, $eobs),
+        );
     }
 
     public function eob(Request $request, int $patient, int $eob): JsonResponse
@@ -149,8 +165,9 @@ final class AgentEvidenceController extends Controller
      * @param  Builder<TModel>  $query
      * @param  array<string, mixed>  $validated
      * @param  callable(TModel): array<string, mixed>  $serializer
+     * @param  (callable(Collection<int, TModel>): mixed)|null  $prime  reads what the page's serializer needs in bulk
      */
-    private function modelPage(Request $request, int $patientId, string $type, Builder $query, array $validated, callable $serializer): JsonResponse
+    private function modelPage(Request $request, int $patientId, string $type, Builder $query, array $validated, callable $serializer, ?callable $prime = null): JsonResponse
     {
         $limit = (int) ($validated['limit'] ?? 25);
         $page = $query->orderBy('id')->cursorPaginate(
@@ -159,6 +176,9 @@ final class AgentEvidenceController extends Controller
             'cursor',
             AgentApiCursor::decode(isset($validated['cursor']) ? (string) $validated['cursor'] : null),
         );
+        if ($prime !== null) {
+            $prime($page->getCollection());
+        }
 
         return response()->json([
             'resource_type' => $type,
@@ -172,12 +192,38 @@ final class AgentEvidenceController extends Controller
         ]);
     }
 
+    /** @param  Collection<int, PhrEob>  $eobs */
+    private function primeEobPublicIds(int $patientId, Collection $eobs): void
+    {
+        $this->publicIdCache[PhrPublicIds::PATIENTS][$patientId] = $this->publicIds->forPatient($patientId);
+        $this->publicIdCache[PhrPublicIds::EOBS] = $this->publicIds->forRecords($patientId, PhrPublicIds::EOBS, $eobs->pluck('id'));
+        $this->publicIdCache[PhrPublicIds::DOCUMENTS] = $this->publicIds->forRecords($patientId, PhrPublicIds::DOCUMENTS, $eobs->pluck('source_document_id'));
+    }
+
+    private function publicId(int $patientId, string $table, ?int $recordId): ?string
+    {
+        if ($recordId === null) {
+            return null;
+        }
+
+        if (! array_key_exists($recordId, $this->publicIdCache[$table] ?? [])) {
+            $this->publicIdCache[$table][$recordId] = $this->publicIds->forRecords($patientId, $table, [$recordId])[$recordId] ?? null;
+        }
+
+        return $this->publicIdCache[$table][$recordId];
+    }
+
     /** @return array<string, mixed> */
     private function eobPayload(PhrEob $eob): array
     {
+        $patientId = (int) $eob->patient_id;
+
         return [
             'id' => $eob->id, 'patient_id' => $eob->patient_id,
+            'public_id' => $this->publicId($patientId, PhrPublicIds::EOBS, (int) $eob->id),
+            'patient_public_id' => $this->publicId($patientId, PhrPublicIds::PATIENTS, $patientId),
             'source_document_id' => $eob->source_document_id,
+            'source_document_public_id' => $this->publicId($patientId, PhrPublicIds::DOCUMENTS, $eob->source_document_id),
             'import_source' => $eob->import_source,
             'external_id' => AgentApiExternalId::withoutDocumentHash($eob->external_id),
             'claim_number' => $eob->claim_number, 'claim_type' => $eob->claim_type,

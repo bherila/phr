@@ -8,6 +8,7 @@ use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Services\PHR\Access\AgentPatientPresenter;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Services\PHR\Identity\PhrPublicIds;
 use App\Support\AgentApi\AgentApiCursor;
 use App\Support\AgentApi\AgentApiUpdateWindow;
 use Illuminate\Database\Eloquent\Relations\Relation;
@@ -21,6 +22,7 @@ final class AgentPatientController extends Controller
     public function __construct(
         private PhrPatientAccessService $accessService,
         private AgentPatientPresenter $presenter,
+        private PhrPublicIds $publicIds,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -45,9 +47,11 @@ final class AgentPatientController extends Controller
             ->orderBy('id')
             ->cursorPaginate($limit, ['*'], 'cursor', AgentApiCursor::decode($this->encodedCursor($validated)));
 
+        $publicIds = $this->publicIds->forPatients($page->getCollection()->pluck('id'));
+
         return response()->json([
             'data' => $page->getCollection()
-                ->map(fn (PhrPatient $patient): array => $this->presenter->payload($patient, $userId))
+                ->map(fn (PhrPatient $patient): array => $this->presenter->payload($patient, $userId, publicId: $publicIds[(int) $patient->id]))
                 ->values(),
             'pagination' => [
                 'limit' => $limit,
