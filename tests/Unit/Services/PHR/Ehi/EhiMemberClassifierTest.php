@@ -14,7 +14,7 @@ class EhiMemberClassifierTest extends TestCase
         $cases = [
             ['Tables/PAT_ENC.tsv', "PAT_ID\tPAT_ENC_CSN_ID", EhiMemberKind::TABLE, 'PAT_ENC'],
             ['Tables/order_results.TSV', null, EhiMemberKind::TABLE, 'order_results'],
-            ['Tables/Synthetic Mixed.tsv', null, EhiMemberKind::TABLE, 'Synthetic Mixed'],
+            ['Tables/Synthetic_Mixed9.tsv', null, EhiMemberKind::TABLE, 'Synthetic_Mixed9'],
             ['PATIENT.txt', "PAT_ID\tPAT_MRN_ID", EhiMemberKind::TABLE, 'PATIENT'],
             ['notes.txt', 'plain prose without tabs', EhiMemberKind::UNKNOWN, null],
             ['notes.txt', null, EhiMemberKind::UNKNOWN, null],
@@ -38,5 +38,28 @@ class EhiMemberClassifierTest extends TestCase
         foreach ($cases as [$path, $firstLine, $kind, $table]) {
             self::assertSame(['kind' => $kind, 'table' => $table], $classifier->classify($path, $firstLine), $path);
         }
+    }
+
+    public function test_table_names_must_be_ascii_identifiers(): void
+    {
+        $classifier = new EhiMemberClassifier;
+        $unsupported = ['kind' => EhiMemberKind::UNKNOWN, 'table' => null, 'unsupported_table_name' => true];
+        foreach ([
+            "Tables/Caf\u{e9}.tsv",
+            'Tables/Synthetic Mixed.tsv',
+            'Tables/SYNTH-TABLE.tsv',
+            'Tables/1PATIENT.tsv',
+            'Tables/_PATIENT.tsv',
+            'Tables/PAT$ENC.tsv',
+            'Tables/'.str_repeat('A', 129).'.tsv',
+            "Tables/PATIENT\n.tsv",
+        ] as $path) {
+            self::assertSame($unsupported, $classifier->classify($path, null), $path);
+        }
+        self::assertSame($unsupported, $classifier->classify("Tables/Caf\u{e9}.txt", "PAT_ID\tX"));
+
+        $longest = str_repeat('A', 128);
+        self::assertSame(['kind' => EhiMemberKind::TABLE, 'table' => $longest], $classifier->classify("Tables/{$longest}.tsv", null));
+        self::assertSame(['kind' => EhiMemberKind::TABLE, 'table' => 'CAFE'], $classifier->classify('Tables/CAFE.tsv', null));
     }
 }

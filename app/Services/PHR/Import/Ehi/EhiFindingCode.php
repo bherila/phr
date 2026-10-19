@@ -23,7 +23,7 @@ final class EhiFindingCode
     /** A header column the dictionary does not document for that table. */
     public const string UNKNOWN_COLUMN = 'unknown_column';
 
-    /** A table member with no usable header; its rows cannot be counted. */
+    /** A table member with no usable header; each later record is a header_unusable malformed_row. */
     public const string MALFORMED_HEADER = 'malformed_header';
 
     /** A data record the dialect rejects; detail.code is an EhiTsvMalformedRow code. */
@@ -31,6 +31,12 @@ final class EhiFindingCode
 
     /** A member classified as neither table, documentation, note, nor media. */
     public const string UNKNOWN_MEMBER = 'unknown_member';
+
+    /**
+     * A `.tsv`-shaped member whose name is not an ASCII identifier, so it is kept
+     * as an unknown member rather than accounted as a table. Never names it.
+     */
+    public const string UNSUPPORTED_TABLE_NAME = 'unsupported_table_name';
 
     /** Further findings for one member were dropped; detail.omitted counts them. */
     public const string FINDINGS_TRUNCATED = 'findings_truncated';
@@ -43,6 +49,7 @@ final class EhiFindingCode
         self::MALFORMED_HEADER => PhrEhiFinding::SEVERITY_ERROR,
         self::MALFORMED_ROW => PhrEhiFinding::SEVERITY_WARNING,
         self::UNKNOWN_MEMBER => PhrEhiFinding::SEVERITY_INFO,
+        self::UNSUPPORTED_TABLE_NAME => PhrEhiFinding::SEVERITY_WARNING,
         self::FINDINGS_TRUNCATED => PhrEhiFinding::SEVERITY_INFO,
     ];
 
@@ -54,6 +61,7 @@ final class EhiFindingCode
         self::MALFORMED_HEADER,
         self::MALFORMED_ROW,
         self::UNKNOWN_MEMBER,
+        self::UNSUPPORTED_TABLE_NAME,
         self::FINDINGS_TRUNCATED,
     ];
 }

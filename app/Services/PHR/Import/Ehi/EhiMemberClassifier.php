@@ -5,10 +5,13 @@ namespace App\Services\PHR\Import\Ehi;
 /**
  * Pure, provisional member classification by normalized path and first line.
  *
- * Rules (VERSION ehi-classify-1; bump on any change):
+ * Rules (VERSION ehi-classify-2; bump on any change):
  * - readme-like basename (readme, read_me, read-me, about, notice), any extension → readme
  * - `.tsv`, or `.txt` whose first line contains a tab → table; the table name is
- *   the basename without its extension, exactly as supplied (never invented)
+ *   the basename without its extension, exactly as supplied (never invented);
+ *   a basename that is not an ASCII identifier (TABLE_NAME) → unknown, flagged
+ *   `unsupported_table_name`, since a database collation could merge it with
+ *   another table name that PHP compares as distinct
  * - `.htm`/`.html` → dictionary when the name or first line looks like table
  *   documentation (an upper-case identifier basename; else, unless the name says
  *   index/contents/toc, dictionary/schema/table wording in the name or
@@ -19,7 +22,10 @@ namespace App\Services\PHR\Import\Ehi;
  */
 final class EhiMemberClassifier
 {
-    public const string VERSION = 'ehi-classify-1';
+    public const string VERSION = 'ehi-classify-2';
+
+    /** `\z`, not `$`: a trailing newline must not pass. */
+    public const string TABLE_NAME = '/^[A-Za-z][A-Za-z0-9_]{0,127}\z/';
 
     private const array MEDIA_EXTENSIONS = [
         'png', 'jpg', 'jpeg', 'gif', 'bmp', 'tif', 'tiff', 'webp', 'heic', 'heif', 'avif', 'svg',
@@ -29,7 +35,7 @@ final class EhiMemberClassifier
         'dcm',
     ];
 
-    /** @return array{kind: string, table: ?string} */
+    /** @return array{kind: string, table: ?string, unsupported_table_name?: true} */
     public function classify(string $normalizedPath, ?string $firstLine): array
     {
         $basename = basename(str_replace('\\', '/', $normalizedPath));
@@ -41,7 +47,11 @@ final class EhiMemberClassifier
             return ['kind' => EhiMemberKind::README, 'table' => null];
         }
         if ($extension === 'tsv' || ($extension === 'txt' && $firstLine !== null && str_contains($firstLine, "\t"))) {
-            return ['kind' => EhiMemberKind::TABLE, 'table' => $stem === '' ? null : $stem];
+            if (preg_match(self::TABLE_NAME, $stem) !== 1) {
+                return ['kind' => EhiMemberKind::UNKNOWN, 'table' => null, 'unsupported_table_name' => true];
+            }
+
+            return ['kind' => EhiMemberKind::TABLE, 'table' => $stem];
         }
         if ($extension === 'htm' || $extension === 'html') {
             return ['kind' => $this->looksLikeDictionary($stem, $firstLine) ? EhiMemberKind::DICTIONARY : EhiMemberKind::INDEX, 'table' => null];

@@ -35,19 +35,72 @@ class EhiTsvReaderTest extends TestCase
     public function test_undecodable_header_is_malformed(): void
     {
         $cases = [
-            "A\xFF\tB\n1\t2\n" => EhiTsvMalformedRow::INVALID_ENCODING,
-            "\n1\n" => EhiTsvReader::HEADER_EMPTY_COLUMN,
-            "A\t\tB\n" => EhiTsvReader::HEADER_EMPTY_COLUMN,
-            "A\tA\n" => EhiTsvReader::HEADER_DUPLICATE_COLUMN,
-            EhiTsvReader::BOM => EhiTsvReader::HEADER_EMPTY_COLUMN,
+            "A\xFF\tB\n1\t2\n" => [EhiTsvMalformedRow::INVALID_ENCODING, 1],
+            "\n1\n" => [EhiTsvReader::HEADER_EMPTY_COLUMN, 1],
+            "A\t\tB\n" => [EhiTsvReader::HEADER_EMPTY_COLUMN, 0],
+            "A\tA\n" => [EhiTsvReader::HEADER_DUPLICATE_COLUMN, 0],
+            EhiTsvReader::BOM => [EhiTsvReader::HEADER_EMPTY_COLUMN, 0],
         ];
-        foreach ($cases as $bytes => $problem) {
+        foreach ($cases as $bytes => [$problem, $records]) {
             $reader = $this->reader((string) $bytes);
             self::assertSame(PhrEhiTableAccount::STATE_MALFORMED, $reader->state());
             self::assertSame($problem, $reader->headerProblem());
             self::assertNull($reader->header());
-            self::assertSame([], iterator_to_array($reader->rows()));
+            $rows = iterator_to_array($reader->rows(), false);
+            self::assertCount($records, $rows);
+            foreach ($rows as $row) {
+                self::assertInstanceOf(EhiTsvMalformedRow::class, $row);
+                self::assertSame(EhiTsvMalformedRow::HEADER_UNUSABLE, $row->code);
+            }
         }
+    }
+
+    public function test_records_after_an_unusable_header_are_drained_and_counted(): void
+    {
+        $bytes = "PAT_ID\tPAT_ID\n1\t2\n".str_repeat('z', 200)."\n\n\"open\t3\r\nlast";
+        $reader = $this->reader($bytes, limits: $this->limits(rowBytes: 64, valueBytes: 8));
+
+        self::assertSame(PhrEhiTableAccount::STATE_MALFORMED, $reader->state());
+        self::assertSame(EhiTsvReader::HEADER_DUPLICATE_COLUMN, $reader->headerProblem());
+        $rows = iterator_to_array($reader->rows(), false);
+
+        // Every physical record is yielded, oversized ones included, none split.
+        self::assertSame([2, 3, 4, 5, 6], array_map(fn (EhiTsvMalformedRow $row): int => $row->lineNumber, $rows));
+        self::assertSame(strpos($bytes, '"open'), $rows[3]->byteOffset);
+        foreach ($rows as $row) {
+            self::assertSame(EhiTsvMalformedRow::HEADER_UNUSABLE, $row->code);
+            self::assertNull($row->expectedFields);
+        }
+        $counters = $reader->counters();
+        self::assertSame(5, $counters['records']);
+        self::assertSame(5, $counters['malformed_header_unusable']);
+        self::assertSame(0, $counters['malformed_row_too_large']);
+        self::assertSame(strlen($bytes), $counters['bytes']);
+        self::assertSame(0, $counters['empty_cells']);
+    }
+
+    public function test_drained_oversized_records_are_not_buffered(): void
+    {
+        $stream = $this->stream("A\tA\n".str_repeat('z', 3 * 1024 * 1024)."\nok\n");
+        $before = memory_get_usage();
+        $reader = new EhiTsvReader($stream, EhiDialect::provisional(), $this->limits(rowBytes: 1024, valueBytes: 1024));
+        $rows = iterator_to_array($reader->rows(), false);
+
+        self::assertCount(2, $rows);
+        self::assertSame(3, $rows[1]->lineNumber);
+        self::assertLessThan(1024 * 1024, memory_get_usage() - $before);
+    }
+
+    public function test_declares_column_even_when_the_header_is_unusable(): void
+    {
+        self::assertTrue($this->reader("PAT_ID\tX\n")->declaresColumn('PAT_ID'));
+        self::assertFalse($this->reader("IMMUNE_ID\tX\n")->declaresColumn('PAT_ID'));
+        self::assertTrue($this->reader("PAT_ID\tPAT_ID\n1\t2\n")->declaresColumn('PAT_ID'));
+        self::assertTrue($this->reader("PAT_ID\t\tX\n")->declaresColumn('PAT_ID'));
+        self::assertFalse($this->reader("A\tA\n")->declaresColumn('PAT_ID'));
+        self::assertFalse($this->reader('')->declaresColumn('PAT_ID'));
+        self::assertNull($this->reader("PAT_ID\t\xFF\n1\t2\n")->declaresColumn('PAT_ID'), 'an undecodable header cannot say');
+        self::assertNull($this->reader(str_repeat('P', 100)."\n", limits: $this->limits(rowBytes: 16))->declaresColumn('PAT_ID'));
     }
 
     public function test_bom_is_stripped_from_the_header_only(): void

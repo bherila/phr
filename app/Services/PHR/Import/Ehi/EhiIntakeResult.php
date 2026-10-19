@@ -13,5 +13,7 @@ final readonly class EhiIntakeResult
         /** An earlier, incomplete intake of the same package was continued. */
         public bool $resumed,
         public EhiPackageSummary $summary,
+        /** Missing or damaged stored objects of existing blobs republished from the source bytes. */
+        public int $repaired = 0,
     ) {}
 }

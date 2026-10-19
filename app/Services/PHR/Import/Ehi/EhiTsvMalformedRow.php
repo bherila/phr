@@ -20,6 +20,9 @@ final readonly class EhiTsvMalformedRow
 
     public const string STRAY_QUOTE = 'stray_quote';
 
+    /** Any record after a header that could not be used; it cannot be split into columns. */
+    public const string HEADER_UNUSABLE = 'header_unusable';
+
     public const array CODES = [
         self::FIELD_COUNT_MISMATCH,
         self::INVALID_ENCODING,
@@ -27,6 +30,7 @@ final readonly class EhiTsvMalformedRow
         self::VALUE_TOO_LARGE,
         self::UNTERMINATED_QUOTE,
         self::STRAY_QUOTE,
+        self::HEADER_UNUSABLE,
     ];
 
     public function __construct(

@@ -55,6 +55,7 @@ class PhrEhiIntakeCommand extends BaseEhiCommand
 
         $this->line('replayed: '.($result->replayed ? 'yes' : 'no'));
         $this->line('resumed: '.($result->resumed ? 'yes' : 'no'));
+        $this->line("repaired: {$result->repaired}");
         $this->linePackage($result->package, $result->summary);
 
         return self::SUCCESS;

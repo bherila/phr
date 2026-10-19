@@ -46,6 +46,7 @@ class PhrEhiCommandsTest extends TestCase
             "package: {$package->id}",
             'replayed: no',
             'resumed: no',
+            'repaired: 0',
             'preservation: preserved',
             'accounting: accounted',
             'clinical: not_started',
@@ -77,7 +78,7 @@ class PhrEhiCommandsTest extends TestCase
         [$exit, $outputs[]] = $this->runCommand('phr:ehi:verify', ['--patient' => $patient->id, '--actor' => $owner->id, '--package' => $package->id]);
         self::assertSame(0, $exit);
         self::assertStringContainsString("package {$package->id}: blobs 22, ok 22, missing 0, tampered 0", end($outputs));
-        self::assertSame(0, PhrEhiBlob::query()->where('verified_at', '<', now()->subHour())->count());
+        self::assertSame(22, PhrEhiBlob::query()->where('verified_at', '<', now()->subHour())->count(), 'verify is observational');
 
         foreach ($outputs as $output) {
             $this->assertSafe($output, $dir);
@@ -162,25 +163,42 @@ class PhrEhiCommandsTest extends TestCase
         self::assertStringContainsString('No EHI packages.', $output);
     }
 
-    public function test_verify_reports_missing_and_tampered_blobs(): void
+    public function test_verify_reports_missing_and_tampered_blobs_and_intake_repairs_them(): void
     {
         $owner = $this->createUser();
+        $viewer = $this->createUser();
         $patient = $this->ehiPatient($owner);
-        $result = $this->ehiIntakeDirectory(EhiSyntheticPackage::standard(), $patient, $owner->id);
+        PhrPatientUserAccess::query()->create(['patient_id' => $patient->id, 'user_id' => $viewer->id, 'access_level' => PhrPatientUserAccess::LEVEL_VIEWER, 'granted_by_user_id' => $owner->id, 'granted_at' => now()]);
+        $synthetic = EhiSyntheticPackage::standard();
+        $result = $this->ehiIntakeDirectory($synthetic, $patient, $owner->id);
         $disk = Storage::disk((string) config('phr.ehi_disk'));
         $blobs = PhrEhiBlob::query()->where('byte_size', '>', 5)->orderBy('id')->get();
         $disk->delete($blobs[0]->storage_path);
         $disk->put($blobs[1]->storage_path, $this->flipFirstByte((string) $disk->get($blobs[1]->storage_path)));
         $disk->put($blobs[2]->storage_path, 'short');
         PhrEhiBlob::query()->update(['verified_at' => null]);
+        $before = PhrEhiBlob::query()->orderBy('id')->get()->map->getAttributes()->all();
 
-        [$exit, $output] = $this->runCommand('phr:ehi:verify', ['--patient' => $patient->id, '--actor' => $owner->id]);
+        // Read access is enough to verify, and verifying writes nothing.
+        [$exit, $output] = $this->runCommand('phr:ehi:verify', ['--patient' => $patient->id, '--actor' => $viewer->id]);
 
         self::assertSame(1, $exit);
         self::assertStringContainsString("package {$result->package->id}: blobs 22, ok 19, missing 1, tampered 2", $output);
         self::assertStringContainsString('Verification failed: 3 blob(s) missing or tampered.', $output);
-        self::assertSame(19, PhrEhiBlob::query()->whereNotNull('verified_at')->count(), 'only intact blobs are marked verified');
+        self::assertSame($before, PhrEhiBlob::query()->orderBy('id')->get()->map->getAttributes()->all(), 'verify is observational');
         $this->assertSafe($output, $this->ehiRoot);
+
+        // Re-intake of the same package is the repair path.
+        [$exit, $intake] = $this->runCommand('phr:ehi:intake', ['--patient' => $patient->id, '--actor' => $owner->id, '--dir' => $this->ehiDirectory($synthetic, 'again')]);
+        self::assertSame(0, $exit, $intake);
+        self::assertStringContainsString('replayed: yes', $intake);
+        self::assertStringContainsString('repaired: 3', $intake);
+        $this->assertSafe($intake, $this->ehiRoot);
+
+        [$exit, $output] = $this->runCommand('phr:ehi:verify', ['--patient' => $patient->id, '--actor' => $viewer->id]);
+        self::assertSame(0, $exit, $output);
+        self::assertStringContainsString("package {$result->package->id}: blobs 22, ok 22, missing 0, tampered 0", $output);
+        self::assertSame(1, PhrEhiPackage::query()->count());
     }
 
     /**

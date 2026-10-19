@@ -8,7 +8,10 @@ use ZipArchive;
 
 class PhrEhiProbeCommandTest extends TestCase
 {
-    private const string MARKER = 'SYNTHETIC-SECRET-123';
+    private const string MARKER = 'SYNTHETIC_SECRET_123';
+
+    /** Planted as CSS classes: name-shaped tokens a template could carry. */
+    private const array CLASS_MARKERS = ['AliceSmith', 'PatientName', 'SYNTHETICSECRET', 'SubList', 'col-name'];
 
     private string $root;
 
@@ -76,8 +79,12 @@ class PhrEhiProbeCommandTest extends TestCase
         self::assertSame(2, $dictionary['parsed']['columns']);
         self::assertSame(1, $dictionary['parsed']['tables_with_primary_key']);
         self::assertArrayHasKey('table', $dictionary['outline']['tags']);
-        self::assertArrayHasKey('(masked)', $dictionary['outline']['classes']);
-        self::assertArrayHasKey('SubList', $dictionary['outline']['classes']);
+        self::assertSame([
+            'total' => 10,
+            'distinct' => 9,
+            'by_shape' => ['lowercase' => 1, 'lowercase_hyphenated' => 1, 'uppercase' => 2, 'mixed_case' => 4, 'contains_digits' => 1, 'other' => 1],
+        ], $dictionary['outline']['class_tokens']);
+        self::assertArrayNotHasKey('classes', $dictionary['outline']);
 
         $readme = $report['readme_index'];
         self::assertSame(2, $readme['members']);
@@ -145,6 +152,9 @@ class PhrEhiProbeCommandTest extends TestCase
         self::assertStringNotContainsString('PAT_NAME', $output);
         self::assertStringNotContainsString('000777', $output);
         self::assertStringNotContainsString('65000.01', $output);
+        foreach (self::CLASS_MARKERS as $token) {
+            self::assertStringNotContainsString($token, $output);
+        }
         self::assertStringNotContainsString($path, $output);
         self::assertStringNotContainsString($this->root, $output);
     }
@@ -174,7 +184,7 @@ class PhrEhiProbeCommandTest extends TestCase
             'Tables/SYNTH_EMPTY.tsv' => '',
             'Documentation/PATIENT.htm' => <<<HTML
 <html><head><title>PATIENT</title><script>var leak = "{$m}";</script></head><body>
-<div class="header {$m} SYNTH_CLASS"><h1>PATIENT</h1><p>Synthetic description {$m}</p></div>
+<div class="header {$m} SYNTH_CLASS AliceSmith"><h1 class="PatientName SYNTHETICSECRET col-name x:y">PATIENT</h1><p>Synthetic description {$m}</p></div>
 <h2>Column Information</h2>
 <table class="SubList"><tr><th>Column Name</th><th>Type</th><th>Description</th></tr>
 <tr><td>PAT_ID</td><td>VARCHAR</td><td>{$m}</td></tr>

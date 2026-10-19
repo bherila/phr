@@ -28,9 +28,12 @@ use Throwable;
  *    an EHI Tables package (an unsupported export never looks like an empty import).
  * 2. First pass, nothing written: hash every member, read the dictionary, parse
  *    every table into in-memory accounting, and collect the distinct `PAT_ID`
- *    values. More than one, or none, is refused before any byte is stored.
+ *    values. More than one, or none, is refused before any byte is stored, as is
+ *    a malformed row in a table with a `PAT_ID` column (its patient is unknown).
  * 3. Under the patient artifact guard, claim the package by manifest digest:
  *    replay a complete one, resume an incomplete one, or create it with a lease.
+ *    A replay or resume first re-verifies the package's blobs and republishes any
+ *    missing or damaged object from the source bytes (never an intact one).
  * 4. Second pass: each member in its own short guard transaction, re-hashed while
  *    staged and re-read after publishing. A blob shared with another package is
  *    verified, never rewritten while intact. A failed step deletes only an object
@@ -42,7 +45,8 @@ use Throwable;
  *
  * @phpstan-type Finding array{code: string, line: ?int, offset: ?int, column: ?string, detail: array<string, int|string|bool|null>|null}
  * @phpstan-type FindingList array{list: list<Finding>, omitted: int}
- * @phpstan-type MemberPlan array{member: EhiValidatedMember, kind: string, table: ?string, sha256: string, bytes: int}
+ * @phpstan-type Classified array{member: EhiValidatedMember, kind: string, table: ?string, unsupported_name: bool}
+ * @phpstan-type MemberPlan array{member: EhiValidatedMember, kind: string, table: ?string, unsupported_name: bool, sha256: string, bytes: int}
  * @phpstan-type AccountPlan array{path: string, table: string, state: string, header: ?list<string>, unknown: ?list<string>, missing: ?list<string>, rows: int, malformed: int, disposition: string}
  * @phpstan-type Plan array{members: list<MemberPlan>, accounts: list<AccountPlan>, missing: list<string>, findings: array<string, FindingList>, package_findings: list<Finding>, patient_key: string, dictionary: EhiDictionary, has_dictionary: bool}
  */
@@ -51,8 +55,11 @@ final class EhiIntakeService
     /** Two table members share a table name (case-insensitively). */
     public const string REJECT_DUPLICATE_TABLE = 'duplicate_table';
 
-    /** A table name is longer than accounting can record. */
-    public const string REJECT_TABLE_NAME_TOO_LONG = 'table_name_too_long';
+    /**
+     * A malformed row in a table that has (or may have) a `PAT_ID` column: its
+     * patient cannot be established, so it could belong to another patient.
+     */
+    public const string REJECT_UNSCOPED_PATIENT_ROW = 'unscoped_patient_row';
 
     /** The source patient key is longer than a package or source can record. */
     public const string REJECT_PATIENT_KEY_TOO_LONG = 'source_patient_key_too_long';
@@ -101,11 +108,14 @@ final class EhiIntakeService
         $token = (string) Str::uuid();
         [$package, $outcome] = $this->claim($source, $patient, $actorUserId, $plan, $original, $token, $dialect);
         if ($outcome === 'replayed') {
-            return new EhiIntakeResult($package, true, false, EhiPackageSummary::forPackage($package));
+            $repaired = $this->repair($source, $package, $plan, $limits, $actorUserId);
+
+            return new EhiIntakeResult($package, true, false, EhiPackageSummary::forPackage($package), $repaired);
         }
 
         try {
-            $this->preserve($source, $package, $plan, $limits, $token, $actorUserId);
+            $repaired = $outcome === 'resumed' ? $this->repair($source, $package, $plan, $limits, $actorUserId) : 0;
+            $repaired += $this->preserve($source, $package, $plan, $limits, $token, $actorUserId);
             $this->account($package, $plan, $dialect, $token, $actorUserId);
         } catch (Throwable $failure) {
             $this->recordFailure($package, $token, $failure);
@@ -115,12 +125,12 @@ final class EhiIntakeService
 
         $package->refresh();
 
-        return new EhiIntakeResult($package, false, $outcome === 'resumed', EhiPackageSummary::forPackage($package));
+        return new EhiIntakeResult($package, false, $outcome === 'resumed', EhiPackageSummary::forPackage($package), $repaired);
     }
 
     /**
      * @param  list<EhiValidatedMember>  $members
-     * @return list<array{member: EhiValidatedMember, kind: string, table: ?string}>
+     * @return list<Classified>
      */
     private function classify(EhiPackageSource $source, array $members): array
     {
@@ -131,7 +141,7 @@ final class EhiIntakeService
             $line = in_array($extension, self::PEEK_EXTENSIONS, true) ? $this->firstLine($source, $member) : null;
             $firstLines[$member->path] = $line;
             $class = $this->classifier->classify($member->path, $line);
-            $classified[] = ['member' => $member, 'kind' => $class['kind'], 'table' => $class['table']];
+            $classified[] = ['member' => $member, 'kind' => $class['kind'], 'table' => $class['table'], 'unsupported_name' => isset($class['unsupported_table_name'])];
         }
 
         $detection = $this->detector->detect($members, static fn (EhiValidatedMember $member): ?string => $firstLines[$member->path] ?? null);
@@ -141,14 +151,13 @@ final class EhiIntakeService
 
         // Accounting is keyed by table name; a second member claiming a name (in
         // any case, which a case-insensitive collation would merge) cannot be
-        // accounted without inventing a name, so it is refused, not dropped.
+        // accounted without inventing a name, so it is refused, not dropped. The
+        // classifier admits only ASCII identifiers (at most MAX_NAME_BYTES), so
+        // ASCII case folding here matches the collation.
         $tables = [];
         foreach ($classified as $item) {
             if ($item['kind'] !== EhiMemberKind::TABLE || $item['table'] === null) {
                 continue;
-            }
-            if (strlen($item['table']) > self::MAX_NAME_BYTES) {
-                throw new EhiPackageRejected(self::REJECT_TABLE_NAME_TOO_LONG, sprintf('EHI package refused (%s): a table name exceeds %d bytes.', self::REJECT_TABLE_NAME_TOO_LONG, self::MAX_NAME_BYTES));
             }
             $key = strtoupper($item['table']);
             if (isset($tables[$key])) {
@@ -163,7 +172,7 @@ final class EhiIntakeService
     /**
      * Pass 1. Reads only; any refusal here happens before a single row or byte is stored.
      *
-     * @param  list<array{member: EhiValidatedMember, kind: string, table: ?string}>  $classified
+     * @param  list<Classified>  $classified
      * @return Plan
      */
     private function firstPass(EhiPackageSource $source, array $classified, EhiLimits $limits, EhiDialect $dialect): array
@@ -204,7 +213,7 @@ final class EhiIntakeService
         foreach ($members as $member) {
             $path = $member['member']->path;
             if ($member['kind'] === EhiMemberKind::UNKNOWN) {
-                $this->addFinding($findings, $path, $limits, EhiFindingCode::UNKNOWN_MEMBER);
+                $this->addFinding($findings, $path, $limits, $member['unsupported_name'] ? EhiFindingCode::UNSUPPORTED_TABLE_NAME : EhiFindingCode::UNKNOWN_MEMBER);
             }
             if ($member['kind'] !== EhiMemberKind::TABLE || $member['table'] === null) {
                 continue;
@@ -217,10 +226,14 @@ final class EhiIntakeService
             throw new EhiPackageRejected(EhiPackageRejected::NO_PATIENT, sprintf('EHI package refused (no_patient): no table supplies a %s value.', self::PATIENT_KEY_COLUMN));
         }
 
+        // Dictionary names are ASCII identifiers too; folded, so two spellings of
+        // one table cannot collide on the case-insensitive account key.
         $missing = [];
         foreach (array_keys($dictionary->tables) as $name) {
-            if (! isset($supplied[strtoupper((string) $name)]) && strlen((string) $name) <= self::MAX_NAME_BYTES) {
+            $key = strtoupper((string) $name);
+            if (! isset($supplied[$key]) && strlen((string) $name) <= self::MAX_NAME_BYTES) {
                 $missing[] = (string) $name;
+                $supplied[$key] = true;
             }
         }
 
@@ -276,11 +289,18 @@ final class EhiIntakeService
             }
 
             $keyIndex = $header === null ? false : array_search(self::PATIENT_KEY_COLUMN, $header, true);
+            // Unknown (an unsplittable header) counts as scoped: it may have the column.
+            $scoped = $reader->declaresColumn(self::PATIENT_KEY_COLUMN) !== false;
             $rows = 0;
             $malformed = 0;
             foreach ($reader->rows() as $row) {
                 $rows++;
                 if ($row instanceof EhiTsvMalformedRow) {
+                    // Its PAT_ID cannot be read, so it might be another patient's
+                    // row; refused rather than preserved under this patient.
+                    if ($scoped) {
+                        throw new EhiPackageRejected(self::REJECT_UNSCOPED_PATIENT_ROW, sprintf('EHI package refused (%s): a malformed row in a table with a %s column has no establishable patient.', self::REJECT_UNSCOPED_PATIENT_ROW, self::PATIENT_KEY_COLUMN));
+                    }
                     $malformed++;
                     $this->addFinding($findings, $path, $limits, EhiFindingCode::MALFORMED_ROW,
                         line: $row->lineNumber, offset: $row->byteOffset,
@@ -293,8 +313,9 @@ final class EhiIntakeService
                 }
             }
 
-            // A fully read member must be exactly the bytes hashed a moment ago.
-            if ($header !== null && $reader->counters()['bytes'] !== $member['bytes']) {
+            // A fully read member (header problems included: the reader drains
+            // it) must be exactly the bytes hashed a moment ago.
+            if ($reader->counters()['bytes'] !== $member['bytes']) {
                 throw new EhiPackageRejected(EhiPackageRejected::SIZE_MISMATCH, 'EHI package refused (size_mismatch): a member changed while it was being read.');
             }
         } finally {
@@ -422,13 +443,15 @@ final class EhiIntakeService
      * skipped: a member row commits in the same transaction as its verified blob.
      *
      * @param  Plan  $plan
+     * @return int damaged objects of existing blob rows that were republished
      */
-    private function preserve(EhiPackageSource $source, PhrEhiPackage $package, array $plan, EhiLimits $limits, string $token, int $actorUserId): void
+    private function preserve(EhiPackageSource $source, PhrEhiPackage $package, array $plan, EhiLimits $limits, string $token, int $actorUserId): int
     {
+        $repaired = 0;
         $done = PhrEhiPackageMember::query()->where('package_id', $package->id)->pluck('path_sha256')->flip();
         foreach ($plan['members'] as $member) {
             if (! $done->has(hash('sha256', $member['member']->path))) {
-                $this->preserveMember($source, $package, $member, $limits, $token, $actorUserId);
+                $repaired += $this->preserveMember($source, $package, $member, $limits, $token, $actorUserId) ? 1 : 0;
             }
         }
 
@@ -443,10 +466,15 @@ final class EhiIntakeService
                 'checkpoint_json' => [...($current->checkpoint_json ?? []), 'phase' => PhrEhiPackage::PRESERVATION_PRESERVED, 'members_preserved' => $members],
             ]);
         });
+
+        return $repaired;
     }
 
-    /** @param  MemberPlan  $member */
-    private function preserveMember(EhiPackageSource $source, PhrEhiPackage $package, array $member, EhiLimits $limits, string $token, int $actorUserId): void
+    /**
+     * @param  MemberPlan  $member
+     * @return bool whether an existing blob row's damaged object was republished
+     */
+    private function preserveMember(EhiPackageSource $source, PhrEhiPackage $package, array $member, EhiLimits $limits, string $token, int $actorUserId): bool
     {
         $patientId = (int) $package->patient_id;
         $sha256 = $member['sha256'];
@@ -528,6 +556,80 @@ final class EhiIntakeService
                 fclose($staged);
             }
         }
+
+        return $wrote && $rowExisted;
+    }
+
+    /**
+     * Re-verify every blob the package's manifest references and republish any
+     * missing or damaged object from the source, whose bytes pass 1 hashed to the
+     * manifest value. Bytes are staged outside the lock; each republish happens
+     * under the patient guard after re-checking the row and the object, so an
+     * object that is intact by then (or a row deleted meanwhile) is left alone.
+     *
+     * @param  Plan  $plan
+     * @return int objects republished
+     */
+    private function repair(EhiPackageSource $source, PhrEhiPackage $package, array $plan, EhiLimits $limits, int $actorUserId): int
+    {
+        $bySha = [];
+        foreach ($plan['members'] as $member) {
+            $bySha[$member['sha256']] ??= $member;
+        }
+        $blobIds = PhrEhiPackageMember::query()->where('package_id', $package->id)->distinct()->pluck('blob_id');
+        $blobs = PhrEhiBlob::query()->where('patient_id', $package->patient_id)->whereIn('id', $blobIds)->orderBy('id')->get();
+
+        $repaired = 0;
+        $intact = [];
+        foreach ($blobs as $blob) {
+            if ($this->verifier->inspect($blob->storage_disk, $blob->storage_path, $blob->sha256, $blob->byte_size) === EhiBlobVerifier::OK) {
+                $intact[] = $blob->id;
+
+                continue;
+            }
+            $member = $bySha[$blob->sha256] ?? null;
+            if ($member === null || $member['bytes'] !== $blob->byte_size) {
+                // The digest matched, so the manifest names exactly these blobs.
+                throw new LogicException('EHI package blob is not in the supplied manifest.');
+            }
+
+            $staged = $this->stage($source, $member, $limits);
+            try {
+                $repaired += $this->writeGuard->run((int) $package->patient_id, function (PhrPatient $patient) use ($blob, $staged, $actorUserId): int {
+                    $this->access->ensureCanWrite($patient, $actorUserId);
+                    $current = PhrEhiBlob::query()->whereKey($blob->id)->where('patient_id', $patient->id)->lockForUpdate()->first();
+                    if ($current === null) {
+                        return 0;
+                    }
+                    $verify = fn (): string => $this->verifier->inspect($current->storage_disk, $current->storage_path, $current->sha256, $current->byte_size);
+                    if ($verify() === EhiBlobVerifier::OK) {
+                        $current->forceFill(['verified_at' => now()])->save();
+
+                        return 0;
+                    }
+                    $this->publish($current->storage_disk, $current->storage_path, $staged);
+                    if ($verify() !== EhiBlobVerifier::OK) {
+                        throw new EhiIntakeFailed(EhiIntakeFailed::STORED_OBJECT_MISMATCH, 'a repaired member did not read back as written');
+                    }
+                    $current->forceFill(['verified_at' => now()])->save();
+
+                    return 1;
+                });
+            } finally {
+                fclose($staged);
+            }
+        }
+
+        if ($intact !== []) {
+            $this->writeGuard->run((int) $package->patient_id, function (PhrPatient $patient) use ($intact, $actorUserId): void {
+                $this->access->ensureCanWrite($patient, $actorUserId);
+                foreach (array_chunk($intact, self::INSERT_CHUNK) as $chunk) {
+                    PhrEhiBlob::query()->where('patient_id', $patient->id)->whereIn('id', $chunk)->update(['verified_at' => now()]);
+                }
+            });
+        }
+
+        return $repaired;
     }
 
     /**

@@ -35,9 +35,9 @@ use Throwable;
  *   - a count, a boolean, or a size bucket;
  *   - a fixed code or label defined in this repository (kinds, reason codes,
  *     malformed-row codes, the null-marker candidates below, readme keywords);
- *   - a file extension from EXTENSIONS, an HTML tag name from HTML_TAGS, or a
- *     CSS class token that passes safeClassToken() (all-caps identifiers, long
- *     tokens, and digit runs are masked, so table names and ids cannot leak);
+ *   - a file extension from EXTENSIONS or an HTML tag name from HTML_TAGS (any
+ *     other tag is "(other)"); CSS class tokens are only counted, by fixed shape
+ *     bucket (CLASS_SHAPES), never printed, since any token could be a name;
  *   - presence (yes/no) of the well-known table names in
  *     EhiPackageDetector::KNOWN_TABLE_NAMES.
  * It never prints a member path or file name, any other table or column name, a
@@ -52,7 +52,10 @@ use Throwable;
 #[Description('Print the structure (never values or names) of an EHI Tables package, safe to share publicly')]
 final class PhrEhiProbeCommand extends Command
 {
-    public const string VERSION = 'ehi-probe-1';
+    public const string VERSION = 'ehi-probe-2';
+
+    /** Shape buckets for CSS class tokens; a token's text is never printed. */
+    public const array CLASS_SHAPES = ['lowercase', 'lowercase_hyphenated', 'uppercase', 'mixed_case', 'contains_digits', 'other'];
 
     public const array NULL_CANDIDATES = ['NULL', '\\N', 'null', '<null>'];
 
@@ -370,10 +373,12 @@ final class PhrEhiProbeCommand extends Command
     private function probeDictionary(EhiPackageSource $source, array $classified, EhiLimits $limits): array
     {
         $tags = [];
-        $classes = [];
+        $classes = ['total' => 0, 'by_shape' => array_fill_keys(self::CLASS_SHAPES, 0)];
+        /** @var array<string, true> $distinctClasses hashes only */
+        $distinctClasses = [];
         $counts = ['dictionary_members' => 0, 'index_members' => 0, 'oversize' => 0, 'unreadable' => 0];
 
-        $documents = function () use ($source, $classified, $limits, &$tags, &$classes, &$counts): Generator {
+        $documents = function () use ($source, $classified, $limits, &$tags, &$classes, &$distinctClasses, &$counts): Generator {
             foreach ($classified as $item) {
                 if ($item['kind'] !== EhiMemberKind::DICTIONARY && $item['kind'] !== EhiMemberKind::INDEX) {
                     continue;
@@ -409,8 +414,9 @@ final class PhrEhiProbeCommand extends Command
                         $tags[$tag] = ($tags[$tag] ?? 0) + 1;
                         foreach (preg_split('/\s+/', trim($element->getAttribute('class'))) ?: [] as $token) {
                             if ($token !== '') {
-                                $token = $this->safeClassToken($token);
-                                $classes[$token] = ($classes[$token] ?? 0) + 1;
+                                $classes['total']++;
+                                $classes['by_shape'][$this->classShape($token)]++;
+                                $distinctClasses[hash('xxh128', $token)] = true;
                             }
                         }
                     }
@@ -426,7 +432,7 @@ final class PhrEhiProbeCommand extends Command
             ...$counts,
             'outline' => [
                 'tags' => $this->top($tags),
-                'classes' => $this->top($classes),
+                'class_tokens' => ['total' => $classes['total'], 'distinct' => count($distinctClasses), 'by_shape' => $classes['by_shape']],
             ],
             'parsed' => [
                 'documents' => $dictionary->documents,
@@ -519,17 +525,17 @@ final class PhrEhiProbeCommand extends Command
         };
     }
 
-    /** Template class names pass; anything that could be a name or an id is masked. */
-    private function safeClassToken(string $token): string
+    /** One of CLASS_SHAPES; the token itself is never returned. */
+    private function classShape(string $token): string
     {
-        if (preg_match('/^[A-Za-z][A-Za-z0-9_-]{0,31}$/', $token) !== 1) {
-            return '(other)';
-        }
-        if (preg_match('/^[A-Z0-9_-]+$/', $token) === 1 || preg_match('/\d{3,}/', $token) === 1) {
-            return '(masked)';
-        }
-
-        return $token;
+        return match (true) {
+            preg_match('/^[A-Za-z0-9_-]+\z/', $token) !== 1 => 'other',
+            preg_match('/\d/', $token) === 1 => 'contains_digits',
+            preg_match('/^[a-z]+\z/', $token) === 1 => 'lowercase',
+            preg_match('/^[a-z_-]+\z/', $token) === 1 => 'lowercase_hyphenated',
+            preg_match('/^[A-Z_-]+\z/', $token) === 1 => 'uppercase',
+            default => 'mixed_case',
+        };
     }
 
     /**

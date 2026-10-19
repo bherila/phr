@@ -23,6 +23,8 @@ use LogicException;
  * - Values stay raw strings. An empty cell is ""; null only where the dialect's
  *   null marker matched an unquoted cell; a record with fewer or more fields than
  *   the header is field_count_mismatch, never padded.
+ * - After an unusable header, every remaining record is still read (under the
+ *   same row limit) and yielded as header_unusable, so each one is counted.
  *
  * Locators are the physical (LF-counted, 1-based) line and byte offset of the
  * record start. Neither a row nor an exception ever carries record bytes.
@@ -73,6 +75,9 @@ final class EhiTsvReader
 
     /** @var list<string>|null */
     private ?array $header = null;
+
+    /** @var list<string|null>|null fields of the header record, even when unusable; null when it could not be split */
+    private ?array $headerFields = null;
 
     private ?string $headerProblem = null;
 
@@ -131,6 +136,21 @@ final class EhiTsvReader
         return $this->headerProblem;
     }
 
+    /**
+     * Whether the header record names this column, even when the header is
+     * otherwise unusable (an empty or duplicate name); null when the header
+     * record could not be split at all, so the answer is unknown.
+     */
+    public function declaresColumn(string $name): ?bool
+    {
+        $this->readHeader();
+        if ($this->state === PhrEhiTableAccount::STATE_EMPTY) {
+            return false;
+        }
+
+        return $this->headerFields === null ? null : in_array($name, $this->headerFields, true);
+    }
+
     public function hasBom(): bool
     {
         $this->readHeader();
@@ -150,7 +170,8 @@ final class EhiTsvReader
     }
 
     /**
-     * Every record after the header, in file order. Iterable once.
+     * Every record after the header, in file order. Iterable once. After an
+     * unusable header each record is a header_unusable EhiTsvMalformedRow.
      *
      * @return Generator<int, EhiTsvRow|EhiTsvMalformedRow, mixed, void>
      */
@@ -162,6 +183,14 @@ final class EhiTsvReader
         $this->rowsStarted = true;
         $this->readHeader();
         if ($this->header === null) {
+            // Records are bounded by nextRecord() and never split into values.
+            while (($record = $this->nextRecord()) !== null) {
+                $this->counters['records']++;
+                $this->counters['malformed_'.EhiTsvMalformedRow::HEADER_UNUSABLE]++;
+
+                yield new EhiTsvMalformedRow($record['line'], $record['offset'], EhiTsvMalformedRow::HEADER_UNUSABLE);
+            }
+
             return;
         }
 
@@ -217,6 +246,7 @@ final class EhiTsvReader
 
             return;
         }
+        $this->headerFields = $fields;
         $names = [];
         $header = [];
         foreach ($fields as $name) {

@@ -115,9 +115,12 @@ class EhiIntakeServiceTest extends TestCase
 
         self::assertCount(10, $accounts);
         self::assertSame(PhrEhiTableAccount::STATE_PARSED, $accounts['PAT_ENC']->state);
-        self::assertSame(4, $accounts['PAT_ENC']->source_row_count);
-        self::assertSame(1, $accounts['PAT_ENC']->malformed_row_count);
+        self::assertSame(3, $accounts['PAT_ENC']->source_row_count);
+        self::assertSame(0, $accounts['PAT_ENC']->malformed_row_count);
         self::assertSame([PhrEhiTableAccount::DISPOSITION_RETAINED_UNMAPPED => 3], $accounts['PAT_ENC']->disposition_counts_json);
+        self::assertSame(3, $accounts['IMMUNE']->source_row_count);
+        self::assertSame(1, $accounts['IMMUNE']->malformed_row_count);
+        self::assertSame([PhrEhiTableAccount::DISPOSITION_RETAINED_UNMAPPED => 2], $accounts['IMMUNE']->disposition_counts_json);
         self::assertSame([PhrEhiTableAccount::DISPOSITION_OUT_OF_SCOPE => 1], $accounts['ARPB_TRANSACTIONS']->disposition_counts_json);
         self::assertSame(PhrEhiTableAccount::STATE_HEADER_ONLY, $accounts['ORDER_PROC']->state);
         self::assertSame(0, $accounts['ORDER_PROC']->source_row_count);
@@ -145,7 +148,7 @@ class EhiIntakeServiceTest extends TestCase
         ], $result->summary->findingsByCode);
         $malformed = PhrEhiFinding::query()->where('code', EhiFindingCode::MALFORMED_ROW)->sole();
         self::assertSame(4, $malformed->line_number);
-        self::assertSame($accounts['PAT_ENC']->member_id, $malformed->member_id); // sensitive-scan-ignore: package member FK, not an insurance member id
+        self::assertSame($accounts['IMMUNE']->member_id, $malformed->member_id); // sensitive-scan-ignore: package member FK, not an insurance member id
         self::assertSame(['code' => 'field_count_mismatch', 'expected_fields' => 3, 'actual_fields' => 2], $malformed->detail_json);
         $column = PhrEhiFinding::query()->where('code', EhiFindingCode::UNKNOWN_COLUMN)->sole();
         self::assertSame('SYNTH_EXTRA_COL', $column->column_name);
@@ -163,15 +166,14 @@ class EhiIntakeServiceTest extends TestCase
         config(['phr.ehi_max_findings_per_member' => 2]);
         $owner = $this->createUser();
         $patient = $this->ehiPatient($owner);
-        $key = EhiSyntheticPackage::PATIENT_KEY;
-        $package = EhiSyntheticPackage::standard()->with('PAT_ENC.tsv', "PAT_ID\tPAT_ENC_CSN_ID\tCONTACT_DATE\n{$key}\t1\n{$key}\t2\n{$key}\t3\n{$key}\t4\t2020-01-01\n{$key}\n");
+        $package = EhiSyntheticPackage::standard()->with('IMMUNE.tsv', "IMMUNE_ID\tDOSE\tNDC_CODE\n1\n2\n3\n4\t1 mL\t\n5\n");
 
         $result = $this->ehiIntakeDirectory($package, $patient, $owner->id);
 
         self::assertSame(2, $result->summary->findingsByCode[EhiFindingCode::MALFORMED_ROW]);
         $truncated = PhrEhiFinding::query()->where('code', EhiFindingCode::FINDINGS_TRUNCATED)->sole();
         self::assertSame(['omitted' => 2], $truncated->detail_json);
-        $account = PhrEhiTableAccount::query()->where('table_name', 'PAT_ENC')->sole();
+        $account = PhrEhiTableAccount::query()->where('table_name', 'IMMUNE')->sole();
         self::assertSame(5, $account->source_row_count);
         self::assertSame(4, $account->malformed_row_count, 'counts are never capped');
     }
@@ -309,6 +311,126 @@ class EhiIntakeServiceTest extends TestCase
 
         $this->assertRefused(EhiIntakeService::REJECT_DUPLICATE_TABLE, fn () => $this->ehiIntakeDirectory($package, $patient, $owner->id));
         $this->assertNoEhiRows();
+    }
+
+    public function test_malformed_row_in_a_patient_table_is_refused_before_anything_is_stored(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        $a = EhiSyntheticPackage::PATIENT_KEY;
+        $b = EhiSyntheticPackage::OTHER_PATIENT_KEY;
+        $cases = [
+            // A valid row for A, and a field-count mismatch that carries B.
+            'mismatch' => EhiSyntheticPackage::standard()->with('PAT_IMMUNIZATIONS.tsv', "PAT_ID\tLINE\tIMMUNE_ID\n{$a}\t1\t501\n{$b}\t2\n"),
+            // An unusable header that still names PAT_ID: every row is unscoped.
+            'header' => EhiSyntheticPackage::standard()->with('PAT_IMMUNIZATIONS.tsv', "PAT_ID\tPAT_ID\tIMMUNE_ID\n{$b}\t{$b}\t502\n"),
+            // A header that cannot be split may have the column.
+            'undecodable' => EhiSyntheticPackage::standard()->with('PAT_IMMUNIZATIONS.tsv', "PAT_ID\tLINE\xFF\n{$b}\t2\n"),
+        ];
+        foreach ($cases as $name => $package) {
+            $this->assertRefused(EhiIntakeService::REJECT_UNSCOPED_PATIENT_ROW, fn () => $this->ehiIntakeDirectory($package, $patient, $owner->id, $name));
+            $this->assertNoEhiRows();
+        }
+    }
+
+    public function test_rows_after_an_unusable_header_are_counted_as_malformed(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        // IMMUNE has no PAT_ID column, so its unscoped rows are accounted, not refused.
+        $package = EhiSyntheticPackage::standard()->with('IMMUNE.tsv', "IMMUNE_ID\tIMMUNE_ID\tDOSE\n501\t501\t1 mL\n502\n\n503\t503\t2 mL");
+
+        $result = $this->ehiIntakeDirectory($package, $patient, $owner->id);
+
+        $account = PhrEhiTableAccount::query()->where('table_name', 'IMMUNE')->sole();
+        self::assertSame(PhrEhiTableAccount::STATE_MALFORMED, $account->state);
+        self::assertNull($account->header_columns_json);
+        self::assertSame(4, $account->source_row_count);
+        self::assertSame(4, $account->malformed_row_count);
+        self::assertSame([PhrEhiTableAccount::DISPOSITION_RETAINED_UNMAPPED => 0], $account->disposition_counts_json);
+        self::assertSame(0, $result->summary->unreconciledTables);
+        self::assertSame(1, $result->summary->tablesByState[PhrEhiTableAccount::STATE_MALFORMED]);
+        self::assertSame(1, $result->summary->findingsByCode[EhiFindingCode::MALFORMED_HEADER]);
+        self::assertSame(4, $result->summary->findingsByCode[EhiFindingCode::MALFORMED_ROW]);
+        $rows = PhrEhiFinding::query()->where('member_id', $account->member_id)->where('code', EhiFindingCode::MALFORMED_ROW)->orderBy('line_number')->get(); // sensitive-scan-ignore: package member FK, not an insurance member id
+        self::assertSame([2, 3, 4, 5], $rows->pluck('line_number')->all());
+        foreach ($rows as $finding) {
+            self::assertSame('header_unusable', $finding->detail_json['code']);
+        }
+
+        // The cap applies to drained rows as to any other; the counts never are capped.
+        config(['phr.ehi_max_findings_per_member' => 2]);
+        $other = $this->ehiPatient($owner);
+        $capped = $this->ehiIntakeDirectory($package, $other, $owner->id, 'capped');
+        self::assertSame(1, $capped->summary->findingsByCode[EhiFindingCode::MALFORMED_HEADER]);
+        self::assertSame(1, $capped->summary->findingsByCode[EhiFindingCode::MALFORMED_ROW]);
+        self::assertSame(4, $capped->summary->malformedRows);
+        $truncated = PhrEhiFinding::query()->where('package_id', $capped->package->id)->where('code', EhiFindingCode::FINDINGS_TRUNCATED)->sole();
+        self::assertSame(['omitted' => 3], $truncated->detail_json);
+    }
+
+    public function test_non_identifier_table_names_are_unknown_members_not_tables(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        $rows = "IMMUNE_ID\tDOSE\n1\t1 mL\n";
+        // Café and CAFE compare equal under a case-insensitive collation; only the
+        // ASCII one is a table, so neither a refusal nor a merged account follows.
+        $package = EhiSyntheticPackage::standard()
+            ->with("one/Caf\u{e9}.tsv", $rows)
+            ->with('two/CAFE.tsv', $rows.'2\t2 mL\n')
+            ->with("three/\u{8868}.tsv", $rows);
+
+        $result = $this->ehiIntakeDirectory($package, $patient, $owner->id);
+
+        $members = PhrEhiPackageMember::query()->where('package_id', $result->package->id)->get()->keyBy('path');
+        foreach (["one/Caf\u{e9}.tsv", "three/\u{8868}.tsv"] as $path) {
+            self::assertSame(EhiMemberKind::UNKNOWN, $members[$path]->kind);
+            self::assertNull($members[$path]->table_name);
+            $finding = PhrEhiFinding::query()->where('member_id', $members[$path]->id)->sole(); // sensitive-scan-ignore: package member FK, not an insurance member id
+            self::assertSame(EhiFindingCode::UNSUPPORTED_TABLE_NAME, $finding->code);
+            self::assertNull($finding->column_name);
+            self::assertNull($finding->detail_json);
+        }
+        self::assertSame(EhiMemberKind::TABLE, $members['two/CAFE.tsv']->kind);
+        self::assertSame(2, PhrEhiTableAccount::query()->where('package_id', $result->package->id)->where('table_name', 'CAFE')->sole()->source_row_count);
+        self::assertSame(2, $result->summary->findingsByCode[EhiFindingCode::UNSUPPORTED_TABLE_NAME]);
+        self::assertSame(EhiSyntheticPackage::TABLE_MEMBERS + 1, $result->summary->membersByKind[EhiMemberKind::TABLE]);
+        self::assertSame(0, $result->summary->unreconciledTables);
+    }
+
+    public function test_replay_repairs_missing_and_tampered_blobs_without_new_rows(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        $synthetic = EhiSyntheticPackage::standard();
+        $first = $this->ehiIntakeDirectory($synthetic, $patient, $owner->id);
+        $counts = $this->rowCounts();
+        $disk = Storage::disk((string) config('phr.ehi_disk'));
+        $blobs = PhrEhiBlob::query()->orderBy('id')->get();
+        $disk->delete($blobs[0]->storage_path);
+        $disk->put($blobs[1]->storage_path, 'synthetic tampered bytes');
+        PhrEhiBlob::query()->update(['verified_at' => null]);
+
+        // Counts puts: only the two damaged objects may be written.
+        $failing = $this->ehiFailingDisk(failOnPut: 0);
+        $replay = $this->ehiIntakeDirectory($synthetic, $patient, $owner->id, 'again');
+        $this->ehiRestoreDisk($failing);
+
+        self::assertTrue($replay->replayed);
+        self::assertSame($first->package->id, $replay->package->id);
+        self::assertSame(2, $replay->repaired);
+        self::assertSame(2, $failing->puts, 'intact objects are never rewritten');
+        self::assertSame($counts, $this->rowCounts());
+        foreach ($blobs as $blob) {
+            self::assertSame($blob->sha256, hash('sha256', (string) $disk->get($blob->storage_path)));
+        }
+        self::assertSame($blobs->count(), PhrEhiBlob::query()->whereNotNull('verified_at')->count());
+        self::assertEquals($first->summary, $replay->summary);
+
+        $again = $this->ehiIntakeDirectory($synthetic, $patient, $owner->id, 'third');
+        self::assertSame(0, $again->repaired);
+        self::assertSame($counts, $this->rowCounts());
     }
 
     public function test_package_without_a_dictionary_is_accounted_with_a_finding(): void

@@ -22,18 +22,12 @@ class PhrEhiVerifyCommand extends BaseEhiCommand
         foreach ($packages as $package) {
             $blobIds = PhrEhiPackageMember::query()->where('package_id', $package->id)->distinct()->pluck('blob_id');
             $counts = [EhiBlobVerifier::OK => 0, EhiBlobVerifier::MISSING => 0, EhiBlobVerifier::TAMPERED => 0];
-            $verified = [];
+            // Observational: read access may verify, so nothing is written here
+            // (blob verified_at is recorded by intake, which holds write access).
             PhrEhiBlob::query()->where('patient_id', $patient->id)->whereIn('id', $blobIds)->orderBy('id')
-                ->each(function (PhrEhiBlob $blob) use ($verifier, &$counts, &$verified): void {
-                    $status = $verifier->inspect($blob->storage_disk, $blob->storage_path, $blob->sha256, $blob->byte_size);
-                    $counts[$status]++;
-                    if ($status === EhiBlobVerifier::OK) {
-                        $verified[] = $blob->id;
-                    }
+                ->each(function (PhrEhiBlob $blob) use ($verifier, &$counts): void {
+                    $counts[$verifier->inspect($blob->storage_disk, $blob->storage_path, $blob->sha256, $blob->byte_size)]++;
                 });
-            foreach (array_chunk($verified, 500) as $chunk) {
-                PhrEhiBlob::query()->whereIn('id', $chunk)->update(['verified_at' => now()]);
-            }
             $problems += $counts[EhiBlobVerifier::MISSING] + $counts[EhiBlobVerifier::TAMPERED];
 
             $this->line(sprintf(

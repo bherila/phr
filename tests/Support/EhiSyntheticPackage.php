@@ -12,8 +12,8 @@ use ZipArchive;
  *
  * Standard package (23 members):
  * - 9 table members: PATIENT (an unknown column; the dictionary also documents a
- *   column it lacks), PAT_ENC (one malformed row), IMMUNE (no PAT_ID column),
- *   PAT_IMMUNIZATIONS, ORDER_RESULTS, ORDER_PROC (header only), HNO_INFO (empty),
+ *   column it lacks), PAT_ENC, IMMUNE (no PAT_ID column, so its one malformed
+ *   row is accounted; in a PAT_ID table it would refuse the package), PAT_IMMUNIZATIONS, ORDER_RESULTS, ORDER_PROC (header only), HNO_INFO (empty),
  *   ARPB_TRANSACTIONS (out of scope), and MARKER.tsv (not in the dictionary)
  * - 9 dictionary pages: one per documented table, including PAT_ADDRESS, which no
  *   member supplies (missing)
@@ -21,7 +21,8 @@ use ZipArchive;
  */
 final class EhiSyntheticPackage
 {
-    public const string MARKER = 'SYNTHETIC-SECRET-456';
+    /** An ASCII identifier, so MARKER.tsv is still accounted as a table. */
+    public const string MARKER = 'SYNTHETIC_SECRET_456';
 
     public const string PATIENT_KEY = 'Z00094567';
 
@@ -59,9 +60,8 @@ final class EhiSyntheticPackage
             'PAT_ENC.tsv' => "PAT_ID\tPAT_ENC_CSN_ID\tCONTACT_DATE\n"
                 ."{$key}\t1001\t2020-01-01\n"
                 ."{$key}\t1002\t2020-02-01\n"
-                ."{$key}\t1003\n"
                 ."{$key}\t1004\t2020-03-01\n",
-            'IMMUNE.tsv' => "IMMUNE_ID\tDOSE\tNDC_CODE\n501\t0.5 mL {$marker}\t00000-0000-00\n502\t1 mL\t\n",
+            'IMMUNE.tsv' => "IMMUNE_ID\tDOSE\tNDC_CODE\n501\t0.5 mL {$marker}\t00000-0000-00\n502\t1 mL\t\n503\t{$marker}\n",
             'PAT_IMMUNIZATIONS.tsv' => "PAT_ID\tLINE\tIMMUNE_ID\n{$key}\t1\t501\n{$key}\t2\t502\n",
             'ORDER_RESULTS.tsv' => "ORDER_PROC_ID\tORD_DATE_REAL\tLINE\tORD_VALUE\n7001\t64000.01\t1\t13.2\n7001\t64000.02\t1\t{$marker}\n",
             'ORDER_PROC.tsv' => "ORDER_PROC_ID\tPAT_ID\tPAT_ENC_CSN_ID\n",
