@@ -249,6 +249,39 @@ with a modulus of at least 2048 bits before the application is activated.
 The client can immediately disconnect itself with `DELETE /api/v1/oauth/token`; any
 authenticated token may revoke itself even without an identity scope. This serializes
 against refresh rotation and revokes the presented token's entire rotation family.
+`DELETE /api/v1/oauth/consent` disconnects the client completely: the person's consent
+for it is withdrawn on every resource and all of its codes, access tokens and refresh
+tokens for that person are revoked, so reconnecting shows the consent screen again. A
+personal API token calling it revokes only itself.
+
+### Durable consent
+
+Approving the consent screen records `oauth_client_consents` (person, client,
+protected resource, approved scopes, `version`, `revoked_at`); a later approval adds
+scopes, and one after a revocation replaces them. Passport's own "already granted"
+shortcut only sees unexpired access tokens, so it is additionally held to an unrevoked
+consent covering the request on the same resource. A client listed in
+`AGENT_API_FIRST_PARTY_OAUTH_CLIENTS` (confidential, authorization-code only, never
+dynamically registered; registered with `phr:agent-api:register-first-party-client`)
+skips the screen only when such a consent already covers every requested scope; asking
+for more, another resource, or after a revocation shows it again.
+
+The consent `version` is a fence, like `oauth_security_version`: it is stamped on each
+authorization code, rotation family and access token, and code exchange and refresh
+compare the stamp with the current unrevoked consent before the grant is recorded for
+issuance, revoking the code or family on a mismatch. A code without a stamp is never
+exchangeable, and a family only matches a grant with the same version. Revocation
+(`OAuthCredentialRevoker::revokeClientConsent`) runs in one transaction: lock the
+consent rows and bump `version` first, then revoke the client's authorization codes
+(waiting out any exchange holding one), then its families and every token. After an
+exchange commits, the token endpoint re-reads the consent and revokes a family issued
+under an older version that the sweep could not yet see, answering `invalid_grant`.
+Live authorization-code families from before consent was recorded were adopted as
+version 1 of a consent for their own scopes and resource by the migration.
+
+The token endpoint refuses `grant_type=client_credentials` outright (every PHR
+credential acts for a person), and authorization responses carry RFC 9207 `iss`,
+advertised as `authorization_response_iss_parameter_supported`.
 Disabling or deleting
 an account revokes all of its token families, and the bearer/refresh paths also reject
 an account that no longer has login permission. An account
