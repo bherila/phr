@@ -274,5 +274,9 @@
     "oauth.disconnect": {
         "available": true,
         "scope": null
+    },
+    "oauth.consent.revoke": {
+        "available": true,
+        "scope": null
     }
 }

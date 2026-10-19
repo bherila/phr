@@ -342,6 +342,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             'genai.requests.fail',
             'genai.attachments.download',
             'oauth.disconnect',
+            'oauth.consent.revoke',
         ];
         // The generated document orders paths by operation id, not as listed here.
         $this->assertEqualsCanonicalizing(

@@ -126,6 +126,53 @@ final class AgentApiOAuthConsentTest extends TestCase
             ->assertSee('Synthetic Finance');
     }
 
+    public function test_disconnect_revokes_consent_and_every_outstanding_credential_for_that_client_only(): void
+    {
+        $user = $this->createUser();
+        $client = $this->firstPartyClient();
+        $other = $this->firstPartyClient(name: 'Synthetic Other App');
+
+        $this->authorize($user, $client, [AgentApiScopes::IDENTITY_READ])->assertOk();
+        $first = $this->exchange($client, $this->approve())->assertOk()->json();
+        $second = $this->exchange($client, $this->codeFrom(
+            $this->authorize($user, $client, [AgentApiScopes::IDENTITY_READ])->assertRedirect(),
+        ))->assertOk()->json();
+        // An authorization code issued but not yet exchanged.
+        $pendingCode = $this->codeFrom($this->authorize($user, $client, [AgentApiScopes::IDENTITY_READ])->assertRedirect());
+
+        $this->authorize($user, $other, [AgentApiScopes::IDENTITY_READ])->assertOk();
+        $unrelated = $this->exchange($other, $this->approve())->assertOk()->json();
+
+        Auth::forgetGuards();
+        $this->withToken($first['access_token'])->deleteJson('/api/v1/oauth/consent')
+            ->assertNoContent()
+            ->assertHeader('Cache-Control', 'max-age=0, no-store, private');
+
+        $consent = OAuthClientConsent::query()->where('client_id', $client->id)->sole();
+        $this->assertNotNull($consent->revoked_at);
+        $this->assertSame(2, $consent->version);
+
+        $this->bearer($first['access_token'])->assertUnauthorized();
+        $this->bearer($second['access_token'])->assertUnauthorized();
+        $this->refresh($client, $first['refresh_token'])->assertBadRequest()->assertJsonPath('error', 'invalid_grant');
+        $this->refresh($client, $second['refresh_token'])->assertBadRequest()->assertJsonPath('error', 'invalid_grant');
+        $this->exchange($client, $pendingCode)->assertBadRequest()->assertJsonPath('error', 'invalid_grant');
+        $this->assertSame(0, Token::query()->where('client_id', $client->id)->where('revoked', false)->count());
+        $this->assertSame(0, RefreshToken::query()->where('client_id', $client->id)->where('revoked', false)->count());
+
+        // Another client the person connected is untouched.
+        $this->bearer($unrelated['access_token'])->assertOk();
+        $this->assertNull(OAuthClientConsent::query()->where('client_id', $other->id)->sole()->revoked_at);
+
+        // Reconnecting asks again, and the new grant works while the old ones stay dead.
+        $this->authorize($user, $client, [AgentApiScopes::IDENTITY_READ])->assertOk()->assertSee('Synthetic Finance');
+        $renewed = $this->exchange($client, $this->approve())->assertOk()->json();
+        $this->assertSame(2, (int) Token::query()->where('client_id', $client->id)->where('revoked', false)->sole()->oauth_consent_version);
+        $this->bearer($renewed['access_token'])->assertOk();
+        $this->refresh($client, $renewed['refresh_token'])->assertOk();
+        $this->refresh($client, $second['refresh_token'])->assertBadRequest();
+    }
+
     public function test_a_code_or_refresh_token_from_before_a_revoke_and_regrant_is_refused(): void
     {
         $user = $this->createUser();
@@ -235,6 +282,25 @@ final class AgentApiOAuthConsentTest extends TestCase
 
         $this->exchange($client, $code)->assertBadRequest()->assertJsonPath('error', 'invalid_grant');
         $this->assertSame(0, Token::query()->count());
+    }
+
+    public function test_a_personal_api_token_disconnecting_through_the_consent_route_revokes_only_itself(): void
+    {
+        $user = $this->createUser();
+        $client = $this->firstPartyClient();
+        $this->authorize($user, $client, [AgentApiScopes::IDENTITY_READ])->assertOk();
+        $connected = $this->exchange($client, $this->approve())->assertOk()->json();
+        app(ClientRepository::class)->createPersonalAccessGrantClient('Synthetic Personal Access', 'users');
+        $personal = $user->createToken('Synthetic personal token', [AgentApiScopes::IDENTITY_READ])->accessToken;
+        $otherPersonal = $user->createToken('Synthetic second token', [AgentApiScopes::IDENTITY_READ])->accessToken;
+
+        Auth::forgetGuards();
+        $this->withToken($personal)->deleteJson('/api/v1/oauth/consent')->assertNoContent();
+
+        $this->bearer($personal)->assertUnauthorized();
+        $this->bearer($otherPersonal)->assertOk();
+        $this->bearer($connected['access_token'])->assertOk();
+        $this->assertNull(OAuthClientConsent::query()->sole()->revoked_at);
     }
 
     public function test_legacy_authorization_code_families_are_adopted_as_consented(): void
