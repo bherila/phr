@@ -17,9 +17,7 @@ use Illuminate\Support\Facades\Route;
 // .../api/v1/mcp), so no other path may describe either resource.
 AgentOAuthServer::routes(registrationThrottle: 'throttle:agent-api-client-registration');
 
-Route::get('/login', function () {
-    return view('login');
-})->name('login');
+Route::get('/login', [OAuthLoginController::class, 'login'])->name('login');
 
 Route::get('/oauth/redirect', [OAuthLoginController::class, 'redirect'])
     ->middleware('throttle:20,1')
