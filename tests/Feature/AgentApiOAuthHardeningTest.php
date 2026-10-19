@@ -3,7 +3,9 @@
 namespace Tests\Feature;
 
 use App\Support\AgentApi\AgentApiScopes;
+use App\Support\AgentApi\FirstPartyOAuthClients;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
 use Laravel\Passport\Client;
 use Laravel\Passport\ClientRepository;
 use Laravel\Passport\Token;
@@ -95,5 +97,65 @@ final class AgentApiOAuthHardeningTest extends TestCase
         parse_str((string) parse_url((string) $denied->headers->get('Location'), PHP_URL_QUERY), $error);
         $this->assertSame('access_denied', $error['error'] ?? null);
         $this->assertSame(url('/'), $error['iss'] ?? null);
+    }
+
+    public function test_the_registration_command_creates_an_ownerless_confidential_authorization_code_client(): void
+    {
+        $this->assertSame(0, Artisan::call('phr:agent-api:register-first-party-client', [
+            'name' => 'Synthetic Finance',
+            '--redirect-uri' => ['https://finance.example.test/oauth/phr/callback'],
+            '--scope' => [AgentApiScopes::PATIENTS_READ, AgentApiScopes::IDENTITY_READ],
+        ]));
+        $output = Artisan::output();
+
+        $client = Client::query()->sole();
+        $this->assertSame('Synthetic Finance', $client->name);
+        $this->assertSame(['authorization_code', 'refresh_token'], $client->grant_types);
+        $this->assertSame(['https://finance.example.test/oauth/phr/callback'], $client->redirect_uris);
+        $this->assertSame([AgentApiScopes::IDENTITY_READ, AgentApiScopes::PATIENTS_READ], $client->scopes);
+        $this->assertTrue($client->confidential());
+        $this->assertTrue($client->firstParty());
+        $this->assertNull($client->dynamically_registered_at);
+        $this->assertStringContainsString((string) $client->id, $output);
+        $this->assertMatchesRegularExpression('/Client secret: \S{40}/', $output);
+        $this->assertStringNotContainsString((string) $client->secret, $output, 'Only the plain secret is shown; the stored one is a hash');
+
+        // Allow-listing is a separate, explicit step.
+        $this->assertFalse(app(FirstPartyOAuthClients::class)->allows($client));
+        config(['agent_api.first_party_oauth_clients' => [(string) $client->id]]);
+        $this->assertTrue(app(FirstPartyOAuthClients::class)->allows($client));
+        $client->forceFill(['revoked' => true])->save();
+        $this->assertFalse(app(FirstPartyOAuthClients::class)->allows($client->fresh()));
+    }
+
+    public function test_the_registration_command_refuses_unsafe_or_ambiguous_input(): void
+    {
+        $base = ['name' => 'Synthetic Finance', '--redirect-uri' => ['https://finance.example.test/callback'], '--scope' => [AgentApiScopes::IDENTITY_READ]];
+
+        $this->assertSame(1, Artisan::call('phr:agent-api:register-first-party-client', ['--redirect-uri' => ['http://finance.example.test/callback']] + $base));
+        $this->assertSame(1, Artisan::call('phr:agent-api:register-first-party-client', ['--redirect-uri' => []] + $base));
+        $this->assertSame(1, Artisan::call('phr:agent-api:register-first-party-client', ['--scope' => [AgentApiScopes::MCP_USE]] + $base));
+        $this->assertSame(1, Artisan::call('phr:agent-api:register-first-party-client', ['--scope' => ['synthetic:unknown']] + $base));
+        $this->assertSame(1, Artisan::call('phr:agent-api:register-first-party-client', ['--scope' => []] + $base));
+        $this->assertSame(0, Client::query()->count());
+
+        $this->assertSame(0, Artisan::call('phr:agent-api:register-first-party-client', $base));
+        $this->assertSame(1, Artisan::call('phr:agent-api:register-first-party-client', $base));
+        $this->assertSame(1, Client::query()->count());
+    }
+
+    public function test_only_an_allow_listed_confidential_authorization_code_client_is_first_party(): void
+    {
+        $repository = app(ClientRepository::class);
+        $public = $repository->createAuthorizationCodeGrantClient('Synthetic Public', ['https://public.example.test/callback'], false, null);
+        $machine = $repository->createClientCredentialsGrantClient('Synthetic Machine');
+        $dynamic = $repository->createAuthorizationCodeGrantClient('Synthetic Dynamic', ['https://dynamic.example.test/callback'], true, null);
+        $dynamic->forceFill(['dynamically_registered_at' => now()])->save();
+        config(['agent_api.first_party_oauth_clients' => [(string) $public->id, (string) $machine->id, (string) $dynamic->id]]);
+
+        $allowList = app(FirstPartyOAuthClients::class);
+        $this->assertFalse($allowList->allows($public->fresh()));
+        $this->assertFalse($allowList->allows($machine->fresh()));
+        $this->assertFalse($allowList->allows($dynamic->fresh()));
     }
 }
