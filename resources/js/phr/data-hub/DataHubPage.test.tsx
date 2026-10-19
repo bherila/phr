@@ -28,7 +28,7 @@ function inventoryPayload() {
       display_name: 'Synthetic Record Owner',
       relationship: 'self',
       record_counts: counts({ lab_results: 3, documents: 2, original_dicom_files: 4 }),
-      storage_bytes: { documents: 1024, original_dicom: 2048, total: 3072 },
+      storage_bytes: { documents: 1024, original_dicom: 2048, ehi: 0, total: 3072 },
       last_updated_at: '2026-08-02T01:00:00+00:00',
       active_share_count: 1,
       operations: {

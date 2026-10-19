@@ -14,7 +14,9 @@ use App\Services\PHR\NativeBackup\NativeRestoreException;
 use App\Services\PHR\NativeBackup\PhrNativeBackupService;
 use App\Services\PHR\NativeBackup\PhrNativeRecordCodec;
 use App\Services\PHR\NativeBackup\PhrNativeRestoreService;
+use App\Services\PHR\NativeBackup\PhrNativeTableCompatibility;
 use App\Support\PHR\PhrReviewStatus;
+use App\Support\Storage\PhrStorageKey;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -769,6 +771,296 @@ final class PhrNativeRestoreTest extends TestCase
         $this->assertIsArray($plan);
         $this->assertSame(1, $plan['tables']['phr_lab_results']['block'] ?? 0);
         $this->assertSame(0, $plan['tables']['phr_lab_results']['skip'] ?? -1);
+    }
+
+    public function test_an_ehi_package_restores_with_its_bytes_at_the_new_content_address(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        [$bytes, $digest] = $this->seedEhiPackage($patient, (int) $owner->id);
+        $archivePath = $this->archiveCopy($patient, (int) $owner->id);
+        DB::table('phr_patients')->where('id', $patient->id)->delete();
+
+        $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $attempt->status, (string) $attempt->failure_category);
+        $this->assertSame(1, $attempt->plan_counts_json['tables']['phr_ehi_blobs']['create']);
+        $this->assertSame(1, $attempt->plan_counts_json['artifacts']['create']);
+        app(PhrNativeRestoreService::class)->apply($attempt->refresh());
+
+        $restoredPatientId = (int) $attempt->refresh()->target_patient_root_id;
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_COMPLETED, $attempt->status);
+        $blob = DB::table('phr_ehi_blobs')->where('patient_id', $restoredPatientId)->sole();
+        $this->assertSame(config('phr.ehi_disk'), $blob->storage_disk);
+        $this->assertSame(PhrStorageKey::ehiBlob($restoredPatientId, $digest), $blob->storage_path);
+        $this->assertSame($bytes, Storage::disk((string) $blob->storage_disk)->get((string) $blob->storage_path));
+        $package = DB::table('phr_ehi_packages')->where('patient_id', $restoredPatientId)->sole();
+        $this->assertNull($package->lease_token);
+        $this->assertNull($package->lease_expires_at);
+        $this->assertNull($package->checkpoint_json);
+        $this->assertSame(1, DB::table('phr_ehi_package_members')->where('blob_id', $blob->id)->where('package_id', $package->id)->count());
+        $this->assertSame([], DB::select('PRAGMA foreign_key_check'));
+
+        // Re-reading the same archive recognises the restored rows and bytes.
+        $second = $this->readyAttempt($archivePath, (int) $owner->id);
+        $this->assertSame([], $second->plan_counts_json['blockers']);
+        $this->assertSame(1, $second->plan_counts_json['tables']['phr_ehi_blobs']['skip']);
+        $this->assertSame(1, $second->plan_counts_json['artifacts']['skip']);
+
+        // Bytes changed under a live row are a conflict, never silently skipped.
+        Storage::disk((string) $blob->storage_disk)->put((string) $blob->storage_path, 'synthetic replaced bytes');
+        $third = $this->readyAttempt($archivePath, (int) $owner->id);
+        $this->assertContains('artifact_conflict', $third->plan_counts_json['blockers']);
+        @unlink($archivePath);
+    }
+
+    public function test_a_new_blob_whose_digest_the_patient_already_holds_is_a_conflict(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        [, $digest] = $this->seedEhiPackage($patient, (int) $owner->id);
+        $archivePath = $this->archiveCopy($patient, (int) $owner->id);
+        // A later intake re-created the same bytes under a fresh identity.
+        $blob = DB::table('phr_ehi_blobs')->where('patient_id', $patient->id)->sole();
+        DB::table('phr_ehi_blobs')->where('id', $blob->id)->delete();
+        DB::table('phr_ehi_blobs')->insert([...(array) $blob, 'id' => null]);
+
+        $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
+        $this->assertContains('record_conflict', $attempt->plan_counts_json['blockers']);
+        $this->assertSame(1, $attempt->plan_counts_json['tables']['phr_ehi_blobs']['block']);
+        $this->assertSame(1, DB::table('phr_ehi_blobs')->where('patient_id', $patient->id)->where('sha256', $digest)->count());
+        @unlink($archivePath);
+    }
+
+    public function test_a_tampered_or_missing_ehi_blob_fails_closed(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        [$bytes] = $this->seedEhiPackage($patient, (int) $owner->id);
+        $replacement = str_repeat('X', strlen($bytes));
+
+        // Bytes swapped inside the ZIP only.
+        $swapped = $this->archiveCopy($patient, (int) $owner->id);
+        $this->rewriteEhiArtifact($swapped, static fn (array $artifact): array => [$artifact, $replacement]);
+        $this->assertPreviewFails($swapped, (int) $owner->id, 'archive_hash_mismatch');
+
+        // Bytes swapped with a self-consistent manifest: the blob row's digest still disagrees.
+        $forged = $this->archiveCopy($patient, (int) $owner->id);
+        $this->rewriteEhiArtifact($forged, static fn (array $artifact): array => [
+            [...$artifact, 'sha256' => hash('sha256', $replacement), 'size' => strlen($replacement)],
+            $replacement,
+        ]);
+        $this->assertPreviewFails($forged, (int) $owner->id, 'archive_hash_mismatch');
+
+        // A blob row without its bytes.
+        $missing = $this->archiveCopy($patient, (int) $owner->id);
+        $this->rewriteEhiArtifact($missing, static fn (array $artifact): array => [null, null]);
+        $this->assertPreviewFails($missing, (int) $owner->id, 'invalid_archive');
+
+        @unlink($swapped);
+        @unlink($forged);
+        @unlink($missing);
+    }
+
+    public function test_an_archive_written_before_the_ehi_tables_still_restores(): void
+    {
+        $owner = User::factory()->create(['user_role' => 'user']);
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        DB::table('phr_lab_results')->insert([
+            'patient_id' => $patient->id,
+            'user_id' => $owner->id,
+            'test_name' => 'Synthetic pre-EHI panel',
+            'analyte' => 'PLT',
+            'value' => '250',
+            'review_status' => PhrReviewStatus::CONFIRMED,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $archivePath = $this->archiveCopy($patient, (int) $owner->id);
+        // Forge the pre-EHI shape: an archive downloaded before these tables
+        // existed has no manifest entry and no record file for any of them. A
+        // round trip always writes the current catalog, so it cannot catch this.
+        $this->removeTables($archivePath, PhrNativeTableCompatibility::LATER_GENERATIONS['ehi_tables']);
+        DB::table('phr_patients')->where('id', $patient->id)->delete();
+
+        $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $attempt->status, (string) $attempt->failure_category);
+        $this->assertSame([], $attempt->plan_counts_json['blockers']);
+        $this->assertSame(['create' => 0, 'skip' => 0, 'block' => 0], $attempt->plan_counts_json['tables']['phr_ehi_packages']);
+
+        app(PhrNativeRestoreService::class)->apply($attempt->refresh());
+
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_COMPLETED, $attempt->refresh()->status);
+        $this->assertDatabaseHas('phr_lab_results', ['patient_id' => $attempt->target_patient_root_id, 'analyte' => 'PLT']);
+        $this->assertSame(0, DB::table('phr_ehi_packages')->count());
+        @unlink($archivePath);
+    }
+
+    public function test_only_a_whole_later_table_generation_may_be_absent(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+
+        // Part of a generation: written by no build, so damaged or forged.
+        $partial = $this->archiveCopy($patient, (int) $owner->id);
+        $this->removeTables($partial, ['phr_ehi_findings']);
+        $this->assertPreviewFails($partial, (int) $owner->id, 'invalid_archive');
+
+        // A table that every v1 archive has always contained.
+        $original = $this->archiveCopy($patient, (int) $owner->id);
+        $this->removeTables($original, ['phr_lab_results']);
+        $this->assertPreviewFails($original, (int) $owner->id, 'invalid_archive');
+
+        // A table the catalog has never heard of.
+        $unknown = $this->archiveCopy($patient, (int) $owner->id);
+        $zip = new ZipArchive;
+        $this->assertTrue($zip->open($unknown));
+        $manifest = json_decode((string) $zip->getFromName('manifest.json'), true, flags: JSON_THROW_ON_ERROR);
+        $manifest['tables']['phr_synthetic_future'] = ['path' => 'records/phr_synthetic_future.ndjson', 'count' => 0, 'sha256' => hash('sha256', '')];
+        $this->assertTrue($zip->addFromString('records/phr_synthetic_future.ndjson', ''));
+        $this->assertTrue($zip->deleteName('manifest.json'));
+        $this->assertTrue($zip->addFromString('manifest.json', json_encode($manifest, JSON_THROW_ON_ERROR)));
+        $zip->close();
+        $this->assertPreviewFails($unknown, (int) $owner->id, 'invalid_archive');
+
+        @unlink($partial);
+        @unlink($original);
+        @unlink($unknown);
+    }
+
+    /** @return array{string, string} the blob bytes and their digest */
+    private function seedEhiPackage(PhrPatient $patient, int $ownerId): array
+    {
+        $bytes = "PAT_ID\tSYNTHETIC_COLUMN\n000042\tvalue\n";
+        $digest = hash('sha256', $bytes);
+        $key = PhrStorageKey::ehiBlob((int) $patient->id, $digest);
+        Storage::disk('phr_documents')->put($key, $bytes);
+        $sourceId = DB::table('phr_ehi_sources')->insertGetId([
+            'patient_id' => $patient->id,
+            'created_by_user_id' => $ownerId,
+            'label' => 'Synthetic source',
+            'source_patient_key' => '000042',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $packageId = DB::table('phr_ehi_packages')->insertGetId([
+            'patient_id' => $patient->id,
+            'source_id' => $sourceId,
+            'created_by_user_id' => $ownerId,
+            'bound_by_user_id' => $ownerId,
+            'manifest_digest' => hash('sha256', 'synthetic manifest'),
+            'intake_kind' => 'directory',
+            'member_count' => 1,
+            'total_bytes' => strlen($bytes),
+            'preservation_status' => 'preserved',
+            'accounting_status' => 'accounted',
+            'binding_status' => 'bound',
+            'lease_token' => '00000000-0000-4000-8000-0000000000bb',
+            'lease_expires_at' => now()->subMinute(),
+            'checkpoint_json' => json_encode(['step' => 'synthetic'], JSON_THROW_ON_ERROR),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $blobId = DB::table('phr_ehi_blobs')->insertGetId([
+            'patient_id' => $patient->id,
+            'sha256' => $digest,
+            'byte_size' => strlen($bytes),
+            'storage_disk' => 'phr_documents',
+            'storage_path' => $key,
+            'verified_at' => now(),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $memberId = DB::table('phr_ehi_package_members')->insertGetId([
+            'patient_id' => $patient->id,
+            'package_id' => $packageId,
+            'blob_id' => $blobId,
+            'path' => 'SYNTHETIC_TABLE.tsv',
+            'path_sha256' => hash('sha256', 'SYNTHETIC_TABLE.tsv'),
+            'original_path' => 'SYNTHETIC_TABLE.tsv',
+            'byte_size' => strlen($bytes),
+            'sha256' => $digest,
+            'kind' => 'table',
+            'table_name' => 'SYNTHETIC_TABLE',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('phr_ehi_table_accounts')->insert([
+            'patient_id' => $patient->id,
+            'package_id' => $packageId,
+            'member_id' => $memberId,
+            'table_name' => 'SYNTHETIC_TABLE',
+            'state' => 'parsed',
+            'source_row_count' => 1,
+            'parser_version' => 'synthetic-1',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::table('phr_ehi_findings')->insert([
+            'patient_id' => $patient->id,
+            'package_id' => $packageId,
+            'member_id' => $memberId,
+            'code' => 'synthetic_finding',
+            'severity' => 'info',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        return [$bytes, $digest];
+    }
+
+    /**
+     * Replaces (or, given nulls, removes) the single EHI artifact and its manifest entry.
+     *
+     * @param  \Closure(array<string, mixed>): array{array<string, mixed>|null, string|null}  $rewrite
+     */
+    private function rewriteEhiArtifact(string $archivePath, \Closure $rewrite): void
+    {
+        $zip = new ZipArchive;
+        $this->assertTrue($zip->open($archivePath));
+        $manifest = json_decode((string) $zip->getFromName('manifest.json'), true, flags: JSON_THROW_ON_ERROR);
+        $index = array_search('ehi', array_column($manifest['artifacts'], 'kind'), true);
+        $this->assertIsInt($index);
+        $artifact = $manifest['artifacts'][$index];
+        [$replacement, $bytes] = $rewrite($artifact);
+        $this->assertTrue($zip->deleteName((string) $artifact['path']));
+        if ($replacement === null) {
+            unset($manifest['artifacts'][$index]);
+            $manifest['artifacts'] = array_values($manifest['artifacts']);
+        } else {
+            $manifest['artifacts'][$index] = $replacement;
+            $this->assertTrue($zip->addFromString((string) $artifact['path'], (string) $bytes));
+        }
+        $this->assertTrue($zip->deleteName('manifest.json'));
+        $this->assertTrue($zip->addFromString('manifest.json', json_encode($manifest, JSON_THROW_ON_ERROR)));
+        $zip->close();
+    }
+
+    /** @param list<string> $tables */
+    private function removeTables(string $archivePath, array $tables): void
+    {
+        $zip = new ZipArchive;
+        $this->assertTrue($zip->open($archivePath));
+        $manifest = json_decode((string) $zip->getFromName('manifest.json'), true, flags: JSON_THROW_ON_ERROR);
+        foreach ($tables as $table) {
+            $this->assertTrue($zip->deleteName((string) $manifest['tables'][$table]['path']));
+            unset($manifest['tables'][$table]);
+        }
+        $this->assertTrue($zip->deleteName('manifest.json'));
+        $this->assertTrue($zip->addFromString('manifest.json', json_encode($manifest, JSON_THROW_ON_ERROR)));
+        $zip->close();
+    }
+
+    private function assertPreviewFails(string $archivePath, int $ownerId, string $category): void
+    {
+        $attempt = app(PhrNativeRestoreService::class)->createPreview($this->upload($archivePath), $ownerId, false);
+        try {
+            app(PhrNativeRestoreService::class)->preview($attempt);
+            $this->fail("Preview must fail closed with {$category}.");
+        } catch (NativeRestoreException $exception) {
+            $this->assertSame($category, $exception->failureCategory);
+        }
+        $this->assertSame($category, $attempt->refresh()->failure_category);
     }
 
     private function patientWithOwnerGrant(int $ownerId): PhrPatient

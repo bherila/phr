@@ -163,6 +163,17 @@ final class PhrNativeRestorePlanner
                         $blockers[] = 'record_conflict';
                     }
                 }
+                // Blob rows are content-addressed per patient. A new blob whose
+                // digest the target already holds under another identity would
+                // collide on its unique key and its storage key.
+                if ($table === 'phr_ehi_blobs' && $action === 'create' && $targetPatientId !== null
+                    && DB::table('phr_ehi_blobs')
+                        ->where('patient_id', $targetPatientId)
+                        ->where('sha256', (string) ($record['attributes']['sha256'] ?? ''))
+                        ->exists()) {
+                    $action = 'block';
+                    $blockers[] = 'record_conflict';
+                }
                 $actions[$table][$nativeId] = $action;
                 $tables[$table][$action === 'omit' ? 'skip' : $action]++;
                 $knownArchiveRecords[$table][$nativeId] = true;
@@ -171,7 +182,7 @@ final class PhrNativeRestorePlanner
 
         $artifactPlan = ['create' => 0, 'skip' => 0, 'block' => 0, 'bytes' => 0];
         foreach ($archive->manifest['artifacts'] as $artifact) {
-            $table = $artifact['kind'] === 'document' ? 'phr_documents' : 'phr_dicom_files';
+            $table = PhrNativeBackupCatalog::artifactKinds()[(string) $artifact['kind']] ?? throw new NativeRestoreException('invalid_archive');
             $nativeId = (string) $artifact['recordNativeId'];
             $recordAction = $actions[$table][$nativeId] ?? 'block';
             $artifactAction = $recordAction === 'create' ? 'create' : ($recordAction === 'skip' ? 'skip' : 'block');
@@ -213,8 +224,11 @@ final class PhrNativeRestorePlanner
         if ($row === null) {
             return false;
         }
-        $disk = $table === 'phr_documents' ? PhrDocument::STORAGE_DISK : 'phr_dicom';
-        $path = $table === 'phr_documents' ? $row->storage_path : $row->r2_key;
+        [$disk, $path] = match ($table) {
+            'phr_documents' => [PhrDocument::STORAGE_DISK, $row->storage_path],
+            'phr_ehi_blobs' => [(string) $row->storage_disk, $row->storage_path],
+            default => ['phr_dicom', $row->r2_key],
+        };
         if (! is_string($path) || $path === '') {
             return false;
         }

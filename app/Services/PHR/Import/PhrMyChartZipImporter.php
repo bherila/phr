@@ -3,6 +3,8 @@
 namespace App\Services\PHR\Import;
 
 use App\Models\PhrPatient;
+use App\Services\PHR\Import\Ehi\EhiExportNotSupportedHere;
+use App\Services\PHR\Import\Ehi\EhiPackageDetector;
 use InvalidArgumentException;
 use ZipArchive;
 
@@ -26,6 +28,16 @@ class PhrMyChartZipImporter
 
         $result = new PhrImportResult;
         try {
+            // An EHI Tables export holds no FHIR/C-CDA this loop would read; without
+            // this check it would skip every member and report an empty success.
+            $names = [];
+            for ($index = 0; $index < $zip->numFiles; $index++) {
+                $names[] = (string) $zip->getNameIndex($index);
+            }
+            if (EhiPackageDetector::detectZipPaths($names)) {
+                throw new EhiExportNotSupportedHere;
+            }
+
             for ($index = 0; $index < $zip->numFiles; $index++) {
                 $name = (string) $zip->getNameIndex($index);
                 if ($name === '' || str_ends_with($name, '/')) {

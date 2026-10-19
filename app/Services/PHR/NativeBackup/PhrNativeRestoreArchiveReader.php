@@ -99,13 +99,12 @@ final class PhrNativeRestoreArchiveReader
             throw new NativeRestoreException('invalid_archive');
         }
         $tables = $manifest['tables'] ?? null;
-        $actualTables = is_array($tables) ? array_keys($tables) : [];
-        $expectedTables = array_keys(PhrNativeBackupCatalog::included());
-        sort($actualTables);
-        sort($expectedTables);
-        if (! is_array($tables) || $actualTables !== $expectedTables) {
+        if (! is_array($tables)) {
             throw new NativeRestoreException('invalid_archive');
         }
+        // Only a whole table generation added after v1 may be absent; it reads as
+        // empty. Every other difference from the catalog fails closed.
+        PhrNativeTableCompatibility::absentTables(array_keys($tables));
         if (! is_array($manifest['artifacts'] ?? null)) {
             throw new NativeRestoreException('invalid_archive');
         }
@@ -176,9 +175,13 @@ final class PhrNativeRestoreArchiveReader
     {
         $allIds = [];
         $actorIds = [];
-        $artifactRecords = ['phr_documents' => [], 'phr_dicom_files' => []];
+        $artifactRecords = array_fill_keys(array_keys(PhrNativeBackupCatalog::artifactBearingTables()), []);
         foreach (PhrNativeBackupCatalog::included() as $table => $definition) {
-            $entry = $manifest['tables'][$table];
+            $entry = $manifest['tables'][$table] ?? null;
+            if ($entry === null) {
+                // validateManifest() admitted this absence as a pre-table archive.
+                continue;
+            }
             $stream = $zip->getStream($entry['path']);
             if (! is_resource($stream)) {
                 throw new NativeRestoreException('invalid_archive');
@@ -317,11 +320,13 @@ final class PhrNativeRestoreArchiveReader
      */
     private function validateArtifacts(ZipArchive $zip, array $manifest, array $artifactRecords): void
     {
+        $kinds = PhrNativeBackupCatalog::artifactKinds();
         $seenPaths = [];
         $seenRecords = [];
+        $seenEhiDigests = [];
         foreach ($manifest['artifacts'] as $artifact) {
             if (! is_array($artifact)
-                || ! in_array($artifact['kind'] ?? null, ['document', 'dicom', 'dicomdir'], true)
+                || ! is_string($artifact['kind'] ?? null) || ! isset($kinds[$artifact['kind']])
                 || ! $this->isUuid($artifact['recordNativeId'] ?? null)
                 || ! is_string($artifact['path'] ?? null)
                 || ! is_int($artifact['size'] ?? null) || $artifact['size'] < 0
@@ -331,17 +336,27 @@ final class PhrNativeRestoreArchiveReader
             }
             $seenPaths[$artifact['path']] = true;
             $seenRecords[$artifact['recordNativeId']] = true;
-            $table = $artifact['kind'] === 'document' ? 'phr_documents' : 'phr_dicom_files';
+            $table = $kinds[$artifact['kind']];
             $attributes = $artifactRecords[$table][$artifact['recordNativeId']] ?? null;
-            $expectedPath = $artifact['kind'] === 'document'
-                ? 'artifacts/documents/'.$artifact['recordNativeId'].'.blob'
-                : 'artifacts/dicom/'.$artifact['recordNativeId'].'.blob';
+            $expectedPath = PhrNativeBackupCatalog::artifactPath($artifact['kind'], $artifact['recordNativeId']);
             if (! is_array($attributes) || $artifact['path'] !== $expectedPath) {
                 throw new NativeRestoreException('invalid_archive');
             }
             if ($table === 'phr_documents') {
                 if ((int) ($attributes['byte_size'] ?? -1) !== $artifact['size']
                     || (($attributes['file_hash'] ?? null) !== null && ! hash_equals(strtolower((string) $attributes['file_hash']), (string) $artifact['sha256']))) {
+                    throw new NativeRestoreException('archive_hash_mismatch');
+                }
+            } elseif ($table === 'phr_ehi_blobs') {
+                // The digest is the restored storage key, so it must already be
+                // canonical; one patient never holds two blobs with one digest.
+                $digest = $attributes['sha256'] ?? null;
+                if (! $this->isHash($digest) || isset($seenEhiDigests[$digest])) {
+                    throw new NativeRestoreException('invalid_archive');
+                }
+                $seenEhiDigests[$digest] = true;
+                if ((int) ($attributes['byte_size'] ?? -1) !== $artifact['size']
+                    || ! hash_equals($digest, (string) $artifact['sha256'])) {
                     throw new NativeRestoreException('archive_hash_mismatch');
                 }
             } else {
@@ -381,7 +396,8 @@ final class PhrNativeRestoreArchiveReader
             },
         );
         if (array_diff_key($fileBackedDocuments, $seenRecords) !== []
-            || array_diff_key($artifactRecords['phr_dicom_files'], $seenRecords) !== []) {
+            || array_diff_key($artifactRecords['phr_dicom_files'], $seenRecords) !== []
+            || array_diff_key($artifactRecords['phr_ehi_blobs'], $seenRecords) !== []) {
             throw new NativeRestoreException('invalid_archive');
         }
     }

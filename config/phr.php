@@ -19,6 +19,22 @@ return [
     'native_restore_source_retention_days' => max(1, (int) env('PHR_NATIVE_RESTORE_SOURCE_RETENTION_DAYS', 7)),
     'native_restore_max_record_bytes' => max(1024, (int) env('PHR_NATIVE_RESTORE_MAX_RECORD_BYTES', 2 * 1024 * 1024)),
     'native_restore_chunk_bytes' => max(1024 * 1024, (int) env('PHR_NATIVE_RESTORE_CHUNK_BYTES', 8 * 1024 * 1024)),
+    // Epic EHI Tables intake (#213). Every limit fails closed before bytes are
+    // stored; a package over any of them is refused, never partially preserved.
+    // Not env-configurable: patient deletion and storage pruning allowlist the
+    // disks they sweep, and an EHI blob on any other disk could not be cleaned up.
+    'ehi_disk' => 'phr_documents',
+    'ehi_max_package_bytes' => max(1, (int) env('PHR_EHI_MAX_PACKAGE_BYTES', 10 * 1024 * 1024 * 1024)),
+    'ehi_max_member_bytes' => max(1, (int) env('PHR_EHI_MAX_MEMBER_BYTES', 2 * 1024 * 1024 * 1024)),
+    'ehi_max_members' => max(1, (int) env('PHR_EHI_MAX_MEMBERS', 50000)),
+    'ehi_max_expansion_ratio' => max(1, (int) env('PHR_EHI_MAX_EXPANSION_RATIO', 200)),
+    'ehi_max_path_depth' => max(1, (int) env('PHR_EHI_MAX_PATH_DEPTH', 16)),
+    'ehi_max_path_bytes' => max(16, (int) env('PHR_EHI_MAX_PATH_BYTES', 512)),
+    'ehi_max_row_bytes' => max(1024, (int) env('PHR_EHI_MAX_ROW_BYTES', 8 * 1024 * 1024)),
+    'ehi_max_value_bytes' => max(1024, (int) env('PHR_EHI_MAX_VALUE_BYTES', 4 * 1024 * 1024)),
+    'ehi_max_dictionary_bytes' => max(1024, (int) env('PHR_EHI_MAX_DICTIONARY_BYTES', 64 * 1024 * 1024)),
+    'ehi_max_findings_per_member' => max(1, (int) env('PHR_EHI_MAX_FINDINGS_PER_MEMBER', 1000)),
+    'ehi_lease_minutes' => max(1, (int) env('PHR_EHI_LEASE_MINUTES', 15)),
     'documents_retention_days' => (int) env('PHR_DOCUMENTS_RETENTION_DAYS', 30),
     // A migrated reference keeps its verified legacy object until a separate,
     // explicit cleanup phase runs after this rollback window.

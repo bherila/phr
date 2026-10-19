@@ -32,6 +32,10 @@ final class PhrNativeRestoreArchive
     public function records(string $table): Generator
     {
         $entry = $this->manifest['tables'][$table] ?? null;
+        if ($entry === null && PhrNativeTableCompatibility::readsAsEmpty($table)) {
+            // The reader admitted this archive as predating the table.
+            return;
+        }
         if (! is_array($entry) || ! is_string($entry['path'] ?? null)) {
             throw new NativeRestoreException('invalid_archive');
         }

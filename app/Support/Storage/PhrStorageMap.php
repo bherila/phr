@@ -80,6 +80,11 @@ class PhrStorageMap
             ->from('phr_blob_migrations', 'source_key')->where('legacy_deleted_at', null)
             ->from('phr_blob_migrations', 'destination_key')->where('legacy_deleted_at', null)
 
+            // Preserved EHI package members, content-addressed per patient on the
+            // configured EHI disk (`phr_documents`, under its `patients` prefix). One
+            // row protects the object that every member with those bytes shares.
+            ->from('phr_ehi_blobs', 'storage_path')
+
             // Patient deletion commits the database graph first, then retries exact
             // artifact cleanup. Durable work rows protect those keys in between.
             ->from('phr_patient_deletion_artifacts', 'storage_key')
@@ -104,6 +109,10 @@ class PhrStorageMap
             ->ignoring('user_ai_configurations', 'api_key', because: 'API credential')
             ->ignoring('agent_api_audits', 'sampling_key', because: 'rate-limit audit bucket digest, not a storage key')
             ->ignoring('bherila_auth_delegated_receipts', 'operation_key', because: 'digest of a delegated access operation id, not a storage key')
+            ->ignoring('phr_ehi_sources', 'source_patient_key', because: 'source system patient identifier, not a storage key')
+            ->ignoring('phr_ehi_packages', 'detected_source_patient_key', because: 'source system patient identifier, not a storage key')
+            ->ignoring('phr_ehi_package_members', 'path', because: 'normalized path within an EHI package, not a disk key')
+            ->ignoring('phr_ehi_package_members', 'original_path', because: 'supplied path within an EHI package, not a disk key')
 
             // Package-owned attachment blobs use the package-configured disk and
             // lifecycle, not a PHR storage-map disk. PHR external imports use

@@ -5,6 +5,8 @@ namespace Tests\Feature\PHR;
 use App\Jobs\PHR\CleanupDeletedPhrPatientArtifactsJob;
 use App\Models\PhrDicomUpload;
 use App\Models\PhrDocument;
+use App\Models\PhrEhiBlob;
+use App\Models\PhrEhiPackage;
 use App\Models\PhrExport;
 use App\Models\PhrNativeBackup;
 use App\Models\PhrNativeBackupAudit;
@@ -16,6 +18,7 @@ use App\Models\User;
 use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
 use App\Services\PHR\DataHub\PhrPatientDeletionCleanupService;
 use App\Services\PHR\NativeBackup\PhrNativeBackupCatalog;
+use App\Support\Storage\PhrStorageKey;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\DB;
@@ -317,6 +320,106 @@ class PhrPatientDeletionTest extends TestCase
             ->getJson("/api/phr/data-hub/patients/{$patient->id}/deletion-preview")
             ->assertOk()
             ->assertJsonCount(0, 'deletion_preview.blockers');
+    }
+
+    public function test_ehi_blobs_are_recorded_for_cleanup_and_a_live_intake_lease_blocks(): void
+    {
+        Queue::fake();
+        Storage::fake('phr_documents');
+        [$owner, $patient] = $this->ownerAndPatient();
+        $bytes = 'synthetic preserved ehi member';
+        $digest = hash('sha256', $bytes);
+        $key = PhrStorageKey::ehiBlob((int) $patient->id, $digest);
+        Storage::disk('phr_documents')->put($key, $bytes);
+        $package = PhrEhiPackage::query()->create([
+            'patient_id' => $patient->id,
+            'manifest_digest' => str_repeat('a', 64),
+            'intake_kind' => PhrEhiPackage::INTAKE_DIRECTORY,
+            'lease_token' => '00000000-0000-4000-8000-0000000000cc',
+            'lease_expires_at' => now()->addMinutes(5),
+        ]);
+        $blob = PhrEhiBlob::query()->create([
+            'patient_id' => $patient->id,
+            'sha256' => $digest,
+            'byte_size' => strlen($bytes),
+            'storage_disk' => 'phr_documents',
+            'storage_path' => $key,
+        ]);
+
+        $this->actingAs($owner)
+            ->getJson("/api/phr/data-hub/patients/{$patient->id}/deletion-preview")
+            ->assertOk()
+            ->assertJsonPath('deletion_preview.blockers.0', 'ehi_intake_in_progress');
+
+        // A lapsed lease belongs to a dead worker and no longer blocks.
+        $package->update(['lease_expires_at' => now()->subSecond()]);
+        $preview = $this->actingAs($owner)
+            ->getJson("/api/phr/data-hub/patients/{$patient->id}/deletion-preview")
+            ->assertOk()
+            ->assertJsonCount(0, 'deletion_preview.blockers')
+            ->assertJsonPath('deletion_preview.record_counts.phr_ehi_blobs', 1)
+            ->assertJsonPath('deletion_preview.artifact_count', 1)
+            ->assertJsonPath('deletion_preview.artifact_bytes', strlen($bytes));
+        $deletionId = (int) $this->actingAs($owner)->deleteJson("/api/phr/patients/{$patient->id}", [
+            'confirmation' => 'DELETE',
+            'preview_digest' => (string) $preview->json('deletion_preview.preview_digest'),
+        ])->assertAccepted()->json('deletion.id');
+
+        $this->assertDatabaseMissing('phr_ehi_blobs', ['id' => $blob->id]);
+        $this->assertDatabaseMissing('phr_ehi_packages', ['id' => $package->id]);
+        $this->assertDatabaseHas('phr_patient_deletion_artifacts', [
+            'deletion_id' => $deletionId,
+            'storage_disk' => 'phr_documents',
+            'storage_key' => $key,
+            'expected_bytes' => strlen($bytes),
+        ]);
+
+        // The same key made live again by another blob row is never removed.
+        [, $otherPatient] = $this->ownerAndPatient();
+        $liveReference = PhrEhiBlob::query()->create([
+            'patient_id' => $otherPatient->id,
+            'sha256' => $digest,
+            'byte_size' => strlen($bytes),
+            'storage_disk' => 'phr_documents',
+            'storage_path' => $key,
+        ]);
+        try {
+            app(PhrPatientDeletionCleanupService::class)->cleanup($deletionId);
+            $this->fail('A live EHI blob reference must block cleanup.');
+        } catch (RuntimeException) {
+            Storage::disk('phr_documents')->assertExists($key);
+        }
+
+        $liveReference->delete();
+        app(PhrPatientDeletionCleanupService::class)->cleanup($deletionId);
+        Storage::disk('phr_documents')->assertMissing($key);
+        $this->assertDatabaseHas('phr_patient_deletions', [
+            'id' => $deletionId,
+            'status' => PhrPatientDeletion::STATUS_COMPLETED,
+        ]);
+    }
+
+    public function test_an_ehi_blob_key_shared_with_another_patient_blocks_deletion(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        [, $otherPatient] = $this->ownerAndPatient();
+        $digest = hash('sha256', 'synthetic shared member');
+        $key = PhrStorageKey::ehiBlob((int) $otherPatient->id, $digest);
+        foreach ([$patient, $otherPatient] as $holder) {
+            PhrEhiBlob::query()->create([
+                'patient_id' => $holder->id,
+                'sha256' => $digest,
+                'byte_size' => 23,
+                'storage_disk' => 'phr_documents',
+                'storage_path' => $key,
+            ]);
+        }
+
+        $this->actingAs($owner)
+            ->getJson("/api/phr/data-hub/patients/{$patient->id}/deletion-preview")
+            ->assertOk()
+            ->assertJsonPath('deletion_preview.blockers.0', 'shared_storage_reference')
+            ->assertJsonPath('deletion_preview.artifact_count', 0);
     }
 
     public function test_artifact_write_guard_never_invokes_a_writer_after_patient_deletion(): void

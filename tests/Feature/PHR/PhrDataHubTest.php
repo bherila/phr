@@ -5,6 +5,8 @@ namespace Tests\Feature\PHR;
 use App\Models\PhrDicomFile;
 use App\Models\PhrDicomUpload;
 use App\Models\PhrDocument;
+use App\Models\PhrEhiBlob;
+use App\Models\PhrEhiPackage;
 use App\Models\PhrHealthLog;
 use App\Models\PhrLabResult;
 use App\Models\PhrPatient;
@@ -81,6 +83,20 @@ class PhrDataHubTest extends TestCase
         ]);
         $this->dicomFile($patient, $upload, PhrDicomFile::KIND_DICOM, 250, 'original');
         $this->dicomFile($patient, $upload, PhrDicomFile::KIND_DERIVED_VOLUME, 1000, 'derived');
+        PhrEhiPackage::query()->create([
+            'patient_id' => $patient->id,
+            'manifest_digest' => str_repeat('a', 64),
+            'intake_kind' => PhrEhiPackage::INTAKE_DIRECTORY,
+        ]);
+        foreach (['b' => 40, 'c' => 60] as $digit => $bytes) {
+            PhrEhiBlob::query()->create([
+                'patient_id' => $patient->id,
+                'sha256' => str_repeat($digit, 64),
+                'byte_size' => $bytes,
+                'storage_disk' => 'phr_documents',
+                'storage_path' => "patients/{$patient->id}/ehi/".str_repeat($digit, 64),
+            ]);
+        }
 
         $response = $this->actingAs($owner)->getJson('/api/phr/data-hub')->assertOk();
         $response->assertJsonCount(1, 'owned_patients')
@@ -91,8 +107,11 @@ class PhrDataHubTest extends TestCase
             ->assertJsonPath('owned_patients.0.record_counts.documents', 1)
             ->assertJsonPath('owned_patients.0.record_counts.original_dicom_files', 1)
             ->assertJsonPath('owned_patients.0.storage_bytes.documents', 125)
+            ->assertJsonPath('owned_patients.0.record_counts.ehi_packages', 1)
+            ->assertJsonPath('owned_patients.0.record_counts.ehi_preserved_files', 2)
             ->assertJsonPath('owned_patients.0.storage_bytes.original_dicom', 250)
-            ->assertJsonPath('owned_patients.0.storage_bytes.total', 375)
+            ->assertJsonPath('owned_patients.0.storage_bytes.ehi', 100)
+            ->assertJsonPath('owned_patients.0.storage_bytes.total', 475)
             ->assertJsonPath('owned_patients.0.active_share_count', 1)
             ->assertJsonPath('owned_patients.0.operations.clinical_export.status', 'available')
             ->assertJsonPath('owned_patients.0.operations.native_backup.status', 'available')

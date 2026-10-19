@@ -4,6 +4,7 @@ namespace App\Services\PHR\DataHub;
 
 use App\Jobs\PHR\CleanupDeletedPhrPatientArtifactsJob;
 use App\Models\PhrDicomUpload;
+use App\Models\PhrEhiPackage;
 use App\Models\PhrExport;
 use App\Models\PhrNativeBackup;
 use App\Models\PhrPatient;
@@ -159,6 +160,15 @@ final class PhrPatientDeletionService
             ->exists()) {
             $blockers[] = 'native_backup_in_progress';
         }
+        if (PhrEhiPackage::query()
+            ->where('patient_id', $patientId)
+            ->where('lease_expires_at', '>', now())
+            ->exists()) {
+            // A live intake may have stored blob bytes whose rows have not
+            // committed, which the exact-key ledger below would miss. An expired
+            // lease belongs to a dead worker and no longer blocks.
+            $blockers[] = 'ehi_intake_in_progress';
+        }
 
         $artifacts = $this->artifacts($patientId, $blockers);
         usort($artifacts, static fn (array $left, array $right): int => [$left['disk'], $left['key']] <=> [$right['disk'], $right['key']]);
@@ -221,6 +231,8 @@ final class PhrPatientDeletionService
             ->orderBy('id')->each(fn ($row) => $collect((string) $row->storage_disk, (string) $row->storage_path, (int) $row->byte_size));
         DB::table('phr_dicom_files')->where('patient_id', $patientId)->whereNotNull('r2_key')
             ->orderBy('id')->each(fn ($row) => $collect('phr_dicom', (string) $row->r2_key, (int) $row->file_size_bytes));
+        DB::table('phr_ehi_blobs')->where('patient_id', $patientId)
+            ->orderBy('id')->each(fn ($row) => $collect((string) $row->storage_disk, (string) $row->storage_path, (int) $row->byte_size));
         DB::table('phr_exports')->where('patient_id', $patientId)->whereNotNull('storage_path')
             ->orderBy('id')->each(fn ($row) => $collect((string) $row->storage_disk, (string) $row->storage_path, is_numeric($row->file_size_bytes) ? (int) $row->file_size_bytes : null));
         DB::table('phr_native_backups')->where('patient_id', $patientId)->whereNotNull('storage_path')
@@ -243,6 +255,10 @@ final class PhrPatientDeletionService
         }
         if ($disk === 'phr_dicom' && DB::table('phr_dicom_files')
             ->where('patient_id', '<>', $patientId)->where('r2_key', $key)->exists()) {
+            return true;
+        }
+        if (DB::table('phr_ehi_blobs')
+            ->where('patient_id', '<>', $patientId)->where('storage_disk', $disk)->where('storage_path', $key)->exists()) {
             return true;
         }
         if (DB::table('phr_exports')

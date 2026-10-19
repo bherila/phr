@@ -21,6 +21,8 @@ export const DATA_HUB_CATEGORY_KEYS = [
   'dicom_series',
   'dicom_instances',
   'original_dicom_files',
+  'ehi_packages',
+  'ehi_preserved_files',
 ] as const
 
 export type DataHubCategoryKey = typeof DATA_HUB_CATEGORY_KEYS[number]
@@ -46,6 +48,7 @@ export const OwnedPatientInventorySchema = z.object({
   storage_bytes: z.object({
     documents: z.number().int().nonnegative(),
     original_dicom: z.number().int().nonnegative(),
+    ehi: z.number().int().nonnegative(),
     total: z.number().int().nonnegative(),
   }),
   last_updated_at: z.string().nullable(),
@@ -173,4 +176,6 @@ export const DATA_HUB_CATEGORY_LABELS: Record<DataHubCategoryKey, string> = {
   dicom_series: 'Imaging series',
   dicom_instances: 'DICOM instances',
   original_dicom_files: 'Original DICOM files',
+  ehi_packages: 'EHI packages',
+  ehi_preserved_files: 'Preserved EHI files',
 }

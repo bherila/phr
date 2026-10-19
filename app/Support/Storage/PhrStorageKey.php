@@ -87,6 +87,20 @@ final class PhrStorageKey
         return self::export($patientId, $exportUuid, 'phr-native-v1.zip');
     }
 
+    /**
+     * Preserved EHI package member bytes, content-addressed within one patient so
+     * identical members of replayed or repacked packages share one object.
+     */
+    public static function ehiBlob(int $patientId, string $sha256): string
+    {
+        $normalized = strtolower(trim($sha256));
+        if (preg_match('/\A[0-9a-f]{64}\z/', $normalized) !== 1) {
+            throw new InvalidArgumentException('A lowercase sha256 hex digest is required.');
+        }
+
+        return sprintf('patients/%d/ehi/%s', self::patientId($patientId), $normalized);
+    }
+
     public static function nativeRestoreSource(string $restoreUuid): string
     {
         return sprintf('phr/native-restores/%s/phr-native-v1.zip', self::uuid($restoreUuid));
