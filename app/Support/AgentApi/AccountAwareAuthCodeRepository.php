@@ -15,6 +15,7 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
     public function __construct(
         private OAuthExchangeAccountGuard $accountGuard,
         private OAuthDynamicClientDao $dynamicClients,
+        private OAuthClientConsents $consents,
     ) {}
 
     public function persistNewAuthCode(AuthCodeEntityInterface $authCodeEntity): void
@@ -25,6 +26,9 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
         // Missing request-local state fails closed as an unusable code rather than
         // falling back to a race-prone user-table read here.
         $securityVersion = $validatedGrant['security_version'] ?? null;
+        // The consent this authorization was approved (or silently re-approved)
+        // under. A code without one can never be exchanged.
+        $consentVersion = $validatedGrant['consent_version'] ?? null;
         $resourceUri = OAuthResourceIndicator::validatedFor(request());
         $scopeIds = array_map(
             static fn ($scope): string => $scope->getIdentifier(),
@@ -49,8 +53,9 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
             'user_id' => $userId,
             'client_id' => $authCodeEntity->getClient()->getIdentifier(),
             'scopes' => json_encode($authCodeEntity->getScopes()),
-            'revoked' => ! $resourceIsValid,
+            'revoked' => ! $resourceIsValid || $consentVersion === null,
             'oauth_security_version' => $securityVersion,
+            'oauth_consent_version' => $consentVersion,
             'resource_uri' => $resourceUri,
             'expires_at' => $authCodeEntity->getExpiryDateTime(),
             ...ProviderIdentityStamp::forIssue($model, $userId),
@@ -106,6 +111,19 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
             return true;
         }
 
+        // Consent revoked (or re-granted under a newer version) since the code
+        // was issued retires it, before the grant is recorded for issuance.
+        if (! $this->consents->isCurrent(
+            $authorizationCode->user_id,
+            (string) $authorizationCode->client_id,
+            $storedResource,
+            $authorizationCode->oauth_consent_version,
+        )) {
+            $authorizationCode->forceFill(['revoked' => true])->save();
+
+            return true;
+        }
+
         // The code's provider stamp, checked against the account's binding and
         // handed to the token it mints (a no-op until enforcement is enabled).
         $providerIdentity = app(ProviderIdentityTokens::class);
@@ -119,6 +137,7 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
             (int) $authorizationCode->oauth_security_version,
             null,
             $storedResource,
+            (int) $authorizationCode->oauth_consent_version,
         );
 
         return false;

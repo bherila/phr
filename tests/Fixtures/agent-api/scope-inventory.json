@@ -324,6 +324,9 @@
             "exports:read"
         ]
     },
+    "oauth.consent.revoke": {
+        "authenticated": true
+    },
     "oauth.disconnect": {
         "authenticated": true
     },

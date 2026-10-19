@@ -1304,6 +1304,17 @@ final class AgentRestDocumentation
                 'success' => [204 => 'Token family revoked'],
                 'responses' => ['401' => 'Unauthenticated', '403' => 'InsufficientScope', '429' => 'RateLimited'],
             ],
+            'oauth.consent.revoke' => [
+                'route_name' => 'agent-api.v1.oauth-consent.destroy',
+                'method' => 'DELETE',
+                'path' => '/oauth/consent',
+                'summary' => 'Withdraw this client\'s consent and revoke every credential it holds for the person',
+                'description' => 'Disconnects the calling OAuth client: its consent for every protected resource is withdrawn and all of its authorization codes, access tokens and refresh tokens for the person are revoked. The next authorization shows the consent screen again.',
+                'scopes' => [],
+                'parameters' => [],
+                'success' => [204 => 'Consent withdrawn and credentials revoked'],
+                'responses' => ['401' => 'Unauthenticated', '403' => 'InsufficientScope', '429' => 'RateLimited'],
+            ],
             'office_visits.upsert' => [
                 'route_name' => 'agent-api.v1.clinical.office_visits.upsert',
                 'method' => 'PUT',

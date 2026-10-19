@@ -6,6 +6,9 @@ use App\GenAiProcessor\External\PhrMcpAttachmentResolver;
 use App\GenAiProcessor\External\PhrMcpCompletionDelivery;
 use App\GenAiProcessor\External\PhrMcpMailboxAccessResolver;
 use App\GenAiProcessor\Support\PhrExternalImportStatusMap;
+use App\Http\Controllers\OAuth\ConsentAwareAuthorizationController;
+use App\Http\Controllers\OAuth\ConsentRecordingApproveAuthorizationController;
+use App\Models\PassportClient;
 use App\Services\Accounts\PhrApplicationAccessAdapter;
 use App\Support\AgentApi\AccountAwareAccessTokenRepository;
 use App\Support\AgentApi\AccountAwareAuthCodeRepository;
@@ -31,14 +34,18 @@ use Bherila\McpLaravelBridge\Http\OperationRoutes;
 use BWH\Auth\OAuth\Credentials\CredentialOwnerPolicy;
 use BWH\Auth\OAuth\DelegatedAccess\ApplicationAccessAdapter;
 use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Contracts\Auth\StatefulGuard;
 use Illuminate\Http\Middleware\HandleCors;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Laravel\Passport\Bridge\AccessTokenRepository;
 use Laravel\Passport\Bridge\AuthCodeRepository;
 use Laravel\Passport\Bridge\RefreshTokenRepository;
+use Laravel\Passport\Http\Controllers\ApproveAuthorizationController;
+use Laravel\Passport\Http\Controllers\AuthorizationController;
 use Laravel\Passport\Passport;
 
 class AppServiceProvider extends ServiceProvider
@@ -51,6 +58,17 @@ class AppServiceProvider extends ServiceProvider
         // Registration runs before package providers boot, so this prevents the
         // unused device-code routes and grant from being registered at all.
         Passport::$deviceCodeGrantEnabled = false;
+        // Before the auth package boots: it installs its own client model only
+        // while Passport's base model is still in place, so PHR's subclass of
+        // that model (durable-consent skip for first-party clients) wins.
+        Passport::useClientModel(PassportClient::class);
+        // The authorization endpoints, held to durable consent: a silent
+        // approval needs an unrevoked consent, and approving records one.
+        $this->app->bind(AuthorizationController::class, ConsentAwareAuthorizationController::class);
+        $this->app->when(ConsentAwareAuthorizationController::class)
+            ->needs(StatefulGuard::class)
+            ->give(static fn (): StatefulGuard => Auth::guard(config('passport.guard', null)));
+        $this->app->bind(ApproveAuthorizationController::class, ConsentRecordingApproveAuthorizationController::class);
         $this->app->bind(AgentApiTransport::class, InternalAgentApiTransport::class);
         // These stay transient: registry MCP handlers resolve a transport that
         // carries the current request, including on nested MCP-to-REST calls.

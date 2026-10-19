@@ -3446,6 +3446,35 @@
                 }
             }
         },
+        "/oauth/consent": {
+            "delete": {
+                "operationId": "oauth.consent.revoke",
+                "summary": "Withdraw this client's consent and revoke every credential it holds for the person",
+                "description": "Disconnects the calling OAuth client: its consent for every protected resource is withdrawn and all of its authorization codes, access tokens and refresh tokens for the person are revoked. The next authorization shows the consent screen again.",
+                "security": [
+                    {
+                        "oauth2": []
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Consent withdrawn and credentials revoked"
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            }
+        },
         "/oauth/token": {
             "delete": {
                 "operationId": "oauth.disconnect",

@@ -220,6 +220,7 @@ class AgentApiProtectedResourcesTest extends TestCase
     {
         $handoff = [
             'agent-api.v1.oauth-token.destroy',
+            'agent-api.v1.oauth-consent.destroy',
             'agent-api.v1.documents.file',
             'agent-api.v1.exports.file',
             'agent-api.v1.native-backups.file',

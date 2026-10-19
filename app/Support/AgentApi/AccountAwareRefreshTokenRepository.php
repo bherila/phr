@@ -17,6 +17,7 @@ class AccountAwareRefreshTokenRepository extends RefreshTokenRepository
     public function __construct(
         Dispatcher $events,
         private OAuthExchangeAccountGuard $accountGuard,
+        private OAuthClientConsents $consents,
     ) {
         parent::__construct($events);
     }
@@ -135,6 +136,21 @@ class AccountAwareRefreshTokenRepository extends RefreshTokenRepository
             return true;
         }
 
+        // The family was issued under a consent version. A revoked consent, or
+        // one revoked and granted again since, retires the whole family; the
+        // per-client revoker bumps the version before its sweep, so a rotation
+        // racing it is refused here or swept with the family it shares.
+        if (! $this->consents->isCurrent(
+            $accessToken->user_id,
+            (string) $accessToken->client_id,
+            $storedResource,
+            $accessToken->oauth_consent_version,
+        )) {
+            $revoker->revokeFamilyForAccessToken($accessToken);
+
+            return true;
+        }
+
         // Renewal checks the person freshly against the grant's provider stamp
         // and hands it to the new token (a no-op until enforcement is enabled).
         // An unavailable provider throws before anything is consumed.
@@ -150,6 +166,7 @@ class AccountAwareRefreshTokenRepository extends RefreshTokenRepository
             (int) $accessToken->oauth_security_version,
             is_string($accessToken->oauth_family_id) ? $accessToken->oauth_family_id : $accessToken->id,
             $storedResource,
+            (int) $accessToken->oauth_consent_version,
         );
 
         return false;

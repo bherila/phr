@@ -10,6 +10,7 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
+use Laravel\Passport\Client;
 use Tests\TestCase;
 
 class OAuthLoginTest extends TestCase
@@ -50,6 +51,61 @@ class OAuthLoginTest extends TestCase
         $this->assertArrayNotHasKey('prompt', $query);
         $this->assertSame(session('oauth.login.state'), $query['state'] ?? null);
         $this->assertNotSame('', session('oauth.login.code_verifier'));
+    }
+
+    public function test_being_sent_to_sign_in_forwards_straight_to_the_identity_provider(): void
+    {
+        // A page that needs a session, as Passport's authorization endpoint does
+        // for a person not yet signed in here.
+        $this->get('/phr/patients')->assertRedirect('/login');
+
+        $this->get('/login')->assertRedirect(route('oauth.redirect'));
+        $this->assertStringStartsWith(
+            'https://identity.example.test/oauth/authorize?',
+            (string) $this->get('/oauth/redirect')->headers->get('Location'),
+        );
+
+        $key = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+        $this->assertNotFalse($key);
+        $this->assertTrue(openssl_pkey_export($key, $privateKey));
+        Config::set(['passport.private_key' => $privateKey, 'passport.public_key' => openssl_pkey_get_details($key)['key']]);
+        $client = Client::query()->create([
+            'name' => 'Synthetic Silent Client',
+            'secret' => null,
+            'provider' => 'users',
+            'redirect_uris' => ['https://client.example.test/callback'],
+            'grant_types' => ['authorization_code', 'refresh_token'],
+            'revoked' => false,
+        ]);
+        $this->get('/oauth/authorize?'.http_build_query([
+            'client_id' => $client->id,
+            'redirect_uri' => 'https://client.example.test/callback',
+            'response_type' => 'code',
+            'scope' => 'identity:read',
+            'state' => 'synthetic-state',
+            'code_challenge' => rtrim(strtr(base64_encode(hash('sha256', str_repeat('v', 64), true)), '+/', '-_'), '='),
+            'code_challenge_method' => 'S256',
+        ]))->assertRedirect('/login');
+        $this->get('/login')->assertRedirect(route('oauth.redirect'));
+    }
+
+    public function test_a_bare_visit_to_sign_in_still_renders_the_page(): void
+    {
+        $this->get('/login')
+            ->assertOk()
+            ->assertHeader('Content-Type', 'text/html; charset=UTF-8')
+            ->assertSee(route('oauth.redirect'), false);
+    }
+
+    public function test_sign_in_keeps_its_page_when_the_provider_is_not_the_only_method(): void
+    {
+        $this->get('/phr/patients')->assertRedirect('/login');
+        Config::set('bherila-auth.routes.enabled', true);
+        $this->get('/login')->assertOk()->assertSee(route('oauth.redirect'), false);
+
+        Config::set('bherila-auth.routes.enabled', false);
+        Config::set('bherila-auth.oauth_client.client_id', null);
+        $this->get('/login')->assertOk();
     }
 
     public function test_callback_resolves_by_subject_and_refreshes_provider_profile(): void

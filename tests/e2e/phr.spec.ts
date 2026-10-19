@@ -19,8 +19,8 @@ function patientNameForAttempt(retry: number): string {
 async function signIn(page: Page, credentials: typeof ownerCredentials): Promise<void> {
   await page.context().clearCookies()
   await page.goto('/phr')
-  await expect(page).toHaveURL(/\/login$/)
-  await page.getByRole('link', { name: 'Sign in' }).click()
+  // The identity provider is the only sign-in method, so being sent to sign in
+  // forwards straight to it.
   await expect(page.getByRole('heading', { name: 'Synthetic identity provider' })).toBeVisible()
   await page.getByLabel('Email').fill(credentials.email)
   await page.getByLabel('Password').fill(credentials.password)
@@ -39,11 +39,16 @@ async function ownerPatientId(page: Page, patientName: string): Promise<number> 
 
 test.describe.serial('PHR browser journeys', () => {
   test('requires authentication for PHR and OHIF routes, then completes OAuth PKCE login', async ({ page }) => {
-    await page.goto('/phr')
-    await expect(page).toHaveURL(/\/login$/)
+    // A bare visit keeps the sign-in page.
+    await page.goto('/login')
+    await expect(page.getByRole('link', { name: 'Sign in' })).toBeVisible()
 
+    await page.goto('/phr')
+    await expect(page.getByRole('heading', { name: 'Synthetic identity provider' })).toBeVisible()
+
+    await page.context().clearCookies()
     await page.goto('/ohif/viewer/dicomjson')
-    await expect(page).toHaveURL(/\/login$/)
+    await expect(page.getByRole('heading', { name: 'Synthetic identity provider' })).toBeVisible()
 
     await signIn(page, ownerCredentials)
     await expect(page.getByRole('heading', { name: 'Patients' })).toBeVisible()
