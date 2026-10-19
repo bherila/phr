@@ -69,6 +69,7 @@ const SOURCE_LABELS: Record<DocumentSource, string> = {
   fhir_import: 'FHIR Import',
   ccda_import: 'CCDA Import',
   mychart_zip: 'MyChart ZIP',
+  ehi_tables: 'EHI Tables Import',
 }
 
 interface UploadFormState {

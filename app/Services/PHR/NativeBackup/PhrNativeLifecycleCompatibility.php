@@ -24,25 +24,56 @@ use Illuminate\Support\Facades\Schema;
  * integrity is still checked against what was actually written. A row that has
  * since been deleted or retracted still hashes differently from the archived
  * one and stays a conflict rather than being silently resurrected.
+ *
+ * The same rule covers nullable columns a later release added to one table
+ * (TABLE_COLUMNS): an archive written before them reads them as null.
  */
 final class PhrNativeLifecycleCompatibility
 {
     public const array COLUMNS = ['deleted_at', 'retracted_at'];
 
+    /**
+     * Nullable columns added to one table after v1 shipped, by table.
+     *
+     * @var array<string, list<string>>
+     */
+    public const array TABLE_COLUMNS = [
+        // EHI immunization provenance (#213 M2).
+        'phr_immunizations' => [
+            'administered_at_source',
+            'administered_at_precision',
+            'administered_at_timezone',
+            'dose_amount',
+            'dose_unit',
+            'administration_status',
+        ],
+    ];
+
     /** @var array<string, list<string>> */
     private static array $columnsByTable = [];
 
     /**
-     * Lifecycle columns this table has now that a legacy archive may predate.
+     * Lifecycle (and later nullable) columns this table has now that a legacy
+     * archive may predate.
      *
      * @return list<string>
      */
     public static function columnsFor(string $table): array
     {
         return self::$columnsByTable[$table] ??= array_values(array_intersect(
-            self::COLUMNS,
+            self::tolerated($table),
             Schema::getColumnListing($table),
         ));
+    }
+
+    /**
+     * Every attribute an archive record of this table may lack.
+     *
+     * @return list<string>
+     */
+    public static function tolerated(string $table): array
+    {
+        return [...self::COLUMNS, ...(self::TABLE_COLUMNS[$table] ?? [])];
     }
 
     /**

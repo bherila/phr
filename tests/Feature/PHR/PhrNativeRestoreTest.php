@@ -12,6 +12,7 @@ use App\Models\PhrPatientUserAccess;
 use App\Models\User;
 use App\Services\PHR\NativeBackup\NativeRestoreException;
 use App\Services\PHR\NativeBackup\PhrNativeBackupService;
+use App\Services\PHR\NativeBackup\PhrNativeLifecycleCompatibility;
 use App\Services\PHR\NativeBackup\PhrNativeRecordCodec;
 use App\Services\PHR\NativeBackup\PhrNativeRestoreService;
 use App\Services\PHR\NativeBackup\PhrNativeTableCompatibility;
@@ -902,7 +903,10 @@ final class PhrNativeRestoreTest extends TestCase
         // Forge the pre-EHI shape: an archive downloaded before these tables
         // existed has no manifest entry and no record file for any of them. A
         // round trip always writes the current catalog, so it cannot catch this.
-        $this->removeTables($archivePath, PhrNativeTableCompatibility::LATER_GENERATIONS['ehi_tables']);
+        $this->removeTables($archivePath, [
+            ...PhrNativeTableCompatibility::LATER_GENERATIONS['ehi_tables'],
+            ...PhrNativeTableCompatibility::LATER_GENERATIONS['ehi_evidence'],
+        ]);
         DB::table('phr_patients')->where('id', $patient->id)->delete();
 
         $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
@@ -918,6 +922,56 @@ final class PhrNativeRestoreTest extends TestCase
         @unlink($archivePath);
     }
 
+    public function test_an_archive_written_before_the_ehi_evidence_tables_still_restores(): void
+    {
+        $owner = User::factory()->create(['user_role' => 'user']);
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        $this->seedEhiPackage($patient, (int) $owner->id);
+        DB::table('phr_immunizations')->insert([
+            'patient_id' => $patient->id,
+            'user_id' => $owner->id,
+            'vaccine_name' => 'Synthetic M1-era vaccine',
+            'review_status' => PhrReviewStatus::CONFIRMED,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $archivePath = $this->archiveCopy($patient, (int) $owner->id);
+        // Forge the M1-era shape: EHI preservation tables present, but no
+        // evidence/proposal tables and no immunization provenance columns, with
+        // record hashes taken over that smaller attribute set.
+        $this->removeTables($archivePath, PhrNativeTableCompatibility::LATER_GENERATIONS['ehi_evidence']);
+        $this->mutateTableRecords($archivePath, 'phr_immunizations', static function (array $record): array {
+            foreach (PhrNativeLifecycleCompatibility::TABLE_COLUMNS['phr_immunizations'] as $column) {
+                unset($record['attributes'][$column]);
+            }
+
+            return $record;
+        });
+
+        // Unchanged since the backup: the legacy record is recognised, not a conflict.
+        $unchanged = $this->readyAttempt($archivePath, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $unchanged->status, (string) $unchanged->failure_category);
+        $this->assertSame(1, $unchanged->plan_counts_json['tables']['phr_immunizations']['skip']);
+        $this->assertSame(['create' => 0, 'skip' => 0, 'block' => 0], $unchanged->plan_counts_json['tables']['phr_ehi_proposals']);
+
+        DB::table('phr_patients')->where('id', $patient->id)->delete();
+        $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $attempt->status, (string) $attempt->failure_category);
+        $this->assertSame([], $attempt->plan_counts_json['blockers']);
+        app(PhrNativeRestoreService::class)->apply($attempt->refresh());
+
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_COMPLETED, $attempt->refresh()->status);
+        $restored = DB::table('phr_immunizations')->where('patient_id', $attempt->target_patient_root_id)->sole();
+        $this->assertSame('Synthetic M1-era vaccine', $restored->vaccine_name);
+        foreach (PhrNativeLifecycleCompatibility::TABLE_COLUMNS['phr_immunizations'] as $column) {
+            $this->assertNull($restored->{$column});
+        }
+        $this->assertSame(1, DB::table('phr_ehi_packages')->where('patient_id', $attempt->target_patient_root_id)->count());
+        $this->assertSame(0, DB::table('phr_ehi_proposals')->count());
+        @unlink($archivePath);
+    }
+
     public function test_only_a_whole_later_table_generation_may_be_absent(): void
     {
         $owner = $this->createUser();
@@ -927,6 +981,11 @@ final class PhrNativeRestoreTest extends TestCase
         $partial = $this->archiveCopy($patient, (int) $owner->id);
         $this->removeTables($partial, ['phr_ehi_findings']);
         $this->assertPreviewFails($partial, (int) $owner->id, 'invalid_archive');
+
+        // A later generation without the earlier one it depends on.
+        $skipped = $this->archiveCopy($patient, (int) $owner->id);
+        $this->removeTables($skipped, PhrNativeTableCompatibility::LATER_GENERATIONS['ehi_tables']);
+        $this->assertPreviewFails($skipped, (int) $owner->id, 'invalid_archive');
 
         // A table that every v1 archive has always contained.
         $original = $this->archiveCopy($patient, (int) $owner->id);
@@ -946,6 +1005,7 @@ final class PhrNativeRestoreTest extends TestCase
         $this->assertPreviewFails($unknown, (int) $owner->id, 'invalid_archive');
 
         @unlink($partial);
+        @unlink($skipped);
         @unlink($original);
         @unlink($unknown);
     }

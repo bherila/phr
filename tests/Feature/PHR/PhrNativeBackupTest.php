@@ -313,6 +313,9 @@ class PhrNativeBackupTest extends TestCase
         $this->assertSame(['dicom', 'document', 'ehi'], $this->artifactKinds($firstManifest));
         $this->assertSame(2, $firstManifest['tables']['phr_ehi_table_accounts']['count']);
         $this->assertSame(2, $firstManifest['tables']['phr_ehi_findings']['count']);
+        foreach (['phr_ehi_entities' => 1, 'phr_ehi_revisions' => 1, 'phr_ehi_occurrences' => 1, 'phr_ehi_proposals' => 1, 'phr_ehi_proposal_decisions' => 1, 'phr_ehi_record_links' => 2] as $evidenceTable => $count) {
+            $this->assertSame($count, $firstManifest['tables'][$evidenceTable]['count'], $evidenceTable);
+        }
         $packageRecords = $this->archiveEntry($archivePath, $firstManifest['tables']['phr_ehi_packages']['path']);
         foreach (['lease_token', 'lease_expires_at', 'checkpoint_json'] as $operational) {
             $this->assertStringNotContainsString('"'.$operational.'"', $packageRecords);
@@ -370,6 +373,12 @@ class PhrNativeBackupTest extends TestCase
 
         $this->assertSame([], DB::select('PRAGMA foreign_key_check'));
         $this->assertNull(DB::table('phr_ehi_packages')->where('patient_id', $restoredPatientId)->value('lease_token'));
+        // Evidence links and decision history point at the restored clinical rows.
+        $restoredImmunizationId = DB::table('phr_immunizations')->where('patient_id', $restoredPatientId)->value('id');
+        $restoredDocumentIds = DB::table('phr_documents')->where('patient_id', $restoredPatientId)->pluck('id')->all();
+        $this->assertSame($restoredImmunizationId, DB::table('phr_ehi_proposal_decisions')->where('patient_id', $restoredPatientId)->value('linked_immunization_id'));
+        $this->assertSame($restoredImmunizationId, DB::table('phr_ehi_record_links')->where('patient_id', $restoredPatientId)->where('link_kind', 'projected')->value('immunization_id'));
+        $this->assertContains(DB::table('phr_ehi_record_links')->where('patient_id', $restoredPatientId)->where('link_kind', 'bridged')->value('document_id'), $restoredDocumentIds);
         $restoredBlob = DB::table('phr_ehi_blobs')->where('patient_id', $restoredPatientId)->sole();
         $this->assertSame((string) $restoredBlob->sha256, hash('sha256', Storage::disk((string) $restoredBlob->storage_disk)->get((string) $restoredBlob->storage_path)));
         $restoredPatient = PhrPatient::query()->findOrFail($restoredPatientId);
@@ -704,7 +713,7 @@ class PhrNativeBackupTest extends TestCase
             'phr_medications' => ['name' => 'Synthetic medication'],
             'phr_conditions' => ['name' => 'Synthetic condition'],
             'phr_procedures' => ['name' => 'Synthetic procedure'],
-            'phr_immunizations' => ['vaccine_name' => 'Synthetic immunization'],
+            'phr_immunizations' => ['vaccine_name' => 'Synthetic immunization', 'administered_at_source' => '2026-01-02 03:04', 'administered_at_precision' => 'minute', 'administered_at_timezone' => 'local', 'dose_amount' => '0.50', 'dose_unit' => 'mL', 'administration_status' => 'given'],
             'phr_allergies' => ['substance' => 'Synthetic substance'],
         ];
         foreach ($clinicalRows as $table => $values) {
@@ -849,6 +858,81 @@ class PhrNativeBackupTest extends TestCase
                 'severity' => 'info',
                 'line_number' => $findingMemberId === null ? null : 2,
                 'column_name' => $findingMemberId === null ? null : 'SYNTHETIC_COLUMN',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        }
+
+        // EHI evidence, proposals, and review history (#213 M2).
+        $entityId = DB::table('phr_ehi_entities')->insertGetId([
+            'patient_id' => $patient->id,
+            'source_id' => $sourceId,
+            'table_name' => 'SYNTHETIC_TABLE',
+            'key_digest' => str_repeat('1', 64),
+            'key_json' => json_encode(['PAT_ID' => '000123'], JSON_THROW_ON_ERROR),
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+        $revisionId = DB::table('phr_ehi_revisions')->insertGetId([
+            'patient_id' => $patient->id,
+            'entity_id' => $entityId,
+            'first_package_id' => $packageId,
+            'content_digest' => str_repeat('2', 64),
+            'values_json' => json_encode(['PAT_ID' => '000123', 'SYNTHETIC_COLUMN' => 'value'], JSON_THROW_ON_ERROR),
+            'dictionary_fingerprint' => str_repeat('d', 64),
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+        DB::table('phr_ehi_occurrences')->insert([
+            'patient_id' => $patient->id,
+            'package_id' => $packageId,
+            'member_id' => $memberId,
+            'revision_id' => $revisionId,
+            'line_number' => 2,
+            'byte_offset' => 24,
+            'disposition' => 'projected',
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+        $immunizationId = (int) DB::table('phr_immunizations')->where('patient_id', $patient->id)->value('id');
+        $proposalId = DB::table('phr_ehi_proposals')->insertGetId([
+            'patient_id' => $patient->id,
+            'package_id' => $packageId,
+            'mapping' => 'synthetic',
+            'mapping_version' => 'synthetic-1',
+            'subject_key' => str_repeat('1', 64),
+            'revision_digest' => str_repeat('3', 64),
+            'revision_ids_json' => json_encode([$revisionId], JSON_THROW_ON_ERROR),
+            'kind' => 'create',
+            'proposed_json' => json_encode(['vaccine_name' => 'Synthetic immunization'], JSON_THROW_ON_ERROR),
+            'status' => 'accepted',
+            'preview_digest' => str_repeat('4', 64),
+            'decided_by_user_id' => $reviewer->id,
+            'decided_at' => $now,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+        DB::table('phr_ehi_proposal_decisions')->insert([
+            'patient_id' => $patient->id,
+            'proposal_id' => $proposalId,
+            'actor_user_id' => $reviewer->id,
+            'decision' => 'accept',
+            'previous_status' => 'pending',
+            'mapping_version' => 'synthetic-1',
+            'revision_digest' => str_repeat('3', 64),
+            'linked_immunization_id' => $immunizationId,
+            'linked_document_id' => null,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+        foreach ([['immunization_id' => $immunizationId, 'document_id' => null, 'link_kind' => 'projected'], ['immunization_id' => null, 'document_id' => $documentId, 'link_kind' => 'bridged']] as $target) {
+            DB::table('phr_ehi_record_links')->insert([
+                ...$target,
+                'patient_id' => $patient->id,
+                'revision_id' => $revisionId,
+                'proposal_id' => $target['document_id'] === null ? $proposalId : null,
+                'mapping_version' => 'synthetic-1',
+                'created_by_user_id' => $owner->id,
                 'created_at' => $now,
                 'updated_at' => $now,
             ]);

@@ -61,13 +61,34 @@ no clinical rows are derived from them. Blob storage location and the package in
 lease (`lease_token`, `lease_expires_at`) and `checkpoint_json` are operational and
 excluded; a restored package is never mid-intake.
 
+The evidence and review tables (#213 milestone 2) follow, after the clinical tables they
+link to: `phr_ehi_entities`, `phr_ehi_revisions`, `phr_ehi_occurrences`,
+`phr_ehi_proposals`, `phr_ehi_proposal_decisions`, and `phr_ehi_record_links`. Every
+foreign key is a declared relationship, so restored record links and decision history
+point at the restored `phr_immunizations` / `phr_documents` rows. A proposal's
+`target_id`, `revision_ids_json`, and `candidate_ids_json` are preview-time database
+ids kept verbatim: they are never trusted after a restore, because review re-verifies
+the revision digest and the target digest, so a restored pending proposal is refused
+(`stale_source` / `stale_target`) until a new preview rewrites it. Projection resume
+state lives in the excluded `checkpoint_json`, so the first preview after a restore
+re-projects, converging on the restored rows.
+
 ## Archives older than a table
 
 Schema version 1 stays 1 when a table is added. The reader requires the manifest's
 table set to equal the catalog, except that a table generation added after v1 shipped
-(`PhrNativeTableCompatibility::LATER_GENERATIONS`; today only the six EHI tables) may be
-wholly absent, in which case it reads as empty. Part of a generation, a missing original
-v1 table, or an unknown table still fails closed as `invalid_archive`.
+(`PhrNativeTableCompatibility::LATER_GENERATIONS`: today `ehi_tables`, the six EHI
+preservation tables, then `ehi_evidence`, the six evidence and review tables) may be
+wholly absent, in which case it reads as empty. Generations are ordered: an archive may
+lack a generation only if it also lacks every later one, so pre-EHI and M1-era archives
+restore. Part of a generation, a later generation without an earlier one, a missing
+original v1 table, or an unknown table still fails closed as `invalid_archive`.
+
+Columns follow the same idea. A record may lack `deleted_at`/`retracted_at`, and the
+nullable columns listed per table in `PhrNativeLifecycleCompatibility::TABLE_COLUMNS`
+(today the six EHI immunization provenance columns on `phr_immunizations`). Absent ones
+are read as null only after the stored content hash has been verified against the
+attributes actually written; any other attribute difference fails closed.
 
 ## Deliberate boundaries
 

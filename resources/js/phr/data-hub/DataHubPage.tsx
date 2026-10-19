@@ -52,6 +52,7 @@ const FILE_CATEGORIES: DataHubCategoryKey[] = [
   'original_dicom_files',
   'ehi_packages',
   'ehi_preserved_files',
+  'ehi_pending_proposals',
 ]
 
 const DELETION_MESSAGES: Record<string, string> = {
@@ -131,7 +132,8 @@ function PatientCard({ patient, currentExport, currentBackup, busy, exportError,
   const [confirmation, setConfirmation] = useState('')
   const [acknowledgeShares, setAcknowledgeShares] = useState(false)
   const totalRecords = useMemo(
-    () => DATA_HUB_CATEGORY_KEYS.reduce((sum, key) => sum + patient.record_counts[key], 0),
+    // Pending EHI proposals are review work, not records.
+    () => DATA_HUB_CATEGORY_KEYS.reduce((sum, key) => (key === 'ehi_pending_proposals' ? sum : sum + patient.record_counts[key]), 0),
     [patient.record_counts],
   )
   const exportInProgress = currentExport?.status === 'pending' || currentExport?.status === 'processing'

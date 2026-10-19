@@ -1,5 +1,8 @@
 <?php
 
+use App\Services\PHR\Import\Ehi\Mapping\EhiDocumentMapping;
+use App\Services\PHR\Import\Ehi\Mapping\EhiImmunizationMapping;
+
 return [
     // The PHR navbar's "back" affordance exits PHR entirely and returns to the
     // parent site. This used to be derived from the OAuth provider base URL,
@@ -35,6 +38,13 @@ return [
     'ehi_max_dictionary_bytes' => max(1024, (int) env('PHR_EHI_MAX_DICTIONARY_BYTES', 64 * 1024 * 1024)),
     'ehi_max_findings_per_member' => max(1, (int) env('PHR_EHI_MAX_FINDINGS_PER_MEMBER', 1000)),
     'ehi_lease_minutes' => max(1, (int) env('PHR_EHI_LEASE_MINUTES', 15)),
+    // Versioned EHI mapping contracts (milestone 2), resolved through the
+    // container by EhiMappingRegistry. Each needs a unique name; mappings that
+    // share a source table must expect the same primary key for it.
+    'ehi_mappings' => [
+        EhiImmunizationMapping::class,
+        EhiDocumentMapping::class,
+    ],
     'documents_retention_days' => (int) env('PHR_DOCUMENTS_RETENTION_DAYS', 30),
     // A migrated reference keeps its verified legacy object until a separate,
     // explicit cleanup phase runs after this rollback window.

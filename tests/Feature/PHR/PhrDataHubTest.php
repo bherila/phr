@@ -7,6 +7,7 @@ use App\Models\PhrDicomUpload;
 use App\Models\PhrDocument;
 use App\Models\PhrEhiBlob;
 use App\Models\PhrEhiPackage;
+use App\Models\PhrEhiProposal;
 use App\Models\PhrHealthLog;
 use App\Models\PhrLabResult;
 use App\Models\PhrPatient;
@@ -83,11 +84,26 @@ class PhrDataHubTest extends TestCase
         ]);
         $this->dicomFile($patient, $upload, PhrDicomFile::KIND_DICOM, 250, 'original');
         $this->dicomFile($patient, $upload, PhrDicomFile::KIND_DERIVED_VOLUME, 1000, 'derived');
-        PhrEhiPackage::query()->create([
+        $package = PhrEhiPackage::query()->create([
             'patient_id' => $patient->id,
             'manifest_digest' => str_repeat('a', 64),
             'intake_kind' => PhrEhiPackage::INTAKE_DIRECTORY,
         ]);
+        // Only proposals still awaiting review are counted.
+        foreach ([PhrEhiProposal::STATUS_PENDING, PhrEhiProposal::STATUS_ACCEPTED, PhrEhiProposal::STATUS_SUPERSEDED] as $index => $status) {
+            PhrEhiProposal::query()->create([
+                'patient_id' => $patient->id,
+                'package_id' => $package->id,
+                'mapping' => 'immunization',
+                'mapping_version' => 'ehi-imm-1',
+                'subject_key' => str_repeat((string) $index, 64),
+                'revision_digest' => str_repeat('d', 64),
+                'revision_ids_json' => [1],
+                'kind' => PhrEhiProposal::KIND_CREATE,
+                'preview_digest' => str_repeat('e', 64),
+                'status' => $status,
+            ]);
+        }
         foreach (['b' => 40, 'c' => 60] as $digit => $bytes) {
             PhrEhiBlob::query()->create([
                 'patient_id' => $patient->id,
@@ -109,6 +125,7 @@ class PhrDataHubTest extends TestCase
             ->assertJsonPath('owned_patients.0.storage_bytes.documents', 125)
             ->assertJsonPath('owned_patients.0.record_counts.ehi_packages', 1)
             ->assertJsonPath('owned_patients.0.record_counts.ehi_preserved_files', 2)
+            ->assertJsonPath('owned_patients.0.record_counts.ehi_pending_proposals', 1)
             ->assertJsonPath('owned_patients.0.storage_bytes.original_dicom', 250)
             ->assertJsonPath('owned_patients.0.storage_bytes.ehi', 100)
             ->assertJsonPath('owned_patients.0.storage_bytes.total', 475)

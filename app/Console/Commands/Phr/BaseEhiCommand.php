@@ -87,7 +87,7 @@ abstract class BaseEhiCommand extends BasePhrCommand
     }
 
     /** @param  array<string, int>  $counts */
-    private function counts(array $counts): string
+    protected function counts(array $counts): string
     {
         return implode(', ', array_map(static fn (string $key, int $count): string => "{$key} {$count}", array_keys($counts), $counts));
     }

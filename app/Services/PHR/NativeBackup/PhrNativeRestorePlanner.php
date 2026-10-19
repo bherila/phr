@@ -14,18 +14,24 @@ final class PhrNativeRestorePlanner
     /**
      * Unique keys a created row could collide on with a row the target already
      * holds under another identity (blob rows are content-addressed per patient,
-     * so their digest also names the storage key). Each key is scoped by
-     * patient_id or by a parent FK; a parent that is itself created is new, so
-     * only a skipped (already present) parent can collide.
+     * so their digest also names the storage key). A key column is patient_id,
+     * an attribute, or a record relationship; a related row that is itself
+     * created is new, so only a skipped (already present) one can collide, and
+     * a null column never collides.
      *
-     * @var array<string, list<array{scope: string, columns: list<string>}>>
+     * @var array<string, list<list<string>>>
      */
     private const array UNIQUE_KEYS = [
-        'phr_ehi_sources' => [['scope' => 'patient_id', 'columns' => ['label']]],
-        'phr_ehi_packages' => [['scope' => 'patient_id', 'columns' => ['manifest_digest']]],
-        'phr_ehi_blobs' => [['scope' => 'patient_id', 'columns' => ['sha256']]],
-        'phr_ehi_package_members' => [['scope' => 'package_id', 'columns' => ['path_sha256']]],
-        'phr_ehi_table_accounts' => [['scope' => 'package_id', 'columns' => ['table_name']]],
+        'phr_ehi_sources' => [['patient_id', 'label']],
+        'phr_ehi_packages' => [['patient_id', 'manifest_digest']],
+        'phr_ehi_blobs' => [['patient_id', 'sha256']],
+        'phr_ehi_package_members' => [['package_id', 'path_sha256']],
+        'phr_ehi_table_accounts' => [['package_id', 'table_name']],
+        'phr_ehi_entities' => [['source_id', 'table_name', 'key_digest']],
+        'phr_ehi_revisions' => [['entity_id', 'content_digest']],
+        'phr_ehi_occurrences' => [['member_id', 'line_number']], // sensitive-scan-ignore: package member FK, not an insurance member id
+        'phr_ehi_proposals' => [['package_id', 'mapping', 'subject_key']],
+        'phr_ehi_record_links' => [['revision_id', 'immunization_id', 'link_kind'], ['revision_id', 'document_id', 'link_kind']],
     ];
 
     public function __construct(
@@ -234,26 +240,24 @@ final class PhrNativeRestorePlanner
      */
     private function collidesOnUniqueKey(string $table, array $record, int $targetPatientId, array $actions, array $identitiesByNativeId): bool
     {
-        foreach (self::UNIQUE_KEYS[$table] ?? [] as $key) {
-            if ($key['scope'] === 'patient_id') {
-                $scopeId = $targetPatientId;
-            } else {
-                $relationship = $record['relationships'][$key['scope']] ?? null;
-                if (! is_array($relationship) || $relationship['kind'] !== 'record') {
-                    continue;
+        foreach (self::UNIQUE_KEYS[$table] ?? [] as $columns) {
+            $query = DB::table($table);
+            foreach ($columns as $column) {
+                if ($column === 'patient_id') {
+                    $value = $targetPatientId;
+                } elseif (array_key_exists($column, $record['relationships'] ?? [])) {
+                    $relationship = $record['relationships'][$column];
+                    $relatedNativeId = is_array($relationship) && $relationship['kind'] === 'record' ? (string) $relationship['nativeId'] : null;
+                    $value = $relatedNativeId !== null && ($actions[$relationship['table']][$relatedNativeId] ?? null) === 'skip'
+                        ? ($identitiesByNativeId[$relationship['table']][$relatedNativeId] ?? null)
+                        : null;
+                } else {
+                    $value = $record['attributes'][$column] ?? null;
                 }
-                $parentNativeId = (string) $relationship['nativeId'];
-                if (($actions[$relationship['table']][$parentNativeId] ?? null) !== 'skip') {
-                    continue;
+                if ($value === null) {
+                    continue 2;
                 }
-                $scopeId = $identitiesByNativeId[$relationship['table']][$parentNativeId] ?? null;
-                if ($scopeId === null) {
-                    continue;
-                }
-            }
-            $query = DB::table($table)->where($key['scope'], $scopeId);
-            foreach ($key['columns'] as $column) {
-                $query->where($column, $record['attributes'][$column] ?? null);
+                $query->where($column, $value);
             }
             if ($query->exists()) {
                 return true;

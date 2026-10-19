@@ -388,7 +388,7 @@ export const PhrAccessGrantDetailResponseSchema = z.object({
 })
 
 export const PhrDocumentTypeSchema = z.enum(['lab_report', 'office_visit_note', 'clinical_questionnaire', 'patient_symptom_log', 'discharge_summary', 'imaging_report', 'prescription', 'medical_necessity_letter', 'prior_authorization', 'insurance', 'consent', 'care_correspondence', 'other'])
-export const PhrDocumentSourceSchema = z.enum(['manual_upload', 'agent_upload', 'genai_import', 'fhir_import', 'ccda_import', 'mychart_zip'])
+export const PhrDocumentSourceSchema = z.enum(['manual_upload', 'agent_upload', 'genai_import', 'fhir_import', 'ccda_import', 'mychart_zip', 'ehi_tables'])
 
 export const PhrDocumentSchema = z.object({
   id: z.number(),

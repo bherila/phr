@@ -204,6 +204,55 @@ final class PhrNativeBackupCatalog
                     'member_id' => self::record('phr_ehi_package_members', true),
                 ],
             ],
+            // EHI evidence, proposals, and review (#213 M2), after the clinical
+            // tables they link to. Proposal target_id, revision_ids_json, and
+            // candidate_ids_json are preview-time ids kept verbatim: a restored
+            // pending proposal fails its digest checks and is re-previewed.
+            'phr_ehi_entities' => [
+                'patient_column' => 'patient_id',
+                'relationships' => ['source_id' => self::record('phr_ehi_sources', false)],
+            ],
+            'phr_ehi_revisions' => [
+                'patient_column' => 'patient_id',
+                'relationships' => [
+                    'entity_id' => self::record('phr_ehi_entities', false),
+                    'first_package_id' => self::record('phr_ehi_packages', true),
+                ],
+            ],
+            'phr_ehi_occurrences' => [
+                'patient_column' => 'patient_id',
+                'relationships' => [
+                    'package_id' => self::record('phr_ehi_packages', false),
+                    'member_id' => self::record('phr_ehi_package_members', false),
+                    'revision_id' => self::record('phr_ehi_revisions', false),
+                ],
+            ],
+            'phr_ehi_proposals' => [
+                'patient_column' => 'patient_id',
+                'relationships' => [
+                    'package_id' => self::record('phr_ehi_packages', false),
+                    'decided_by_user_id' => self::actor(true),
+                ],
+            ],
+            'phr_ehi_proposal_decisions' => [
+                'patient_column' => 'patient_id',
+                'relationships' => [
+                    'proposal_id' => self::record('phr_ehi_proposals', false),
+                    'actor_user_id' => self::actor(true),
+                    'linked_immunization_id' => self::record('phr_immunizations', true),
+                    'linked_document_id' => self::record('phr_documents', true),
+                ],
+            ],
+            'phr_ehi_record_links' => [
+                'patient_column' => 'patient_id',
+                'relationships' => [
+                    'revision_id' => self::record('phr_ehi_revisions', false),
+                    'proposal_id' => self::record('phr_ehi_proposals', true),
+                    'immunization_id' => self::record('phr_immunizations', true),
+                    'document_id' => self::record('phr_documents', true),
+                    'created_by_user_id' => self::actor(true),
+                ],
+            ],
             'phr_patient_user_access' => [
                 'patient_column' => 'patient_id',
                 'relationships' => [

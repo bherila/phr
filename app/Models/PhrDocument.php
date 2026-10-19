@@ -83,6 +83,9 @@ class PhrDocument extends Model
         'fhir_import',
         'ccda_import',
         'mychart_zip',
+        // Accepted EHI Tables proposals (issue #213); the file is a verified copy
+        // of preserved EHI evidence, or derived text tagged ehi-derived-text.
+        'ehi_tables',
     ];
 
     /**

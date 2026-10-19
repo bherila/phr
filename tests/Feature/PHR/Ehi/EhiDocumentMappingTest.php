@@ -1,0 +1,498 @@
+<?php
+
+namespace Tests\Feature\PHR\Ehi;
+
+use App\Models\PhrDocument;
+use App\Models\PhrEhiBlob;
+use App\Models\PhrEhiProposal;
+use App\Models\PhrEhiRecordLink;
+use App\Models\PhrPatient;
+use App\Services\PHR\Import\Ehi\EhiMemberKind;
+use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentApplyRefused;
+use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentFinding;
+use App\Services\PHR\Import\Ehi\Mapping\EhiApplyRefused;
+use App\Services\PHR\Import\Ehi\Mapping\EhiDocumentMapping;
+use App\Services\PHR\Import\Ehi\Mapping\EhiMappingRegistry;
+use App\Services\PHR\Import\Ehi\Mapping\EhiProposalDraft;
+use Illuminate\Support\Facades\Storage;
+use Tests\Support\EhiDocumentFixtures;
+use Tests\TestCase;
+
+class EhiDocumentMappingTest extends TestCase
+{
+    use EhiDocumentFixtures;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->setUpEhiDocuments();
+    }
+
+    public function test_derived_text_is_bounded_so_its_proposal_fits_a_backup_record(): void
+    {
+        // An eighth of this record limit: 1024 bytes of text.
+        config(['phr.native_restore_max_record_bytes' => 8192]);
+        $this->ehiDocOwnedNote('N100', '9001', ['NOTE_DESC' => 'Synthetic long note']);
+        $this->ehiDocRow('NOTE_ENC_INFO', ['CONTACT_SERIAL_NUM' => '300', 'NOTE_ID' => 'N100', 'CONTACT_DATE_REAL' => '65000.1', 'NOTE_STATUS_C_NAME' => 'Signed']);
+        $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '300', 'LINE' => '1', 'NOTE_ID' => 'N100', 'NOTE_TEXT' => str_repeat('Synthetic line text ', 100)]);
+
+        $draft = $this->ehiDocDraftFor($this->ehiDocPropose()['drafts'], 'note_id', 'N100');
+
+        self::assertSame(1024, EhiDocumentMapping::maxTextBytes());
+        self::assertLessThanOrEqual(1024, strlen((string) $draft->proposed['attributes']['extracted_text']));
+        self::assertTrue($draft->proposed['ehi']['text']['truncated']);
+    }
+
+    public function test_contract_and_registration(): void
+    {
+        $mapping = app(EhiDocumentMapping::class);
+
+        self::assertSame('document', $mapping->name());
+        self::assertSame('ehi-doc-1', $mapping->version());
+        self::assertSame([
+            'HNO_INFO' => ['NOTE_ID'],
+            'NOTE_ENC_INFO' => ['CONTACT_SERIAL_NUM'],
+            'HNO_PLAIN_TEXT' => ['NOTE_CSN_ID', 'LINE'],
+            'V_EHI_HNO_LINKED_PATS' => ['NOTE_ID', 'LINE'],
+            'DOC_INFORMATION' => ['DOC_INFO_ID'],
+            'PAT_ENC' => ['PAT_ENC_CSN_ID'],
+        ], $mapping->expectedKeys());
+        self::assertInstanceOf(EhiDocumentMapping::class, app(EhiMappingRegistry::class)->get('document'));
+        self::assertContains(EhiDocumentMapping::SOURCE, PhrDocument::SOURCES);
+    }
+
+    public function test_owned_note_orders_contacts_exactly_and_reconstructs_the_latest_text(): void
+    {
+        $note = $this->ehiDocOwnedNote('N100', '9001', [
+            'NOTE_DESC' => 'Synthetic follow-up',
+            'DATE_OF_SERVIC_DTTM' => '2024-03-05 14:30:00',
+            'UNSIGNED_YN' => 'Yes',
+        ]);
+        // Fractional contact keys compare as exact decimals: 64999.9 < 65000.02 < 65000.1.
+        $late = $this->ehiDocRow('NOTE_ENC_INFO', ['CONTACT_SERIAL_NUM' => '300', 'NOTE_ID' => 'N100', 'CONTACT_DATE_REAL' => '65000.1', 'NOTE_STATUS_C_NAME' => 'Addendum']);
+        $early = $this->ehiDocRow('NOTE_ENC_INFO', ['CONTACT_SERIAL_NUM' => '900', 'NOTE_ID' => 'N100', 'CONTACT_DATE_REAL' => '64999.9', 'NOTE_STATUS_C_NAME' => 'Signed']);
+        $middle = $this->ehiDocRow('NOTE_ENC_INFO', ['CONTACT_SERIAL_NUM' => '20', 'NOTE_ID' => 'N100', 'CONTACT_DATE_REAL' => '65000.02', 'NOTE_STATUS_C_NAME' => 'Revised']);
+        $old = $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '900', 'LINE' => '1', 'NOTE_ID' => 'N100', 'NOTE_TEXT' => 'superseded text']);
+        $lines = [
+            $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '300', 'LINE' => '10', 'NOTE_ID' => 'N100', 'NOTE_TEXT' => 'tenth']),
+            $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '300', 'LINE' => '2', 'NOTE_ID' => 'N100', 'NOTE_TEXT' => 'second']),
+            $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '300', 'LINE' => '1', 'NOTE_ID' => 'N100', 'NOTE_TEXT' => "first\x07"]),
+        ];
+
+        $result = $this->ehiDocPropose();
+        $draft = $this->ehiDocDraftFor($result['drafts'], 'note_id', 'N100');
+
+        self::assertSame(PhrEhiProposal::KIND_CREATE, $draft->kind);
+        self::assertSame($note->entity->key_digest, $draft->subjectKey);
+        self::assertSame(['900', '20', '300'], array_column($draft->proposed['ehi']['contacts'], 'contact_serial_num'));
+        self::assertSame(['Signed', 'Revised', 'Addendum'], array_column($draft->proposed['ehi']['contacts'], 'note_status'));
+        $attributes = $draft->proposed['attributes'];
+        self::assertSame("first\nsecond\ntenth", $attributes['extracted_text']);
+        self::assertSame(['derived' => true, 'source' => 'HNO_PLAIN_TEXT', 'contact_serial_num' => '300', 'line_count' => 3, 'line_gaps' => true, 'truncated' => false], $draft->proposed['ehi']['text']);
+        self::assertSame('2024-03-05 14:30:00', $attributes['observed_at']);
+        self::assertSame(['column' => 'DATE_OF_SERVIC_DTTM', 'timezone' => 'UTC', 'precision' => 'second', 'source_text' => '2024-03-05 14:30:00', 'time_applied' => true, 'value' => '2024-03-05 14:30:00'], $draft->proposed['ehi']['observed']);
+        self::assertTrue($draft->proposed['ehi']['unsigned']);
+        self::assertContains(EhiDocumentMapping::TAG_UNSIGNED, $attributes['tags']);
+        self::assertContains(EhiDocumentMapping::TAG_DERIVED_TEXT, $attributes['tags']);
+        self::assertSame('office_visit_note', $attributes['document_type']);
+        self::assertSame('Synthetic follow-up', $attributes['title']);
+        self::assertSame('ehi:'.$this->docSource->id, $attributes['import_source']);
+        self::assertSame('NOTE:N100', $attributes['external_id']);
+        self::assertSame(['PAT_ENC.PAT_ID'], $draft->proposed['ehi']['ownership']);
+
+        $expected = [$note->id, $late->id, $early->id, $middle->id, ...array_map(static fn ($line): int => $line->id, $lines)];
+        foreach ($expected as $id) {
+            self::assertContains($id, $draft->revisionIds);
+        }
+        self::assertNotContains($old->id, $draft->revisionIds, 'text of an earlier contact is not relied upon');
+        self::assertSame($draft->revisionIds, array_values(array_unique($draft->revisionIds)));
+    }
+
+    public function test_ownership_requires_a_documented_link_to_the_bound_patient(): void
+    {
+        $this->ehiDocRow('HNO_INFO', ['NOTE_ID' => 'N-ORPHAN', 'NOTE_DESC' => self::DOC_MARKER]);
+        $this->ehiDocOwnedNote('N-FOREIGN', '9100', [], self::DOC_OTHER_PATIENT_KEY);
+        $this->ehiDocRow('HNO_INFO', ['NOTE_ID' => 'N-LINKED', 'NOTE_DESC' => 'linked']);
+        $this->ehiDocRow('V_EHI_HNO_LINKED_PATS', ['NOTE_ID' => 'N-LINKED', 'LINE' => '1', 'LINKED_PAT_ID' => self::DOC_PATIENT_KEY]);
+        $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '1', 'LINE' => '1', 'NOTE_ID' => 'N-LINKED', 'NOTE_TEXT' => 'linked text']);
+        $this->ehiDocRow('HNO_INFO', ['NOTE_ID' => 'N-SHARED', 'PAT_LINK_ID' => self::DOC_PATIENT_KEY]);
+        $this->ehiDocRow('V_EHI_HNO_LINKED_PATS', ['NOTE_ID' => 'N-SHARED', 'LINE' => '1', 'LINKED_PAT_ID' => self::DOC_PATIENT_KEY]);
+        $this->ehiDocRow('V_EHI_HNO_LINKED_PATS', ['NOTE_ID' => 'N-SHARED', 'LINE' => '2', 'LINKED_PAT_ID' => self::DOC_OTHER_PATIENT_KEY]);
+        $this->ehiDocRow('HNO_INFO', ['NOTE_ID' => 'N-NOENC', 'PAT_ENC_CSN_ID' => '404']);
+
+        $result = $this->ehiDocPropose();
+        $drafts = $result['drafts'];
+
+        self::assertSame(['kind' => 'retain', 'reason' => 'orphan'], $this->kindAndReason($drafts, 'N-ORPHAN'));
+        self::assertSame(['kind' => 'retain', 'reason' => 'foreign_patient'], $this->kindAndReason($drafts, 'N-FOREIGN'));
+        self::assertSame(['kind' => 'retain', 'reason' => 'foreign_patient'], $this->kindAndReason($drafts, 'N-SHARED'));
+        self::assertSame(['kind' => 'retain', 'reason' => 'orphan'], $this->kindAndReason($drafts, 'N-NOENC'));
+        $linked = $this->ehiDocDraftFor($drafts, 'note_id', 'N-LINKED');
+        self::assertSame(PhrEhiProposal::KIND_CREATE, $linked->kind);
+        self::assertSame(['V_EHI_HNO_LINKED_PATS.LINKED_PAT_ID'], $linked->proposed['ehi']['ownership']);
+        self::assertSame('linked text', $linked->proposed['attributes']['extracted_text']);
+
+        $codes = array_column($result['findings'], 'code');
+        self::assertSame(2, count(array_keys($codes, EhiDocumentFinding::ORPHAN, true)));
+        self::assertSame(2, count(array_keys($codes, EhiDocumentFinding::FOREIGN_PATIENT, true)));
+        self::assertContains(EhiDocumentFinding::ENCOUNTER_MISSING, $codes);
+        $this->assertFindingsCarryNoValues($result['findings']);
+        foreach ($result['findings'] as $finding) {
+            self::assertContains($finding['detail']['severity'] ?? null, ['info', 'warning', 'error']);
+        }
+    }
+
+    public function test_deleted_ambiguous_and_contentless_notes_are_retained(): void
+    {
+        $this->ehiDocOwnedNote('N-DEL', '9200', ['DELETE_INSTANT_DTTM' => '2024-04-01 00:00:00']);
+        $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '1', 'LINE' => '1', 'NOTE_ID' => 'N-DEL', 'NOTE_TEXT' => 'deleted text']);
+        $this->ehiDocOwnedNote('N-EMPTY', '9201');
+        // Two revisions of one note in the same package.
+        $this->ehiDocOwnedNote('N-AMB', '9202', ['NOTE_DESC' => 'one']);
+        $this->ehiDocOwnedNote('N-AMB', '9202', ['NOTE_DESC' => 'two']);
+
+        $result = $this->ehiDocPropose();
+
+        self::assertSame(['kind' => 'retain', 'reason' => 'deleted'], $this->kindAndReason($result['drafts'], 'N-DEL'));
+        self::assertSame(['kind' => 'retain', 'reason' => 'no_content'], $this->kindAndReason($result['drafts'], 'N-EMPTY'));
+        $ambiguous = array_values(array_filter($result['drafts'], static fn ($draft): bool => ($draft->proposed['reason'] ?? null) === 'ambiguous_revision'));
+        self::assertCount(1, $ambiguous);
+        self::assertCount(2, $ambiguous[0]->revisionIds);
+        self::assertContains(EhiDocumentFinding::AMBIGUOUS_REVISION, array_column($result['findings'], 'code'));
+    }
+
+    public function test_text_lines_that_are_not_canonical_integers_are_not_ordered(): void
+    {
+        $this->ehiDocOwnedNote('N-LINE', '9300');
+        $this->ehiDocRow('NOTE_ENC_INFO', ['CONTACT_SERIAL_NUM' => '5', 'NOTE_ID' => 'N-LINE', 'CONTACT_DATE_REAL' => '65000']);
+        $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '5', 'LINE' => '01', 'NOTE_ID' => 'N-LINE', 'NOTE_TEXT' => 'a']);
+        $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '5', 'LINE' => '2', 'NOTE_ID' => 'N-LINE', 'NOTE_TEXT' => 'b']);
+
+        $result = $this->ehiDocPropose();
+
+        self::assertSame(['kind' => 'retain', 'reason' => 'no_content'], $this->kindAndReason($result['drafts'], 'N-LINE'));
+        $finding = collect($result['findings'])->firstWhere('code', EhiDocumentFinding::TEXT_UNORDERED);
+        self::assertSame('line', $finding['detail']['reason']);
+    }
+
+    public function test_local_only_timestamp_keeps_the_date_without_applying_a_timezone(): void
+    {
+        $this->ehiDocOwnedNote('N-LOCAL', '9400', ['CREATE_INSTANT_DTTM' => 'not a date', 'CRT_INST_LOCAL_DTTM' => '3/5/2024 11:45 PM']);
+        $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '1', 'LINE' => '1', 'NOTE_ID' => 'N-LOCAL', 'NOTE_TEXT' => 'local']);
+
+        $result = $this->ehiDocPropose();
+        $draft = $this->ehiDocDraftFor($result['drafts'], 'note_id', 'N-LOCAL');
+
+        self::assertSame('2024-03-05 00:00:00', $draft->proposed['attributes']['observed_at']);
+        self::assertSame(['column' => 'CRT_INST_LOCAL_DTTM', 'timezone' => 'local', 'precision' => 'date', 'source_text' => '3/5/2024 11:45 PM', 'time_applied' => false, 'value' => '2024-03-05 00:00:00'], $draft->proposed['ehi']['observed']);
+        self::assertStringContainsString('CRT_INST_LOCAL_DTTM (local; time of day not applied)', $draft->proposed['attributes']['summary']);
+        $finding = collect($result['findings'])->firstWhere('code', EhiDocumentFinding::UNPARSED_DATETIME);
+        self::assertSame('CREATE_INSTANT_DTTM', $finding['detail']['column']);
+    }
+
+    public function test_an_undocumented_file_name_token_never_links_a_member(): void
+    {
+        $this->ehiDocOwnedNote('N500', '9500');
+        $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '1', 'LINE' => '1', 'NOTE_ID' => 'N500', 'NOTE_TEXT' => 'table text']);
+        $this->ehiDocMember('Rich Text/N500.rtf', EhiMemberKind::NOTE, '{\\rtf1 token text}');
+        $this->ehiDocMember('Media/N500.png', EhiMemberKind::MEDIA, "\x89PNG synthetic");
+
+        $result = $this->ehiDocPropose();
+        $draft = $this->ehiDocDraftFor($result['drafts'], 'note_id', 'N500');
+
+        self::assertNull($draft->proposed['ehi']['file']);
+        self::assertSame('table text', $draft->proposed['attributes']['extracted_text']);
+        $unlinked = array_values(array_filter($result['findings'], static fn (array $finding): bool => $finding['code'] === EhiDocumentFinding::UNLINKED_NOTE_MEMBER));
+        self::assertSame([['media', 1], ['note', 1]], array_map(static fn (array $finding): array => [$finding['detail']['kind'], $finding['detail']['count']], $unlinked));
+    }
+
+    public function test_documented_reference_links_the_rtf_member_and_apply_copies_its_bytes(): void
+    {
+        $marker = self::DOC_MARKER;
+        $rtf = "{\\rtf1\\ansi{\\fonttbl{\\f0 {$marker};}}Assessment\\par Stable{\\pict\\pngblip {$marker}}{\\object{\\*\\objdata {$marker}}}{\\field{\\*\\fldinst HYPERLINK {$marker}}{\\fldrslt  plan}}}";
+        $note = $this->ehiDocOwnedNote('N600', '9600', ['IP_NOTE_TYPE_C_NAME' => 'Discharge Summary']);
+        $docInfo = $this->ehiDocRow('DOC_INFORMATION', ['DOC_INFO_ID' => 'D600', 'DOC_HNO_ID' => 'N600', 'DOC_PT_ID' => self::DOC_PATIENT_KEY, 'SCAN_FILE' => 'scan-600.rtf']);
+        $member = $this->ehiDocMember('Rich Text/scan-600.rtf', EhiMemberKind::NOTE, $rtf);
+        $blob = PhrEhiBlob::query()->findOrFail($member->blob_id);
+
+        $result = $this->ehiDocPropose();
+        $draft = $this->ehiDocDraftFor($result['drafts'], 'note_id', 'N600');
+
+        self::assertSame(PhrEhiProposal::KIND_CREATE, $draft->kind);
+        self::assertContains($docInfo->id, $draft->revisionIds);
+        self::assertSame(['member_id' => $member->id, 'kind' => 'note', 'sha256' => hash('sha256', $rtf), 'byte_size' => strlen($rtf), 'via' => 'DOC_INFORMATION.SCAN_FILE', 'doc_info_id' => 'D600'], $draft->proposed['ehi']['file']);
+        self::assertSame("Assessment\nStable plan", $draft->proposed['attributes']['extracted_text']);
+        self::assertStringNotContainsString($marker, json_encode($draft->proposed, JSON_THROW_ON_ERROR));
+        self::assertTrue($draft->proposed['ehi']['text']['rtf']['pictures']);
+        self::assertTrue($draft->proposed['ehi']['text']['rtf']['embedded_objects']);
+        self::assertSame('discharge_summary', $draft->proposed['attributes']['document_type']);
+        self::assertNotContains(EhiDocumentFinding::UNLINKED_NOTE_MEMBER, array_column($result['findings'], 'code'));
+
+        $outcome = $this->ehiDocApply($this->ehiDocPersist($draft));
+
+        self::assertSame('phr_documents', $outcome->recordTable);
+        self::assertSame(PhrEhiRecordLink::KIND_PROJECTED, $outcome->linkKind);
+        $document = PhrDocument::query()->findOrFail($outcome->recordId);
+        self::assertSame('ehi_tables', $document->source);
+        self::assertSame('NOTE:N600', $document->external_id);
+        self::assertSame('application/rtf', $document->mime_type);
+        self::assertSame('scan-600.rtf', $document->original_filename);
+        self::assertSame(hash('sha256', $rtf), $document->file_hash);
+        self::assertSame(strlen($rtf), $document->byte_size);
+        self::assertSame($this->docOwner->id, $document->uploaded_by_user_id);
+        self::assertSame($rtf, Storage::disk(PhrDocument::STORAGE_DISK)->get((string) $document->storage_path));
+        self::assertStringStartsWith("patients/{$this->docPatient->id}/documents/", (string) $document->storage_path);
+        self::assertNotSame($blob->storage_path, $document->storage_path);
+        self::assertSame($rtf, Storage::disk($blob->storage_disk)->get($blob->storage_path), 'the EHI blob is untouched');
+        self::assertSame('2024-03-05 14:30:00', $document->observed_at?->format('Y-m-d H:i:s'));
+        self::assertSame(1, PhrEhiBlob::query()->whereKey($blob->id)->count());
+        self::assertSame(1, $note->entity()->count());
+    }
+
+    public function test_scanned_document_without_a_note_becomes_a_media_document(): void
+    {
+        $this->ehiDocRow('DOC_INFORMATION', ['DOC_INFO_ID' => 'D700', 'DOC_PT_ID' => self::DOC_PATIENT_KEY, 'SCAN_FILE' => 'img-700.png', 'DOC_DESCR' => 'Synthetic card', 'DOC_SRVC_DTTM' => '2023-11-02 08:15:00']);
+        $this->ehiDocRow('DOC_INFORMATION', ['DOC_INFO_ID' => 'D701', 'DOC_PT_ID' => self::DOC_OTHER_PATIENT_KEY, 'SCAN_FILE' => 'img-701.png']);
+        $this->ehiDocRow('DOC_INFORMATION', ['DOC_INFO_ID' => 'D702', 'DOC_PT_ID' => self::DOC_PATIENT_KEY, 'SCAN_FILE' => 'img-702.png', 'RECORD_STATE_C_NAME' => 'Deleted']);
+        $this->ehiDocRow('DOC_INFORMATION', ['DOC_INFO_ID' => 'D703', 'DOC_PT_ID' => self::DOC_PATIENT_KEY, 'SCAN_FILE' => 'missing.png']);
+        $png = "\x89PNG\r\n\x1A\nsynthetic-image-bytes";
+        $this->ehiDocMember('Media/img-700.png', EhiMemberKind::MEDIA, $png);
+
+        $result = $this->ehiDocPropose();
+        $draft = $this->ehiDocDraftFor($result['drafts'], 'doc_info_id', 'D700');
+
+        self::assertSame(PhrEhiProposal::KIND_CREATE, $draft->kind);
+        self::assertSame('other', $draft->proposed['attributes']['document_type']);
+        self::assertSame('image/png', $draft->proposed['attributes']['mime_type']);
+        self::assertNull($draft->proposed['attributes']['extracted_text']);
+        self::assertSame('2023-11-02 00:00:00', $draft->proposed['attributes']['observed_at']);
+        self::assertSame('retain', $this->ehiDocDraftFor($result['drafts'], 'doc_info_id', 'D701')->kind);
+        self::assertSame('record_state', $this->ehiDocDraftFor($result['drafts'], 'doc_info_id', 'D702')->proposed['reason']);
+        self::assertSame('no_content', $this->ehiDocDraftFor($result['drafts'], 'doc_info_id', 'D703')->proposed['reason']);
+        self::assertContains(EhiDocumentFinding::FILE_REFERENCE_UNRESOLVED, array_column($result['findings'], 'code'));
+
+        $document = PhrDocument::query()->findOrFail($this->ehiDocApply($this->ehiDocPersist($draft))->recordId);
+        self::assertSame('DOC:D700', $document->external_id);
+        self::assertSame($png, Storage::disk(PhrDocument::STORAGE_DISK)->get((string) $document->storage_path));
+        self::assertNull($document->extracted_text);
+    }
+
+    public function test_a_note_without_a_file_stores_derived_text_marked_derived(): void
+    {
+        $this->ehiDocOwnedNote('N800', '9800');
+        $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '1', 'LINE' => '1', 'NOTE_ID' => 'N800', 'NOTE_TEXT' => 'derived body']);
+
+        $draft = $this->ehiDocDraftFor($this->ehiDocPropose()['drafts'], 'note_id', 'N800');
+        $document = PhrDocument::query()->findOrFail($this->ehiDocApply($this->ehiDocPersist($draft))->recordId);
+
+        self::assertSame('text/plain', $document->mime_type);
+        self::assertSame('note-n800.txt', $document->original_filename);
+        self::assertSame('derived body', Storage::disk(PhrDocument::STORAGE_DISK)->get((string) $document->storage_path));
+        self::assertSame(hash('sha256', 'derived body'), $document->file_hash);
+        self::assertContains(EhiDocumentMapping::TAG_DERIVED_TEXT, $document->tags ?? []);
+        self::assertStringContainsString('derived text', (string) $document->summary);
+    }
+
+    public function test_reimport_corroborates_then_changed_text_proposes_an_explicit_update(): void
+    {
+        $this->ehiDocOwnedNote('N900', '9900');
+        $this->ehiDocRow('NOTE_ENC_INFO', ['CONTACT_SERIAL_NUM' => '11', 'NOTE_ID' => 'N900', 'CONTACT_DATE_REAL' => '65000']);
+        $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '11', 'LINE' => '1', 'NOTE_ID' => 'N900', 'NOTE_TEXT' => 'original']);
+        $proposal = $this->ehiDocPersist($this->ehiDocDraftFor($this->ehiDocPropose()['drafts'], 'note_id', 'N900'));
+        $outcome = $this->ehiDocApply($proposal);
+        $this->ehiDocLink($proposal, $outcome);
+        $document = PhrDocument::query()->findOrFail($outcome->recordId);
+        $storagePath = $document->storage_path;
+
+        // Same evidence again, even after a person edited the title: corroborate.
+        $document->forceFill(['title' => 'Edited by a person'])->save();
+        $again = $this->ehiDocDraftFor($this->ehiDocPropose()['drafts'], 'note_id', 'N900');
+        self::assertSame(PhrEhiProposal::KIND_CORROBORATE, $again->kind);
+        self::assertSame($document->id, $again->targetId);
+        $corroborated = $this->ehiDocApply($this->ehiDocPersist($again, $this->ehiDocPackage()));
+        self::assertSame(PhrEhiRecordLink::KIND_CORROBORATING, $corroborated->linkKind);
+        self::assertSame($document->id, $corroborated->recordId);
+
+        // A later package adds an addendum contact with new text.
+        $second = $this->ehiDocPackage();
+        $this->ehiDocOwnedNote('N900', '9900', [], self::DOC_PATIENT_KEY, $second);
+        $this->ehiDocRow('NOTE_ENC_INFO', ['CONTACT_SERIAL_NUM' => '11', 'NOTE_ID' => 'N900', 'CONTACT_DATE_REAL' => '65000'], $second);
+        $this->ehiDocRow('NOTE_ENC_INFO', ['CONTACT_SERIAL_NUM' => '12', 'NOTE_ID' => 'N900', 'CONTACT_DATE_REAL' => '65000.01'], $second);
+        $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '11', 'LINE' => '1', 'NOTE_ID' => 'N900', 'NOTE_TEXT' => 'original'], $second);
+        $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '12', 'LINE' => '1', 'NOTE_ID' => 'N900', 'NOTE_TEXT' => 'amended'], $second);
+
+        $update = $this->ehiDocDraftFor($this->ehiDocPropose($second)['drafts'], 'note_id', 'N900');
+        self::assertSame(PhrEhiProposal::KIND_UPDATE, $update->kind);
+        self::assertSame($document->id, $update->targetId);
+        self::assertSame(['title', 'extracted_text'], $update->proposed['changed']);
+        self::assertSame(hash('sha256', 'original'), $update->before['extracted_text_sha256']);
+        self::assertSame('Edited by a person', $update->before['title']);
+
+        // Refused when the target changed after the preview.
+        $stale = $this->ehiDocPersist($update, $second);
+        PhrDocument::query()->whereKey($document->id)->update(['summary' => 'changed meanwhile']);
+        $this->assertRefused(EhiDocumentApplyRefused::TARGET_CHANGED, fn () => $this->ehiDocApply($stale, PhrEhiProposal::DECISION_APPROVE_UPDATE));
+
+        $fresh = $this->ehiDocPersist($this->ehiDocDraftFor($this->ehiDocPropose($second)['drafts'], 'note_id', 'N900'), $this->ehiDocPackage());
+        $applied = $this->ehiDocApply($fresh, PhrEhiProposal::DECISION_APPROVE_UPDATE);
+        self::assertSame(PhrEhiRecordLink::KIND_PROJECTED, $applied->linkKind);
+        $document->refresh();
+        self::assertSame('amended', $document->extracted_text);
+        self::assertSame($storagePath, $document->storage_path, 'the stored file is never replaced');
+        self::assertSame('original', Storage::disk(PhrDocument::STORAGE_DISK)->get((string) $storagePath));
+
+        $this->assertRefused(EhiDocumentApplyRefused::DECISION_NOT_APPLICABLE, fn () => $this->ehiDocApply($fresh));
+    }
+
+    public function test_a_withdrawn_document_is_never_resurrected(): void
+    {
+        $this->ehiDocOwnedNote('N1000', '10000');
+        $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '1', 'LINE' => '1', 'NOTE_ID' => 'N1000', 'NOTE_TEXT' => 'body']);
+        $draft = $this->ehiDocDraftFor($this->ehiDocPropose()['drafts'], 'note_id', 'N1000');
+        $pending = $this->ehiDocPersist($draft);
+        $replay = $this->ehiDocPersist($draft, $this->ehiDocPackage());
+        $outcome = $this->ehiDocApply($pending);
+        $this->ehiDocLink($pending, $outcome);
+
+        $this->assertRefused(EhiDocumentApplyRefused::IDENTITY_EXISTS, fn () => $this->ehiDocApply($replay));
+
+        $document = PhrDocument::query()->findOrFail($outcome->recordId);
+        $document->delete();
+        $result = $this->ehiDocPropose();
+        self::assertSame(['kind' => 'retain', 'reason' => 'target_withdrawn'], $this->kindAndReason($result['drafts'], 'N1000'));
+        self::assertContains(EhiDocumentFinding::TARGET_WITHDRAWN, array_column($result['findings'], 'code'));
+        $objects = $this->ehiDocDocumentObjects();
+        $this->assertRefused(EhiDocumentApplyRefused::IDENTITY_WITHDRAWN, fn () => $this->ehiDocApply($replay));
+        self::assertSame($objects, $this->ehiDocDocumentObjects(), 'a refused create leaves no new object');
+
+        $document->restore();
+        $document->forceFill(['retracted_at' => now()])->save();
+        self::assertSame(['kind' => 'retain', 'reason' => 'target_withdrawn'], $this->kindAndReason($this->ehiDocPropose()['drafts'], 'N1000'));
+        self::assertSame(1, PhrDocument::withTrashed()->count());
+    }
+
+    public function test_identical_text_on_the_same_day_is_a_possible_duplicate_that_can_be_linked(): void
+    {
+        $existing = $this->manualDocument(['title' => 'From another import', 'extracted_text' => 'same words', 'observed_at' => '2024-03-05 09:00:00']);
+        $trashed = $this->manualDocument(['extracted_text' => 'same words', 'observed_at' => '2024-03-05 09:00:00']);
+        $trashed->delete();
+        $this->ehiDocOwnedNote('N1100', '11000');
+        $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '1', 'LINE' => '1', 'NOTE_ID' => 'N1100', 'NOTE_TEXT' => 'same words']);
+
+        $draft = $this->ehiDocDraftFor($this->ehiDocPropose()['drafts'], 'note_id', 'N1100');
+        self::assertSame(PhrEhiProposal::KIND_POSSIBLE_DUPLICATE, $draft->kind);
+        self::assertSame([$existing->id], $draft->candidateIds);
+        $proposal = $this->ehiDocPersist($draft);
+
+        $this->assertRefused(EhiDocumentApplyRefused::TARGET_WITHDRAWN, fn () => $this->ehiDocApply($proposal, PhrEhiProposal::DECISION_LINK, $trashed->id));
+        $otherOwner = $this->createUser();
+        $otherPatient = PhrPatient::query()->create(['owner_user_id' => $otherOwner->id, 'display_name' => 'Other Synthetic', 'relationship' => 'self']);
+        $foreign = PhrDocument::query()->create(['patient_id' => $otherPatient->id, 'user_id' => $otherOwner->id, 'document_type' => 'other', 'storage_disk' => PhrDocument::STORAGE_DISK, 'byte_size' => 0]);
+        $this->assertRefused(EhiDocumentApplyRefused::TARGET_NOT_FOUND, fn () => $this->ehiDocApply($proposal, PhrEhiProposal::DECISION_LINK, $foreign->id));
+        $this->assertRefused(EhiDocumentApplyRefused::TARGET_NOT_FOUND, fn () => $this->ehiDocApply($proposal, PhrEhiProposal::DECISION_LINK, null));
+
+        $linked = $this->ehiDocApply($proposal, PhrEhiProposal::DECISION_LINK, $existing->id);
+        self::assertSame(PhrEhiRecordLink::KIND_BRIDGED, $linked->linkKind);
+        self::assertSame($existing->id, $linked->recordId);
+        self::assertSame(3, PhrDocument::withTrashed()->count(), 'linking creates nothing');
+    }
+
+    public function test_apply_refuses_wrong_scope_and_tampered_evidence(): void
+    {
+        $this->ehiDocOwnedNote('N1200', '12000');
+        $this->ehiDocRow('DOC_INFORMATION', ['DOC_INFO_ID' => 'D1200', 'DOC_HNO_ID' => 'N1200', 'SCAN_FILE' => 'n1200.rtf']);
+        $member = $this->ehiDocMember('Rich Text/n1200.rtf', EhiMemberKind::NOTE, '{\\rtf1 tamper target}');
+        $proposal = $this->ehiDocPersist($this->ehiDocDraftFor($this->ehiDocPropose()['drafts'], 'note_id', 'N1200'));
+
+        $wrongVersion = $proposal->replicate()->fill(['mapping_version' => 'ehi-doc-0']);
+        $this->assertRefused(EhiDocumentApplyRefused::WRONG_SCOPE, fn () => $this->ehiDocApply($wrongVersion));
+        $this->assertRefused(EhiDocumentApplyRefused::DECISION_NOT_APPLICABLE, fn () => $this->ehiDocApply($proposal, PhrEhiProposal::DECISION_RETAIN));
+
+        $blob = PhrEhiBlob::query()->findOrFail($member->blob_id);
+        Storage::disk($blob->storage_disk)->put($blob->storage_path, '{\\rtf1 tampered!!!}');
+        $this->assertRefused(EhiDocumentApplyRefused::EVIDENCE_UNAVAILABLE, fn () => $this->ehiDocApply($proposal));
+        self::assertSame(0, PhrDocument::withTrashed()->count());
+        self::assertSame([], $this->ehiDocDocumentObjects());
+    }
+
+    public function test_hostile_rtf_is_retained_when_it_cannot_be_converted(): void
+    {
+        $this->ehiDocOwnedNote('N1300', '13000');
+        $this->ehiDocRow('DOC_INFORMATION', ['DOC_INFO_ID' => 'D1300', 'DOC_HNO_ID' => 'N1300', 'SCAN_FILE' => 'bomb.rtf']);
+        $this->ehiDocMember('Rich Text/bomb.rtf', EhiMemberKind::NOTE, '{\\rtf1 '.str_repeat('{', 5000).self::DOC_MARKER);
+
+        $result = $this->ehiDocPropose();
+        $draft = $this->ehiDocDraftFor($result['drafts'], 'note_id', 'N1300');
+
+        // The original is still linked and preserved; no text is derived from it.
+        self::assertSame(PhrEhiProposal::KIND_CREATE, $draft->kind);
+        self::assertNull($draft->proposed['attributes']['extracted_text']);
+        self::assertTrue($draft->proposed['ehi']['text']['rtf']['unsupported']);
+        self::assertContains(EhiDocumentFinding::RTF_UNSUPPORTED, array_column($result['findings'], 'code'));
+        self::assertStringNotContainsString(self::DOC_MARKER, json_encode($draft->proposed, JSON_THROW_ON_ERROR));
+    }
+
+    public function test_proposals_are_deterministic(): void
+    {
+        $this->ehiDocOwnedNote('N1400', '14000');
+        $this->ehiDocRow('NOTE_ENC_INFO', ['CONTACT_SERIAL_NUM' => '2', 'NOTE_ID' => 'N1400', 'CONTACT_DATE_REAL' => '65000.1']);
+        $this->ehiDocRow('NOTE_ENC_INFO', ['CONTACT_SERIAL_NUM' => '1', 'NOTE_ID' => 'N1400', 'CONTACT_DATE_REAL' => '65000.10']);
+        $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '2', 'LINE' => '1', 'NOTE_ID' => 'N1400', 'NOTE_TEXT' => 'x']);
+        $this->ehiDocRow('HNO_INFO', ['NOTE_ID' => 'N1401']);
+        $this->ehiDocMember('Media/loose.pdf', EhiMemberKind::MEDIA, '%PDF-synthetic');
+
+        $first = $this->ehiDocPropose();
+        $second = $this->ehiDocPropose();
+
+        self::assertEquals($first, $second);
+        $draft = $this->ehiDocDraftFor($first['drafts'], 'note_id', 'N1400');
+        // Equal decimal values (65000.1 = 65000.10) fall back to the contact serial number.
+        self::assertSame(['1', '2'], array_column($draft->proposed['ehi']['contacts'], 'contact_serial_num'));
+    }
+
+    /**
+     * @param  list<EhiProposalDraft>  $drafts
+     * @return array{kind: string, reason: string|null}
+     */
+    private function kindAndReason(array $drafts, string $noteId): array
+    {
+        $draft = $this->ehiDocDraftFor($drafts, 'note_id', $noteId);
+
+        return ['kind' => $draft->kind, 'reason' => $draft->proposed['reason'] ?? null];
+    }
+
+    /** @param  list<array{code: string, revision_id: int|null, detail: array<string, int|string|bool|null>}>  $findings */
+    private function assertFindingsCarryNoValues(array $findings): void
+    {
+        $encoded = json_encode($findings, JSON_THROW_ON_ERROR);
+        foreach ([self::DOC_MARKER, self::DOC_PATIENT_KEY, self::DOC_OTHER_PATIENT_KEY, 'N-ORPHAN', 'N-FOREIGN', 'N-SHARED', '9100', '404'] as $value) {
+            self::assertStringNotContainsString($value, $encoded);
+        }
+    }
+
+    private function assertRefused(string $reason, callable $apply): void
+    {
+        try {
+            $apply();
+            self::fail("expected refusal {$reason}");
+        } catch (EhiApplyRefused $refused) {
+            self::assertInstanceOf(EhiDocumentApplyRefused::class, $refused);
+            self::assertSame($reason, $refused->reason);
+        }
+    }
+
+    /** @param  array<string, mixed>  $attributes */
+    private function manualDocument(array $attributes): PhrDocument
+    {
+        return PhrDocument::query()->create([
+            'patient_id' => $this->docPatient->id,
+            'user_id' => $this->docOwner->id,
+            'title' => 'Manual',
+            'document_type' => 'office_visit_note',
+            'storage_disk' => PhrDocument::STORAGE_DISK,
+            'byte_size' => 0,
+            'source' => 'manual_upload',
+            ...$attributes,
+        ]);
+    }
+}

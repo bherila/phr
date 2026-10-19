@@ -69,6 +69,15 @@ class PhrEhiPackage extends Model
 
     public const string CLINICAL_NOT_STARTED = 'not_started';
 
+    /** Mapped tables are being projected into entities, revisions, and occurrences. */
+    public const string CLINICAL_PROJECTING = 'projecting';
+
+    /** Evidence is projected; proposals may be previewed and reviewed. */
+    public const string CLINICAL_PROJECTED = 'projected';
+
+    /** Projection stopped; failure_category says why and a retry resumes it. */
+    public const string CLINICAL_FAILED = 'failed';
+
     public const string BINDING_UNBOUND = 'unbound';
 
     public const string BINDING_BOUND = 'bound';

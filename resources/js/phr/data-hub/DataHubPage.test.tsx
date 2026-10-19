@@ -27,7 +27,7 @@ function inventoryPayload() {
       id: 42,
       display_name: 'Synthetic Record Owner',
       relationship: 'self',
-      record_counts: counts({ lab_results: 3, documents: 2, original_dicom_files: 4 }),
+      record_counts: counts({ lab_results: 3, documents: 2, original_dicom_files: 4, ehi_pending_proposals: 5 }),
       storage_bytes: { documents: 1024, original_dicom: 2048, ehi: 0, total: 3072 },
       last_updated_at: '2026-08-02T01:00:00+00:00',
       active_share_count: 1,
@@ -191,6 +191,7 @@ describe('DataHubPage', () => {
     expect(ownerHeading).toBeInTheDocument()
     expect(ownerHeading.parentElement).toHaveTextContent('9 authoritative records')
     expect(screen.getAllByText('3.00 KB')).toHaveLength(2)
+    expect(screen.getByText('EHI proposals awaiting review')).toBeInTheDocument()
     expect(screen.getByText('Synthetic Shared Profile')).toBeInTheDocument()
     expect(screen.getByText(/viewer access · owner operations unavailable/i)).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Dry-run native restore' })).toBeInTheDocument()

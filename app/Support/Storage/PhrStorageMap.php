@@ -113,6 +113,7 @@ class PhrStorageMap
             ->ignoring('phr_ehi_packages', 'detected_source_patient_key', because: 'source system patient identifier, not a storage key')
             ->ignoring('phr_ehi_package_members', 'path', because: 'normalized path within an EHI package, not a disk key')
             ->ignoring('phr_ehi_package_members', 'original_path', because: 'supplied path within an EHI package, not a disk key')
+            ->ignoring('phr_ehi_proposals', 'subject_key', because: 'digest identifying what an EHI proposal is about, not a storage key')
 
             // Package-owned attachment blobs use the package-configured disk and
             // lifecycle, not a PHR storage-map disk. PHR external imports use
