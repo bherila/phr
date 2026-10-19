@@ -831,6 +831,28 @@ final class PhrNativeRestoreTest extends TestCase
         @unlink($archivePath);
     }
 
+    public function test_a_source_label_or_package_manifest_the_patient_already_holds_is_a_conflict(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        $this->seedEhiPackage($patient, (int) $owner->id);
+        $archivePath = $this->archiveCopy($patient, (int) $owner->id);
+        // A later binding and intake re-created the same label and manifest under
+        // fresh identities; applying the archived rows would hit the unique keys.
+        $source = DB::table('phr_ehi_sources')->where('patient_id', $patient->id)->sole();
+        $package = DB::table('phr_ehi_packages')->where('patient_id', $patient->id)->sole();
+        DB::table('phr_ehi_packages')->where('id', $package->id)->delete();
+        DB::table('phr_ehi_sources')->where('id', $source->id)->delete();
+        $newSourceId = DB::table('phr_ehi_sources')->insertGetId([...(array) $source, 'id' => null]);
+        DB::table('phr_ehi_packages')->insert([...(array) $package, 'id' => null, 'source_id' => $newSourceId]);
+
+        $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
+        $this->assertContains('record_conflict', $attempt->plan_counts_json['blockers']);
+        $this->assertSame(1, $attempt->plan_counts_json['tables']['phr_ehi_sources']['block']);
+        $this->assertSame(1, $attempt->plan_counts_json['tables']['phr_ehi_packages']['block']);
+        @unlink($archivePath);
+    }
+
     public function test_a_tampered_or_missing_ehi_blob_fails_closed(): void
     {
         $owner = $this->createUser();

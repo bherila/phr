@@ -29,9 +29,11 @@ use Throwable;
  * 2. First pass, nothing written: hash every member, read the dictionary, parse
  *    every table into in-memory accounting, and collect the distinct `PAT_ID`
  *    values. More than one, or none, is refused before any byte is stored, as is
- *    a malformed row in a table with a `PAT_ID` column (its patient is unknown).
+ *    a malformed row or a blank `PAT_ID` in a table with a `PAT_ID` column (its
+ *    patient is unknown).
  * 3. Under the patient artifact guard, claim the package by manifest digest:
- *    replay a complete one, resume an incomplete one, or create it with a lease.
+ *    replay a complete one, resume an incomplete one (or one accounted under
+ *    other rule versions, which is re-accounted), or create it with a lease.
  *    A replay or resume first re-verifies the package's blobs and republishes any
  *    missing or damaged object from the source bytes (never an intact one).
  * 4. Second pass: each member in its own short guard transaction, re-hashed while
@@ -56,10 +58,17 @@ final class EhiIntakeService
     public const string REJECT_DUPLICATE_TABLE = 'duplicate_table';
 
     /**
-     * A malformed row in a table that has (or may have) a `PAT_ID` column: its
-     * patient cannot be established, so it could belong to another patient.
+     * A row in a table that has (or may have) a `PAT_ID` column whose patient
+     * cannot be established -- malformed, or with a blank or null `PAT_ID` -- so
+     * it could belong to another patient.
      */
     public const string REJECT_UNSCOPED_PATIENT_ROW = 'unscoped_patient_row';
+
+    /**
+     * Re-accounting a package under changed rules would detect a different
+     * source patient key than the one it was recorded (and perhaps bound) with.
+     */
+    public const string REJECT_PATIENT_KEY_CHANGED = 'source_patient_key_changed';
 
     /** The source patient key is longer than a package or source can record. */
     public const string REJECT_PATIENT_KEY_TOO_LONG = 'source_patient_key_too_long';
@@ -313,9 +322,11 @@ final class EhiIntakeService
                 }
             }
 
-            // A fully read member (header problems included: the reader drains
-            // it) must be exactly the bytes hashed a moment ago.
-            if ($reader->counters()['bytes'] !== $member['bytes']) {
+            // The bytes accounting was derived from (header problems included:
+            // the reader drains them) must be exactly the bytes hashed into the
+            // manifest; same length is not enough for a source changing in place.
+            $read = $reader->digest();
+            if ($read['bytes'] !== $member['bytes'] || ! hash_equals($member['sha256'], $read['sha256'])) {
                 throw new EhiPackageRejected(EhiPackageRejected::SIZE_MISMATCH, 'EHI package refused (size_mismatch): a member changed while it was being read.');
             }
         } finally {
@@ -337,11 +348,17 @@ final class EhiIntakeService
         ];
     }
 
-    /** Exact string comparison: identifiers keep leading zeros, case, and whitespace. */
+    /**
+     * Exact string comparison: identifiers keep leading zeros, case, and
+     * whitespace. A blank or null value is refused, not skipped: a row in a
+     * patient-scoped table with no patient could be anyone's.
+     *
+     * @param-out string $patientKey
+     */
     private function observePatientKey(?string $value, ?string &$patientKey): void
     {
         if ($value === null || $value === '') {
-            return;
+            throw new EhiPackageRejected(self::REJECT_UNSCOPED_PATIENT_ROW, sprintf('EHI package refused (%s): a row in a table with a %s column has a blank %s.', self::REJECT_UNSCOPED_PATIENT_ROW, self::PATIENT_KEY_COLUMN, self::PATIENT_KEY_COLUMN));
         }
         if ($patientKey === null) {
             if (strlen($value) > self::MAX_NAME_BYTES) {
@@ -382,9 +399,17 @@ final class EhiIntakeService
             if ($package !== null
                 && $package->preservation_status === PhrEhiPackage::PRESERVATION_PRESERVED
                 && $package->accounting_status === PhrEhiPackage::ACCOUNTING_ACCOUNTED) {
-                $package->forceFill(['intake_count' => $package->intake_count + 1, 'last_intake_at' => $now])->save();
+                // Accounted under the current rules: a replay. Under any other
+                // dialect, classifier, detector, dictionary reader, or scope
+                // registry version, accounting is redone (a resume below).
+                if ($this->sameVersions($package->checkpoint_json['versions'] ?? null, $this->versions($dialect))) {
+                    $package->forceFill(['intake_count' => $package->intake_count + 1, 'last_intake_at' => $now])->save();
 
-                return [$package, 'replayed'];
+                    return [$package, 'replayed'];
+                }
+                if ($package->detected_source_patient_key !== $plan['patient_key']) {
+                    throw new EhiPackageRejected(self::REJECT_PATIENT_KEY_CHANGED, sprintf('EHI package refused (%s): accounting under the current rules detects a different source patient key.', self::REJECT_PATIENT_KEY_CHANGED));
+                }
             }
 
             // Every later step is idempotent, so a newer intake may take over a
@@ -806,6 +831,9 @@ final class EhiIntakeService
 
             $current->forceFill([
                 'accounting_status' => PhrEhiPackage::ACCOUNTING_ACCOUNTED,
+                // Unchanged on a first intake; refreshed when rules changed.
+                'dictionary_fingerprint' => $fingerprint,
+                'dictionary_version' => $plan['has_dictionary'] ? $dictionary->readerVersion : null,
                 'lease_token' => null,
                 'lease_expires_at' => null,
                 'failure_category' => null,
@@ -952,6 +980,22 @@ final class EhiIntakeService
     private function finding(string $code, ?int $line = null, ?int $offset = null, ?string $column = null, ?array $detail = null): array
     {
         return ['code' => $code, 'line' => $line, 'offset' => $offset, 'column' => $column, 'detail' => $detail];
+    }
+
+    /**
+     * Key order is not significant: a JSON column may not keep it.
+     *
+     * @param  array<string, string>  $current
+     */
+    private function sameVersions(mixed $recorded, array $current): bool
+    {
+        if (! is_array($recorded)) {
+            return false;
+        }
+        ksort($recorded);
+        ksort($current);
+
+        return $recorded === $current;
     }
 
     /** @return array<string, string> */

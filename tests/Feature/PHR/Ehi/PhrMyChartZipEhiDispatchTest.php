@@ -58,6 +58,27 @@ class PhrMyChartZipEhiDispatchTest extends TestCase
         self::assertSame('Synthetic condition', PhrCondition::query()->where('patient_id', $patient->id)->sole()->name);
     }
 
+    public function test_fhir_zip_with_unrelated_tsv_and_html_attachments_still_imports(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->patient($owner->id);
+        $path = $this->path();
+        $zip = new ZipArchive;
+        self::assertTrue($zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE));
+        $zip->addFromString('records/bundle.json', $this->bundle());
+        $zip->addFromString('attachments/readings.tsv', "SYNTH_A\tSYNTH_B\n1\t2\n");
+        $zip->addFromString('attachments/summary.tsv', "SYNTH_C\tSYNTH_D\n3\t4\n");
+        $zip->addFromString('attachments/letter.html', '<html><body>Synthetic letter</body></html>');
+        // Named like an EHI table but with no header: a name alone is not structure.
+        $zip->addFromString('attachments/PATIENT.txt', 'Synthetic note text');
+        $zip->close();
+
+        $result = app(PhrMyChartZipImporter::class)->importFile($path, $patient, $owner->id);
+
+        self::assertSame(1, $result->created);
+        self::assertSame('Synthetic condition', PhrCondition::query()->where('patient_id', $patient->id)->sole()->name);
+    }
+
     private function patient(int $ownerId): PhrPatient
     {
         return PhrPatient::query()->create(['owner_user_id' => $ownerId, 'display_name' => 'Synthetic Patient', 'relationship' => 'self']);

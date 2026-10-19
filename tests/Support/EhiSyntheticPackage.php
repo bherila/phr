@@ -104,10 +104,20 @@ final class EhiSyntheticPackage
         return $this->with('PAT_IMMUNIZATIONS.tsv', "PAT_ID\tLINE\tIMMUNE_ID\n".self::PATIENT_KEY."\t1\t501\n".self::OTHER_PATIENT_KEY."\t2\t502\n");
     }
 
-    /** Every PAT_ID cell empty. */
+    /** No PAT_ID value anywhere: each table with a PAT_ID column keeps only its header. */
     public function withoutPatientKeys(): self
     {
-        return new self(array_map(static fn (string $bytes): string => str_replace(self::PATIENT_KEY, '', $bytes), $this->files));
+        return new self(array_map(static function (string $bytes): string {
+            $header = strstr($bytes, "\n", true);
+
+            return $header !== false && in_array('PAT_ID', explode("\t", $header), true) ? $header."\n" : $bytes;
+        }, $this->files));
+    }
+
+    /** One table with a well-formed row whose PAT_ID cell is blank, beside the patient's own row. */
+    public function withBlankPatientKey(): self
+    {
+        return $this->with('PAT_IMMUNIZATIONS.tsv', "PAT_ID\tLINE\tIMMUNE_ID\n".self::PATIENT_KEY."\t1\t501\n\t2\t502\n");
     }
 
     /** One table changed; every other member is byte-identical. */

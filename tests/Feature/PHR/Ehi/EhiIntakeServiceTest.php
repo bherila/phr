@@ -9,10 +9,12 @@ use App\Models\PhrEhiPackageMember;
 use App\Models\PhrEhiTableAccount;
 use App\Services\PHR\Import\Ehi\EhiDialect;
 use App\Services\PHR\Import\Ehi\EhiDirectorySource;
+use App\Services\PHR\Import\Ehi\EhiEntry;
 use App\Services\PHR\Import\Ehi\EhiFindingCode;
 use App\Services\PHR\Import\Ehi\EhiIntakeService;
 use App\Services\PHR\Import\Ehi\EhiMemberKind;
 use App\Services\PHR\Import\Ehi\EhiPackageRejected;
+use App\Services\PHR\Import\Ehi\EhiPackageSource;
 use App\Services\PHR\Import\Ehi\EhiZipSource;
 use App\Support\Storage\PhrStorageKey;
 use Illuminate\Support\Facades\Storage;
@@ -262,6 +264,108 @@ class EhiIntakeServiceTest extends TestCase
 
         $this->assertRefused(EhiPackageRejected::NO_PATIENT, fn () => $this->ehiIntakeDirectory(EhiSyntheticPackage::standard()->withoutPatientKeys(), $patient, $owner->id));
         $this->assertNoEhiRows();
+    }
+
+    public function test_blank_patient_key_in_a_patient_table_is_refused_before_anything_is_stored(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+
+        $this->assertRefused(EhiIntakeService::REJECT_UNSCOPED_PATIENT_ROW, fn () => $this->ehiIntakeDirectory(EhiSyntheticPackage::standard()->withBlankPatientKey(), $patient, $owner->id));
+        $this->assertNoEhiRows();
+    }
+
+    public function test_table_bytes_changed_to_the_same_length_during_accounting_are_refused(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        $inner = new EhiDirectorySource($this->ehiDirectory(EhiSyntheticPackage::standard()));
+        // PAT_ENC.tsv is opened to peek, to hash, then to account: the third read
+        // sees same-length bytes that differ, while the file itself never changes
+        // (so the later preservation pass would hash clean).
+        $source = new class($inner) implements EhiPackageSource
+        {
+            private int $opens = 0;
+
+            public function __construct(private readonly EhiPackageSource $inner) {}
+
+            public function kind(): string
+            {
+                return $this->inner->kind();
+            }
+
+            public function entries(): array
+            {
+                return $this->inner->entries();
+            }
+
+            public function open(EhiEntry $entry)
+            {
+                $stream = $this->inner->open($entry);
+                if (basename($entry->originalPath) !== 'PAT_ENC.tsv' || ++$this->opens !== 3) {
+                    return $stream;
+                }
+                $bytes = (string) stream_get_contents($stream);
+                fclose($stream);
+                $swapped = fopen('php://memory', 'w+b');
+                fwrite($swapped, str_replace("\t1001\t", "\t1009\t", $bytes));
+                rewind($swapped);
+
+                return $swapped;
+            }
+
+            public function originalArchive(): ?array
+            {
+                return $this->inner->originalArchive();
+            }
+
+            public function close(): void
+            {
+                $this->inner->close();
+            }
+        };
+
+        $this->assertRefused(EhiPackageRejected::SIZE_MISMATCH, fn () => $this->ehiIntake($source, $patient, $owner->id));
+        $this->assertNoEhiRows();
+    }
+
+    public function test_a_package_accounted_under_other_rule_versions_is_reaccounted_not_replayed(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        $first = $this->ehiIntakeDirectory(EhiSyntheticPackage::standard(), $patient, $owner->id);
+        $package = $first->package;
+        $current = $package->checkpoint_json['versions'];
+        $package->forceFill(['checkpoint_json' => [...$package->checkpoint_json, 'versions' => [...$current, 'dialect' => 'ehi-tsv-0/older']]])->save();
+        PhrEhiTableAccount::query()->where('package_id', $package->id)->update(['parser_version' => 'ehi-tsv-0/older']);
+        PhrEhiFinding::query()->where('package_id', $package->id)->delete();
+
+        $again = $this->ehiIntakeDirectory(EhiSyntheticPackage::standard(), $patient, $owner->id);
+
+        self::assertFalse($again->replayed);
+        self::assertTrue($again->resumed);
+        self::assertSame($package->id, $again->package->id);
+        self::assertSame(PhrEhiPackage::ACCOUNTING_ACCOUNTED, $again->package->accounting_status);
+        self::assertSame($current, $again->package->checkpoint_json['versions']);
+        self::assertSame(0, PhrEhiTableAccount::query()->where('package_id', $package->id)->where('parser_version', 'ehi-tsv-0/older')->count());
+        self::assertGreaterThan(0, PhrEhiFinding::query()->where('package_id', $package->id)->count(), 'findings are re-derived');
+
+        $replay = $this->ehiIntakeDirectory(EhiSyntheticPackage::standard(), $patient, $owner->id);
+        self::assertTrue($replay->replayed, 'once current, the package replays');
+    }
+
+    public function test_reaccounting_that_would_change_the_source_patient_key_is_refused(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        $package = $this->ehiIntakeDirectory(EhiSyntheticPackage::standard(), $patient, $owner->id)->package;
+        $package->forceFill([
+            'detected_source_patient_key' => EhiSyntheticPackage::OTHER_PATIENT_KEY,
+            'checkpoint_json' => [...$package->checkpoint_json, 'versions' => [...$package->checkpoint_json['versions'], 'classifier' => 'ehi-classify-0']],
+        ])->save();
+
+        $this->assertRefused(EhiIntakeService::REJECT_PATIENT_KEY_CHANGED, fn () => $this->ehiIntakeDirectory(EhiSyntheticPackage::standard(), $patient, $owner->id));
+        self::assertSame(PhrEhiPackage::ACCOUNTING_ACCOUNTED, $package->fresh()->accounting_status, 'the recorded accounting is left as it was');
     }
 
     public function test_non_ehi_package_is_refused_rather_than_imported_empty(): void

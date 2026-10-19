@@ -55,6 +55,19 @@ class EhiTsvReaderTest extends TestCase
         }
     }
 
+    public function test_digest_covers_every_byte_read_or_not(): void
+    {
+        $bytes = "A\tB\n1\t2\n".str_repeat("3\t4\n", 40000);
+        $full = $this->reader($bytes);
+        iterator_to_array($full->rows(), false);
+        self::assertSame(['sha256' => hash('sha256', $bytes), 'bytes' => strlen($bytes)], $full->digest());
+
+        // Only the header read: the rest is drained by digest() itself.
+        $partial = $this->reader($bytes);
+        $partial->header();
+        self::assertSame(['sha256' => hash('sha256', $bytes), 'bytes' => strlen($bytes)], $partial->digest());
+    }
+
     public function test_records_after_an_unusable_header_are_drained_and_counted(): void
     {
         $bytes = "PAT_ID\tPAT_ID\n1\t2\n".str_repeat('z', 200)."\n\n\"open\t3\r\nlast";

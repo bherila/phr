@@ -4,6 +4,7 @@ namespace App\Services\PHR\Import\Ehi;
 
 use App\Models\PhrEhiTableAccount;
 use Generator;
+use HashContext;
 use InvalidArgumentException;
 use LogicException;
 
@@ -90,6 +91,9 @@ final class EhiTsvReader
     /** @var array<string, int> */
     private array $counters;
 
+    /** sha256 over every byte read from the stream, in order. */
+    private HashContext $hash;
+
     /**
      * @param  resource  $stream  readable stream positioned at the member start
      */
@@ -102,6 +106,7 @@ final class EhiTsvReader
             throw new InvalidArgumentException('EHI row and value limits must be positive.');
         }
         $this->stream = $stream;
+        $this->hash = hash_init('sha256');
         $this->counters = array_fill_keys(self::COUNTERS, 0);
         foreach (EhiTsvMalformedRow::CODES as $code) {
             $this->counters['malformed_'.$code] = 0;
@@ -149,6 +154,29 @@ final class EhiTsvReader
         }
 
         return $this->headerFields === null ? null : in_array($name, $this->headerFields, true);
+    }
+
+    /**
+     * sha256 and length of the whole member: every byte already read plus any
+     * left unread, which is drained here without buffering. Lets a caller prove
+     * the bytes it parsed are the bytes it hashed earlier. Call after rows().
+     *
+     * @return array{sha256: string, bytes: int}
+     */
+    public function digest(): array
+    {
+        while (! $this->eof) {
+            $chunk = fread($this->stream, self::CHUNK_BYTES);
+            if ($chunk === false || $chunk === '') {
+                $this->eof = true;
+
+                break;
+            }
+            $this->counters['bytes'] += strlen($chunk);
+            hash_update($this->hash, $chunk);
+        }
+
+        return ['sha256' => hash_final(hash_copy($this->hash)), 'bytes' => $this->counters['bytes']];
     }
 
     public function hasBom(): bool
@@ -548,6 +576,7 @@ final class EhiTsvReader
         } else {
             $this->buffer .= $chunk;
             $this->counters['bytes'] += strlen($chunk);
+            hash_update($this->hash, $chunk);
         }
 
         return $shift;

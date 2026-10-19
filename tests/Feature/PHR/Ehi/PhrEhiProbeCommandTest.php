@@ -28,6 +28,19 @@ class PhrEhiProbeCommandTest extends TestCase
         parent::tearDown();
     }
 
+    public function test_blank_pat_id_rows_are_counted_because_intake_would_refuse_them(): void
+    {
+        $dir = $this->writeTree('package', [
+            ...$this->syntheticPackage(),
+            'Tables/PAT_IMMUNIZATIONS.tsv' => "PAT_ID\tLINE\n000777\t1\n\t2\n\t3\n",
+        ]);
+
+        $report = $this->jsonReport(['--dir' => $dir]);
+
+        self::assertSame(2, $report['tables']['pat_id']['blank_value_rows']);
+        self::assertSame(2, $report['tables']['pat_id']['distinct_values'], 'a blank is not a patient');
+    }
+
     public function test_directory_probe_prints_structure_without_planted_values(): void
     {
         $dir = $this->writeTree('package', $this->syntheticPackage());
@@ -61,6 +74,8 @@ class PhrEhiProbeCommandTest extends TestCase
         self::assertFalse($tables['known_table_names_present']['HNO_INFO']);
         self::assertSame(2, $tables['pat_id']['distinct_values']);
         self::assertSame(2, $tables['pat_id']['tables_with_column']);
+        self::assertSame(0, $tables['pat_id']['blank_value_rows']);
+        self::assertSame(1, $tables['pat_id']['malformed_rows'], 'the invalid-encoding PAT_ENC row');
         self::assertSame(1, $tables['null_marker_candidates']['NULL']);
         self::assertSame(1, $tables['null_marker_candidates']['\\N']);
         self::assertSame(2, $tables['line_endings']['crlf']);

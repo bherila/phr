@@ -223,6 +223,9 @@ final class PhrEhiProbeCommand extends Command
         $rfcStates = $states;
         $nullCandidates = array_fill_keys(self::NULL_CANDIDATES, 0);
         $patIdTables = 0;
+        // Either refuses intake (unscoped_patient_row), so the probe shows it first.
+        $patIdBlankRows = 0;
+        $patIdMalformedRows = 0;
         /** @var array<string, true> $patIds hashes only */
         $patIds = [];
         $patIdCapped = false;
@@ -275,7 +278,12 @@ final class PhrEhiProbeCommand extends Command
 
                     foreach ($reader->rows() as $row) {
                         if ($row instanceof EhiTsvMalformedRow) {
+                            $patIdMalformedRows += $patIdIndex === false ? 0 : 1;
+
                             continue;
+                        }
+                        if ($patIdIndex !== false && in_array($row->values[$patIdIndex] ?? null, [null, ''], true)) {
+                            $patIdBlankRows++;
                         }
                         foreach ($row->values as $index => $value) {
                             if ($value !== null && isset($nullCandidates[$value])) {
@@ -361,6 +369,8 @@ final class PhrEhiProbeCommand extends Command
                 'tables_with_column' => $patIdTables,
                 'distinct_values' => count($patIds),
                 'distinct_values_capped' => $patIdCapped,
+                'blank_value_rows' => $patIdBlankRows,
+                'malformed_rows' => $patIdMalformedRows,
             ],
             'dictionary_coverage' => $coverage,
         ];

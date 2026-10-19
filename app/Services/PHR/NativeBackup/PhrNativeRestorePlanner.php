@@ -11,6 +11,23 @@ use Illuminate\Support\Facades\Storage;
 
 final class PhrNativeRestorePlanner
 {
+    /**
+     * Unique keys a created row could collide on with a row the target already
+     * holds under another identity (blob rows are content-addressed per patient,
+     * so their digest also names the storage key). Each key is scoped by
+     * patient_id or by a parent FK; a parent that is itself created is new, so
+     * only a skipped (already present) parent can collide.
+     *
+     * @var array<string, list<array{scope: string, columns: list<string>}>>
+     */
+    private const array UNIQUE_KEYS = [
+        'phr_ehi_sources' => [['scope' => 'patient_id', 'columns' => ['label']]],
+        'phr_ehi_packages' => [['scope' => 'patient_id', 'columns' => ['manifest_digest']]],
+        'phr_ehi_blobs' => [['scope' => 'patient_id', 'columns' => ['sha256']]],
+        'phr_ehi_package_members' => [['scope' => 'package_id', 'columns' => ['path_sha256']]],
+        'phr_ehi_table_accounts' => [['scope' => 'package_id', 'columns' => ['table_name']]],
+    ];
+
     public function __construct(
         private readonly PhrNativeSnapshotService $snapshotService,
         private readonly PhrNativeRecordProjector $projector,
@@ -163,14 +180,7 @@ final class PhrNativeRestorePlanner
                         $blockers[] = 'record_conflict';
                     }
                 }
-                // Blob rows are content-addressed per patient. A new blob whose
-                // digest the target already holds under another identity would
-                // collide on its unique key and its storage key.
-                if ($table === 'phr_ehi_blobs' && $action === 'create' && $targetPatientId !== null
-                    && DB::table('phr_ehi_blobs')
-                        ->where('patient_id', $targetPatientId)
-                        ->where('sha256', (string) ($record['attributes']['sha256'] ?? ''))
-                        ->exists()) {
+                if ($action === 'create' && $targetPatientId !== null && $this->collidesOnUniqueKey($table, $record, $targetPatientId, $actions, $identitiesByNativeId)) {
                     $action = 'block';
                     $blockers[] = 'record_conflict';
                 }
@@ -215,6 +225,42 @@ final class PhrNativeRestorePlanner
         $digest = hash('sha256', PhrNativeRecordCodec::canonicalJson($digestPayload));
 
         return new PhrNativeRestorePlan($patientNativeId, $targetPatientId, $tables, $artifactPlan, $shareCount, $restoreAccessGrants, $blockers, $digest, $actions, $actorIds);
+    }
+
+    /**
+     * @param  array<string, mixed>  $record
+     * @param  array<string, array<string, string>>  $actions
+     * @param  array<string, array<string, int>>  $identitiesByNativeId
+     */
+    private function collidesOnUniqueKey(string $table, array $record, int $targetPatientId, array $actions, array $identitiesByNativeId): bool
+    {
+        foreach (self::UNIQUE_KEYS[$table] ?? [] as $key) {
+            if ($key['scope'] === 'patient_id') {
+                $scopeId = $targetPatientId;
+            } else {
+                $relationship = $record['relationships'][$key['scope']] ?? null;
+                if (! is_array($relationship) || $relationship['kind'] !== 'record') {
+                    continue;
+                }
+                $parentNativeId = (string) $relationship['nativeId'];
+                if (($actions[$relationship['table']][$parentNativeId] ?? null) !== 'skip') {
+                    continue;
+                }
+                $scopeId = $identitiesByNativeId[$relationship['table']][$parentNativeId] ?? null;
+                if ($scopeId === null) {
+                    continue;
+                }
+            }
+            $query = DB::table($table)->where($key['scope'], $scopeId);
+            foreach ($key['columns'] as $column) {
+                $query->where($column, $record['attributes'][$column] ?? null);
+            }
+            if ($query->exists()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @param array<string, mixed> $artifact */

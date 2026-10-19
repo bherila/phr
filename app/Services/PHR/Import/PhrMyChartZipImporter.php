@@ -30,11 +30,18 @@ class PhrMyChartZipImporter
         try {
             // An EHI Tables export holds no FHIR/C-CDA this loop would read; without
             // this check it would skip every member and report an empty success.
+            // Name signals alone are weak, so a ZIP that also carries JSON/XML (a
+            // FHIR bundle with TSV/HTML attachments) is refused only when a member
+            // named after a well-known EHI table opens with a real TSV header.
             $names = [];
+            $importable = false;
             for ($index = 0; $index < $zip->numFiles; $index++) {
-                $names[] = (string) $zip->getNameIndex($index);
+                $name = (string) $zip->getNameIndex($index);
+                $names[] = $name;
+                $lower = strtolower($name);
+                $importable = $importable || str_ends_with($lower, '.json') || str_ends_with($lower, '.xml');
             }
-            if (EhiPackageDetector::detectZipPaths($names)) {
+            if (EhiPackageDetector::detectZipPaths($names) && (! $importable || $this->hasHeadedKnownTable($zip, $names))) {
                 throw new EhiExportNotSupportedHere;
             }
 
@@ -79,5 +86,31 @@ class PhrMyChartZipImporter
         }
 
         return $result;
+    }
+
+    /** @param  list<string>  $names */
+    private function hasHeadedKnownTable(ZipArchive $zip, array $names): bool
+    {
+        foreach ($names as $name) {
+            $basename = basename(str_replace('\\', '/', $name));
+            $extension = strtolower(pathinfo($basename, PATHINFO_EXTENSION));
+            if (! in_array($extension, ['tsv', 'txt'], true) || ! EhiPackageDetector::isKnownTableName(pathinfo($basename, PATHINFO_FILENAME))) {
+                continue;
+            }
+            $stream = $zip->getStream($name);
+            if ($stream === false) {
+                continue;
+            }
+            try {
+                $line = fgets($stream, 65536);
+            } finally {
+                fclose($stream);
+            }
+            if ($line !== false && EhiPackageDetector::looksLikeHeader($line)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }
