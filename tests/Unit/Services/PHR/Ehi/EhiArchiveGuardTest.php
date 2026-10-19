@@ -47,7 +47,7 @@ class EhiArchiveGuardTest extends TestCase
                 $results[] = [
                     'paths' => array_map(static fn (EhiValidatedMember $member): array => [$member->path, $member->entry->declaredBytes], $members),
                     'digest' => $guard->manifestDigest($this->copyAll($guard, $source, $members)),
-                    'original' => $source->originalArchive(),
+                    'original' => $source->originalArchive($this->limits()),
                     'kind' => $source->kind(),
                 ];
             } finally {
@@ -171,6 +171,24 @@ class EhiArchiveGuardTest extends TestCase
         $zip->close();
 
         $this->assertRefused(new EhiZipSource($path), EhiPackageRejected::ENCRYPTED, ['locked']);
+    }
+
+    public function test_a_container_larger_than_any_allowed_package_is_refused_before_it_is_hashed(): void
+    {
+        $limits = $this->limits(maxPackageBytes: 4096, maxMembers: 4, maxPathBytes: 64);
+        $path = $this->writeZip('padded.zip', ['first.tsv' => "A\n"]);
+        self::assertGreaterThan(0, (new EhiZipSource($path))->originalArchive($limits)['bytes']);
+
+        // Trailing payload (here appended after the ZIP was opened): no allowed
+        // member set accounts for these bytes, so they are refused unread.
+        $source = new EhiZipSource($path);
+        file_put_contents($path, str_repeat("\0", $limits->maxContainerBytes()), FILE_APPEND);
+        try {
+            $source->originalArchive($limits);
+            self::fail('An oversized container must be refused.');
+        } catch (EhiPackageRejected $rejected) {
+            self::assertSame(EhiPackageRejected::PACKAGE_TOO_LARGE, $rejected->reason);
+        }
     }
 
     public function test_duplicate_zip_names_are_refused(): void
@@ -421,7 +439,7 @@ class EhiArchiveGuardTest extends TestCase
                 throw new EhiPackageRejected(EhiPackageRejected::UNREADABLE, 'not readable');
             }
 
-            public function originalArchive(): ?array
+            public function originalArchive(EhiLimits $limits): ?array
             {
                 return null;
             }

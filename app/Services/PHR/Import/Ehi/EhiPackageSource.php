@@ -24,7 +24,7 @@ interface EhiPackageSource
     public function open(EhiEntry $entry);
 
     /** @return array{sha256: string, bytes: int}|null metadata about a supplied archive file */
-    public function originalArchive(): ?array;
+    public function originalArchive(EhiLimits $limits): ?array;
 
     public function close(): void;
 }

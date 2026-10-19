@@ -103,11 +103,23 @@ final class EhiZipSource implements EhiPackageSource
         return $stream;
     }
 
-    /** @return array{sha256: string, bytes: int} */
-    public function originalArchive(): array
+    /**
+     * A container larger than any package within the limits needs (a big
+     * self-extracting prefix, trailing payload, or padding) is refused before
+     * it is read, and the hash never reads past that bound, so recording this
+     * metadata cannot become unbounded I/O.
+     *
+     * @return array{sha256: string, bytes: int}
+     */
+    public function originalArchive(EhiLimits $limits): array
     {
         if ($this->original !== null) {
             return $this->original;
+        }
+        $maxBytes = $limits->maxContainerBytes();
+        $size = @filesize($this->path);
+        if ($size !== false && $size > $maxBytes) {
+            throw new EhiPackageRejected(EhiPackageRejected::PACKAGE_TOO_LARGE, 'EHI package archive is larger than any package within the intake limits.');
         }
 
         $stream = @fopen($this->path, 'rb');
@@ -123,6 +135,10 @@ final class EhiZipSource implements EhiPackageSource
                     throw new EhiPackageRejected(EhiPackageRejected::UNREADABLE, 'EHI package archive could not be re-read.');
                 }
                 $bytes += strlen($chunk);
+                if ($bytes > $maxBytes) {
+                    // Grew after it was opened; never read past the bound.
+                    throw new EhiPackageRejected(EhiPackageRejected::PACKAGE_TOO_LARGE, 'EHI package archive is larger than any package within the intake limits.');
+                }
                 hash_update($hash, $chunk);
             }
         } finally {

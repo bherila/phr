@@ -134,7 +134,7 @@ final class EhiDirectorySource implements EhiPackageSource
         return $stream;
     }
 
-    public function originalArchive(): ?array
+    public function originalArchive(EhiLimits $limits): ?array
     {
         return null;
     }

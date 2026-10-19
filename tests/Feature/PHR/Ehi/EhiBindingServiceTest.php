@@ -8,6 +8,7 @@ use App\Models\PhrPatientUserAccess;
 use App\Services\PHR\Import\Ehi\EhiBindingRefused;
 use App\Services\PHR\Import\Ehi\EhiBindingService;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\DB;
 use Tests\Support\EhiIntakeFixtures;
 use Tests\Support\EhiSyntheticPackage;
 use Tests\TestCase;
@@ -81,6 +82,20 @@ class EhiBindingServiceTest extends TestCase
         $this->assertRefused(EhiBindingRefused::CHOICE_REQUIRED, fn () => $binding->bind($package, $patient, $owner->id, null, null));
         $this->assertRefused(EhiBindingRefused::LABEL_INVALID, fn () => $binding->bind($package, $patient, $owner->id, null, "bad\nlabel"));
 
+        self::assertSame(PhrEhiPackage::BINDING_UNBOUND, $package->fresh()?->binding_status);
+    }
+
+    public function test_a_label_created_concurrently_is_refused_as_taken_not_a_database_error(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        $package = $this->ehiIntakeDirectory(EhiSyntheticPackage::standard(), $patient, $owner->id)->package;
+        // Simulate a concurrent binding that inserts the label after the check.
+        PhrEhiSource::creating(static function (PhrEhiSource $source): void {
+            DB::table('phr_ehi_sources')->insert(['patient_id' => $source->patient_id, 'label' => $source->label, 'source_patient_key' => $source->source_patient_key, 'created_at' => now(), 'updated_at' => now()]);
+        });
+
+        $this->assertRefused(EhiBindingRefused::LABEL_TAKEN, fn () => app(EhiBindingService::class)->bind($package, $patient, $owner->id, null, 'Synthetic Clinic'));
         self::assertSame(PhrEhiPackage::BINDING_UNBOUND, $package->fresh()?->binding_status);
     }
 

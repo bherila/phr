@@ -16,6 +16,7 @@ use App\Services\PHR\Import\Ehi\EhiIntakeService;
 use App\Support\Storage\PhrStorageKey;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -142,6 +143,50 @@ class EhiIntakeRecoveryTest extends TestCase
             self::assertSame(EhiBlobVerifier::OK, $verifier->inspect($blob->storage_disk, $blob->storage_path, $blob->sha256, $blob->byte_size));
         }
         self::assertSame(EhiSyntheticPackage::DISTINCT_BLOBS, PhrEhiBlob::query()->count());
+    }
+
+    public function test_a_shared_object_lost_after_its_outside_check_is_republished_under_the_lock(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        $this->ehiIntakeDirectory(EhiSyntheticPackage::standard(), $patient, $owner->id);
+        $shared = PhrEhiBlob::query()->where('sha256', hash('sha256', EhiSyntheticPackage::standard()->files['PATIENT.tsv']))->sole();
+
+        // The second package shares PATIENT.tsv. Its first read of that object
+        // (the check outside the lock) succeeds, then the object disappears.
+        $name = (string) config('phr.ehi_disk');
+        /** @var FilesystemAdapter $fake */
+        $fake = Storage::disk($name);
+        $disk = new class($fake->getDriver(), $fake->getAdapter(), $fake->getConfig()) extends FilesystemAdapter
+        {
+            public string $target = '';
+
+            public bool $dropped = false;
+
+            public function readStream($path)
+            {
+                $stream = parent::readStream($path);
+                if ($path !== $this->target || $this->dropped || ! is_resource($stream)) {
+                    return $stream;
+                }
+                $this->dropped = true;
+                $copy = fopen('php://memory', 'w+b');
+                stream_copy_to_stream($stream, $copy);
+                fclose($stream);
+                rewind($copy);
+                $this->delete($path);
+
+                return $copy;
+            }
+        };
+        $disk->target = $shared->storage_path;
+        Storage::set($name, $disk);
+
+        $result = $this->ehiIntakeDirectory(EhiSyntheticPackage::standard()->withChangedResults(), $patient, $owner->id, 'second');
+
+        self::assertTrue($disk->dropped);
+        self::assertSame(PhrEhiPackage::PRESERVATION_PRESERVED, $result->package->preservation_status);
+        self::assertSame(EhiBlobVerifier::OK, (new EhiBlobVerifier)->inspect($shared->storage_disk, $shared->storage_path, $shared->sha256, $shared->byte_size));
     }
 
     public function test_source_mutation_between_passes_fails_the_intake(): void

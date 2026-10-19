@@ -47,8 +47,8 @@ use Throwable;
  *
  * @phpstan-type Finding array{code: string, line: ?int, offset: ?int, column: ?string, detail: array<string, int|string|bool|null>|null}
  * @phpstan-type FindingList array{list: list<Finding>, omitted: int}
- * @phpstan-type Classified array{member: EhiValidatedMember, kind: string, table: ?string, unsupported_name: bool}
- * @phpstan-type MemberPlan array{member: EhiValidatedMember, kind: string, table: ?string, unsupported_name: bool, sha256: string, bytes: int}
+ * @phpstan-type Classified array{member: EhiValidatedMember, kind: string, table: ?string, unsupported_name: bool, first_line: ?string}
+ * @phpstan-type MemberPlan array{member: EhiValidatedMember, kind: string, table: ?string, unsupported_name: bool, first_line: ?string, sha256: string, bytes: int}
  * @phpstan-type AccountPlan array{path: string, table: string, state: string, header: ?list<string>, unknown: ?list<string>, missing: ?list<string>, rows: int, malformed: int, disposition: string}
  * @phpstan-type Plan array{members: list<MemberPlan>, accounts: list<AccountPlan>, missing: list<string>, findings: array<string, FindingList>, package_findings: list<Finding>, patient_key: string, dictionary: EhiDictionary, has_dictionary: bool}
  */
@@ -112,7 +112,7 @@ final class EhiIntakeService
         $validated = $this->archiveGuard->validate($source, $limits);
         $classified = $this->classify($source, $validated);
         $plan = $this->firstPass($source, $classified, $limits, $dialect);
-        $original = $source->originalArchive();
+        $original = $source->originalArchive($limits);
 
         $token = (string) Str::uuid();
         [$package, $outcome] = $this->claim($source, $patient, $actorUserId, $plan, $original, $token, $dialect);
@@ -150,7 +150,7 @@ final class EhiIntakeService
             $line = in_array($extension, self::PEEK_EXTENSIONS, true) ? $this->firstLine($source, $member) : null;
             $firstLines[$member->path] = $line;
             $class = $this->classifier->classify($member->path, $line);
-            $classified[] = ['member' => $member, 'kind' => $class['kind'], 'table' => $class['table'], 'unsupported_name' => isset($class['unsupported_table_name'])];
+            $classified[] = ['member' => $member, 'kind' => $class['kind'], 'table' => $class['table'], 'unsupported_name' => isset($class['unsupported_table_name']), 'first_line' => $line];
         }
 
         $detection = $this->detector->detect($members, static fn (EhiValidatedMember $member): ?string => $firstLines[$member->path] ?? null);
@@ -189,6 +189,12 @@ final class EhiIntakeService
         $members = [];
         foreach ($classified as $item) {
             $measured = $this->hashMember($source, $item['member'], $limits);
+            // Classification and detection read the first line separately; it
+            // must be the first line of the bytes now hashed, or the member's
+            // kind and table would describe bytes that are not the evidence.
+            if ($item['first_line'] !== null && $this->lineOf($measured['prefix']) !== $item['first_line']) {
+                throw new EhiPackageRejected(EhiPackageRejected::SIZE_MISMATCH, 'EHI package refused (size_mismatch): a member changed while it was being read.');
+            }
             $members[] = [...$item, 'sha256' => $measured['sha256'], 'bytes' => $measured['bytes']];
         }
 
@@ -522,15 +528,18 @@ final class EhiIntakeService
                 $now = now();
                 $blob = PhrEhiBlob::query()->where('patient_id', $patient->id)->where('sha256', $sha256)->lockForUpdate()->first();
                 $rowExisted = $blob !== null;
-                if ($blob === null && $staged === null) {
-                    // The row verified a moment ago is gone; nothing vouches for the object.
-                    $staged = $this->stage($source, $member, $limits);
-                }
                 $disk = $blob->storage_disk ?? $diskName;
                 $path = $blob->storage_path ?? $key;
+                // The shared object verified outside the lock is checked again
+                // here: if its row is gone or the object changed meanwhile,
+                // nothing vouches for it, so the source bytes are staged now.
+                $intact = $staged === null && $blob !== null && $this->verifier->inspect($disk, $path, $sha256, $bytes) === EhiBlobVerifier::OK;
+                if (! $intact && $staged === null) {
+                    $staged = $this->stage($source, $member, $limits);
+                }
 
                 // Never overwrite an intact object: a torn write would damage evidence.
-                $intact = $staged === null || $this->verifier->inspect($disk, $path, $sha256, $bytes) === EhiBlobVerifier::OK;
+                $intact = $intact || $this->verifier->inspect($disk, $path, $sha256, $bytes) === EhiBlobVerifier::OK;
                 if (! $intact) {
                     $wrote = true;
                     $this->publish($disk, $path, $staged);
@@ -911,7 +920,7 @@ final class EhiIntakeService
         }
     }
 
-    /** @return array{sha256: string, bytes: int} */
+    /** @return array{sha256: string, bytes: int, prefix: string} */
     private function hashMember(EhiPackageSource $source, EhiValidatedMember $member, EhiLimits $limits): array
     {
         $sink = @fopen(DIRECTORY_SEPARATOR === '\\' ? 'NUL' : '/dev/null', 'wb');
@@ -921,7 +930,9 @@ final class EhiIntakeService
         try {
             $stream = $source->open($member->entry);
             try {
-                return $this->archiveGuard->copyBounded($stream, $sink, $member->entry->declaredBytes, $limits->maxMemberBytes);
+                $prefix = EhiPrefixCapture::attach($stream, self::FIRST_LINE_BYTES);
+
+                return [...$this->archiveGuard->copyBounded($stream, $sink, $member->entry->declaredBytes, $limits->maxMemberBytes), 'prefix' => (string) $prefix->prefix];
             } finally {
                 fclose($stream);
             }
@@ -944,6 +955,15 @@ final class EhiIntakeService
         }
 
         return $html;
+    }
+
+    /** The first line of a byte prefix, exactly as firstLine() reads it from a stream. */
+    private function lineOf(string $prefix): string
+    {
+        $prefix = substr($prefix, 0, self::FIRST_LINE_BYTES - 1);
+        $newline = strpos($prefix, "\n");
+
+        return rtrim($newline === false ? $prefix : substr($prefix, 0, $newline + 1), "\r\n");
     }
 
     private function firstLine(EhiPackageSource $source, EhiValidatedMember $member): string

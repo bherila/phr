@@ -14,6 +14,7 @@ use App\Services\PHR\Import\Ehi\EhiDirectorySource;
 use App\Services\PHR\Import\Ehi\EhiEntry;
 use App\Services\PHR\Import\Ehi\EhiIntakeResult;
 use App\Services\PHR\Import\Ehi\EhiIntakeService;
+use App\Services\PHR\Import\Ehi\EhiLimits;
 use App\Services\PHR\Import\Ehi\EhiPackageSource;
 use Closure;
 use Illuminate\Filesystem\FilesystemAdapter;
@@ -103,9 +104,9 @@ trait EhiIntakeFixtures
                 return $this->inner->open($entry);
             }
 
-            public function originalArchive(): ?array
+            public function originalArchive(EhiLimits $limits): ?array
             {
-                return $this->inner->originalArchive();
+                return $this->inner->originalArchive($limits);
             }
 
             public function close(): void

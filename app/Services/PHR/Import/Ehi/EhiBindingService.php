@@ -8,6 +8,7 @@ use App\Models\PhrPatient;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -63,6 +64,9 @@ final readonly class EhiBindingService
         $label = $newSourceLabel === null ? null : $this->label($newSourceLabel);
 
         return DB::transaction(function () use ($package, $patient, $actorUserId, $existingSourceId, $label): PhrEhiPackage {
+            // Patient first, then package (the intake guard's order): two
+            // bindings of one patient's packages serialize on the label check.
+            PhrPatient::query()->whereKey($patient->id)->lockForUpdate()->firstOrFail();
             $locked = PhrEhiPackage::query()
                 ->whereKey($package->id)
                 ->where('patient_id', $patient->id)
@@ -106,13 +110,18 @@ final readonly class EhiBindingService
                 if (PhrEhiSource::query()->where('patient_id', $patient->id)->where('label', $label)->exists()) {
                     throw new EhiBindingRefused(EhiBindingRefused::LABEL_TAKEN, 'a source with that label already exists; bind to it instead');
                 }
-                $source = PhrEhiSource::query()->create([
-                    'patient_id' => $patient->id,
-                    'created_by_user_id' => $actorUserId,
-                    'label' => $label,
-                    'source_patient_key' => $key,
-                    'dictionary_fingerprint' => $locked->dictionary_fingerprint,
-                ]);
+                try {
+                    $source = PhrEhiSource::query()->create([
+                        'patient_id' => $patient->id,
+                        'created_by_user_id' => $actorUserId,
+                        'label' => $label,
+                        'source_patient_key' => $key,
+                        'dictionary_fingerprint' => $locked->dictionary_fingerprint,
+                    ]);
+                } catch (UniqueConstraintViolationException) {
+                    // A collation may equate labels the check above did not.
+                    throw new EhiBindingRefused(EhiBindingRefused::LABEL_TAKEN, 'a source with that label already exists; bind to it instead');
+                }
             }
 
             $locked->forceFill([

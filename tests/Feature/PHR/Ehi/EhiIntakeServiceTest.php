@@ -12,11 +12,13 @@ use App\Services\PHR\Import\Ehi\EhiDirectorySource;
 use App\Services\PHR\Import\Ehi\EhiEntry;
 use App\Services\PHR\Import\Ehi\EhiFindingCode;
 use App\Services\PHR\Import\Ehi\EhiIntakeService;
+use App\Services\PHR\Import\Ehi\EhiLimits;
 use App\Services\PHR\Import\Ehi\EhiMemberKind;
 use App\Services\PHR\Import\Ehi\EhiPackageRejected;
 use App\Services\PHR\Import\Ehi\EhiPackageSource;
 use App\Services\PHR\Import\Ehi\EhiZipSource;
 use App\Support\Storage\PhrStorageKey;
+use Closure;
 use Illuminate\Support\Facades\Storage;
 use Tests\Support\EhiIntakeFixtures;
 use Tests\Support\EhiSyntheticPackage;
@@ -279,51 +281,22 @@ class EhiIntakeServiceTest extends TestCase
     {
         $owner = $this->createUser();
         $patient = $this->ehiPatient($owner);
-        $inner = new EhiDirectorySource($this->ehiDirectory(EhiSyntheticPackage::standard()));
         // PAT_ENC.tsv is opened to peek, to hash, then to account: the third read
         // sees same-length bytes that differ, while the file itself never changes
         // (so the later preservation pass would hash clean).
-        $source = new class($inner) implements EhiPackageSource
-        {
-            private int $opens = 0;
+        $source = $this->swappingSource('PAT_ENC.tsv', 3, static fn (string $bytes): string => str_replace("\t1001\t", "\t1009\t", $bytes));
 
-            public function __construct(private readonly EhiPackageSource $inner) {}
+        $this->assertRefused(EhiPackageRejected::SIZE_MISMATCH, fn () => $this->ehiIntake($source, $patient, $owner->id));
+        $this->assertNoEhiRows();
+    }
 
-            public function kind(): string
-            {
-                return $this->inner->kind();
-            }
-
-            public function entries(): array
-            {
-                return $this->inner->entries();
-            }
-
-            public function open(EhiEntry $entry)
-            {
-                $stream = $this->inner->open($entry);
-                if (basename($entry->originalPath) !== 'PAT_ENC.tsv' || ++$this->opens !== 3) {
-                    return $stream;
-                }
-                $bytes = (string) stream_get_contents($stream);
-                fclose($stream);
-                $swapped = fopen('php://memory', 'w+b');
-                fwrite($swapped, str_replace("\t1001\t", "\t1009\t", $bytes));
-                rewind($swapped);
-
-                return $swapped;
-            }
-
-            public function originalArchive(): ?array
-            {
-                return $this->inner->originalArchive();
-            }
-
-            public function close(): void
-            {
-                $this->inner->close();
-            }
-        };
+    public function test_a_first_line_that_differs_from_the_hashed_bytes_is_refused(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        // Only the classification peek (the first open) sees a different header,
+        // so kind, table, and detection would describe bytes that are not stored.
+        $source = $this->swappingSource('PAT_ENC.tsv', 1, static fn (string $bytes): string => str_replace('CONTACT_DATE', 'CONTACT_DATX', $bytes));
 
         $this->assertRefused(EhiPackageRejected::SIZE_MISMATCH, fn () => $this->ehiIntake($source, $patient, $owner->id));
         $this->assertNoEhiRows();
@@ -567,6 +540,59 @@ class EhiIntakeServiceTest extends TestCase
             'accounts' => PhrEhiTableAccount::query()->count(),
             'findings' => PhrEhiFinding::query()->count(),
         ];
+    }
+
+    /**
+     * The standard package, except that the Nth open of one member returns its
+     * bytes transformed; the file on disk never changes.
+     *
+     * @param  callable(string): string  $transform
+     */
+    private function swappingSource(string $basename, int $onOpen, callable $transform): EhiPackageSource
+    {
+        $inner = new EhiDirectorySource($this->ehiDirectory(EhiSyntheticPackage::standard()));
+
+        return new class($inner, $basename, $onOpen, $transform(...)) implements EhiPackageSource
+        {
+            private int $opens = 0;
+
+            public function __construct(private readonly EhiPackageSource $inner, private readonly string $basename, private readonly int $onOpen, private readonly Closure $transform) {}
+
+            public function kind(): string
+            {
+                return $this->inner->kind();
+            }
+
+            public function entries(): array
+            {
+                return $this->inner->entries();
+            }
+
+            public function open(EhiEntry $entry)
+            {
+                $stream = $this->inner->open($entry);
+                if (basename($entry->originalPath) !== $this->basename || ++$this->opens !== $this->onOpen) {
+                    return $stream;
+                }
+                $bytes = (string) stream_get_contents($stream);
+                fclose($stream);
+                $swapped = fopen('php://memory', 'w+b');
+                fwrite($swapped, ($this->transform)($bytes));
+                rewind($swapped);
+
+                return $swapped;
+            }
+
+            public function originalArchive(EhiLimits $limits): ?array
+            {
+                return $this->inner->originalArchive($limits);
+            }
+
+            public function close(): void
+            {
+                $this->inner->close();
+            }
+        };
     }
 
     private function assertRefused(string $reason, callable $intake): void
