@@ -2,6 +2,7 @@
 
 use App\Http\Middleware\EnsureOAuthAuthorizationUserCanLogin;
 use App\Http\Middleware\OAuthAuthorizationSecurityHeaders;
+use App\Http\Middleware\RefuseClientCredentialsGrant;
 use App\Http\Middleware\SerializeOAuthTokenExchange;
 use BWH\Auth\OAuth\Server\AgentOAuthServer;
 
@@ -21,6 +22,7 @@ return [
     'guard' => 'web',
 
     'middleware' => AgentOAuthServer::passportMiddleware([
+        RefuseClientCredentialsGrant::class,
         EnsureOAuthAuthorizationUserCanLogin::class,
         SerializeOAuthTokenExchange::class,
         OAuthAuthorizationSecurityHeaders::class,
