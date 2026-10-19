@@ -180,7 +180,7 @@ final class AgentApiBillingReadTest extends TestCase
         $this->getJson("/api/v1/patients/{$shared->id}")->assertOk()
             ->assertJsonPath('data.access_level', PhrPatientUserAccess::LEVEL_VIEWER)
             ->assertJsonPath('data.access.level', PhrPatientUserAccess::LEVEL_VIEWER)
-            ->assertJsonPath('data.birth_date', '2000-01-01');
+            ->assertJsonPath('data.sex_at_birth', 'unknown');
     }
 
     public function test_a_billing_only_credential_downloads_eob_source_documents_and_nothing_else(): void

@@ -21,6 +21,7 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Passport\Passport;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Concerns\ConfiguresPassportKeys;
 use Tests\TestCase;
 
@@ -121,7 +122,18 @@ final class AgentApiPublicIdTest extends TestCase
         ]);
     }
 
-    public function test_a_native_restore_renumbers_integer_ids_but_keeps_public_ids_and_the_referenced_document_bytes(): void
+    /** @return array<string, array{list<string>}> */
+    public static function readerScopes(): array
+    {
+        return [
+            'full read scopes' => [[AgentApiScopes::PATIENTS_READ, AgentApiScopes::CLINICAL_READ, AgentApiScopes::DOCUMENTS_READ]],
+            'finance projection' => [[AgentApiScopes::BILLING_READ]],
+        ];
+    }
+
+    /** @param list<string> $scopes */
+    #[DataProvider('readerScopes')]
+    public function test_a_native_restore_renumbers_integer_ids_but_keeps_public_ids_and_the_referenced_document_bytes(array $scopes): void
     {
         $owner = $this->createUser();
         $patient = $this->patient($owner);
@@ -132,7 +144,6 @@ final class AgentApiPublicIdTest extends TestCase
         // so the restored rows cannot land on the same integers by accident.
         $this->eob($this->patient($owner), $owner, null);
 
-        $scopes = [AgentApiScopes::PATIENTS_READ, AgentApiScopes::CLINICAL_READ, AgentApiScopes::DOCUMENTS_READ];
         Passport::actingAs($owner, $scopes);
         $before = $this->getJson("/api/v1/patients/{$patient->id}/eobs/{$eob->id}")->assertOk()->json('data');
         $originalHash = hash('sha256', $bytes);

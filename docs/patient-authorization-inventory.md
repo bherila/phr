@@ -68,8 +68,8 @@ explicit `--actor` and go through the same three methods.
 | Export request | `POST api/phr/patients/{patient}/exports` | **O** | — | existing-protected |
 | Native backup | `POST api/phr/patients/{patient}/native-backups` | **O** | — | existing-protected |
 | Patient page shell | `GET /phr/patient/{patient}` | R | — | existing-protected |
-| Agent: list patients | `GET api/v1/patients` | R (query) | `patients:read` | existing-protected |
-| Agent: show patient | `GET api/v1/patients/{patient}` | R | `patients:read` | existing-protected |
+| Agent: list patients | `GET api/v1/patients` | R (query) | `patients:read`, or `billing:read` (id, public id, display name, caller's access level only) | existing-protected |
+| Agent: show patient | `GET api/v1/patients/{patient}` | R | `patients:read`, or `billing:read` (same projection) | existing-protected |
 | Agent: create patient | `POST api/v1/patients` | — (creates own) | `patients:write` | existing-protected |
 | Agent: list allergies | `GET api/v1/patients/{patient}/allergies` | R | `clinical:read` | existing-protected |
 | Agent: show allergy | `GET api/v1/patients/{patient}/allergies/{record}` | R | `clinical:read` | existing-protected |
