@@ -241,6 +241,26 @@ errors must remain generic; operational logs must never include bearer credentia
 clinical payloads. Repeated 429 responses are atomically sampled to one audit per
 actor, route, and UTC minute, and metadata audits are pruned after 365 days by default.
 
+## Finance projection (`billing:read`)
+
+A finance application matches EOBs to the payments for them and needs nothing
+clinical, so it gets `billing:read` instead of `clinical:read`. The scope is an
+alternative, not an addition: `eobs.list`, `eobs.get` and `eob_lines.list` accept
+either, and capabilities report such an operation with `any_scopes`. A credential that
+holds `billing:read` but not `clinical:read` sees the finance projection only:
+
+- EOBs: ids and public ids, claim type, import source, the service-date range over
+  the lines, processed date, provider name, claim number, source document, and the
+  charges, accepted fee, plan payment, deductible, copay and patient-responsibility
+  totals.
+- EOB lines: amounts and service dates.
+
+Procedure and revenue codes, line descriptions, diagnoses, notes, plan, administrator,
+carrier and member details are never returned to it, and every other clinical
+operation (search, timeline, change feed, evidence links, single EOB lines, clinical
+records) refuses it. Patient access still applies to every request. The scope is
+REST-only: the MCP resource neither advertises nor accepts it.
+
 ## Token lifecycle
 
 Interactive clients use Authorization Code with S256 PKCE. Access tokens expire after

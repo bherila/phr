@@ -232,6 +232,7 @@
                 "patients:write",
                 "clinical:read",
                 "clinical:write",
+                "billing:read",
                 "documents:read",
                 "documents:write",
                 "imports:read",
@@ -358,7 +359,7 @@
             "description": "Discover the PHR API version, scopes, operations, resources, and limits.",
             "inputSchema": "sha256:bd002e19f8640d2c8613a2e22a7c79fb7eab69bd192f5e19d16984554ce5bff2",
             "name": "capabilities.get",
-            "outputSchema": "sha256:858352f5771a8017596a2eaca995a053a34ddc6dc33e501e4456295f114762a8",
+            "outputSchema": "sha256:9eca6178e62d90c928d223ccbcf0e9463e36b1cc88e3a5fef80c595b5551a8c5",
             "title": "Get capabilities"
         },
         "changes.list": {
@@ -644,7 +645,7 @@
             "description": "List line items for one accessible explanation-of-benefits record.",
             "inputSchema": "sha256:e206db802fbb300a0428688059d21ac30671832b10f6c7c1a2b0a48bbb8b7a77",
             "name": "eob_lines.list",
-            "outputSchema": "sha256:7c72e18d393b690369d0c5575be255bf29836f22fb9283b3b8d24090c2ec647d",
+            "outputSchema": "sha256:c7ab29854b9f69764c6146e50aec826e0e87e7e3725c503a976296e3baa2fad3",
             "title": "List EOB lines"
         },
         "eobs.get": {
@@ -657,7 +658,7 @@
             "description": "Get one explanation-of-benefits record for an accessible patient.",
             "inputSchema": "sha256:51451b81e32eea85ef918b8b43d1eb437ed08f6db252d794c7872755ace103ec",
             "name": "eobs.get",
-            "outputSchema": "sha256:bca296d09bd96ee5abbbfc1cce046442fbe5aebf77d57d83fc71555b00f6a92b",
+            "outputSchema": "sha256:7b26254cbeea719112678103ef68f6ae929a17046876fe119099c4d9613ad4e8",
             "title": "Get EOB"
         },
         "eobs.list": {
@@ -670,7 +671,7 @@
             "description": "List explanation-of-benefits records for an accessible patient.",
             "inputSchema": "sha256:6b8f38d614dfd7f56cfb11fb79867335539ac6f46639e967bd8c05668404042e",
             "name": "eobs.list",
-            "outputSchema": "sha256:792c625af728d42062abd2ff0732c1d34061319a215408103c4493a556e9abb3",
+            "outputSchema": "sha256:5449396dc5df9dc3f651a171a143ca46e089b7e48f0ab682b6714d161ba9fef6",
             "title": "List EOBs"
         },
         "evidence.links": {

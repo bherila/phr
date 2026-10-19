@@ -74,7 +74,7 @@ final class AgentMcpReadAdapterTest extends TestCase
         $this->getJson('/.well-known/oauth-protected-resource/api/v1/mcp')
             ->assertOk()
             ->assertJsonPath('resource', url('/api/v1/mcp'))
-            ->assertJsonPath('scopes_supported', AgentApiScopes::ids());
+            ->assertJsonPath('scopes_supported', AgentApiScopes::mcpIds());
         $capabilities = $this->getJson('/api/v1/capabilities')
             ->assertOk()
             ->assertJsonPath('mcp_url', url('/api/v1/mcp'))

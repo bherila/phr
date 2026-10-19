@@ -135,18 +135,24 @@
     },
     "eob_lines.list": {
         "scopes": [
-            "clinical:read"
-        ]
+            "clinical:read",
+            "billing:read"
+        ],
+        "scope_rule": "any"
     },
     "eobs.get": {
         "scopes": [
-            "clinical:read"
-        ]
+            "clinical:read",
+            "billing:read"
+        ],
+        "scope_rule": "any"
     },
     "eobs.list": {
         "scopes": [
-            "clinical:read"
-        ]
+            "clinical:read",
+            "billing:read"
+        ],
+        "scope_rule": "any"
     },
     "evidence.links": {
         "scopes": [

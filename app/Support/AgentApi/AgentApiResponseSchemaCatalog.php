@@ -9,7 +9,7 @@ final class AgentApiResponseSchemaCatalog
 {
     private static ?SchemaCatalog $catalog = null;
 
-    /** @var array<string, array{method: string, path: string, scopes: list<string>|null, summary: string, description: string}>|null */
+    /** @var array<string, array{method: string, path: string, scopes: list<string>|null, scope_rule: 'all'|'any', summary: string, description: string}>|null */
     private static ?array $operations = null;
 
     /**
@@ -17,7 +17,7 @@ final class AgentApiResponseSchemaCatalog
      * declares it: its HTTP binding, its OAuth scopes (null for a public one)
      * and its prose.
      *
-     * @return array<string, array{method: string, path: string, scopes: list<string>|null, summary: string, description: string}>
+     * @return array<string, array{method: string, path: string, scopes: list<string>|null, scope_rule: 'all'|'any', summary: string, description: string}>
      */
     public static function operations(): array
     {
@@ -30,6 +30,7 @@ final class AgentApiResponseSchemaCatalog
                 'method' => $declared['method'],
                 'path' => $declared['path'],
                 'scopes' => $declared['scopes'],
+                'scope_rule' => $declared['scope_rule'] ?? 'all',
                 'summary' => $declared['summary'],
                 'description' => is_string($declared['description']) ? $declared['description'] : '',
             ];

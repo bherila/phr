@@ -11,6 +11,7 @@ use Bherila\McpLaravelBridge\Capabilities\Operation;
 use Bherila\McpLaravelBridge\Capabilities\OperationToolFactory;
 use Bherila\McpLaravelBridge\Capabilities\Requirement;
 use Bherila\McpLaravelBridge\Capabilities\SchemaRef;
+use Bherila\McpLaravelBridge\Capabilities\ScopeRule;
 use Bherila\McpLaravelBridge\Capabilities\WriteSafety;
 use Bherila\McpLaravelBridge\Mcp\ToolDefinition;
 use Closure;
@@ -235,7 +236,7 @@ final class AgentMcpToolCatalog
         return match (true) {
             $declared['scopes'] === null => Requirement::publicAccess(),
             $declared['scopes'] === [] => Requirement::authenticated(),
-            default => new Requirement($declared['scopes']),
+            default => new Requirement($declared['scopes'], $declared['scope_rule'] === 'any' ? ScopeRule::Any : ScopeRule::All),
         };
     }
 

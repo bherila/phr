@@ -14,6 +14,13 @@ final class AgentApiScopes
 
     public const string CLINICAL_WRITE = 'clinical:write';
 
+    /**
+     * The finance projection of EOBs (amounts, dates, provider and claim
+     * number; never codes, descriptions or notes), patients with the caller's
+     * access level, and downloads of EOB source documents only. REST-only.
+     */
+    public const string BILLING_READ = 'billing:read';
+
     public const string DOCUMENTS_READ = 'documents:read';
 
     public const string DOCUMENTS_WRITE = 'documents:write';
@@ -45,6 +52,7 @@ final class AgentApiScopes
             self::PATIENTS_WRITE => 'Create new patients you own',
             self::CLINICAL_READ => 'Read clinical records for patients you can access',
             self::CLINICAL_WRITE => 'Create and update clinical records you can manage',
+            self::BILLING_READ => 'Read claim amounts and dates from explanations of benefits, and download their source documents',
             self::DOCUMENTS_READ => 'Read document metadata and download authorized files',
             self::DOCUMENTS_WRITE => 'Upload patient documents',
             self::IMPORTS_READ => 'Read import jobs and extraction results',
@@ -92,13 +100,20 @@ final class AgentApiScopes
     /**
      * The scope ceiling of the MCP resource (APP_URL/api/v1/mcp): the connection
      * scope plus every module scope, because each MCP tool still requires the
-     * scope of the REST operation it adapts.
+     * scope of the REST operation it adapts. billing:read is for a finance
+     * application calling REST, never for an MCP connection.
      *
      * @return list<string>
      */
     public static function mcpIds(): array
     {
-        return self::ids();
+        return array_values(array_diff(self::ids(), self::restOnlyIds()));
+    }
+
+    /** @return list<string> */
+    public static function restOnlyIds(): array
+    {
+        return [self::BILLING_READ];
     }
 
     /** @return list<string> */

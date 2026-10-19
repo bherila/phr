@@ -16,6 +16,7 @@ use Bherila\McpLaravelBridge\Capabilities\OperationRegistry;
 use Bherila\McpLaravelBridge\Capabilities\Requirement;
 use Bherila\McpLaravelBridge\Capabilities\RestBinding;
 use Bherila\McpLaravelBridge\Capabilities\SchemaRef;
+use Bherila\McpLaravelBridge\Capabilities\ScopeRule;
 use Bherila\McpLaravelBridge\Capabilities\WriteSafety;
 use Bherila\McpLaravelBridge\Mcp\ToolDefinition;
 
@@ -84,7 +85,7 @@ final class AgentOperations
     /**
      * The public capabilities inventory keeps its historical response shape.
      *
-     * @return array<string, array{available: bool, scope: string|null, scopes?: list<string>}>
+     * @return array<string, array{available: bool, scope: string|null, scopes?: list<string>, any_scopes?: list<string>}>
      */
     public function capabilities(): array
     {
@@ -94,11 +95,18 @@ final class AgentOperations
                 continue;
             }
             $scopes = $operation->requirement->scopes;
+            $anyOne = $operation->requirement->scopeRule === ScopeRule::Any && count($scopes) > 1;
             $operations[$operation->id] = [
                 'available' => true,
-                'scope' => $scopes === [] ? null : $scopes[array_key_last($scopes)],
+                'scope' => match (true) {
+                    $scopes === [] => null,
+                    $anyOne => $scopes[0],
+                    default => $scopes[array_key_last($scopes)],
+                },
             ];
-            if (count($scopes) > 1) {
+            if ($anyOne) {
+                $operations[$operation->id]['any_scopes'] = $scopes;
+            } elseif (count($scopes) > 1) {
                 $operations[$operation->id]['scopes'] = $scopes;
             }
         }
@@ -124,7 +132,7 @@ final class AgentOperations
         );
     }
 
-    /** @param  array{method: string, path: string, scopes: list<string>|null, summary: string, description: string}|null  $declared */
+    /** @param  array{method: string, path: string, scopes: list<string>|null, scope_rule: 'all'|'any', summary: string, description: string}|null  $declared */
     private static function withRestBinding(Operation $operation, ?array $declared): Operation
     {
         if ($declared === null) {
@@ -134,7 +142,7 @@ final class AgentOperations
         return $operation->with(rest: self::restBinding($operation->id));
     }
 
-    /** @param  array{method: string, path: string, scopes: list<string>|null, summary: string, description: string}  $declared */
+    /** @param  array{method: string, path: string, scopes: list<string>|null, scope_rule: 'all'|'any', summary: string, description: string}  $declared */
     private static function restOperation(string $id, array $declared): Operation
     {
         $reads = in_array($declared['method'], ['GET', 'HEAD'], true);

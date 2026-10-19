@@ -16,11 +16,12 @@ final class AgentRestDocumentation
 {
     /**
      * Scopes are null for a public operation and empty for one that needs any
-     * credential. A request or response is a schema component name or an
+     * credential; every listed scope is required unless `scope_rule` is `any`,
+     * when one of them suffices (the first is the primary). A request or response is a schema component name or an
      * inline schema; `success` maps each success status to its description;
      * `responses` maps every other status to a response component or object.
      *
-     * @return array<string, array{method: string, path: string, route_name: string, summary: string, description: string|false, scopes: list<string>|null, parameters: list<string|array<string, mixed>>, request?: string|array<string, mixed>, request_types?: list<string>, request_required?: bool, success: array<int, string>, response?: string|array<string, mixed>, responses?: array<int|string, string|array<string, mixed>>}>
+     * @return array<string, array{method: string, path: string, route_name: string, summary: string, description: string|false, scopes: list<string>|null, scope_rule?: 'all'|'any', parameters: list<string|array<string, mixed>>, request?: string|array<string, mixed>, request_types?: list<string>, request_required?: bool, success: array<int, string>, response?: string|array<string, mixed>, responses?: array<int|string, string|array<string, mixed>>}>
      */
     public static function operations(): array
     {
@@ -550,7 +551,8 @@ final class AgentRestDocumentation
                 'path' => '/patients/{patient}/eobs/{eob}/lines',
                 'summary' => 'List bounded EOB service lines without raw parser payloads',
                 'description' => false,
-                'scopes' => ['clinical:read'],
+                'scopes' => ['clinical:read', 'billing:read'],
+                'scope_rule' => 'any',
                 'parameters' => ['PatientId', 'EobId', 'Limit', 'Cursor', 'UpdatedAfter', 'UpdatedBefore'],
                 'success' => [200 => 'Bounded EOB-line page'],
                 'response' => 'EobLineListResponse',
@@ -568,7 +570,8 @@ final class AgentRestDocumentation
                 'path' => '/patients/{patient}/eobs/{eob}',
                 'summary' => 'Get one explanation-of-benefit record',
                 'description' => false,
-                'scopes' => ['clinical:read'],
+                'scopes' => ['clinical:read', 'billing:read'],
+                'scope_rule' => 'any',
                 'parameters' => ['PatientId', 'EobId'],
                 'success' => [200 => 'EOB'],
                 'response' => 'EobResponse',
@@ -585,7 +588,8 @@ final class AgentRestDocumentation
                 'path' => '/patients/{patient}/eobs',
                 'summary' => 'List explanation-of-benefit records without raw parser payloads',
                 'description' => false,
-                'scopes' => ['clinical:read'],
+                'scopes' => ['clinical:read', 'billing:read'],
+                'scope_rule' => 'any',
                 'parameters' => [
                     'PatientId',
                     'Limit',

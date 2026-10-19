@@ -52,7 +52,9 @@ final class AgentApiOpenApiDocumentTest extends TestCase
                 if (! is_array($operation) || ! isset($operation['operationId']) || ($operation['security'] ?? []) === []) {
                     continue;
                 }
-                $schemes = array_merge(...array_map(array_keys(...), $operation['security']));
+                // An operation any one of several scopes satisfies offers one
+                // OAuth alternative per scope.
+                $schemes = array_values(array_unique(array_merge(...array_map(array_keys(...), $operation['security']))));
                 $mcp = in_array(AgentApiScopes::MCP_USE, $operation['security'][0]['oauth2'] ?? [], true);
                 $this->assertSame($mcp ? ['oauth2'] : ['oauth2', 'apiToken'], $schemes, "{$method} {$path}");
                 $checked++;

@@ -1414,6 +1414,11 @@
                         ]
                     },
                     {
+                        "oauth2": [
+                            "billing:read"
+                        ]
+                    },
+                    {
                         "apiToken": []
                     }
                 ],
@@ -1477,6 +1482,11 @@
                         ]
                     },
                     {
+                        "oauth2": [
+                            "billing:read"
+                        ]
+                    },
+                    {
                         "apiToken": []
                     }
                 ],
@@ -1522,6 +1532,11 @@
                     {
                         "oauth2": [
                             "clinical:read"
+                        ]
+                    },
+                    {
+                        "oauth2": [
+                            "billing:read"
                         ]
                     },
                     {
@@ -4331,6 +4346,7 @@
                             "patients:write": "Create new patients you own",
                             "clinical:read": "Read clinical records for patients you can access",
                             "clinical:write": "Create and update clinical records you can manage",
+                            "billing:read": "Read claim amounts and dates from explanations of benefits, and download their source documents",
                             "documents:read": "Read document metadata and download authorized files",
                             "documents:write": "Upload patient documents",
                             "imports:read": "Read import jobs and extraction results",
@@ -6570,6 +6586,152 @@
                 },
                 "additionalProperties": false
             },
+            "EobFinance": {
+                "type": "object",
+                "description": "The finance projection of an EOB, returned to a credential with billing:read but not clinical:read: amounts, dates, provider and claim number only. Procedure and revenue codes, line descriptions, diagnoses, notes, plan and member details are never returned.",
+                "required": [
+                    "id",
+                    "public_id",
+                    "patient_id",
+                    "patient_public_id",
+                    "claim_type",
+                    "import_source",
+                    "service_start",
+                    "service_end",
+                    "processed_date",
+                    "provider_name",
+                    "claim_number",
+                    "source_document_id",
+                    "source_document_public_id",
+                    "total_charges",
+                    "total_accepted_fee",
+                    "total_plan_payment",
+                    "total_deductible_applied",
+                    "total_copay_applied",
+                    "total_patient_responsibility",
+                    "created_at",
+                    "updated_at"
+                ],
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "public_id": {
+                        "$ref": "#/components/schemas/PublicId"
+                    },
+                    "patient_id": {
+                        "type": "integer"
+                    },
+                    "patient_public_id": {
+                        "$ref": "#/components/schemas/PublicId"
+                    },
+                    "claim_type": {
+                        "type": "string"
+                    },
+                    "import_source": {
+                        "type": "string"
+                    },
+                    "service_start": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date",
+                        "description": "Earliest service date on the EOB lines."
+                    },
+                    "service_end": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date",
+                        "description": "Latest service date on the EOB lines (a line without an end date counts its start)."
+                    },
+                    "processed_date": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date"
+                    },
+                    "provider_name": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "claim_number": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "source_document_id": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ]
+                    },
+                    "source_document_public_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "uuid"
+                    },
+                    "total_charges": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "total_accepted_fee": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "total_plan_payment": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "total_deductible_applied": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "total_copay_applied": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "total_patient_responsibility": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "created_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "updated_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    }
+                },
+                "additionalProperties": false
+            },
             "EobLine": {
                 "type": "object",
                 "description": "EOB line without raw parser payloads.",
@@ -6705,6 +6867,105 @@
                 },
                 "additionalProperties": false
             },
+            "EobLineFinance": {
+                "type": "object",
+                "description": "The finance projection of an EOB line (billing:read without clinical:read): amounts and service dates only, never procedure or revenue codes or descriptions.",
+                "required": [
+                    "id",
+                    "eob_id",
+                    "patient_id",
+                    "line_number",
+                    "service_start",
+                    "service_end",
+                    "total_charges",
+                    "accepted_fee",
+                    "plan_payment",
+                    "deductible_applied",
+                    "copay_applied",
+                    "patient_responsibility",
+                    "created_at",
+                    "updated_at"
+                ],
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "eob_id": {
+                        "type": "integer"
+                    },
+                    "patient_id": {
+                        "type": "integer"
+                    },
+                    "line_number": {
+                        "type": "integer"
+                    },
+                    "service_start": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date"
+                    },
+                    "service_end": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date"
+                    },
+                    "total_charges": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "accepted_fee": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "plan_payment": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "deductible_applied": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "copay_applied": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "patient_responsibility": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "created_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "updated_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    }
+                },
+                "additionalProperties": false
+            },
             "EobLineListResponse": {
                 "type": "object",
                 "required": [
@@ -6723,7 +6984,14 @@
                     "data": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/EobLine"
+                            "oneOf": [
+                                {
+                                    "$ref": "#/components/schemas/EobLine"
+                                },
+                                {
+                                    "$ref": "#/components/schemas/EobLineFinance"
+                                }
+                            ]
                         }
                     },
                     "pagination": {
@@ -6770,7 +7038,14 @@
                     "data": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/Eob"
+                            "oneOf": [
+                                {
+                                    "$ref": "#/components/schemas/Eob"
+                                },
+                                {
+                                    "$ref": "#/components/schemas/EobFinance"
+                                }
+                            ]
                         }
                     },
                     "pagination": {
@@ -6794,7 +7069,14 @@
                         "type": "integer"
                     },
                     "data": {
-                        "$ref": "#/components/schemas/Eob"
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/Eob"
+                            },
+                            {
+                                "$ref": "#/components/schemas/EobFinance"
+                            }
+                        ]
                     }
                 },
                 "additionalProperties": false
@@ -8809,7 +9091,7 @@
                             "string",
                             "null"
                         ],
-                        "description": "Primary scope retained for backward compatibility. When scopes is present, all scopes in that array are required."
+                        "description": "Primary scope retained for backward compatibility. When scopes is present, all scopes in that array are required; when any_scopes is present, any one of them suffices."
                     },
                     "scopes": {
                         "type": "array",
@@ -8819,6 +9101,15 @@
                         "minItems": 2,
                         "uniqueItems": true,
                         "description": "All OAuth scopes required by an operation that has multiple mandatory scopes."
+                    },
+                    "any_scopes": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "minItems": 2,
+                        "uniqueItems": true,
+                        "description": "OAuth scopes of which any one suffices for the operation; the response may be a narrower projection under some of them."
                     }
                 },
                 "additionalProperties": false

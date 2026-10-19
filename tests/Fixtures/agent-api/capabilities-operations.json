@@ -89,15 +89,27 @@
     },
     "eobs.list": {
         "available": true,
-        "scope": "clinical:read"
+        "scope": "clinical:read",
+        "any_scopes": [
+            "clinical:read",
+            "billing:read"
+        ]
     },
     "eobs.get": {
         "available": true,
-        "scope": "clinical:read"
+        "scope": "clinical:read",
+        "any_scopes": [
+            "clinical:read",
+            "billing:read"
+        ]
     },
     "eob_lines.list": {
         "available": true,
-        "scope": "clinical:read"
+        "scope": "clinical:read",
+        "any_scopes": [
+            "clinical:read",
+            "billing:read"
+        ]
     },
     "eob_lines.get": {
         "available": true,
