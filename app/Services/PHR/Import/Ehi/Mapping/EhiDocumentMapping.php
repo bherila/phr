@@ -79,6 +79,12 @@ use Throwable;
  * Local column only its calendar date is kept (time not applied). The column,
  * zone, and precision are written into `summary`. An update changes only title,
  * document_type, observed_at, and extracted_text, never the stored file.
+ *
+ * Size: a proposal must restore from a native backup record. Besides the
+ * capped text, source values copied into it are cut to MAX_VALUE_BYTES, the
+ * file name to the column's 255 characters (extension kept), and a note's
+ * contact summaries are fitted to maxMetadataBytes(); a key too long for
+ * external_id is retained as `identity_too_long`.
  */
 final readonly class EhiDocumentMapping implements EhiMapping
 {
@@ -92,6 +98,15 @@ final readonly class EhiDocumentMapping implements EhiMapping
 
     /** Derived text kept per document, in bytes, at most; see maxTextBytes(). */
     public const int MAX_TEXT_BYTES = 1024 * 1024;
+
+    /** Everything else in a proposal, encoded, in bytes, at most; see maxMetadataBytes(). */
+    public const int MAX_METADATA_BYTES = 64 * 1024;
+
+    /** Each source value copied into proposal metadata, in bytes, at most. */
+    public const int MAX_VALUE_BYTES = 255;
+
+    /** phr_documents.external_id holds 255; a longer key is retained, never cut. */
+    private const int MAX_EXTERNAL_ID_BYTES = 255;
 
     public const string TAG_IMPORTED = 'ehi-tables';
 
@@ -164,21 +179,23 @@ final readonly class EhiDocumentMapping implements EhiMapping
         $linkedMembers = [];
         $drafts = [];
 
-        $noteIds = [];
+        /** @var array<int, true> $consumed revisions some note proposal relies on */
+        $consumed = [];
         foreach ($this->groupByEntity($evidence->rows(self::HNO_INFO)) as $revisions) {
-            $noteId = EhiDocumentValues::cell($revisions[0], 'NOTE_ID');
-            if ($noteId !== null) {
-                $noteIds[$noteId] = true;
-            }
-            $drafts[] = count($revisions) > 1
+            $draft = count($revisions) > 1
                 ? $this->ambiguousDraft($context, $revisions, self::HNO_INFO)
                 : $this->noteDraft($context, $evidence, $revisions[0], $linkedMembers);
+            foreach ($draft->revisionIds as $id) {
+                $consumed[$id] = true;
+            }
+            $drafts[] = $draft;
         }
 
         foreach ($this->groupByEntity($evidence->rows(self::DOC_INFORMATION)) as $revisions) {
-            $noteId = EhiDocumentValues::cell($revisions[0], 'DOC_HNO_ID');
-            if ($noteId !== null && isset($noteIds[$noteId])) {
-                // Its note's proposal relies on it.
+            // Skipped only when its note's proposal took it in. A note retained
+            // before reading its documents (foreign, orphaned, deleted) leaves
+            // them to stand on their own ownership.
+            if (array_filter($revisions, static fn (PhrEhiRevision $revision): bool => ! isset($consumed[$revision->id])) === []) {
                 continue;
             }
             $drafts[] = count($revisions) > 1
@@ -227,6 +244,10 @@ final readonly class EhiDocumentMapping implements EhiMapping
         $noteId = (string) EhiDocumentValues::cell($note, 'NOTE_ID');
         $reference = ['table' => self::HNO_INFO, 'note_id' => $noteId];
         $revisionIds = [$note->id];
+        if (strlen('NOTE:'.$noteId) > self::MAX_EXTERNAL_ID_BYTES) {
+            // No document could hold the identity, and the key is not copied.
+            return $this->retainDraft($entity, $revisionIds, 'identity_too_long', ['table' => self::HNO_INFO]);
+        }
 
         $ownership = $this->noteOwnership($context, $evidence, $note, $noteId, $revisionIds);
         if ($ownership['verdict'] !== 'owned') {
@@ -267,7 +288,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
             $summary[] = 'The source marks this note unsigned.';
         }
 
-        return $this->reconcile($context, $entity, $revisionIds, $this->proposal(
+        return $this->reconcile($context, $entity, $revisionIds, $this->boundedContacts($this->proposal(
             context: $context,
             externalId: 'NOTE:'.$noteId,
             title: $title,
@@ -279,14 +300,55 @@ final readonly class EhiDocumentMapping implements EhiMapping
             unsigned: $unsigned === true,
             ehi: [
                 ...$reference,
-                'encounter_csn' => EhiDocumentValues::cell($note, 'PAT_ENC_CSN_ID'),
-                'note_type' => $noteType,
+                'encounter_csn' => EhiDocumentValues::bounded(EhiDocumentValues::cell($note, 'PAT_ENC_CSN_ID'), self::MAX_VALUE_BYTES),
+                'note_type' => EhiDocumentValues::bounded($noteType, self::MAX_VALUE_BYTES),
                 'unsigned' => $unsigned,
-                'unsigned_source' => $unsignedRaw,
+                'unsigned_source' => EhiDocumentValues::bounded($unsignedRaw, self::MAX_VALUE_BYTES),
                 'ownership' => $ownership['via'],
                 'contacts' => array_map($this->contactSummary(...), $contacts['rows']),
             ],
-        ));
+        )));
+    }
+
+    /**
+     * Fit the note's contact summaries into what maxMetadataBytes() leaves once
+     * the rest of the proposal is counted (its derived text is capped on its
+     * own): the oldest contact, then as many of the newest as fit, oldest first.
+     * contacts_total and contacts_truncated record what was left out. Sizes are
+     * measured, so the same evidence always keeps the same contacts.
+     *
+     * @param  array<string, mixed>  $proposed
+     * @return array<string, mixed>
+     */
+    private function boundedContacts(array $proposed): array
+    {
+        /** @var list<array<string, string|null>> $contacts */
+        $contacts = $proposed['ehi']['contacts'];
+        $total = count($contacts);
+        $proposed['ehi']['contacts'] = [];
+        $proposed['ehi']['contacts_total'] = $total;
+        // Counted at its longer value; the update `changed` list (four field
+        // names at most) is not, and fits in the slack this leaves.
+        $proposed['ehi']['contacts_truncated'] = false;
+        $rest = $proposed;
+        $rest['attributes']['extracted_text'] = null;
+        $remaining = self::maxMetadataBytes() - self::encodedBytes($rest);
+
+        $kept = [];
+        $order = $total === 0 ? [] : [0, ...($total > 1 ? range($total - 1, 1) : [])];
+        foreach ($order as $index) {
+            $bytes = self::encodedBytes($contacts[$index]) + 1;
+            if ($bytes > $remaining) {
+                break;
+            }
+            $kept[$index] = $contacts[$index];
+            $remaining -= $bytes;
+        }
+        ksort($kept, SORT_NUMERIC);
+        $proposed['ehi']['contacts'] = array_values($kept);
+        $proposed['ehi']['contacts_truncated'] = count($kept) < $total;
+
+        return $proposed;
     }
 
     /**
@@ -378,18 +440,23 @@ final readonly class EhiDocumentMapping implements EhiMapping
         return ['rows' => $rows, 'ambiguous' => $ambiguous];
     }
 
-    /** @return array<string, string|null> */
+    /** @return array<string, string|null> each value at most MAX_VALUE_BYTES */
     private function contactSummary(PhrEhiRevision $contact): array
     {
-        return [
-            'contact_serial_num' => EhiDocumentValues::cell($contact, 'CONTACT_SERIAL_NUM'),
-            'contact_date_real' => EhiDocumentValues::cell($contact, 'CONTACT_DATE_REAL'),
-            'contact_date' => EhiDocumentValues::cell($contact, 'CONTACT_DATE'),
-            'note_status' => EhiDocumentValues::cell($contact, 'NOTE_STATUS_C_NAME'),
-            'note_type' => EhiDocumentValues::cell($contact, 'NOTE_TYPE_C_NAME'),
-            'note_format' => EhiDocumentValues::cell($contact, 'NOTE_FORMAT_C_NAME'),
-            'author' => EhiDocumentValues::cell($contact, 'AUTHOR_USER_ID_NAME'),
-        ];
+        $summary = [];
+        foreach ([
+            'contact_serial_num' => 'CONTACT_SERIAL_NUM',
+            'contact_date_real' => 'CONTACT_DATE_REAL',
+            'contact_date' => 'CONTACT_DATE',
+            'note_status' => 'NOTE_STATUS_C_NAME',
+            'note_type' => 'NOTE_TYPE_C_NAME',
+            'note_format' => 'NOTE_FORMAT_C_NAME',
+            'author' => 'AUTHOR_USER_ID_NAME',
+        ] as $field => $column) {
+            $summary[$field] = EhiDocumentValues::bounded(EhiDocumentValues::cell($contact, $column), self::MAX_VALUE_BYTES);
+        }
+
+        return $summary;
     }
 
     /**
@@ -494,6 +561,9 @@ final readonly class EhiDocumentMapping implements EhiMapping
         $docInfoId = (string) EhiDocumentValues::cell($document, 'DOC_INFO_ID');
         $reference = ['table' => self::DOC_INFORMATION, 'doc_info_id' => $docInfoId];
         $revisionIds = [$document->id];
+        if (strlen('DOC:'.$docInfoId) > self::MAX_EXTERNAL_ID_BYTES) {
+            return $this->retainDraft($entity, $revisionIds, 'identity_too_long', ['table' => self::DOC_INFORMATION]);
+        }
         $patientKey = $context->source->source_patient_key;
 
         $owner = EhiDocumentValues::cell($document, 'DOC_PT_ID');
@@ -556,9 +626,9 @@ final readonly class EhiDocumentMapping implements EhiMapping
             unsigned: false,
             ehi: [
                 ...$reference,
-                'encounter_csn' => $csn,
-                'document_type' => EhiDocumentValues::cell($document, 'DOC_INFO_TYPE_C_NAME'),
-                'document_status' => EhiDocumentValues::cell($document, 'DOC_STAT_C_NAME'),
+                'encounter_csn' => EhiDocumentValues::bounded($csn, self::MAX_VALUE_BYTES),
+                'document_type' => EhiDocumentValues::bounded(EhiDocumentValues::cell($document, 'DOC_INFO_TYPE_C_NAME'), self::MAX_VALUE_BYTES),
+                'document_status' => EhiDocumentValues::bounded(EhiDocumentValues::cell($document, 'DOC_STAT_C_NAME'), self::MAX_VALUE_BYTES),
                 'ownership' => array_values(array_unique($via)),
             ],
         ));
@@ -669,7 +739,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
                 'import_source' => self::importSource($context->source->id),
                 'external_id' => $externalId,
                 'mime_type' => $member === null ? 'text/plain' : (self::MIME_TYPES[$extension] ?? 'application/octet-stream'),
-                'original_filename' => $member === null ? strtolower(str_replace(':', '-', $externalId)).'.txt' : basename($member->path),
+                'original_filename' => EhiDocumentValues::boundedFileName($member === null ? strtolower(str_replace(':', '-', $externalId)).'.txt' : basename($member->path)),
                 'tags' => $tags,
             ],
             'ehi' => [
@@ -831,7 +901,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
                 'column' => $column,
                 'timezone' => $timezone,
                 'precision' => $applyTime ? $parsed['precision'] : 'date',
-                'source_text' => $raw,
+                'source_text' => EhiDocumentValues::bounded($raw, self::MAX_VALUE_BYTES),
                 'time_applied' => $applyTime,
                 'value' => $parsed['date'].' '.($applyTime ? $parsed['time'] : '00:00:00'),
             ];
@@ -859,6 +929,23 @@ final readonly class EhiDocumentMapping implements EhiMapping
     public static function maxTextBytes(): int
     {
         return min(self::MAX_TEXT_BYTES, intdiv((int) config('phr.native_restore_max_record_bytes'), 8));
+    }
+
+    /**
+     * MAX_METADATA_BYTES, or an eighth of the native restore record limit if that
+     * is smaller: the budget for a proposal without its derived text, measured as
+     * escaped JSON. Source values in it are cut to MAX_VALUE_BYTES and note
+     * contacts are fitted to what remains, so with the text it still restores.
+     */
+    public static function maxMetadataBytes(): int
+    {
+        return min(self::MAX_METADATA_BYTES, intdiv((int) config('phr.native_restore_max_record_bytes'), 8));
+    }
+
+    /** Bytes of the value as escaped JSON, the larger of its stored encodings. */
+    private static function encodedBytes(mixed $value): int
+    {
+        return strlen(json_encode($value, JSON_THROW_ON_ERROR));
     }
 
     /** @return array{0: string, 1: bool} sanitized text within maxTextBytes(), and whether it was cut */
@@ -958,7 +1045,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
         $text = $attributes['extracted_text'] ?? null;
         if (! $package instanceof PhrEhiPackage || $package->source_id === null
             || ($attributes['import_source'] ?? null) !== self::importSource((int) $package->source_id)
-            || ! is_string($externalId) || preg_match('/\A(?:NOTE|DOC):./', $externalId) !== 1 || strlen($externalId) > 255
+            || ! is_string($externalId) || preg_match('/\A(?:NOTE|DOC):./', $externalId) !== 1 || strlen($externalId) > self::MAX_EXTERNAL_ID_BYTES
             || ! is_string($attributes['title'] ?? null)
             || ! in_array($attributes['document_type'] ?? null, PhrDocument::DOCUMENT_TYPES, true)
             || ($file === null && (! is_string($text) || $text === ''))

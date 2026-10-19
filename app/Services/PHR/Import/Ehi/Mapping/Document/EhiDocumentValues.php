@@ -22,6 +22,33 @@ final class EhiDocumentValues
         return is_string($value) && $value !== '' ? $value : null;
     }
 
+    /** A copy of a source value for proposal metadata, cut UTF-8-safely to at most $bytes bytes. */
+    public static function bounded(?string $value, int $bytes): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+        $value = mb_scrub($value, 'UTF-8');
+
+        return strlen($value) <= $bytes ? $value : mb_strcut($value, 0, $bytes, 'UTF-8');
+    }
+
+    /**
+     * A file name within $maxChars characters, keeping its extension when the
+     * name has to be cut (the document column holds 255 characters).
+     */
+    public static function boundedFileName(string $name, int $maxChars = 255): string
+    {
+        $name = mb_scrub($name, 'UTF-8');
+        if (mb_strlen($name, 'UTF-8') <= $maxChars) {
+            return $name;
+        }
+        $extension = pathinfo($name, PATHINFO_EXTENSION);
+        $suffix = $extension !== '' && mb_strlen($extension, 'UTF-8') <= 16 ? '.'.$extension : '';
+
+        return mb_substr($name, 0, $maxChars - mb_strlen($suffix, 'UTF-8'), 'UTF-8').$suffix;
+    }
+
     /** A canonical non-negative integer string ("0", "17"; never "007" or "1.0"). */
     public static function isExactInteger(string $value): bool
     {

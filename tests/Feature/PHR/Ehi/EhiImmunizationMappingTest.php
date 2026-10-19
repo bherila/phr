@@ -379,31 +379,118 @@ class EhiImmunizationMappingTest extends TestCase
         self::assertSame($record->id, $outcome->recordId);
         self::assertSame($digest, EhiTargetDigest::of($record->fresh() ?? $record), 'corroboration writes nothing');
 
-        // A person edits the site; a third package changes the lot and the status.
+        // A person edits the site; a third package changes the lot.
         $record->refresh()->forceFill(['site' => 'Right deltoid'])->save();
         $third = $this->immNewPackage();
-        $changed = $this->immOwnedImmune('781', ['LOT' => 'SYN-LOT-2', 'SITE_C_NAME' => 'Left deltoid', 'IMMNZTN_STATUS_C_NAME' => 'Deleted'], $third);
+        $changed = $this->immOwnedImmune('781', ['LOT' => 'SYN-LOT-2', 'SITE_C_NAME' => 'Left deltoid'], $third);
         $update = $this->immPropose($this->immContext($third));
         self::assertCount(1, $update);
         self::assertSame(PhrEhiProposal::KIND_UPDATE, $update[0]->kind);
         self::assertSame($record->id, $update[0]->targetId);
-        self::assertSame(['administration_status', 'lot_number', 'raw_text'], array_keys($update[0]->proposed ?? []));
-        self::assertSame(['administration_status' => 'given', 'lot_number' => 'SYN-LOT-1'], array_intersect_key($update[0]->before ?? [], ['administration_status' => 1, 'lot_number' => 1]));
-        self::assertSame('deleted', $update[0]->proposed['administration_status'] ?? null);
+        self::assertSame(['lot_number', 'raw_text'], array_keys($update[0]->proposed ?? []));
+        self::assertSame(['lot_number' => 'SYN-LOT-1'], array_intersect_key($update[0]->before ?? [], ['lot_number' => 1]));
         self::assertSame('SYN-LOT-2', $update[0]->proposed['lot_number'] ?? null);
         self::assertContains($changed->id, $update[0]->revisionIds);
 
         $proposal = $this->immPersist($update[0], $third);
         $this->assertRefused(EhiImmunizationApplyRefused::DECISION_NOT_APPLICABLE, fn () => $this->immApply($proposal, PhrEhiProposal::DECISION_ACCEPT));
-        self::assertSame('given', $record->refresh()->administration_status, 'a status change needs approve_update');
+        self::assertSame('SYN-LOT-1', $record->refresh()->lot_number, 'a change needs approve_update');
 
         $applied = $this->immApply($proposal, PhrEhiProposal::DECISION_APPROVE_UPDATE);
         self::assertSame(PhrEhiRecordLink::KIND_PROJECTED, $applied->linkKind);
         $fresh = $record->refresh();
         self::assertSame('SYN-LOT-2', $fresh->lot_number);
-        self::assertSame('deleted', $fresh->administration_status);
+        self::assertSame('given', $fresh->administration_status);
         self::assertSame('Right deltoid', $fresh->site, 'a field the source did not change keeps the person\'s edit');
         self::assertSame('confirmed', $fresh->review_status);
+    }
+
+    public function test_linked_record_whose_source_turns_non_clinical_is_retained_never_updated(): void
+    {
+        $cases = [
+            '791' => ['Deleted', 'N', 'deleted'],
+            '792' => ['Refused', 'N', 'refused'],
+            '793' => ['Invalid', 'N', 'invalid'],
+            '794' => ['Deferred', 'N', 'deferred'],
+            '795' => ['Incomplete', 'N', 'incomplete'],
+            '796' => ['Synthetic Unlisted Status', 'N', 'unknown'],
+        ];
+        $records = [];
+        foreach (array_keys($cases) as $immuneId) {
+            $given = $this->immOwnedImmune((string) $immuneId, ['LOT' => 'SYN-LOT-1']);
+            $records[$immuneId] = $this->immRecord([
+                'import_source' => EhiImmunizationMapping::importSource($this->immSource->id),
+                'external_id' => 'IMMUNE:'.$immuneId,
+                'administration_status' => 'given',
+                'lot_number' => 'SYN-LOT-1',
+            ]);
+            $this->immLink($given, $records[$immuneId]);
+        }
+        // An unlinked record holding the import identity is a target too.
+        $records['797'] = $this->immRecord([
+            'import_source' => EhiImmunizationMapping::importSource($this->immSource->id),
+            'external_id' => 'IMMUNE:797',
+            'administration_status' => 'given',
+        ]);
+        $digests = [];
+        foreach (PhrImmunization::query()->get() as $existing) {
+            $digests[$existing->id] = EhiTargetDigest::of($existing);
+        }
+
+        $later = $this->immNewPackage();
+        $revisions = [];
+        foreach ($cases as $immuneId => [$status, $historic]) {
+            $revisions[$immuneId] = $this->immOwnedImmune((string) $immuneId, [
+                'LOT' => 'SYN-LOT-2',
+                'IMMNZTN_STATUS_C_NAME' => $status,
+                'IMM_HISTORIC_ADM_YN' => $historic,
+            ], $later);
+        }
+        $revisions['797'] = $this->immOwnedImmune('797', ['IMMNZTN_STATUS_C_NAME' => 'Refused'], $later);
+
+        $context = $this->immContext($later);
+        $drafts = $this->draftsBySubject($this->immPropose($context));
+
+        self::assertCount(7, $drafts);
+        $cases += ['797' => ['Refused', 'N', 'refused']];
+        foreach ($cases as $immuneId => [, , $administrationStatus]) {
+            $draft = $drafts[$revisions[$immuneId]->entity->key_digest];
+            self::assertSame(PhrEhiProposal::KIND_RETAIN, $draft->kind, "IMMUNE {$immuneId} is never an update");
+            self::assertNull($draft->targetId);
+            self::assertNull($draft->before);
+            self::assertSame(EhiImmunizationMapping::FINDING_LINKED_STATUS_NOT_CLINICAL, $draft->proposed['retain_reason'] ?? null);
+            self::assertSame($administrationStatus, $draft->proposed['administration_status'] ?? null, 'the source status is still carried');
+            self::assertContains($revisions[$immuneId]->id, $draft->revisionIds);
+        }
+
+        $statusFindings = array_values(array_filter($context->findings(), static fn (array $finding): bool => $finding['code'] === EhiImmunizationMapping::FINDING_LINKED_STATUS_NOT_CLINICAL));
+        self::assertCount(7, $statusFindings);
+        $byRevision = array_column($statusFindings, null, 'revision_id');
+        foreach ($cases as $immuneId => [, , $administrationStatus]) {
+            self::assertSame(
+                ['status' => $administrationStatus, 'record_id' => $records[$immuneId]->id],
+                $byRevision[$revisions[$immuneId]->id]['detail'] ?? null,
+            );
+        }
+        self::assertContains(EhiImmunizationMapping::FINDING_UNKNOWN_STATUS, array_column($context->findings(), 'code'));
+
+        foreach (PhrImmunization::query()->get() as $existing) {
+            self::assertSame($digests[$existing->id], EhiTargetDigest::of($existing), 'proposing never writes the record');
+            self::assertSame('given', $existing->administration_status);
+        }
+
+        // A stored update that would write a non-clinical status is refused at apply.
+        $forged = $this->immPersist(new EhiProposalDraft(
+            subjectKey: $revisions['791']->entity->key_digest,
+            kind: PhrEhiProposal::KIND_UPDATE,
+            revisionIds: [$revisions['791']->id],
+            proposed: ['administration_status' => 'deleted'],
+            targetTable: 'phr_immunizations',
+            targetId: $records['791']->id,
+            before: ['administration_status' => 'given'],
+        ), $later);
+        $this->assertRefused(EhiImmunizationApplyRefused::MALFORMED_PROPOSAL, fn () => $this->immApply($forged, PhrEhiProposal::DECISION_APPROVE_UPDATE));
+        self::assertSame('given', $records['791']->refresh()->administration_status);
     }
 
     public function test_update_apply_refuses_a_stale_digest_and_a_withdrawn_target(): void

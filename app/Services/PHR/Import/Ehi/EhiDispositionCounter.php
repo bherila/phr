@@ -42,4 +42,20 @@ final class EhiDispositionCounter
 
         $account->forceFill(['disposition_counts_json' => $counts])->save();
     }
+
+    /**
+     * Restore the intake disposition of a table no longer projected (its
+     * occurrences cleared): every valid row is counted unmapped again, so
+     * source_row_count = malformed + sum(dispositions) still holds. Call inside
+     * the caller's patient-locked transaction.
+     */
+    public static function unproject(PhrEhiTableAccount $account): void
+    {
+        $disposition = EhiOutOfScopeTables::contains($account->table_name)
+            ? PhrEhiTableAccount::DISPOSITION_OUT_OF_SCOPE
+            : PhrEhiTableAccount::DISPOSITION_RETAINED_UNMAPPED;
+        $valid = $account->source_row_count - $account->malformed_row_count;
+
+        $account->forceFill(['disposition_counts_json' => [$disposition => $valid]])->save();
+    }
 }

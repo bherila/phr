@@ -95,6 +95,17 @@ final class EhiProposalService
         PhrEhiProposal::DECISION_RETAIN,
     ];
 
+    /**
+     * Reviewed occurrence dispositions, weakest first. A decision only raises an
+     * occurrence along this order; quarantined is outside it and never changes.
+     */
+    private const array OCCURRENCE_PRECEDENCE = [
+        PhrEhiOccurrence::DISPOSITION_PENDING_REVIEW,
+        PhrEhiOccurrence::DISPOSITION_RETAINED,
+        PhrEhiOccurrence::DISPOSITION_CORROBORATING,
+        PhrEhiOccurrence::DISPOSITION_PROJECTED,
+    ];
+
     private const array SEVERITIES = [PhrEhiFinding::SEVERITY_INFO, PhrEhiFinding::SEVERITY_WARNING, PhrEhiFinding::SEVERITY_ERROR];
 
     private const int CHUNK = 200;
@@ -375,6 +386,16 @@ final class EhiProposalService
             || ! hash_equals($proposal->revision_digest, $this->revisionDigest($revisions->pluck('content_digest')->all()))) {
             throw new EhiReviewRefused(EhiReviewRefused::STALE_SOURCE, 'the source evidence changed since the preview');
         }
+        // Evidence is only what this package still projects: a revision whose
+        // occurrences were withdrawn (its table stopped matching the mapping)
+        // or quarantined no longer supports the proposal.
+        $occurring = PhrEhiOccurrence::query()->where('package_id', $proposal->package_id)
+            ->whereIn('revision_id', $ids)
+            ->where('disposition', '!=', PhrEhiOccurrence::DISPOSITION_QUARANTINED)
+            ->distinct()->count('revision_id');
+        if ($occurring !== count($ids)) {
+            throw new EhiReviewRefused(EhiReviewRefused::STALE_SOURCE, 'the source evidence is no longer projected for this package');
+        }
     }
 
     private function alreadyDecided(PhrEhiProposal $proposal, string $decision, ?int $linkTargetId): bool
@@ -391,6 +412,11 @@ final class EhiProposalService
     /**
      * Give this package's occurrences of the decided revisions their reviewed
      * disposition (never lifting a quarantine) and reconcile their accounts.
+     *
+     * One revision can back several proposals (an encounter row establishing
+     * ownership for two notes), so a disposition only ever rises along
+     * OCCURRENCE_PRECEDENCE: each occurrence ends at the strongest disposition
+     * any decision gave it, whatever order the proposals were reviewed in.
      */
     private function settleOccurrences(PhrEhiProposal $proposal, ?EhiApplyOutcome $outcome, Carbon $now): void
     {
@@ -399,9 +425,10 @@ final class EhiProposalService
             $outcome->linkKind === PhrEhiRecordLink::KIND_PROJECTED => PhrEhiOccurrence::DISPOSITION_PROJECTED,
             default => PhrEhiOccurrence::DISPOSITION_CORROBORATING,
         };
+        $weaker = array_slice(self::OCCURRENCE_PRECEDENCE, 0, (int) array_search($disposition, self::OCCURRENCE_PRECEDENCE, true));
         $occurrences = PhrEhiOccurrence::query()->where('package_id', $proposal->package_id)
             ->whereIn('revision_id', $this->revisionIds($proposal))
-            ->where('disposition', '!=', PhrEhiOccurrence::DISPOSITION_QUARANTINED);
+            ->whereIn('disposition', $weaker);
         $members = (clone $occurrences)->distinct()->pluck('member_id')->all();
         $occurrences->update(['disposition' => $disposition, 'updated_at' => $now]);
 

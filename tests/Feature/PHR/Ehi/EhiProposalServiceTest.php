@@ -16,8 +16,12 @@ use App\Models\User;
 use App\Services\PHR\Import\Ehi\EhiPackageSummary;
 use App\Services\PHR\Import\Ehi\EhiProposalService;
 use App\Services\PHR\Import\Ehi\EhiReviewRefused;
+use App\Services\PHR\Import\Ehi\Mapping\EhiApplyContext;
+use App\Services\PHR\Import\Ehi\Mapping\EhiApplyOutcome;
 use App\Services\PHR\Import\Ehi\Mapping\EhiApplyRefused;
+use App\Services\PHR\Import\Ehi\Mapping\EhiMapping;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMappingContext;
+use App\Services\PHR\Import\Ehi\Mapping\EhiProposalDraft;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Facades\DB;
@@ -266,6 +270,21 @@ class EhiProposalServiceTest extends TestCase
         self::assertSame(1, PhrEhiProposalDecision::query()->count());
     }
 
+    public function test_a_proposal_whose_evidence_is_no_longer_projected_is_refused(): void
+    {
+        [$owner, $patient, $package] = $this->previewable('first');
+        $service = app(EhiProposalService::class);
+        $service->preview($package, $patient, $owner->id);
+        $pending = $this->proposalFor($package, '100', '1');
+        // Its table's occurrences were withdrawn (as a mapping-key mismatch does)
+        // before the pending proposal was superseded by a re-preview.
+        PhrEhiOccurrence::query()->where('package_id', $package->id)->delete();
+
+        $this->assertRefused(EhiReviewRefused::STALE_SOURCE, fn () => $service->review($pending, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $pending->preview_digest));
+        self::assertSame(0, PhrImmunization::query()->count());
+        self::assertSame(PhrEhiProposal::STATUS_PENDING, $pending->refresh()->status);
+    }
+
     public function test_a_second_concurrent_decision_and_a_revoked_reviewer_are_refused(): void
     {
         [$owner, $patient, $package] = $this->previewable();
@@ -305,6 +324,48 @@ class EhiProposalServiceTest extends TestCase
         EhiFakeMapping::$version = 'ehi-syn-2';
         $this->assertRefused(EhiReviewRefused::STALE_MAPPING, fn () => $service->review($proposal, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $proposal->preview_digest));
         self::assertSame(0, PhrEhiProposalDecision::query()->count());
+    }
+
+    public function test_a_revision_shared_by_two_proposals_keeps_its_strongest_disposition_in_either_review_order(): void
+    {
+        config(['phr.ehi_mappings' => [EhiSharedRevisionMapping::class]]);
+        $settled = [];
+        foreach (['accept_first' => [PhrEhiProposal::DECISION_ACCEPT, PhrEhiProposal::DECISION_RETAIN], 'retain_first' => [PhrEhiProposal::DECISION_RETAIN, PhrEhiProposal::DECISION_ACCEPT]] as $order => $decisions) {
+            [$owner, $patient, $package] = $this->previewable($order);
+            $service = app(EhiProposalService::class);
+            $service->preview($package, $patient, $owner->id);
+            $byDecision = [
+                PhrEhiProposal::DECISION_ACCEPT => $this->proposalFor($package, '100', '1'),
+                PhrEhiProposal::DECISION_RETAIN => $this->proposalFor($package, '300', '1'),
+            ];
+            $shared = EhiFakeMapping::revisionFor($package->id, '0100', '1');
+            self::assertNotNull($shared);
+            foreach ($byDecision as $proposal) {
+                self::assertContains($shared->id, $proposal->revision_ids_json);
+            }
+
+            foreach ($decisions as $decision) {
+                $service->review($byDecision[$decision], $decision, $owner->id, $byDecision[$decision]->preview_digest);
+            }
+
+            $settled[$order] = [];
+            foreach ([['100', '1'], ['0100', '1'], ['300', '1'], ['100', '2']] as [$item, $line]) {
+                $settled[$order]["{$item}/{$line}"] = PhrEhiOccurrence::query()->where('package_id', $package->id)
+                    ->where('revision_id', EhiFakeMapping::revisionFor($package->id, $item, $line)?->id)->value('disposition');
+            }
+            $settled[$order]['account'] = PhrEhiTableAccount::query()->where('package_id', $package->id)->where('table_name', EhiFakeMapping::TABLE)->sole()->disposition_counts_json;
+            self::assertSame(0, EhiPackageSummary::forPackage($package)->unreconciledTables);
+        }
+
+        // The shared row backs a committed record link, so it stays projected however the reviews were ordered.
+        self::assertSame([
+            '100/1' => PhrEhiOccurrence::DISPOSITION_PROJECTED,
+            '0100/1' => PhrEhiOccurrence::DISPOSITION_PROJECTED,
+            '300/1' => PhrEhiOccurrence::DISPOSITION_RETAINED,
+            '100/2' => PhrEhiOccurrence::DISPOSITION_PENDING_REVIEW,
+            'account' => ['projected' => 2, 'corroborating' => 0, 'pending_review' => 1, 'retained' => 1, 'quarantined' => 0],
+        ], $settled['accept_first']);
+        self::assertSame($settled['accept_first'], $settled['retain_first']);
     }
 
     public function test_patient_deletion_removes_every_evidence_and_review_row(): void
@@ -369,5 +430,51 @@ class EhiProposalServiceTest extends TestCase
             self::assertSame($reason, $refused->reason);
             self::assertStringNotContainsString(EhiSyntheticPackage::MARKER, $refused->getMessage());
         }
+    }
+}
+
+/**
+ * Two proposals relying on one shared row, as two notes owned through one
+ * encounter do: a create for ITEM 100/1 and a retain for the deleted 300/1, both
+ * citing 0100/1.
+ */
+final class EhiSharedRevisionMapping implements EhiMapping
+{
+    public function name(): string
+    {
+        return 'synthetic_shared';
+    }
+
+    public function version(): string
+    {
+        return 'shared-1';
+    }
+
+    public function expectedKeys(): array
+    {
+        return [EhiFakeMapping::TABLE => ['ITEM_ID', 'LINE']];
+    }
+
+    public function propose(EhiMappingContext $context): iterable
+    {
+        $shared = $context->revisionByKey(EhiFakeMapping::TABLE, ['ITEM_ID' => '0100', 'LINE' => '1']);
+        $created = $context->revisionByKey(EhiFakeMapping::TABLE, ['ITEM_ID' => '100', 'LINE' => '1']);
+        $deleted = $context->revisionByKey(EhiFakeMapping::TABLE, ['ITEM_ID' => '300', 'LINE' => '1']);
+        if ($shared === null || $created === null || $deleted === null) {
+            return;
+        }
+
+        yield new EhiProposalDraft(
+            EhiMappingContext::keyDigest(['ITEM_ID' => '100', 'LINE' => '1']),
+            PhrEhiProposal::KIND_CREATE,
+            [$created->id, $shared->id],
+            ['vaccine_name' => $created->values_json['NAME'] ?? null, 'administered_on' => null],
+        );
+        yield new EhiProposalDraft(EhiMappingContext::keyDigest(['ITEM_ID' => '300', 'LINE' => '1']), PhrEhiProposal::KIND_RETAIN, [$deleted->id, $shared->id]);
+    }
+
+    public function apply(PhrEhiProposal $proposal, EhiApplyContext $context): EhiApplyOutcome
+    {
+        return (new EhiFakeMapping)->apply($proposal, $context);
     }
 }

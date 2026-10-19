@@ -8,12 +8,15 @@ use App\Models\PhrEhiFinding;
 use App\Models\PhrEhiOccurrence;
 use App\Models\PhrEhiPackage;
 use App\Models\PhrEhiProposal;
+use App\Models\PhrEhiRecordLink;
 use App\Models\PhrEhiRevision;
+use App\Models\PhrEhiSource;
 use App\Models\PhrEhiTableAccount;
 use App\Services\PHR\Import\Ehi\EhiFindingCode;
 use App\Services\PHR\Import\Ehi\EhiPackageSummary;
 use App\Services\PHR\Import\Ehi\EhiProjectionRefused;
 use App\Services\PHR\Import\Ehi\EhiProjectionService;
+use App\Services\PHR\Import\Ehi\EhiProposalService;
 use App\Services\PHR\Import\Ehi\Mapping\EhiApplyContext;
 use App\Services\PHR\Import\Ehi\Mapping\EhiApplyOutcome;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMapping;
@@ -134,6 +137,56 @@ class EhiProjectionServiceTest extends TestCase
         self::assertSame(0, PhrEhiEntity::query()->count());
     }
 
+    public function test_a_table_that_stops_matching_its_mapping_key_withdraws_its_earlier_evidence(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        $package = $this->boundPackage($this->itemPackage($this->standardItems()), $patient, $owner);
+        $proposals = app(EhiProposalService::class);
+        $proposals->preview($package, $patient, $owner->id);
+        $accepted = PhrEhiProposal::query()->where('subject_key', EhiMappingContext::keyDigest(['ITEM_ID' => '100', 'LINE' => '1']))->sole();
+        $proposals->review($accepted, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $accepted->preview_digest);
+        $source = PhrEhiSource::query()->findOrFail($package->source_id);
+        $entities = PhrEhiEntity::query()->orderBy('id')->pluck('id')->all();
+        $revisions = PhrEhiRevision::query()->orderBy('id')->pluck('id')->all();
+        $first = PhrEhiOccurrence::query()->where('package_id', $package->id)->orderBy('line_number')->firstOrFail();
+
+        // A new mapping version expects a key this package's dictionary does not document.
+        config(['phr.ehi_mappings' => [EhiRekeyedMapping::class]]);
+        $preview = app(EhiProposalService::class)->preview($package->refresh(), $patient, $owner->id);
+
+        self::assertSame(0, $preview->projection->tablesProjected);
+        self::assertSame(1, $preview->projection->tablesMismatched);
+        self::assertSame(['synthetic' => []], $preview->counts, 'rows keyed under the obsolete contract propose nothing');
+        self::assertSame(['accepted' => 1, 'superseded' => 3], $preview->statuses);
+        self::assertSame(0, PhrEhiOccurrence::query()->where('package_id', $package->id)->count());
+        // Per-source evidence other rows rely on stays: the record link, its revision, every entity.
+        self::assertSame($entities, PhrEhiEntity::query()->orderBy('id')->pluck('id')->all());
+        self::assertSame($revisions, PhrEhiRevision::query()->orderBy('id')->pluck('id')->all());
+        self::assertSame(1, PhrEhiRecordLink::query()->where('proposal_id', $accepted->id)->count());
+        self::assertSame(PhrEhiProposal::STATUS_ACCEPTED, $accepted->refresh()->status);
+        $account = PhrEhiTableAccount::query()->where('package_id', $package->id)->where('table_name', EhiFakeMapping::TABLE)->sole();
+        self::assertSame([PhrEhiTableAccount::DISPOSITION_RETAINED_UNMAPPED => 4], $account->disposition_counts_json);
+        self::assertSame(0, EhiPackageSummary::forPackage($package)->unreconciledTables);
+        self::assertSame(1, PhrEhiFinding::query()->where('package_id', $package->id)->where('code', EhiFindingCode::MAPPING_KEY_MISMATCH)->count());
+
+        // Even an occurrence that lingered would supply nothing for a withheld table.
+        $lingering = PhrEhiOccurrence::query()->create([...$first->only(['patient_id', 'package_id', 'member_id', 'revision_id', 'line_number', 'byte_offset']), 'disposition' => PhrEhiOccurrence::DISPOSITION_PENDING_REVIEW]); // sensitive-scan-ignore: package member FK, not an insurance member id
+        $context = new EhiMappingContext($package->refresh(), $patient, $source);
+        self::assertCount(0, $context->revisions(EhiFakeMapping::TABLE));
+        self::assertNull($context->revisionByKey(EhiFakeMapping::TABLE, ['ITEM_ID' => '100', 'LINE' => '1']));
+        self::assertSame([], [...(new EhiRekeyedMapping)->propose($context)]);
+        $lingering->delete();
+
+        // Matching again, the table reuses the same entities and revisions.
+        config(['phr.ehi_mappings' => [EhiFakeMapping::class]]);
+        $result = app(EhiProjectionService::class)->project($package, $owner->id);
+        self::assertSame(1, $result->tablesProjected);
+        self::assertSame($revisions, PhrEhiRevision::query()->orderBy('id')->pluck('id')->all());
+        self::assertSame(['projected' => 0, 'corroborating' => 1, 'pending_review' => 3, 'retained' => 0, 'quarantined' => 0], $result->dispositions);
+        self::assertSame(0, EhiPackageSummary::forPackage($package)->unreconciledTables);
+    }
+
     public function test_reprojection_and_an_interrupted_projection_converge(): void
     {
         $owner = $this->createUser();
@@ -251,6 +304,35 @@ class EhiProjectionServiceTest extends TestCase
             self::assertSame($reason, $refused->reason);
             self::assertStringNotContainsString(EhiSyntheticPackage::MARKER, $refused->getMessage());
         }
+    }
+}
+
+/** EhiFakeMapping re-versioned under a key the synthetic dictionary does not document. */
+final class EhiRekeyedMapping implements EhiMapping
+{
+    public function name(): string
+    {
+        return 'synthetic';
+    }
+
+    public function version(): string
+    {
+        return 'rekeyed-1';
+    }
+
+    public function expectedKeys(): array
+    {
+        return [EhiFakeMapping::TABLE => ['ITEM_ID']];
+    }
+
+    public function propose(EhiMappingContext $context): iterable
+    {
+        return (new EhiFakeMapping)->propose($context);
+    }
+
+    public function apply(PhrEhiProposal $proposal, EhiApplyContext $context): EhiApplyOutcome
+    {
+        return (new EhiFakeMapping)->apply($proposal, $context);
     }
 }
 

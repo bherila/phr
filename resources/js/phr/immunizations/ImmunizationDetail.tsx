@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { fetchWrapper } from '@/fetchWrapper'
 import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
+import { administrationStatusLabel, doseAmountLabel, seriesPositionLabel } from '@/phr/immunizations/immunizationDose'
 import { PhrNotFoundColumn } from '@/phr/miller'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { type PhrImmunization, PhrImmunizationResponseSchema } from '@/phr/types'
@@ -112,13 +113,19 @@ export default function ImmunizationDetail({ patientId, recordId }: Immunization
               <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Administered on</dt>
               <dd className="text-card-foreground">{detailValue(immunization.administered_on)}</dd>
             </div>
+            {administrationStatusLabel(immunization.administration_status) !== null && (
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Administration status</dt>
+                <dd className="text-card-foreground">{administrationStatusLabel(immunization.administration_status)}</dd>
+              </div>
+            )}
             <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Dose</dt>
-              <dd className="text-card-foreground">
-                {immunization.dose_number === null
-                  ? 'Not recorded'
-                  : `${immunization.dose_number}${immunization.series_doses === null ? '' : ` / ${immunization.series_doses}`}`}
-              </dd>
+              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Dose amount</dt>
+              <dd className="text-card-foreground">{detailValue(doseAmountLabel(immunization))}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Dose in series</dt>
+              <dd className="text-card-foreground">{detailValue(seriesPositionLabel(immunization))}</dd>
             </div>
             <div>
               <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">CVX code</dt>

@@ -33,7 +33,9 @@ use Throwable;
  * - Keys are never guessed: each mapped table's expected primary key must equal
  *   the key the package's own dictionary documents (re-read from the stored
  *   bytes) and appear in the member header, or the table is skipped with a
- *   mapping_key_mismatch finding and keeps its retained_unmapped disposition.
+ *   mapping_key_mismatch finding and keeps (or, if an earlier projection
+ *   matched, gets back) its retained_unmapped disposition: that projection's
+ *   occurrences are removed so the table supplies no evidence.
  * - Table bytes are re-read from storage into a private temp file, hashed while
  *   copied, and parsed only if they match the manifest digest.
  * - Entity identity is (source, table, digest of the full key as raw strings),
@@ -79,6 +81,29 @@ final class EhiProjectionService
     {
         return $package->clinical_status !== PhrEhiPackage::CLINICAL_PROJECTED
             || ($package->checkpoint_json['projection']['registry'] ?? null) !== $this->registry->fingerprint();
+    }
+
+    /**
+     * Mapped tables (upper-cased) the package's current projection checkpoint
+     * records as not projected (key mismatch or absent), read fresh. Evidence of
+     * these tables must never reach a mapping, even if occurrences linger; a
+     * table the checkpoint does not name is not judged here.
+     *
+     * @return array<string, true>
+     */
+    public static function withheldTables(PhrEhiPackage $package): array
+    {
+        $checkpoint = PhrEhiPackage::query()->whereKey($package->id)->value('checkpoint_json');
+        $checkpoint = is_string($checkpoint) ? json_decode($checkpoint, true) : $checkpoint;
+        $tables = is_array($checkpoint) ? ($checkpoint['projection']['tables'] ?? []) : [];
+        $withheld = [];
+        foreach (is_array($tables) ? $tables : [] as $table => $outcome) {
+            if ($outcome !== self::TABLE_PROJECTED) {
+                $withheld[strtoupper((string) $table)] = true;
+            }
+        }
+
+        return $withheld;
     }
 
     /**
@@ -232,8 +257,10 @@ final class EhiProjectionService
 
         $problem = $this->keyProblem($dictionary, $member, $key, $header);
         if ($problem !== null) {
-            $this->underLease($package, $token, $actorUserId, function (PhrPatient $patient) use ($package, $member, $table, $problem): void {
+            $this->clearOccurrences($package, $member, $token, $actorUserId);
+            $this->underLease($package, $token, $actorUserId, function (PhrPatient $patient) use ($package, $member, $account, $table, $problem): void {
                 $this->clearFindings($member);
+                EhiDispositionCounter::unproject($account);
                 $now = now();
                 $rows = [];
                 foreach ($this->registry->all() as $name => $mapping) {
@@ -512,6 +539,25 @@ final class EhiProjectionService
         }
 
         EhiDispositionCounter::recount($account);
+    }
+
+    /**
+     * Drop a member's occurrences from an earlier projection, in bounded chunks,
+     * once its table no longer matches the mappings: rows keyed under an obsolete
+     * contract must not keep supplying evidence. Only this member's occurrences
+     * go; entities and revisions are per source and stay, since other packages'
+     * occurrences, record links, and decided proposals may rely on them, and a
+     * later projection under a matching key reuses them.
+     */
+    private function clearOccurrences(PhrEhiPackage $package, PhrEhiPackageMember $member, string $token, int $actorUserId): void
+    {
+        do {
+            $deleted = $this->underLease($package, $token, $actorUserId, static function () use ($member): int {
+                $ids = PhrEhiOccurrence::query()->where('member_id', $member->id)->orderBy('id')->limit(self::CHUNK_ROWS)->pluck('id')->all();
+
+                return $ids === [] ? 0 : PhrEhiOccurrence::query()->whereIn('id', $ids)->delete();
+            });
+        } while ($deleted > 0);
     }
 
     /** Remove this stage's findings for one member, so a re-run re-emits them exactly once. */

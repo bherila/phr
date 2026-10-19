@@ -738,6 +738,15 @@ export const PhrImmunizationSchema = z.object({
   manufacturer: nullableString,
   lot_number: nullableString,
   administered_on: nullableString,
+  // Imported provenance: the source's date/time text verbatim, its precision
+  // (date/minute/second) and zone annotation (local/utc/unspecified).
+  administered_at_source: nullableString.optional(),
+  administered_at_precision: nullableString.optional(),
+  administered_at_timezone: nullableString.optional(),
+  administration_status: nullableString.optional(),
+  // A dose amount (exact decimal text) and unit: never a series position.
+  dose_amount: nullableString.optional(),
+  dose_unit: nullableString.optional(),
   dose_number: z.number().nullable(),
   series_doses: z.number().nullable(),
   site: nullableString,

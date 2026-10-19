@@ -9,6 +9,7 @@ use App\Models\PhrEhiRecordLink;
 use App\Models\PhrEhiRevision;
 use App\Models\PhrEhiSource;
 use App\Models\PhrPatient;
+use App\Services\PHR\Import\Ehi\EhiProjectionService;
 use Illuminate\Support\Collection;
 
 /**
@@ -17,7 +18,8 @@ use Illuminate\Support\Collection;
  * Revisions are those this package actually supplied (via its occurrences), so a
  * mapping never proposes from rows another package carried. Quarantined
  * occurrences (a repeated primary key) supply nothing: an ambiguous row never
- * becomes a proposal. Findings a mapping
+ * becomes a proposal, and a table the package's projection checkpoint records as
+ * not projected (a key mismatch) supplies nothing either. Findings a mapping
  * raises (orphan joins, ambiguous keys, ownership failures) are collected here and
  * persisted by the proposal service with the preview.
  */
@@ -25,6 +27,9 @@ final class EhiMappingContext
 {
     /** @var list<array{code: string, revision_id: int|null, detail: array<string, int|string|bool|null>}> */
     private array $findings = [];
+
+    /** @var array<string, true>|null upper-cased tables this package's projection withheld */
+    private ?array $withheldTables = null;
 
     public function __construct(
         public readonly PhrEhiPackage $package,
@@ -40,6 +45,10 @@ final class EhiMappingContext
      */
     public function revisions(string $table): Collection
     {
+        if ($this->withheld($table)) {
+            return new Collection;
+        }
+
         return PhrEhiRevision::query()
             ->select('phr_ehi_revisions.*')
             ->join('phr_ehi_entities', 'phr_ehi_entities.id', '=', 'phr_ehi_revisions.entity_id')
@@ -64,6 +73,10 @@ final class EhiMappingContext
      */
     public function revisionByKey(string $table, array $key): ?PhrEhiRevision
     {
+        if ($this->withheld($table)) {
+            return null;
+        }
+
         $matches = PhrEhiRevision::query()
             ->where('entity_id', function ($query) use ($table, $key): void {
                 $query->select('id')->from('phr_ehi_entities')
@@ -79,6 +92,14 @@ final class EhiMappingContext
             ->get();
 
         return $matches->count() === 1 ? $matches->first() : null;
+    }
+
+    /** Whether this package's projection left the table unprojected, so it supplies no evidence. */
+    private function withheld(string $table): bool
+    {
+        $this->withheldTables ??= EhiProjectionService::withheldTables($this->package);
+
+        return isset($this->withheldTables[strtoupper($table)]);
     }
 
     /**

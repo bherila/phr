@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { codeChip, reviewStatusBadge } from '@/phr/clinical/ui'
+import { doseAmountLabel, seriesPositionLabel } from '@/phr/immunizations/immunizationDose'
 import type { PhrListPageProps } from '@/phr/miller'
 import { numericPayload, zodErrorMessage } from '@/phr/shared'
 import {
@@ -76,15 +77,11 @@ function sortImmunizations(immunizations: PhrImmunization[]): PhrImmunization[] 
 }
 
 function doseLabel(immunization: PhrImmunization): string {
-  if (immunization.dose_number !== null && immunization.series_doses !== null) {
-    return `Dose ${immunization.dose_number}/${immunization.series_doses}`
-  }
+  const series = seriesPositionLabel(immunization)
+  const amount = doseAmountLabel(immunization)
+  const parts = [series === null ? null : `Dose ${series}`, amount].filter((part): part is string => part !== null)
 
-  if (immunization.dose_number !== null) {
-    return `Dose ${immunization.dose_number}`
-  }
-
-  return 'Dose not recorded'
+  return parts.length > 0 ? parts.join(' · ') : 'Dose not recorded'
 }
 
 function ImmunizationFormFields({ form, onChange }: ImmunizationFormFieldsProps) {

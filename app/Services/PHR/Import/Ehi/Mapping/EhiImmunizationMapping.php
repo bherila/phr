@@ -149,6 +149,14 @@ final class EhiImmunizationMapping implements EhiMapping
     /** The record holding this import identity was deleted or retracted. */
     public const string FINDING_IDENTITY_WITHDRAWN = 'immunization_identity_withdrawn';
 
+    /**
+     * The source now reports a non-clinical status (Deleted, Refused, Invalid,
+     * ...) for an immunization that already maps to an active record. The
+     * revision is retained and the record left unchanged for a person to
+     * handle; detail.status is the mapped status, detail.record_id the record.
+     */
+    public const string FINDING_LINKED_STATUS_NOT_CLINICAL = 'linked_immunization_status_not_clinical';
+
     /** The fields a proposal may write; update diffs and applies cover only these. */
     public const array MAPPED_FIELDS = [
         'vaccine_name',
@@ -387,16 +395,28 @@ final class EhiImmunizationMapping implements EhiMapping
         if ($target['state'] === 'retain') {
             return $this->retain($subject, $revisionIds, $built['proposed'], $target['reason']);
         }
-        if ($target['state'] === 'target') {
-            return $this->reconcile($subject, $revisionIds, $built['proposed'], $fields, $target['record'], $target['previous'], $target['same_revision']);
-        }
 
+        // Guarded before any target is reconciled: a non-clinical status never
+        // updates an existing record, which would otherwise stay active and
+        // exportable while asserting a deleted or refused administration.
         if (! in_array($fields['administration_status'], self::CLINICAL_STATUSES, true)) {
             if ($fields['administration_status'] === self::STATUS_UNKNOWN) {
                 $context->finding(self::FINDING_UNKNOWN_STATUS, $revision, ['present' => $built['status_present']]);
             }
+            if ($target['state'] === 'target') {
+                $context->finding(self::FINDING_LINKED_STATUS_NOT_CLINICAL, $revision, [
+                    'status' => $fields['administration_status'],
+                    'record_id' => $target['record']->id,
+                ]);
+
+                return $this->retain($subject, $revisionIds, $built['proposed'], self::FINDING_LINKED_STATUS_NOT_CLINICAL);
+            }
 
             return $this->retain($subject, $revisionIds, $built['proposed'], 'status_'.$fields['administration_status']);
+        }
+
+        if ($target['state'] === 'target') {
+            return $this->reconcile($subject, $revisionIds, $built['proposed'], $fields, $target['record'], $target['previous'], $target['same_revision']);
         }
 
         $candidates = $this->duplicateCandidates($context, $fields);
@@ -782,6 +802,9 @@ final class EhiImmunizationMapping implements EhiMapping
         $changes = $this->mappedOf($this->proposedOf($proposal));
         if ($changes === [] || (array_key_exists('vaccine_name', $changes) && ! is_string($changes['vaccine_name']))) {
             throw new EhiImmunizationApplyRefused(EhiImmunizationApplyRefused::MALFORMED_PROPOSAL, 'the update proposes no applicable mapped field');
+        }
+        if (array_key_exists('administration_status', $changes) && ! in_array($changes['administration_status'], self::CLINICAL_STATUSES, true)) {
+            throw new EhiImmunizationApplyRefused(EhiImmunizationApplyRefused::MALFORMED_PROPOSAL, 'an update never writes a non-clinical administration status');
         }
         // review_status is left as it is: the reviewer approved these fields, not
         // whatever else the record holds from its original source.

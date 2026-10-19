@@ -43,6 +43,99 @@ class EhiDocumentMappingTest extends TestCase
         self::assertTrue($draft->proposed['ehi']['text']['truncated']);
     }
 
+    public function test_contact_metadata_is_bounded_so_the_whole_proposal_fits_a_backup_record(): void
+    {
+        // An eighth of this record limit: 4096 bytes for everything but the text.
+        config(['phr.native_restore_max_record_bytes' => 32768]);
+        $this->ehiDocOwnedNote('N150', '9050', ['IP_NOTE_TYPE_C_NAME' => str_repeat('Synthetic type ', 100)]);
+        for ($serial = 1; $serial <= 40; $serial++) {
+            $this->ehiDocRow('NOTE_ENC_INFO', [
+                'CONTACT_SERIAL_NUM' => (string) $serial,
+                'NOTE_ID' => 'N150',
+                'CONTACT_DATE_REAL' => (string) (65000 + $serial),
+                'NOTE_STATUS_C_NAME' => 'Addendum',
+                'AUTHOR_USER_ID_NAME' => str_repeat('Synthetic Author ', 20),
+            ]);
+        }
+        $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '40', 'LINE' => '1', 'NOTE_ID' => 'N150', 'NOTE_TEXT' => 'body']);
+
+        $draft = $this->ehiDocDraftFor($this->ehiDocPropose()['drafts'], 'note_id', 'N150');
+        $ehi = $draft->proposed['ehi'];
+        $kept = array_column($ehi['contacts'], 'contact_serial_num');
+        $withoutText = $draft->proposed;
+        $withoutText['attributes']['extracted_text'] = null;
+
+        self::assertLessThanOrEqual(4096, strlen(json_encode($withoutText, JSON_THROW_ON_ERROR)));
+        self::assertSame(4096, EhiDocumentMapping::maxMetadataBytes());
+        self::assertSame(40, $ehi['contacts_total']);
+        self::assertTrue($ehi['contacts_truncated']);
+        // The oldest contact, then the newest that fit, oldest first.
+        self::assertGreaterThan(2, count($kept));
+        self::assertSame('1', $kept[0]);
+        self::assertSame(array_map(strval(...), range(42 - count($kept), 40)), array_slice($kept, 1));
+        self::assertLessThanOrEqual(EhiDocumentMapping::MAX_VALUE_BYTES, strlen($ehi['note_type']));
+        foreach ($ehi['contacts'] as $contact) {
+            self::assertSame(EhiDocumentMapping::MAX_VALUE_BYTES, strlen($contact['author']));
+        }
+        self::assertEquals($draft, $this->ehiDocDraftFor($this->ehiDocPropose()['drafts'], 'note_id', 'N150'));
+    }
+
+    public function test_a_key_too_long_for_the_document_identity_is_retained_without_copying_it(): void
+    {
+        $noteId = str_repeat('N', 300);
+        $this->ehiDocOwnedNote($noteId, '9060');
+        $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '1', 'LINE' => '1', 'NOTE_ID' => $noteId, 'NOTE_TEXT' => 'body']);
+
+        $drafts = array_values(array_filter($this->ehiDocPropose()['drafts'], static fn (EhiProposalDraft $draft): bool => ($draft->proposed['ehi']['table'] ?? null) === 'HNO_INFO'));
+
+        self::assertCount(1, $drafts);
+        self::assertSame(PhrEhiProposal::KIND_RETAIN, $drafts[0]->kind);
+        self::assertSame('identity_too_long', $drafts[0]->proposed['reason']);
+        self::assertStringNotContainsString($noteId, json_encode($drafts[0]->proposed, JSON_THROW_ON_ERROR));
+    }
+
+    public function test_a_long_member_file_name_is_cut_to_the_column_keeping_its_extension(): void
+    {
+        $name = str_repeat('é', 300).'.png';
+        $this->ehiDocRow('DOC_INFORMATION', ['DOC_INFO_ID' => 'D750', 'DOC_PT_ID' => self::DOC_PATIENT_KEY, 'SCAN_FILE' => $name]);
+        $this->ehiDocMember('Media/'.$name, EhiMemberKind::MEDIA, "\x89PNG synthetic long name");
+
+        $draft = $this->ehiDocDraftFor($this->ehiDocPropose()['drafts'], 'doc_info_id', 'D750');
+        $filename = $draft->proposed['attributes']['original_filename'];
+
+        self::assertSame(str_repeat('é', 251).'.png', $filename);
+        self::assertSame(255, mb_strlen($filename));
+        $document = PhrDocument::query()->findOrFail($this->ehiDocApply($this->ehiDocPersist($draft))->recordId);
+        self::assertSame($filename, $document->original_filename);
+        self::assertSame('image/png', $document->mime_type);
+    }
+
+    public function test_a_document_row_is_skipped_only_when_its_note_proposal_took_it_in(): void
+    {
+        // Notes retained before their documents are read: foreign and deleted.
+        $this->ehiDocOwnedNote('N-FOREIGN', '9150', [], self::DOC_OTHER_PATIENT_KEY);
+        $foreign = $this->ehiDocRow('DOC_INFORMATION', ['DOC_INFO_ID' => 'D-FOREIGN', 'DOC_HNO_ID' => 'N-FOREIGN', 'DOC_PT_ID' => self::DOC_PATIENT_KEY, 'SCAN_FILE' => 'scan-foreign.png']);
+        $this->ehiDocMember('Media/scan-foreign.png', EhiMemberKind::MEDIA, "\x89PNG synthetic foreign-note scan");
+        $this->ehiDocOwnedNote('N-DELETED', '9151', ['DELETE_INSTANT_DTTM' => '2024-04-01 00:00:00']);
+        $deleted = $this->ehiDocRow('DOC_INFORMATION', ['DOC_INFO_ID' => 'D-DELETED', 'DOC_HNO_ID' => 'N-DELETED', 'DOC_PT_ID' => self::DOC_PATIENT_KEY, 'SCAN_FILE' => 'scan-deleted.png']);
+        $this->ehiDocMember('Media/scan-deleted.png', EhiMemberKind::MEDIA, "\x89PNG synthetic deleted-note scan");
+        // A note whose proposal relies on its document.
+        $this->ehiDocOwnedNote('N-OWNED', '9152');
+        $owned = $this->ehiDocRow('DOC_INFORMATION', ['DOC_INFO_ID' => 'D-OWNED', 'DOC_HNO_ID' => 'N-OWNED', 'DOC_PT_ID' => self::DOC_PATIENT_KEY, 'SCAN_FILE' => 'scan-owned.png']);
+        $this->ehiDocMember('Media/scan-owned.png', EhiMemberKind::MEDIA, "\x89PNG synthetic owned-note scan");
+
+        $drafts = $this->ehiDocPropose()['drafts'];
+
+        self::assertSame(PhrEhiProposal::KIND_CREATE, $this->ehiDocDraftFor($drafts, 'doc_info_id', 'D-FOREIGN')->kind);
+        self::assertSame(PhrEhiProposal::KIND_CREATE, $this->ehiDocDraftFor($drafts, 'doc_info_id', 'D-DELETED')->kind);
+        self::assertSame('D-OWNED', $this->ehiDocDraftFor($drafts, 'note_id', 'N-OWNED')->proposed['ehi']['file']['doc_info_id']);
+        self::assertSame([], array_filter($drafts, static fn (EhiProposalDraft $draft): bool => ($draft->proposed['ehi']['doc_info_id'] ?? null) === 'D-OWNED'));
+        // Each document revision is in exactly one draft, so no occurrence stays pending.
+        foreach ([$foreign, $deleted, $owned] as $revision) {
+            self::assertCount(1, array_filter($drafts, static fn (EhiProposalDraft $draft): bool => in_array($revision->id, $draft->revisionIds, true)));
+        }
+    }
+
     public function test_contract_and_registration(): void
     {
         $mapping = app(EhiDocumentMapping::class);
