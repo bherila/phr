@@ -23,6 +23,7 @@ final class OAuthTokenFamily extends Model
     {
         return [
             'oauth_security_version' => 'integer',
+            'oauth_consent_version' => 'integer',
             'revoked' => 'boolean',
             'expires_at' => 'datetime',
         ];

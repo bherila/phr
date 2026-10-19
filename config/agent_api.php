@@ -18,4 +18,11 @@ return [
         'trim',
         explode(',', (string) env('AGENT_API_MCP_ALLOWED_HOSTS', '')),
     ))),
+    // Application-registered OAuth clients (phr:agent-api:register-first-party-client)
+    // that may skip the consent screen once the person has consented to every
+    // scope they request. Comma-separated client ids.
+    'first_party_oauth_clients' => array_values(array_filter(array_map(
+        'trim',
+        explode(',', (string) env('AGENT_API_FIRST_PARTY_OAUTH_CLIENTS', '')),
+    ))),
 ];

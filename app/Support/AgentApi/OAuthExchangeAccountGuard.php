@@ -20,6 +20,7 @@ final class OAuthExchangeAccountGuard
         int $securityVersion,
         ?string $familyIdentifier,
         ?string $resourceUri = null,
+        ?int $consentVersion = null,
     ): void {
         $request = app(Request::class);
         $request->attributes->set(self::REQUEST_ATTRIBUTE, $userIdentifier);
@@ -28,10 +29,27 @@ final class OAuthExchangeAccountGuard
             'security_version' => $securityVersion,
             'family_identifier' => $familyIdentifier,
             'resource_uri' => $resourceUri,
+            'consent_version' => $consentVersion,
         ]);
     }
 
-    /** @return array{security_version: int, family_identifier: string|null, resource_uri: string|null}|null */
+    /**
+     * Add the consent version an authorization was approved under to the grant
+     * the authorization boundary already validated for the same person. The
+     * authorization code persisted for this request is stamped with it.
+     */
+    public function recordApprovedConsent(int|string $userIdentifier, int $consentVersion): void
+    {
+        $request = app(Request::class);
+        $grant = $request->attributes->get(self::GRANT_ATTRIBUTE);
+        if (! is_array($grant) || ($grant['user_identifier'] ?? null) !== (string) $userIdentifier) {
+            return;
+        }
+        $grant['consent_version'] = $consentVersion;
+        $request->attributes->set(self::GRANT_ATTRIBUTE, $grant);
+    }
+
+    /** @return array{security_version: int, family_identifier: string|null, resource_uri: string|null, consent_version: int|null}|null */
     public function validatedGrantFor(int|string $userIdentifier): ?array
     {
         $grant = app(Request::class)->attributes->get(self::GRANT_ATTRIBUTE);
@@ -39,7 +57,8 @@ final class OAuthExchangeAccountGuard
             || ($grant['user_identifier'] ?? null) !== (string) $userIdentifier
             || ! is_int($grant['security_version'] ?? null)
             || (! is_string($grant['family_identifier'] ?? null) && ($grant['family_identifier'] ?? null) !== null)
-            || (! is_string($grant['resource_uri'] ?? null) && ($grant['resource_uri'] ?? null) !== null)) {
+            || (! is_string($grant['resource_uri'] ?? null) && ($grant['resource_uri'] ?? null) !== null)
+            || (! is_int($grant['consent_version'] ?? null) && ($grant['consent_version'] ?? null) !== null)) {
             return null;
         }
 
@@ -47,6 +66,7 @@ final class OAuthExchangeAccountGuard
             'security_version' => $grant['security_version'],
             'family_identifier' => $grant['family_identifier'],
             'resource_uri' => $grant['resource_uri'],
+            'consent_version' => $grant['consent_version'] ?? null,
         ];
     }
 
@@ -92,7 +112,20 @@ final class OAuthExchangeAccountGuard
                 && $issuedToken->oauth_security_version !== null
                 && (int) $issuedToken->oauth_security_version === (int) $user?->oauth_security_version);
 
-        if ($user instanceof User && $user->mayHoldOAuthCredentials() && $versionMatches && $familyIsActive) {
+        // The consent the credential was issued under, re-read after the exchange
+        // committed: a revocation that bumped the version while this exchange
+        // was in flight may have swept the client's families before this one
+        // existed, so an escaped family is retired here instead.
+        $consentIsCurrent = $issuedToken === null
+            || $issuedToken->user_id === null
+            || app(OAuthClientConsents::class)->isCurrent(
+                $issuedToken->user_id,
+                (string) $issuedToken->client_id,
+                is_string($issuedToken->resource_uri) ? $issuedToken->resource_uri : null,
+                $issuedToken->oauth_consent_version,
+            );
+
+        if ($user instanceof User && $user->mayHoldOAuthCredentials() && $versionMatches && $familyIsActive && $consentIsCurrent) {
             return true;
         }
 

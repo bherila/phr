@@ -2,6 +2,7 @@
 
 namespace App\Support\AgentApi;
 
+use App\Models\OAuthClientConsent;
 use App\Models\OAuthTokenFamily;
 use App\Models\User;
 use BWH\Auth\OAuth\Credentials\OAuthCredentialOwners;
@@ -62,6 +63,7 @@ final class OAuthCredentialRevoker
             'user_id' => $accessToken->user_id,
             'client_id' => $accessToken->client_id,
             'oauth_security_version' => $accessToken->oauth_security_version,
+            'oauth_consent_version' => $accessToken->oauth_consent_version,
             'revoked' => false,
             'expires_at' => now()->addDays(AgentApiTokenPolicy::REFRESH_TOKEN_LIFETIME_DAYS),
         ]);
@@ -70,6 +72,80 @@ final class OAuthCredentialRevoker
             ->whereKey($familyIdentifier)
             ->lockForUpdate()
             ->firstOrFail();
+    }
+
+    /**
+     * Withdraw a person's consent for one client and retire everything that
+     * client holds for them: every resource's consent, authorization code,
+     * rotation family, access token and refresh token.
+     *
+     * One transaction, in a fixed order. The consent rows are locked and their
+     * version bumped first, so any code or refresh validated from here on is
+     * refused by the stamp comparison. Authorization codes are revoked next:
+     * an exchange that already holds its code's lock finishes before this
+     * continues, so the family it created is visible to the family sweep that
+     * follows, which locks each family root before its refresh rows, the order
+     * refresh rotation uses. An exchange that commits a family after the sweep
+     * read was validated against the old version and is retired by the
+     * post-exchange consent recheck.
+     */
+    public function revokeClientConsent(int|string $userIdentifier, string $clientIdentifier): void
+    {
+        $connection = config('passport.connection');
+        DB::connection(is_string($connection) ? $connection : null)
+            ->transaction(function () use ($userIdentifier, $clientIdentifier): void {
+                $consents = OAuthClientConsent::query()
+                    ->where('user_id', $userIdentifier)
+                    ->where('client_id', $clientIdentifier)
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->get();
+                foreach ($consents as $consent) {
+                    $consent->forceFill([
+                        'revoked_at' => $consent->revoked_at ?? now(),
+                        'version' => $consent->version + 1,
+                    ])->save();
+                }
+
+                Passport::authCode()->newQuery()
+                    ->where('user_id', $userIdentifier)
+                    ->where('client_id', $clientIdentifier)
+                    ->where('revoked', false)
+                    ->update(['revoked' => true]);
+
+                $familyIds = OAuthTokenFamily::query()
+                    ->where('user_id', $userIdentifier)
+                    ->where('client_id', $clientIdentifier)
+                    ->orderBy('id')
+                    ->lockForUpdate()
+                    ->pluck('id');
+                OAuthTokenFamily::query()->whereIn('id', $familyIds)->update(['revoked' => true]);
+
+                // Every token the client holds for the person, whether or not it
+                // belongs to a family row (families are created lazily).
+                $tokenIds = Passport::token()->newQuery()
+                    ->where('user_id', $userIdentifier)
+                    ->where('client_id', $clientIdentifier)
+                    ->lockForUpdate()
+                    ->pluck('id');
+                $refreshTokens = Passport::refreshToken()->newQuery()
+                    ->whereIn('access_token_id', $tokenIds);
+                $refreshModel = Passport::refreshToken();
+                $refreshSchema = $refreshModel->getConnection()->getSchemaBuilder();
+                if ($refreshSchema->hasColumn($refreshModel->getTable(), 'client_id')
+                    && $refreshSchema->hasColumn($refreshModel->getTable(), 'provider_user_id')) {
+                    // A refresh token outlives its purged access row; its own
+                    // owner and client records still find it.
+                    $refreshTokens->orWhere(function ($query) use ($userIdentifier, $clientIdentifier): void {
+                        $query->where('client_id', $clientIdentifier)
+                            ->where('provider_user_id', (string) $userIdentifier);
+                    });
+                }
+                $refreshTokens->update(['revoked' => true]);
+                Passport::token()->newQuery()
+                    ->whereIn('id', $tokenIds)
+                    ->update(['revoked' => true]);
+            }, 1);
     }
 
     /**

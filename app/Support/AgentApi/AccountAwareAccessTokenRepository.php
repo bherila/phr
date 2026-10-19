@@ -50,18 +50,23 @@ final class AccountAwareAccessTokenRepository extends AccessTokenRepository
             $securityVersion = $validatedGrant['security_version']
                 ?? ($userId === null ? null : User::query()->whereKey($userId)->value('oauth_security_version'));
             $familyIdentifier = $validatedGrant['family_identifier'] ?? $id;
+            // Null only for credentials no consent screen governs (personal
+            // access tokens); code and refresh grants always carry a version.
+            $consentVersion = $validatedGrant['consent_version'] ?? null;
             $family = OAuthTokenFamily::query()->firstOrCreate([
                 'id' => $familyIdentifier,
             ], [
                 'user_id' => $userId,
                 'client_id' => $accessTokenEntity->getClient()->getIdentifier(),
                 'oauth_security_version' => $securityVersion,
+                'oauth_consent_version' => $consentVersion,
                 'revoked' => false,
                 'expires_at' => now()->addDays(AgentApiTokenPolicy::REFRESH_TOKEN_LIFETIME_DAYS),
             ]);
             $familyMatchesGrant = (string) $family->user_id === (string) $userId
                 && (string) $family->client_id === (string) $accessTokenEntity->getClient()->getIdentifier()
-                && (int) $family->oauth_security_version === (int) $securityVersion;
+                && (int) $family->oauth_security_version === (int) $securityVersion
+                && $family->oauth_consent_version === $consentVersion;
             if ($familyMatchesGrant && ! $family->revoked) {
                 $family->forceFill([
                     'expires_at' => now()->addDays(AgentApiTokenPolicy::REFRESH_TOKEN_LIFETIME_DAYS),
@@ -76,6 +81,7 @@ final class AccountAwareAccessTokenRepository extends AccessTokenRepository
             Passport::token()->newQuery()->whereKey($id)->update([
                 'revoked' => ! $familyMatchesGrant || $family->revoked,
                 'oauth_security_version' => $securityVersion,
+                'oauth_consent_version' => $consentVersion,
                 'oauth_family_id' => $familyIdentifier,
             ]);
 
