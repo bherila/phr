@@ -302,6 +302,18 @@ class EhiIntakeServiceTest extends TestCase
         $this->assertNoEhiRows();
     }
 
+    public function test_a_txt_table_whose_first_tab_is_past_the_peek_is_still_patient_scoped(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        // One 70 KB column name before the first tab: the 64 KB peek sees no tab.
+        $long = 'SYNTH_'.str_repeat('X', 70 * 1024);
+        $table = "{$long}\tPAT_ID\n1\t".EhiSyntheticPackage::OTHER_PATIENT_KEY."\n";
+
+        $this->assertRefused(EhiPackageRejected::MULTIPLE_PATIENTS, fn () => $this->ehiIntakeDirectory(EhiSyntheticPackage::standard()->with('extra/wide.txt', $table), $patient, $owner->id));
+        $this->assertNoEhiRows();
+    }
+
     public function test_a_readme_named_table_is_still_patient_scoped(): void
     {
         $owner = $this->createUser();
@@ -617,9 +629,9 @@ class EhiIntakeServiceTest extends TestCase
                 return $this->inner->kind();
             }
 
-            public function entries(): array
+            public function entries(?int $maxEntries = null): array
             {
-                return $this->inner->entries();
+                return $this->inner->entries($maxEntries);
             }
 
             public function open(EhiEntry $entry)

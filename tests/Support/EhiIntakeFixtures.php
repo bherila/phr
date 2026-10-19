@@ -90,9 +90,9 @@ trait EhiIntakeFixtures
                 return $this->inner->kind();
             }
 
-            public function entries(): array
+            public function entries(?int $maxEntries = null): array
             {
-                return $this->inner->entries();
+                return $this->inner->entries($maxEntries);
             }
 
             public function open(EhiEntry $entry)

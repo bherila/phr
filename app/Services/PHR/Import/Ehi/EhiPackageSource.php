@@ -11,8 +11,14 @@ interface EhiPackageSource
     /** PhrEhiPackage::INTAKE_DIRECTORY or PhrEhiPackage::INTAKE_ZIP. */
     public function kind(): string;
 
-    /** @return list<EhiEntry> every entry, including directories and unsafe ones */
-    public function entries(): array;
+    /**
+     * @param  int|null  $maxEntries  refuse (too_many_members) as soon as more
+     *                                entries than this are found, before listing the rest
+     * @return list<EhiEntry> every entry, including directories and unsafe ones
+     *
+     * @throws EhiPackageRejected
+     */
+    public function entries(?int $maxEntries = null): array;
 
     /**
      * Open a read stream for an entry previously returned by entries().

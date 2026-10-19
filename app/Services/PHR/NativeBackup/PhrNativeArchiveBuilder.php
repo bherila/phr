@@ -103,6 +103,9 @@ final class PhrNativeArchiveBuilder
                     throw new NativeBackupException('artifact_unreadable');
                 }
 
+                // Verified again as written: the earlier check read the object
+                // separately, and the manifest must describe these exact bytes.
+                $written = PhrNativeHashingFilter::attach($stream);
                 try {
                     $zip->addFileFromStream(
                         fileName: $artifact['path'],
@@ -112,6 +115,13 @@ final class PhrNativeArchiveBuilder
                     );
                 } finally {
                     fclose($stream);
+                }
+                $digest = PhrNativeHashingFilter::finish($written);
+                if ($digest['bytes'] !== $artifact['size']) {
+                    throw new NativeBackupException('artifact_size_mismatch');
+                }
+                if (! hash_equals($artifact['sha256'], $digest['sha256'])) {
+                    throw new NativeBackupException('artifact_hash_mismatch');
                 }
             }
 

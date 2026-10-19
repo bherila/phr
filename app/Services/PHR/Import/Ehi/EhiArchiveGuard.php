@@ -23,7 +23,7 @@ final class EhiArchiveGuard
      */
     public function validate(EhiPackageSource $source, EhiLimits $limits): array
     {
-        $entries = $source->entries();
+        $entries = $source->entries($limits->maxMembers);
         if (count($entries) > $limits->maxMembers) {
             throw $this->reject(EhiPackageRejected::TOO_MANY_MEMBERS, sprintf('%d entries exceed the limit of %d', count($entries), $limits->maxMembers));
         }

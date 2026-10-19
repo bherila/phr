@@ -269,6 +269,17 @@ class EhiArchiveGuardTest extends TestCase
     {
         $directory = $this->writeTree('extracted', ['one.tsv' => '1', 'two.tsv' => '2', 'three.tsv' => '3']);
         $this->assertRefused(new EhiDirectorySource($directory), EhiPackageRejected::TOO_MANY_MEMBERS, ['one', 'two', 'three'], $this->limits(maxMembers: 2));
+        // Enumeration itself stops at the cap, for a directory and a ZIP alike.
+        $zip = $this->writeZip('many.zip', ['one.tsv' => '1', 'two.tsv' => '2', 'three.tsv' => '3'], withDirectories: false);
+        foreach ([new EhiDirectorySource($directory), new EhiZipSource($zip)] as $source) {
+            try {
+                $source->entries(2);
+                self::fail('Enumeration must stop once the cap is passed.');
+            } catch (EhiPackageRejected $rejected) {
+                self::assertSame(EhiPackageRejected::TOO_MANY_MEMBERS, $rejected->reason);
+            }
+            self::assertCount(3, $source->entries(3));
+        }
 
         $deep = $this->writeTree('deep', ['a/b/c/d/leaf.tsv' => '1']);
         $this->assertRefused(new EhiDirectorySource($deep), EhiPackageRejected::PATH_TOO_DEEP, ['leaf'], $this->limits(maxPathDepth: 4));
@@ -442,7 +453,7 @@ class EhiArchiveGuardTest extends TestCase
                 return PhrEhiPackage::INTAKE_ZIP;
             }
 
-            public function entries(): array
+            public function entries(?int $maxEntries = null): array
             {
                 return $this->entries;
             }

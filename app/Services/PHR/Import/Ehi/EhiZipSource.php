@@ -65,12 +65,15 @@ final class EhiZipSource implements EhiPackageSource
         return PhrEhiPackage::INTAKE_ZIP;
     }
 
-    public function entries(): array
+    public function entries(?int $maxEntries = null): array
     {
         if ($this->entries !== null) {
             return $this->entries;
         }
         $zip = $this->archive();
+        if ($maxEntries !== null && $zip->numFiles > $maxEntries) {
+            throw new EhiPackageRejected(EhiPackageRejected::TOO_MANY_MEMBERS, sprintf('EHI package archive has more than %d entries.', $maxEntries));
+        }
 
         $entries = [];
         for ($index = 0; $index < $zip->numFiles; $index++) {

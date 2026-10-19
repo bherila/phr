@@ -40,11 +40,12 @@ final class EhiDirectorySource implements EhiPackageSource
         return PhrEhiPackage::INTAKE_DIRECTORY;
     }
 
-    public function entries(): array
+    public function entries(?int $maxEntries = null): array
     {
         if ($this->entries !== null) {
             return $this->entries;
         }
+        $remaining = $maxEntries ?? PHP_INT_MAX;
 
         $entries = [];
         $this->listedFiles = [];
@@ -53,10 +54,27 @@ final class EhiDirectorySource implements EhiPackageSource
         while ($pending !== []) {
             $relativeDirectory = array_pop($pending);
             $absoluteDirectory = $relativeDirectory === '' ? $this->root : $this->root.'/'.$relativeDirectory;
-            $names = @scandir($absoluteDirectory, SCANDIR_SORT_ASCENDING);
-            if ($names === false) {
+            // readdir, not scandir: a directory with millions of names is
+            // refused once the cap is passed, never listed in full first.
+            $handle = @opendir($absoluteDirectory);
+            if ($handle === false) {
                 throw new EhiPackageRejected(EhiPackageRejected::UNREADABLE, 'EHI package directory could not be listed.');
             }
+            $names = [];
+            try {
+                while (($name = readdir($handle)) !== false) {
+                    if ($name === '.' || $name === '..') {
+                        continue;
+                    }
+                    if (--$remaining < 0) {
+                        throw new EhiPackageRejected(EhiPackageRejected::TOO_MANY_MEMBERS, sprintf('EHI package directory has more than %d entries.', (int) $maxEntries));
+                    }
+                    $names[] = $name;
+                }
+            } finally {
+                closedir($handle);
+            }
+            sort($names, SORT_STRING);
 
             $subdirectories = [];
             foreach ($names as $name) {

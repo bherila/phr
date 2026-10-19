@@ -158,7 +158,7 @@ final class EhiIntakeService
             $line = in_array($extension, self::PEEK_EXTENSIONS, true) ? $this->firstLine($source, $member) : null;
             $firstLines[$member->path] = $line;
             $class = $this->classifier->classify($member->path, $line);
-            $classified[] = ['member' => $member, 'kind' => $class['kind'], 'table' => $class['table'], 'unsupported_name' => isset($class['unsupported_table_name']), 'table_shaped' => EhiMemberClassifier::isTableShaped($member->path, $line), 'first_line' => $line];
+            $classified[] = ['member' => $member, 'kind' => $class['kind'], 'table' => $class['table'], 'unsupported_name' => isset($class['unsupported_table_name']), 'table_shaped' => $this->tableShaped($member->path, $line), 'first_line' => $line];
         }
 
         $detection = $this->detector->detect($members, static fn (EhiValidatedMember $member): ?string => $firstLines[$member->path] ?? null);
@@ -985,6 +985,17 @@ final class EhiIntakeService
         }
 
         return $html;
+    }
+
+    /**
+     * Table-shaped by the classifier's rule, or a `.txt` whose first line filled
+     * the whole peek: its first tab may lie past it, so it is patient-scoped
+     * too rather than assumed to be prose.
+     */
+    private function tableShaped(string $path, ?string $line): bool
+    {
+        return EhiMemberClassifier::isTableShaped($path, $line)
+            || ($line !== null && strtolower(pathinfo($path, PATHINFO_EXTENSION)) === 'txt' && strlen($line) >= self::FIRST_LINE_BYTES - 1);
     }
 
     /** The first line of a byte prefix, exactly as firstLine() reads it from a stream. */

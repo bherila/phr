@@ -119,8 +119,9 @@ return new class extends Migration
             $table->json('header_columns_json')->nullable();
             $table->json('unknown_columns_json')->nullable();
             $table->json('missing_columns_json')->nullable();
-            $table->unsignedInteger('source_row_count')->default(0);
-            $table->unsignedInteger('malformed_row_count')->default(0);
+            // 64-bit: a 10 GiB package of short records can exceed 2^32 rows.
+            $table->unsignedBigInteger('source_row_count')->default(0);
+            $table->unsignedBigInteger('malformed_row_count')->default(0);
             $table->json('disposition_counts_json')->nullable();
             $table->string('parser_version', 32);
             $table->char('dictionary_fingerprint', 64)->nullable();
@@ -137,7 +138,7 @@ return new class extends Migration
             $table->foreignId('member_id')->nullable()->constrained('phr_ehi_package_members')->cascadeOnDelete(); // sensitive-scan-ignore: package member FK, not an insurance member id
             $table->string('code', 64);
             $table->string('severity', 16);
-            $table->unsignedInteger('line_number')->nullable();
+            $table->unsignedBigInteger('line_number')->nullable();
             $table->unsignedBigInteger('byte_offset')->nullable();
             $table->string('column_name', 128)->nullable();
             $table->json('detail_json')->nullable();

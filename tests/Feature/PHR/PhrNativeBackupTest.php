@@ -17,6 +17,7 @@ use App\Services\PHR\NativeBackup\PhrNativeSnapshotService;
 use App\Support\Storage\PhrStorageKey;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -387,6 +388,58 @@ class PhrNativeBackupTest extends TestCase
         $firstArtifacts = collect($firstManifest['artifacts'])->keyBy('recordNativeId')->map($projectArtifact)->all();
         $secondArtifacts = collect($secondManifest['artifacts'])->keyBy('recordNativeId')->map($projectArtifact)->all();
         $this->assertSame($firstArtifacts, $secondArtifacts);
+    }
+
+    public function test_an_artifact_changed_after_its_check_fails_the_backup(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->createPatient($owner);
+        $bytes = 'synthetic-bytes-0123456789';
+        Storage::disk(PhrDocument::STORAGE_DISK)->put('fixtures/changing.bin', $bytes);
+        PhrDocument::query()->create([
+            'patient_id' => $patient->id,
+            'user_id' => $owner->id,
+            'uploaded_by_user_id' => $owner->id,
+            'title' => 'Synthetic changing artifact',
+            'document_type' => 'other',
+            'storage_disk' => PhrDocument::STORAGE_DISK,
+            'storage_path' => 'fixtures/changing.bin',
+            'mime_type' => 'application/octet-stream',
+            'byte_size' => strlen($bytes),
+            'file_hash' => hash('sha256', $bytes),
+            'source' => 'manual_upload',
+        ]);
+        // The first read (the check) sees the recorded bytes; the second (the
+        // archive write) sees same-length bytes that differ.
+        /** @var FilesystemAdapter $fake */
+        $fake = Storage::disk(PhrDocument::STORAGE_DISK);
+        $disk = new class($fake->getDriver(), $fake->getAdapter(), $fake->getConfig()) extends FilesystemAdapter
+        {
+            public int $reads = 0;
+
+            public function readStream($path)
+            {
+                if ($path !== 'fixtures/changing.bin' || ++$this->reads < 2) {
+                    return parent::readStream($path);
+                }
+                $swapped = fopen('php://memory', 'w+b');
+                fwrite($swapped, strrev((string) parent::get($path)));
+                rewind($swapped);
+
+                return $swapped;
+            }
+        };
+        Storage::set(PhrDocument::STORAGE_DISK, $disk);
+
+        $backup = $this->newBackup($patient, $owner);
+        try {
+            app(PhrNativeBackupService::class)->generate($backup);
+            $this->fail('An artifact that changed after its check must fail the backup.');
+        } catch (NativeBackupException $exception) {
+            $this->assertSame('artifact_hash_mismatch', $exception->failureCategory);
+        }
+        $this->assertSame(2, $disk->reads);
+        $this->assertDatabaseHas('phr_native_backups', ['id' => $backup->id, 'status' => PhrNativeBackup::STATUS_FAILED, 'storage_path' => null]);
     }
 
     public function test_missing_object_and_size_ceiling_fail_without_leaking_storage_details(): void
