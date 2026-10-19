@@ -35,7 +35,7 @@ final class PhrPublicIds
 
     public function __construct(private readonly PhrNativeIdentityRepository $identities) {}
 
-    /** The public id of a record that was just written. */
+    /** The public id of a patient, document or EOB model (created if it has none yet). */
     public function assign(Model $record): string
     {
         $table = $record->getTable();
