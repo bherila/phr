@@ -4,6 +4,7 @@ use App\Http\Middleware\AuditAgentApiRequest;
 use App\Http\Middleware\EnsureOAuthAuthorizationUserCanLogin;
 use App\Http\Middleware\ExpectAnyOAuthResource;
 use App\Http\Middleware\GenAiRestHttpSecurityMiddleware;
+use App\Http\Middleware\RestrictDynamicClientRegistrationScopes;
 use App\Http\Middleware\ThrottleAgentApiAuthentication;
 use Bherila\McpLaravelBridge\Http\McpHttpSecurityMiddleware;
 use BWH\Auth\Http\Middleware\ExpectOAuthResource;
@@ -53,6 +54,14 @@ return Application::configure(basePath: dirname(__DIR__))
         // outside the route-level web/auth middleware. Force the account-state
         // check after session authentication but before the consent controller.
         $middleware->appendToPriorityList(AuthenticatesRequests::class, EnsureOAuthAuthorizationUserCanLogin::class);
+        // Public self-registration: its own pre-authentication limit, and a
+        // catalog without the scopes only an application-registered client
+        // may hold (routes/web.php names this group as the registration
+        // middleware).
+        $middleware->group('oauth-dynamic-registration', [
+            'throttle:agent-api-client-registration',
+            RestrictDynamicClientRegistrationScopes::class,
+        ]);
 
         // PHR respiratory-events / Sinus Sentinel device ingest authenticates via bearer
         // token (AuthenticateWebOrMcpRequest) and carries no session/CSRF token. These

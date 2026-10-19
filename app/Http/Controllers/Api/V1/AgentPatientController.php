@@ -8,7 +8,9 @@ use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Services\PHR\Access\AgentPatientPresenter;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Services\PHR\Identity\PhrPublicIds;
 use App\Support\AgentApi\AgentApiCursor;
+use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentApiUpdateWindow;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\JsonResponse;
@@ -21,6 +23,7 @@ final class AgentPatientController extends Controller
     public function __construct(
         private PhrPatientAccessService $accessService,
         private AgentPatientPresenter $presenter,
+        private PhrPublicIds $publicIds,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -45,9 +48,12 @@ final class AgentPatientController extends Controller
             ->orderBy('id')
             ->cursorPaginate($limit, ['*'], 'cursor', AgentApiCursor::decode($this->encodedCursor($validated)));
 
+        $publicIds = $this->publicIds->forPatients($page->getCollection()->pluck('id'));
+        $billingOnly = $this->billingOnly($request);
+
         return response()->json([
             'data' => $page->getCollection()
-                ->map(fn (PhrPatient $patient): array => $this->presenter->payload($patient, $userId))
+                ->map(fn (PhrPatient $patient): array => $this->presenter->payload($patient, $userId, publicId: $publicIds[(int) $patient->id], billingOnly: $billingOnly))
                 ->values(),
             'pagination' => [
                 'limit' => $limit,
@@ -62,9 +68,20 @@ final class AgentPatientController extends Controller
         $userId = (int) $request->user('api')?->id;
         $resolved = $this->accessService->accessiblePatientWithCurrentGrant($patient, $userId);
 
+        $billingOnly = $this->billingOnly($request);
+
         return response()->json([
-            'data' => $this->presenter->payload($resolved, $userId, includeNotes: true),
+            'data' => $this->presenter->payload($resolved, $userId, includeNotes: ! $billingOnly, billingOnly: $billingOnly),
         ]);
+    }
+
+    /**
+     * billing:read without patients:read sees only id, public id, display
+     * name and the caller's access level.
+     */
+    private function billingOnly(Request $request): bool
+    {
+        return ! (bool) $request->user('api')?->tokenCan(AgentApiScopes::PATIENTS_READ);
     }
 
     /**

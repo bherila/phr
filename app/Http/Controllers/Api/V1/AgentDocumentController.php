@@ -7,8 +7,10 @@ use App\DataTransferObjects\PHR\DocumentUploadResult;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AgentApi\StoreAgentDocumentRequest;
 use App\Models\PhrDocument;
+use App\Models\PhrEob;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\Documents\PhrDocumentUploadService;
+use App\Services\PHR\Identity\PhrPublicIds;
 use App\Support\AgentApi\AgentApiClientIdentity;
 use App\Support\AgentApi\AgentApiCursor;
 use App\Support\AgentApi\AgentApiExternalId;
@@ -29,6 +31,7 @@ final class AgentDocumentController extends Controller
     public function __construct(
         private PhrPatientAccessService $accessService,
         private PhrDocumentUploadService $documentUploads,
+        private PhrPublicIds $publicIds,
     ) {}
 
     public function index(Request $request, int $patient): JsonResponse
@@ -81,9 +84,14 @@ final class AgentDocumentController extends Controller
             AgentApiCursor::decode(isset($validated['cursor']) ? (string) $validated['cursor'] : null),
         );
 
+        $publicIds = $this->publicIds->forRecords($patientId, PhrPublicIds::DOCUMENTS, $page->getCollection()->pluck('id'));
+        $patientPublicId = $this->publicIds->forPatient($patientId);
+
         return response()->json([
             'resource_type' => 'document', 'patient_id' => $patientId,
-            'data' => $page->getCollection()->map(fn (PhrDocument $document): array => $this->payload($document))->values(),
+            'data' => $page->getCollection()
+                ->map(fn (PhrDocument $document): array => $this->payload($document, $publicIds[(int) $document->id], $patientPublicId))
+                ->values(),
             'pagination' => ['limit' => $limit, 'has_more' => $page->hasMorePages(), 'next_cursor' => $page->nextCursor()?->encode()],
         ]);
     }
@@ -128,16 +136,22 @@ final class AgentDocumentController extends Controller
 
     public function createDownloadAccess(Request $request, int $patient, int $document): JsonResponse
     {
-        $resolved = $this->document($request, $patient, $document);
+        $resolved = $this->downloadableDocument($request, $patient, $document);
         $this->assertStoredFile($resolved);
         $expiresAt = now()->addMinute();
 
         return response()->json([
             'document_id' => $resolved->id,
+            // The stable reference to what this locator resolved to, so a caller
+            // holding integer ids from before a restore can confirm they still
+            // name the same patient and document before trusting the bytes.
+            'patient_public_id' => $this->publicIds->forPatient((int) $resolved->patient_id),
+            'document_public_id' => $this->publicIds->assign($resolved),
             'expires_at' => $expiresAt->toIso8601String(),
             // The signed URL is deliberately not a bearer URL. The file route
-            // still requires an OAuth token with documents:read, so either
-            // credential captured alone is insufficient to retrieve PHI.
+            // still requires an OAuth token with documents:read (or billing:read
+            // for an EOB source document), so either credential captured alone
+            // is insufficient to retrieve PHI.
             'download_url' => URL::temporarySignedRoute(
                 'agent-api.v1.documents.file',
                 $expiresAt,
@@ -148,7 +162,7 @@ final class AgentDocumentController extends Controller
 
     public function file(Request $request, int $patient, int $document): StreamedResponse
     {
-        $resolved = $this->document($request, $patient, $document);
+        $resolved = $this->downloadableDocument($request, $patient, $document);
         $this->assertStoredFile($resolved);
         $stream = Storage::disk(PhrDocument::STORAGE_DISK)->readStream((string) $resolved->storage_path);
         abort_unless(is_resource($stream), 404);
@@ -173,6 +187,25 @@ final class AgentDocumentController extends Controller
         $patientId = $this->patientId($request, $patient);
 
         return PhrDocument::query()->where('patient_id', $patientId)->with('genAiJob:id,status')->findOrFail($document);
+    }
+
+    /**
+     * The document a download may serve. billing:read without documents:read
+     * reaches only the source document of one of the patient's EOBs (the
+     * substantiation a finance application keeps a reference to); any other
+     * document is not found, so its existence is not disclosed either.
+     */
+    private function downloadableDocument(Request $request, int $patient, int $document): PhrDocument
+    {
+        $resolved = $this->document($request, $patient, $document);
+        if (! $request->user('api')?->tokenCan(AgentApiScopes::DOCUMENTS_READ)) {
+            abort_unless(
+                PhrEob::query()->where('patient_id', $resolved->patient_id)->where('source_document_id', $resolved->id)->exists(),
+                404,
+            );
+        }
+
+        return $resolved;
     }
 
     private function patientId(Request $request, int $patient): int
@@ -224,10 +257,12 @@ final class AgentDocumentController extends Controller
     }
 
     /** @return array<string, mixed> */
-    private function payload(PhrDocument $document): array
+    private function payload(PhrDocument $document, ?string $publicId = null, ?string $patientPublicId = null): array
     {
         return [
             'id' => $document->id, 'patient_id' => $document->patient_id,
+            'public_id' => $publicId ?? $this->publicIds->assign($document),
+            'patient_public_id' => $patientPublicId ?? $this->publicIds->forPatient((int) $document->patient_id),
             'title' => $document->title, 'document_type' => $document->document_type,
             'observed_at' => $document->observed_at?->toIso8601String(),
             'original_filename' => $document->original_filename,

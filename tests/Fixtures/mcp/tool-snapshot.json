@@ -232,6 +232,7 @@
                 "patients:write",
                 "clinical:read",
                 "clinical:write",
+                "billing:read",
                 "documents:read",
                 "documents:write",
                 "imports:read",
@@ -358,7 +359,7 @@
             "description": "Discover the PHR API version, scopes, operations, resources, and limits.",
             "inputSchema": "sha256:bd002e19f8640d2c8613a2e22a7c79fb7eab69bd192f5e19d16984554ce5bff2",
             "name": "capabilities.get",
-            "outputSchema": "sha256:858352f5771a8017596a2eaca995a053a34ddc6dc33e501e4456295f114762a8",
+            "outputSchema": "sha256:9eca6178e62d90c928d223ccbcf0e9463e36b1cc88e3a5fef80c595b5551a8c5",
             "title": "Get capabilities"
         },
         "changes.list": {
@@ -579,7 +580,7 @@
             "description": "Create short-lived, OAuth-bound download access for one authorized document.",
             "inputSchema": "sha256:7eecf0b777c43a0bdb4a47345c08961d5d8dccb031f6176203dd69cef6374640",
             "name": "documents.download_access.create",
-            "outputSchema": "sha256:ae0c526d8c7cc7a72c06dd63196014cea7c6b7990e0e89f3a066362f63b02b81",
+            "outputSchema": "sha256:17e96b3dd61f4622c87c7db1087ae202de8e15a307932ff3460d1dc734f2602d",
             "title": "Create document download access"
         },
         "documents.get": {
@@ -592,7 +593,7 @@
             "description": "Get document metadata without returning file contents.",
             "inputSchema": "sha256:7eecf0b777c43a0bdb4a47345c08961d5d8dccb031f6176203dd69cef6374640",
             "name": "documents.get",
-            "outputSchema": "sha256:028c9a0a0d6396c71e63ce1c5a94afb012c3bf962b7881816944e5a31aacb899",
+            "outputSchema": "sha256:b45795821efc2ec8fc482b31d0a8e480b27d3119d15f9920e4f9582790e31b75",
             "title": "Get document"
         },
         "documents.list": {
@@ -605,7 +606,7 @@
             "description": "List document metadata without returning file contents.",
             "inputSchema": "sha256:0ea57a7b6e42d62a4f92a3267043af5d838a353ca55c349fd35c2a4007efb3e9",
             "name": "documents.list",
-            "outputSchema": "sha256:c9b3a2c110403bd41646637036b9ff07ddfb08380c8b16d0178132f9cbcdf56c",
+            "outputSchema": "sha256:5756b0b8c6b785f1de9b0d213fc48e9b5341afb6b214b940c9c52a6bf1169d90",
             "title": "List documents"
         },
         "documents.upload": {
@@ -618,7 +619,7 @@
             "description": "Idempotently upload a small document through the versioned REST API. Use the multipart REST endpoint for larger files.",
             "inputSchema": "sha256:c191587fdac812a56868863ce4a851dc848802e6fa6e7ffb652bc639553385a6",
             "name": "documents.upload",
-            "outputSchema": "sha256:9857534f04df1313ffebc4606179d87e556f00ca34c4ec9f256d50f961ab8aa1",
+            "outputSchema": "sha256:a1231c3674c265911b4324341958d2df215941c572201721b7294668eb39f330",
             "title": "Upload document"
         },
         "eob_lines.get": {
@@ -644,7 +645,7 @@
             "description": "List line items for one accessible explanation-of-benefits record.",
             "inputSchema": "sha256:e206db802fbb300a0428688059d21ac30671832b10f6c7c1a2b0a48bbb8b7a77",
             "name": "eob_lines.list",
-            "outputSchema": "sha256:7c72e18d393b690369d0c5575be255bf29836f22fb9283b3b8d24090c2ec647d",
+            "outputSchema": "sha256:c7ab29854b9f69764c6146e50aec826e0e87e7e3725c503a976296e3baa2fad3",
             "title": "List EOB lines"
         },
         "eobs.get": {
@@ -657,7 +658,7 @@
             "description": "Get one explanation-of-benefits record for an accessible patient.",
             "inputSchema": "sha256:51451b81e32eea85ef918b8b43d1eb437ed08f6db252d794c7872755ace103ec",
             "name": "eobs.get",
-            "outputSchema": "sha256:e61b2c3899dd0ec4048cc0e430d33b48767e192e3fb0cba715572db977b0e352",
+            "outputSchema": "sha256:7b26254cbeea719112678103ef68f6ae929a17046876fe119099c4d9613ad4e8",
             "title": "Get EOB"
         },
         "eobs.list": {
@@ -670,7 +671,7 @@
             "description": "List explanation-of-benefits records for an accessible patient.",
             "inputSchema": "sha256:6b8f38d614dfd7f56cfb11fb79867335539ac6f46639e967bd8c05668404042e",
             "name": "eobs.list",
-            "outputSchema": "sha256:11c8ebf499cb83cb7d5b08b717fdd79c1350f6c57c5a0911c45b1ea0bc2a97a6",
+            "outputSchema": "sha256:5449396dc5df9dc3f651a171a143ca46e089b7e48f0ab682b6714d161ba9fef6",
             "title": "List EOBs"
         },
         "evidence.links": {
@@ -813,7 +814,7 @@
             "description": "Return the authorized account identity and granted OAuth scopes.",
             "inputSchema": "sha256:bd002e19f8640d2c8613a2e22a7c79fb7eab69bd192f5e19d16984554ce5bff2",
             "name": "identity.get",
-            "outputSchema": "sha256:6ef3b79e5a8d716afd6130eaf74d0d23e7a059f84d7a7911e26eb6c162f7068a",
+            "outputSchema": "sha256:0c2cb91f5363013c0862a81a50b15171e960604396d59471c235520067f3229f",
             "title": "Get identity"
         },
         "immunizations.update": {
@@ -1034,7 +1035,7 @@
             "description": "Create a new PHR patient owned by the authorized account and grant that account owner-level access to it. This is not idempotent and has no deduplication key: confirm with patients.list that the person is not already present before calling it, and never retry a call whose outcome is unknown without checking first.",
             "inputSchema": "sha256:42ee6e59d850ace0f12f1b2a7f5f909f7e0db564dd06abb84e00269b400cb208",
             "name": "patients.create",
-            "outputSchema": "sha256:005d0a7ff7b381e59f52f54fc07ea3ad8175352d5062a1f0f49141f8f218c294",
+            "outputSchema": "sha256:9a02dc98a9259b07e33841ddd254bdb73a9f8f13847db6114a8a22a228f65f76",
             "title": "Create patient"
         },
         "patients.get": {
@@ -1047,7 +1048,7 @@
             "description": "Get one accessible patient and its current access metadata.",
             "inputSchema": "sha256:2e286a5215cdbe324d46ca789bb5fb63023e8a87c11602fe62dfbc2315347ccb",
             "name": "patients.get",
-            "outputSchema": "sha256:005d0a7ff7b381e59f52f54fc07ea3ad8175352d5062a1f0f49141f8f218c294",
+            "outputSchema": "sha256:9a02dc98a9259b07e33841ddd254bdb73a9f8f13847db6114a8a22a228f65f76",
             "title": "Get patient"
         },
         "patients.list": {
@@ -1060,7 +1061,7 @@
             "description": "List only patients accessible to the authorized account, with bounded pagination.",
             "inputSchema": "sha256:9fb775af01c13cc610ffea5266a5571d940cc6ef00f7204c129af937fc1d9470",
             "name": "patients.list",
-            "outputSchema": "sha256:f5ffc1d14e639f1bc286c72a2dad2812376efb88f02188698f996912a65726a3",
+            "outputSchema": "sha256:3689b2f085011e12047f1ac7ec5c2d5fd7db5cc6008bc8a6fdd964c6e1a0c5c0",
             "title": "List patients"
         },
         "procedures.update": {

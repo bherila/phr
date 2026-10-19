@@ -105,13 +105,17 @@
     },
     "documents.download": {
         "scopes": [
-            "documents:read"
-        ]
+            "documents:read",
+            "billing:read"
+        ],
+        "scope_rule": "any"
     },
     "documents.download_access.create": {
         "scopes": [
-            "documents:read"
-        ]
+            "documents:read",
+            "billing:read"
+        ],
+        "scope_rule": "any"
     },
     "documents.get": {
         "scopes": [
@@ -135,18 +139,24 @@
     },
     "eob_lines.list": {
         "scopes": [
-            "clinical:read"
-        ]
+            "clinical:read",
+            "billing:read"
+        ],
+        "scope_rule": "any"
     },
     "eobs.get": {
         "scopes": [
-            "clinical:read"
-        ]
+            "clinical:read",
+            "billing:read"
+        ],
+        "scope_rule": "any"
     },
     "eobs.list": {
         "scopes": [
-            "clinical:read"
-        ]
+            "clinical:read",
+            "billing:read"
+        ],
+        "scope_rule": "any"
     },
     "evidence.links": {
         "scopes": [
@@ -349,13 +359,17 @@
     },
     "patients.get": {
         "scopes": [
-            "patients:read"
-        ]
+            "patients:read",
+            "billing:read"
+        ],
+        "scope_rule": "any"
     },
     "patients.list": {
         "scopes": [
-            "patients:read"
-        ]
+            "patients:read",
+            "billing:read"
+        ],
+        "scope_rule": "any"
     },
     "procedures.update": {
         "scopes": [

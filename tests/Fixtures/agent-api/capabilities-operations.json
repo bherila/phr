@@ -9,11 +9,19 @@
     },
     "patients.list": {
         "available": true,
-        "scope": "patients:read"
+        "scope": "patients:read",
+        "any_scopes": [
+            "patients:read",
+            "billing:read"
+        ]
     },
     "patients.get": {
         "available": true,
-        "scope": "patients:read"
+        "scope": "patients:read",
+        "any_scopes": [
+            "patients:read",
+            "billing:read"
+        ]
     },
     "patients.create": {
         "available": true,
@@ -89,15 +97,27 @@
     },
     "eobs.list": {
         "available": true,
-        "scope": "clinical:read"
+        "scope": "clinical:read",
+        "any_scopes": [
+            "clinical:read",
+            "billing:read"
+        ]
     },
     "eobs.get": {
         "available": true,
-        "scope": "clinical:read"
+        "scope": "clinical:read",
+        "any_scopes": [
+            "clinical:read",
+            "billing:read"
+        ]
     },
     "eob_lines.list": {
         "available": true,
-        "scope": "clinical:read"
+        "scope": "clinical:read",
+        "any_scopes": [
+            "clinical:read",
+            "billing:read"
+        ]
     },
     "eob_lines.get": {
         "available": true,
@@ -121,11 +141,19 @@
     },
     "documents.download_access.create": {
         "available": true,
-        "scope": "documents:read"
+        "scope": "documents:read",
+        "any_scopes": [
+            "documents:read",
+            "billing:read"
+        ]
     },
     "documents.download": {
         "available": true,
-        "scope": "documents:read"
+        "scope": "documents:read",
+        "any_scopes": [
+            "documents:read",
+            "billing:read"
+        ]
     },
     "dicom_studies.list": {
         "available": true,

@@ -37,6 +37,13 @@ requests cannot create unbounded session, parsing, or transaction work.
 Protected-resource pre-authentication buckets normalize numeric patient and record
 path segments, preventing identifier changes from creating fresh parsing budgets.
 
+`identity.get` (`identity:read`) also returns `provider_subject`, the caller's subject
+at the trusted identity provider (null for an account not bound to it), so a connecting
+application can confirm it reached the account of the person who connected. It is a
+stable cross-application identifier, not a secret, but it appears only in that
+authorized self-description: never in a public response, a refusal, an audit row or
+a log.
+
 Patient discovery deliberately has its own `patients:read` scope. Its response omits
 the owner's user id and every grant except the caller's fixed access metadata.
 Patient creation requires the separate `patients:write` scope and reuses the same
@@ -233,6 +240,40 @@ the fixed route name, method, status, duration, and timestamp. Application and O
 errors must remain generic; operational logs must never include bearer credentials or
 clinical payloads. Repeated 429 responses are atomically sampled to one audit per
 actor, route, and UTC minute, and metadata audits are pruned after 365 days by default.
+
+## Finance projection (`billing:read`)
+
+A finance application matches EOBs to the payments for them and needs nothing
+clinical, so it gets `billing:read` instead of `clinical:read`. The scope is an
+alternative, not an addition: `eobs.list`, `eobs.get` and `eob_lines.list` accept
+it instead of `clinical:read`, and `patients.list` and `patients.get` instead of
+`patients:read`; capabilities report such an operation with `any_scopes`. A
+credential that holds `billing:read` without the broader scope sees the finance
+projection only:
+
+- EOBs: ids and public ids, claim type, import source, the service-date range over
+  the lines, processed date, provider name, claim number, source document, and the
+  charges, accepted fee, plan payment, deductible, copay and patient-responsibility
+  totals.
+- EOB lines: amounts and service dates.
+- Patients: id, public id, display name and the caller's own `access_level`, so the
+  finance application binds only the profiles the connecting person owns: any grant
+  lets a person read a patient's EOBs, but only `owner` means the profile is theirs.
+- Documents: no metadata, but `documents.download_access.create` and the signed file
+  route also accept it for a document that is the source document of one of the
+  patient's EOBs, the substantiation a finance application keeps a reference to and
+  hashes. Any other document (a letter of medical necessity, for example) answers
+  404 to it, even with a signature obtained by another credential.
+
+Procedure and revenue codes, line descriptions, diagnoses, notes, plan, administrator,
+carrier and member details are never returned to it, and every other clinical
+operation (search, timeline, change feed, evidence links, single EOB lines, clinical
+records) refuses it. Patient access still applies to every request. The scope is
+REST-only: the MCP resource neither advertises nor accepts it. It is granted to an
+application-registered (first-party) client only: self-registration refuses it as
+`invalid_client_metadata` and leaves it out of the default ceiling, the authorization
+endpoint therefore refuses it for such a client, and Passport drops it from any token
+issued to a dynamically registered client even if a stored ceiling names it.
 
 ## Token lifecycle
 

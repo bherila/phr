@@ -11,6 +11,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
 use Laravel\Passport\AuthCode;
 use Laravel\Passport\Client;
+use Laravel\Passport\Passport;
 use Laravel\Passport\Token;
 use Tests\TestCase;
 
@@ -251,10 +252,50 @@ final class AgentApiOAuthClientRegistrationTest extends TestCase
             'client_name' => 'Synthetic Unscoped Agent',
             'redirect_uris' => ['https://agent.example.test/callback'],
         ])->assertCreated()
-            ->assertJsonPath('scope', implode(' ', AgentApiScopes::ids()));
+            ->assertJsonPath('scope', implode(' ', AgentApiScopes::dynamicClientIds()));
 
         $client = Client::query()->findOrFail($response->json('client_id'));
-        $this->assertSame(AgentApiScopes::ids(), $client->scopes);
+        $this->assertSame(AgentApiScopes::dynamicClientIds(), $client->scopes);
+        $this->assertNotContains(AgentApiScopes::BILLING_READ, $client->scopes);
+    }
+
+    public function test_a_dynamically_registered_client_is_never_offered_billing_read(): void
+    {
+        $this->postJson('/oauth/register', [
+            'client_name' => 'Synthetic Finance Agent',
+            'redirect_uris' => ['https://agent.example.test/callback'],
+            'scope' => AgentApiScopes::IDENTITY_READ.' '.AgentApiScopes::BILLING_READ,
+        ])->assertStatus(400)->assertJsonPath('error', 'invalid_client_metadata');
+        $this->assertSame(0, Client::query()->whereNotNull('dynamically_registered_at')->count());
+        // The registration ceiling is restored after each request.
+        $this->assertArrayHasKey(AgentApiScopes::BILLING_READ, config('bherila-auth.oauth_server.scopes'));
+
+        $registered = Client::query()->findOrFail($this->postJson('/oauth/register', [
+            'client_name' => 'Synthetic Finance Agent',
+            'redirect_uris' => ['https://agent.example.test/callback'],
+        ])->assertCreated()->json('client_id'));
+        $user = User::factory()->create(['name' => 'Synthetic Billing User', 'email' => 'billing-user@example.test', 'user_role' => 'user']);
+        $this->assertOAuthErrorRedirect($this->actingAs($user)->get('/oauth/authorize?'.http_build_query([
+            'client_id' => $registered->id,
+            'redirect_uri' => 'https://agent.example.test/callback',
+            'response_type' => 'code',
+            'scope' => AgentApiScopes::BILLING_READ,
+            'state' => 'synthetic-billing-state',
+            'code_challenge' => $this->pkce()[1],
+            'code_challenge_method' => 'S256',
+            'resource' => OAuthResourceIndicator::resource(),
+        ])), 'invalid_scope');
+
+        // Even a self-registration whose stored ceiling names it never receives it.
+        $legacy = $this->publicClient('Synthetic Legacy Agent');
+        $legacy->forceFill(['dynamically_registered_at' => now(), 'scopes' => [AgentApiScopes::IDENTITY_READ, AgentApiScopes::BILLING_READ]])->save();
+        $legacy = Passport::client()->newQuery()->findOrFail($legacy->id);
+        $this->assertFalse($legacy->hasScope(AgentApiScopes::BILLING_READ));
+        $this->assertTrue($legacy->hasScope(AgentApiScopes::IDENTITY_READ));
+
+        // An application-registered client may hold it.
+        $application = Passport::client()->newQuery()->findOrFail($this->publicClient('Synthetic Finance Application')->id);
+        $this->assertTrue($application->hasScope(AgentApiScopes::BILLING_READ));
     }
 
     public function test_single_callback_is_displayed_when_authorization_omits_redirect_uri(): void
