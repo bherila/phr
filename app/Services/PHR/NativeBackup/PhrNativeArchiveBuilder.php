@@ -103,6 +103,9 @@ final class PhrNativeArchiveBuilder
                     throw new NativeBackupException('artifact_unreadable');
                 }
 
+                // Verified again as written: the earlier check read the object
+                // separately, and the manifest must describe these exact bytes.
+                $written = PhrNativeHashingFilter::attach($stream);
                 try {
                     $zip->addFileFromStream(
                         fileName: $artifact['path'],
@@ -112,6 +115,13 @@ final class PhrNativeArchiveBuilder
                     );
                 } finally {
                     fclose($stream);
+                }
+                $digest = PhrNativeHashingFilter::finish($written);
+                if ($digest['bytes'] !== $artifact['size']) {
+                    throw new NativeBackupException('artifact_size_mismatch');
+                }
+                if (! hash_equals($artifact['sha256'], $digest['sha256'])) {
+                    throw new NativeBackupException('artifact_hash_mismatch');
                 }
             }
 
@@ -233,7 +243,7 @@ final class PhrNativeArchiveBuilder
             $candidates[] = [
                 'kind' => 'document',
                 'recordNativeId' => $identities['phr_documents'][(int) $row->id],
-                'path' => 'artifacts/documents/'.$identities['phr_documents'][(int) $row->id].'.blob',
+                'path' => PhrNativeBackupCatalog::artifactPath('document', $identities['phr_documents'][(int) $row->id]),
                 'disk' => PhrDocument::STORAGE_DISK,
                 'source_key' => (string) $row->storage_path,
                 'expected_size' => (int) $row->byte_size,
@@ -241,13 +251,27 @@ final class PhrNativeArchiveBuilder
             ];
         }
         foreach ($rows['phr_dicom_files'] as $row) {
+            $kind = $row->file_kind === PhrDicomFile::KIND_DICOMDIR ? 'dicomdir' : 'dicom';
             $candidates[] = [
-                'kind' => $row->file_kind === PhrDicomFile::KIND_DICOMDIR ? 'dicomdir' : 'dicom',
+                'kind' => $kind,
                 'recordNativeId' => $identities['phr_dicom_files'][(int) $row->id],
-                'path' => 'artifacts/dicom/'.$identities['phr_dicom_files'][(int) $row->id].'.blob',
+                'path' => PhrNativeBackupCatalog::artifactPath($kind, $identities['phr_dicom_files'][(int) $row->id]),
                 'disk' => 'phr_dicom',
                 'source_key' => (string) $row->r2_key,
                 'expected_size' => (int) $row->file_size_bytes,
+                'expected_hash' => strtolower((string) $row->sha256),
+            ];
+        }
+        // Preserved EHI member bytes: one artifact per content-addressed blob row,
+        // shared by every member (in every package) that has those bytes.
+        foreach ($rows['phr_ehi_blobs'] as $row) {
+            $candidates[] = [
+                'kind' => 'ehi',
+                'recordNativeId' => $identities['phr_ehi_blobs'][(int) $row->id],
+                'path' => PhrNativeBackupCatalog::artifactPath('ehi', $identities['phr_ehi_blobs'][(int) $row->id]),
+                'disk' => (string) $row->storage_disk,
+                'source_key' => (string) $row->storage_path,
+                'expected_size' => (int) $row->byte_size,
                 'expected_hash' => strtolower((string) $row->sha256),
             ];
         }

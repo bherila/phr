@@ -14,8 +14,10 @@ use App\Services\PHR\NativeBackup\NativeBackupException;
 use App\Services\PHR\NativeBackup\PhrNativeBackupCatalog;
 use App\Services\PHR\NativeBackup\PhrNativeBackupService;
 use App\Services\PHR\NativeBackup\PhrNativeSnapshotService;
+use App\Support\Storage\PhrStorageKey;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -307,8 +309,21 @@ class PhrNativeBackupTest extends TestCase
         $this->assertSame($expectedExclusions, $manifestExclusions);
         $this->assertSame(2, $firstManifest['tables']['phr_documents']['count']);
         $this->assertSame(2, $firstManifest['tables']['phr_patient_user_access']['count']);
-        $this->assertSame(2, count($firstManifest['artifacts']));
-        $this->assertSame(['dicom', 'document'], $this->artifactKinds($firstManifest));
+        $this->assertSame(3, count($firstManifest['artifacts']));
+        $this->assertSame(['dicom', 'document', 'ehi'], $this->artifactKinds($firstManifest));
+        $this->assertSame(2, $firstManifest['tables']['phr_ehi_table_accounts']['count']);
+        $this->assertSame(2, $firstManifest['tables']['phr_ehi_findings']['count']);
+        $packageRecords = $this->archiveEntry($archivePath, $firstManifest['tables']['phr_ehi_packages']['path']);
+        foreach (['lease_token', 'lease_expires_at', 'checkpoint_json'] as $operational) {
+            $this->assertStringNotContainsString('"'.$operational.'"', $packageRecords);
+        }
+        $this->assertStringNotContainsString('"storage_path"', $this->archiveEntry($archivePath, $firstManifest['tables']['phr_ehi_blobs']['path']));
+        $ehiArtifact = $firstManifest['artifacts'][array_search('ehi', array_column($firstManifest['artifacts'], 'kind'), true)];
+        $this->assertSame('artifacts/ehi/'.$ehiArtifact['recordNativeId'].'.blob', $ehiArtifact['path']);
+        $this->assertSame(
+            hash('sha256', $this->archiveEntry($archivePath, $ehiArtifact['path'])),
+            DB::table('phr_ehi_blobs')->where('patient_id', $patient->id)->value('sha256'),
+        );
 
         $downloadUrl = URL::temporarySignedRoute(
             'phr.native-backups.download',
@@ -354,6 +369,9 @@ class PhrNativeBackupTest extends TestCase
         );
 
         $this->assertSame([], DB::select('PRAGMA foreign_key_check'));
+        $this->assertNull(DB::table('phr_ehi_packages')->where('patient_id', $restoredPatientId)->value('lease_token'));
+        $restoredBlob = DB::table('phr_ehi_blobs')->where('patient_id', $restoredPatientId)->sole();
+        $this->assertSame((string) $restoredBlob->sha256, hash('sha256', Storage::disk((string) $restoredBlob->storage_disk)->get((string) $restoredBlob->storage_path)));
         $restoredPatient = PhrPatient::query()->findOrFail($restoredPatientId);
         $secondBackup = $this->generate($restoredPatient, $restoredOwner);
         $secondManifest = $this->manifest($secondBackup);
@@ -370,6 +388,58 @@ class PhrNativeBackupTest extends TestCase
         $firstArtifacts = collect($firstManifest['artifacts'])->keyBy('recordNativeId')->map($projectArtifact)->all();
         $secondArtifacts = collect($secondManifest['artifacts'])->keyBy('recordNativeId')->map($projectArtifact)->all();
         $this->assertSame($firstArtifacts, $secondArtifacts);
+    }
+
+    public function test_an_artifact_changed_after_its_check_fails_the_backup(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->createPatient($owner);
+        $bytes = 'synthetic-bytes-0123456789';
+        Storage::disk(PhrDocument::STORAGE_DISK)->put('fixtures/changing.bin', $bytes);
+        PhrDocument::query()->create([
+            'patient_id' => $patient->id,
+            'user_id' => $owner->id,
+            'uploaded_by_user_id' => $owner->id,
+            'title' => 'Synthetic changing artifact',
+            'document_type' => 'other',
+            'storage_disk' => PhrDocument::STORAGE_DISK,
+            'storage_path' => 'fixtures/changing.bin',
+            'mime_type' => 'application/octet-stream',
+            'byte_size' => strlen($bytes),
+            'file_hash' => hash('sha256', $bytes),
+            'source' => 'manual_upload',
+        ]);
+        // The first read (the check) sees the recorded bytes; the second (the
+        // archive write) sees same-length bytes that differ.
+        /** @var FilesystemAdapter $fake */
+        $fake = Storage::disk(PhrDocument::STORAGE_DISK);
+        $disk = new class($fake->getDriver(), $fake->getAdapter(), $fake->getConfig()) extends FilesystemAdapter
+        {
+            public int $reads = 0;
+
+            public function readStream($path)
+            {
+                if ($path !== 'fixtures/changing.bin' || ++$this->reads < 2) {
+                    return parent::readStream($path);
+                }
+                $swapped = fopen('php://memory', 'w+b');
+                fwrite($swapped, strrev((string) parent::get($path)));
+                rewind($swapped);
+
+                return $swapped;
+            }
+        };
+        Storage::set(PhrDocument::STORAGE_DISK, $disk);
+
+        $backup = $this->newBackup($patient, $owner);
+        try {
+            app(PhrNativeBackupService::class)->generate($backup);
+            $this->fail('An artifact that changed after its check must fail the backup.');
+        } catch (NativeBackupException $exception) {
+            $this->assertSame('artifact_hash_mismatch', $exception->failureCategory);
+        }
+        $this->assertSame(2, $disk->reads);
+        $this->assertDatabaseHas('phr_native_backups', ['id' => $backup->id, 'status' => PhrNativeBackup::STATUS_FAILED, 'storage_path' => null]);
     }
 
     public function test_missing_object_and_size_ceiling_fail_without_leaking_storage_details(): void
@@ -694,6 +764,95 @@ class PhrNativeBackupTest extends TestCase
             'created_at' => $now,
             'updated_at' => $now,
         ]);
+
+        $sourceId = DB::table('phr_ehi_sources')->insertGetId([
+            'patient_id' => $patient->id,
+            'created_by_user_id' => $owner->id,
+            'label' => 'Synthetic source',
+            'source_patient_key' => '000123',
+            'dictionary_fingerprint' => str_repeat('d', 64),
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+        $packageId = DB::table('phr_ehi_packages')->insertGetId([
+            'patient_id' => $patient->id,
+            'source_id' => $sourceId,
+            'created_by_user_id' => $owner->id,
+            'bound_by_user_id' => $reviewer->id,
+            'manifest_digest' => str_repeat('e', 64),
+            'intake_kind' => 'zip',
+            'original_archive_sha256' => str_repeat('f', 64),
+            'original_archive_bytes' => 512,
+            'member_count' => 1,
+            'total_bytes' => 64,
+            'detected_source_patient_key' => '000123',
+            'preservation_status' => 'preserved',
+            'accounting_status' => 'accounted',
+            'binding_status' => 'bound',
+            'bound_at' => $now,
+            // Operational: excluded from the archive and null after restore.
+            'lease_token' => '00000000-0000-4000-8000-0000000000aa',
+            'lease_expires_at' => $now,
+            'checkpoint_json' => json_encode(['step' => 'synthetic'], JSON_THROW_ON_ERROR),
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+        $ehiBytes = "PAT_ID\tSYNTHETIC_COLUMN\n000123\tvalue\n";
+        $ehiDigest = hash('sha256', $ehiBytes);
+        $ehiKey = PhrStorageKey::ehiBlob((int) $patient->id, $ehiDigest);
+        Storage::disk('phr_documents')->put($ehiKey, $ehiBytes);
+        $blobId = DB::table('phr_ehi_blobs')->insertGetId([
+            'patient_id' => $patient->id,
+            'sha256' => $ehiDigest,
+            'byte_size' => strlen($ehiBytes),
+            'storage_disk' => 'phr_documents',
+            'storage_path' => $ehiKey,
+            'verified_at' => $now,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+        $memberId = DB::table('phr_ehi_package_members')->insertGetId([
+            'patient_id' => $patient->id,
+            'package_id' => $packageId,
+            'blob_id' => $blobId,
+            'path' => 'SYNTHETIC_TABLE.tsv',
+            'path_sha256' => hash('sha256', 'SYNTHETIC_TABLE.tsv'),
+            'original_path' => 'export/SYNTHETIC_TABLE.tsv',
+            'byte_size' => strlen($ehiBytes),
+            'sha256' => $ehiDigest,
+            'kind' => 'table',
+            'table_name' => 'SYNTHETIC_TABLE',
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+        foreach ([['SYNTHETIC_TABLE', $memberId, 'parsed'], ['SYNTHETIC_ABSENT', null, 'missing']] as [$tableName, $accountMemberId, $state]) {
+            DB::table('phr_ehi_table_accounts')->insert([
+                'patient_id' => $patient->id,
+                'package_id' => $packageId,
+                'member_id' => $accountMemberId,
+                'table_name' => $tableName,
+                'state' => $state,
+                'header_columns_json' => json_encode(['PAT_ID', 'SYNTHETIC_COLUMN'], JSON_THROW_ON_ERROR),
+                'source_row_count' => $accountMemberId === null ? 0 : 1,
+                'disposition_counts_json' => json_encode(['retained_unmapped' => 1], JSON_THROW_ON_ERROR),
+                'parser_version' => 'synthetic-1',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        }
+        foreach ([$memberId, null] as $findingMemberId) {
+            DB::table('phr_ehi_findings')->insert([
+                'patient_id' => $patient->id,
+                'package_id' => $packageId,
+                'member_id' => $findingMemberId,
+                'code' => 'synthetic_finding',
+                'severity' => 'info',
+                'line_number' => $findingMemberId === null ? null : 2,
+                'column_name' => $findingMemberId === null ? null : 'SYNTHETIC_COLUMN',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        }
 
         return $patient;
     }

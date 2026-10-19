@@ -193,14 +193,24 @@ final class PhrNativeBackupTestReader
             $data['error_message'] = null;
         } elseif ($table === 'phr_dicom_files') {
             $data['r2_key'] = 'phr/dicom/restored/'.$record['nativeId'].'.blob';
+        } elseif ($table === 'phr_ehi_packages') {
+            $data['lease_token'] = null;
+            $data['lease_expires_at'] = null;
+            $data['checkpoint_json'] = null;
+        } elseif ($table === 'phr_ehi_blobs') {
+            $data['storage_disk'] = (string) config('phr.ehi_disk');
+            $data['storage_path'] = 'phr/ehi/restored/'.$record['nativeId'].'.blob';
         }
 
         if ($artifact === null) {
             return;
         }
 
-        $disk = $table === 'phr_documents' ? PhrDocument::STORAGE_DISK : 'phr_dicom';
-        $storagePath = $table === 'phr_documents' ? $data['storage_path'] : $data['r2_key'];
+        [$disk, $storagePath] = match ($table) {
+            'phr_documents' => [PhrDocument::STORAGE_DISK, $data['storage_path']],
+            'phr_ehi_blobs' => [$data['storage_disk'], $data['storage_path']],
+            default => ['phr_dicom', $data['r2_key']],
+        };
         $stream = $this->zip->getStream($artifact['path']);
         if (! is_resource($stream)) {
             throw new RuntimeException('Test archive artifact is missing.');

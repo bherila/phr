@@ -4,6 +4,8 @@ namespace Tests\Feature\Storage;
 
 use App\Models\PhrDicomUpload;
 use App\Support\Storage\BlobReferences;
+use App\Support\Storage\PhrStorageKey;
+use App\Support\Storage\PhrStorageMap;
 use App\Support\Storage\StoragePruner;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Support\Carbon;
@@ -121,6 +123,38 @@ class StoragePrunerTest extends TestCase
 
         $this->assertSame(1, $plan->scanned);
         $this->assertSame([], $plan->orphans);
+    }
+
+    public function test_live_ehi_blobs_are_protected_by_the_phr_storage_map(): void
+    {
+        Storage::fake('phr_documents');
+        $this->seedOwnerPatientAndUpload();
+        $digest = hash('sha256', 'synthetic ehi member');
+        $live = PhrStorageKey::ehiBlob($this->patientId, $digest);
+        $stray = PhrStorageKey::ehiBlob($this->patientId, hash('sha256', 'synthetic stray member'));
+        Storage::disk('phr_documents')->put($live, 'synthetic ehi member');
+        Storage::disk('phr_documents')->put($stray, 'synthetic stray member');
+        DB::table('phr_ehi_blobs')->insert([
+            'patient_id' => $this->patientId,
+            'sha256' => $digest,
+            'byte_size' => 20,
+            'storage_disk' => 'phr_documents',
+            'storage_path' => $live,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $this->ageEverything();
+
+        $plan = (new StoragePruner(
+            Storage::disk('phr_documents'),
+            PhrStorageMap::references(),
+            PhrStorageMap::disks()['phr_documents'],
+            24,
+            1.0,
+        ))->plan();
+
+        $this->assertSame(2, $plan->scanned);
+        $this->assertSame([$stray], $plan->orphans);
     }
 
     public function test_unreferenced_objects_are_orphans_once_old_enough(): void

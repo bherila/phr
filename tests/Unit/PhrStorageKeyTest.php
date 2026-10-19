@@ -85,6 +85,35 @@ class PhrStorageKeyTest extends TestCase
         PhrStorageKey::dicomObject(PhrStorageKey::dicomUpload(41, self::UUID), '../IMAGE0001.dcm');
     }
 
+    public function test_ehi_blobs_are_content_addressed_within_one_patient(): void
+    {
+        $digest = hash('sha256', 'synthetic ehi member');
+
+        $this->assertSame('patients/41/ehi/'.$digest, PhrStorageKey::ehiBlob(41, $digest));
+        $this->assertSame('patients/41/ehi/'.$digest, PhrStorageKey::ehiBlob(41, strtoupper($digest)));
+        $this->assertNotSame(PhrStorageKey::ehiBlob(41, $digest), PhrStorageKey::ehiBlob(42, $digest));
+    }
+
+    /** @return array<string, array{string}> */
+    public static function invalidDigestProvider(): array
+    {
+        return [
+            'empty' => [''],
+            'short' => [str_repeat('a', 63)],
+            'long' => [str_repeat('a', 65)],
+            'non hex' => [str_repeat('g', 64)],
+            'traversal' => ['../'.str_repeat('a', 61)],
+            'separator' => [str_repeat('a', 32).'/'.str_repeat('a', 31)],
+        ];
+    }
+
+    #[DataProvider('invalidDigestProvider')]
+    public function test_ehi_blob_keys_refuse_anything_but_a_sha256_digest(string $digest): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        PhrStorageKey::ehiBlob(41, $digest);
+    }
+
     public function test_safe_filenames_are_limited_by_bytes_for_local_filesystems(): void
     {
         $filename = PhrStorageKey::safeFilename(str_repeat('診', 100).'.pdf');

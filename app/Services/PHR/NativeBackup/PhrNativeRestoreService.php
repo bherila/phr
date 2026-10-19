@@ -502,8 +502,11 @@ final class PhrNativeRestoreService
                 $this->markRestoredApiParent($table, $data, $patientId, $restoreAttemptId);
 
                 if (is_array($artifact)) {
-                    $disk = $table === 'phr_documents' ? PhrDocument::STORAGE_DISK : 'phr_dicom';
-                    $path = $table === 'phr_documents' ? $data['storage_path'] : $data['r2_key'];
+                    [$disk, $path] = match ($table) {
+                        'phr_documents' => [PhrDocument::STORAGE_DISK, $data['storage_path']],
+                        'phr_ehi_blobs' => [$data['storage_disk'], $data['storage_path']],
+                        default => ['phr_dicom', $data['r2_key']],
+                    };
                     $written->add($disk, $path);
                     if (! $archive->copyArtifactTo((string) $artifact['path'], $disk, $path)) {
                         throw new NativeRestoreException('artifact_write_failed');
@@ -596,6 +599,16 @@ final class PhrNativeRestoreService
                 throw new NativeRestoreException('relationship_missing');
             }
             $data['r2_key'] = PhrStorageKey::dicomObject($uploadPrefix, (string) ($data['original_relative_path'] ?? ''));
+        } elseif ($table === 'phr_ehi_packages') {
+            // A restored package is never mid-intake; its lease and resume state
+            // belonged to a worker on the source installation.
+            $data['lease_token'] = null;
+            $data['lease_expires_at'] = null;
+            $data['checkpoint_json'] = null;
+        } elseif ($table === 'phr_ehi_blobs') {
+            // The reader has already proven the archived bytes hash to this digest.
+            $data['storage_disk'] = (string) config('phr.ehi_disk');
+            $data['storage_path'] = PhrStorageKey::ehiBlob($patientId, (string) ($data['sha256'] ?? ''));
         }
     }
 }

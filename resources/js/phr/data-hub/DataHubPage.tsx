@@ -50,6 +50,8 @@ const FILE_CATEGORIES: DataHubCategoryKey[] = [
   'dicom_series',
   'dicom_instances',
   'original_dicom_files',
+  'ehi_packages',
+  'ehi_preserved_files',
 ]
 
 const DELETION_MESSAGES: Record<string, string> = {
@@ -57,6 +59,7 @@ const DELETION_MESSAGES: Record<string, string> = {
   clinical_export_in_progress: 'A clinical export is still being generated. Wait for it to finish, then preview again.',
   dispatch_failed: 'Storage cleanup could not be queued. Retry the cleanup.',
   dicom_upload_in_progress: 'A DICOM upload is still in progress. Finish or cancel it, then preview again.',
+  ehi_intake_in_progress: 'An EHI package intake is still running. Wait for it to finish, then preview again.',
   invalid_storage_reference: 'A stored-file reference needs administrator attention before deletion.',
   native_backup_in_progress: 'A native backup is still being generated. Wait for it to finish, then preview again.',
   preview_changed: 'The patient data changed after this preview. Generate a new deletion preview.',
@@ -162,9 +165,10 @@ function PatientCard({ patient, currentExport, currentBackup, busy, exportError,
       <details className="mt-3 rounded-md border border-border p-3">
         <summary className="cursor-pointer text-sm font-medium">Documents and imaging inventory</summary>
         <div className="mt-3">{countRows(patient, FILE_CATEGORIES)}</div>
-        <dl className="mt-4 grid gap-2 rounded-md bg-muted/50 p-3 text-sm sm:grid-cols-3">
+        <dl className="mt-4 grid gap-2 rounded-md bg-muted/50 p-3 text-sm sm:grid-cols-4">
           <div><dt className="text-muted-foreground">Documents</dt><dd className="font-medium">{formatBytes(patient.storage_bytes.documents)}</dd></div>
           <div><dt className="text-muted-foreground">Original DICOM</dt><dd className="font-medium">{formatBytes(patient.storage_bytes.original_dicom)}</dd></div>
+          <div><dt className="text-muted-foreground">EHI packages</dt><dd className="font-medium">{formatBytes(patient.storage_bytes.ehi)}</dd></div>
           <div><dt className="text-muted-foreground">Total source storage</dt><dd className="font-medium">{formatBytes(patient.storage_bytes.total)}</dd></div>
         </dl>
       </details>

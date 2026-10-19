@@ -157,6 +157,53 @@ final class PhrNativeBackupCatalog
             'phr_respiratory_events' => ['patient_column' => 'phr_patient_id'],
             'phr_sinus_settings' => ['patient_column' => 'phr_patient_id'],
             'phr_sinus_enrollments' => ['patient_column' => 'phr_patient_id'],
+            // EHI Tables intake (#213). Parents first: restore inserts in this order.
+            // Member bytes are archived once per content-addressed blob row.
+            'phr_ehi_sources' => [
+                'patient_column' => 'patient_id',
+                'relationships' => ['created_by_user_id' => self::actor(true)],
+            ],
+            'phr_ehi_packages' => [
+                'patient_column' => 'patient_id',
+                'relationships' => [
+                    'source_id' => self::record('phr_ehi_sources', true),
+                    'created_by_user_id' => self::actor(true),
+                    'bound_by_user_id' => self::actor(true),
+                ],
+                'excluded_columns' => [
+                    'lease_token' => 'Operational intake lease; restore sets it to null.',
+                    'lease_expires_at' => 'Operational intake lease; restore sets it to null.',
+                    'checkpoint_json' => 'Operational resume state, not authoritative patient data.',
+                ],
+            ],
+            'phr_ehi_blobs' => [
+                'patient_column' => 'patient_id',
+                'excluded_columns' => [
+                    'storage_disk' => 'Archive reader selects the configured EHI disk.',
+                    'storage_path' => 'Storage keys are regenerated from the content address.',
+                ],
+            ],
+            'phr_ehi_package_members' => [
+                'patient_column' => 'patient_id',
+                'relationships' => [
+                    'package_id' => self::record('phr_ehi_packages', false),
+                    'blob_id' => self::record('phr_ehi_blobs', false),
+                ],
+            ],
+            'phr_ehi_table_accounts' => [
+                'patient_column' => 'patient_id',
+                'relationships' => [
+                    'package_id' => self::record('phr_ehi_packages', false),
+                    'member_id' => self::record('phr_ehi_package_members', true),
+                ],
+            ],
+            'phr_ehi_findings' => [
+                'patient_column' => 'patient_id',
+                'relationships' => [
+                    'package_id' => self::record('phr_ehi_packages', false),
+                    'member_id' => self::record('phr_ehi_package_members', true),
+                ],
+            ],
             'phr_patient_user_access' => [
                 'patient_column' => 'patient_id',
                 'relationships' => [
@@ -202,7 +249,35 @@ final class PhrNativeBackupCatalog
         return [
             'phr_documents' => 'storage_path',
             'phr_dicom_files' => 'r2_key',
+            'phr_ehi_blobs' => 'storage_path',
         ];
+    }
+
+    /**
+     * Manifest artifact kind => the table whose row owns and describes its bytes.
+     *
+     * @return array<string, string>
+     */
+    public static function artifactKinds(): array
+    {
+        return [
+            'document' => 'phr_documents',
+            'dicom' => 'phr_dicom_files',
+            'dicomdir' => 'phr_dicom_files',
+            'ehi' => 'phr_ehi_blobs',
+        ];
+    }
+
+    public static function artifactPath(string $kind, string $recordNativeId): string
+    {
+        $directory = match ($kind) {
+            'document' => 'documents',
+            'dicom', 'dicomdir' => 'dicom',
+            'ehi' => 'ehi',
+            default => throw new \InvalidArgumentException('Unknown native artifact kind.'),
+        };
+
+        return 'artifacts/'.$directory.'/'.$recordNativeId.'.blob';
     }
 
     /** @return array{target: string, kind: 'record', nullable: bool} */

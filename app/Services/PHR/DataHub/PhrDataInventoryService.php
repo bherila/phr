@@ -49,6 +49,14 @@ final class PhrDataInventoryService
             'storage_column' => 'file_size_bytes',
             'original_dicom_only' => true,
         ],
+        // Preserved EHI Tables packages and their deduplicated member bytes. Both
+        // are unmapped source evidence, not clinical records.
+        'ehi_packages' => ['table' => 'phr_ehi_packages', 'patient_column' => 'patient_id'],
+        'ehi_preserved_files' => [
+            'table' => 'phr_ehi_blobs',
+            'patient_column' => 'patient_id',
+            'storage_column' => 'byte_size',
+        ],
     ];
 
     public function __construct(private readonly PhrPatientAccessService $accessService) {}
@@ -70,6 +78,7 @@ final class PhrDataInventoryService
             $counts = array_fill_keys(array_keys(self::CATEGORIES), 0);
             $documentBytes = 0;
             $dicomBytes = 0;
+            $ehiBytes = 0;
             $lastUpdated = $this->immutableDate($patient->updated_at);
 
             foreach ($categoryRows->get((int) $patient->id, collect()) as $row) {
@@ -81,6 +90,8 @@ final class PhrDataInventoryService
                     $documentBytes = (int) $row->storage_bytes;
                 } elseif ($category === 'original_dicom_files') {
                     $dicomBytes = (int) $row->storage_bytes;
+                } elseif ($category === 'ehi_preserved_files') {
+                    $ehiBytes = (int) $row->storage_bytes;
                 }
             }
 
@@ -99,7 +110,8 @@ final class PhrDataInventoryService
                 'storage_bytes' => [
                     'documents' => $documentBytes,
                     'original_dicom' => $dicomBytes,
-                    'total' => $documentBytes + $dicomBytes,
+                    'ehi' => $ehiBytes,
+                    'total' => $documentBytes + $dicomBytes + $ehiBytes,
                 ],
                 'last_updated_at' => $lastUpdated?->toIso8601String(),
                 'active_share_count' => $activeShareCount,

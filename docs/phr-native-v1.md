@@ -7,8 +7,8 @@ contracts are unchanged. Version 1 is a Zip64 archive containing:
 - `manifest.json`, with the schema version, table counts and hashes, artifact metadata,
   and documented exclusions;
 - one canonical NDJSON file under `records/` for every included catalog table; and
-- opaque artifact entries under `artifacts/` for source documents and authoritative
-  DICOM/DICOMDIR files.
+- opaque artifact entries under `artifacts/` for source documents, authoritative
+  DICOM/DICOMDIR files, and preserved EHI package members.
 
 The manifest and record files may be deflated. Artifact entries are stored without
 compression because DICOM and many uploaded formats are already compressed. Archive
@@ -33,6 +33,41 @@ without model events, the first time the API returns it) rather than at the firs
 backup, and it is unique per record type across the installation. A restore preview
 compares only the rows the archive contains: a record written after the archive keeps
 its own identity and stays outside the restore's conflict set.
+
+## Artifacts
+
+Each manifest artifact names its `kind`, the `recordNativeId` of the row that owns it,
+its `size`, and its `sha256`. The entry path is fixed by kind and owner, and the reader
+checks size and digest against both the streamed bytes and the owning row:
+
+| Kind | Owning table | Entry path | Checked against |
+|---|---|---|---|
+| `document` | `phr_documents` | `artifacts/documents/{nativeId}.blob` | `byte_size`, `file_hash` when set |
+| `dicom`, `dicomdir` | `phr_dicom_files` | `artifacts/dicom/{nativeId}.blob` | `file_size_bytes`, `sha256` |
+| `ehi` | `phr_ehi_blobs` | `artifacts/ehi/{nativeId}.blob` | `byte_size`, `sha256` |
+
+Every file-backed document, original DICOM file, and EHI blob row must have its
+artifact. An EHI blob is content-addressed within its patient: one artifact serves every
+package member with those bytes, and restore writes it to the configured EHI disk at
+`patients/{id}/ehi/{sha256}`. A new blob whose digest the target patient already holds
+under another identity is a `record_conflict`.
+
+## EHI Tables packages
+
+`phr_ehi_sources`, `phr_ehi_packages`, `phr_ehi_blobs`, `phr_ehi_package_members`,
+`phr_ehi_table_accounts`, and `phr_ehi_findings` are archived in that order, so every
+parent restores before its children. They hold preservation and accounting state only;
+no clinical rows are derived from them. Blob storage location and the package intake
+lease (`lease_token`, `lease_expires_at`) and `checkpoint_json` are operational and
+excluded; a restored package is never mid-intake.
+
+## Archives older than a table
+
+Schema version 1 stays 1 when a table is added. The reader requires the manifest's
+table set to equal the catalog, except that a table generation added after v1 shipped
+(`PhrNativeTableCompatibility::LATER_GENERATIONS`; today only the six EHI tables) may be
+wholly absent, in which case it reads as empty. Part of a generation, a missing original
+v1 table, or an unknown table still fails closed as `invalid_archive`.
 
 ## Deliberate boundaries
 

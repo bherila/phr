@@ -82,6 +82,10 @@ explicit `--actor` and go through the same three methods.
 | Import C-CDA / FHIR / MyChart / EOB / PDF | `php artisan phr:import-*` | W | — | existing-protected, explicit `--actor` |
 | Reconcile EOB allergy procedures | `php artisan phr:reconcile-*` | W | — | existing-protected, explicit `--actor` |
 | Export / backup commands | `php artisan phr:export` | **O** | — | existing-protected, explicit `--actor` |
+| Probe an EHI Tables package | `php artisan phr:ehi:probe` | — (no patient; structure only, never values) | — | planned (#214) |
+| Intake an EHI Tables package | `php artisan phr:ehi:intake` | W (`writablePatient`) | — | planned (#214), explicit `--actor`; also the repair path (republishes missing/tampered blobs) and sole writer of blob `verified_at` |
+| Bind an EHI package to a declared source | `php artisan phr:ehi:bind` | **O** (`ownedPatient`) | — | planned (#214), explicit `--actor` |
+| EHI package status / byte verification | `php artisan phr:ehi:status`, `phr:ehi:verify` | R (`accessiblePatient`) | — | planned (#214), explicit `--actor`; read-only (verify writes nothing, not even `verified_at`) |
 | Accept a GenAI extraction | `POST` GenAI import accept | W | — | existing-protected (patient id read from the job's own context, not the client) |
 | Export data assembly | `PhrExportDataService` | caller-resolved | — | trusted infrastructure |
 | Structured import | `PhrStructuredDataImporter::importPayload` | caller-resolved (`PhrPatient` object) | — | trusted infrastructure |
