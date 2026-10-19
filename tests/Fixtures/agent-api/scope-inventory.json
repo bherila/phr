@@ -355,13 +355,17 @@
     },
     "patients.get": {
         "scopes": [
-            "patients:read"
-        ]
+            "patients:read",
+            "billing:read"
+        ],
+        "scope_rule": "any"
     },
     "patients.list": {
         "scopes": [
-            "patients:read"
-        ]
+            "patients:read",
+            "billing:read"
+        ],
+        "scope_rule": "any"
     },
     "procedures.update": {
         "scopes": [

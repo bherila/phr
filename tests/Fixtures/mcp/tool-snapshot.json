@@ -1035,7 +1035,7 @@
             "description": "Create a new PHR patient owned by the authorized account and grant that account owner-level access to it. This is not idempotent and has no deduplication key: confirm with patients.list that the person is not already present before calling it, and never retry a call whose outcome is unknown without checking first.",
             "inputSchema": "sha256:42ee6e59d850ace0f12f1b2a7f5f909f7e0db564dd06abb84e00269b400cb208",
             "name": "patients.create",
-            "outputSchema": "sha256:8a08c4a158a4c03da0e37900af62b1de15c495e7049f3094937e45c6f373961c",
+            "outputSchema": "sha256:9a02dc98a9259b07e33841ddd254bdb73a9f8f13847db6114a8a22a228f65f76",
             "title": "Create patient"
         },
         "patients.get": {
@@ -1048,7 +1048,7 @@
             "description": "Get one accessible patient and its current access metadata.",
             "inputSchema": "sha256:2e286a5215cdbe324d46ca789bb5fb63023e8a87c11602fe62dfbc2315347ccb",
             "name": "patients.get",
-            "outputSchema": "sha256:8a08c4a158a4c03da0e37900af62b1de15c495e7049f3094937e45c6f373961c",
+            "outputSchema": "sha256:9a02dc98a9259b07e33841ddd254bdb73a9f8f13847db6114a8a22a228f65f76",
             "title": "Get patient"
         },
         "patients.list": {
@@ -1061,7 +1061,7 @@
             "description": "List only patients accessible to the authorized account, with bounded pagination.",
             "inputSchema": "sha256:9fb775af01c13cc610ffea5266a5571d940cc6ef00f7204c129af937fc1d9470",
             "name": "patients.list",
-            "outputSchema": "sha256:acb37dcbb3c232abd3e0747a9b084d67ed141cad7837717a23a54e7e6b470976",
+            "outputSchema": "sha256:3689b2f085011e12047f1ac7ec5c2d5fd7db5cc6008bc8a6fdd964c6e1a0c5c0",
             "title": "List patients"
         },
         "procedures.update": {

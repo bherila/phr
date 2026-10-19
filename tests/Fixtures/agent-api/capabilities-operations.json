@@ -9,11 +9,19 @@
     },
     "patients.list": {
         "available": true,
-        "scope": "patients:read"
+        "scope": "patients:read",
+        "any_scopes": [
+            "patients:read",
+            "billing:read"
+        ]
     },
     "patients.get": {
         "available": true,
-        "scope": "patients:read"
+        "scope": "patients:read",
+        "any_scopes": [
+            "patients:read",
+            "billing:read"
+        ]
     },
     "patients.create": {
         "available": true,

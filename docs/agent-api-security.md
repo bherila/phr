@@ -246,14 +246,19 @@ actor, route, and UTC minute, and metadata audits are pruned after 365 days by d
 A finance application matches EOBs to the payments for them and needs nothing
 clinical, so it gets `billing:read` instead of `clinical:read`. The scope is an
 alternative, not an addition: `eobs.list`, `eobs.get` and `eob_lines.list` accept
-either, and capabilities report such an operation with `any_scopes`. A credential that
-holds `billing:read` but not `clinical:read` sees the finance projection only:
+it instead of `clinical:read`, and `patients.list` and `patients.get` instead of
+`patients:read`; capabilities report such an operation with `any_scopes`. A
+credential that holds `billing:read` without the broader scope sees the finance
+projection only:
 
 - EOBs: ids and public ids, claim type, import source, the service-date range over
   the lines, processed date, provider name, claim number, source document, and the
   charges, accepted fee, plan payment, deductible, copay and patient-responsibility
   totals.
 - EOB lines: amounts and service dates.
+- Patients: id, public id, display name and the caller's own `access_level`, so the
+  finance application binds only the profiles the connecting person owns: any grant
+  lets a person read a patient's EOBs, but only `owner` means the profile is theirs.
 
 Procedure and revenue codes, line descriptions, diagnoses, notes, plan, administrator,
 carrier and member details are never returned to it, and every other clinical

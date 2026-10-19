@@ -136,6 +136,53 @@ final class AgentApiBillingReadTest extends TestCase
         $this->getJson("/api/v1/patients/{$patient->id}/eobs/{$eob->id}")->assertNotFound();
     }
 
+    public function test_a_billing_only_credential_lists_patients_with_its_own_access_level(): void
+    {
+        $owner = $this->createUser();
+        $viewer = $this->createUser();
+        $own = $this->patient($owner);
+        $shared = $this->patient($this->createUser());
+        PhrPatientUserAccess::query()->create([
+            'patient_id' => $shared->id, 'user_id' => $owner->id,
+            'access_level' => PhrPatientUserAccess::LEVEL_VIEWER,
+            'granted_by_user_id' => $shared->owner_user_id, 'granted_at' => now(),
+        ]);
+        PhrPatientUserAccess::query()->create([
+            'patient_id' => $own->id, 'user_id' => $viewer->id,
+            'access_level' => PhrPatientUserAccess::LEVEL_MANAGER,
+            'granted_by_user_id' => $owner->id, 'granted_at' => now(),
+        ]);
+
+        Passport::actingAs($owner, [AgentApiScopes::BILLING_READ]);
+        $list = $this->getJson('/api/v1/patients')->assertOk()->json();
+        $this->assertSame([$own->id, $shared->id], array_column($list['data'], 'id'));
+        foreach ($list['data'] as $patient) {
+            $this->assertSame(['id', 'public_id', 'display_name', 'access_level'], array_keys($patient));
+        }
+        $this->assertSame([PhrPatientUserAccess::LEVEL_OWNER, PhrPatientUserAccess::LEVEL_VIEWER], array_column($list['data'], 'access_level'));
+        $one = $this->getJson("/api/v1/patients/{$shared->id}")->assertOk()->json();
+        $this->assertSame(['id', 'public_id', 'display_name', 'access_level'], array_keys($one['data']));
+        $this->assertSame(PhrPatientUserAccess::LEVEL_VIEWER, $one['data']['access_level']);
+        foreach ([$list, $one] as $response) {
+            $encoded = json_encode($response, JSON_THROW_ON_ERROR);
+            foreach (['2000-01-01', 'Synthetic patient notes', 'birth_date', 'sex_at_birth', 'relationship', 'notes', 'granted_at'] as $forbidden) {
+                $this->assertStringNotContainsString($forbidden, $encoded);
+            }
+        }
+        $this->postJson('/api/v1/patients', ['display_name' => 'Synthetic New Patient'])->assertForbidden();
+
+        Passport::actingAs($viewer, [AgentApiScopes::BILLING_READ]);
+        $this->getJson("/api/v1/patients/{$own->id}")->assertOk()
+            ->assertJsonPath('data.access_level', PhrPatientUserAccess::LEVEL_MANAGER);
+        $this->getJson("/api/v1/patients/{$shared->id}")->assertNotFound();
+
+        Passport::actingAs($owner, [AgentApiScopes::PATIENTS_READ, AgentApiScopes::BILLING_READ]);
+        $this->getJson("/api/v1/patients/{$shared->id}")->assertOk()
+            ->assertJsonPath('data.access_level', PhrPatientUserAccess::LEVEL_VIEWER)
+            ->assertJsonPath('data.access.level', PhrPatientUserAccess::LEVEL_VIEWER)
+            ->assertJsonPath('data.birth_date', '2000-01-01');
+    }
+
     public function test_billing_read_is_a_rest_only_alternative_and_reported_as_one(): void
     {
         $this->getJson('/.well-known/oauth-protected-resource/api/v1')->assertOk()

@@ -3649,6 +3649,11 @@
                         ]
                     },
                     {
+                        "oauth2": [
+                            "billing:read"
+                        ]
+                    },
+                    {
                         "apiToken": []
                     }
                 ],
@@ -3703,6 +3708,11 @@
                     {
                         "oauth2": [
                             "patients:read"
+                        ]
+                    },
+                    {
+                        "oauth2": [
+                            "billing:read"
                         ]
                     },
                     {
@@ -9151,6 +9161,7 @@
                     "archived_at",
                     "created_at",
                     "updated_at",
+                    "access_level",
                     "access"
                 ],
                 "properties": {
@@ -9194,6 +9205,19 @@
                     "updated_at": {
                         "$ref": "#/components/schemas/LocalDateTime"
                     },
+                    "access_level": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "enum": [
+                            "owner",
+                            "manager",
+                            "viewer",
+                            null
+                        ],
+                        "description": "The caller's own access level on this patient; owner means the caller owns the profile."
+                    },
                     "access": {
                         "$ref": "#/components/schemas/PatientAccess"
                     },
@@ -9236,6 +9260,44 @@
                     },
                     "granted_at": {
                         "$ref": "#/components/schemas/LocalDateTime"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "PatientBilling": {
+                "type": "object",
+                "description": "The patient projection a credential with billing:read but not patients:read receives.",
+                "required": [
+                    "id",
+                    "public_id",
+                    "display_name",
+                    "access_level"
+                ],
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "public_id": {
+                        "$ref": "#/components/schemas/PublicId"
+                    },
+                    "display_name": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "access_level": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "enum": [
+                            "owner",
+                            "manager",
+                            "viewer",
+                            null
+                        ],
+                        "description": "The caller's own access level on this patient; owner means the caller owns the profile."
                     }
                 },
                 "additionalProperties": false
@@ -9292,7 +9354,14 @@
                     "data": {
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/Patient"
+                            "oneOf": [
+                                {
+                                    "$ref": "#/components/schemas/Patient"
+                                },
+                                {
+                                    "$ref": "#/components/schemas/PatientBilling"
+                                }
+                            ]
                         }
                     },
                     "pagination": {
@@ -9308,7 +9377,14 @@
                 ],
                 "properties": {
                     "data": {
-                        "$ref": "#/components/schemas/Patient"
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/Patient"
+                            },
+                            {
+                                "$ref": "#/components/schemas/PatientBilling"
+                            }
+                        ]
                     }
                 },
                 "additionalProperties": false
