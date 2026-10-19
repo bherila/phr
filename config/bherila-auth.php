@@ -78,6 +78,10 @@ return [
             'mcp' => ['path' => '/api/v1/mcp', 'scopes' => AgentApiScopes::mcpIds()],
         ],
         'assume_omitted_resource' => 'rest',
+        // RFC 9207: authorization responses (success and error redirects) carry
+        // `iss`, and the server metadata advertises it, so a client of several
+        // authorization servers can tell which one answered.
+        'authorization_response_issuer' => ['enabled' => true],
         // Browser origins allowed to call discovery, registration and the token
         // endpoint directly (comma-separated; `*` for any). Empty, the default,
         // sends no CORS headers. The MCP endpoint's own origin policy is
