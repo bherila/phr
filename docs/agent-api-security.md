@@ -259,6 +259,11 @@ projection only:
 - Patients: id, public id, display name and the caller's own `access_level`, so the
   finance application binds only the profiles the connecting person owns: any grant
   lets a person read a patient's EOBs, but only `owner` means the profile is theirs.
+- Documents: no metadata, but `documents.download_access.create` and the signed file
+  route also accept it for a document that is the source document of one of the
+  patient's EOBs, the substantiation a finance application keeps a reference to and
+  hashes. Any other document (a letter of medical necessity, for example) answers
+  404 to it, even with a signature obtained by another credential.
 
 Procedure and revenue codes, line descriptions, diagnoses, notes, plan, administrator,
 carrier and member details are never returned to it, and every other clinical

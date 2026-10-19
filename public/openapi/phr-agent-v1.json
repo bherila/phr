@@ -1044,6 +1044,11 @@
                         ]
                     },
                     {
+                        "oauth2": [
+                            "billing:read"
+                        ]
+                    },
+                    {
                         "apiToken": []
                     }
                 ],
@@ -1102,10 +1107,16 @@
             "post": {
                 "operationId": "documents.download_access.create",
                 "summary": "Create a one-minute signed download URL that still requires OAuth",
+                "description": "With billing:read but not documents:read, only a document that is the source document of one of the patient's EOBs can be downloaded; any other answers 404.",
                 "security": [
                     {
                         "oauth2": [
                             "documents:read"
+                        ]
+                    },
+                    {
+                        "oauth2": [
+                            "billing:read"
                         ]
                     },
                     {

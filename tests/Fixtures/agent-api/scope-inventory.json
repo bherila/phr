@@ -105,13 +105,17 @@
     },
     "documents.download": {
         "scopes": [
-            "documents:read"
-        ]
+            "documents:read",
+            "billing:read"
+        ],
+        "scope_rule": "any"
     },
     "documents.download_access.create": {
         "scopes": [
-            "documents:read"
-        ]
+            "documents:read",
+            "billing:read"
+        ],
+        "scope_rule": "any"
     },
     "documents.get": {
         "scopes": [

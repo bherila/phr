@@ -141,11 +141,19 @@
     },
     "documents.download_access.create": {
         "available": true,
-        "scope": "documents:read"
+        "scope": "documents:read",
+        "any_scopes": [
+            "documents:read",
+            "billing:read"
+        ]
     },
     "documents.download": {
         "available": true,
-        "scope": "documents:read"
+        "scope": "documents:read",
+        "any_scopes": [
+            "documents:read",
+            "billing:read"
+        ]
     },
     "dicom_studies.list": {
         "available": true,

@@ -183,6 +183,36 @@ final class AgentApiBillingReadTest extends TestCase
             ->assertJsonPath('data.birth_date', '2000-01-01');
     }
 
+    public function test_a_billing_only_credential_downloads_eob_source_documents_and_nothing_else(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->patient($owner);
+        $bytes = 'synthetic explanation of benefits bytes';
+        $source = $this->document($patient, $owner, 'synthetic-eob-source', $bytes);
+        $this->eob($patient, $owner, $source);
+        $letter = $this->document($patient, $owner, 'synthetic-letter', 'synthetic letter bytes');
+
+        Passport::actingAs($owner, [AgentApiScopes::DOCUMENTS_READ]);
+        $letterAccess = $this->postJson("/api/v1/patients/{$patient->id}/documents/{$letter->id}/download-access")->assertOk()->json();
+
+        Passport::actingAs($owner, [AgentApiScopes::BILLING_READ]);
+        $access = $this->postJson("/api/v1/patients/{$patient->id}/documents/{$source->id}/download-access")
+            ->assertOk()->assertJsonPath('document_id', $source->id)->json();
+        $this->assertIsString($access['document_public_id']);
+        $downloaded = $this->get($access['download_url'])->assertOk()->streamedContent();
+        $this->assertSame(hash('sha256', $bytes), hash('sha256', $downloaded));
+
+        // A document no EOB names (a letter of medical necessity, say) is out of
+        // reach, even with a signature another credential obtained.
+        $this->postJson("/api/v1/patients/{$patient->id}/documents/{$letter->id}/download-access")->assertNotFound();
+        $this->get($letterAccess['download_url'])->assertNotFound();
+        $this->getJson("/api/v1/patients/{$patient->id}/documents/{$source->id}")->assertForbidden();
+        $this->getJson("/api/v1/patients/{$patient->id}/documents")->assertForbidden();
+
+        Passport::actingAs($this->createUser(), [AgentApiScopes::BILLING_READ]);
+        $this->postJson("/api/v1/patients/{$patient->id}/documents/{$source->id}/download-access")->assertNotFound();
+    }
+
     public function test_billing_read_is_a_rest_only_alternative_and_reported_as_one(): void
     {
         $this->getJson('/.well-known/oauth-protected-resource/api/v1')->assertOk()
