@@ -18,8 +18,13 @@ use Illuminate\Http\Request;
 use Mcp\Capability\Discovery\SchemaValidator;
 use Mcp\Capability\Registry;
 use Mcp\Capability\Registry\ReferenceHandler;
+use Mcp\Schema\Enum\ProtocolVersion;
+use Mcp\Schema\Implementation;
+use Mcp\Schema\ServerCapabilities;
 use Mcp\Schema\ToolAnnotations;
 use Mcp\Server;
+use Mcp\Server\Builder;
+use Mcp\Server\Configuration;
 use Mcp\Server\Handler\Request\CallToolHandler;
 use Mcp\Server\Session\Psr16SessionStore;
 use Psr\Log\NullLogger;
@@ -41,6 +46,17 @@ final class AgentMcpServerFactory
     ) {}
 
     public function make(Request $request): Server
+    {
+        return $this->prepare($request)['builder']->build();
+    }
+
+    public function discoveryConfiguration(Request $request): Configuration
+    {
+        return $this->prepare($request)['configuration'];
+    }
+
+    /** @return array{builder: Builder, configuration: Configuration} */
+    private function prepare(Request $request): array
     {
         $logger = new NullLogger;
         $driftLogger = new McpSafeLogger;
@@ -69,22 +85,33 @@ final class AgentMcpServerFactory
                 ? 'genai-mcp.v1.'.$definition->name
                 : AgentApiResponseSchemaCatalog::operationComponent($definition->responseOperationId());
         }
+        $serverInfo = new Implementation(
+            name: 'PHR Agent API',
+            version: 'v1',
+            description: 'Read and safely update authorized personal health records through the versioned PHR REST API.',
+            websiteUrl: url('/'),
+        );
+        $instructions = $this->instructions($exposedToolNames);
         $builder = Server::builder()
-            ->setServerInfo(
-                name: 'PHR Agent API',
-                version: 'v1',
-                description: 'Read and safely update authorized personal health records through the versioned PHR REST API.',
-                websiteUrl: url('/'),
-            )
-            ->setInstructions($this->instructions($exposedToolNames));
+            ->setServerInfo($serverInfo->name, $serverInfo->version, $serverInfo->description, websiteUrl: $serverInfo->websiteUrl)
+            ->setInstructions($instructions)
+            // This endpoint exposes discovery for the initialize lifecycle.
+            ->withoutModernEra();
+        $protocolVersion = ProtocolVersion::tryFrom((string) $request->header('Mcp-Protocol-Version', ''));
+        if ($protocolVersion !== null) {
+            // An explicit transport revision must mean the same thing to both
+            // discovery methods, even when initialize offers another revision.
+            $builder->setProtocolVersion($protocolVersion);
+        }
 
-        if ($this->hasTools($exposedToolNames, [
+        $hasClinicalPrompt = $this->hasTools($exposedToolNames, [
             'identity.get',
             'patients.list',
             'patients.get',
             'records.search',
             'office_visits.update',
-        ])) {
+        ]);
+        if ($hasClinicalPrompt) {
             $builder->addPrompt(
                 handler: [$this->prompts, 'safelyUpdateClinicalRecord'],
                 name: 'safely-update-clinical-record',
@@ -92,7 +119,7 @@ final class AgentMcpServerFactory
                 description: 'Discover the exact patient and current record before a version-checked clinical update.',
             );
         }
-        if ($this->hasTools($exposedToolNames, [
+        $hasImportPrompt = $this->hasTools($exposedToolNames, [
             'identity.get',
             'patients.list',
             'patients.get',
@@ -100,7 +127,8 @@ final class AgentMcpServerFactory
             'imports.list',
             'imports.get',
             'imports.review',
-        ])) {
+        ]);
+        if ($hasImportPrompt) {
             $builder->addPrompt(
                 handler: [$this->prompts, 'reviewImportProposal'],
                 name: 'review-import-proposal',
@@ -163,7 +191,20 @@ final class AgentMcpServerFactory
             );
         }
 
-        return $builder->build();
+        // Share the exact metadata between initialize and sessionless discovery.
+        $capabilities = new ServerCapabilities(
+            tools: $exposedDefinitions !== [],
+            resources: false,
+            prompts: $hasClinicalPrompt || $hasImportPrompt,
+            logging: true,
+            completions: true,
+        );
+        $builder->setCapabilities($capabilities);
+
+        return [
+            'builder' => $builder,
+            'configuration' => new Configuration($serverInfo, $capabilities, 100, $instructions, $protocolVersion),
+        ];
     }
 
     /**
