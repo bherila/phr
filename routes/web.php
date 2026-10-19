@@ -14,8 +14,10 @@ use Illuminate\Support\Facades\Route;
 // Discovery documents and public self-registration, from the agent OAuth preset:
 // one RFC 9728 document per protected resource, each only at the path-inserted
 // URL of its own identifier (/.well-known/oauth-protected-resource/api/v1 and
-// .../api/v1/mcp), so no other path may describe either resource.
-AgentOAuthServer::routes(registrationThrottle: 'throttle:agent-api-client-registration');
+// .../api/v1/mcp), so no other path may describe either resource. Registration
+// runs the `oauth-dynamic-registration` group (bootstrap/app.php): its own rate
+// limit, and no first-party-only scope in the catalog a client can register for.
+AgentOAuthServer::routes(registrationThrottle: 'oauth-dynamic-registration');
 
 Route::get('/login', [OAuthLoginController::class, 'login'])->name('login');
 

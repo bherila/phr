@@ -269,7 +269,11 @@ Procedure and revenue codes, line descriptions, diagnoses, notes, plan, administ
 carrier and member details are never returned to it, and every other clinical
 operation (search, timeline, change feed, evidence links, single EOB lines, clinical
 records) refuses it. Patient access still applies to every request. The scope is
-REST-only: the MCP resource neither advertises nor accepts it.
+REST-only: the MCP resource neither advertises nor accepts it. It is granted to an
+application-registered (first-party) client only: self-registration refuses it as
+`invalid_client_metadata` and leaves it out of the default ceiling, the authorization
+endpoint therefore refuses it for such a client, and Passport drops it from any token
+issued to a dynamically registered client even if a stored ceiling names it.
 
 ## Token lifecycle
 

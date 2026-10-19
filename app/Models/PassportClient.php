@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\FirstPartyOAuthClients;
 use App\Support\AgentApi\OAuthClientConsents;
 use BWH\Auth\OAuth\Server\OAuthResourceIndicator;
@@ -23,6 +24,22 @@ use Laravel\Passport\Scope;
  */
 final class PassportClient extends ResourceClient
 {
+    /**
+     * A dynamically registered client never holds a first-party-only scope,
+     * whatever its stored ceiling says, so Passport drops it when it
+     * finalizes the scopes of a token for such a client.
+     */
+    public function hasScope(string $scope): bool
+    {
+        $registeredAtColumn = config('bherila-auth.oauth_server.dynamic_clients.registered_at_column', 'dynamically_registered_at');
+        if (in_array($scope, AgentApiScopes::firstPartyOnlyIds(), true)
+            && (! is_string($registeredAtColumn) || $this->getAttribute($registeredAtColumn) !== null)) {
+            return false;
+        }
+
+        return parent::hasScope($scope);
+    }
+
     /** @param  array<int, Scope>  $scopes */
     public function skipsAuthorization(Authenticatable $user, array $scopes): bool
     {

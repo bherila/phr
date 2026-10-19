@@ -116,6 +116,29 @@ final class AgentApiScopes
         return [self::BILLING_READ];
     }
 
+    /**
+     * Scopes only an application-registered client may hold: billing:read is
+     * granted to a first-party finance application, never offered to a
+     * client that registered itself.
+     *
+     * @return list<string>
+     */
+    public static function firstPartyOnlyIds(): array
+    {
+        return [self::BILLING_READ];
+    }
+
+    /**
+     * The ceiling of a dynamically registered client, and its scopes when it
+     * registers without asking for any.
+     *
+     * @return list<string>
+     */
+    public static function dynamicClientIds(): array
+    {
+        return array_values(array_diff(self::ids(), self::firstPartyOnlyIds()));
+    }
+
     /** @return list<string> */
     public static function parse(string $value): array
     {
