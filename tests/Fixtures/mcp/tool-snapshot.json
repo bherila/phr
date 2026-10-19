@@ -813,7 +813,7 @@
             "description": "Return the authorized account identity and granted OAuth scopes.",
             "inputSchema": "sha256:bd002e19f8640d2c8613a2e22a7c79fb7eab69bd192f5e19d16984554ce5bff2",
             "name": "identity.get",
-            "outputSchema": "sha256:6ef3b79e5a8d716afd6130eaf74d0d23e7a059f84d7a7911e26eb6c162f7068a",
+            "outputSchema": "sha256:0c2cb91f5363013c0862a81a50b15171e960604396d59471c235520067f3229f",
             "title": "Get identity"
         },
         "immunizations.update": {

@@ -7501,7 +7501,8 @@
                         "required": [
                             "id",
                             "name",
-                            "email"
+                            "email",
+                            "provider_subject"
                         ],
                         "properties": {
                             "id": {
@@ -7513,6 +7514,13 @@
                             "email": {
                                 "type": "string",
                                 "format": "email"
+                            },
+                            "provider_subject": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "description": "Your subject at the trusted identity provider, the same in every application it signs you in to; null when this account is not bound to it. Compare it with the subject the connecting application knows before trusting the connection."
                             }
                         },
                         "additionalProperties": false

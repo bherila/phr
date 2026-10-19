@@ -37,6 +37,13 @@ requests cannot create unbounded session, parsing, or transaction work.
 Protected-resource pre-authentication buckets normalize numeric patient and record
 path segments, preventing identifier changes from creating fresh parsing budgets.
 
+`identity.get` (`identity:read`) also returns `provider_subject`, the caller's subject
+at the trusted identity provider (null for an account not bound to it), so a connecting
+application can confirm it reached the account of the person who connected. It is a
+stable cross-application identifier, not a secret, but it appears only in that
+authorized self-description: never in a public response, a refusal, an audit row or
+a log.
+
 Patient discovery deliberately has its own `patients:read` scope. Its response omits
 the owner's user id and every grant except the caller's fixed access metadata.
 Patient creation requires the separate `patients:write` scope and reuses the same

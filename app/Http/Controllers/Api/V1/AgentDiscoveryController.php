@@ -10,6 +10,9 @@ use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use App\Support\AgentApi\AgentOpenApi;
 use App\Support\AgentApi\AgentOperations;
 use App\Support\PHR\PhrDocumentUploadLimits;
+use BWH\Auth\OAuth\Session\ProviderBindingResolver;
+use BWH\Auth\OAuth\Session\ProviderSessionExpired;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Laravel\Passport\AccessToken;
@@ -109,6 +112,7 @@ class AgentDiscoveryController extends Controller
                 'id' => $user?->getAuthIdentifier(),
                 'name' => $user?->name,
                 'email' => $user?->email,
+                'provider_subject' => $this->providerSubject($user),
             ],
             'scopes' => is_array($scopes) ? array_values($scopes) : [],
             'operations' => [
@@ -116,6 +120,26 @@ class AgentDiscoveryController extends Controller
                 'withheld' => $report->withheldArray(),
             ],
         ])->withHeaders($this->privateHeaders());
+    }
+
+    /**
+     * The caller's subject at the trusted identity provider, so a connecting
+     * application can check it reached the account of the person who
+     * connected. A stable cross-application identifier rather than a secret,
+     * but kept to this authorized self-description: never in a public
+     * response, a refusal or a log. Null for an account with no provider
+     * binding, or a binding the trusted provider does not vouch for.
+     */
+    private function providerSubject(?Authenticatable $user): ?string
+    {
+        if ($user === null) {
+            return null;
+        }
+        try {
+            return app(ProviderBindingResolver::class)->binding($user)?->subject;
+        } catch (ProviderSessionExpired) {
+            return null;
+        }
     }
 
     /** @return array<string, string> */
