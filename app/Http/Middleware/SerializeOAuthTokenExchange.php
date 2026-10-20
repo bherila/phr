@@ -40,6 +40,15 @@ final class SerializeOAuthTokenExchange
             ]);
         }
 
+        $patient = $request->attributes->get(OAuthExchangeAccountGuard::PATIENT_RESPONSE_ATTRIBUTE);
+        $request->attributes->remove(OAuthExchangeAccountGuard::PATIENT_RESPONSE_ATTRIBUTE);
+        if ($accountIsActive && $response->isSuccessful() && is_string($patient)) {
+            $body = json_decode((string) $response->getContent(), true);
+            if (is_array($body)) {
+                $response->setContent(json_encode([...$body, 'patient' => $patient], JSON_THROW_ON_ERROR));
+            }
+        }
+
         return $response;
     }
 }

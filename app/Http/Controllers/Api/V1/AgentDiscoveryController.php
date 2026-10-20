@@ -9,6 +9,7 @@ use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use App\Support\AgentApi\AgentOpenApi;
 use App\Support\AgentApi\AgentOperations;
+use App\Support\AgentApi\OAuthPatientConsents;
 use App\Support\PHR\PhrDocumentUploadLimits;
 use BWH\Auth\OAuth\Session\ProviderBindingResolver;
 use BWH\Auth\OAuth\Session\ProviderSessionExpired;
@@ -37,6 +38,7 @@ class AgentDiscoveryController extends Controller
             'openapi_url' => url('/api/openapi.json'),
             'mcp_url' => url('/api/v1/mcp'),
             'oauth' => [
+                'billing_patient_consent' => OAuthPatientConsents::CAPABILITY,
                 'authorization_server_metadata' => url('/.well-known/oauth-authorization-server'),
                 'protected_resource_metadata' => url('/.well-known/oauth-protected-resource/api/v1'),
                 'authorization_code_pkce' => true,

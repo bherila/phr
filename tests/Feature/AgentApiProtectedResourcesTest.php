@@ -213,14 +213,15 @@ class AgentApiProtectedResourcesTest extends TestCase
 
     /**
      * Every authenticated agent route declares its audience: MCP only at the MCP
-     * endpoint, either audience only on the routes an MCP tool hands to its
-     * client, and REST only everywhere else.
+     * endpoint, either audience on self-revocation and the routes an MCP tool
+     * hands to its client, and REST only everywhere else.
      */
     public function test_every_agent_route_declares_exactly_its_protected_resource(): void
     {
         $handoff = [
             'agent-api.v1.oauth-token.destroy',
             'agent-api.v1.oauth-consent.destroy',
+            'agent-api.v1.oauth-patient-consent.destroy',
             'agent-api.v1.documents.file',
             'agent-api.v1.exports.file',
             'agent-api.v1.native-backups.file',
