@@ -18,6 +18,7 @@ final class OAuthDynamicClientDao
     {
         return Passport::client()->newQuery()
             ->whereKey($clientId)
+            ->where('revoked', false)
             ->lockForUpdate()
             ->first();
     }

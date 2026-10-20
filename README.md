@@ -259,6 +259,60 @@ require). A credential issued for one is refused at the other, and every 401 nam
 metadata of the route's own resource. Edge configuration
 (proxy and CDN rules) is deployment-specific and not part of this repository.
 
+### Connect a finance app
+
+On a self-hosted instance, the operator registers a finance consumer from the PHR
+installation directory. Replace `<App name>` with the name people should see on
+consent, and `<callback>` with the exact callback URL supplied by the consumer:
+
+```bash
+php artisan phr:agent-api:register-first-party-client "<App name>" "--redirect-uri=<callback>" --scope=billing:read --scope=identity:read
+```
+
+Use an HTTPS callback (HTTP is accepted only on loopback). Paste the labelled
+client ID and client secret into the consumer's connection setup, along with this
+instance's public URL. **Store the secret now:** it is shown only once and PHR
+keeps only its hash. Treat the terminal output as a credential; do not paste it
+into logs, issues or source control. If it is lost, register a replacement client
+with a new name. Scripted setups can add `--json`; the JSON contains `client_id`,
+`client_secret`, `scopes`, a `secret_notice`, `repeat_consent_skip_required` and
+`warnings`. Protect that output just as you would the text output.
+
+A finance consumer should request only `billing:read` and `identity:read`.
+Registration warns if you combine `billing:read` with broader scopes; it does not
+silently remove them. Public dynamic registration cannot obtain `billing:read`,
+so use this operator command for a finance connection.
+
+Optionally add the client ID to the comma-separated
+`AGENT_API_FIRST_PARTY_OAUTH_CLIENTS` setting, preserving any existing entries,
+and refresh your deployment's cached configuration. This only skips repeat
+consent screens after the person has approved the requested scopes once. Leaving
+it unset is supported: the client still works, and consent screens remain.
+
+To withdraw a person's grant later, use the consumer's Disconnect action if it
+calls `DELETE /api/v1/oauth/consent`, or send that request to this PHR instance
+with that connection's bearer token. It withdraws consent and revokes all of
+that client's authorization codes, access tokens and refresh tokens for that
+person across resources. Reconnecting requires fresh consent. Remove the ID
+from the optional allow-list if you no longer want repeat-consent skipping.
+These steps withdraw access for that person; they do not permanently disable the
+client registration for everyone.
+
+To permanently disable the registration for everyone, run the operator command
+with the exact client ID you saved at registration:
+
+```bash
+php artisan phr:agent-api:revoke-first-party-client "<client-id>"
+```
+
+This disables only an operator-registered, ownerless confidential authorization-code
+client. It revokes that client's grants for every person, retaining the disabled
+registration as a record. Other clients and their grants are unaffected. Repeating
+the command is safe; if cleanup is interrupted, the registration stays disabled
+and rerunning finishes the grant cleanup. Remove its ID from the optional
+`AGENT_API_FIRST_PARTY_OAUTH_CLIENTS` setting and refresh cached configuration.
+A disabled registration cannot reconnect; register a new client instead.
+
 ## Validation
 
 ```bash
