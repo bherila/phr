@@ -145,11 +145,13 @@ final class OAuthExchangeAccountGuard
             );
 
         if ($user instanceof User && $user->mayHoldOAuthCredentials() && $versionMatches && $familyIsActive && $consentIsCurrent) {
-            $patient = is_string($familyIdentifier) ? OAuthTokenFamily::query()->whereKey($familyIdentifier)->value('patient_public_id') : null;
+            $family = is_string($familyIdentifier) ? OAuthTokenFamily::query()->find($familyIdentifier) : null;
+            $patient = $family?->patient_public_id;
+            $patientVersion = $family?->patient_consent_version;
             // A revoked selection loses its context, not the client's other patient grants.
-            if (is_string($patient) && app(OAuthPatientConsents::class)->current(
+            if (is_string($patient) && is_int($patientVersion) && app(OAuthPatientConsents::class)->current(
                 $issuedToken->user_id, (string) $issuedToken->client_id,
-                is_string($issuedToken->resource_uri) ? $issuedToken->resource_uri : null, $patient,
+                is_string($issuedToken->resource_uri) ? $issuedToken->resource_uri : null, $patient, $patientVersion,
             )) {
                 $request->attributes->set(self::PATIENT_RESPONSE_ATTRIBUTE, $patient);
             }

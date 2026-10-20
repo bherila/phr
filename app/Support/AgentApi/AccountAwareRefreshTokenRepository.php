@@ -168,6 +168,7 @@ class AccountAwareRefreshTokenRepository extends RefreshTokenRepository
             $storedResource,
             (int) $accessToken->oauth_consent_version,
             is_string($family->patient_public_id) ? $family->patient_public_id : null,
+            $family->patient_consent_version === null ? null : (int) $family->patient_consent_version,
         );
 
         return false;

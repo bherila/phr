@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\OAuthPatientConsent;
+use App\Models\OAuthTokenFamily;
 use App\Models\PhrNativeRecordIdentity;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
@@ -12,8 +13,11 @@ use App\Support\AgentApi\AgentApiResponseSchemaCatalog;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentOpenApi;
 use App\Support\AgentApi\AgentOperations;
+use App\Support\AgentApi\OAuthClientConsents;
 use App\Support\AgentApi\OAuthCredentialRevoker;
+use App\Support\AgentApi\OAuthPatientConsents;
 use Bherila\McpLaravelBridge\Testing\OperationRegistryAssertions;
+use BWH\Auth\OAuth\Server\OAuthResourceIndicator;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Testing\TestResponse;
@@ -262,6 +266,56 @@ final class AgentApiPatientSelectionConsentTest extends TestCase
         $this->assertArrayNotHasKey('patient', $tokens);
         $this->getAsToken($tokens['access_token'], '/api/v1/patients/'.$first->id)->assertNotFound();
         $this->getAsToken($tokens['access_token'], '/api/v1/patients/'.$second->id)->assertOk();
+    }
+
+    #[DataProvider('issuanceGrants')]
+    public function test_revoke_and_regrant_during_issuance_cannot_restore_an_older_patient_context(string $grant): void
+    {
+        $user = $this->createUser(['name' => 'Synthetic Owner', 'email' => 'owner@example.test']);
+        $first = $this->patient($user, 'Synthetic First Patient');
+        $second = $this->patient($user, 'Synthetic Second Patient');
+        $client = $this->client();
+        $firstTokens = $this->selectTokens($user, $client, $first);
+        $this->selectTokens($user, $client, $second);
+        $publicId = $this->publicId($first);
+        $code = null;
+        if ($grant === 'authorization_code') {
+            $this->startSelection($user, $client)->assertOk();
+            $code = $this->approve($publicId);
+        }
+        $ran = false;
+        Event::listen(RefreshTokenCreated::class, function () use (&$ran, $publicId, $user, $client, $first): void {
+            if ($ran) {
+                return;
+            }
+            $ran = true;
+            $selection = OAuthPatientConsent::query()->where('patient_public_id', $publicId)->sole();
+            $selection->forceFill(['revoked_at' => now(), 'version' => $selection->version + 1])->save();
+            $parent = app(OAuthClientConsents::class)->covering($user->id, (string) $client->id, OAuthResourceIndicator::resource('rest'), [AgentApiScopes::BILLING_READ]);
+            $this->assertNotNull($parent);
+            app(OAuthPatientConsents::class)->grant($parent, $first);
+        });
+        $response = $grant === 'authorization_code'
+            ? $this->exchange($client, $code)
+            : $this->refreshTokens($client, $firstTokens['refresh_token']);
+        $tokens = $response->assertOk()->json();
+        $this->assertTrue($ran);
+        $this->assertArrayNotHasKey('patient', $tokens);
+        // The newly granted set remains usable; it does not revive old launch context.
+        $this->getAsToken($tokens['access_token'], '/api/v1/patients/'.$first->id)->assertOk();
+        $this->getAsToken($tokens['access_token'], '/api/v1/patients/'.$second->id)->assertOk();
+    }
+
+    public function test_a_family_without_a_patient_version_omits_context_without_revoking_its_access(): void
+    {
+        $user = $this->createUser(['name' => 'Synthetic Owner', 'email' => 'owner@example.test']);
+        $patient = $this->patient($user, 'Synthetic Patient');
+        $client = $this->client();
+        $tokens = $this->selectTokens($user, $client, $patient);
+        OAuthTokenFamily::query()->where('client_id', $client->id)->update(['patient_consent_version' => null]);
+        $refreshed = $this->refreshTokens($client, $tokens['refresh_token'])->assertOk()->json();
+        $this->assertArrayNotHasKey('patient', $refreshed);
+        $this->getAsToken($refreshed['access_token'], '/api/v1/patients/'.$patient->id)->assertOk();
     }
 
     public static function issuanceGrants(): array

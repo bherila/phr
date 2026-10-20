@@ -26,6 +26,7 @@ return new class extends Migration
         });
         Schema::table('oauth_token_families', function (Blueprint $table): void {
             $table->uuid('patient_public_id')->nullable();
+            $table->unsignedBigInteger('patient_consent_version')->nullable();
         });
     }
 
@@ -36,7 +37,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::table('oauth_token_families', fn (Blueprint $table) => $table->dropColumn('patient_public_id'));
+        Schema::table('oauth_token_families', fn (Blueprint $table) => $table->dropColumn(['patient_public_id', 'patient_consent_version']));
         Schema::table('oauth_auth_codes', fn (Blueprint $table) => $table->dropColumn(['patient_public_id', 'patient_consent_version']));
         Schema::dropIfExists('oauth_patient_consents');
     }
