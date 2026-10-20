@@ -261,6 +261,8 @@ metadata of the route's own resource. Edge configuration
 
 ### Connect a finance app
 
+For patient-scoped delegation, use [patient selection and delegated billing consent](docs/agent-api-security.md#patient-selection-and-delegated-billing-consent).
+
 On a self-hosted instance, the operator registers a finance consumer from the PHR
 installation directory. Replace `<App name>` with the name people should see on
 consent, and `<callback>` with the exact callback URL supplied by the consumer:
@@ -287,7 +289,8 @@ Optionally add the client ID to the comma-separated
 `AGENT_API_FIRST_PARTY_OAUTH_CLIENTS` setting, preserving any existing entries,
 and refresh your deployment's cached configuration. This only skips repeat
 consent screens after the person has approved the requested scopes once. Leaving
-it unset is supported: the client still works, and consent screens remain.
+it unset is supported: the client still works, and consent screens remain. Requests
+with `patient_select=1` always show the patient picker, including allow-listed clients.
 
 To withdraw a person's grant later, use the consumer's Disconnect action if it
 calls `DELETE /api/v1/oauth/consent`, or send that request to this PHR instance

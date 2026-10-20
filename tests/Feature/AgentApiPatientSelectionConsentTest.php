@@ -96,6 +96,20 @@ final class AgentApiPatientSelectionConsentTest extends TestCase
         return [['foreign'], ['viewer'], ['integer'], ['unknown']];
     }
 
+    public function test_an_open_patient_picker_cannot_grant_consent_after_the_client_is_revoked(): void
+    {
+        $user = $this->createUser(['name' => 'Synthetic Owner', 'email' => 'owner@example.test']);
+        $patient = $this->patient($user, 'Synthetic Patient');
+        $client = $this->client();
+        $this->startSelection($user, $client)->assertOk();
+        $client->forceFill(['revoked' => true])->save();
+        $this->post('/oauth/authorize', ['auth_token' => session('authToken'), 'patient_public_id' => $this->publicId($patient)])
+            ->assertStatus(400)->assertJsonPath('error', 'invalid_grant');
+        $this->assertSame(0, OAuthPatientConsent::query()->count());
+        $this->assertDatabaseCount('oauth_client_consents', 0);
+        $this->assertSame(0, AuthCode::query()->count());
+    }
+
     public function test_the_token_response_returns_only_the_chosen_patient_public_id_as_context(): void
     {
         $user = $this->createUser(['name' => 'Synthetic Owner', 'email' => 'owner@example.test']);
