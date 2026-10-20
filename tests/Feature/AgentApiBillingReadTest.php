@@ -270,6 +270,66 @@ final class AgentApiBillingReadTest extends TestCase
         $this->getJson($url)->assertOk()->assertJsonCount(1, 'data');
     }
 
+    /** @return array<string, array{string, bool}> */
+    public static function sourceChanges(): array
+    {
+        return [
+            'hash changes' => ['hash', true],
+            'source soft-deleted' => ['delete', false],
+            'source restored' => ['restore', true],
+            'source reassigned' => ['reassign', false],
+            'source permanently deleted' => ['force-delete', false],
+        ];
+    }
+
+    #[DataProvider('sourceChanges')]
+    public function test_source_changes_advance_the_eob_projection_window(string $change, bool $hasSource): void
+    {
+        $this->travelTo('2026-01-01 12:00:00');
+        $owner = $this->createUser();
+        $patient = $this->patient($owner);
+        $document = $this->document($patient, $owner, 'synthetic-changing-source');
+        $eob = $this->eob($patient, $owner, $document);
+        if ($change === 'restore') {
+            $document->delete();
+        }
+        Passport::actingAs($owner, [AgentApiScopes::BILLING_READ]);
+        $url = "/api/v1/patients/{$patient->id}/eobs";
+        $window = '?'.http_build_query(['updated_after' => '2026-01-02T00:00:00Z', 'updated_before' => '2026-01-04T00:00:00Z']);
+        $this->getJson($url.$window)->assertOk()->assertJsonCount(0, 'data');
+        $this->travelTo('2026-01-03 12:00:00');
+
+        match ($change) {
+            'hash' => $document->update(['file_hash' => hash('sha256', 'synthetic changed source')]),
+            'delete' => $document->delete(),
+            'restore' => $document->restore(),
+            'reassign' => $document->update(['patient_id' => $this->patient($owner)->id]),
+            'force-delete' => $document->forceDelete(),
+        };
+
+        $data = $this->getJson($url.$window)->assertOk()->assertJsonCount(1, 'data')->json('data.0');
+        $this->assertSame($eob->id, $data['id']);
+        $this->assertSame('2026-01-03T12:00:00+00:00', $data['updated_at']);
+        $this->assertSame($hasSource ? $document->file_hash : null, $data['source_document_sha256']);
+        $this->assertSame($hasSource, $data['source_document_public_id'] !== null);
+        $this->getJson($url.'?updated_before=2026-01-02T00:00:00Z')->assertOk()->assertJsonCount(0, 'data');
+    }
+
+    public function test_unexposed_document_edits_do_not_advance_the_eob_projection_window(): void
+    {
+        $this->travelTo('2026-01-01 12:00:00');
+        $owner = $this->createUser();
+        $patient = $this->patient($owner);
+        $document = $this->document($patient, $owner, 'synthetic-title-change');
+        $this->eob($patient, $owner, $document);
+        $this->travelTo('2026-01-03 12:00:00');
+        $document->update(['title' => 'Synthetic changed title']);
+        Passport::actingAs($owner, [AgentApiScopes::BILLING_READ]);
+
+        $this->getJson("/api/v1/patients/{$patient->id}/eobs?updated_after=2026-01-02T00:00:00Z")
+            ->assertOk()->assertJsonCount(0, 'data');
+    }
+
     public function test_billing_read_is_a_rest_only_alternative_and_reported_as_one(): void
     {
         $this->getJson('/.well-known/oauth-protected-resource/api/v1')->assertOk()

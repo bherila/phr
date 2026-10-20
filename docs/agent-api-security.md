@@ -268,6 +268,11 @@ The billing-only projection is an exact allow-list:
   filenames or download access. Both are null without a current source document
   belonging to the same patient; a document without a recorded hash has a null hash.
   Viewing evidence opens the authenticated `/eobs/{public_id}` browser link in PHR.
+  Source hash, patient reassignment and restore changes advance the referencing EOB's
+  `updated_at`; deletion does so before a permanent delete clears the source foreign
+  key. Incremental EOB windows therefore include a changed or missing source without
+  exposing unrelated document-title edits. Raw native restores retain the existing
+  restore-identity window handling.
 
 `eob_lines.list`, `documents.download_access.create` and signed document downloads
 require their broader clinical/document scopes. A signature obtained by another

@@ -135,6 +135,7 @@ final class AgentApiPublicIdTest extends TestCase
     #[DataProvider('readerScopes')]
     public function test_a_native_restore_renumbers_integer_ids_but_keeps_public_ids_and_the_referenced_document_bytes(array $scopes): void
     {
+        $this->travelTo('2026-01-01 12:00:00');
         $owner = $this->createUser();
         $patient = $this->patient($owner);
         $bytes = 'synthetic explanation of benefits source bytes';
@@ -150,6 +151,7 @@ final class AgentApiPublicIdTest extends TestCase
 
         $archivePath = $this->archive($patient, $owner);
         DB::table('phr_patients')->where('id', $patient->id)->delete();
+        $this->travelTo('2026-01-03 12:00:00');
         $this->restore($archivePath, $owner);
         @unlink($archivePath);
 
@@ -169,6 +171,8 @@ final class AgentApiPublicIdTest extends TestCase
         $this->assertNotSame($document->id, $restoredDocumentId);
         $this->assertSame($before['patient_public_id'], $restoredEob['patient_public_id']);
         $this->assertSame($before['source_document_public_id'], $restoredEob['source_document_public_id']);
+        $this->getJson("/api/v1/patients/{$restoredPatient['id']}/eobs?updated_after=2026-01-02T00:00:00Z")
+            ->assertOk()->assertJsonPath('data.0.public_id', $before['public_id']);
 
         if ($scopes === [AgentApiScopes::BILLING_READ]) {
             $this->assertSame($originalHash, $restoredEob['source_document_sha256']);
