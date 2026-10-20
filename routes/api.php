@@ -110,6 +110,8 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         // saturated API limit must never prevent a client from disconnecting.
         Route::operation('oauth.disconnect', [AgentTokenController::class, 'destroy']);
         Route::operation('oauth.consent.revoke', [AgentTokenController::class, 'revokeConsent']);
+        Route::operation('oauth.patient_consent.revoke', [AgentTokenController::class, 'revokePatientConsent'])
+            ->whereUuid('patient_public_id');
 
         Route::operation('documents.download', [AgentDocumentController::class, 'file'])
             ->whereNumber(['patient', 'document'])->middleware(['throttle:agent-api', 'signed']);

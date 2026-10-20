@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Support\AgentApi\OAuthCredentialRevoker;
+use App\Support\AgentApi\OAuthPatientConsents;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
@@ -63,6 +64,13 @@ class AgentTokenController extends Controller
         }
 
         $this->credentialRevoker->revokeClientConsent($userId, $clientId);
+
+        return $this->revoked();
+    }
+
+    public function revokePatientConsent(Request $request, string $patient_public_id): Response
+    {
+        app(OAuthPatientConsents::class)->revoke($request, $patient_public_id);
 
         return $this->revoked();
     }

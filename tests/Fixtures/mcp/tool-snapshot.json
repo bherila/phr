@@ -359,7 +359,7 @@
             "description": "Discover the PHR API version, scopes, operations, resources, and limits.",
             "inputSchema": "sha256:bd002e19f8640d2c8613a2e22a7c79fb7eab69bd192f5e19d16984554ce5bff2",
             "name": "capabilities.get",
-            "outputSchema": "sha256:9eca6178e62d90c928d223ccbcf0e9463e36b1cc88e3a5fef80c595b5551a8c5",
+            "outputSchema": "sha256:717363ff7b67ef15a48a7b716010298ff50425864d7f5a022f8d49457cc0ebd5",
             "title": "Get capabilities"
         },
         "changes.list": {

@@ -77,7 +77,7 @@ class AccountAwareRefreshTokenRepository extends RefreshTokenRepository
         }
 
         $revoker = app(OAuthCredentialRevoker::class);
-        $revoker->lockFamilyForAccessToken($accessToken);
+        $family = $revoker->lockFamilyForAccessToken($accessToken);
         $refreshToken = Passport::refreshToken()->newQuery()
             ->whereKey($tokenId)
             ->lockForUpdate()
@@ -167,6 +167,8 @@ class AccountAwareRefreshTokenRepository extends RefreshTokenRepository
             is_string($accessToken->oauth_family_id) ? $accessToken->oauth_family_id : $accessToken->id,
             $storedResource,
             (int) $accessToken->oauth_consent_version,
+            is_string($family->patient_public_id) ? $family->patient_public_id : null,
+            $family->patient_consent_version === null ? null : (int) $family->patient_consent_version,
         );
 
         return false;

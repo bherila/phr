@@ -1307,6 +1307,17 @@ final class AgentRestDocumentation
                 'success' => [204 => 'Token family revoked'],
                 'responses' => ['401' => 'Unauthenticated', '403' => 'InsufficientScope', '429' => 'RateLimited'],
             ],
+            'oauth.patient_consent.revoke' => [
+                'route_name' => 'agent-api.v1.oauth-patient-consent.destroy',
+                'method' => 'DELETE',
+                'path' => '/oauth/consent/patients/{patient_public_id}',
+                'summary' => 'Withdraw this client\'s consent for one patient',
+                'description' => 'Removes the calling client\'s access to one opaque patient public id. Other selected patients and the client\'s credentials remain usable. Unknown or already withdrawn choices return the same response.',
+                'scopes' => [],
+                'parameters' => ['PatientPublicId'],
+                'success' => [204 => 'Patient consent withdrawn'],
+                'responses' => ['401' => 'Unauthenticated', '403' => 'InsufficientScope'],
+            ],
             'oauth.consent.revoke' => [
                 'route_name' => 'agent-api.v1.oauth-consent.destroy',
                 'method' => 'DELETE',
@@ -1610,6 +1621,12 @@ final class AgentRestDocumentation
     public static function parameters(): array
     {
         return [
+            'PatientPublicId' => [
+                'name' => 'patient_public_id',
+                'in' => 'path',
+                'required' => true,
+                'schema' => ['type' => 'string', 'format' => 'uuid'],
+            ],
             'PatientId' => [
                 'name' => 'patient',
                 'in' => 'path',

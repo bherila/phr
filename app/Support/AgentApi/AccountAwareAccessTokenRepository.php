@@ -60,6 +60,8 @@ final class AccountAwareAccessTokenRepository extends AccessTokenRepository
                 'client_id' => $accessTokenEntity->getClient()->getIdentifier(),
                 'oauth_security_version' => $securityVersion,
                 'oauth_consent_version' => $consentVersion,
+                'patient_public_id' => $validatedGrant['patient_public_id'] ?? null,
+                'patient_consent_version' => $validatedGrant['patient_consent_version'] ?? null,
                 'revoked' => false,
                 'expires_at' => now()->addDays(AgentApiTokenPolicy::REFRESH_TOKEN_LIFETIME_DAYS),
             ]);

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use App\Support\AgentApi\AgentApiScopes;
+use App\Support\AgentApi\AgentOperations;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Auth;
 use Laravel\Passport\Client;
@@ -88,6 +89,14 @@ final class AgentMcpToolSnapshotTest extends TestCase
         }
         $this->assertFileExists(self::FIXTURE, 'Create the snapshot with UPDATE_MCP_SNAPSHOT=1.');
         $this->assertSame((string) file_get_contents(self::FIXTURE), $encoded);
+    }
+
+    public function test_patient_consent_revocation_is_a_rest_operation_without_a_clinical_mcp_tool(): void
+    {
+        $operation = app(AgentOperations::class)->registry()->find('oauth.patient_consent.revoke');
+        $this->assertNotNull($operation);
+        $this->assertNull($operation->mcp);
+        $this->assertSame('/oauth/consent/patients/{patient_public_id}', $operation->rest?->path);
     }
 
     /**

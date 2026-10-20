@@ -13,6 +13,8 @@ final class OAuthExchangeAccountGuard
 
     private const string TOKEN_ATTRIBUTE = 'oauth_exchange_issued_access_token';
 
+    public const string PATIENT_RESPONSE_ATTRIBUTE = 'oauth_selected_patient_response';
+
     private const string GRANT_ATTRIBUTE = 'oauth_exchange_validated_grant';
 
     public function recordValidatedGrant(
@@ -21,6 +23,8 @@ final class OAuthExchangeAccountGuard
         ?string $familyIdentifier,
         ?string $resourceUri = null,
         ?int $consentVersion = null,
+        ?string $patientPublicId = null,
+        ?int $patientConsentVersion = null,
     ): void {
         $request = app(Request::class);
         $request->attributes->set(self::REQUEST_ATTRIBUTE, $userIdentifier);
@@ -30,6 +34,8 @@ final class OAuthExchangeAccountGuard
             'family_identifier' => $familyIdentifier,
             'resource_uri' => $resourceUri,
             'consent_version' => $consentVersion,
+            'patient_public_id' => $patientPublicId,
+            'patient_consent_version' => $patientConsentVersion,
         ]);
     }
 
@@ -49,7 +55,18 @@ final class OAuthExchangeAccountGuard
         $request->attributes->set(self::GRANT_ATTRIBUTE, $grant);
     }
 
-    /** @return array{security_version: int, family_identifier: string|null, resource_uri: string|null, consent_version: int|null}|null */
+    public function recordSelectedPatient(int|string $userIdentifier, string $publicId, int $version): void
+    {
+        $request = app(Request::class);
+        $grant = $request->attributes->get(self::GRANT_ATTRIBUTE);
+        if (is_array($grant) && ($grant['user_identifier'] ?? null) === (string) $userIdentifier) {
+            $grant['patient_public_id'] = $publicId;
+            $grant['patient_consent_version'] = $version;
+            $request->attributes->set(self::GRANT_ATTRIBUTE, $grant);
+        }
+    }
+
+    /** @return array{security_version: int, family_identifier: string|null, resource_uri: string|null, consent_version: int|null, patient_public_id: string|null, patient_consent_version: int|null}|null */
     public function validatedGrantFor(int|string $userIdentifier): ?array
     {
         $grant = app(Request::class)->attributes->get(self::GRANT_ATTRIBUTE);
@@ -67,6 +84,8 @@ final class OAuthExchangeAccountGuard
             'family_identifier' => $grant['family_identifier'],
             'resource_uri' => $grant['resource_uri'],
             'consent_version' => $grant['consent_version'] ?? null,
+            'patient_public_id' => $grant['patient_public_id'] ?? null,
+            'patient_consent_version' => $grant['patient_consent_version'] ?? null,
         ];
     }
 
@@ -126,6 +145,17 @@ final class OAuthExchangeAccountGuard
             );
 
         if ($user instanceof User && $user->mayHoldOAuthCredentials() && $versionMatches && $familyIsActive && $consentIsCurrent) {
+            $family = is_string($familyIdentifier) ? OAuthTokenFamily::query()->find($familyIdentifier) : null;
+            $patient = $family?->patient_public_id;
+            $patientVersion = $family?->patient_consent_version;
+            // A revoked selection loses its context, not the client's other patient grants.
+            if (is_string($patient) && is_int($patientVersion) && app(OAuthPatientConsents::class)->current(
+                $issuedToken->user_id, (string) $issuedToken->client_id,
+                is_string($issuedToken->resource_uri) ? $issuedToken->resource_uri : null, $patient, $patientVersion,
+            )) {
+                $request->attributes->set(self::PATIENT_RESPONSE_ATTRIBUTE, $patient);
+            }
+
             return true;
         }
 

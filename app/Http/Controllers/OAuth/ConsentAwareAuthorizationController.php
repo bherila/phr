@@ -4,14 +4,18 @@ namespace App\Http\Controllers\OAuth;
 
 use App\Support\AgentApi\OAuthClientConsents;
 use App\Support\AgentApi\OAuthExchangeAccountGuard;
+use App\Support\AgentApi\OAuthPatientConsents;
 use BWH\Auth\OAuth\Server\OAuthResourceIndicator;
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Http\Request;
 use Laravel\Passport\Client;
+use Laravel\Passport\Contracts\AuthorizationViewResponse;
 use Laravel\Passport\Http\Controllers\AuthorizationController;
 use Laravel\Passport\Scope;
 use League\OAuth2\Server\Entities\ScopeEntityInterface;
 use League\OAuth2\Server\RequestTypes\AuthorizationRequestInterface;
 use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\ServerRequestInterface;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -25,9 +29,25 @@ use Symfony\Component\HttpFoundation\Response;
  */
 class ConsentAwareAuthorizationController extends AuthorizationController
 {
+    public function authorize(ServerRequestInterface $psrRequest, Request $request, ResponseInterface $psrResponse, AuthorizationViewResponse $viewResponse): Response|AuthorizationViewResponse
+    {
+        $patients = app(OAuthPatientConsents::class);
+        $patients->validateSelectionRequest($request);
+        $request->session()->forget(OAuthPatientConsents::SELECTION_SESSION_KEY);
+        $response = parent::authorize($psrRequest, $request, $psrResponse, $viewResponse);
+        if ($patients->selectionRequested($request) && $response instanceof AuthorizationViewResponse) {
+            $request->session()->put(OAuthPatientConsents::SELECTION_SESSION_KEY, $request->session()->get('authToken'));
+        }
+
+        return $response;
+    }
+
     /** @param  Scope[]  $scopes */
     protected function hasGrantedScopes(Authenticatable $user, Client $client, array $scopes): bool
     {
+        if (app(OAuthPatientConsents::class)->selectionRequested(request())) {
+            return false;
+        }
         $covered = app(OAuthClientConsents::class)->covering(
             $user->getAuthIdentifier(),
             (string) $client->getKey(),

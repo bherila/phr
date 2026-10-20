@@ -56,6 +56,8 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
             'revoked' => ! $resourceIsValid || $consentVersion === null,
             'oauth_security_version' => $securityVersion,
             'oauth_consent_version' => $consentVersion,
+            'patient_public_id' => $validatedGrant['patient_public_id'] ?? null,
+            'patient_consent_version' => $validatedGrant['patient_consent_version'] ?? null,
             'resource_uri' => $resourceUri,
             'expires_at' => $authCodeEntity->getExpiryDateTime(),
             ...ProviderIdentityStamp::forIssue($model, $userId),
@@ -124,6 +126,16 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
             return true;
         }
 
+        $patient = $authorizationCode->patient_public_id;
+        if (is_string($patient) && ! app(OAuthPatientConsents::class)->current(
+            $authorizationCode->user_id, (string) $authorizationCode->client_id, $storedResource,
+            $patient, (int) $authorizationCode->patient_consent_version,
+        )) {
+            $authorizationCode->forceFill(['revoked' => true])->save();
+
+            return true;
+        }
+
         // The code's provider stamp, checked against the account's binding and
         // handed to the token it mints (a no-op until enforcement is enabled).
         $providerIdentity = app(ProviderIdentityTokens::class);
@@ -138,6 +150,8 @@ class AccountAwareAuthCodeRepository extends AuthCodeRepository
             null,
             $storedResource,
             (int) $authorizationCode->oauth_consent_version,
+            is_string($patient) ? $patient : null,
+            $authorizationCode->patient_consent_version === null ? null : (int) $authorizationCode->patient_consent_version,
         );
 
         return false;

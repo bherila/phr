@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\OAuthPatientConsent;
 use App\Models\PhrDocument;
 use App\Models\PhrEob;
 use App\Models\PhrNativeRecordIdentity;
@@ -12,6 +13,9 @@ use App\Models\User;
 use App\Services\PHR\NativeBackup\PhrNativeBackupService;
 use App\Services\PHR\NativeBackup\PhrNativeRestoreService;
 use App\Support\AgentApi\AgentApiScopes;
+use App\Support\AgentApi\OAuthClientConsents;
+use App\Support\AgentApi\OAuthPatientConsents;
+use BWH\Auth\OAuth\Server\OAuthResourceIndicator;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
@@ -20,6 +24,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Laravel\Passport\ClientRepository;
 use Laravel\Passport\Passport;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Concerns\ConfiguresPassportKeys;
@@ -145,7 +150,16 @@ final class AgentApiPublicIdTest extends TestCase
         // so the restored rows cannot land on the same integers by accident.
         $this->eob($this->patient($owner), $owner, null);
 
-        Passport::actingAs($owner, $scopes);
+        $client = null;
+        $patientConsent = null;
+        if ($scopes === [AgentApiScopes::BILLING_READ]) {
+            $client = app(ClientRepository::class)->createAuthorizationCodeGrantClient('Synthetic Restore Consumer', ['https://consumer.example.test/callback'], true, null);
+            $client->forceFill(['scopes' => $scopes])->save();
+            $consent = app(OAuthClientConsents::class)->grant($owner->id, (string) $client->id, OAuthResourceIndicator::resource('rest'), $scopes);
+            $this->assertNotNull($consent);
+            $patientConsent = app(OAuthPatientConsents::class)->grant($consent, $patient);
+        }
+        Passport::actingAs($owner, $scopes, client: $client);
         $before = $this->getJson("/api/v1/patients/{$patient->id}/eobs/{$eob->id}")->assertOk()->json('data');
         $originalHash = hash('sha256', $bytes);
 
@@ -156,7 +170,7 @@ final class AgentApiPublicIdTest extends TestCase
         @unlink($archivePath);
 
         Auth::forgetGuards();
-        Passport::actingAs($owner, $scopes);
+        Passport::actingAs($owner, $scopes, client: $client);
         $restoredPatient = collect($this->getJson('/api/v1/patients')->assertOk()->json('data'))
             ->firstWhere('public_id', $before['patient_public_id']);
         $this->assertIsArray($restoredPatient);
@@ -175,6 +189,7 @@ final class AgentApiPublicIdTest extends TestCase
             ->assertOk()->assertJsonPath('data.0.public_id', $before['public_id']);
 
         if ($scopes === [AgentApiScopes::BILLING_READ]) {
+            $this->assertSame($patientConsent?->id, OAuthPatientConsent::query()->where('patient_public_id', $before['patient_public_id'])->sole()->id);
             $this->assertSame($originalHash, $restoredEob['source_document_sha256']);
             $this->postJson("/api/v1/patients/{$restoredPatient['id']}/documents/{$restoredDocumentId}/download-access")->assertForbidden();
 

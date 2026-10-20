@@ -12,6 +12,7 @@ use App\Services\PHR\Identity\PhrPublicIds;
 use App\Support\AgentApi\AgentApiCursor;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentApiUpdateWindow;
+use App\Support\AgentApi\OAuthPatientConsents;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -36,6 +37,7 @@ final class AgentPatientController extends Controller
                 $relation->getQuery()->where('user_id', $userId);
             }]);
 
+        app(OAuthPatientConsents::class)->restrict($request, $query);
         AgentApiUpdateWindow::apply($query, $validated, 'phr_patients.id');
         $archived = (string) ($validated['archived'] ?? 'include');
         if ($archived === 'exclude') {
@@ -65,6 +67,7 @@ final class AgentPatientController extends Controller
 
     public function show(Request $request, int $patient): JsonResponse
     {
+        app(OAuthPatientConsents::class)->assertPatient($request, $patient);
         $userId = (int) $request->user('api')?->id;
         $resolved = $this->accessService->accessiblePatientWithCurrentGrant($patient, $userId);
 

@@ -294,6 +294,70 @@ application-registered (first-party) client only: self-registration refuses it a
 endpoint therefore refuses it for such a client, and Passport drops it from any token
 issued to a dynamically registered client even if a stored ceiling names it.
 
+### Patient selection and delegated billing consent
+
+A registered authorization-code client requests `patient_select=1` together with
+`billing:read`. This forces a patient picker even when the ordinary client consent
+could be reused silently. It adds no new OAuth scope. The picker shows names only
+inside PHR, and offers patients the signed-in person owns or manages. Viewer grants
+cannot authorize onward billing access. The person chooses exactly one patient;
+missing, malformed, inaccessible or no-longer-manageable choices are refused before
+issuing a code. The selection mode is bound to Passport's authorization session and
+approval token, rather than trusted from an approval form flag. A failed approval
+consumes that form; retry requires a fresh authorization request, and replaying
+the earlier approval is refused.
+
+A successful token response adds `patient`, that patient's opaque `public_id`, without
+names or access levels. Clients must retain their ordinary PKCE, state and exact-issuer
+checks. Each round trip adds a patient to the same person's client/resource consent
+set; existing tokens can read the client's currently selected set, not just the patient
+selected in that token's round trip. Only the selected id is returned as OAuth context.
+A client cannot select someone merely because another user granted that client access.
+
+`patients.list` filters to that consent set and current owner/manager access.
+`patients.get`, `eobs.list` and `eobs.get` return 404 for an unknown, unselected, revoked
+or no-longer-manageable patient. These billing-endpoint checks also apply when the
+credential has clinical or patient scopes; clinical-only operations retain their
+existing access behavior. Legacy billing credentials and personal tokens without
+applicable patient consent receive no implicit patient access. The existing exact
+billing projection and document-download separation still apply.
+
+`DELETE /api/v1/oauth/consent/patients/{patient_public_id}` withdraws only the calling
+client's grant for that patient. It returns 204 for an unknown or already-withdrawn
+choice too. Either accepted REST- or MCP-bound credential for that same person and
+client withdraws the REST billing grant. Other selected patients and the client's
+credentials remain usable.
+Refresh returns the original selected context only while that consent and current
+access remain valid; otherwise it omits `patient` and keeps the other grants usable.
+An authorization code selected before revocation/regrant cannot mint the older
+selection. Full-client revocation uses the existing consent-version fence, so later
+client reauthorization never revives older patient choices without another selection.
+
+Patient consent is keyed by native public identity, not integer routing id, and thus
+survives native restore renumbering. Restored data still needs the current person's
+owner/manager access; matching a public id alone grants nothing.
+
+The unauthenticated capabilities response advertises the fixed contract at
+`oauth.billing_patient_consent`:
+
+```json
+{
+  "version": 1,
+  "authorization_parameter": "patient_select",
+  "token_response_parameter": "patient",
+  "patient_identifiers": "public_id",
+  "selection_roles": ["owner", "manager"]
+}
+```
+
+Version 1 guarantees the picker/context, durable per-client patient set and revocation,
+stable opaque identifiers, and the minimized claim-level billing projection above
+with no document downloads. A consumer can require this signal at connect time and
+before syncing; generic `api_version: v1` or OpenAPI `info.version: 1.0.0` does not prove
+these guarantees. Missing or unsupported consent-contract versions must be treated
+as unsupported by consumers that depend on them. The existing clinical-agent
+`workflow.patient_selection` guidance is unchanged.
+
 ## Token lifecycle
 
 Interactive clients use Authorization Code with S256 PKCE. Access tokens expire after

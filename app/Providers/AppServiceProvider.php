@@ -18,6 +18,7 @@ use App\Support\AgentApi\AgentApiPrincipalResolver;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentApiTokenPolicy;
 use App\Support\AgentApi\AgentOperations;
+use App\Support\AgentApi\OAuthPatientConsents;
 use Bherila\GenAiLaravel\Contracts\AttachmentResolver;
 use Bherila\GenAiLaravel\Contracts\CompletionDelivery;
 use Bherila\GenAiLaravel\Contracts\MailboxAccessResolver;
@@ -37,6 +38,7 @@ use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Auth\StatefulGuard;
 use Illuminate\Http\Middleware\HandleCors;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
@@ -127,7 +129,15 @@ class AppServiceProvider extends ServiceProvider
         Passport::tokensExpireIn(now()->addMinutes(AgentApiTokenPolicy::ACCESS_TOKEN_LIFETIME_MINUTES));
         Passport::refreshTokensExpireIn(now()->addDays(AgentApiTokenPolicy::REFRESH_TOKEN_LIFETIME_DAYS));
         Passport::personalAccessTokensExpireIn(now()->addMinutes(AgentApiTokenPolicy::ACCESS_TOKEN_LIFETIME_MINUTES));
-        Passport::authorizationView('bherila-auth::oauth.authorize');
+        Passport::authorizationView(static function (array $parameters): Response {
+            $selection = $parameters['request']->session()->get(OAuthPatientConsents::SELECTION_SESSION_KEY);
+            $selecting = is_string($selection) && $selection === $parameters['authToken'];
+
+            return response()->view($selecting ? 'oauth.patient-selection' : 'bherila-auth::oauth.authorize', [
+                ...$parameters,
+                'patients' => $selecting ? app(OAuthPatientConsents::class)->options((int) $parameters['user']->getAuthIdentifier()) : [],
+            ]);
+        });
         HandleCors::skipWhen(fn (Request $request): bool => $request->is('api/v1/mcp') || $request->is('api/v1/genai/*'));
         // The durable package request row is authoritative for external import
         // status; these listeners only ask PhrExternalImportStatusMap what that
