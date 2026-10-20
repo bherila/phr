@@ -30,13 +30,10 @@ final class AgentPatientPresenter
         $level = $isOwner ? PhrPatientUserAccess::LEVEL_OWNER : $grant?->access_level;
         $publicId ??= $this->publicIds->forPatient((int) $patient->id);
         if ($billingOnly) {
-            // The finance projection: enough to choose which profiles to
-            // reconcile and to bind only the ones the caller owns.
+            // Patient labels and access levels remain inside PHR.
             return [
                 'id' => $patient->id,
                 'public_id' => $publicId,
-                'display_name' => $patient->display_name,
-                'access_level' => $level,
             ];
         }
 

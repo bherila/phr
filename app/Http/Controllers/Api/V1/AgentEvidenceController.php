@@ -43,9 +43,9 @@ final class AgentEvidenceController extends Controller
 
     public function eobs(Request $request, int $patient): JsonResponse
     {
-        $validated = $request->validate($this->eobListRules());
-        $patientId = $this->patientId($request, $patient);
         $finance = $this->financeProjection($request);
+        $validated = $request->validate($this->eobListRules($finance));
+        $patientId = $this->patientId($request, $patient);
         $query = $this->eobQuery($patientId, $finance);
         AgentApiUpdateWindow::apply($query, $validated, $query->getModel()->qualifyColumn('patient_id'));
         foreach (['import_source', 'source_document_id', 'claim_type'] as $filter) {
@@ -53,7 +53,7 @@ final class AgentEvidenceController extends Controller
                 $query->where($filter, $validated[$filter]);
             }
         }
-        $eobDate = 'DATE(COALESCE(phr_eobs.processed_date, phr_eobs.submission_date, phr_eobs.print_date))';
+        $eobDate = $finance ? 'DATE(phr_eobs.processed_date)' : 'DATE(COALESCE(phr_eobs.processed_date, phr_eobs.submission_date, phr_eobs.print_date))';
         if (isset($validated['date_from'])) {
             $query->whereRaw("{$eobDate} >= ?", [Carbon::parse((string) $validated['date_from'])->toDateString()]);
         }
@@ -88,11 +88,10 @@ final class AgentEvidenceController extends Controller
         PhrEob::query()->where('patient_id', $patientId)->findOrFail($eob);
         $query = PhrEobLine::query()->where('patient_id', $patientId)->where('eob_id', $eob);
         AgentApiUpdateWindow::apply($query, $validated, $query->getModel()->qualifyColumn('patient_id'));
-        $finance = $this->financeProjection($request);
 
         return $this->modelPage(
             $request, $patientId, 'eob-line', $query, $validated,
-            fn (PhrEobLine $line): array => $finance ? $this->lineFinancePayload($line) : $this->linePayload($line),
+            fn (PhrEobLine $line): array => $this->linePayload($line),
         );
     }
 
@@ -147,12 +146,12 @@ final class AgentEvidenceController extends Controller
     }
 
     /** @return array<string, mixed> */
-    private function eobListRules(): array
+    private function eobListRules(bool $finance): array
     {
         return $this->pageRules() + [
-            'import_source' => ['sometimes', 'string', 'max:50'],
-            'source_document_id' => ['sometimes', 'integer', 'min:1'],
-            'claim_type' => ['sometimes', 'string', 'max:30'],
+            'import_source' => $finance ? ['prohibited'] : ['sometimes', 'string', 'max:50'],
+            'source_document_id' => $finance ? ['prohibited'] : ['sometimes', 'integer', 'min:1'],
+            'claim_type' => $finance ? ['prohibited'] : ['sometimes', 'string', 'max:30'],
             'date_from' => ['sometimes', 'date'],
             'date_to' => ['sometimes', 'date', 'after_or_equal:date_from'],
         ];
@@ -204,8 +203,8 @@ final class AgentEvidenceController extends Controller
 
     /**
      * A credential with billing:read but not clinical:read sees EOBs only
-     * through the finance projection: amounts, dates, provider and claim
-     * number, never codes, descriptions, plan or member details.
+     * through claim-level financial metadata, never claim numbers, importer
+     * provenance, per-line detail, plan or member details.
      */
     private function financeProjection(Request $request): bool
     {
@@ -224,7 +223,7 @@ final class AgentEvidenceController extends Controller
             ->whereColumn('phr_eob_lines.eob_id', 'phr_eobs.id')
             ->whereColumn('phr_eob_lines.patient_id', 'phr_eobs.patient_id');
 
-        return $query->select('phr_eobs.*')->addSelect([
+        return $query->with('sourceDocument:id,patient_id,file_hash')->select('phr_eobs.*')->addSelect([
             'finance_service_start' => $lines('MIN(phr_eob_lines.service_start)'),
             'finance_service_end' => $lines('MAX(COALESCE(phr_eob_lines.service_end, phr_eob_lines.service_start))'),
         ]);
@@ -292,38 +291,32 @@ final class AgentEvidenceController extends Controller
     private function eobFinancePayload(PhrEob $eob): array
     {
         $patientId = (int) $eob->patient_id;
+        $document = $eob->sourceDocument;
+        if ($document !== null && (int) $document->patient_id !== $patientId) {
+            $document = null;
+        }
 
         return [
             'id' => $eob->id, 'public_id' => $this->publicId($patientId, PhrPublicIds::EOBS, (int) $eob->id),
-            'patient_id' => $eob->patient_id,
             'patient_public_id' => $this->publicId($patientId, PhrPublicIds::PATIENTS, $patientId),
-            'claim_type' => $eob->claim_type, 'import_source' => $eob->import_source,
+            'updated_at' => $eob->updated_at?->toIso8601String(),
+            'claim_category' => match ($eob->claim_type) {
+                'dental', 'vision' => 'dental_vision',
+                'pharmacy' => 'pharmacy',
+                default => 'medical',
+            },
             'service_start' => $this->date($eob->getAttribute('finance_service_start')),
             'service_end' => $this->date($eob->getAttribute('finance_service_end')),
             'processed_date' => $eob->processed_date?->toDateString(),
-            'provider_name' => $eob->provider_name, 'claim_number' => $eob->claim_number,
-            'source_document_id' => $eob->source_document_id,
-            'source_document_public_id' => $this->publicId($patientId, PhrPublicIds::DOCUMENTS, $eob->source_document_id),
+            'provider_name' => $eob->provider_name,
             'total_charges' => $eob->total_charges, 'total_accepted_fee' => $eob->total_accepted_fee,
             'total_plan_payment' => $eob->total_plan_payment,
             'total_deductible_applied' => $eob->total_deductible_applied,
             'total_copay_applied' => $eob->total_copay_applied,
             'total_patient_responsibility' => $eob->total_patient_responsibility,
-            'created_at' => $eob->created_at?->toIso8601String(), 'updated_at' => $eob->updated_at?->toIso8601String(),
-        ];
-    }
-
-    /** @return array<string, mixed> */
-    private function lineFinancePayload(PhrEobLine $line): array
-    {
-        return [
-            'id' => $line->id, 'eob_id' => $line->eob_id, 'patient_id' => $line->patient_id,
-            'line_number' => $line->line_number,
-            'service_start' => $line->service_start?->toDateString(), 'service_end' => $line->service_end?->toDateString(),
-            'total_charges' => $line->total_charges, 'accepted_fee' => $line->accepted_fee,
-            'plan_payment' => $line->plan_payment, 'deductible_applied' => $line->deductible_applied,
-            'copay_applied' => $line->copay_applied, 'patient_responsibility' => $line->patient_responsibility,
-            'created_at' => $line->created_at?->toIso8601String(), 'updated_at' => $line->updated_at?->toIso8601String(),
+            'currency' => null,
+            'source_document_public_id' => $document === null ? null : $this->publicId($patientId, PhrPublicIds::DOCUMENTS, (int) $document->id),
+            'source_document_sha256' => $document?->file_hash,
         ];
     }
 

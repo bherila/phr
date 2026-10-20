@@ -68,8 +68,13 @@ explicit `--actor` and go through the same three methods.
 | Export request | `POST api/phr/patients/{patient}/exports` | **O** | — | existing-protected |
 | Native backup | `POST api/phr/patients/{patient}/native-backups` | **O** | — | existing-protected |
 | Patient page shell | `GET /phr/patient/{patient}` | R | — | existing-protected |
-| Agent: list patients | `GET api/v1/patients` | R (query) | `patients:read`, or `billing:read` (id, public id, display name, caller's access level only) | existing-protected |
+| Stable EOB deep link | `GET /eobs/{public_id}` | R, resolved through the EOB native identity's patient | — (session) | existing-protected; unknown and inaccessible ids both return 404 |
+| Patient-scoped EOB page | `GET /phr/patient/{patient}/eobs/{eob}` | R; EOB must belong to the resolved patient | — (session) | existing-protected; source-less EOBs remain readable |
+| Agent: list patients | `GET api/v1/patients` | R (query) | `patients:read`, or `billing:read` (id and public id only) | existing-protected |
 | Agent: show patient | `GET api/v1/patients/{patient}` | R | `patients:read`, or `billing:read` (same projection) | existing-protected |
+| Agent: list/show EOB | `GET api/v1/patients/{patient}/eobs`, `GET .../eobs/{eob}` | R; child scoped to resolved patient | `clinical:read`, or `billing:read` (claim-level financial fields only) | existing-protected |
+| Agent: list EOB lines | `GET api/v1/patients/{patient}/eobs/{eob}/lines` | R | `clinical:read` only | existing-protected; billing-only refused |
+| Agent: document download access / bytes | `POST api/v1/patients/{patient}/documents/{document}/download-access`, signed `GET .../file` | R; document scoped to resolved patient | `documents:read` only | existing-protected; billing-only refused even with another credential's signature |
 | Agent: create patient | `POST api/v1/patients` | — (creates own) | `patients:write` | existing-protected |
 | Agent: list allergies | `GET api/v1/patients/{patient}/allergies` | R | `clinical:read` | existing-protected |
 | Agent: show allergy | `GET api/v1/patients/{patient}/allergies/{record}` | R | `clinical:read` | existing-protected |

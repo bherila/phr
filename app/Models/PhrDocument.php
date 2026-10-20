@@ -120,6 +120,20 @@ class PhrDocument extends Model
         'imported_at',
     ];
 
+    protected static function booted(): void
+    {
+        static::saved(static function (self $document): void {
+            if ($document->wasChanged(['file_hash', 'patient_id', 'deleted_at'])) {
+                $document->eobs()->touch();
+            }
+        });
+        static::deleting(static function (self $document): void {
+            // Before a hard delete clears the source foreign key, advance the
+            // surviving EOB so incremental consumers see its missing source.
+            $document->eobs()->touch();
+        });
+    }
+
     protected function casts(): array
     {
         return [

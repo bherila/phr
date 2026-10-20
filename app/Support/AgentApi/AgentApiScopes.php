@@ -15,9 +15,8 @@ final class AgentApiScopes
     public const string CLINICAL_WRITE = 'clinical:write';
 
     /**
-     * The finance projection of EOBs (amounts, dates, provider and claim
-     * number; never codes, descriptions or notes), patients with the caller's
-     * access level, and downloads of EOB source documents only. REST-only.
+     * Claim-level financial EOB metadata and opaque patient identifiers.
+     * No clinical detail, patient labels or document download. REST-only.
      */
     public const string BILLING_READ = 'billing:read';
 
@@ -52,7 +51,7 @@ final class AgentApiScopes
             self::PATIENTS_WRITE => 'Create new patients you own',
             self::CLINICAL_READ => 'Read clinical records for patients you can access',
             self::CLINICAL_WRITE => 'Create and update clinical records you can manage',
-            self::BILLING_READ => 'Read claim amounts and dates from explanations of benefits, and download their source documents',
+            self::BILLING_READ => 'Read claim-level financial metadata and opaque patient identifiers, without document download',
             self::DOCUMENTS_READ => 'Read document metadata and download authorized files',
             self::DOCUMENTS_WRITE => 'Upload patient documents',
             self::IMPORTS_READ => 'Read import jobs and extraction results',
