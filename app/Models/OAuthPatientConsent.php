@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 
 /**
  * @property int $id
@@ -10,8 +11,8 @@ use Illuminate\Database\Eloquent\Model;
  * @property string $patient_public_id
  * @property int $client_consent_version
  * @property int $version
- * @property \Illuminate\Support\Carbon $granted_at
- * @property \Illuminate\Support\Carbon|null $revoked_at
+ * @property Carbon $granted_at
+ * @property Carbon|null $revoked_at
  */
 final class OAuthPatientConsent extends Model
 {
