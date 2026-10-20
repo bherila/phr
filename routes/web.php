@@ -3,6 +3,7 @@
 use App\Http\Controllers\DevicePairingController;
 use App\Http\Controllers\OAuthLoginController;
 use App\Http\Controllers\OhifViewerController;
+use App\Http\Controllers\PHR\EobPageController;
 use App\Http\Controllers\PHR\PageController as PHRPageController;
 use App\Http\Controllers\PHR\PhrDocumentController;
 use App\Http\Controllers\PHR\PhrExportController;
@@ -34,6 +35,10 @@ Route::redirect('/', '/phr');
 
 Route::middleware('auth')->group(function (): void {
     Route::get('/uptime', UptimeController::class)->name('uptime');
+    Route::get('/eobs/{public_id}', [EobPageController::class, 'resolve'])->name('phr.eobs.resolve');
+    Route::get('/phr/patient/{patient}/eobs/{eob}', [EobPageController::class, 'show'])
+        ->whereNumber(['patient', 'eob'])
+        ->name('phr.eobs.show');
 
     /*
      * Browser-approved device pairing for the Sinus Sentinel Mac app (see
