@@ -164,11 +164,20 @@ final class AgentApiPublicIdTest extends TestCase
             ->firstWhere('public_id', $before['public_id']);
         $this->assertIsArray($restoredEob);
         $this->assertNotSame($eob->id, $restoredEob['id']);
-        $this->assertNotSame($document->id, $restoredEob['source_document_id']);
+        $restoredDocumentId = PhrNativeRecordIdentity::query()->where('record_table', 'phr_documents')
+            ->where('native_id', $before['source_document_public_id'])->sole()->record_id;
+        $this->assertNotSame($document->id, $restoredDocumentId);
         $this->assertSame($before['patient_public_id'], $restoredEob['patient_public_id']);
         $this->assertSame($before['source_document_public_id'], $restoredEob['source_document_public_id']);
 
-        $access = $this->postJson("/api/v1/patients/{$restoredPatient['id']}/documents/{$restoredEob['source_document_id']}/download-access")
+        if ($scopes === [AgentApiScopes::BILLING_READ]) {
+            $this->assertSame($originalHash, $restoredEob['source_document_sha256']);
+            $this->postJson("/api/v1/patients/{$restoredPatient['id']}/documents/{$restoredDocumentId}/download-access")->assertForbidden();
+
+            return;
+        }
+
+        $access = $this->postJson("/api/v1/patients/{$restoredPatient['id']}/documents/{$restoredDocumentId}/download-access")
             ->assertOk()
             ->assertJsonPath('patient_public_id', $before['patient_public_id'])
             ->assertJsonPath('document_public_id', $before['source_document_public_id'])

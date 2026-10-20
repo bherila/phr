@@ -12,12 +12,13 @@ use App\Support\AgentApi\AgentApiScopes;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Passport\Passport;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Concerns\ConfiguresPassportKeys;
 use Tests\TestCase;
 
 /**
  * billing:read is the least-privilege scope a finance application gets: the
- * finance projection of EOBs and their lines, nothing clinical.
+ * claim-level financial projection of EOBs, nothing clinical.
  */
 final class AgentApiBillingReadTest extends TestCase
 {
@@ -26,17 +27,11 @@ final class AgentApiBillingReadTest extends TestCase
 
     /** The EOB fields a billing-only credential may see (finance projection). */
     private const array EOB_FIELDS = [
-        'id', 'public_id', 'patient_id', 'patient_public_id',
-        'claim_type', 'import_source', 'service_start', 'service_end', 'processed_date',
-        'provider_name', 'claim_number', 'source_document_id', 'source_document_public_id',
+        'id', 'public_id', 'patient_public_id', 'updated_at', 'claim_category',
+        'service_start', 'service_end', 'processed_date', 'provider_name',
         'total_charges', 'total_accepted_fee', 'total_plan_payment', 'total_deductible_applied',
-        'total_copay_applied', 'total_patient_responsibility', 'created_at', 'updated_at',
-    ];
-
-    private const array LINE_FIELDS = [
-        'id', 'eob_id', 'patient_id', 'line_number', 'service_start', 'service_end',
-        'total_charges', 'accepted_fee', 'plan_payment', 'deductible_applied',
-        'copay_applied', 'patient_responsibility', 'created_at', 'updated_at',
+        'total_copay_applied', 'total_patient_responsibility', 'currency',
+        'source_document_public_id', 'source_document_sha256',
     ];
 
     /** Clinical and identifying content that must never reach a billing-only credential. */
@@ -45,6 +40,7 @@ final class AgentApiBillingReadTest extends TestCase
         'Synthetic Administrator', 'Synthetic Carrier', 'SYNTHETIC-MEMBER', 'SYNTHETIC-GROUP',
         'procedure_code', 'revenue_code', 'description', 'code_type', 'raw_text', 'parsed_data',
         'administrator', 'carrier', 'plan_name', 'external_id', 'submission_date',
+        'claim_type', 'claim_number', 'import_source', 'SYNTHETIC-CLAIM-1',
     ];
 
     protected function setUp(): void
@@ -70,20 +66,15 @@ final class AgentApiBillingReadTest extends TestCase
         $this->assertSame('2026-07-05', $one['data']['service_end']);
         $this->assertSame('42.50', $one['data']['total_patient_responsibility']);
         $this->assertSame('Synthetic Provider Group', $one['data']['provider_name']);
-        $this->assertSame('SYNTHETIC-CLAIM-1', $one['data']['claim_number']);
-        $this->assertSame($document->id, $one['data']['source_document_id']);
+        $this->assertSame('dental_vision', $one['data']['claim_category']);
+        $this->assertNull($one['data']['currency']);
+        $this->assertSame($document->file_hash, $one['data']['source_document_sha256']);
         $this->assertNever($one);
 
         $page = $this->getJson("/api/v1/patients/{$patient->id}/eobs?updated_after=2000-01-01T00:00:00Z")->assertOk()->json();
         $this->assertSame(self::EOB_FIELDS, array_keys($page['data'][0]));
         $this->assertSame($one['data'], $page['data'][0]);
         $this->assertNever($page);
-
-        $lines = $this->getJson("/api/v1/patients/{$patient->id}/eobs/{$eob->id}/lines")->assertOk()->json();
-        $this->assertCount(2, $lines['data']);
-        $this->assertSame(self::LINE_FIELDS, array_keys($lines['data'][0]));
-        $this->assertSame('12.50', $lines['data'][1]['patient_responsibility']);
-        $this->assertNever($lines);
     }
 
     public function test_a_billing_only_credential_reaches_nothing_clinical(): void
@@ -95,6 +86,7 @@ final class AgentApiBillingReadTest extends TestCase
 
         Passport::actingAs($owner, [AgentApiScopes::BILLING_READ]);
         foreach ([
+            "/api/v1/patients/{$patient->id}/eobs/{$eob->id}/lines",
             "/api/v1/patients/{$patient->id}/eobs/{$eob->id}/lines/{$line->id}",
             "/api/v1/patients/{$patient->id}/records/search",
             "/api/v1/patients/{$patient->id}/timeline",
@@ -136,7 +128,7 @@ final class AgentApiBillingReadTest extends TestCase
         $this->getJson("/api/v1/patients/{$patient->id}/eobs/{$eob->id}")->assertNotFound();
     }
 
-    public function test_a_billing_only_credential_lists_patients_with_its_own_access_level(): void
+    public function test_a_billing_only_credential_sees_only_patient_routing_and_public_ids(): void
     {
         $owner = $this->createUser();
         $viewer = $this->createUser();
@@ -157,15 +149,13 @@ final class AgentApiBillingReadTest extends TestCase
         $list = $this->getJson('/api/v1/patients')->assertOk()->json();
         $this->assertSame([$own->id, $shared->id], array_column($list['data'], 'id'));
         foreach ($list['data'] as $patient) {
-            $this->assertSame(['id', 'public_id', 'display_name', 'access_level'], array_keys($patient));
+            $this->assertSame(['id', 'public_id'], array_keys($patient));
         }
-        $this->assertSame([PhrPatientUserAccess::LEVEL_OWNER, PhrPatientUserAccess::LEVEL_VIEWER], array_column($list['data'], 'access_level'));
         $one = $this->getJson("/api/v1/patients/{$shared->id}")->assertOk()->json();
-        $this->assertSame(['id', 'public_id', 'display_name', 'access_level'], array_keys($one['data']));
-        $this->assertSame(PhrPatientUserAccess::LEVEL_VIEWER, $one['data']['access_level']);
+        $this->assertSame(['id', 'public_id'], array_keys($one['data']));
         foreach ([$list, $one] as $response) {
             $encoded = json_encode($response, JSON_THROW_ON_ERROR);
-            foreach (['2000-01-01', 'Synthetic patient notes', 'birth_date', 'sex_at_birth', 'relationship', 'notes', 'granted_at'] as $forbidden) {
+            foreach (['2000-01-01', 'Synthetic patient notes', 'birth_date', 'sex_at_birth', 'relationship', 'notes', 'granted_at', 'display_name', 'access_level', 'Synthetic Billing Patient'] as $forbidden) {
                 $this->assertStringNotContainsString($forbidden, $encoded);
             }
         }
@@ -173,7 +163,7 @@ final class AgentApiBillingReadTest extends TestCase
 
         Passport::actingAs($viewer, [AgentApiScopes::BILLING_READ]);
         $this->getJson("/api/v1/patients/{$own->id}")->assertOk()
-            ->assertJsonPath('data.access_level', PhrPatientUserAccess::LEVEL_MANAGER);
+            ->assertJsonPath('data.id', $own->id)->assertJsonMissingPath('data.access_level');
         $this->getJson("/api/v1/patients/{$shared->id}")->assertNotFound();
 
         Passport::actingAs($owner, [AgentApiScopes::PATIENTS_READ, AgentApiScopes::BILLING_READ]);
@@ -183,34 +173,101 @@ final class AgentApiBillingReadTest extends TestCase
             ->assertJsonPath('data.sex_at_birth', 'unknown');
     }
 
-    public function test_a_billing_only_credential_downloads_eob_source_documents_and_nothing_else(): void
+    public function test_billing_read_cannot_download_even_with_another_credentials_signature(): void
     {
         $owner = $this->createUser();
         $patient = $this->patient($owner);
-        $bytes = 'synthetic explanation of benefits bytes';
-        $source = $this->document($patient, $owner, 'synthetic-eob-source', $bytes);
+        $source = $this->document($patient, $owner, 'synthetic-eob-source');
         $this->eob($patient, $owner, $source);
-        $letter = $this->document($patient, $owner, 'synthetic-letter', 'synthetic letter bytes');
+        $letter = $this->document($patient, $owner, 'synthetic-letter');
 
         Passport::actingAs($owner, [AgentApiScopes::DOCUMENTS_READ]);
-        $letterAccess = $this->postJson("/api/v1/patients/{$patient->id}/documents/{$letter->id}/download-access")->assertOk()->json();
+        $accesses = [];
+        foreach ([$source, $letter] as $document) {
+            $access = $this->postJson("/api/v1/patients/{$patient->id}/documents/{$document->id}/download-access")->assertOk()->json();
+            $this->get($access['download_url'])->assertOk();
+            $accesses[] = $access;
+        }
 
         Passport::actingAs($owner, [AgentApiScopes::BILLING_READ]);
-        $access = $this->postJson("/api/v1/patients/{$patient->id}/documents/{$source->id}/download-access")
-            ->assertOk()->assertJsonPath('document_id', $source->id)->json();
-        $this->assertIsString($access['document_public_id']);
-        $downloaded = $this->get($access['download_url'])->assertOk()->streamedContent();
-        $this->assertSame(hash('sha256', $bytes), hash('sha256', $downloaded));
+        foreach ([$source, $letter] as $index => $document) {
+            $this->postJson("/api/v1/patients/{$patient->id}/documents/{$document->id}/download-access")->assertForbidden();
+            $this->get($accesses[$index]['download_url'])->assertForbidden();
+        }
+    }
 
-        // A document no EOB names (a letter of medical necessity, say) is out of
-        // reach, even with a signature another credential obtained.
-        $this->postJson("/api/v1/patients/{$patient->id}/documents/{$letter->id}/download-access")->assertNotFound();
-        $this->get($letterAccess['download_url'])->assertNotFound();
-        $this->getJson("/api/v1/patients/{$patient->id}/documents/{$source->id}")->assertForbidden();
-        $this->getJson("/api/v1/patients/{$patient->id}/documents")->assertForbidden();
+    /** @return array<string, array{string, string}> */
+    public static function claimCategories(): array
+    {
+        return [
+            'medical' => ['medical', 'medical'],
+            'pharmacy' => ['pharmacy', 'pharmacy'],
+            'dental' => ['dental', 'dental_vision'],
+            'vision' => ['vision', 'dental_vision'],
+            'unknown' => ['unknown', 'medical'],
+            'future type' => ['synthetic-future-type', 'medical'],
+        ];
+    }
 
-        Passport::actingAs($this->createUser(), [AgentApiScopes::BILLING_READ]);
-        $this->postJson("/api/v1/patients/{$patient->id}/documents/{$source->id}/download-access")->assertNotFound();
+    #[DataProvider('claimCategories')]
+    public function test_claim_types_are_mapped_to_a_closed_category_set(string $claimType, string $expected): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->patient($owner);
+        $eob = $this->eob($patient, $owner, null);
+        $eob->update(['claim_type' => $claimType]);
+        Passport::actingAs($owner, [AgentApiScopes::BILLING_READ]);
+
+        $data = $this->getJson("/api/v1/patients/{$patient->id}/eobs/{$eob->id}")->assertOk()->json('data');
+        $this->assertSame(self::EOB_FIELDS, array_keys($data));
+        $this->assertSame($expected, $data['claim_category']);
+        $this->assertNull($data['source_document_public_id']);
+        $this->assertNull($data['source_document_sha256']);
+    }
+
+    public function test_billing_filters_cannot_recover_excluded_claim_attributes(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->patient($owner);
+        $this->eob($patient, $owner, null);
+        Passport::actingAs($owner, [AgentApiScopes::BILLING_READ]);
+        foreach (['claim_type' => 'dental', 'import_source' => 'synthetic-eob', 'source_document_id' => 1] as $key => $value) {
+            $this->getJson("/api/v1/patients/{$patient->id}/eobs?".http_build_query([$key => $value]))->assertUnprocessable();
+        }
+    }
+
+    public function test_document_metadata_excludes_deleted_and_other_patient_sources(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->patient($owner);
+        $document = $this->document($patient, $owner, 'synthetic-source-metadata');
+        $eob = $this->eob($patient, $owner, $document);
+        Passport::actingAs($owner, [AgentApiScopes::BILLING_READ]);
+        $url = "/api/v1/patients/{$patient->id}/eobs/{$eob->id}";
+        $this->getJson($url)->assertOk()->assertJsonPath('data.source_document_sha256', $document->file_hash);
+
+        $document->delete();
+        $this->getJson($url)->assertOk()->assertJsonPath('data.source_document_public_id', null)
+            ->assertJsonPath('data.source_document_sha256', null);
+
+        $document->restore();
+        $document->update(['patient_id' => $this->patient($owner)->id]);
+        $this->getJson($url)->assertOk()->assertJsonPath('data.source_document_public_id', null)
+            ->assertJsonPath('data.source_document_sha256', null);
+    }
+
+    public function test_billing_date_filters_do_not_fall_back_to_excluded_dates(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->patient($owner);
+        $eob = $this->eob($patient, $owner, null);
+        $eob->update(['processed_date' => null]);
+        $url = "/api/v1/patients/{$patient->id}/eobs?date_from=2026-07-01";
+
+        Passport::actingAs($owner, [AgentApiScopes::BILLING_READ]);
+        $this->getJson($url)->assertOk()->assertJsonCount(0, 'data');
+        Passport::actingAs($owner, [AgentApiScopes::CLINICAL_READ]);
+        $this->getJson($url)->assertOk()->assertJsonCount(1, 'data');
     }
 
     public function test_billing_read_is_a_rest_only_alternative_and_reported_as_one(): void
@@ -228,11 +285,19 @@ final class AgentApiBillingReadTest extends TestCase
 
         Passport::actingAs($this->createUser(), [AgentApiScopes::IDENTITY_READ, AgentApiScopes::BILLING_READ]);
         $operations = $this->getJson('/api/v1/me')->assertOk()->json('operations');
-        foreach (['eobs.list', 'eobs.get', 'eob_lines.list'] as $available) {
+        $this->assertEqualsCanonicalizing(
+            ['capabilities.get', 'identity.get', 'patients.list', 'patients.get', 'eobs.list', 'eobs.get', 'oauth.consent.revoke', 'oauth.disconnect'],
+            $operations['available'],
+        );
+        foreach (['eobs.list', 'eobs.get'] as $available) {
             $this->assertContains($available, $operations['available']);
         }
         $withheld = array_column($operations['withheld'], null, 'operation');
         $this->assertSame(AgentApiScopes::CLINICAL_READ, $withheld['eob_lines.get']['detail']);
+        $this->assertArrayHasKey('eob_lines.list', $withheld);
+        $this->assertSame(AgentApiScopes::CLINICAL_READ, $withheld['eob_lines.list']['detail']);
+        $this->assertSame(AgentApiScopes::DOCUMENTS_READ, $withheld['documents.download']['detail']);
+        $this->assertSame(AgentApiScopes::DOCUMENTS_READ, $withheld['documents.download_access.create']['detail']);
         $this->assertSame(AgentApiScopes::CLINICAL_READ, $withheld['clinical.list']['detail']);
 
         Passport::actingAs($this->createUser(), [AgentApiScopes::IDENTITY_READ]);

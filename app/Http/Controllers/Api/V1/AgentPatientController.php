@@ -76,8 +76,7 @@ final class AgentPatientController extends Controller
     }
 
     /**
-     * billing:read without patients:read sees only id, public id, display
-     * name and the caller's access level.
+     * billing:read without patients:read sees only routing and public ids.
      */
     private function billingOnly(Request $request): bool
     {
