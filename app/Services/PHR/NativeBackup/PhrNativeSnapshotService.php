@@ -4,6 +4,7 @@ namespace App\Services\PHR\NativeBackup;
 
 use App\Models\PhrDicomFile;
 use App\Models\PhrDicomUpload;
+use App\Services\PHR\ResourceByteSize;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 
@@ -14,13 +15,16 @@ use Illuminate\Support\Facades\DB;
  * (each projected source row adds an entity, a revision, an occurrence and a
  * proposal revision), so rows are never materialized per table. Callers run
  * inside snapshot() and pull each table in id-ordered keyset pages of at most
- * chunkSize() rows; memory is bounded by the page size, not the row count.
+ * chunkSize() rows; row payloads are bounded by both page rows and raw bytes. Native admission
+ * additionally bounds retained metadata and restore actions.
  * Artifact bytes are never read here; the archive builder streams those from
  * their configured disks after the snapshot closes.
  */
 final class PhrNativeSnapshotService
 {
     public const int DEFAULT_CHUNK_SIZE = 500;
+
+    public function __construct(private readonly ResourceByteSize $rowSizes) {}
 
     /**
      * Run $callback inside one repeatable-read transaction. Every chunks() and
@@ -75,12 +79,31 @@ final class PhrNativeSnapshotService
     {
         $size = self::chunkSize();
         $lastId = null;
-        do {
+        $rowSize = $this->rowSizes->row($table);
+        while (true) {
             $query = $this->query($patientId, $table)->select($columns);
             if ($lastId !== null) {
                 $query->where('id', '>', $lastId);
             }
-            $query->orderBy('id')->limit($size);
+            // Probe sizes without transferring payloads. Only ids fitting the byte
+            // page are hydrated, even when every row is near the individual limit.
+            $ids = [];
+            $bytes = 0;
+            foreach ((clone $query)->select('id')->selectRaw($rowSize.' AS native_row_bytes')->orderBy('id')->limit($size)->get() as $probe) {
+                $rowBytes = (int) $probe->native_row_bytes;
+                if ($rowBytes > (int) config('phr.native_restore_max_record_bytes')) {
+                    throw new NativeBackupException('record_size_limit');
+                }
+                if ($rowBytes > (int) config('phr.native_page_bytes') - $bytes && $ids !== []) {
+                    break;
+                }
+                $ids[] = (int) $probe->id;
+                $bytes += $rowBytes;
+            }
+            if ($ids === []) {
+                return;
+            }
+            $query->whereIn('id', $ids)->orderBy('id');
             if ($lockForUpdate) {
                 $query->lockForUpdate();
             }
@@ -92,7 +115,7 @@ final class PhrNativeSnapshotService
             yield $rows;
 
             $lastId = (int) $rows[array_key_last($rows)]->id;
-        } while (count($rows) === $size);
+        }
     }
 
     /**
@@ -116,9 +139,25 @@ final class PhrNativeSnapshotService
             ->all();
     }
 
+    public function rowById(int $patientId, string $table, int $id, bool $lockForUpdate): ?\stdClass
+    {
+        $query = $this->query($patientId, $table)->where('id', $id);
+        if ($lockForUpdate) {
+            $query->lockForUpdate();
+        }
+
+        $size = $this->rowSizes->row($table);
+        $bytes = (clone $query)->selectRaw($size.' AS native_row_bytes')->first()?->native_row_bytes;
+        if ($bytes !== null && (int) $bytes > (int) config('phr.native_restore_max_record_bytes')) {
+            throw new NativeRestoreException('record_size_limit');
+        }
+
+        return $query->first();
+    }
+
     public static function chunkSize(): int
     {
-        return max(1, (int) config('phr.native_backup_chunk_size', self::DEFAULT_CHUNK_SIZE));
+        return max(1, min(self::DEFAULT_CHUNK_SIZE, (int) config('phr.native_backup_chunk_size', self::DEFAULT_CHUNK_SIZE)));
     }
 
     private function query(int $patientId, string $table): Builder

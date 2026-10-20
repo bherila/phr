@@ -21,6 +21,7 @@ final class PhrNativeRestoreService
     public function __construct(
         private readonly PhrNativeRestoreArchiveReader $reader,
         private readonly PhrNativeRestorePlanner $planner,
+        private readonly PhrNativeIdentityRepository $identities,
     ) {}
 
     public function createPreview(UploadedFile $upload, int $actorUserId, bool $restoreAccessGrants): PhrNativeRestoreAttempt
@@ -421,12 +422,6 @@ final class PhrNativeRestoreService
         PhrNativeRestoreWrittenArtifacts $written,
         int $restoreAttemptId,
     ): int {
-        $newIds = [];
-        if ($plan->targetPatientId !== null) {
-            foreach (PhrNativeRecordIdentity::query()->where('patient_id', $plan->targetPatientId)->get() as $identity) {
-                $newIds[(string) $identity->record_table][(string) $identity->native_id] = (int) $identity->record_id;
-            }
-        }
         $patientId = $plan->targetPatientId ?? 0;
         $artifacts = [];
         foreach ($archive->manifest['artifacts'] as $artifact) {
@@ -446,7 +441,7 @@ final class PhrNativeRestoreService
                     throw new NativeRestoreException('restore_blocked');
                 }
                 if ($action === 'skip') {
-                    if (! isset($newIds[$table][$nativeId])) {
+                    if ($this->identities->existingRecordId($patientId, $table, $nativeId) === null) {
                         throw new NativeRestoreException('current_identity_missing');
                     }
 
@@ -467,14 +462,13 @@ final class PhrNativeRestoreService
                     if ($relationship['kind'] === 'actor') {
                         $data[$column] = $plan->actorIds[$relatedNativeId] ?? throw new NativeRestoreException('actor_mapping_missing');
                     } else {
-                        $data[$column] = $newIds[$relationship['table']][$relatedNativeId] ?? throw new NativeRestoreException('relationship_missing');
+                        $data[$column] = $this->identities->existingRecordId($patientId, $relationship['table'], $relatedNativeId) ?? throw new NativeRestoreException('relationship_missing');
                     }
                 }
 
                 $artifact = $artifacts[$nativeId] ?? null;
-                $this->setOperationalColumns($table, $nativeId, $patientId, $record, $data, is_array($artifact) ? $artifact : null, $newIds);
+                $this->setOperationalColumns($table, $nativeId, $patientId, $record, $data, is_array($artifact) ? $artifact : null);
                 $newId = (int) DB::table($table)->insertGetId($data);
-                $newIds[$table][$nativeId] = $newId;
                 if ($table === 'phr_patients') {
                     $patientId = $newId;
                 }
@@ -580,9 +574,8 @@ final class PhrNativeRestoreService
      * @param  array<string, mixed>  $record
      * @param  array<string, mixed>  $data
      * @param  array<string, mixed>|null  $artifact
-     * @param  array<string, array<string, int>>  $newIds
      */
-    private function setOperationalColumns(string $table, string $nativeId, int $patientId, array $record, array &$data, ?array $artifact, array $newIds): void
+    private function setOperationalColumns(string $table, string $nativeId, int $patientId, array $record, array &$data, ?array $artifact): void
     {
         if ($table === 'phr_documents') {
             $data['genai_job_id'] = null;
@@ -593,7 +586,7 @@ final class PhrNativeRestoreService
             $data['error_message'] = null;
         } elseif ($table === 'phr_dicom_files') {
             $uploadNativeId = (string) $record['relationships']['upload_id']['nativeId'];
-            $uploadId = $newIds['phr_dicom_uploads'][$uploadNativeId] ?? throw new NativeRestoreException('relationship_missing');
+            $uploadId = $this->identities->existingRecordId($patientId, 'phr_dicom_uploads', $uploadNativeId) ?? throw new NativeRestoreException('relationship_missing');
             $uploadPrefix = DB::table('phr_dicom_uploads')->where('id', $uploadId)->value('r2_prefix');
             if (! is_string($uploadPrefix)) {
                 throw new NativeRestoreException('relationship_missing');

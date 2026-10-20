@@ -39,6 +39,23 @@ final class PhrNativeIdentityRepository
         return $this->cache[$key] = $identity->native_id;
     }
 
+    /** Pure indexed lookup: restore reads must never assign or cache identities. */
+    public function existingRecordId(int $patientId, string $table, string $nativeId): ?int
+    {
+        $id = DB::table('phr_native_record_identities')->where('patient_id', $patientId)
+            ->where('record_table', $table)->where('native_id', $nativeId)->value('record_id');
+
+        return $id === null ? null : (int) $id;
+    }
+
+    public function existingNativeId(int $patientId, string $table, int $recordId): ?string
+    {
+        $id = DB::table('phr_native_record_identities')->where('patient_id', $patientId)
+            ->where('record_table', $table)->where('record_id', $recordId)->value('native_id');
+
+        return $id === null ? null : (string) $id;
+    }
+
     /**
      * Bulk form for one page of a streamed snapshot: fetch the identities that
      * exist and assign the rest, in a constant number of queries. Nothing is

@@ -54,6 +54,7 @@ final class PhrNativeArchiveBuilder
         $patientNativeId = $this->identityRepository->forRecords($patientId, 'phr_patients', [$patientId])[$patientId];
         $candidates = ['document' => [], 'dicom' => [], 'ehi' => []];
         $recordBytes = 0;
+        $budget = new NativeResourceBudget;
 
         foreach (PhrNativeBackupCatalog::included() as $table => $definition) {
             $recordStream = tmpfile();
@@ -73,6 +74,7 @@ final class PhrNativeArchiveBuilder
                     } catch (\Throwable) {
                         throw new NativeBackupException('archive_write_failed');
                     }
+                    $budget->charge(strlen($line));
                     if (fwrite($recordStream, $line) === false) {
                         throw new NativeBackupException('temporary_storage_failed');
                     }
@@ -80,7 +82,7 @@ final class PhrNativeArchiveBuilder
                     // than filling temporary storage first.
                     $recordBytes = $this->checkedTotal($recordBytes, strlen($line), $maxBytes);
                     $records[$table]['count']++;
-                    $this->collectArtifactCandidate($table, $row, $identities, $candidates);
+                    $this->collectArtifactCandidate($table, $row, $identities, $candidates, $budget);
                 }
             }
 
@@ -146,13 +148,14 @@ final class PhrNativeArchiveBuilder
      * @param  array<string, array<int, string>>  $identities
      * @param  array<string, list<array{kind: string, recordNativeId: string, path: string, disk: string, source_key: string, expected_size: int, expected_hash: string|null}>>  $candidates
      */
-    private function collectArtifactCandidate(string $table, \stdClass $row, array $identities, array &$candidates): void
+    private function collectArtifactCandidate(string $table, \stdClass $row, array $identities, array &$candidates, NativeResourceBudget $budget): void
     {
         if ($table === 'phr_documents') {
             if ($row->storage_path === null || $row->storage_path === '') {
                 return;
             }
-            $candidates['document'][] = [
+            $group = 'document';
+            $candidate = [
                 'kind' => 'document',
                 'recordNativeId' => $identities['phr_documents'][(int) $row->id],
                 'path' => PhrNativeBackupCatalog::artifactPath('document', $identities['phr_documents'][(int) $row->id]),
@@ -163,7 +166,8 @@ final class PhrNativeArchiveBuilder
             ];
         } elseif ($table === 'phr_dicom_files') {
             $kind = $row->file_kind === PhrDicomFile::KIND_DICOMDIR ? 'dicomdir' : 'dicom';
-            $candidates['dicom'][] = [
+            $group = 'dicom';
+            $candidate = [
                 'kind' => $kind,
                 'recordNativeId' => $identities['phr_dicom_files'][(int) $row->id],
                 'path' => PhrNativeBackupCatalog::artifactPath($kind, $identities['phr_dicom_files'][(int) $row->id]),
@@ -175,7 +179,8 @@ final class PhrNativeArchiveBuilder
         } elseif ($table === 'phr_ehi_blobs') {
             // Preserved EHI member bytes: one artifact per content-addressed blob row,
             // shared by every member (in every package) that has those bytes.
-            $candidates['ehi'][] = [
+            $group = 'ehi';
+            $candidate = [
                 'kind' => 'ehi',
                 'recordNativeId' => $identities['phr_ehi_blobs'][(int) $row->id],
                 'path' => PhrNativeBackupCatalog::artifactPath('ehi', $identities['phr_ehi_blobs'][(int) $row->id]),
@@ -184,7 +189,11 @@ final class PhrNativeArchiveBuilder
                 'expected_size' => (int) $row->byte_size,
                 'expected_hash' => strtolower((string) $row->sha256),
             ];
+        } else {
+            return;
         }
+        $budget->artifact(strlen(PhrNativeRecordCodec::canonicalJson($candidate)));
+        $candidates[$group][] = $candidate;
     }
 
     /**
@@ -275,6 +284,7 @@ final class PhrNativeArchiveBuilder
 
             $manifest = $this->manifest($patientNativeId, $tableManifest, $artifacts, $maxBytes, $uncompressedBytes);
             $manifestJson = PhrNativeRecordCodec::canonicalJson($manifest)."\n";
+            (new NativeResourceBudget)->manifest(strlen($manifestJson));
             $this->checkedTotal($uncompressedBytes, strlen($manifestJson), $maxBytes);
             $zip->addFile('manifest.json', $manifestJson, compressionMethod: CompressionMethod::DEFLATE);
             $zip->finish();
@@ -291,6 +301,10 @@ final class PhrNativeArchiveBuilder
         fclose($output);
         $fileSize = filesize($targetPath);
         $sha256 = hash_file('sha256', $targetPath);
+        if ($fileSize !== false && $fileSize > $maxBytes) {
+            @unlink($targetPath);
+            throw new NativeBackupException('size_limit');
+        }
         if ($fileSize === false || $sha256 === false) {
             @unlink($targetPath);
             throw new NativeBackupException('archive_verification_failed');

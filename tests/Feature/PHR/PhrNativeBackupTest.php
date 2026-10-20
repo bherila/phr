@@ -192,7 +192,7 @@ class PhrNativeBackupTest extends TestCase
             $selects['phr_lab_results'],
             static fn (array $select): bool => str_contains($select[0], 'limit 2'),
         ));
-        $this->assertCount(3, $labPages);
+        $this->assertCount(4, $labPages);
         foreach ($labPages as $index => [$sql]) {
             $this->assertStringContainsString('order by "id" asc limit 2', $sql);
             $this->assertSame($index > 0, str_contains($sql, '"id" > ?'));
@@ -206,7 +206,7 @@ class PhrNativeBackupTest extends TestCase
         foreach ($selects as $table => $tableSelects) {
             foreach ($tableSelects as [$sql]) {
                 $paged = str_contains($sql, 'limit 2');
-                $lookup = preg_match('/"id" in \(([?, ]+)\)$/', $sql, $ids) === 1 && substr_count($ids[1], '?') <= 2;
+                $lookup = preg_match('/"id" in \(([?, ]+)\)/', $sql, $ids) === 1 && substr_count($ids[1], '?') <= 2;
                 $this->assertTrue($paged || $lookup, $table.' was read without a page bound: '.$sql);
             }
         }

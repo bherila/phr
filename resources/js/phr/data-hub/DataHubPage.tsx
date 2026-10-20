@@ -227,6 +227,13 @@ function PatientCard({ patient, currentExport, currentBackup, busy, exportError,
           {currentBackup ? (
             <p role="status" className="mt-2 text-xs text-muted-foreground">Latest native backup: {currentBackup.status}</p>
           ) : null}
+          {currentBackup?.status === 'failed' ? (
+            <p role="alert" className="mt-2 text-xs text-destructive">
+              {['record_count_limit', 'record_stream_size_limit', 'record_size_limit', 'manifest_size_limit', 'artifact_metadata_limit', 'size_limit'].includes(currentBackup.failure_category ?? '')
+                ? 'This patient exceeds the supported backup size or number of records. The original records and files are preserved.'
+                : 'The native backup did not complete. The original records and files are preserved.'}
+            </p>
+          ) : null}
           {backupError ? <p role="alert" className="mt-2 text-xs text-destructive">{backupError}</p> : null}
         </div>
 
@@ -299,6 +306,11 @@ const RESTORE_MESSAGES: Record<string, string> = {
   restore_queue_failed: 'The restore could not be queued. Upload the archive and preview it again.',
   restore_blocked: 'Resolve every blocker before restoring.',
   restore_busy: 'Another restore of this archive is in progress. Try again shortly.',
+  record_count_limit: 'The archive exceeds the supported number of records. Its source remains preserved.',
+  record_stream_size_limit: 'The structured records exceed the supported restore size. Its source remains preserved.',
+  record_size_limit: 'One record exceeds the supported restore size.',
+  manifest_size_limit: 'The archive metadata exceeds the supported restore size.',
+  artifact_metadata_limit: 'The archive contains more file metadata than this restore supports.',
   size_limit: 'The archive exceeds the configured restore size limit.',
   source_storage_failed: 'The archive upload could not be stored. Try again.',
   unsupported_schema: 'This archive schema version is not supported.',
