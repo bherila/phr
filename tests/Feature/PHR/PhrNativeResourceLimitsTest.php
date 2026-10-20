@@ -133,6 +133,74 @@ class PhrNativeResourceLimitsTest extends TestCase
         @unlink($built->path);
     }
 
+    public function test_completed_zip_size_is_enforced_independently_of_expanded_bytes(): void
+    {
+        $this->freezeTime();
+        $patient = $this->patient();
+        $built = app(PhrNativeArchiveBuilder::class)->build($patient);
+        $zip = new ZipArchive;
+        self::assertTrue($zip->open($built->path));
+        $expanded = 0;
+        for ($index = 0; $index < $zip->numFiles; $index++) {
+            $expanded += $zip->statIndex($index)['size'];
+        }
+        $zip->close();
+        self::assertGreaterThan($expanded + 100, $built->fileSize);
+
+        // Reader admits an exact-size ZIP, then refuses the same bytes one over.
+        config(['phr.native_backup_max_uncompressed_bytes' => $built->fileSize]);
+        $copy = tempnam(sys_get_temp_dir(), 'phr-resource-test-');
+        copy($built->path, $copy);
+        $archive = app(PhrNativeRestoreArchiveReader::class)->openLocal($copy);
+        unset($archive);
+        config(['phr.native_backup_max_uncompressed_bytes' => $built->fileSize - 1]);
+        $this->assertReaderRefused($built->path, 'size_limit');
+
+        // Expanded contents fit with room for the changed limit in the manifest;
+        // the writer must still refuse the larger completed ZIP.
+        config(['phr.native_backup_max_uncompressed_bytes' => $expanded + 100]);
+        $this->assertBackupRefused($patient, 'size_limit');
+        @unlink($built->path);
+    }
+
+    public function test_manifest_boundary_is_strict_for_both_budgets_and_the_reader(): void
+    {
+        foreach ([false, true] as $restoring) {
+            $budget = new NativeResourceBudget($restoring);
+            $budget->manifest(NativeResourceBudget::MANIFEST_BYTES - 1);
+            try {
+                $budget->manifest(NativeResourceBudget::MANIFEST_BYTES);
+                self::fail('The manifest limit is exclusive.');
+            } catch (NativeBackupException|NativeRestoreException $exception) {
+                self::assertSame('manifest_size_limit', $exception->failureCategory);
+                self::assertSame($restoring, $exception instanceof NativeRestoreException);
+            }
+        }
+
+        $built = app(PhrNativeArchiveBuilder::class)->build($this->patient());
+        $manifest = $built->manifest;
+        $manifest['synthetic_padding'] = '';
+        $baseBytes = strlen(json_encode($manifest, JSON_THROW_ON_ERROR));
+        foreach ([NativeResourceBudget::MANIFEST_BYTES - 1, NativeResourceBudget::MANIFEST_BYTES] as $bytes) {
+            $manifest['synthetic_padding'] = str_repeat('x', $bytes - $baseBytes);
+            $json = json_encode($manifest, JSON_THROW_ON_ERROR);
+            self::assertSame($bytes, strlen($json));
+            $zip = new ZipArchive;
+            self::assertTrue($zip->open($built->path));
+            $zip->addFromString('manifest.json', $json);
+            $zip->close();
+            if ($bytes === NativeResourceBudget::MANIFEST_BYTES) {
+                $this->assertReaderRefused($built->path, 'manifest_size_limit');
+            } else {
+                $copy = tempnam(sys_get_temp_dir(), 'phr-resource-test-');
+                copy($built->path, $copy);
+                $archive = app(PhrNativeRestoreArchiveReader::class)->openLocal($copy);
+                unset($archive);
+            }
+        }
+        @unlink($built->path);
+    }
+
     public function test_planning_a_small_archive_never_fetches_unrelated_target_identity_rows(): void
     {
         $patient = $this->patient();

@@ -232,6 +232,26 @@ publishing its partial generation. Boundary regressions additionally cover exact
 one-over byte/count/line limits, a forged low manifest count, and publication rollback.
 These local timings establish headroom for this synthetic profile, not a production
 throughput guarantee. Production MySQL network latency and artifact throughput were not
-measured. The tested SQL size expressions have driver-specific forms for SQLite,
-MySQL/MariaDB, PostgreSQL, and SQL Server; the application snapshot implementation's
-supported isolation behavior remains unchanged.
+measured. SQL size expressions have driver-specific forms for SQLite, MySQL/MariaDB,
+PostgreSQL, and SQL Server. Execution was verified on SQLite and, in a disposable
+loopback-only MariaDB 10.11.19 container using PDO MySQL, the native and EHI profiles
+below. PostgreSQL and SQL Server were not exercised. The application snapshot
+implementation's supported isolation behavior remains unchanged.
+
+Additional boundary regressions admit a ZIP at its exact compressed-byte limit and
+refuse it one byte over, exercise the writer's completed-ZIP gate independently of
+expanded bytes, and admit a manifest at 1 MiB minus one byte while refusing 1 MiB.
+The manifest boundary is also checked directly through both writer and reader budgets.
+
+The MariaDB checks used synthetic fixtures in a dedicated database and private local
+fixture disks; no existing database or production data was used. For 20,000 records, backup and validation completed in 4.2 and 4.0 seconds;
+planning completed in 129.2 seconds with 28 MiB peak PHP allocation, and existing-patient
+apply in 141.5 seconds with 34 MiB peak PHP allocation. Planning/apply issued
+120,012/140,024 queries with at most three/four bindings respectively. A separate
+20-record new-patient restore
+exercised insertion and parent identity resolution. Clinical preview completed for 700 added
+immunization rows in 37.2 seconds with 22 MiB peak PHP allocation. A projection containing
+1,106 distinct repeated keys quarantined 2,212 occurrences, retained two duplicate
+findings, and used at most two reconciliation bindings. A multibyte SQL probe counted
+`é😀` as six bytes. These are local driver compatibility checks, not production
+performance measurements.
