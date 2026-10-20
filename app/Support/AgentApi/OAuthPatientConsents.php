@@ -143,7 +143,8 @@ final class OAuthPatientConsents
     public function revoke(Request $request, string $publicId): void
     {
         $identity = $this->identity($request);
-        $parent = $identity === null ? null : $this->consents->find(...$identity);
+        // Both accepted credential audiences withdraw the REST-only billing grant.
+        $parent = $identity === null ? null : $this->consents->find($identity[0], $identity[1], OAuthResourceIndicator::resource('rest'));
         if ($parent !== null) {
             // No client-wide version bump: the other selected patients remain available.
             $this->grants($parent)->where('patient_public_id', $publicId)

@@ -322,7 +322,9 @@ billing projection and document-download separation still apply.
 
 `DELETE /api/v1/oauth/consent/patients/{patient_public_id}` withdraws only the calling
 client's grant for that patient. It returns 204 for an unknown or already-withdrawn
-choice too. Other selected patients and the client's credentials remain usable.
+choice too. Either accepted REST- or MCP-bound credential for that same person and
+client withdraws the REST billing grant. Other selected patients and the client's
+credentials remain usable.
 Refresh returns the original selected context only while that consent and current
 access remain valid; otherwise it omits `patient` and keeps the other grants usable.
 An authorization code selected before revocation/regrant cannot mint the older

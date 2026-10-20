@@ -439,6 +439,54 @@ final class AgentApiPatientSelectionConsentTest extends TestCase
         $this->getAsToken($tokens['access_token'], '/api/v1/patients/'.$patient->id)->assertNotFound();
     }
 
+    public function test_an_mcp_credential_withdraws_the_same_clients_rest_patient_consent(): void
+    {
+        $user = $this->createUser(['name' => 'Synthetic Owner', 'email' => 'owner@example.test']);
+        $first = $this->patient($user, 'Synthetic First Patient');
+        $second = $this->patient($user, 'Synthetic Second Patient');
+        $client = $this->client();
+        $this->selectTokens($user, $client, $first);
+        $restTokens = $this->selectTokens($user, $client, $second);
+        $client->forceFill(['scopes' => [AgentApiScopes::IDENTITY_READ, AgentApiScopes::BILLING_READ, AgentApiScopes::MCP_USE]])->save();
+        $resource = OAuthResourceIndicator::resource('mcp');
+        $this->startSelection($user, $client, [
+            'patient_select' => null, 'resource' => $resource,
+            'scope' => AgentApiScopes::IDENTITY_READ.' '.AgentApiScopes::MCP_USE,
+        ])->assertOk();
+        $mcpTokens = $this->exchange($client, $this->approve($this->publicId($first)), $resource)->assertOk()->json();
+        $this->assertArrayNotHasKey('patient', $mcpTokens);
+        $this->revokePatient($mcpTokens['access_token'], $first)->assertNoContent();
+        $this->getAsToken($restTokens['access_token'], '/api/v1/patients/'.$first->id)->assertNotFound();
+        $this->getAsToken($restTokens['access_token'], '/api/v1/patients/'.$second->id)->assertOk();
+    }
+
+    #[DataProvider('unrelatedMcpCallers')]
+    public function test_mcp_withdrawal_cannot_revoke_another_person_or_clients_patient_consent(string $caller): void
+    {
+        $user = $this->createUser(['name' => 'Synthetic Owner', 'email' => 'owner@example.test']);
+        $patient = $this->patient($user, 'Synthetic Patient');
+        $client = $this->client();
+        $restTokens = $this->selectTokens($user, $client, $patient);
+        $actor = $caller === 'person'
+            ? $this->createUser(['name' => 'Synthetic Other', 'email' => 'other@example.test'])
+            : $user;
+        $mcpClient = $caller === 'client' ? $this->client() : $client;
+        $mcpClient->forceFill(['scopes' => [AgentApiScopes::IDENTITY_READ, AgentApiScopes::BILLING_READ, AgentApiScopes::MCP_USE]])->save();
+        $resource = OAuthResourceIndicator::resource('mcp');
+        $this->startSelection($actor, $mcpClient, [
+            'patient_select' => null, 'resource' => $resource,
+            'scope' => AgentApiScopes::IDENTITY_READ.' '.AgentApiScopes::MCP_USE,
+        ])->assertOk();
+        $mcpTokens = $this->exchange($mcpClient, $this->approve($this->publicId($patient)), $resource)->assertOk()->json();
+        $this->revokePatient($mcpTokens['access_token'], $patient)->assertNoContent();
+        $this->getAsToken($restTokens['access_token'], '/api/v1/patients/'.$patient->id)->assertOk();
+    }
+
+    public static function unrelatedMcpCallers(): array
+    {
+        return [['person'], ['client']];
+    }
+
     public function test_revoking_an_unknown_patient_does_not_expose_existence_or_remove_other_grants(): void
     {
         $user = $this->createUser(['name' => 'Synthetic Owner', 'email' => 'owner@example.test']);
@@ -538,7 +586,7 @@ final class AgentApiPatientSelectionConsentTest extends TestCase
         return $query['code'];
     }
 
-    private function exchange(Client $client, string $code): TestResponse
+    private function exchange(Client $client, string $code, ?string $resource = null): TestResponse
     {
         Auth::forgetGuards();
 
@@ -546,6 +594,7 @@ final class AgentApiPatientSelectionConsentTest extends TestCase
             'grant_type' => 'authorization_code', 'client_id' => $client->id,
             'client_secret' => $client->plainSecret, 'redirect_uri' => self::CALLBACK,
             'code_verifier' => self::VERIFIER, 'code' => $code,
+            ...($resource === null ? [] : ['resource' => $resource]),
         ]);
     }
 
