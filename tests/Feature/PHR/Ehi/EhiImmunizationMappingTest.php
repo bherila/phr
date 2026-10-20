@@ -642,6 +642,21 @@ class EhiImmunizationMappingTest extends TestCase
         self::assertSame(['ambiguous_immunization_revision'], array_column($context->findings(), 'code'));
     }
 
+    public function test_an_immune_id_too_long_for_the_record_identity_is_retained_without_copying_it(): void
+    {
+        $long = str_repeat('9', 300);
+        $this->immOwnedImmune($long);
+
+        $context = $this->immContext();
+        $drafts = $this->immPropose($context);
+
+        self::assertCount(1, $drafts);
+        self::assertSame(PhrEhiProposal::KIND_RETAIN, $drafts[0]->kind);
+        self::assertSame(['retain_reason' => EhiImmunizationMapping::FINDING_IDENTITY_TOO_LONG], $drafts[0]->proposed);
+        self::assertSame([EhiImmunizationMapping::FINDING_IDENTITY_TOO_LONG], array_column($context->findings(), 'code'));
+        self::assertStringNotContainsString($long, (string) json_encode($context->findings()));
+    }
+
     public function test_proposals_are_deterministic(): void
     {
         $this->immOwnedImmune('851', ['IMMUNIZATION_TIME' => '9:00 AM', 'IMMNZTN_DOSE_AMOUNT' => '0.50']);

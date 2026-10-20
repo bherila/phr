@@ -6,17 +6,20 @@ use App\Models\PhrDocument;
 use App\Models\PhrEhiBlob;
 use App\Models\PhrEhiProposal;
 use App\Models\PhrEhiRecordLink;
+use App\Models\PhrEhiRevision;
 use App\Models\PhrPatient;
 use App\Services\PHR\Import\Ehi\EhiMemberKind;
 use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentApplyRefused;
 use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentFinding;
 use App\Services\PHR\Import\Ehi\Mapping\EhiApplyRefused;
 use App\Services\PHR\Import\Ehi\Mapping\EhiDocumentMapping;
+use App\Services\PHR\Import\Ehi\Mapping\EhiMappingContext;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMappingRegistry;
 use App\Services\PHR\Import\Ehi\Mapping\EhiProposalDraft;
 use Illuminate\Support\Facades\Storage;
 use Tests\Support\EhiDocumentFixtures;
 use Tests\TestCase;
+use WeakMap;
 
 class EhiDocumentMappingTest extends TestCase
 {
@@ -134,6 +137,144 @@ class EhiDocumentMappingTest extends TestCase
         foreach ([$foreign, $deleted, $owned] as $revision) {
             self::assertCount(1, array_filter($drafts, static fn (EhiProposalDraft $draft): bool => in_array($revision->id, $draft->revisionIds, true)));
         }
+    }
+
+    public function test_a_document_row_the_note_does_not_use_is_left_out_of_the_note(): void
+    {
+        // A note with a valid scan: rows naming another patient, or ambiguous, supply nothing.
+        $this->ehiDocOwnedNote('N-SCAN', '9160');
+        $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '1', 'LINE' => '1', 'NOTE_ID' => 'N-SCAN', 'NOTE_TEXT' => 'scan note text']);
+        $used = $this->ehiDocRow('DOC_INFORMATION', ['DOC_INFO_ID' => 'D-SCAN-USED', 'DOC_HNO_ID' => 'N-SCAN', 'DOC_PT_ID' => self::DOC_PATIENT_KEY, 'SCAN_FILE' => 'scan-used.png']);
+        $this->ehiDocMember('Media/scan-used.png', EhiMemberKind::MEDIA, "\x89PNG synthetic used scan");
+        $foreign = $this->ehiDocRow('DOC_INFORMATION', ['DOC_INFO_ID' => 'D-SCAN-FOREIGN', 'DOC_HNO_ID' => 'N-SCAN', 'DOC_PT_ID' => self::DOC_OTHER_PATIENT_KEY, 'SCAN_FILE' => 'scan-foreign-row.png']);
+        $this->ehiDocMember('Media/scan-foreign-row.png', EhiMemberKind::MEDIA, "\x89PNG synthetic foreign-row scan");
+        $ambiguous = [
+            $this->ehiDocRow('DOC_INFORMATION', ['DOC_INFO_ID' => 'D-SCAN-AMBIGUOUS', 'DOC_HNO_ID' => 'N-SCAN', 'DOC_PT_ID' => self::DOC_PATIENT_KEY, 'SCAN_FILE' => 'scan-used.png']),
+            $this->ehiDocRow('DOC_INFORMATION', ['DOC_INFO_ID' => 'D-SCAN-AMBIGUOUS', 'DOC_HNO_ID' => 'N-SCAN', 'DOC_PT_ID' => self::DOC_PATIENT_KEY, 'SCAN_FILE' => 'scan-other.png']),
+        ];
+        // A note with usable text: a foreign row, and an owned row whose file is missing.
+        $this->ehiDocOwnedNote('N-TEXT', '9161');
+        $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '2', 'LINE' => '1', 'NOTE_ID' => 'N-TEXT', 'NOTE_TEXT' => 'text note body']);
+        $textForeign = $this->ehiDocRow('DOC_INFORMATION', ['DOC_INFO_ID' => 'D-TEXT-FOREIGN', 'DOC_HNO_ID' => 'N-TEXT', 'DOC_PT_ID' => self::DOC_OTHER_PATIENT_KEY, 'SCAN_FILE' => 'scan-text-foreign.png']);
+        $this->ehiDocMember('Media/scan-text-foreign.png', EhiMemberKind::MEDIA, "\x89PNG synthetic text-foreign scan");
+        $missing = $this->ehiDocRow('DOC_INFORMATION', ['DOC_INFO_ID' => 'D-TEXT-MISSING', 'DOC_HNO_ID' => 'N-TEXT', 'DOC_PT_ID' => self::DOC_PATIENT_KEY, 'SCAN_FILE' => 'not-in-package.png']);
+
+        $result = $this->ehiDocPropose();
+        $drafts = $result['drafts'];
+        $scanNote = $this->ehiDocDraftFor($drafts, 'note_id', 'N-SCAN');
+        $textNote = $this->ehiDocDraftFor($drafts, 'note_id', 'N-TEXT');
+
+        self::assertSame(PhrEhiProposal::KIND_CREATE, $scanNote->kind);
+        self::assertSame('D-SCAN-USED', $scanNote->proposed['ehi']['file']['doc_info_id']);
+        self::assertContains($used->id, $scanNote->revisionIds);
+        self::assertSame(PhrEhiProposal::KIND_CREATE, $textNote->kind);
+        self::assertNull($textNote->proposed['ehi']['file']);
+        self::assertSame('text note body', $textNote->proposed['attributes']['extracted_text']);
+        foreach ([$foreign, ...$ambiguous] as $revision) {
+            self::assertNotContains($revision->id, $scanNote->revisionIds);
+        }
+        foreach ([$textForeign, $missing] as $revision) {
+            self::assertNotContains($revision->id, $textNote->revisionIds);
+        }
+        // Each rejected row stands on its own ownership instead.
+        self::assertSame(PhrEhiProposal::KIND_RETAIN, $this->ehiDocDraftFor($drafts, 'doc_info_id', 'D-SCAN-FOREIGN')->kind);
+        self::assertSame('foreign_patient', $this->ehiDocDraftFor($drafts, 'doc_info_id', 'D-SCAN-FOREIGN')->proposed['reason']);
+        self::assertSame('foreign_patient', $this->ehiDocDraftFor($drafts, 'doc_info_id', 'D-TEXT-FOREIGN')->proposed['reason']);
+        self::assertSame('no_content', $this->ehiDocDraftFor($drafts, 'doc_info_id', 'D-TEXT-MISSING')->proposed['reason']);
+        $ambiguousDrafts = array_values(array_filter($drafts, static fn (EhiProposalDraft $draft): bool => in_array($ambiguous[0]->id, $draft->revisionIds, true)));
+        self::assertCount(1, $ambiguousDrafts);
+        self::assertSame('ambiguous_revision', $ambiguousDrafts[0]->proposed['reason']);
+        self::assertEqualsCanonicalizing([$ambiguous[0]->id, $ambiguous[1]->id], $ambiguousDrafts[0]->revisionIds);
+        // Each document revision is in exactly one draft, so no occurrence stays pending.
+        foreach ([$used, $foreign, ...$ambiguous, $textForeign, $missing] as $revision) {
+            self::assertCount(1, array_filter($drafts, static fn (EhiProposalDraft $draft): bool => in_array($revision->id, $draft->revisionIds, true)));
+        }
+        // The missing file is reported once, by the row's own proposal.
+        $unresolved = array_values(array_filter($result['findings'], static fn (array $finding): bool => $finding['code'] === EhiDocumentFinding::FILE_REFERENCE_UNRESOLVED));
+        self::assertSame([$missing->id], array_column($unresolved, 'revision_id'));
+    }
+
+    public function test_dt_on_doc_has_no_documented_zone_and_is_recorded_as_unspecified(): void
+    {
+        // DOC_SRVC_DTTM and SCAN_INST_DTTM are absent or unparseable: DT_ON_DOC is used.
+        $this->ehiDocRow('DOC_INFORMATION', ['DOC_INFO_ID' => 'D-DT', 'DOC_PT_ID' => self::DOC_PATIENT_KEY, 'SCAN_FILE' => 'dt-on-doc.png', 'DT_ON_DOC' => '11/2/2023']);
+        $this->ehiDocMember('Media/dt-on-doc.png', EhiMemberKind::MEDIA, "\x89PNG synthetic dt-on-doc");
+        $this->ehiDocRow('DOC_INFORMATION', ['DOC_INFO_ID' => 'D-DT-FALLBACK', 'DOC_PT_ID' => self::DOC_PATIENT_KEY, 'SCAN_FILE' => 'dt-fallback.png', 'DOC_SRVC_DTTM' => 'not a date', 'DT_ON_DOC' => '2023-11-03 09:15:00']);
+        $this->ehiDocMember('Media/dt-fallback.png', EhiMemberKind::MEDIA, "\x89PNG synthetic dt-fallback");
+        // A documented Local column keeps its zone.
+        $this->ehiDocRow('DOC_INFORMATION', ['DOC_INFO_ID' => 'D-DT-LOCAL', 'DOC_PT_ID' => self::DOC_PATIENT_KEY, 'SCAN_FILE' => 'dt-local.png', 'SCAN_INST_DTTM' => '2023-11-04 10:00:00', 'DT_ON_DOC' => '2023-11-01']);
+        $this->ehiDocMember('Media/dt-local.png', EhiMemberKind::MEDIA, "\x89PNG synthetic dt-local");
+
+        $result = $this->ehiDocPropose();
+        $draft = $this->ehiDocDraftFor($result['drafts'], 'doc_info_id', 'D-DT');
+        $fallback = $this->ehiDocDraftFor($result['drafts'], 'doc_info_id', 'D-DT-FALLBACK');
+        $local = $this->ehiDocDraftFor($result['drafts'], 'doc_info_id', 'D-DT-LOCAL');
+
+        self::assertSame('unspecified', EhiDocumentMapping::TIMEZONE_UNSPECIFIED);
+        self::assertSame(['column' => 'DT_ON_DOC', 'timezone' => 'unspecified', 'precision' => 'date', 'source_text' => '11/2/2023', 'time_applied' => false, 'value' => '2023-11-02 00:00:00'], $draft->proposed['ehi']['observed']);
+        self::assertSame(['column' => 'DT_ON_DOC', 'timezone' => 'unspecified', 'precision' => 'date', 'source_text' => '2023-11-03 09:15:00', 'time_applied' => false, 'value' => '2023-11-03 00:00:00'], $fallback->proposed['ehi']['observed']);
+        self::assertSame('DOC_SRVC_DTTM', collect($result['findings'])->firstWhere('code', EhiDocumentFinding::UNPARSED_DATETIME)['detail']['column']);
+        foreach ([$draft, $fallback] as $unspecified) {
+            $summary = $unspecified->proposed['attributes']['summary'];
+            self::assertStringContainsString('Observed date from DT_ON_DOC (no documented time zone; time of day not applied).', $summary);
+            self::assertStringNotContainsString('local', $summary);
+        }
+        self::assertSame(['SCAN_INST_DTTM', 'local'], [$local->proposed['ehi']['observed']['column'], $local->proposed['ehi']['observed']['timezone']]);
+        self::assertStringContainsString('SCAN_INST_DTTM (local; time of day not applied)', $local->proposed['attributes']['summary']);
+
+        $document = PhrDocument::query()->findOrFail($this->ehiDocApply($this->ehiDocPersist($draft))->recordId);
+        self::assertSame('2023-11-02 00:00:00', $document->observed_at?->format('Y-m-d H:i:s'));
+        self::assertStringContainsString('DT_ON_DOC (no documented time zone; time of day not applied)', (string) $document->summary);
+    }
+
+    public function test_note_evidence_is_streamed_in_pages_and_text_is_read_back_per_note(): void
+    {
+        $chunk = 10;
+        $lineIds = [];
+        for ($note = 1; $note <= 8; $note++) {
+            $noteId = 'N-STREAM-'.$note;
+            $this->ehiDocOwnedNote($noteId, (string) (9700 + $note));
+            $older = (string) (970000 + $note * 10);
+            $newer = (string) (970000 + $note * 10 + 1);
+            $this->ehiDocRow('NOTE_ENC_INFO', ['CONTACT_SERIAL_NUM' => $older, 'NOTE_ID' => $noteId, 'CONTACT_DATE_REAL' => '65000.1']);
+            $this->ehiDocRow('NOTE_ENC_INFO', ['CONTACT_SERIAL_NUM' => $newer, 'NOTE_ID' => $noteId, 'CONTACT_DATE_REAL' => '65000.2']);
+            for ($line = 1; $line <= 5; $line++) {
+                $lineIds[$this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => $older, 'LINE' => (string) $line, 'NOTE_ID' => $noteId, 'NOTE_TEXT' => "old {$note}.{$line}"])->id] = true;
+            }
+            for ($line = 6; $line >= 1; $line--) {
+                $lineIds[$this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => $newer, 'LINE' => (string) $line, 'NOTE_ID' => $noteId, 'NOTE_TEXT' => "new {$note}.{$line}"])->id] = true;
+            }
+        }
+        self::assertGreaterThan(2 * $chunk, count($lineIds));
+
+        // Count note text lines held as models at once: a page, never the table.
+        $alive = new WeakMap;
+        $peak = 0;
+        PhrEhiRevision::retrieved(static function (PhrEhiRevision $revision) use ($lineIds, $alive, &$peak): void {
+            if (isset($lineIds[$revision->id])) {
+                $alive[$revision] = true;
+                $peak = max($peak, count($alive));
+            }
+        });
+        $context = new EhiMappingContext($this->docPackage, $this->docPatient, $this->docSource, $chunk);
+        $drafts = [...app(EhiDocumentMapping::class)->propose($context)];
+
+        self::assertGreaterThan(0, $peak);
+        self::assertLessThanOrEqual(2 * $chunk, $peak);
+        self::assertCount(8, $drafts);
+        for ($note = 1; $note <= 8; $note++) {
+            $draft = $this->ehiDocDraftFor($drafts, 'note_id', 'N-STREAM-'.$note);
+            self::assertSame(PhrEhiProposal::KIND_CREATE, $draft->kind);
+            self::assertSame(implode("\n", array_map(static fn (int $line): string => "new {$note}.{$line}", range(1, 6))), $draft->proposed['attributes']['extracted_text']);
+            self::assertSame((string) (970000 + $note * 10 + 1), $draft->proposed['ehi']['text']['contact_serial_num']);
+            self::assertSame(6, $draft->proposed['ehi']['text']['line_count']);
+        }
+        // Paging changes nothing: the same drafts and findings as one page.
+        self::assertEquals(['drafts' => $drafts, 'findings' => $context->findings()], $this->ehiDocPropose());
+        self::assertSame(
+            $this->ehiDocContext()->revisions('HNO_PLAIN_TEXT')->pluck('id')->all(),
+            $context->lazyRevisions('HNO_PLAIN_TEXT', 7)->pluck('id')->all(),
+        );
     }
 
     public function test_contract_and_registration(): void

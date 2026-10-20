@@ -10,7 +10,9 @@ use App\Models\PhrEhiRevision;
 use App\Models\PhrEhiSource;
 use App\Models\PhrPatient;
 use App\Services\PHR\Import\Ehi\EhiProjectionService;
+use Generator;
 use Illuminate\Support\Collection;
+use Illuminate\Support\LazyCollection;
 
 /**
  * Read-only view of one bound package's projected evidence for a mapping.
@@ -25,6 +27,12 @@ use Illuminate\Support\Collection;
  */
 final class EhiMappingContext
 {
+    /** Revisions read per page by lazyRevisions(), unless the caller says otherwise. */
+    public const int CHUNK = 500;
+
+    /** Alias of the entity key digest selected alongside a page, for the keyset cursor. */
+    private const string CURSOR = 'ehi_page_key_digest';
+
     /** @var list<array{code: string, revision_id: int|null, detail: array<string, int|string|bool|null>}> */
     private array $findings = [];
 
@@ -35,33 +43,78 @@ final class EhiMappingContext
         public readonly PhrEhiPackage $package,
         public readonly PhrPatient $patient,
         public readonly PhrEhiSource $source,
+        public readonly int $chunk = self::CHUNK,
     ) {}
 
     /**
      * Revisions of one table supplied by this package, ordered by entity key digest
-     * so proposal order is deterministic.
+     * so proposal order is deterministic. Loads the whole table: for a table that
+     * can be large, stream it with lazyRevisions().
      *
      * @return Collection<int, PhrEhiRevision>
      */
     public function revisions(string $table): Collection
     {
-        if ($this->withheld($table)) {
-            return new Collection;
-        }
+        return new Collection($this->lazyRevisions($table, withEntity: true)->values()->all());
+    }
 
-        return PhrEhiRevision::query()
-            ->select('phr_ehi_revisions.*')
-            ->join('phr_ehi_entities', 'phr_ehi_entities.id', '=', 'phr_ehi_revisions.entity_id')
-            ->where('phr_ehi_entities.source_id', $this->source->id)
-            ->where('phr_ehi_entities.table_name', $table)
-            ->whereIn('phr_ehi_revisions.id', function ($query): void {
-                $query->select('revision_id')->from('phr_ehi_occurrences')->where('package_id', $this->package->id)
-                    ->where('disposition', '!=', PhrEhiOccurrence::DISPOSITION_QUARANTINED);
-            })
-            ->orderBy('phr_ehi_entities.key_digest')
-            ->orderBy('phr_ehi_revisions.content_digest')
-            ->with('entity')
-            ->get();
+    /**
+     * The same revisions, in the same order, as revisions(), read a page of
+     * $chunk at a time (keyset on entity key digest, then content digest), so at
+     * most one page of models is held. Every revision of one entity is adjacent.
+     *
+     * @return LazyCollection<int, PhrEhiRevision>
+     */
+    public function lazyRevisions(string $table, ?int $chunk = null, bool $withEntity = false): LazyCollection
+    {
+        $chunk = max(1, $chunk ?? $this->chunk);
+
+        return LazyCollection::make(function () use ($table, $chunk, $withEntity): Generator {
+            if ($this->withheld($table)) {
+                return;
+            }
+            $after = null;
+            do {
+                $page = PhrEhiRevision::query()
+                    ->select('phr_ehi_revisions.*')
+                    ->addSelect(['phr_ehi_entities.key_digest as '.self::CURSOR])
+                    ->join('phr_ehi_entities', 'phr_ehi_entities.id', '=', 'phr_ehi_revisions.entity_id')
+                    ->where('phr_ehi_entities.source_id', $this->source->id)
+                    ->where('phr_ehi_entities.table_name', $table)
+                    ->whereIn('phr_ehi_revisions.id', function ($query): void {
+                        $query->select('revision_id')->from('phr_ehi_occurrences')->where('package_id', $this->package->id)
+                            ->where('disposition', '!=', PhrEhiOccurrence::DISPOSITION_QUARANTINED);
+                    })
+                    ->when($after !== null, static function ($query) use ($after): void {
+                        $query->where(static function ($query) use ($after): void {
+                            $query->where('phr_ehi_entities.key_digest', '>', $after[0])
+                                ->orWhere(static function ($query) use ($after): void {
+                                    $query->where('phr_ehi_entities.key_digest', $after[0])
+                                        ->where('phr_ehi_revisions.content_digest', '>', $after[1]);
+                                });
+                        });
+                    })
+                    ->orderBy('phr_ehi_entities.key_digest')
+                    ->orderBy('phr_ehi_revisions.content_digest')
+                    ->limit($chunk)
+                    ->get();
+                $count = $page->count();
+                $last = $page->last();
+                $after = $last === null ? null : [(string) $last->getAttribute(self::CURSOR), $last->content_digest];
+                foreach ($page as $revision) {
+                    // The cursor is a paging detail, not a revision attribute.
+                    $revision->setRawAttributes(array_diff_key($revision->getAttributes(), [self::CURSOR => true]), true);
+                }
+                if ($withEntity) {
+                    $page->load('entity');
+                }
+                foreach ($page as $revision) {
+                    yield $revision;
+                }
+                // Release the page before the next one is read.
+                unset($page, $last, $revision);
+            } while ($count === $chunk);
+        });
     }
 
     /**

@@ -18,6 +18,7 @@ use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentFileStore;
 use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentFinding;
 use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentValues;
 use App\Support\PHR\PhrRecordLifecycle;
+use Generator;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Throwable;
 
@@ -76,8 +77,9 @@ use Throwable;
  * file is a verified copy of the linked member's bytes, or, with no linked
  * member, the derived text stored as a .txt object tagged `ehi-derived-text`.
  * observed_at comes from a UTC-documented column as the UTC instant; from a
- * Local column only its calendar date is kept (time not applied). The column,
- * zone, and precision are written into `summary`. An update changes only title,
+ * Local column, or one with no documented zone (recorded as "unspecified"), only
+ * its calendar date is kept (time not applied). The column, zone, and precision
+ * are written into `summary`. An update changes only title,
  * document_type, observed_at, and extracted_text, never the stored file.
  *
  * Size: a proposal must restore from a native backup record. Besides the
@@ -114,6 +116,12 @@ final readonly class EhiDocumentMapping implements EhiMapping
 
     public const string TAG_UNSIGNED = 'ehi-unsigned';
 
+    /**
+     * Observed-time zone recorded for a column the spec documents without a zone
+     * (DOC_INFORMATION.DT_ON_DOC): neither UTC nor local time is claimed.
+     */
+    public const string TIMEZONE_UNSPECIFIED = 'unspecified';
+
     private const string HNO_INFO = 'HNO_INFO';
 
     private const string NOTE_ENC_INFO = 'NOTE_ENC_INFO';
@@ -133,6 +141,19 @@ final readonly class EhiDocumentMapping implements EhiMapping
         self::LINKED_PATS => ['NOTE_ID', 'LINE'],
         self::DOC_INFORMATION => ['DOC_INFO_ID'],
         self::PAT_ENC => ['PAT_ENC_CSN_ID'],
+    ];
+
+    /**
+     * How each joined table is indexed: the column dependants look it up by, and
+     * for note text the contact its lines belong to. HNO_INFO and DOC_INFORMATION
+     * are also streamed as proposal roots.
+     */
+    private const array JOINS = [
+        self::PAT_ENC => ['PAT_ENC_CSN_ID'],
+        self::LINKED_PATS => ['NOTE_ID'],
+        self::NOTE_ENC_INFO => ['NOTE_ID'],
+        self::HNO_PLAIN_TEXT => ['NOTE_ID', 'NOTE_CSN_ID'],
+        self::DOC_INFORMATION => ['DOC_HNO_ID'],
     ];
 
     /** Fields an approved update may change; the stored file never changes. */
@@ -171,27 +192,37 @@ final readonly class EhiDocumentMapping implements EhiMapping
         return 'ehi:'.$sourceId;
     }
 
-    /** @return list<EhiProposalDraft> */
+    /**
+     * Notes, then scanned documents, each streamed a page at a time in the
+     * context's deterministic order. Joined tables are indexed compactly by
+     * EhiDocumentEvidence and their rows read back per note.
+     *
+     * @return list<EhiProposalDraft>
+     */
     public function propose(EhiMappingContext $context): iterable
     {
-        $evidence = EhiDocumentEvidence::load($context, array_keys(self::KEYS));
+        $evidence = EhiDocumentEvidence::load($context, self::JOINS);
         /** @var array<int, true> $linkedMembers */
         $linkedMembers = [];
         $drafts = [];
 
-        /** @var array<int, true> $consumed revisions some note proposal relies on */
+        // Only a DOC_INFORMATION row with a DOC_HNO_ID can be taken in by a note.
+        $noteDocuments = $evidence->indexedIds(self::DOC_INFORMATION);
+        /** @var array<int, true> $consumed document revisions some note proposal relies on */
         $consumed = [];
-        foreach ($this->groupByEntity($evidence->rows(self::HNO_INFO)) as $revisions) {
+        foreach ($this->entityGroups($context->lazyRevisions(self::HNO_INFO, withEntity: true)) as $revisions) {
             $draft = count($revisions) > 1
                 ? $this->ambiguousDraft($context, $revisions, self::HNO_INFO)
                 : $this->noteDraft($context, $evidence, $revisions[0], $linkedMembers);
             foreach ($draft->revisionIds as $id) {
-                $consumed[$id] = true;
+                if (isset($noteDocuments[$id])) {
+                    $consumed[$id] = true;
+                }
             }
             $drafts[] = $draft;
         }
 
-        foreach ($this->groupByEntity($evidence->rows(self::DOC_INFORMATION)) as $revisions) {
+        foreach ($this->entityGroups($context->lazyRevisions(self::DOC_INFORMATION, withEntity: true)) as $revisions) {
             // Skipped only when its note's proposal took it in. A note retained
             // before reading its documents (foreign, orphaned, deleted) leaves
             // them to stand on their own ownership.
@@ -468,10 +499,8 @@ final readonly class EhiDocumentMapping implements EhiMapping
      */
     private function noteText(EhiMappingContext $context, EhiDocumentEvidence $evidence, PhrEhiRevision $note, string $noteId, array $contacts, array &$revisionIds): array
     {
-        $groups = [];
-        foreach ($evidence->where(self::HNO_PLAIN_TEXT, 'NOTE_ID', $noteId) as $line) {
-            $groups[EhiDocumentValues::cell($line, 'NOTE_CSN_ID') ?? ''][] = $line;
-        }
+        // Line ids by contact; only the chosen contact's lines are read back.
+        $groups = $evidence->groups(self::HNO_PLAIN_TEXT, 'NOTE_ID', $noteId);
         if ($groups === []) {
             return ['text' => null, 'provenance' => null];
         }
@@ -493,7 +522,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
             return ['text' => null, 'provenance' => null];
         }
 
-        $lines = $groups[$chosen];
+        $lines = $evidence->fetch($groups[$chosen]);
         foreach ($lines as $line) {
             $revisionIds[] = $line->id;
             $number = EhiDocumentValues::cell($line, 'LINE');
@@ -609,7 +638,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
         $observed = $this->observed($context, $document, [
             ['DOC_SRVC_DTTM', 'local'],
             ['SCAN_INST_DTTM', 'local'],
-            ['DT_ON_DOC', 'local'],
+            ['DT_ON_DOC', self::TIMEZONE_UNSPECIFIED],
             ['DOC_RECV_TIME', 'local'],
         ]);
         $title = EhiDocumentValues::cell($document, 'DOC_DESCR') ?? EhiDocumentValues::cell($document, 'DOC_INFO_TYPE_C_NAME') ?? 'Scanned document';
@@ -638,6 +667,11 @@ final readonly class EhiDocumentMapping implements EhiMapping
      * The one note/media member a documented SCAN_FILE reference names, for every
      * DOC_INFORMATION row whose reference column equals $value.
      *
+     * Only the rows that supply that file join $revisionIds. A row that is
+     * ambiguous, names another patient, has no resolvable file, or names a
+     * different file is not used, so it stays out of the note's proposal and
+     * stands on its own ownership (and reports its own file reference).
+     *
      * @param  list<int>  $revisionIds
      * @param  array<int, true>  $linkedMembers
      * @return array{member: PhrEhiPackageMember, via: string, doc_info_id: string}|null
@@ -645,9 +679,10 @@ final readonly class EhiDocumentMapping implements EhiMapping
     private function referencedFile(EhiMappingContext $context, EhiDocumentEvidence $evidence, PhrEhiRevision $root, string $table, string $column, string $value, array &$revisionIds, array &$linkedMembers): ?array
     {
         $resolved = [];
+        /** @var array<int, list<int>> $suppliers package file => the revisions that name it */
+        $suppliers = [];
         $patientKey = $context->source->source_patient_key;
         foreach ($this->sortedBy($evidence->where($table, $column, $value), 'DOC_INFO_ID') as $document) {
-            $revisionIds[] = $document->id;
             if ($evidence->isAmbiguous($document)) {
                 $this->finding($context, EhiDocumentFinding::AMBIGUOUS_REVISION, $root, ['table' => $table]);
 
@@ -659,9 +694,10 @@ final readonly class EhiDocumentMapping implements EhiMapping
 
                 continue;
             }
-            $file = $this->resolveScanFile($context, $evidence, $document, $linkedMembers);
+            $file = $this->resolveScanFile($context, $evidence, $document, $linkedMembers, report: false);
             if ($file !== null) {
                 $resolved[$file['member']->id] ??= $file;
+                $suppliers[$file['member']->id][] = $document->id;
             }
         }
         if (count($resolved) > 1) {
@@ -669,15 +705,22 @@ final readonly class EhiDocumentMapping implements EhiMapping
 
             return null;
         }
+        if ($resolved === []) {
+            return null;
+        }
+        $memberId = array_key_first($resolved);
+        array_push($revisionIds, ...$suppliers[$memberId]);
 
-        return $resolved === [] ? null : array_values($resolved)[0];
+        return $resolved[$memberId];
     }
 
     /**
      * @param  array<int, true>  $linkedMembers
+     * @param  bool  $report  whether an unresolved reference is a finding here (a
+     *                        note's lookup leaves it to the row's own proposal)
      * @return array{member: PhrEhiPackageMember, via: string, doc_info_id: string}|null
      */
-    private function resolveScanFile(EhiMappingContext $context, EhiDocumentEvidence $evidence, PhrEhiRevision $document, array &$linkedMembers): ?array
+    private function resolveScanFile(EhiMappingContext $context, EhiDocumentEvidence $evidence, PhrEhiRevision $document, array &$linkedMembers, bool $report = true): ?array
     {
         $scanFile = EhiDocumentValues::cell($document, 'SCAN_FILE');
         if ($scanFile === null) {
@@ -685,7 +728,9 @@ final readonly class EhiDocumentMapping implements EhiMapping
         }
         $matches = $evidence->membersNamed($scanFile);
         if (count($matches) !== 1) {
-            $this->finding($context, EhiDocumentFinding::FILE_REFERENCE_UNRESOLVED, $document, ['table' => self::DOC_INFORMATION, 'column' => 'SCAN_FILE', 'matches' => count($matches)]);
+            if ($report) {
+                $this->finding($context, EhiDocumentFinding::FILE_REFERENCE_UNRESOLVED, $document, ['table' => self::DOC_INFORMATION, 'column' => 'SCAN_FILE', 'matches' => count($matches)]);
+            }
 
             return null;
         }
@@ -709,7 +754,9 @@ final readonly class EhiDocumentMapping implements EhiMapping
         if ($observed !== null) {
             $summary[] = $observed['time_applied']
                 ? sprintf('Observed time from %s (UTC).', $observed['column'])
-                : sprintf('Observed date from %s (%s; time of day not applied).', $observed['column'], $observed['timezone']);
+                : sprintf($observed['timezone'] === self::TIMEZONE_UNSPECIFIED
+                    ? 'Observed date from %s (no documented time zone; time of day not applied).'
+                    : 'Observed date from %s (%s; time of day not applied).', $observed['column'], $observed['timezone']);
         }
         if ($text['text'] !== null) {
             $summary[] = 'Text is derived from the source and is not the original.';
@@ -879,7 +926,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
     /**
      * First recognized date/time among the columns, in order.
      *
-     * @param  list<array{0: string, 1: string}>  $columns  [column, 'UTC'|'local']
+     * @param  list<array{0: string, 1: string}>  $columns  [column, 'UTC'|'local'|TIMEZONE_UNSPECIFIED]
      * @return array{column: string, timezone: string, precision: string, source_text: string, time_applied: bool, value: string}|null
      */
     private function observed(EhiMappingContext $context, PhrEhiRevision $revision, array $columns): ?array
@@ -995,17 +1042,25 @@ final readonly class EhiDocumentMapping implements EhiMapping
     }
 
     /**
-     * @param  list<PhrEhiRevision>  $revisions
-     * @return list<list<PhrEhiRevision>> grouped by entity, in the context's deterministic order
+     * Consecutive revisions of one entity, in the context's deterministic order
+     * (which keeps every revision of an entity adjacent).
+     *
+     * @param  iterable<PhrEhiRevision>  $revisions
+     * @return Generator<int, list<PhrEhiRevision>>
      */
-    private function groupByEntity(array $revisions): array
+    private function entityGroups(iterable $revisions): Generator
     {
-        $groups = [];
+        $group = [];
         foreach ($revisions as $revision) {
-            $groups[$revision->entity_id][] = $revision;
+            if ($group !== [] && $group[0]->entity_id !== $revision->entity_id) {
+                yield $group;
+                $group = [];
+            }
+            $group[] = $revision;
         }
-
-        return array_values($groups);
+        if ($group !== []) {
+            yield $group;
+        }
     }
 
     /**

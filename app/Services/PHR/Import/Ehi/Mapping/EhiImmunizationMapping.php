@@ -150,6 +150,15 @@ final class EhiImmunizationMapping implements EhiMapping
     public const string FINDING_IDENTITY_WITHDRAWN = 'immunization_identity_withdrawn';
 
     /**
+     * IMMUNE_ID is too long for phr_immunizations.external_id once prefixed, so
+     * no record could hold it; retained without copying the key.
+     */
+    public const string FINDING_IDENTITY_TOO_LONG = 'immunization_identity_too_long';
+
+    /** phr_immunizations.external_id */
+    private const int MAX_EXTERNAL_ID_BYTES = 255;
+
+    /**
      * The source now reports a non-clinical status (Deleted, Refused, Invalid,
      * ...) for an immunization that already maps to an active record. The
      * revision is retained and the record left unchanged for a person to
@@ -369,6 +378,11 @@ final class EhiImmunizationMapping implements EhiMapping
 
         /** @var PhrEhiRevision $revision */
         $revision = $revisions->first();
+        if (strlen(self::externalId($immuneId)) > self::MAX_EXTERNAL_ID_BYTES) {
+            $context->finding(self::FINDING_IDENTITY_TOO_LONG, $revision);
+
+            return $this->retain($subject, $revisionIds, null, self::FINDING_IDENTITY_TOO_LONG);
+        }
         $built = $this->build($this->values($revision), $immuneId, $importSource);
 
         if ($links['foreign'] !== []) {
@@ -763,7 +777,7 @@ final class EhiImmunizationMapping implements EhiMapping
         $vaccineName = $proposed['vaccine_name'] ?? null;
         if (! $package instanceof PhrEhiPackage || $package->source_id === null
             || $importSource !== self::importSource((int) $package->source_id)
-            || ! is_string($externalId) || ! str_starts_with($externalId, 'IMMUNE:')
+            || ! is_string($externalId) || ! str_starts_with($externalId, 'IMMUNE:') || strlen($externalId) > self::MAX_EXTERNAL_ID_BYTES
             || ! is_string($vaccineName) || $vaccineName === '') {
             throw new EhiImmunizationApplyRefused(EhiImmunizationApplyRefused::MALFORMED_PROPOSAL, 'the proposal does not carry a usable import identity and vaccine name');
         }
