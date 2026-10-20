@@ -19,7 +19,8 @@ use Laravel\Passport\Passport;
 #[Signature('phr:agent-api:register-first-party-client
     {name : Name shown on the consent screen}
     {--redirect-uri=* : Exact callback URL (repeatable; https, or http on loopback)}
-    {--scope=* : A scope the client may request (repeatable; REST scopes only)}')]
+    {--scope=* : A scope the client may request (repeatable; REST scopes only)}
+    {--json : Print credentials and setup guidance as JSON}')]
 #[Description('Register a confidential first-party OAuth client for the authorization-code grant')]
 final class AgentApiRegisterFirstPartyClientCommand extends BasePhrCommand
 {
@@ -79,13 +80,27 @@ final class AgentApiRegisterFirstPartyClientCommand extends BasePhrCommand
             return $client;
         });
 
+        $secretNotice = 'Store the secret now; it is shown only once and only its hash is kept.';
+        if ($this->option('json')) {
+            $this->line(json_encode([
+                'client_id' => (string) $client->getKey(),
+                'client_secret' => $client->plainSecret,
+                'scopes' => $scopes,
+                'secret_notice' => $secretNotice,
+                'repeat_consent_skip_required' => false,
+                'warnings' => [],
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+
+            return self::SUCCESS;
+        }
+
         $this->info('Registered first-party client "'.$name.'".');
         $this->line('Client ID:     '.$client->getKey());
         $this->line('Client secret: '.$client->plainSecret);
         $this->line('Scopes:        '.implode(' ', $scopes));
         $this->newLine();
-        $this->comment('The secret is shown only now; only its hash is kept.');
-        $this->comment('Add the client id to AGENT_API_FIRST_PARTY_OAUTH_CLIENTS to let it skip the consent screen after the first approval.');
+        $this->comment($secretNotice);
+        $this->comment('Optional: add the client id to AGENT_API_FIRST_PARTY_OAUTH_CLIENTS to let it skip the consent screen after the first approval.');
 
         return self::SUCCESS;
     }
