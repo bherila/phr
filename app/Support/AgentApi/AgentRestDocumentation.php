@@ -1379,7 +1379,7 @@ final class AgentRestDocumentation
                 'method' => 'GET',
                 'path' => '/patients',
                 'summary' => 'List patients accessible to the authorized user',
-                'description' => false,
+                'description' => 'With billing:read without patients:read, only routing/public ids are returned; archive-state and update-window filters are refused. Pagination remains available.',
                 'scopes' => ['patients:read', 'billing:read'],
                 'scope_rule' => 'any',
                 'parameters' => ['Limit', 'Cursor', 'UpdatedAfter', 'UpdatedBefore', 'Archived'],

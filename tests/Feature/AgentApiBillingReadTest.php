@@ -330,6 +330,19 @@ final class AgentApiBillingReadTest extends TestCase
             ->assertOk()->assertJsonCount(0, 'data');
     }
 
+    public function test_billing_patient_filters_cannot_reveal_excluded_state(): void
+    {
+        $owner = $this->createUser();
+        $this->patient($owner);
+        Passport::actingAs($owner, [AgentApiScopes::BILLING_READ]);
+        foreach (['archived' => 'only', 'updated_after' => '2026-01-01', 'updated_before' => '2027-01-01'] as $key => $value) {
+            $this->getJson('/api/v1/patients?'.http_build_query([$key => $value]))->assertUnprocessable();
+        }
+
+        Passport::actingAs($owner, [AgentApiScopes::PATIENTS_READ]);
+        $this->getJson('/api/v1/patients?archived=only&updated_after=2026-01-01&updated_before=2027-01-01')->assertOk();
+    }
+
     public function test_billing_read_is_a_rest_only_alternative_and_reported_as_one(): void
     {
         $this->getJson('/.well-known/oauth-protected-resource/api/v1')->assertOk()

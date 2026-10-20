@@ -3637,6 +3637,7 @@
             "get": {
                 "operationId": "patients.list",
                 "summary": "List patients accessible to the authorized user",
+                "description": "With billing:read without patients:read, only routing/public ids are returned; archive-state and update-window filters are refused. Pagination remains available.",
                 "security": [
                     {
                         "oauth2": [

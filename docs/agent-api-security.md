@@ -264,6 +264,8 @@ The billing-only projection is an exact allow-list:
   evidence that a payment was made. EOBs currently store no currency, so `currency`
   is explicitly null rather than guessed. A consumer must handle that unknown value.
 - Patients: `id` and `public_id` only. Labels and access levels stay inside PHR.
+  Billing-only lists accept pagination, but refuse archive-state and update-window
+  filters so result membership cannot disclose excluded state or timestamps.
 - Source documents: their opaque public id and stored SHA-256, never file contents,
   filenames or download access. Both are null without a current source document
   belonging to the same patient; a document without a recorded hash has a null hash.
