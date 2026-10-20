@@ -265,6 +265,9 @@ final class GenAiDiagnosticLoggingResilienceTest extends TestCase
 
     public function test_a_failing_diagnostic_read_does_not_recover_a_successful_reused_enqueue(): void
     {
+        // Reconciliation may touch updated_at; do not make this diagnostic-only
+        // assertion depend on finishing within the fixture creation second.
+        $this->freezeTime();
         [, $job, $requestId] = $this->linkedExternalJob();
         $before = $this->jobRow($job->id);
         $request = DB::table('genai_mcp_requests')->where('id', $requestId)->first();
