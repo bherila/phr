@@ -6,9 +6,11 @@ use App\Models\OAuthClientConsent;
 use App\Models\OAuthTokenFamily;
 use App\Models\User;
 use App\Support\AgentApi\AgentApiScopes;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Once;
 use Illuminate\Testing\TestResponse;
 use Laravel\Passport\AuthCode;
@@ -145,6 +147,35 @@ final class AgentApiFirstPartyClientRevocationTest extends TestCase
         $this->assertSame(0, OAuthClientConsent::query()->where('client_id', $client->id)->count());
         $this->assertSame(0, AuthCode::query()->where('client_id', $client->id)->count());
         $this->assertTrue($client->refresh()->revoked);
+    }
+
+    public function test_cleanup_reads_distinct_owners_in_bounded_batches_across_credential_history(): void
+    {
+        $client = $this->firstPartyClient();
+        $rows = [];
+        for ($index = 0; $index < 305; $index++) {
+            $rows[] = [
+                'id' => 'synthetic-history-'.$index, 'user_id' => 1000 + ($index % 105),
+                'client_id' => $client->id, 'scopes' => '[]', 'revoked' => false,
+                'expires_at' => now()->addMinutes(10),
+            ];
+        }
+        AuthCode::query()->insert($rows);
+        $ownerQueries = [];
+        DB::listen(static function (QueryExecuted $query) use (&$ownerQueries): void {
+            if (str_contains($query->sql, 'owner_id') && str_starts_with(strtolower($query->sql), 'select')) {
+                $ownerQueries[] = strtolower($query->sql);
+            }
+        });
+
+        $this->assertSame(0, Artisan::call('phr:agent-api:revoke-first-party-client', ['client_id' => $client->id]));
+
+        $this->assertSame(0, AuthCode::query()->where('client_id', $client->id)->where('revoked', false)->count());
+        $this->assertCount(2, $ownerQueries, '105 distinct people require two bounded owner batches, despite 305 historical credentials.');
+        foreach ($ownerQueries as $sql) {
+            $this->assertStringContainsString(' union ', $sql);
+            $this->assertStringContainsString('limit 100', $sql);
+        }
     }
 
     public function test_ineligible_registrations_are_refused(): void

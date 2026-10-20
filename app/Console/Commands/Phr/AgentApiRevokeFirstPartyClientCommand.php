@@ -33,17 +33,30 @@ final class AgentApiRevokeFirstPartyClientCommand extends BasePhrCommand
         // continues cleanup without ever enabling the client again.
         $client->forceFill(['revoked' => true])->save();
 
-        $userIds = OAuthClientConsent::query()->where('client_id', $clientId)->pluck('user_id')
-            ->merge(OAuthTokenFamily::query()->where('client_id', $clientId)->pluck('user_id'))
-            ->merge(Passport::authCode()->newQuery()->where('client_id', $clientId)->pluck('user_id'))
-            ->merge(Passport::token()->newQuery()->where('client_id', $clientId)->pluck('user_id'));
+        // UNION deduplicates in the database; keyset batches retain at most
+        // 100 people in PHP, regardless of their credential rotation history.
+        $ownerType = match ($client->getConnection()->getDriverName()) {
+            'mysql', 'mariadb' => 'CHAR',
+            'sqlsrv' => 'VARCHAR(255)',
+            default => 'TEXT',
+        };
+        $owners = OAuthClientConsent::query()->where('client_id', $clientId)
+            ->selectRaw("CAST(user_id AS {$ownerType}) AS owner_id")->toBase();
+        foreach ([new OAuthTokenFamily, Passport::authCode(), Passport::token()] as $model) {
+            $owners->union($model->newQuery()->where('client_id', $clientId)
+                ->selectRaw("CAST(user_id AS {$ownerType}) AS owner_id")->toBase());
+        }
         $refresh = Passport::refreshToken();
         $schema = $refresh->getConnection()->getSchemaBuilder();
         if ($schema->hasColumn($refresh->getTable(), 'client_id')
             && $schema->hasColumn($refresh->getTable(), 'provider_user_id')) {
-            $userIds = $userIds->merge($refresh->newQuery()->where('client_id', $clientId)->pluck('provider_user_id'));
+            $owners->union($refresh->newQuery()->where('client_id', $clientId)
+                ->selectRaw("CAST(provider_user_id AS {$ownerType}) AS owner_id")->toBase());
         }
-        foreach ($userIds->unique()->sort() as $userId) {
+        $people = $client->getConnection()->query()->fromSub($owners, 'grant_owners')
+            ->whereNotNull('owner_id')->lazyById(100, 'owner_id');
+        foreach ($people as $person) {
+            $userId = $person->owner_id;
             if (! is_int($userId) && ! is_string($userId)) {
                 continue;
             }
