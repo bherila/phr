@@ -23,6 +23,14 @@ It distinguishes exactly three capabilities, and they are not a ladder of one ru
 | **writable** | `writablePatient`, `canWrite`, `ensureCanWrite`, `writablePatientsQuery` | `owner_user_id = actor` **or** a grant row at level `owner` or `manager` |
 | **actual-owner-only** | `ownedPatient`, `ensureOwner`, `ownedPatientsQuery` | `owner_user_id = actor`, and nothing else |
 
+Delegated `billing:read` has an additional boundary at `OAuthPatientConsents`:
+`patients.list/get` and `eobs.list/get` require that client's current patient consent
+and current owner/manager access. A viewer's ordinary readable grant cannot authorize
+billing delegation. Consent follows the stable public identity after native restore;
+unselected or revoked patients return 404. Mixed billing/clinical credentials retain
+this billing-endpoint restriction; clinical-only routes keep the levels above. See
+[patient selection and delegated billing consent](agent-api-security.md#patient-selection-and-delegated-billing-consent).
+
 Three consequences follow, and each is load-bearing:
 
 - **Read sharing is not write permission.** A `viewer` grant reads and never writes.

@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\FirstPartyOAuthClients;
 use App\Support\AgentApi\OAuthClientConsents;
+use App\Support\AgentApi\OAuthPatientConsents;
 use BWH\Auth\OAuth\Server\OAuthResourceIndicator;
 use BWH\Auth\OAuth\Server\ResourceClient;
 use Illuminate\Contracts\Auth\Authenticatable;
@@ -43,7 +44,8 @@ final class PassportClient extends ResourceClient
     /** @param  array<int, Scope>  $scopes */
     public function skipsAuthorization(Authenticatable $user, array $scopes): bool
     {
-        if (! app(FirstPartyOAuthClients::class)->allows($this)) {
+        if (app(OAuthPatientConsents::class)->selectionRequested(request())
+            || ! app(FirstPartyOAuthClients::class)->allows($this)) {
             return false;
         }
 

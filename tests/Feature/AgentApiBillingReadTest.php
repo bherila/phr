@@ -8,9 +8,14 @@ use App\Models\PhrEobLine;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Models\User;
+use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Support\AgentApi\AgentApiScopes;
+use App\Support\AgentApi\OAuthClientConsents;
+use App\Support\AgentApi\OAuthPatientConsents;
+use BWH\Auth\OAuth\Server\OAuthResourceIndicator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
+use Laravel\Passport\ClientRepository;
 use Laravel\Passport\Passport;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Concerns\ConfiguresPassportKeys;
@@ -59,7 +64,7 @@ final class AgentApiBillingReadTest extends TestCase
         $this->line($eob, 1, '2026-07-01', null, '30.00');
         $this->line($eob, 2, '2026-07-03', '2026-07-05', '12.50');
 
-        Passport::actingAs($owner, [AgentApiScopes::BILLING_READ]);
+        $this->actingAsWithPatientConsent($owner, [AgentApiScopes::BILLING_READ]);
         $one = $this->getJson("/api/v1/patients/{$patient->id}/eobs/{$eob->id}")->assertOk()->json();
         $this->assertSame(self::EOB_FIELDS, array_keys($one['data']));
         $this->assertSame('2026-07-01', $one['data']['service_start']);
@@ -84,7 +89,7 @@ final class AgentApiBillingReadTest extends TestCase
         $eob = $this->eob($patient, $owner, null);
         $line = $this->line($eob, 1, '2026-07-01', null, '42.50');
 
-        Passport::actingAs($owner, [AgentApiScopes::BILLING_READ]);
+        $this->actingAsWithPatientConsent($owner, [AgentApiScopes::BILLING_READ]);
         foreach ([
             "/api/v1/patients/{$patient->id}/eobs/{$eob->id}/lines",
             "/api/v1/patients/{$patient->id}/eobs/{$eob->id}/lines/{$line->id}",
@@ -107,7 +112,7 @@ final class AgentApiBillingReadTest extends TestCase
         $this->line($eob, 1, '2026-07-01', null, '42.50');
 
         foreach ([[AgentApiScopes::CLINICAL_READ], [AgentApiScopes::CLINICAL_READ, AgentApiScopes::BILLING_READ]] as $scopes) {
-            Passport::actingAs($owner, $scopes);
+            $this->actingAsWithPatientConsent($owner, $scopes);
             $this->getJson("/api/v1/patients/{$patient->id}/eobs/{$eob->id}")->assertOk()
                 ->assertJsonPath('data.plan_name', 'Synthetic Plan Name')
                 ->assertJsonPath('data.lines_count', 1);
@@ -123,7 +128,7 @@ final class AgentApiBillingReadTest extends TestCase
         $patient = $this->patient($owner);
         $eob = $this->eob($patient, $owner, null);
 
-        Passport::actingAs($stranger, [AgentApiScopes::BILLING_READ]);
+        $this->actingAsWithPatientConsent($stranger, [AgentApiScopes::BILLING_READ]);
         $this->getJson("/api/v1/patients/{$patient->id}/eobs")->assertNotFound();
         $this->getJson("/api/v1/patients/{$patient->id}/eobs/{$eob->id}")->assertNotFound();
     }
@@ -145,13 +150,14 @@ final class AgentApiBillingReadTest extends TestCase
             'granted_by_user_id' => $owner->id, 'granted_at' => now(),
         ]);
 
-        Passport::actingAs($owner, [AgentApiScopes::BILLING_READ]);
+        $this->actingAsWithPatientConsent($owner, [AgentApiScopes::BILLING_READ]);
         $list = $this->getJson('/api/v1/patients')->assertOk()->json();
-        $this->assertSame([$own->id, $shared->id], array_column($list['data'], 'id'));
+        $this->assertSame([$own->id], array_column($list['data'], 'id'));
+        $this->getJson("/api/v1/patients/{$shared->id}")->assertNotFound();
         foreach ($list['data'] as $patient) {
             $this->assertSame(['id', 'public_id'], array_keys($patient));
         }
-        $one = $this->getJson("/api/v1/patients/{$shared->id}")->assertOk()->json();
+        $one = $this->getJson("/api/v1/patients/{$own->id}")->assertOk()->json();
         $this->assertSame(['id', 'public_id'], array_keys($one['data']));
         foreach ([$list, $one] as $response) {
             $encoded = json_encode($response, JSON_THROW_ON_ERROR);
@@ -161,12 +167,15 @@ final class AgentApiBillingReadTest extends TestCase
         }
         $this->postJson('/api/v1/patients', ['display_name' => 'Synthetic New Patient'])->assertForbidden();
 
-        Passport::actingAs($viewer, [AgentApiScopes::BILLING_READ]);
+        $this->actingAsWithPatientConsent($viewer, [AgentApiScopes::BILLING_READ]);
         $this->getJson("/api/v1/patients/{$own->id}")->assertOk()
             ->assertJsonPath('data.id', $own->id)->assertJsonMissingPath('data.access_level');
         $this->getJson("/api/v1/patients/{$shared->id}")->assertNotFound();
 
-        Passport::actingAs($owner, [AgentApiScopes::PATIENTS_READ, AgentApiScopes::BILLING_READ]);
+        $this->actingAsWithPatientConsent($owner, [AgentApiScopes::PATIENTS_READ, AgentApiScopes::BILLING_READ]);
+        $this->getJson("/api/v1/patients/{$shared->id}")->assertNotFound();
+        // Clinical-only patient access retains its existing viewer projection.
+        $this->actingAsWithPatientConsent($owner, [AgentApiScopes::PATIENTS_READ]);
         $this->getJson("/api/v1/patients/{$shared->id}")->assertOk()
             ->assertJsonPath('data.access_level', PhrPatientUserAccess::LEVEL_VIEWER)
             ->assertJsonPath('data.access.level', PhrPatientUserAccess::LEVEL_VIEWER)
@@ -181,7 +190,7 @@ final class AgentApiBillingReadTest extends TestCase
         $this->eob($patient, $owner, $source);
         $letter = $this->document($patient, $owner, 'synthetic-letter');
 
-        Passport::actingAs($owner, [AgentApiScopes::DOCUMENTS_READ]);
+        $this->actingAsWithPatientConsent($owner, [AgentApiScopes::DOCUMENTS_READ]);
         $accesses = [];
         foreach ([$source, $letter] as $document) {
             $access = $this->postJson("/api/v1/patients/{$patient->id}/documents/{$document->id}/download-access")->assertOk()->json();
@@ -189,7 +198,7 @@ final class AgentApiBillingReadTest extends TestCase
             $accesses[] = $access;
         }
 
-        Passport::actingAs($owner, [AgentApiScopes::BILLING_READ]);
+        $this->actingAsWithPatientConsent($owner, [AgentApiScopes::BILLING_READ]);
         foreach ([$source, $letter] as $index => $document) {
             $this->postJson("/api/v1/patients/{$patient->id}/documents/{$document->id}/download-access")->assertForbidden();
             $this->get($accesses[$index]['download_url'])->assertForbidden();
@@ -216,7 +225,7 @@ final class AgentApiBillingReadTest extends TestCase
         $patient = $this->patient($owner);
         $eob = $this->eob($patient, $owner, null);
         $eob->update(['claim_type' => $claimType]);
-        Passport::actingAs($owner, [AgentApiScopes::BILLING_READ]);
+        $this->actingAsWithPatientConsent($owner, [AgentApiScopes::BILLING_READ]);
 
         $data = $this->getJson("/api/v1/patients/{$patient->id}/eobs/{$eob->id}")->assertOk()->json('data');
         $this->assertSame(self::EOB_FIELDS, array_keys($data));
@@ -230,7 +239,7 @@ final class AgentApiBillingReadTest extends TestCase
         $owner = $this->createUser();
         $patient = $this->patient($owner);
         $this->eob($patient, $owner, null);
-        Passport::actingAs($owner, [AgentApiScopes::BILLING_READ]);
+        $this->actingAsWithPatientConsent($owner, [AgentApiScopes::BILLING_READ]);
         foreach (['claim_type' => 'dental', 'import_source' => 'synthetic-eob', 'source_document_id' => 1] as $key => $value) {
             $this->getJson("/api/v1/patients/{$patient->id}/eobs?".http_build_query([$key => $value]))->assertUnprocessable();
         }
@@ -242,7 +251,7 @@ final class AgentApiBillingReadTest extends TestCase
         $patient = $this->patient($owner);
         $document = $this->document($patient, $owner, 'synthetic-source-metadata');
         $eob = $this->eob($patient, $owner, $document);
-        Passport::actingAs($owner, [AgentApiScopes::BILLING_READ]);
+        $this->actingAsWithPatientConsent($owner, [AgentApiScopes::BILLING_READ]);
         $url = "/api/v1/patients/{$patient->id}/eobs/{$eob->id}";
         $this->getJson($url)->assertOk()->assertJsonPath('data.source_document_sha256', $document->file_hash);
 
@@ -264,9 +273,9 @@ final class AgentApiBillingReadTest extends TestCase
         $eob->update(['processed_date' => null]);
         $url = "/api/v1/patients/{$patient->id}/eobs?date_from=2026-07-01";
 
-        Passport::actingAs($owner, [AgentApiScopes::BILLING_READ]);
+        $this->actingAsWithPatientConsent($owner, [AgentApiScopes::BILLING_READ]);
         $this->getJson($url)->assertOk()->assertJsonCount(0, 'data');
-        Passport::actingAs($owner, [AgentApiScopes::CLINICAL_READ]);
+        $this->actingAsWithPatientConsent($owner, [AgentApiScopes::CLINICAL_READ]);
         $this->getJson($url)->assertOk()->assertJsonCount(1, 'data');
     }
 
@@ -293,7 +302,7 @@ final class AgentApiBillingReadTest extends TestCase
         if ($change === 'restore') {
             $document->delete();
         }
-        Passport::actingAs($owner, [AgentApiScopes::BILLING_READ]);
+        $this->actingAsWithPatientConsent($owner, [AgentApiScopes::BILLING_READ]);
         $url = "/api/v1/patients/{$patient->id}/eobs";
         $window = '?'.http_build_query(['updated_after' => '2026-01-02T00:00:00Z', 'updated_before' => '2026-01-04T00:00:00Z']);
         $this->getJson($url.$window)->assertOk()->assertJsonCount(0, 'data');
@@ -324,7 +333,7 @@ final class AgentApiBillingReadTest extends TestCase
         $this->eob($patient, $owner, $document);
         $this->travelTo('2026-01-03 12:00:00');
         $document->update(['title' => 'Synthetic changed title']);
-        Passport::actingAs($owner, [AgentApiScopes::BILLING_READ]);
+        $this->actingAsWithPatientConsent($owner, [AgentApiScopes::BILLING_READ]);
 
         $this->getJson("/api/v1/patients/{$patient->id}/eobs?updated_after=2026-01-02T00:00:00Z")
             ->assertOk()->assertJsonCount(0, 'data');
@@ -334,12 +343,12 @@ final class AgentApiBillingReadTest extends TestCase
     {
         $owner = $this->createUser();
         $this->patient($owner);
-        Passport::actingAs($owner, [AgentApiScopes::BILLING_READ]);
+        $this->actingAsWithPatientConsent($owner, [AgentApiScopes::BILLING_READ]);
         foreach (['archived' => 'only', 'updated_after' => '2026-01-01', 'updated_before' => '2027-01-01'] as $key => $value) {
             $this->getJson('/api/v1/patients?'.http_build_query([$key => $value]))->assertUnprocessable();
         }
 
-        Passport::actingAs($owner, [AgentApiScopes::PATIENTS_READ]);
+        $this->actingAsWithPatientConsent($owner, [AgentApiScopes::PATIENTS_READ]);
         $this->getJson('/api/v1/patients?archived=only&updated_after=2026-01-01&updated_before=2027-01-01')->assertOk();
     }
 
@@ -356,10 +365,10 @@ final class AgentApiBillingReadTest extends TestCase
             $this->getJson('/api/v1/capabilities')->assertOk()->json('operations')['eobs.list'],
         );
 
-        Passport::actingAs($this->createUser(), [AgentApiScopes::IDENTITY_READ, AgentApiScopes::BILLING_READ]);
+        $this->actingAsWithPatientConsent($this->createUser(), [AgentApiScopes::IDENTITY_READ, AgentApiScopes::BILLING_READ]);
         $operations = $this->getJson('/api/v1/me')->assertOk()->json('operations');
         $this->assertEqualsCanonicalizing(
-            ['capabilities.get', 'identity.get', 'patients.list', 'patients.get', 'eobs.list', 'eobs.get', 'oauth.consent.revoke', 'oauth.disconnect'],
+            ['capabilities.get', 'identity.get', 'patients.list', 'patients.get', 'eobs.list', 'eobs.get', 'oauth.consent.revoke', 'oauth.patient_consent.revoke', 'oauth.disconnect'],
             $operations['available'],
         );
         foreach (['eobs.list', 'eobs.get'] as $available) {
@@ -373,7 +382,7 @@ final class AgentApiBillingReadTest extends TestCase
         $this->assertSame(AgentApiScopes::DOCUMENTS_READ, $withheld['documents.download_access.create']['detail']);
         $this->assertSame(AgentApiScopes::CLINICAL_READ, $withheld['clinical.list']['detail']);
 
-        Passport::actingAs($this->createUser(), [AgentApiScopes::IDENTITY_READ]);
+        $this->actingAsWithPatientConsent($this->createUser(), [AgentApiScopes::IDENTITY_READ]);
         $withheld = array_column($this->getJson('/api/v1/me')->assertOk()->json('operations.withheld'), null, 'operation');
         $this->assertSame(AgentApiScopes::CLINICAL_READ.'|'.AgentApiScopes::BILLING_READ, $withheld['eobs.list']['detail']);
     }
@@ -385,6 +394,26 @@ final class AgentApiBillingReadTest extends TestCase
         foreach (self::NEVER as $forbidden) {
             $this->assertStringNotContainsString($forbidden, $encoded);
         }
+    }
+
+    /** @param list<string> $scopes */
+    private function actingAsWithPatientConsent(User $user, array $scopes): void
+    {
+        if (! in_array(AgentApiScopes::BILLING_READ, $scopes, true)) {
+            Passport::actingAs($user, $scopes);
+
+            return;
+        }
+        // Projection fixtures explicitly grant the same patient set as a successful picker.
+        // The real OAuth selection and refusal path is covered in AgentApiPatientSelectionConsentTest.
+        $client = app(ClientRepository::class)->createAuthorizationCodeGrantClient('Synthetic Scoped Billing', ['https://consumer.example.test/callback'], true, null);
+        $client->forceFill(['scopes' => $scopes])->save();
+        $consent = app(OAuthClientConsents::class)->grant($user->id, (string) $client->id, OAuthResourceIndicator::resource('rest'), $scopes);
+        $this->assertNotNull($consent);
+        foreach (app(PhrPatientAccessService::class)->writablePatientsQuery((int) $user->id)->get() as $patient) {
+            app(OAuthPatientConsents::class)->grant($consent, $patient);
+        }
+        Passport::actingAs($user, $scopes, client: $client);
     }
 
     private function patient(User $owner): PhrPatient

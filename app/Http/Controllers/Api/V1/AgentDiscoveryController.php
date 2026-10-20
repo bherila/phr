@@ -37,6 +37,7 @@ class AgentDiscoveryController extends Controller
             'openapi_url' => url('/api/openapi.json'),
             'mcp_url' => url('/api/v1/mcp'),
             'oauth' => [
+                'billing_patient_consent' => \App\Support\AgentApi\OAuthPatientConsents::CAPABILITY,
                 'authorization_server_metadata' => url('/.well-known/oauth-authorization-server'),
                 'protected_resource_metadata' => url('/.well-known/oauth-protected-resource/api/v1'),
                 'authorization_code_pkce' => true,

@@ -334,6 +334,9 @@
     "oauth.disconnect": {
         "authenticated": true
     },
+    "oauth.patient_consent.revoke": {
+        "authenticated": true
+    },
     "office_visits.update": {
         "scopes": [
             "clinical:read",

@@ -16,6 +16,7 @@ use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentApiUpdateWindow;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use App\Support\AgentApi\AgentEvidenceCursor;
+use App\Support\AgentApi\OAuthPatientConsents;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
@@ -43,6 +44,7 @@ final class AgentEvidenceController extends Controller
 
     public function eobs(Request $request, int $patient): JsonResponse
     {
+        app(OAuthPatientConsents::class)->assertPatient($request, $patient);
         $finance = $this->financeProjection($request);
         $validated = $request->validate($this->eobListRules($finance));
         $patientId = $this->patientId($request, $patient);
@@ -70,6 +72,7 @@ final class AgentEvidenceController extends Controller
 
     public function eob(Request $request, int $patient, int $eob): JsonResponse
     {
+        app(OAuthPatientConsents::class)->assertPatient($request, $patient);
         $patientId = $this->patientId($request, $patient);
         $finance = $this->financeProjection($request);
         $resolved = $this->eobQuery($patientId, $finance)->findOrFail($eob);

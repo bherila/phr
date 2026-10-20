@@ -3513,6 +3513,37 @@
                 }
             }
         },
+        "/oauth/consent/patients/{patient_public_id}": {
+            "delete": {
+                "operationId": "oauth.patient_consent.revoke",
+                "summary": "Withdraw this client's consent for one patient",
+                "description": "Removes the calling client's access to one opaque patient public id. Other selected patients and the client's credentials remain usable. Unknown or already withdrawn choices return the same response.",
+                "security": [
+                    {
+                        "oauth2": []
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientPublicId"
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Patient consent withdrawn"
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    }
+                }
+            }
+        },
         "/patients/{patient}/office-visits": {
             "put": {
                 "operationId": "office_visits.upsert",
@@ -4370,6 +4401,15 @@
             }
         },
         "parameters": {
+            "PatientPublicId": {
+                "name": "patient_public_id",
+                "in": "path",
+                "required": true,
+                "schema": {
+                    "type": "string",
+                    "format": "uuid"
+                }
+            },
             "PatientId": {
                 "name": "patient",
                 "in": "path",
@@ -4916,7 +4956,51 @@
                     },
                     "oauth": {
                         "type": "object",
-                        "additionalProperties": true
+                        "additionalProperties": true,
+                        "required": [
+                            "billing_patient_consent"
+                        ],
+                        "properties": {
+                            "billing_patient_consent": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": [
+                                    "version",
+                                    "authorization_parameter",
+                                    "token_response_parameter",
+                                    "patient_identifiers",
+                                    "selection_roles"
+                                ],
+                                "properties": {
+                                    "version": {
+                                        "type": "integer",
+                                        "const": 1
+                                    },
+                                    "authorization_parameter": {
+                                        "type": "string",
+                                        "const": "patient_select"
+                                    },
+                                    "token_response_parameter": {
+                                        "type": "string",
+                                        "const": "patient"
+                                    },
+                                    "patient_identifiers": {
+                                        "type": "string",
+                                        "const": "public_id"
+                                    },
+                                    "selection_roles": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        },
+                                        "const": [
+                                            "owner",
+                                            "manager"
+                                        ]
+                                    }
+                                }
+                            }
+                        }
                     },
                     "scopes": {
                         "type": "object",

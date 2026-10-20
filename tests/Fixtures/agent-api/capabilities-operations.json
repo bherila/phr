@@ -287,6 +287,10 @@
         "available": true,
         "scope": null
     },
+    "oauth.patient_consent.revoke": {
+        "available": true,
+        "scope": null
+    },
     "oauth.consent.revoke": {
         "available": true,
         "scope": null
