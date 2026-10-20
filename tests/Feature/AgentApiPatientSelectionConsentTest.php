@@ -45,6 +45,21 @@ final class AgentApiPatientSelectionConsentTest extends TestCase
         config(['passport.private_key' => $privateKey, 'passport.public_key' => $details['key']]);
     }
 
+    public function test_the_patient_consent_migration_uses_the_configured_passport_connection(): void
+    {
+        $migration = require database_path('migrations/2026_10_20_120000_add_oauth_patient_consents.php');
+        $original = config('passport.connection');
+        try {
+            // Inspect only the name; never connect to this synthetic database.
+            config(['passport.connection' => 'synthetic-passport']);
+            $this->assertSame('synthetic-passport', $migration->getConnection());
+            config(['passport.connection' => null]);
+            $this->assertNull($migration->getConnection());
+        } finally {
+            config(['passport.connection' => $original]);
+        }
+    }
+
     public function test_a_patient_selection_request_cannot_issue_a_code_without_a_selection(): void
     {
         $user = $this->createUser(['name' => 'Synthetic Owner', 'email' => 'owner@example.test']);

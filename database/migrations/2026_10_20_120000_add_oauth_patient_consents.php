@@ -29,6 +29,11 @@ return new class extends Migration
         });
     }
 
+    public function getConnection(): ?string
+    {
+        return $this->connection ?? config('passport.connection');
+    }
+
     public function down(): void
     {
         Schema::table('oauth_token_families', fn (Blueprint $table) => $table->dropColumn('patient_public_id'));
