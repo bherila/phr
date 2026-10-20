@@ -266,7 +266,7 @@ installation directory. Replace `<App name>` with the name people should see on
 consent, and `<callback>` with the exact callback URL supplied by the consumer:
 
 ```bash
-php artisan phr:agent-api:register-first-party-client "<App name>" --redirect-uri=<callback> --scope=billing:read --scope=identity:read
+php artisan phr:agent-api:register-first-party-client "<App name>" "--redirect-uri=<callback>" --scope=billing:read --scope=identity:read
 ```
 
 Use an HTTPS callback (HTTP is accepted only on loopback). Paste the labelled
@@ -302,7 +302,7 @@ To permanently disable the registration for everyone, run the operator command
 with the exact client ID you saved at registration:
 
 ```bash
-php artisan phr:agent-api:revoke-first-party-client <client-id>
+php artisan phr:agent-api:revoke-first-party-client "<client-id>"
 ```
 
 This disables only an operator-registered, ownerless confidential authorization-code

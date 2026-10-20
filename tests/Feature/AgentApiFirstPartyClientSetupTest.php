@@ -7,6 +7,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Passport\Client;
+use Symfony\Component\Process\Process;
 use Tests\TestCase;
 
 final class AgentApiFirstPartyClientSetupTest extends TestCase
@@ -68,6 +69,21 @@ final class AgentApiFirstPartyClientSetupTest extends TestCase
         $arguments['--scope'] = [AgentApiScopes::CLINICAL_READ, AgentApiScopes::PATIENTS_READ];
         $this->assertSame(0, Artisan::call('phr:agent-api:register-first-party-client', $arguments));
         $this->assertStringNotContainsString('A finance client should need only', Artisan::output());
+    }
+
+    public function test_the_documented_shell_command_preserves_callback_query_parameters(): void
+    {
+        $readme = file_get_contents(base_path('README.md'));
+        $this->assertIsString($readme);
+        $this->assertSame(1, preg_match('/^php artisan phr:agent-api:register-first-party-client .*$/m', $readme, $matches));
+        $command = str_replace(['<App name>', '<callback>'], ['Synthetic Finance Consumer', 'https://consumer.example.test/callback?tenant=synthetic&mode=connect'], $matches[0]);
+        $process = new Process(['bash', '-c', 'php() { printf "%s\\n" "$@"; }'."\n".$command]);
+        $process->mustRun();
+        $this->assertSame([
+            'artisan', 'phr:agent-api:register-first-party-client', 'Synthetic Finance Consumer',
+            '--redirect-uri=https://consumer.example.test/callback?tenant=synthetic&mode=connect',
+            '--scope=billing:read', '--scope=identity:read',
+        ], explode("\n", trim($process->getOutput())));
     }
 
     /** @return array<string, mixed> */
