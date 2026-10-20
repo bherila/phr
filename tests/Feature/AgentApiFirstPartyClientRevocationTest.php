@@ -8,8 +8,8 @@ use App\Models\User;
 use App\Support\AgentApi\AgentApiScopes;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
-use Illuminate\Support\Once;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Once;
 use Illuminate\Testing\TestResponse;
 use Laravel\Passport\AuthCode;
 use Laravel\Passport\Client;
@@ -240,5 +240,4 @@ final class AgentApiFirstPartyClientRevocationTest extends TestCase
 
         return $this->withToken($accessToken)->getJson('/api/v1/me');
     }
-
 }
