@@ -136,18 +136,29 @@ final class EhiProposalService
         $findingCounts = [];
         foreach ($this->registry->all() as $name => $mapping) {
             $context = new EhiMappingContext($package, $patient, $source);
+            // Drafts are persisted in chunks as the mapping yields them; only the
+            // subject keys produced are kept, for duplicate detection and to
+            // supersede what this preview no longer proposes.
+            /** @var array<string, true> $produced */
+            $produced = [];
             $rows = [];
             foreach ($mapping->propose($context) as $draft) {
-                if (isset($rows[$draft->subjectKey])) {
+                if (isset($produced[$draft->subjectKey])) {
                     throw new LogicException("EHI mapping {$name} proposed one subject twice.");
                 }
+                $produced[$draft->subjectKey] = true;
                 $rows[$draft->subjectKey] = $this->row($package, $name, $mapping->version(), $draft);
                 $counts[$name][$draft->kind] = ($counts[$name][$draft->kind] ?? 0) + 1;
+                if (count($rows) >= self::CHUNK) {
+                    $this->persistChunk($package, $actorUserId, $name, $rows);
+                    $rows = [];
+                }
             }
+            $this->persistChunk($package, $actorUserId, $name, $rows);
+            $this->supersedeNotProduced($package, $actorUserId, $name, $produced);
             $counts[$name] ??= [];
             ksort($counts[$name], SORT_STRING);
 
-            $this->persist($package, $actorUserId, $name, $rows);
             foreach ($this->persistFindings($package, $actorUserId, $name, $context->findings()) as $code => $count) {
                 $findingCounts[$code] = ($findingCounts[$code] ?? 0) + $count;
             }
@@ -492,38 +503,52 @@ final class EhiProposalService
     }
 
     /**
-     * Upsert one mapping's drafts in bounded transactions, then supersede its
-     * pending proposals it no longer produces. Decided rows are never touched.
+     * Create or refresh one chunk of this mapping's proposals. A decided one is
+     * never rewritten; an unchanged pending one is left as it is.
      *
-     * @param  array<string, array<string, mixed>>  $rows  subject key => row
+     * @param  array<string, array<string, mixed>>  $rows  subject key => proposal attributes
      */
-    private function persist(PhrEhiPackage $package, int $actorUserId, string $mapping, array $rows): void
+    private function persistChunk(PhrEhiPackage $package, int $actorUserId, string $mapping, array $rows): void
     {
-        foreach (array_chunk($rows, self::CHUNK, true) as $chunk) {
-            $this->writeGuard->run((int) $package->patient_id, function (PhrPatient $patient) use ($package, $actorUserId, $mapping, $chunk): void {
-                $this->access->ensureCanWrite($patient, $actorUserId);
-                $existing = PhrEhiProposal::query()->where('package_id', $package->id)->where('mapping', $mapping)
-                    ->whereIn('subject_key', array_keys($chunk))->lockForUpdate()->get()->keyBy('subject_key');
-                foreach ($chunk as $subject => $row) {
-                    $proposal = $existing->get($subject);
-                    if ($proposal === null) {
-                        PhrEhiProposal::query()->create([...$row, 'patient_id' => $patient->id, 'package_id' => $package->id, 'status' => PhrEhiProposal::STATUS_PENDING]);
+        if ($rows === []) {
+            return;
+        }
+        $this->writeGuard->run((int) $package->patient_id, function (PhrPatient $patient) use ($package, $actorUserId, $mapping, $rows): void {
+            $this->access->ensureCanWrite($patient, $actorUserId);
+            $existing = PhrEhiProposal::query()->where('package_id', $package->id)->where('mapping', $mapping)
+                ->whereIn('subject_key', array_keys($rows))->lockForUpdate()->get()->keyBy('subject_key');
+            foreach ($rows as $subject => $row) {
+                $proposal = $existing->get($subject);
+                if ($proposal === null) {
+                    PhrEhiProposal::query()->create([...$row, 'patient_id' => $patient->id, 'package_id' => $package->id, 'status' => PhrEhiProposal::STATUS_PENDING]);
 
-                        continue;
-                    }
-                    $open = in_array($proposal->status, [PhrEhiProposal::STATUS_PENDING, PhrEhiProposal::STATUS_SUPERSEDED], true);
-                    if (! $open || ($proposal->status === PhrEhiProposal::STATUS_PENDING && $proposal->preview_digest === $row['preview_digest'])) {
-                        continue;
-                    }
-                    $proposal->forceFill([...$row, 'status' => PhrEhiProposal::STATUS_PENDING, 'decided_by_user_id' => null, 'decided_at' => null])->save();
+                    continue;
+                }
+                $open = in_array($proposal->status, [PhrEhiProposal::STATUS_PENDING, PhrEhiProposal::STATUS_SUPERSEDED], true);
+                if (! $open || ($proposal->status === PhrEhiProposal::STATUS_PENDING && $proposal->preview_digest === $row['preview_digest'])) {
+                    continue;
+                }
+                $proposal->forceFill([...$row, 'status' => PhrEhiProposal::STATUS_PENDING, 'decided_by_user_id' => null, 'decided_at' => null])->save();
+            }
+        });
+    }
+
+    /**
+     * Supersede this mapping's pending proposals that the preview did not produce.
+     *
+     * @param  array<string, true>  $produced  subject keys produced by this preview
+     */
+    private function supersedeNotProduced(PhrEhiPackage $package, int $actorUserId, string $mapping, array $produced): void
+    {
+        $stale = [];
+        PhrEhiProposal::query()->where('package_id', $package->id)->where('mapping', $mapping)
+            ->where('status', PhrEhiProposal::STATUS_PENDING)->select(['id', 'subject_key'])
+            ->lazyById(self::CHUNK)
+            ->each(function (PhrEhiProposal $proposal) use ($produced, &$stale): void {
+                if (! isset($produced[(string) $proposal->subject_key])) {
+                    $stale[] = $proposal->id;
                 }
             });
-        }
-
-        $produced = array_flip(array_map('strval', array_keys($rows)));
-        $stale = PhrEhiProposal::query()->where('package_id', $package->id)->where('mapping', $mapping)
-            ->where('status', PhrEhiProposal::STATUS_PENDING)->pluck('subject_key', 'id')
-            ->filter(static fn (mixed $subject): bool => ! isset($produced[(string) $subject]))->keys()->all();
         $this->supersede($package, $actorUserId, $stale);
     }
 

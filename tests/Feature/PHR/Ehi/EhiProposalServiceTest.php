@@ -326,6 +326,25 @@ class EhiProposalServiceTest extends TestCase
         self::assertSame(0, PhrEhiProposalDecision::query()->count());
     }
 
+    public function test_drafts_are_persisted_in_chunks_while_the_mapping_still_yields(): void
+    {
+        config(['phr.ehi_mappings' => [EhiManyDraftsMapping::class]]);
+        [$owner, $patient, $package] = $this->previewable('many');
+
+        $preview = app(EhiProposalService::class)->preview($package, $patient, $owner->id);
+
+        self::assertSame(['synthetic_many' => [PhrEhiProposal::KIND_RETAIN => EhiManyDraftsMapping::DRAFTS]], $preview->counts);
+        self::assertSame(EhiManyDraftsMapping::DRAFTS, PhrEhiProposal::query()->where('package_id', $package->id)->count());
+        // Two full chunks were already written when the last draft was yielded.
+        self::assertSame(400, EhiManyDraftsMapping::$persistedBeforeLast);
+
+        // A re-preview producing fewer subjects supersedes only the missing ones.
+        EhiManyDraftsMapping::$limit = 300;
+        $again = app(EhiProposalService::class)->preview($package->refresh(), $patient, $owner->id);
+        self::assertSame(['pending' => 300, 'superseded' => EhiManyDraftsMapping::DRAFTS - 300], $again->statuses);
+        EhiManyDraftsMapping::$limit = EhiManyDraftsMapping::DRAFTS;
+    }
+
     public function test_a_revision_shared_by_two_proposals_keeps_its_strongest_disposition_in_either_review_order(): void
     {
         config(['phr.ehi_mappings' => [EhiSharedRevisionMapping::class]]);
@@ -471,6 +490,49 @@ final class EhiSharedRevisionMapping implements EhiMapping
             ['vaccine_name' => $created->values_json['NAME'] ?? null, 'administered_on' => null],
         );
         yield new EhiProposalDraft(EhiMappingContext::keyDigest(['ITEM_ID' => '300', 'LINE' => '1']), PhrEhiProposal::KIND_RETAIN, [$deleted->id, $shared->id]);
+    }
+
+    public function apply(PhrEhiProposal $proposal, EhiApplyContext $context): EhiApplyOutcome
+    {
+        return (new EhiFakeMapping)->apply($proposal, $context);
+    }
+}
+
+final class EhiManyDraftsMapping implements EhiMapping
+{
+    public const int DRAFTS = 450;
+
+    public static int $limit = self::DRAFTS;
+
+    public static int $persistedBeforeLast = 0;
+
+    public function name(): string
+    {
+        return 'synthetic_many';
+    }
+
+    public function version(): string
+    {
+        return 'many-1';
+    }
+
+    public function expectedKeys(): array
+    {
+        return [EhiFakeMapping::TABLE => ['ITEM_ID', 'LINE']];
+    }
+
+    public function propose(EhiMappingContext $context): iterable
+    {
+        $revision = $context->revisionByKey(EhiFakeMapping::TABLE, ['ITEM_ID' => '100', 'LINE' => '1']);
+        if ($revision === null) {
+            return;
+        }
+        for ($i = 1; $i <= self::$limit; $i++) {
+            if ($i === self::$limit) {
+                self::$persistedBeforeLast = PhrEhiProposal::query()->where('mapping', $this->name())->count();
+            }
+            yield new EhiProposalDraft(hash('sha256', 'synthetic-subject-'.$i), PhrEhiProposal::KIND_RETAIN, [$revision->id]);
+        }
     }
 
     public function apply(PhrEhiProposal $proposal, EhiApplyContext $context): EhiApplyOutcome

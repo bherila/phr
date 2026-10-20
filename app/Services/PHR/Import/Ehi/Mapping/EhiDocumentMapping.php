@@ -197,14 +197,13 @@ final readonly class EhiDocumentMapping implements EhiMapping
      * context's deterministic order. Joined tables are indexed compactly by
      * EhiDocumentEvidence and their rows read back per note.
      *
-     * @return list<EhiProposalDraft>
+     * @return Generator<int, EhiProposalDraft>
      */
     public function propose(EhiMappingContext $context): iterable
     {
         $evidence = EhiDocumentEvidence::load($context, self::JOINS);
         /** @var array<int, true> $linkedMembers */
         $linkedMembers = [];
-        $drafts = [];
 
         // Only a DOC_INFORMATION row with a DOC_HNO_ID can be taken in by a note.
         $noteDocuments = $evidence->indexedIds(self::DOC_INFORMATION);
@@ -219,7 +218,9 @@ final readonly class EhiDocumentMapping implements EhiMapping
                     $consumed[$id] = true;
                 }
             }
-            $drafts[] = $draft;
+            // Yielded as produced: the caller persists in chunks, so drafts are
+            // never all held at once.
+            yield $draft;
         }
 
         foreach ($this->entityGroups($context->lazyRevisions(self::DOC_INFORMATION, withEntity: true)) as $revisions) {
@@ -229,7 +230,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
             if (array_filter($revisions, static fn (PhrEhiRevision $revision): bool => ! isset($consumed[$revision->id])) === []) {
                 continue;
             }
-            $drafts[] = count($revisions) > 1
+            yield count($revisions) > 1
                 ? $this->ambiguousDraft($context, $revisions, self::DOC_INFORMATION)
                 : $this->scannedDocumentDraft($context, $evidence, $revisions[0], $linkedMembers);
         }
@@ -244,8 +245,6 @@ final readonly class EhiDocumentMapping implements EhiMapping
         foreach ($unlinked as $kind => $count) {
             $this->finding($context, EhiDocumentFinding::UNLINKED_NOTE_MEMBER, null, ['kind' => $kind, 'count' => $count]);
         }
-
-        return $drafts;
     }
 
     public function apply(PhrEhiProposal $proposal, EhiApplyContext $context): EhiApplyOutcome

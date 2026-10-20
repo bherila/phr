@@ -266,7 +266,6 @@ final class EhiImmunizationMapping implements EhiMapping
         $patientLinks = $this->patientLinks($context);
         $importSource = self::importSource($context->source->id);
 
-        $drafts = [];
         $seenImmuneIds = [];
         foreach ($context->revisions(self::TABLE_IMMUNE)->groupBy('entity_id', true) as $revisions) {
             /** @var Collection<int, PhrEhiRevision> $revisions */
@@ -278,7 +277,7 @@ final class EhiImmunizationMapping implements EhiMapping
             $immuneId = $this->keyValue($entity, 'IMMUNE_ID');
             $seenImmuneIds[$immuneId] = true;
 
-            $drafts[] = $this->draftForEntity(
+            yield $this->draftForEntity(
                 $context,
                 $entity,
                 $revisions,
@@ -296,8 +295,6 @@ final class EhiImmunizationMapping implements EhiMapping
                 $context->finding(self::FINDING_DANGLING_PATIENT_LINK, $revision, ['reason' => 'immune_not_supplied']);
             }
         }
-
-        return $drafts;
     }
 
     public function apply(PhrEhiProposal $proposal, EhiApplyContext $context): EhiApplyOutcome
