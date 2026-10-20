@@ -84,6 +84,10 @@ class PhrEhiStatusCommand extends BaseEhiCommand
             default => "incomplete (generation {$package->preview_generation_started} did not complete; run phr:ehi:preview)",
         });
 
+        if (! $package->previewCompleted()) {
+            $this->line('preview findings: historical diagnostics from the last completed preview, if any');
+        }
+
         $statuses = PhrEhiProposal::query()->where('package_id', $package->id)
             ->tap(static fn ($query) => PhrEhiProposal::constrainToCompletedPreview($query->getQuery()))
             ->selectRaw('status, count(*) as aggregate')->groupBy('status')->orderBy('status')

@@ -30,6 +30,10 @@ final class EhiProjectionRefused extends RuntimeException
     /** Another projection or intake of this package took over its lease. */
     public const string LEASE_LOST = 'lease_lost';
 
+    public const string PREVIEW_SUPERSEDED = 'preview_superseded';
+
+    public const string RESOURCE_LIMIT = 'resource_limit';
+
     public function __construct(public readonly string $reason, string $detail, ?Throwable $previous = null)
     {
         parent::__construct(sprintf('EHI projection refused (%s): %s.', $reason, $detail), 0, $previous);

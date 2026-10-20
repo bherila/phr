@@ -17,6 +17,7 @@ use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentEvidence;
 use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentFileStore;
 use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentFinding;
 use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentValues;
+use App\Services\PHR\ResourceByteSize;
 use App\Support\PHR\PhrRecordLifecycle;
 use Generator;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -878,11 +879,11 @@ final readonly class EhiDocumentMapping implements EhiMapping
             return $this->retainDraft($entity, $revisionIds, 'target_withdrawn', $proposed['ehi'] ?? []);
         }
 
-        $candidates = $this->possibleDuplicates($patientId, $attributes);
+        $candidates = $this->possibleDuplicates($context, $attributes);
 
-        return $candidates === []
+        return $candidates->total === 0
             ? new EhiProposalDraft($entity->key_digest, PhrEhiProposal::KIND_CREATE, $revisionIds, $proposed)
-            : new EhiProposalDraft($entity->key_digest, PhrEhiProposal::KIND_POSSIBLE_DUPLICATE, $revisionIds, $proposed, candidateIds: $candidates);
+            : new EhiProposalDraft($entity->key_digest, PhrEhiProposal::KIND_POSSIBLE_DUPLICATE, $revisionIds, $proposed, candidateIds: $candidates->ids, candidateSummary: $candidates);
     }
 
     /**
@@ -890,28 +891,36 @@ final readonly class EhiDocumentMapping implements EhiMapping
      * and identical derived text.
      *
      * @param  array<string, mixed>  $attributes
-     * @return list<int>
      */
-    private function possibleDuplicates(int $patientId, array $attributes): array
+    private function possibleDuplicates(EhiMappingContext $context, array $attributes): EhiCandidateSummary
     {
+        $patientId = $context->patient->id;
+        $summary = new EhiCandidateSummary;
         $observed = $attributes['observed_at'] ?? null;
         $text = $attributes['extracted_text'] ?? null;
         if (! is_string($observed) || ! is_string($text) || $text === '') {
-            return [];
+            return $summary;
         }
         $digest = hash('sha256', $text);
 
-        return array_values(PhrDocument::query()
+        $query = PhrDocument::query()
             ->where('patient_id', $patientId)
             ->whereNull('retracted_at')
             ->where('document_type', $attributes['document_type'])
             ->whereDate('observed_at', substr($observed, 0, 10))
             ->whereNotNull('extracted_text')
-            ->orderBy('id')
-            ->get(['id', 'extracted_text'])
-            ->filter(static fn (PhrDocument $document): bool => hash_equals($digest, hash('sha256', (string) $document->extracted_text)))
-            ->map(static fn (PhrDocument $document): int => $document->id)
-            ->all());
+            // Raw byte length avoids hydrating texts that cannot possibly match.
+            ->whereRaw(app(ResourceByteSize::class)->column('extracted_text').' = ?', [strlen($text)]);
+        // One text at a time: the per-record text budget bounds the payload.
+        $scanned = 0;
+        foreach ($query->select(['id', 'extracted_text'])->lazyById(1) as $document) {
+            $context->budget->charge(++$scanned, 0);
+            if (hash_equals($digest, hash('sha256', (string) $document->extracted_text))) {
+                $summary->add($document->id);
+            }
+        }
+
+        return $summary;
     }
 
     /** @return array{title: string|null, document_type: string|null, observed_at: string|null, extracted_text_sha256: string|null} */

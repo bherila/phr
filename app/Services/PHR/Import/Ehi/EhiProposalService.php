@@ -21,6 +21,7 @@ use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
 use App\Services\PHR\Import\Ehi\Mapping\EhiApplyContext;
 use App\Services\PHR\Import\Ehi\Mapping\EhiApplyOutcome;
 use App\Services\PHR\Import\Ehi\Mapping\EhiApplyRefused;
+use App\Services\PHR\Import\Ehi\Mapping\EhiCandidateSummary;
 use App\Services\PHR\Import\Ehi\Mapping\EhiCanonicalJson;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMappingContext;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMappingRegistry;
@@ -142,10 +143,13 @@ final class EhiProposalService
         $source = PhrEhiSource::query()->whereKey($package->source_id)->where('patient_id', $patient->id)->firstOrFail();
         $generation = $this->startPreview($package, $actorUserId);
 
+        $budget = new EhiPreviewBudget;
+        $budget->assertPatient($patient->id);
         $counts = [];
         $findingCounts = [];
+        $findingRows = [];
         foreach ($this->registry->all() as $name => $mapping) {
-            $context = new EhiMappingContext($package, $patient, $source);
+            $context = new EhiMappingContext($package, $patient, $source, budget: $budget);
             // Drafts are persisted in chunks as the mapping yields them; only the
             // subject keys produced are kept, for duplicate detection. What this
             // preview no longer proposes is whatever it did not stamp.
@@ -157,9 +161,11 @@ final class EhiProposalService
                     throw new LogicException("EHI mapping {$name} proposed one subject twice.");
                 }
                 $produced[$draft->subjectKey] = true;
+                $budget->charge(count($produced), 0);
+                $budget->checkpoint();
                 $rows[$draft->subjectKey] = $this->row($package, $name, $mapping->version(), $draft);
                 $counts[$name][$draft->kind] = ($counts[$name][$draft->kind] ?? 0) + 1;
-                if (count($rows) >= self::CHUNK) {
+                if (count($rows) >= self::CHUNK || strlen(json_encode($rows, JSON_THROW_ON_ERROR)) >= 1024 * 1024) {
                     $this->persistChunk($package, $actorUserId, $name, $mapping->version(), $generation, $rows);
                     $rows = [];
                 }
@@ -169,12 +175,15 @@ final class EhiProposalService
             $counts[$name] ??= [];
             ksort($counts[$name], SORT_STRING);
 
-            foreach ($this->persistFindings($package, $actorUserId, $name, $context->findings()) as $code => $count) {
+            [$rowsForMapping, $mappingCounts] = $this->findingRows($package, $name, $context->findings(), $context->omittedFindings());
+            array_push($findingRows, ...$rowsForMapping);
+            foreach ($mappingCounts as $code => $count) {
                 $findingCounts[$code] = ($findingCounts[$code] ?? 0) + $count;
             }
         }
+        $budget->assertPatient($patient->id);
         $this->supersedeUnregistered($package, $actorUserId, $generation);
-        $this->completePreview($package, $actorUserId, $generation);
+        $this->completePreview($package, $actorUserId, $generation, $findingRows);
         $package->refresh();
         ksort($findingCounts, SORT_STRING);
 
@@ -496,6 +505,7 @@ final class EhiProposalService
             throw new LogicException("EHI mapping {$mapping} produced an invalid draft.");
         }
 
+        (new EhiPreviewBudget)->charge(count($draft->revisionIds), strlen(json_encode($draft->proposed, JSON_THROW_ON_ERROR)));
         $revisionIds = array_values(array_unique(array_map('intval', $draft->revisionIds)));
         sort($revisionIds);
         $contentDigests = [];
@@ -522,6 +532,14 @@ final class EhiProposalService
 
         $candidates = array_values(array_unique(array_map('intval', $draft->candidateIds)));
         sort($candidates);
+        $candidateSummary = $draft->candidateSummary;
+        if (count($candidates) > EhiCandidateSummary::LIMIT && $candidateSummary === null) {
+            $candidateSummary = new EhiCandidateSummary;
+            foreach ($candidates as $id) {
+                $candidateSummary->add($id);
+            }
+            $candidates = $candidateSummary->ids;
+        }
         $row = [
             'mapping' => $mapping,
             'mapping_version' => $version,
@@ -531,7 +549,7 @@ final class EhiProposalService
             'target_table' => $draft->targetTable,
             'target_id' => $draft->targetId,
             'target_digest' => $targetDigest,
-            'proposed_json' => $draft->proposed,
+            'proposed_json' => $candidateSummary === null ? $draft->proposed : [...($draft->proposed ?? []), '_candidate_summary' => $candidateSummary->metadata()],
             'before_json' => $draft->before,
             'candidate_ids_json' => $candidates === [] ? null : $candidates,
         ];
@@ -559,9 +577,26 @@ final class EhiProposalService
         }
         $this->writeGuard->run((int) $package->patient_id, function (PhrPatient $patient) use ($package, $actorUserId, $mapping, $version, $generation, $rows): void {
             $this->access->ensureCanWrite($patient, $actorUserId);
+            (new EhiPreviewBudget)->assertPatient($patient->id);
             $existing = PhrEhiProposal::query()->where('package_id', $package->id)->where('mapping', $mapping)
                 ->where('mapping_version', $version)
                 ->whereIn('subject_key', array_keys($rows))->lockForUpdate()->get()->keyBy('subject_key');
+            // Reserve prospective rows, including dependencies, before a chunk
+            // can multiply into many inserts. Changed rows are conservatively
+            // reserved alongside their old state; unchanged/decided rows add zero.
+            $additionalRows = 0;
+            $additionalBytes = 0;
+            foreach ($rows as $subject => ['attributes' => $attributes, 'revisions' => $revisionIds]) {
+                $prior = $existing->get($subject);
+                if ($prior !== null && (! in_array($prior->status, [PhrEhiProposal::STATUS_PENDING, PhrEhiProposal::STATUS_SUPERSEDED], true)
+                    || ($prior->preview_generation !== null && $prior->preview_generation > $generation)
+                    || ($prior->status === PhrEhiProposal::STATUS_PENDING && $prior->preview_digest === $attributes['preview_digest']))) {
+                    continue;
+                }
+                $additionalRows += 1 + count($revisionIds);
+                $additionalBytes += 512 + strlen(json_encode($attributes, JSON_THROW_ON_ERROR)) + 160 * count($revisionIds);
+            }
+            (new EhiPreviewBudget)->assertPatient($patient->id, $additionalRows, $additionalBytes);
             $unchanged = [];
             foreach ($rows as $subject => ['attributes' => $row, 'revisions' => $revisionIds]) {
                 $proposal = $existing->get($subject);
@@ -605,8 +640,8 @@ final class EhiProposalService
         $stale = PhrEhiProposal::query()->where('package_id', $package->id)->where('mapping', $mapping)
             ->where('status', PhrEhiProposal::STATUS_PENDING)
             ->where(fn ($query) => $this->stampedBefore($query, $generation))
-            ->pluck('id')->all();
-        $this->supersede($package, $actorUserId, $stale, $generation);
+            ->select('id');
+        $stale->chunkById(self::CHUNK, fn ($rows) => $this->supersede($package, $actorUserId, $rows->modelKeys(), $generation));
     }
 
     /**
@@ -621,8 +656,8 @@ final class EhiProposalService
             ->where('status', PhrEhiProposal::STATUS_PENDING)
             ->whereNotIn('mapping', array_keys($this->registry->all()))
             ->where(fn ($query) => $this->stampedBefore($query, $generation))
-            ->pluck('id')->all();
-        $this->supersede($package, $actorUserId, $stale, $generation);
+            ->select('id');
+        $stale->chunkById(self::CHUNK, fn ($rows) => $this->supersede($package, $actorUserId, $rows->modelKeys(), $generation));
     }
 
     /**
@@ -669,11 +704,21 @@ final class EhiProposalService
     /**
      * Record a fully successful preview as completed, unless a later preview has
      * started since: then that one decides what is current.
+     *
+     * @param  list<array<string, mixed>>  $findingRows
      */
-    private function completePreview(PhrEhiPackage $package, int $actorUserId, int $generation): void
+    private function completePreview(PhrEhiPackage $package, int $actorUserId, int $generation, array $findingRows): void
     {
-        $this->writeGuard->run((int) $package->patient_id, function (PhrPatient $patient) use ($package, $actorUserId, $generation): void {
+        $this->writeGuard->run((int) $package->patient_id, function (PhrPatient $patient) use ($package, $actorUserId, $generation, $findingRows): void {
             $this->access->ensureCanWrite($patient, $actorUserId);
+            $current = PhrEhiPackage::query()->whereKey($package->id)->where('patient_id', $patient->id)->lockForUpdate()->firstOrFail();
+            if ($current->preview_generation_started !== $generation) {
+                throw new EhiProjectionRefused(EhiProjectionRefused::PREVIEW_SUPERSEDED, 'a newer preview owns the results');
+            }
+            PhrEhiFinding::query()->where('package_id', $package->id)->where('detail_json->stage', self::FINDING_STAGE)->delete();
+            foreach (array_chunk($findingRows, self::CHUNK) as $chunk) {
+                PhrEhiFinding::query()->insert($chunk);
+            }
             PhrEhiPackage::query()->whereKey($package->id)->where('patient_id', $patient->id)
                 ->where('preview_generation_started', $generation)
                 ->toBase()->update(['preview_generation_completed' => $generation]);
@@ -681,17 +726,14 @@ final class EhiProposalService
     }
 
     /**
-     * Replace this mapping's preview findings. Each is located at the first
+     * Prepare this mapping's bounded findings for atomic completion. Each is located at the first
      * occurrence of its revision in this package; codes must be fixed snake_case.
      *
      * @param  list<array{code: string, revision_id: int|null, detail: array<string, int|string|bool|null>}>  $findings
-     * @return array<string, int> code => count written
+     * @return array{list<array<string, mixed>>, array<string, int>} rows and retained detail counts
      */
-    private function persistFindings(PhrEhiPackage $package, int $actorUserId, string $mapping, array $findings): array
+    private function findingRows(PhrEhiPackage $package, string $mapping, array $findings, int $omitted): array
     {
-        $limit = EhiLimits::fromConfig()->maxFindingsPerMember;
-        $omitted = max(0, count($findings) - $limit);
-        $findings = array_slice($findings, 0, $limit);
         $revisionIds = array_values(array_unique(array_filter(array_column($findings, 'revision_id'))));
         $locators = [];
         PhrEhiOccurrence::query()->where('package_id', $package->id)->whereIn('revision_id', $revisionIds)
@@ -746,16 +788,7 @@ final class EhiProposalService
             ];
         }
 
-        $this->writeGuard->run((int) $package->patient_id, function (PhrPatient $patient) use ($package, $actorUserId, $mapping, $rows): void {
-            $this->access->ensureCanWrite($patient, $actorUserId);
-            PhrEhiFinding::query()->where('package_id', $package->id)
-                ->where('detail_json->stage', self::FINDING_STAGE)->where('detail_json->mapping', $mapping)->delete();
-            foreach (array_chunk($rows, self::CHUNK) as $chunk) {
-                PhrEhiFinding::query()->insert($chunk);
-            }
-        });
-
-        return $counts;
+        return [$rows, $counts];
     }
 
     /** @param  list<mixed>  $contentDigests */

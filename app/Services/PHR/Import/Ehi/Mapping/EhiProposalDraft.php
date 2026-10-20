@@ -24,5 +24,6 @@ final readonly class EhiProposalDraft
         public ?int $targetId = null,
         public ?array $before = null,
         public array $candidateIds = [],
+        public ?EhiCandidateSummary $candidateSummary = null,
     ) {}
 }

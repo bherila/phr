@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\PHR\Import\Ehi\EhiPreviewBudget;
 use App\Traits\SerializesDatesAsLocal;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -66,6 +67,8 @@ class PhrEhiProposalRevision extends Model
      */
     public static function idsFor(PhrEhiProposal $proposal): array
     {
+        (new EhiPreviewBudget)->charge(self::query()->where('proposal_id', $proposal->id)->count(), 0);
+
         return self::query()->where('proposal_id', $proposal->id)->orderBy('position')->pluck('revision_id')
             ->map(static fn (mixed $id): int => (int) $id)->values()->all();
     }

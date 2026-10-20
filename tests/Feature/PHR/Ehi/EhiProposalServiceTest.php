@@ -15,6 +15,7 @@ use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Models\User;
 use App\Services\PHR\Import\Ehi\EhiPackageSummary;
+use App\Services\PHR\Import\Ehi\EhiProjectionRefused;
 use App\Services\PHR\Import\Ehi\EhiProposalService;
 use App\Services\PHR\Import\Ehi\EhiReviewRefused;
 use App\Services\PHR\Import\Ehi\Mapping\EhiApplyContext;
@@ -480,7 +481,12 @@ class EhiProposalServiceTest extends TestCase
             app(EhiProposalService::class)->preview(PhrEhiPackage::query()->findOrFail($package->id), $patient, $owner->id);
         };
 
-        $older->preview($package, $patient, $owner->id);
+        try {
+            $older->preview($package, $patient, $owner->id);
+            self::fail('The older run must report supersession.');
+        } catch (EhiProjectionRefused $refused) {
+            self::assertSame('preview_superseded', $refused->reason);
+        }
 
         $added = PhrEhiProposal::query()->where('package_id', $package->id)->where('mapping', 'synthetic_added')->sole();
         self::assertSame(PhrEhiProposal::STATUS_PENDING, $added->status, 'the older run supersedes nothing the newer run stamped');
@@ -490,6 +496,7 @@ class EhiProposalServiceTest extends TestCase
         $package->refresh();
         self::assertSame([2, 2], [$package->preview_generation_started, $package->preview_generation_completed]);
         self::assertTrue($package->completedPreviewIncludes($added));
+        self::assertSame(['synthetic_new_findings'], PhrEhiFinding::query()->where('detail_json->stage', 'preview')->pluck('code')->all());
         $service = app(EhiProposalService::class);
         $service->review($added, PhrEhiProposal::DECISION_RETAIN, $owner->id, $added->preview_digest);
         self::assertSame(PhrEhiProposal::STATUS_RETAINED, $added->refresh()->status);
@@ -819,6 +826,8 @@ final class EhiInterleavedMapping implements EhiMapping
         if ($revision === null) {
             return;
         }
+
+        $context->finding($during === null ? 'synthetic_new_findings' : 'synthetic_old_findings', $revision);
 
         yield new EhiProposalDraft(hash('sha256', 'synthetic-interleaved-subject'), PhrEhiProposal::KIND_RETAIN, [$revision->id]);
     }

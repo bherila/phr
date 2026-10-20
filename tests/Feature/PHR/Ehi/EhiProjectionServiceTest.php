@@ -22,6 +22,8 @@ use App\Services\PHR\Import\Ehi\Mapping\EhiApplyOutcome;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMapping;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMappingContext;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMappingRegistry;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use LogicException;
 use Tests\Support\EhiFakeMapping;
@@ -264,6 +266,33 @@ class EhiProjectionServiceTest extends TestCase
         self::assertSame(EhiProjectionRefused::BLOB_UNVERIFIED, $package->failure_category);
         self::assertNull($package->lease_token);
         self::assertSame(0, PhrEhiEntity::query()->count());
+    }
+
+    public function test_many_distinct_duplicate_keys_keep_final_reconciliation_bindings_bounded(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        $rows = [];
+        for ($i = 0; $i < 1100; $i++) {
+            $rows[] = [(string) $i, '1', 'Synthetic repeated', '2024-01-01', 'A'];
+        }
+        $rows = [...$rows, ...$rows]; // duplicates cross projection chunks
+        $package = $this->boundPackage($this->itemPackage($rows), $patient, $owner);
+        config(['phr.ehi_max_findings_per_member' => 2]);
+        $maxBindings = 0;
+        DB::listen(static function (QueryExecuted $query) use (&$maxBindings): void {
+            if (str_contains($query->sql, 'count(*) > 1')) {
+                $maxBindings = max($maxBindings, count($query->bindings));
+            }
+        });
+        $service = app(EhiProjectionService::class);
+        $service->project($package, $owner->id);
+        self::assertSame(2200, PhrEhiOccurrence::query()->where('disposition', 'quarantined')->count());
+        self::assertSame(2, PhrEhiFinding::query()->where('code', 'duplicate_key')->count());
+        self::assertSame(2198, PhrEhiFinding::query()->where('code', 'findings_truncated')->sole()->detail_json['omitted']);
+        self::assertLessThanOrEqual(3, $maxBindings);
+        self::assertTrue($service->project($package->refresh(), $owner->id)->replayed);
+        self::assertSame(2200, PhrEhiOccurrence::query()->count());
     }
 
     public function test_registry_refuses_duplicate_names_and_conflicting_keys(): void

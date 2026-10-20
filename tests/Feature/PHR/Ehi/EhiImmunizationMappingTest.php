@@ -359,6 +359,30 @@ class EhiImmunizationMappingTest extends TestCase
         self::assertSame(1, PhrImmunization::query()->where('external_id', 'IMMUNE:771')->count());
     }
 
+    public function test_candidate_summary_retains_ambiguity_and_digests_omitted_matches(): void
+    {
+        $ids = [];
+        for ($i = 0; $i < 105; $i++) {
+            $ids[] = $this->immRecord()->id;
+        }
+        $this->immOwnedImmune('771');
+        $first = $this->immPropose()[0];
+        self::assertSame(PhrEhiProposal::KIND_POSSIBLE_DUPLICATE, $first->kind);
+        self::assertSame(array_slice($ids, 0, 100), $first->candidateIds);
+        self::assertSame(105, $first->candidateSummary->metadata()['total']);
+        self::assertTrue($first->candidateSummary->metadata()['truncated']);
+        $digest = $first->candidateSummary->metadata()['set_sha256'];
+        // Swap an omitted candidate while retaining total and display prefix.
+        PhrImmunization::findOrFail($ids[104])->delete();
+        $omitted = $this->immRecord();
+        $second = $this->immPropose()[0];
+        self::assertSame($first->candidateIds, $second->candidateIds);
+        self::assertSame(105, $second->candidateSummary->metadata()['total']);
+        self::assertNotSame($digest, $second->candidateSummary->metadata()['set_sha256']);
+        $proposal = $this->immPersist($second);
+        self::assertSame($omitted->id, $this->immApply($proposal, PhrEhiProposal::DECISION_LINK, $omitted->id)->recordId);
+    }
+
     public function test_unchanged_linked_revision_corroborates_and_changed_one_proposes_a_scoped_update(): void
     {
         $first = $this->immOwnedImmune('781', ['LOT' => 'SYN-LOT-1', 'SITE_C_NAME' => 'Left deltoid']);

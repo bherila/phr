@@ -9,7 +9,10 @@ use App\Models\PhrEhiRecordLink;
 use App\Models\PhrEhiRevision;
 use App\Models\PhrEhiSource;
 use App\Models\PhrPatient;
+use App\Services\PHR\Import\Ehi\EhiLimits;
+use App\Services\PHR\Import\Ehi\EhiPreviewBudget;
 use App\Services\PHR\Import\Ehi\EhiProjectionService;
+use App\Services\PHR\ResourceByteSize;
 use Generator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\LazyCollection;
@@ -36,6 +39,8 @@ final class EhiMappingContext
     /** @var list<array{code: string, revision_id: int|null, detail: array<string, int|string|bool|null>}> */
     private array $findings = [];
 
+    private int $omittedFindings = 0;
+
     /** @var array<string, true>|null upper-cased tables this package's projection withheld */
     private ?array $withheldTables = null;
 
@@ -44,6 +49,7 @@ final class EhiMappingContext
         public readonly PhrPatient $patient,
         public readonly PhrEhiSource $source,
         public readonly int $chunk = self::CHUNK,
+        public readonly EhiPreviewBudget $budget = new EhiPreviewBudget,
     ) {}
 
     /**
@@ -55,7 +61,15 @@ final class EhiMappingContext
      */
     public function revisions(string $table): Collection
     {
-        return new Collection($this->lazyRevisions($table, withEntity: true)->values()->all());
+        $rows = [];
+        $bytes = 0;
+        foreach ($this->lazyRevisions($table, withEntity: true) as $revision) {
+            $bytes += strlen((string) $revision->getRawOriginal('values_json'));
+            $this->budget->charge(count($rows) + 1, $bytes);
+            $rows[] = $revision;
+        }
+
+        return new Collection($rows);
     }
 
     /**
@@ -75,7 +89,8 @@ final class EhiMappingContext
             }
             $after = null;
             do {
-                $page = PhrEhiRevision::query()
+                $this->budget->assertPatient($this->patient->id);
+                $query = PhrEhiRevision::query()
                     ->select('phr_ehi_revisions.*')
                     ->addSelect(['phr_ehi_entities.key_digest as '.self::CURSOR])
                     ->join('phr_ehi_entities', 'phr_ehi_entities.id', '=', 'phr_ehi_revisions.entity_id')
@@ -96,8 +111,14 @@ final class EhiMappingContext
                     })
                     ->orderBy('phr_ehi_entities.key_digest')
                     ->orderBy('phr_ehi_revisions.content_digest')
-                    ->limit($chunk)
-                    ->get();
+                    ->limit($chunk);
+                $sizes = new ResourceByteSize;
+                $probes = (clone $query)->select(['phr_ehi_revisions.id'])
+                    ->selectRaw('COALESCE('.$sizes->column('phr_ehi_revisions.values_json').', 0) + COALESCE('.$sizes->column('phr_ehi_entities.key_json').', 0) AS raw_bytes')
+                    ->toBase()->get();
+                $this->budget->charge($probes->count(), (int) $probes->sum('raw_bytes'));
+                $page = $probes->isEmpty() ? new \Illuminate\Database\Eloquent\Collection : $query->whereIn('phr_ehi_revisions.id', $probes->pluck('id')->all())->get();
+                unset($probes);
                 $count = $page->count();
                 $last = $page->last();
                 $after = $last === null ? null : [(string) $last->getAttribute(self::CURSOR), $last->content_digest];
@@ -162,15 +183,26 @@ final class EhiMappingContext
      */
     public function linksForEntity(PhrEhiEntity $entity): Collection
     {
+        $this->budget->assertPatient($this->patient->id);
+
         return PhrEhiRecordLink::query()
             ->whereIn('revision_id', PhrEhiRevision::query()->select('id')->where('entity_id', $entity->id))
             ->orderBy('id')
-            ->get();
+            ->limit((int) config('phr.ehi_preview_max_rows') + 1)
+            ->get()->tap(fn ($rows) => $this->budget->charge($rows->count(), 0));
     }
 
     /** @param  array<string, int|string|bool|null>  $detail  structural only, never source values */
     public function finding(string $code, ?PhrEhiRevision $revision = null, array $detail = []): void
     {
+        if (preg_match('/^[a-z][a-z0-9_]{0,63}$/', $code) !== 1) {
+            throw new \LogicException('EHI mapping raised a finding without a fixed code.');
+        }
+        if (count($this->findings) >= EhiLimits::fromConfig()->maxFindingsPerMember) {
+            $this->omittedFindings++;
+
+            return;
+        }
         $this->findings[] = ['code' => $code, 'revision_id' => $revision?->id, 'detail' => $detail];
     }
 
@@ -178,6 +210,11 @@ final class EhiMappingContext
     public function findings(): array
     {
         return $this->findings;
+    }
+
+    public function omittedFindings(): int
+    {
+        return $this->omittedFindings;
     }
 
     /**

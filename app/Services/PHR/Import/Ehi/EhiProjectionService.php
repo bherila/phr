@@ -512,25 +512,20 @@ final class EhiProjectionService
             ->where('phr_ehi_occurrences.member_id', $member->id)
             ->groupBy('phr_ehi_revisions.entity_id')
             ->havingRaw('count(*) > 1')
-            ->pluck('phr_ehi_revisions.entity_id');
+            ->select('phr_ehi_revisions.entity_id');
+        $duplicates = PhrEhiOccurrence::query()
+            ->join('phr_ehi_revisions', 'phr_ehi_revisions.id', '=', 'phr_ehi_occurrences.revision_id')
+            ->where('phr_ehi_occurrences.member_id', $member->id)
+            ->whereIn('phr_ehi_revisions.entity_id', $repeated);
+        $total = (clone $duplicates)->count();
         $rows = [];
-        if ($repeated->isNotEmpty()) {
-            PhrEhiOccurrence::query()
-                ->select('phr_ehi_occurrences.line_number', 'phr_ehi_occurrences.byte_offset')
-                ->join('phr_ehi_revisions', 'phr_ehi_revisions.id', '=', 'phr_ehi_occurrences.revision_id')
-                ->where('phr_ehi_occurrences.member_id', $member->id)
-                ->whereIn('phr_ehi_revisions.entity_id', $repeated->all())
-                ->orderBy('phr_ehi_occurrences.line_number')
-                ->each(function (PhrEhiOccurrence $occurrence) use ($package, $member, $now, &$budget, &$omitted, &$rows): void {
-                    if ($budget <= 0) {
-                        $omitted++;
-
-                        return;
-                    }
-                    $budget--;
-                    $rows[] = $this->findingRow($package, $member, EhiFindingCode::DUPLICATE_KEY, $occurrence->line_number, $occurrence->byte_offset, [], $now);
-                });
+        if ($budget > 0 && $total > 0) {
+            foreach ((clone $duplicates)->select('phr_ehi_occurrences.line_number', 'phr_ehi_occurrences.byte_offset')
+                ->orderBy('phr_ehi_occurrences.line_number')->limit($budget)->get() as $occurrence) {
+                $rows[] = $this->findingRow($package, $member, EhiFindingCode::DUPLICATE_KEY, $occurrence->line_number, $occurrence->byte_offset, [], $now);
+            }
         }
+        $omitted += $total - count($rows);
         if ($omitted > 0) {
             $rows[] = $this->findingRow($package, $member, EhiFindingCode::FINDINGS_TRUNCATED, null, null, ['omitted' => $omitted], $now);
         }

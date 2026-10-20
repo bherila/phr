@@ -6,6 +6,8 @@ use App\Models\PhrEhiPackageMember;
 use App\Models\PhrEhiRevision;
 use App\Services\PHR\Import\Ehi\EhiMemberKind;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMappingContext;
+use App\Services\PHR\ResourceByteSize;
+use Illuminate\Support\Facades\DB;
 use LogicException;
 
 /**
@@ -53,14 +55,17 @@ final class EhiDocumentEvidence
             $evidence->indexTable($table, $spec[0], $spec[1] ?? null);
         }
 
+        $context->budget->assertPatient($context->patient->id);
         $evidence->members = array_values(PhrEhiPackageMember::query()
             ->where('package_id', $context->package->id)
             ->where('patient_id', $context->patient->id)
             ->whereIn('kind', [EhiMemberKind::NOTE, EhiMemberKind::MEDIA])
+            ->limit((int) config('phr.ehi_preview_max_rows') + 1)
             ->orderBy('path')
             ->orderBy('id')
             ->get()
             ->all());
+        $context->budget->charge(count($evidence->members), 0);
         foreach ($evidence->members as $member) {
             $evidence->membersByBasename[self::basename($member->path)][] = $member;
         }
@@ -119,8 +124,14 @@ final class EhiDocumentEvidence
      */
     public function fetch(array $ids): array
     {
+        $this->context->budget->charge(count($ids), 0);
+        $this->context->budget->assertPatient($this->context->patient->id);
         $byId = [];
+        $bytes = 0;
         foreach (array_chunk($ids, max(1, $this->context->chunk)) as $page) {
+            $length = (new ResourceByteSize)->column('values_json');
+            $bytes += (int) DB::table('phr_ehi_revisions')->where('patient_id', $this->context->patient->id)->whereIn('id', $page)->sum(DB::raw($length));
+            $this->context->budget->charge(count($ids), $bytes);
             foreach (PhrEhiRevision::query()
                 ->select(['id', 'entity_id', 'content_digest', 'values_json'])
                 ->where('patient_id', $this->context->patient->id)

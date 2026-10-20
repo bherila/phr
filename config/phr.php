@@ -22,6 +22,14 @@ return [
     // Rows read per keyset page while a native backup (or restore preview) streams
     // a patient's tables. Memory is bounded by this, not by the patient's row count.
     'native_backup_chunk_size' => max(1, (int) env('PHR_NATIVE_BACKUP_CHUNK_SIZE', 500)),
+    // Calibrated by scripts/measure-phr-resources.php; see docs/phr-native-v1.md.
+    'native_max_records' => max(1, (int) env('PHR_NATIVE_MAX_RECORDS', 20000)),
+    'native_max_record_stream_bytes' => max(1, (int) env('PHR_NATIVE_MAX_RECORD_STREAM_BYTES', 32 * 1024 * 1024)),
+    'native_max_artifacts' => max(1, (int) env('PHR_NATIVE_MAX_ARTIFACTS', 2000)),
+    'native_page_bytes' => max(1024, (int) env('PHR_NATIVE_PAGE_BYTES', 4 * 1024 * 1024)),
+    'ehi_preview_max_seconds' => max(1, (int) env('PHR_EHI_PREVIEW_MAX_SECONDS', 240)),
+    'ehi_preview_max_rows' => max(1, (int) env('PHR_EHI_PREVIEW_MAX_ROWS', 10000)),
+    'ehi_preview_max_bytes' => max(1024, (int) env('PHR_EHI_PREVIEW_MAX_BYTES', 8 * 1024 * 1024)),
     'native_restore_source_retention_days' => max(1, (int) env('PHR_NATIVE_RESTORE_SOURCE_RETENTION_DAYS', 7)),
     'native_restore_max_record_bytes' => max(1024, (int) env('PHR_NATIVE_RESTORE_MAX_RECORD_BYTES', 2 * 1024 * 1024)),
     'native_restore_chunk_bytes' => max(1024 * 1024, (int) env('PHR_NATIVE_RESTORE_CHUNK_BYTES', 8 * 1024 * 1024)),

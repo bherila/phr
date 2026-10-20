@@ -88,6 +88,11 @@ class PhrEhiProposalsCommand extends BaseEhiCommand
         $this->line("revision digest: {$proposal->revision_digest}");
 
         $proposed = $proposal->proposed_json ?? [];
+        $summary = $proposed['_candidate_summary'] ?? null;
+        if (is_array($summary)) {
+            $this->line('candidate matches: '.(int) ($summary['total'] ?? 0).(($summary['truncated'] ?? false) ? ' (display truncated; other live records can be linked explicitly)' : ''));
+            unset($proposed['_candidate_summary']);
+        }
         $before = $proposal->before_json ?? [];
         // A mapping may nest the record's fields under `attributes` (provenance
         // beside them) and name an update's changed fields in `changed`, keeping

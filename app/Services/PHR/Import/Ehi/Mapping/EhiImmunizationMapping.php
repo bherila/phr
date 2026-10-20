@@ -431,13 +431,14 @@ final class EhiImmunizationMapping implements EhiMapping
         }
 
         $candidates = $this->duplicateCandidates($context, $fields);
-        if ($candidates !== []) {
+        if ($candidates->total > 0) {
             return new EhiProposalDraft(
                 subjectKey: $subject,
                 kind: PhrEhiProposal::KIND_POSSIBLE_DUPLICATE,
                 revisionIds: $revisionIds,
                 proposed: $built['proposed'],
-                candidateIds: $candidates,
+                candidateIds: $candidates->ids,
+                candidateSummary: $candidates,
             );
         }
 
@@ -576,12 +577,12 @@ final class EhiImmunizationMapping implements EhiMapping
      * equal vaccine name or lot number. Never merged automatically.
      *
      * @param  array<string, string|null>  $fields
-     * @return list<int>
      */
-    private function duplicateCandidates(EhiMappingContext $context, array $fields): array
+    private function duplicateCandidates(EhiMappingContext $context, array $fields): EhiCandidateSummary
     {
+        $summary = new EhiCandidateSummary;
         if ($fields['administered_on'] === null) {
-            return [];
+            return $summary;
         }
         $name = $this->fold($fields['vaccine_name']);
         $lot = $this->fold($fields['lot_number']);
@@ -591,15 +592,16 @@ final class EhiImmunizationMapping implements EhiMapping
             ->whereDate('administered_on', $fields['administered_on']);
         PhrRecordLifecycle::scopeLive($query);
 
-        $ids = $query->get(['id', 'vaccine_name', 'lot_number'])
-            ->filter(fn (PhrImmunization $record): bool => ($name !== null && $this->fold($record->vaccine_name) === $name)
-                || ($lot !== null && $this->fold($record->lot_number) === $lot))
-            ->map(static fn (PhrImmunization $record): int => $record->id)
-            ->values()
-            ->all();
-        sort($ids);
+        $scanned = 0;
+        foreach ($query->select(['id', 'vaccine_name', 'lot_number'])->lazyById(100) as $record) {
+            $context->budget->charge(++$scanned, 0);
+            if (($name !== null && $this->fold($record->vaccine_name) === $name)
+                || ($lot !== null && $this->fold($record->lot_number) === $lot)) {
+                $summary->add($record->id);
+            }
+        }
 
-        return $ids;
+        return $summary;
     }
 
     /**
