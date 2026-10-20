@@ -243,31 +243,50 @@ actor, route, and UTC minute, and metadata audits are pruned after 365 days by d
 
 ## Finance projection (`billing:read`)
 
-A finance application matches EOBs to the payments for them and needs nothing
-clinical, so it gets `billing:read` instead of `clinical:read`. The scope is an
-alternative, not an addition: `eobs.list`, `eobs.get` and `eob_lines.list` accept
-it instead of `clinical:read`, and `patients.list` and `patients.get` instead of
-`patients:read`; capabilities report such an operation with `any_scopes`. A
-credential that holds `billing:read` without the broader scope sees the finance
-projection only:
+A finance consumer receives claim-level financial metadata through `billing:read` instead
+of `clinical:read`. Only `eobs.list` and `eobs.get` accept it as an alternative to
+`clinical:read`; `patients.list` and `patients.get` accept it instead of `patients:read`.
+Capabilities report those alternatives with `any_scopes`. Broader clinical and patient
+scopes retain their existing projections.
 
-- EOBs: ids and public ids, claim type, import source, the service-date range over
-  the lines, processed date, provider name, claim number, source document, and the
-  charges, accepted fee, plan payment, deductible, copay and patient-responsibility
-  totals.
-- EOB lines: amounts and service dates.
-- Patients: id, public id, display name and the caller's own `access_level`, so the
-  finance application binds only the profiles the connecting person owns: any grant
-  lets a person read a patient's EOBs, but only `owner` means the profile is theirs.
-- Documents: no metadata, but `documents.download_access.create` and the signed file
-  route also accept it for a document that is the source document of one of the
-  patient's EOBs, the substantiation a finance application keeps a reference to and
-  hashes. Any other document (a letter of medical necessity, for example) answers
-  404 to it, even with a signature obtained by another credential.
+The billing-only projection is an exact allow-list:
+
+- EOBs: `id`, `public_id`, `patient_public_id`, `updated_at`, `claim_category`,
+  `service_start`, `service_end`, `processed_date`, `provider_name`, `total_charges`,
+  `total_accepted_fee`, `total_plan_payment`, `total_deductible_applied`,
+  `total_copay_applied`, `total_patient_responsibility`, `currency`,
+  `source_document_public_id` and `source_document_sha256`.
+- `claim_category` is exactly `medical`, `pharmacy` or `dental_vision`. PHR maps dental
+  and vision to `dental_vision`, pharmacy to `pharmacy`, and all other claim types to
+  `medical`; raw claim types never pass through.
+- Dates and totals describe the whole claim, not its service lines. The payee name is
+  the only provider attribute. Patient responsibility is an expected amount, never
+  evidence that a payment was made. EOBs currently store no currency, so `currency`
+  is explicitly null rather than guessed. A consumer must handle that unknown value.
+- Patients: `id` and `public_id` only. Labels and access levels stay inside PHR.
+  Billing-only lists accept pagination, but refuse archive-state and update-window
+  filters so result membership cannot disclose excluded state or timestamps.
+- Source documents: their opaque public id and stored SHA-256, never file contents,
+  filenames or download access. Both are null without a current source document
+  belonging to the same patient; a document without a recorded hash has a null hash.
+  Viewing evidence opens the authenticated `/eobs/{public_id}` browser link in PHR.
+  Source hash, patient reassignment and restore changes advance the referencing EOB's
+  `updated_at`; deletion does so before a permanent delete clears the source foreign
+  key. Incremental EOB windows therefore include a changed or missing source without
+  exposing unrelated document-title edits. Raw native restores retain the existing
+  restore-identity window handling.
+
+`eob_lines.list`, `documents.download_access.create` and signed document downloads
+require their broader clinical/document scopes. A signature obtained by another
+credential does not grant a billing-only caller document access. EOB list filters
+for raw claim type, import source and source-document integer id are refused for
+billing-only callers so they cannot reconstruct excluded fields through filtering.
+Their date filters use processed date only, without the clinical projection's
+submission/print-date fallback.
 
 Procedure and revenue codes, line descriptions, diagnoses, notes, plan, administrator,
 carrier and member details are never returned to it, and every other clinical
-operation (search, timeline, change feed, evidence links, single EOB lines, clinical
+operation (search, timeline, change feed, evidence links, EOB lines and clinical
 records) refuses it. Patient access still applies to every request. The scope is
 REST-only: the MCP resource neither advertises nor accepts it. It is granted to an
 application-registered (first-party) client only: self-registration refuses it as

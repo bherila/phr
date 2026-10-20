@@ -28,7 +28,8 @@ final class AgentPatientController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $validated = $request->validate($this->listRules());
+        $billingOnly = $this->billingOnly($request);
+        $validated = $request->validate($this->listRules($billingOnly));
         $userId = (int) $request->user('api')?->id;
         $query = $this->accessService->accessiblePatientsQuery($userId)
             ->with(['accessGrants' => function (Relation $relation) use ($userId): void {
@@ -49,7 +50,6 @@ final class AgentPatientController extends Controller
             ->cursorPaginate($limit, ['*'], 'cursor', AgentApiCursor::decode($this->encodedCursor($validated)));
 
         $publicIds = $this->publicIds->forPatients($page->getCollection()->pluck('id'));
-        $billingOnly = $this->billingOnly($request);
 
         return response()->json([
             'data' => $page->getCollection()
@@ -76,8 +76,7 @@ final class AgentPatientController extends Controller
     }
 
     /**
-     * billing:read without patients:read sees only id, public id, display
-     * name and the caller's access level.
+     * billing:read without patients:read sees only routing and public ids.
      */
     private function billingOnly(Request $request): bool
     {
@@ -123,14 +122,14 @@ final class AgentPatientController extends Controller
     }
 
     /** @return array<string, mixed> */
-    private function listRules(): array
+    private function listRules(bool $billingOnly): array
     {
         return [
             'limit' => ['sometimes', 'integer', 'between:1,100'],
             'cursor' => ['sometimes', 'string', 'max:2048'],
-            'updated_after' => ['sometimes', 'date'],
-            'updated_before' => ['sometimes', 'date', 'after_or_equal:updated_after'],
-            'archived' => ['sometimes', Rule::in(['include', 'exclude', 'only'])],
+            'updated_after' => $billingOnly ? ['prohibited'] : ['sometimes', 'date'],
+            'updated_before' => $billingOnly ? ['prohibited'] : ['sometimes', 'date', 'after_or_equal:updated_after'],
+            'archived' => $billingOnly ? ['prohibited'] : ['sometimes', Rule::in(['include', 'exclude', 'only'])],
         ];
     }
 

@@ -90,8 +90,10 @@ final class AgentOperationRegistryTest extends TestCase
 
     public function test_capabilities_preserve_the_existing_inventory(): void
     {
-        $expected = json_decode((string) file_get_contents(__DIR__.'/../Fixtures/agent-api/capabilities-operations.json'), true, flags: JSON_THROW_ON_ERROR);
-        $this->assertEquals($expected, $this->getJson('/api/v1/capabilities')->assertOk()->json('operations'));
+        self::assertMatchesOperationSnapshot(
+            $this->getJson('/api/v1/capabilities')->assertOk()->json('operations'),
+            __DIR__.'/../Fixtures/agent-api/capabilities-operations.json',
+        );
     }
 
     public function test_rest_refusals_report_the_registry_reason_and_missing_scope(): void

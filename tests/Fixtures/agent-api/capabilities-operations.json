@@ -27,62 +27,6 @@
         "available": true,
         "scope": "patients:write"
     },
-    "clinical.list": {
-        "available": true,
-        "scope": "clinical:read"
-    },
-    "clinical.get": {
-        "available": true,
-        "scope": "clinical:read"
-    },
-    "clinical.resolve": {
-        "available": true,
-        "scope": "clinical:read"
-    },
-    "office_visits.upsert": {
-        "available": true,
-        "scope": "clinical:write"
-    },
-    "procedures.upsert": {
-        "available": true,
-        "scope": "clinical:write"
-    },
-    "immunizations.upsert": {
-        "available": true,
-        "scope": "clinical:write"
-    },
-    "medications.upsert": {
-        "available": true,
-        "scope": "clinical:write"
-    },
-    "conditions.upsert": {
-        "available": true,
-        "scope": "clinical:write"
-    },
-    "allergies.upsert": {
-        "available": true,
-        "scope": "clinical:write"
-    },
-    "lab_results.upsert": {
-        "available": true,
-        "scope": "clinical:write"
-    },
-    "vitals.upsert": {
-        "available": true,
-        "scope": "clinical:write"
-    },
-    "clinical.update": {
-        "available": true,
-        "scope": "clinical:write",
-        "scopes": [
-            "clinical:read",
-            "clinical:write"
-        ]
-    },
-    "clinical.retract": {
-        "available": true,
-        "scope": "clinical:write"
-    },
     "records.search": {
         "available": true,
         "scope": "clinical:read"
@@ -113,11 +57,7 @@
     },
     "eob_lines.list": {
         "available": true,
-        "scope": "clinical:read",
-        "any_scopes": [
-            "clinical:read",
-            "billing:read"
-        ]
+        "scope": "clinical:read"
     },
     "eob_lines.get": {
         "available": true,
@@ -131,29 +71,13 @@
         "available": true,
         "scope": "documents:read"
     },
-    "documents.upload": {
-        "available": true,
-        "scope": "documents:write"
-    },
     "documents.get": {
         "available": true,
         "scope": "documents:read"
     },
     "documents.download_access.create": {
         "available": true,
-        "scope": "documents:read",
-        "any_scopes": [
-            "documents:read",
-            "billing:read"
-        ]
-    },
-    "documents.download": {
-        "available": true,
-        "scope": "documents:read",
-        "any_scopes": [
-            "documents:read",
-            "billing:read"
-        ]
+        "scope": "documents:read"
     },
     "dicom_studies.list": {
         "available": true,
@@ -195,10 +119,6 @@
         "available": true,
         "scope": "exports:read"
     },
-    "exports.create": {
-        "available": true,
-        "scope": "exports:write"
-    },
     "exports.download_access.create": {
         "available": true,
         "scope": "exports:read"
@@ -207,13 +127,21 @@
         "available": true,
         "scope": "exports:read"
     },
+    "native_backups.download_access.create": {
+        "available": true,
+        "scope": "exports:read"
+    },
+    "exports.create": {
+        "available": true,
+        "scope": "exports:write"
+    },
     "native_backups.create": {
         "available": true,
         "scope": "exports:write"
     },
-    "native_backups.download_access.create": {
+    "documents.upload": {
         "available": true,
-        "scope": "exports:read"
+        "scope": "documents:write"
     },
     "imports.list": {
         "available": true,
@@ -235,10 +163,6 @@
         "available": true,
         "scope": "imports:write"
     },
-    "health_logs.create": {
-        "available": true,
-        "scope": "clinical:write"
-    },
     "health_log_entries.list": {
         "available": true,
         "scope": "clinical:read"
@@ -246,6 +170,10 @@
     "health_log_entries.get": {
         "available": true,
         "scope": "clinical:read"
+    },
+    "health_logs.create": {
+        "available": true,
+        "scope": "clinical:write"
     },
     "health_log_entries.append": {
         "available": true,
@@ -259,31 +187,79 @@
         "available": true,
         "scope": "clinical:write"
     },
-    "mcp.connect": {
+    "clinical.list": {
         "available": true,
-        "scope": "mcp:use"
+        "scope": "clinical:read"
     },
-    "mcp.exchange": {
+    "clinical.get": {
         "available": true,
-        "scope": "mcp:use"
+        "scope": "clinical:read"
     },
-    "mcp.session.delete": {
+    "clinical.resolve": {
         "available": true,
-        "scope": "mcp:use"
+        "scope": "clinical:read"
+    },
+    "clinical.retract": {
+        "available": true,
+        "scope": "clinical:write"
+    },
+    "office_visits.upsert": {
+        "available": true,
+        "scope": "clinical:write"
+    },
+    "procedures.upsert": {
+        "available": true,
+        "scope": "clinical:write"
+    },
+    "immunizations.upsert": {
+        "available": true,
+        "scope": "clinical:write"
+    },
+    "medications.upsert": {
+        "available": true,
+        "scope": "clinical:write"
+    },
+    "conditions.upsert": {
+        "available": true,
+        "scope": "clinical:write"
+    },
+    "allergies.upsert": {
+        "available": true,
+        "scope": "clinical:write"
+    },
+    "lab_results.upsert": {
+        "available": true,
+        "scope": "clinical:write"
+    },
+    "vitals.upsert": {
+        "available": true,
+        "scope": "clinical:write"
+    },
+    "clinical.update": {
+        "available": true,
+        "scope": "clinical:write",
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ]
+    },
+    "documents.download": {
+        "available": true,
+        "scope": "documents:read"
+    },
+    "genai.attachments.download": {
+        "available": true,
+        "scope": "genai:work"
+    },
+    "genai.leases.renew": {
+        "available": true,
+        "scope": "genai:work"
     },
     "genai.queue_status": {
         "available": true,
         "scope": "genai:read"
     },
     "genai.requests.claim": {
-        "available": true,
-        "scope": "genai:work"
-    },
-    "genai.requests.get": {
-        "available": true,
-        "scope": "genai:read"
-    },
-    "genai.leases.renew": {
         "available": true,
         "scope": "genai:work"
     },
@@ -295,9 +271,17 @@
         "available": true,
         "scope": "genai:work"
     },
-    "genai.attachments.download": {
+    "genai.requests.get": {
         "available": true,
-        "scope": "genai:work"
+        "scope": "genai:read"
+    },
+    "mcp.exchange": {
+        "available": true,
+        "scope": "mcp:use"
+    },
+    "mcp.session.delete": {
+        "available": true,
+        "scope": "mcp:use"
     },
     "oauth.disconnect": {
         "available": true,
@@ -306,5 +290,9 @@
     "oauth.consent.revoke": {
         "available": true,
         "scope": null
+    },
+    "mcp.connect": {
+        "available": true,
+        "scope": "mcp:use"
     }
 }

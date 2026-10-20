@@ -105,17 +105,13 @@
     },
     "documents.download": {
         "scopes": [
-            "documents:read",
-            "billing:read"
-        ],
-        "scope_rule": "any"
+            "documents:read"
+        ]
     },
     "documents.download_access.create": {
         "scopes": [
-            "documents:read",
-            "billing:read"
-        ],
-        "scope_rule": "any"
+            "documents:read"
+        ]
     },
     "documents.get": {
         "scopes": [
@@ -139,10 +135,8 @@
     },
     "eob_lines.list": {
         "scopes": [
-            "clinical:read",
-            "billing:read"
-        ],
-        "scope_rule": "any"
+            "clinical:read"
+        ]
     },
     "eobs.get": {
         "scopes": [
