@@ -8,6 +8,7 @@ use App\Models\PhrEhiPackage;
 use App\Models\PhrEhiPackageMember;
 use App\Models\PhrEhiProposal;
 use App\Models\PhrEhiProposalDecision;
+use App\Models\PhrEhiProposalRevision;
 use App\Models\PhrEhiRecordLink;
 use App\Models\PhrEhiSource;
 use App\Models\PhrImmunization;
@@ -179,8 +180,8 @@ class EhiEndToEndTest extends TestCase
         foreach (['601', '602', '603'] as $immuneId) {
             $proposal = $this->immune($package, $immuneId);
             $record = $this->recordFor($source, $immuneId);
-            self::assertSame(count($proposal->revision_ids_json), PhrEhiRecordLink::query()->where('immunization_id', $record->id)->where('link_kind', PhrEhiRecordLink::KIND_PROJECTED)->count());
-            self::assertCount(2, $proposal->revision_ids_json, 'IMMUNE and PAT_IMMUNIZATIONS revisions');
+            self::assertSame(count(PhrEhiProposalRevision::idsFor($proposal)), PhrEhiRecordLink::query()->where('immunization_id', $record->id)->where('link_kind', PhrEhiRecordLink::KIND_PROJECTED)->count());
+            self::assertCount(2, PhrEhiProposalRevision::idsFor($proposal), 'IMMUNE and PAT_IMMUNIZATIONS revisions');
         }
         self::assertSame(2, PhrEhiRecordLink::query()->where('immunization_id', $fhir->id)->where('link_kind', PhrEhiRecordLink::KIND_BRIDGED)->count());
         self::assertSame(0, PhrEhiRecordLink::query()->whereIn('proposal_id', [$this->immune($package, '604')->id, $this->immune($package, '605')->id, $this->note($package, '88003')->id])->count());
@@ -209,7 +210,7 @@ class EhiEndToEndTest extends TestCase
         $rtfBlob = $this->blobFor($package, EhiClinicalPackage::RTF_MEMBER);
         self::assertNotSame($rtfBlob->storage_path, $scanned->storage_path, 'the document owns a copy, never the evidence object');
         self::assertSame(EhiClinicalPackage::RTF_BYTES, Storage::disk($rtfBlob->storage_disk)->get($rtfBlob->storage_path));
-        self::assertSame(count($this->note($package, '88002')->revision_ids_json), PhrEhiRecordLink::query()->where('document_id', $scanned->id)->count());
+        self::assertSame(count(PhrEhiProposalRevision::idsFor($this->note($package, '88002'))), PhrEhiRecordLink::query()->where('document_id', $scanned->id)->count());
         self::assertSame(2, PhrDocument::query()->count());
 
         // ---- re-intake of the same bytes and a re-preview converge.
@@ -369,7 +370,7 @@ class EhiEndToEndTest extends TestCase
         PhrPatientUserAccess::query()->firstOrCreate(['patient_id' => $restoredId, 'user_id' => $owner->id], ['access_level' => PhrPatientUserAccess::LEVEL_OWNER, 'granted_by_user_id' => $owner->id, 'granted_at' => now()]);
         $restoredSecond = PhrEhiPackage::query()->where('patient_id', $restoredId)->where('manifest_digest', $second->manifest_digest)->sole();
         $restoredBridge = $this->immune($restoredSecond, '606');
-        $this->assertRefused(EhiReviewRefused::STALE_SOURCE, fn () => $service->review($restoredBridge, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $restoredBridge->preview_digest));
+        $this->assertRefused(EhiReviewRefused::PREVIEW_INCOMPLETE, fn () => $service->review($restoredBridge, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $restoredBridge->preview_digest));
         $restoredPreview = $service->preview($restoredSecond, $restoredPatient, $owner->id);
         self::assertSame(['corroborate' => 4, 'retain' => 3], $restoredPreview->counts['immunization'], 'decided subjects now corroborate; 603 stays withdrawn');
         self::assertSame($counts, $this->evidenceCounts($restoredId));

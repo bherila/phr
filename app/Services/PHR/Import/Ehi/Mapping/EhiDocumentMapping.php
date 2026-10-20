@@ -539,6 +539,10 @@ final readonly class EhiDocumentMapping implements EhiMapping
             $parts[] = EhiDocumentValues::cell($line, 'NOTE_TEXT') ?? '';
         }
         [$text, $truncated] = $this->boundedText(implode("\n", $parts));
+        if (trim($text) === '') {
+            // No content, as applyCreate() judges it: blank lines are not text.
+            return ['text' => null, 'provenance' => null];
+        }
 
         return ['text' => $text, 'provenance' => [
             'derived' => true,
@@ -575,7 +579,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
         }
 
         return [
-            'text' => $result->text === '' ? null : $result->text,
+            'text' => trim($result->text) === '' ? null : $result->text,
             'provenance' => ['derived' => true, 'source' => 'rtf', 'member_id' => $file['member']->id, 'truncated' => $result->truncated, 'rtf' => $result->flags()],
         ];
     }
@@ -832,7 +836,15 @@ final readonly class EhiDocumentMapping implements EhiMapping
             ->whereIn('id', array_values(array_unique($documentIds)))
             ->orderBy('id')
             ->get();
-        $live = $targets->first(static fn (PhrDocument $document): bool => PhrRecordLifecycle::of($document) === PhrRecordLifecycle::ACTIVE);
+        $liveTargets = $targets->filter(static fn (PhrDocument $document): bool => PhrRecordLifecycle::of($document) === PhrRecordLifecycle::ACTIVE);
+        if ($liveTargets->count() > 1) {
+            // Links to different documents (e.g. two packages reviewed against
+            // different targets): neither is chosen, so none is corroborated or updated.
+            $this->finding($context, EhiDocumentFinding::AMBIGUOUS_LINK, null, ['table' => (string) $entity->table_name, 'records' => $liveTargets->count()]);
+
+            return $this->retainDraft($entity, $revisionIds, 'ambiguous_link', $proposed['ehi'] ?? []);
+        }
+        $live = $liveTargets->first();
 
         if ($live instanceof PhrDocument) {
             $before = $this->comparable($live);
@@ -1102,7 +1114,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
             || ! is_string($externalId) || preg_match('/\A(?:NOTE|DOC):./', $externalId) !== 1 || strlen($externalId) > self::MAX_EXTERNAL_ID_BYTES
             || ! is_string($attributes['title'] ?? null)
             || ! in_array($attributes['document_type'] ?? null, PhrDocument::DOCUMENT_TYPES, true)
-            || ($file === null && (! is_string($text) || $text === ''))
+            || ($file === null && (! is_string($text) || trim($text) === ''))
             || ($file !== null && (! is_array($file) || ! is_int($file['member_id'] ?? null) || ! is_string($file['sha256'] ?? null)))) {
             throw new EhiDocumentApplyRefused(EhiDocumentApplyRefused::MALFORMED_PROPOSAL, 'the proposal does not carry a usable import identity, title, and content');
         }

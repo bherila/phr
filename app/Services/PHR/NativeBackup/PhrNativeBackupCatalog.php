@@ -174,6 +174,8 @@ final class PhrNativeBackupCatalog
                     'lease_token' => 'Operational intake lease; restore sets it to null.',
                     'lease_expires_at' => 'Operational intake lease; restore sets it to null.',
                     'checkpoint_json' => 'Operational resume state, not authoritative patient data.',
+                    'preview_generation_started' => 'Preview-run bookkeeping; a restored package must be re-previewed before review.',
+                    'preview_generation_completed' => 'Preview-run bookkeeping; a restored package must be re-previewed before review.',
                 ],
             ],
             'phr_ehi_blobs' => [
@@ -205,9 +207,9 @@ final class PhrNativeBackupCatalog
                 ],
             ],
             // EHI evidence, proposals, and review (#213 M2), after the clinical
-            // tables they link to. Proposal target_id, revision_ids_json, and
-            // candidate_ids_json are preview-time ids kept verbatim: a restored
-            // pending proposal fails its digest checks and is re-previewed.
+            // tables they link to. Proposal target_id and candidate_ids_json are
+            // preview-time ids kept verbatim; preview generations are not archived,
+            // so a restored pending proposal is refused until it is re-previewed.
             'phr_ehi_entities' => [
                 'patient_column' => 'patient_id',
                 'relationships' => ['source_id' => self::record('phr_ehi_sources', false)],
@@ -232,6 +234,16 @@ final class PhrNativeBackupCatalog
                 'relationships' => [
                     'package_id' => self::record('phr_ehi_packages', false),
                     'decided_by_user_id' => self::actor(true),
+                ],
+                'excluded_columns' => [
+                    'preview_generation' => 'Preview-run bookkeeping; a restored pending proposal must be re-previewed before review.',
+                ],
+            ],
+            'phr_ehi_proposal_revisions' => [
+                'patient_column' => 'patient_id',
+                'relationships' => [
+                    'proposal_id' => self::record('phr_ehi_proposals', false),
+                    'revision_id' => self::record('phr_ehi_revisions', false),
                 ],
             ],
             'phr_ehi_proposal_decisions' => [

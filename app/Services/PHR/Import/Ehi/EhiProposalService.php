@@ -9,6 +9,7 @@ use App\Models\PhrEhiOccurrence;
 use App\Models\PhrEhiPackage;
 use App\Models\PhrEhiProposal;
 use App\Models\PhrEhiProposalDecision;
+use App\Models\PhrEhiProposalRevision;
 use App\Models\PhrEhiRecordLink;
 use App\Models\PhrEhiRevision;
 use App\Models\PhrEhiSource;
@@ -27,6 +28,7 @@ use App\Services\PHR\Import\Ehi\Mapping\EhiProposalDraft;
 use App\Services\PHR\Import\Ehi\Mapping\EhiPublishedObjects;
 use App\Services\PHR\Import\Ehi\Mapping\EhiTargetDigest;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
@@ -40,18 +42,25 @@ use Throwable;
  * behind the CLI (and, from M4, REST/MCP).
  *
  * Preview projects the package if needed, runs every registered mapping, and
- * upserts its drafts on (package, mapping, subject). Each proposal carries a
- * digest of everything a reviewer is shown, including the target record as it
- * was read. A decided proposal is never rewritten; a pending one a mapping no
- * longer produces is superseded.
+ * upserts its drafts on (package, mapping, mapping version, subject). Each
+ * proposal carries a digest of everything a reviewer is shown, including the
+ * target record as it was read. A decided proposal is never rewritten; a pending
+ * one a mapping (or its current version) no longer produces is superseded.
+ *
+ * Each preview run takes the package's next preview generation and stamps every
+ * pending proposal it writes or confirms unchanged with it. Drafts are written
+ * in chunks as a mapping yields them, so a run that fails part way leaves new
+ * and stale pending rows side by side; the generation is recorded as completed
+ * only after every mapping, supersession, and finding step succeeded, and only
+ * pending proposals of a completed generation are reviewable or listed.
  *
  * Review consumes that persisted preview. Under the patient artifact guard it
  * re-checks write access, locks the proposal, and refuses (EhiReviewRefused,
- * nothing written) unless the proposal is still pending, the caller's preview
- * digest is current, every source revision still matches, and the target is
- * live and unchanged. Accepting writes the clinical record through the mapping
- * and an evidence link per revision; rejecting or retaining writes no clinical
- * row. Every decision appends to the proposal's history. A storage object a
+ * nothing written) unless the proposal is still pending and of the package's
+ * completed preview, the caller's preview digest is current, every source
+ * revision still matches, and the target is live and unchanged. Accepting
+ * writes the clinical record through the mapping and an evidence link per
+ * revision; rejecting or retaining writes no clinical row. Every decision appends to the proposal's history. A storage object a
  * mapping published for a review whose transaction did not commit (a refusal,
  * a later failure, or a retried attempt) is removed once the transaction ends,
  * unless a document or EHI blob row references it.
@@ -131,14 +140,15 @@ final class EhiProposalService
         $projection = $this->projection->project($package, $actorUserId);
         $package = $projection->package;
         $source = PhrEhiSource::query()->whereKey($package->source_id)->where('patient_id', $patient->id)->firstOrFail();
+        $generation = $this->startPreview($package, $actorUserId);
 
         $counts = [];
         $findingCounts = [];
         foreach ($this->registry->all() as $name => $mapping) {
             $context = new EhiMappingContext($package, $patient, $source);
             // Drafts are persisted in chunks as the mapping yields them; only the
-            // subject keys produced are kept, for duplicate detection and to
-            // supersede what this preview no longer proposes.
+            // subject keys produced are kept, for duplicate detection. What this
+            // preview no longer proposes is whatever it did not stamp.
             /** @var array<string, true> $produced */
             $produced = [];
             $rows = [];
@@ -150,12 +160,12 @@ final class EhiProposalService
                 $rows[$draft->subjectKey] = $this->row($package, $name, $mapping->version(), $draft);
                 $counts[$name][$draft->kind] = ($counts[$name][$draft->kind] ?? 0) + 1;
                 if (count($rows) >= self::CHUNK) {
-                    $this->persistChunk($package, $actorUserId, $name, $rows);
+                    $this->persistChunk($package, $actorUserId, $name, $mapping->version(), $generation, $rows);
                     $rows = [];
                 }
             }
-            $this->persistChunk($package, $actorUserId, $name, $rows);
-            $this->supersedeNotProduced($package, $actorUserId, $name, $produced);
+            $this->persistChunk($package, $actorUserId, $name, $mapping->version(), $generation, $rows);
+            $this->supersedeNotProduced($package, $actorUserId, $name, $generation);
             $counts[$name] ??= [];
             ksort($counts[$name], SORT_STRING);
 
@@ -164,6 +174,8 @@ final class EhiProposalService
             }
         }
         $this->supersedeUnregistered($package, $actorUserId);
+        $this->completePreview($package, $actorUserId, $generation);
+        $package->refresh();
         ksort($findingCounts, SORT_STRING);
 
         $statuses = PhrEhiProposal::query()->where('package_id', $package->id)
@@ -213,6 +225,13 @@ final class EhiProposalService
                 }
 
                 throw new EhiReviewRefused(EhiReviewRefused::NOT_PENDING, 'the proposal is not pending');
+            }
+            // Serialized with preview runs by the patient lock: a run that started
+            // and has not completed, or a proposal it did not stamp, is not a
+            // preview anyone may rely on.
+            $package = PhrEhiPackage::query()->whereKey($current->package_id)->where('patient_id', $patient->id)->first();
+            if ($package === null || ! $package->completedPreviewIncludes($current)) {
+                throw new EhiReviewRefused(EhiReviewRefused::PREVIEW_INCOMPLETE, 'the proposal is not part of a completed preview');
             }
             if (! hash_equals($current->preview_digest, $previewDigest)) {
                 throw new EhiReviewRefused(EhiReviewRefused::STALE_PREVIEW, 'the proposal changed since it was previewed');
@@ -305,19 +324,20 @@ final class EhiProposalService
         $this->lockLive($patient, $outcome->recordTable, $outcome->recordId);
 
         $column = self::TARGETS[$outcome->recordTable]['link'];
-        $links = array_map(static fn (int $revisionId): array => [
-            'patient_id' => $patient->id,
-            'revision_id' => $revisionId,
-            'proposal_id' => $proposal->id,
-            'immunization_id' => $column === 'immunization_id' ? $outcome->recordId : null,
-            'document_id' => $column === 'document_id' ? $outcome->recordId : null,
-            'link_kind' => $outcome->linkKind,
-            'mapping_version' => $proposal->mapping_version,
-            'created_by_user_id' => $actorUserId,
-            'created_at' => $now,
-            'updated_at' => $now,
-        ], $this->revisionIds($proposal));
-        PhrEhiRecordLink::query()->insertOrIgnore($links);
+        foreach (array_chunk(PhrEhiProposalRevision::idsFor($proposal), self::CHUNK) as $chunk) {
+            PhrEhiRecordLink::query()->insertOrIgnore(array_map(static fn (int $revisionId): array => [
+                'patient_id' => $patient->id,
+                'revision_id' => $revisionId,
+                'proposal_id' => $proposal->id,
+                'immunization_id' => $column === 'immunization_id' ? $outcome->recordId : null,
+                'document_id' => $column === 'document_id' ? $outcome->recordId : null,
+                'link_kind' => $outcome->linkKind,
+                'mapping_version' => $proposal->mapping_version,
+                'created_by_user_id' => $actorUserId,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ], $chunk));
+        }
 
         return $outcome;
     }
@@ -391,19 +411,28 @@ final class EhiProposalService
     /** Every relied-on revision still exists for this patient and hashes as previewed. */
     private function verifyRevisions(PhrEhiProposal $proposal): void
     {
-        $ids = $this->revisionIds($proposal);
-        $revisions = PhrEhiRevision::query()->where('patient_id', $proposal->patient_id)->whereIn('id', $ids)->get(['id', 'content_digest']);
-        if ($ids === [] || $revisions->count() !== count($ids)
-            || ! hash_equals($proposal->revision_digest, $this->revisionDigest($revisions->pluck('content_digest')->all()))) {
+        // A deleted revision takes its proposal row with it (cascade), so a
+        // shorter list fails the digest just as changed content does.
+        $ids = PhrEhiProposalRevision::idsFor($proposal);
+        $digests = [];
+        $occurring = 0;
+        foreach (array_chunk($ids, self::CHUNK) as $chunk) {
+            $found = PhrEhiRevision::query()->where('patient_id', $proposal->patient_id)->whereIn('id', $chunk)->pluck('content_digest');
+            if ($found->count() !== count($chunk)) {
+                throw new EhiReviewRefused(EhiReviewRefused::STALE_SOURCE, 'the source evidence changed since the preview');
+            }
+            array_push($digests, ...$found->all());
+            // Evidence is only what this package still projects: a revision whose
+            // occurrences were withdrawn (its table stopped matching the mapping)
+            // or quarantined no longer supports the proposal.
+            $occurring += PhrEhiOccurrence::query()->where('package_id', $proposal->package_id)
+                ->whereIn('revision_id', $chunk)
+                ->where('disposition', '!=', PhrEhiOccurrence::DISPOSITION_QUARANTINED)
+                ->distinct()->count('revision_id');
+        }
+        if ($ids === [] || ! hash_equals($proposal->revision_digest, $this->revisionDigest($digests))) {
             throw new EhiReviewRefused(EhiReviewRefused::STALE_SOURCE, 'the source evidence changed since the preview');
         }
-        // Evidence is only what this package still projects: a revision whose
-        // occurrences were withdrawn (its table stopped matching the mapping)
-        // or quarantined no longer supports the proposal.
-        $occurring = PhrEhiOccurrence::query()->where('package_id', $proposal->package_id)
-            ->whereIn('revision_id', $ids)
-            ->where('disposition', '!=', PhrEhiOccurrence::DISPOSITION_QUARANTINED)
-            ->distinct()->count('revision_id');
         if ($occurring !== count($ids)) {
             throw new EhiReviewRefused(EhiReviewRefused::STALE_SOURCE, 'the source evidence is no longer projected for this package');
         }
@@ -437,20 +466,25 @@ final class EhiProposalService
             default => PhrEhiOccurrence::DISPOSITION_CORROBORATING,
         };
         $weaker = array_slice(self::OCCURRENCE_PRECEDENCE, 0, (int) array_search($disposition, self::OCCURRENCE_PRECEDENCE, true));
-        $occurrences = PhrEhiOccurrence::query()->where('package_id', $proposal->package_id)
-            ->whereIn('revision_id', $this->revisionIds($proposal))
-            ->whereIn('disposition', $weaker);
-        $members = (clone $occurrences)->distinct()->pluck('member_id')->all();
-        $occurrences->update(['disposition' => $disposition, 'updated_at' => $now]);
+        $members = [];
+        foreach (array_chunk(PhrEhiProposalRevision::idsFor($proposal), self::CHUNK) as $chunk) {
+            $occurrences = PhrEhiOccurrence::query()->where('package_id', $proposal->package_id)
+                ->whereIn('revision_id', $chunk)
+                ->whereIn('disposition', $weaker);
+            array_push($members, ...(clone $occurrences)->distinct()->pluck('member_id')->all());
+            $occurrences->update(['disposition' => $disposition, 'updated_at' => $now]);
+        }
+        $members = array_values(array_unique($members));
 
         PhrEhiTableAccount::query()->where('package_id', $proposal->package_id)->whereIn('member_id', $members)
             ->orderBy('id')->each(static fn (PhrEhiTableAccount $account) => EhiDispositionCounter::recount($account));
     }
 
     /**
-     * The persisted form of one draft, with its preview digest.
+     * The persisted form of one draft, with its preview digest, and the revisions
+     * it relies on in ascending id order (their position order).
      *
-     * @return array<string, mixed>
+     * @return array{attributes: array<string, mixed>, revisions: list<int>}
      */
     private function row(PhrEhiPackage $package, string $mapping, string $version, EhiProposalDraft $draft): array
     {
@@ -464,14 +498,18 @@ final class EhiProposalService
 
         $revisionIds = array_values(array_unique(array_map('intval', $draft->revisionIds)));
         sort($revisionIds);
-        $revisions = PhrEhiRevision::query()
-            ->join('phr_ehi_entities', 'phr_ehi_entities.id', '=', 'phr_ehi_revisions.entity_id')
-            ->where('phr_ehi_revisions.patient_id', $package->patient_id)
-            ->where('phr_ehi_entities.source_id', $package->source_id)
-            ->whereIn('phr_ehi_revisions.id', $revisionIds)
-            ->pluck('phr_ehi_revisions.content_digest');
-        if ($revisions->count() !== count($revisionIds)) {
-            throw new LogicException("EHI mapping {$mapping} relied on a revision outside this package's source.");
+        $contentDigests = [];
+        foreach (array_chunk($revisionIds, self::CHUNK) as $chunk) {
+            $found = PhrEhiRevision::query()
+                ->join('phr_ehi_entities', 'phr_ehi_entities.id', '=', 'phr_ehi_revisions.entity_id')
+                ->where('phr_ehi_revisions.patient_id', $package->patient_id)
+                ->where('phr_ehi_entities.source_id', $package->source_id)
+                ->whereIn('phr_ehi_revisions.id', $chunk)
+                ->pluck('phr_ehi_revisions.content_digest');
+            if ($found->count() !== count($chunk)) {
+                throw new LogicException("EHI mapping {$mapping} relied on a revision outside this package's source.");
+            }
+            array_push($contentDigests, ...$found->all());
         }
 
         $targetDigest = null;
@@ -489,8 +527,7 @@ final class EhiProposalService
             'mapping_version' => $version,
             'subject_key' => $draft->subjectKey,
             'kind' => $draft->kind,
-            'revision_ids_json' => $revisionIds,
-            'revision_digest' => $this->revisionDigest($revisions->all()),
+            'revision_digest' => $this->revisionDigest($contentDigests),
             'target_table' => $draft->targetTable,
             'target_id' => $draft->targetId,
             'target_digest' => $targetDigest,
@@ -499,57 +536,77 @@ final class EhiProposalService
             'candidate_ids_json' => $candidates === [] ? null : $candidates,
         ];
 
-        return [...$row, 'preview_digest' => EhiCanonicalJson::digest($row)];
+        // The revision ids are digested (a reviewer is shown them) but stored as
+        // phr_ehi_proposal_revisions rows.
+        return [
+            'attributes' => [...$row, 'preview_digest' => EhiCanonicalJson::digest([...$row, 'revision_ids' => $revisionIds])],
+            'revisions' => $revisionIds,
+        ];
     }
 
     /**
-     * Create or refresh one chunk of this mapping's proposals. A decided one is
-     * never rewritten; an unchanged pending one is left as it is.
+     * Create or refresh one chunk of this mapping version's proposals, stamping
+     * each pending one with this preview's generation. A decided one is never
+     * rewritten; an unchanged pending one keeps its content and preview digest.
+     * A row a later-started preview already stamped belongs to that preview.
      *
-     * @param  array<string, array<string, mixed>>  $rows  subject key => proposal attributes
+     * @param  array<string, array{attributes: array<string, mixed>, revisions: list<int>}>  $rows  subject key => proposal
      */
-    private function persistChunk(PhrEhiPackage $package, int $actorUserId, string $mapping, array $rows): void
+    private function persistChunk(PhrEhiPackage $package, int $actorUserId, string $mapping, string $version, int $generation, array $rows): void
     {
         if ($rows === []) {
             return;
         }
-        $this->writeGuard->run((int) $package->patient_id, function (PhrPatient $patient) use ($package, $actorUserId, $mapping, $rows): void {
+        $this->writeGuard->run((int) $package->patient_id, function (PhrPatient $patient) use ($package, $actorUserId, $mapping, $version, $generation, $rows): void {
             $this->access->ensureCanWrite($patient, $actorUserId);
             $existing = PhrEhiProposal::query()->where('package_id', $package->id)->where('mapping', $mapping)
+                ->where('mapping_version', $version)
                 ->whereIn('subject_key', array_keys($rows))->lockForUpdate()->get()->keyBy('subject_key');
-            foreach ($rows as $subject => $row) {
+            $unchanged = [];
+            foreach ($rows as $subject => ['attributes' => $row, 'revisions' => $revisionIds]) {
                 $proposal = $existing->get($subject);
                 if ($proposal === null) {
-                    PhrEhiProposal::query()->create([...$row, 'patient_id' => $patient->id, 'package_id' => $package->id, 'status' => PhrEhiProposal::STATUS_PENDING]);
+                    $proposal = PhrEhiProposal::query()->create([
+                        ...$row,
+                        'patient_id' => $patient->id,
+                        'package_id' => $package->id,
+                        'status' => PhrEhiProposal::STATUS_PENDING,
+                        'preview_generation' => $generation,
+                    ]);
+                    PhrEhiProposalRevision::replaceFor($proposal, $revisionIds);
 
                     continue;
                 }
                 $open = in_array($proposal->status, [PhrEhiProposal::STATUS_PENDING, PhrEhiProposal::STATUS_SUPERSEDED], true);
-                if (! $open || ($proposal->status === PhrEhiProposal::STATUS_PENDING && $proposal->preview_digest === $row['preview_digest'])) {
+                if (! $open || ($proposal->preview_generation !== null && $proposal->preview_generation > $generation)) {
                     continue;
                 }
-                $proposal->forceFill([...$row, 'status' => PhrEhiProposal::STATUS_PENDING, 'decided_by_user_id' => null, 'decided_at' => null])->save();
+                if ($proposal->status === PhrEhiProposal::STATUS_PENDING && $proposal->preview_digest === $row['preview_digest']) {
+                    $unchanged[] = $proposal->id;
+
+                    continue;
+                }
+                $proposal->forceFill([...$row, 'status' => PhrEhiProposal::STATUS_PENDING, 'preview_generation' => $generation, 'decided_by_user_id' => null, 'decided_at' => null])->save();
+                PhrEhiProposalRevision::replaceFor($proposal, $revisionIds);
             }
+            // Confirmed unchanged: only the generation moves, not updated_at, so an
+            // unchanged proposal is unchanged in a backup too.
+            PhrEhiProposal::query()->whereIn('id', $unchanged)->toBase()->update(['preview_generation' => $generation]);
         });
     }
 
     /**
-     * Supersede this mapping's pending proposals that the preview did not produce.
-     *
-     * @param  array<string, true>  $produced  subject keys produced by this preview
+     * Supersede this mapping's pending proposals that the preview did not stamp:
+     * subjects it no longer produces, and every subject of an earlier mapping
+     * version.
      */
-    private function supersedeNotProduced(PhrEhiPackage $package, int $actorUserId, string $mapping, array $produced): void
+    private function supersedeNotProduced(PhrEhiPackage $package, int $actorUserId, string $mapping, int $generation): void
     {
-        $stale = [];
-        PhrEhiProposal::query()->where('package_id', $package->id)->where('mapping', $mapping)
-            ->where('status', PhrEhiProposal::STATUS_PENDING)->select(['id', 'subject_key'])
-            ->lazyById(self::CHUNK)
-            ->each(function (PhrEhiProposal $proposal) use ($produced, &$stale): void {
-                if (! isset($produced[(string) $proposal->subject_key])) {
-                    $stale[] = $proposal->id;
-                }
-            });
-        $this->supersede($package, $actorUserId, $stale);
+        $stale = PhrEhiProposal::query()->where('package_id', $package->id)->where('mapping', $mapping)
+            ->where('status', PhrEhiProposal::STATUS_PENDING)
+            ->where(fn ($query) => $this->stampedBefore($query, $generation))
+            ->pluck('id')->all();
+        $this->supersede($package, $actorUserId, $stale, $generation);
     }
 
     /** Pending proposals of mappings that are no longer registered can never be applied. */
@@ -561,17 +618,59 @@ final class EhiProposalService
         $this->supersede($package, $actorUserId, $stale);
     }
 
-    /** @param  list<int|string>  $ids */
-    private function supersede(PhrEhiPackage $package, int $actorUserId, array $ids): void
+    /**
+     * @param  list<int|string>  $ids
+     * @param  int|null  $generation  when given, a row a later-started preview stamped meanwhile is kept
+     */
+    private function supersede(PhrEhiPackage $package, int $actorUserId, array $ids, ?int $generation = null): void
     {
         foreach (array_chunk($ids, self::CHUNK) as $chunk) {
-            $this->writeGuard->run((int) $package->patient_id, function (PhrPatient $patient) use ($actorUserId, $chunk): void {
+            $this->writeGuard->run((int) $package->patient_id, function (PhrPatient $patient) use ($actorUserId, $chunk, $generation): void {
                 $this->access->ensureCanWrite($patient, $actorUserId);
                 PhrEhiProposal::query()->whereIn('id', $chunk)->where('patient_id', $patient->id)
                     ->where('status', PhrEhiProposal::STATUS_PENDING)
+                    ->when($generation !== null, fn ($query) => $query->where(fn ($stamped) => $this->stampedBefore($stamped, (int) $generation)))
                     ->update(['status' => PhrEhiProposal::STATUS_SUPERSEDED, 'updated_at' => now()]);
             });
         }
+    }
+
+    /**
+     * @param  Builder<PhrEhiProposal>  $query
+     * @return Builder<PhrEhiProposal>
+     */
+    private function stampedBefore(Builder $query, int $generation): Builder
+    {
+        return $query->whereNull('preview_generation')->orWhere('preview_generation', '<', $generation);
+    }
+
+    /** Take the package's next preview generation; its pending proposals are unreviewable until it completes. */
+    private function startPreview(PhrEhiPackage $package, int $actorUserId): int
+    {
+        return $this->writeGuard->run((int) $package->patient_id, function (PhrPatient $patient) use ($package, $actorUserId): int {
+            $this->access->ensureCanWrite($patient, $actorUserId);
+            $started = PhrEhiPackage::query()->whereKey($package->id)->where('patient_id', $patient->id)->lockForUpdate()
+                ->firstOrFail()->preview_generation_started;
+            $generation = ($started ?? 0) + 1;
+            // Preview bookkeeping, not package content: updated_at stays.
+            PhrEhiPackage::query()->whereKey($package->id)->toBase()->update(['preview_generation_started' => $generation]);
+
+            return $generation;
+        });
+    }
+
+    /**
+     * Record a fully successful preview as completed, unless a later preview has
+     * started since: then that one decides what is current.
+     */
+    private function completePreview(PhrEhiPackage $package, int $actorUserId, int $generation): void
+    {
+        $this->writeGuard->run((int) $package->patient_id, function (PhrPatient $patient) use ($package, $actorUserId, $generation): void {
+            $this->access->ensureCanWrite($patient, $actorUserId);
+            PhrEhiPackage::query()->whereKey($package->id)->where('patient_id', $patient->id)
+                ->where('preview_generation_started', $generation)
+                ->toBase()->update(['preview_generation_completed' => $generation]);
+        });
     }
 
     /**
@@ -650,12 +749,6 @@ final class EhiProposalService
         });
 
         return $counts;
-    }
-
-    /** @return list<int> */
-    private function revisionIds(PhrEhiProposal $proposal): array
-    {
-        return array_map('intval', $proposal->revision_ids_json);
     }
 
     /** @param  list<mixed>  $contentDigests */

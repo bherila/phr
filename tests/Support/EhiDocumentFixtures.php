@@ -9,6 +9,7 @@ use App\Models\PhrEhiOccurrence;
 use App\Models\PhrEhiPackage;
 use App\Models\PhrEhiPackageMember;
 use App\Models\PhrEhiProposal;
+use App\Models\PhrEhiProposalRevision;
 use App\Models\PhrEhiRecordLink;
 use App\Models\PhrEhiRevision;
 use App\Models\PhrEhiSource;
@@ -204,14 +205,13 @@ trait EhiDocumentFixtures
         $target = $draft->targetId === null ? null : PhrDocument::withTrashed()->find($draft->targetId);
         $digests = PhrEhiRevision::query()->whereIn('id', $draft->revisionIds)->orderBy('content_digest')->pluck('content_digest')->all();
 
-        return PhrEhiProposal::query()->create([
+        $proposal = PhrEhiProposal::query()->create([
             'patient_id' => $this->docPatient->id,
             'package_id' => $package->id,
             'mapping' => EhiDocumentMapping::NAME,
             'mapping_version' => EhiDocumentMapping::VERSION,
             'subject_key' => $draft->subjectKey,
             'revision_digest' => hash('sha256', implode(',', $digests)),
-            'revision_ids_json' => $draft->revisionIds,
             'kind' => $draft->kind,
             'target_table' => $draft->targetTable,
             'target_id' => $draft->targetId,
@@ -222,6 +222,9 @@ trait EhiDocumentFixtures
             'status' => PhrEhiProposal::STATUS_PENDING,
             'preview_digest' => hash('sha256', 'preview-'.$draft->subjectKey.'-'.$package->id),
         ]);
+        PhrEhiProposalRevision::replaceFor($proposal, array_values(array_unique($draft->revisionIds)));
+
+        return $proposal;
     }
 
     protected function ehiDocApply(PhrEhiProposal $proposal, string $decision = PhrEhiProposal::DECISION_ACCEPT, ?int $linkTargetId = null): EhiApplyOutcome
@@ -235,7 +238,7 @@ trait EhiDocumentFixtures
     /** Record evidence links for an applied proposal, as the review service does. */
     protected function ehiDocLink(PhrEhiProposal $proposal, EhiApplyOutcome $outcome): void
     {
-        foreach ($proposal->revision_ids_json as $revisionId) {
+        foreach (PhrEhiProposalRevision::idsFor($proposal) as $revisionId) {
             PhrEhiRecordLink::query()->firstOrCreate(
                 ['revision_id' => $revisionId, 'document_id' => $outcome->recordId, 'link_kind' => $outcome->linkKind],
                 ['patient_id' => $this->docPatient->id, 'proposal_id' => $proposal->id, 'mapping_version' => EhiDocumentMapping::VERSION, 'created_by_user_id' => $this->docOwner->id],

@@ -8,6 +8,7 @@ use App\Models\PhrEhiOccurrence;
 use App\Models\PhrEhiPackage;
 use App\Models\PhrEhiPackageMember;
 use App\Models\PhrEhiProposal;
+use App\Models\PhrEhiProposalRevision;
 use App\Models\PhrEhiRecordLink;
 use App\Models\PhrEhiRevision;
 use App\Models\PhrEhiSource;
@@ -172,14 +173,13 @@ trait EhiImmunizationFixtures
     {
         $target = $draft->targetId === null ? null : PhrImmunization::query()->withTrashed()->find($draft->targetId);
 
-        return PhrEhiProposal::query()->create([
+        $proposal = PhrEhiProposal::query()->create([
             'patient_id' => $this->immPatient->id,
             'package_id' => ($package ?? $this->immPackage)->id,
             'mapping' => EhiImmunizationMapping::NAME,
             'mapping_version' => EhiImmunizationMapping::VERSION,
             'subject_key' => $draft->subjectKey,
             'revision_digest' => hash('sha256', implode(',', $draft->revisionIds)),
-            'revision_ids_json' => $draft->revisionIds,
             'kind' => $draft->kind,
             'target_table' => $draft->targetTable,
             'target_id' => $draft->targetId,
@@ -189,6 +189,9 @@ trait EhiImmunizationFixtures
             'candidate_ids_json' => $draft->candidateIds,
             'preview_digest' => hash('sha256', $draft->subjectKey.$draft->kind),
         ]);
+        PhrEhiProposalRevision::replaceFor($proposal, array_values(array_unique($draft->revisionIds)));
+
+        return $proposal;
     }
 
     protected function immLink(PhrEhiRevision $revision, PhrImmunization $record, string $kind = PhrEhiRecordLink::KIND_PROJECTED): PhrEhiRecordLink

@@ -30,7 +30,8 @@ final class PhrNativeRestorePlanner
         'phr_ehi_entities' => [['source_id', 'table_name', 'key_digest']],
         'phr_ehi_revisions' => [['entity_id', 'content_digest']],
         'phr_ehi_occurrences' => [['member_id', 'line_number']], // sensitive-scan-ignore: package member FK, not an insurance member id
-        'phr_ehi_proposals' => [['package_id', 'mapping', 'subject_key']],
+        'phr_ehi_proposals' => [['package_id', 'mapping', 'mapping_version', 'subject_key']],
+        'phr_ehi_proposal_revisions' => [['proposal_id', 'revision_id']],
         'phr_ehi_record_links' => [['revision_id', 'immunization_id', 'link_kind'], ['revision_id', 'document_id', 'link_kind']],
     ];
 

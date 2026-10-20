@@ -6,14 +6,16 @@ use App\Traits\SerializesDatesAsLocal;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Carbon;
 
 /**
  * A reviewable proposal produced deterministically by a versioned mapping contract.
  *
- * target_id, revision_ids_json, and candidate_ids_json hold database ids as of
- * the preview. They are not remapped by a native restore; a restored pending
- * proposal then fails its revision or target digest check and needs a re-preview.
+ * The revisions it relies on are phr_ehi_proposal_revisions rows. target_id and
+ * candidate_ids_json hold database ids as of the preview and are not remapped by
+ * a native restore. preview_generation is preview-run bookkeeping a restore does
+ * not carry, so every restored pending proposal needs a re-preview before review.
  *
  * @property int $id
  * @property int $patient_id
@@ -22,7 +24,6 @@ use Illuminate\Support\Carbon;
  * @property string $mapping_version
  * @property string $subject_key
  * @property string $revision_digest
- * @property list<int> $revision_ids_json
  * @property string $kind
  * @property string|null $target_table
  * @property int|null $target_id
@@ -32,6 +33,7 @@ use Illuminate\Support\Carbon;
  * @property list<int>|null $candidate_ids_json
  * @property string $status
  * @property string $preview_digest
+ * @property int|null $preview_generation
  * @property int|null $decided_by_user_id
  * @property Carbon|null $decided_at
  * @property Carbon|null $created_at
@@ -80,11 +82,11 @@ class PhrEhiProposal extends Model
 
     protected $table = 'phr_ehi_proposals';
 
-    protected $fillable = ['patient_id', 'package_id', 'mapping', 'mapping_version', 'subject_key', 'revision_digest', 'revision_ids_json', 'kind', 'target_table', 'target_id', 'target_digest', 'proposed_json', 'before_json', 'candidate_ids_json', 'status', 'preview_digest', 'decided_by_user_id', 'decided_at'];
+    protected $fillable = ['patient_id', 'package_id', 'mapping', 'mapping_version', 'subject_key', 'revision_digest', 'kind', 'target_table', 'target_id', 'target_digest', 'proposed_json', 'before_json', 'candidate_ids_json', 'status', 'preview_digest', 'preview_generation', 'decided_by_user_id', 'decided_at'];
 
     protected function casts(): array
     {
-        return ['revision_ids_json' => 'array', 'proposed_json' => 'array', 'before_json' => 'array', 'candidate_ids_json' => 'array', 'target_id' => 'integer', 'decided_at' => 'datetime'];
+        return ['proposed_json' => 'array', 'before_json' => 'array', 'candidate_ids_json' => 'array', 'target_id' => 'integer', 'preview_generation' => 'integer', 'decided_at' => 'datetime'];
     }
 
     /** @return BelongsTo<PhrPatient, $this> */
@@ -103,5 +105,31 @@ class PhrEhiProposal extends Model
     public function decisions(): HasMany
     {
         return $this->hasMany(PhrEhiProposalDecision::class, 'proposal_id');
+    }
+
+    /** @return HasMany<PhrEhiProposalRevision, $this> */
+    public function revisions(): HasMany
+    {
+        return $this->hasMany(PhrEhiProposalRevision::class, 'proposal_id');
+    }
+
+    /**
+     * Limit a phr_ehi_proposals query to rows a reviewer may rely on: every
+     * non-pending row, and pending rows of their package's completed preview
+     * (the package's last started preview completed, and stamped the row). Any
+     * other pending row was left by a failed, interrupted, or concurrent preview,
+     * or restored from a backup, and stays hidden until a preview completes.
+     */
+    public static function constrainToCompletedPreview(QueryBuilder $query): void
+    {
+        $query->where(static function (QueryBuilder $visible): void {
+            $visible->where('phr_ehi_proposals.status', '!=', self::STATUS_PENDING)
+                ->orWhereExists(static function (QueryBuilder $package): void {
+                    $package->selectRaw('1')->from('phr_ehi_packages')
+                        ->whereColumn('phr_ehi_packages.id', 'phr_ehi_proposals.package_id')
+                        ->whereColumn('phr_ehi_packages.preview_generation_started', 'phr_ehi_packages.preview_generation_completed')
+                        ->whereColumn('phr_ehi_packages.preview_generation_completed', 'phr_ehi_proposals.preview_generation');
+                });
+        });
     }
 }

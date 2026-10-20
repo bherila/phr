@@ -71,9 +71,9 @@ return new class extends Migration
             // Stable identity of what is proposed (mapping + root entity), so a
             // re-preview of the same package converges on the same row.
             $table->char('subject_key', 64);
-            // sha256 over the involved revisions' content digests, sorted.
+            // sha256 over the involved revisions' content digests, sorted. The
+            // revisions themselves are rows of phr_ehi_proposal_revisions.
             $table->char('revision_digest', 64);
-            $table->json('revision_ids_json');
             $table->string('kind', 32);
             $table->string('target_table', 64)->nullable();
             $table->unsignedBigInteger('target_id')->nullable();
@@ -84,12 +84,31 @@ return new class extends Migration
             $table->json('candidate_ids_json')->nullable();
             $table->string('status', 32)->default('pending');
             $table->char('preview_digest', 64);
+            // The preview run that last produced this proposal (see
+            // phr_ehi_packages.preview_generation_*); null until one does.
+            $table->unsignedInteger('preview_generation')->nullable();
             $table->foreignId('decided_by_user_id')->nullable()->constrained('users')->nullOnDelete();
             $table->dateTime('decided_at')->nullable();
             $table->timestamps();
 
-            $table->unique(['package_id', 'mapping', 'subject_key'], 'phr_ehi_proposals_subject_uq');
+            // A mapping version bump is a new proposal: decisions made under an
+            // earlier version stay attributable to it.
+            $table->unique(['package_id', 'mapping', 'mapping_version', 'subject_key'], 'phr_ehi_proposals_subject_uq');
             $table->index(['patient_id', 'status'], 'phr_ehi_proposals_patient_status_idx');
+        });
+
+        // Every revision a proposal relies on; position is the preview's order
+        // (ascending revision id). A row per revision keeps a note with thousands
+        // of text lines queryable in chunks and every backup record small.
+        Schema::create('phr_ehi_proposal_revisions', function (Blueprint $table): void {
+            $table->id();
+            $table->foreignId('patient_id')->constrained('phr_patients')->cascadeOnDelete();
+            $table->foreignId('proposal_id')->constrained('phr_ehi_proposals')->cascadeOnDelete();
+            $table->foreignId('revision_id')->constrained('phr_ehi_revisions')->cascadeOnDelete();
+            $table->unsignedInteger('position');
+            $table->timestamps();
+
+            $table->unique(['proposal_id', 'revision_id'], 'phr_ehi_proposal_revisions_uq');
         });
 
         // Append-only review history; prior decisions are never rewritten.
@@ -125,6 +144,16 @@ return new class extends Migration
             $table->unique(['revision_id', 'document_id', 'link_kind'], 'phr_ehi_links_rev_doc_uq');
         });
 
+        // Preview runs of a package. A preview takes the next started generation
+        // and records it as completed only once every mapping, supersession, and
+        // finding step succeeded; review and listings trust a pending proposal
+        // only when it carries the completed generation of a package whose last
+        // started preview completed. Null until the first preview.
+        Schema::table('phr_ehi_packages', function (Blueprint $table): void {
+            $table->unsignedInteger('preview_generation_started')->nullable();
+            $table->unsignedInteger('preview_generation_completed')->nullable();
+        });
+
         Schema::table('phr_immunizations', function (Blueprint $table): void {
             // Source date/time text exactly as supplied, with its precision and
             // whether it was local or UTC; administered_on stays the display date.
@@ -150,8 +179,12 @@ return new class extends Migration
                 'administration_status',
             ]);
         });
+        Schema::table('phr_ehi_packages', function (Blueprint $table): void {
+            $table->dropColumn(['preview_generation_started', 'preview_generation_completed']);
+        });
         Schema::dropIfExists('phr_ehi_record_links');
         Schema::dropIfExists('phr_ehi_proposal_decisions');
+        Schema::dropIfExists('phr_ehi_proposal_revisions');
         Schema::dropIfExists('phr_ehi_proposals');
         Schema::dropIfExists('phr_ehi_occurrences');
         Schema::dropIfExists('phr_ehi_revisions');

@@ -395,6 +395,38 @@ class EhiDocumentMappingTest extends TestCase
         self::assertContains(EhiDocumentFinding::AMBIGUOUS_REVISION, array_column($result['findings'], 'code'));
     }
 
+    public function test_a_note_whose_only_text_line_is_empty_has_no_content(): void
+    {
+        $this->ehiDocOwnedNote('N-BLANK', '9210');
+        $this->ehiDocRow('NOTE_ENC_INFO', ['CONTACT_SERIAL_NUM' => '21', 'NOTE_ID' => 'N-BLANK', 'CONTACT_DATE_REAL' => '65000']);
+        $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '21', 'LINE' => '1', 'NOTE_ID' => 'N-BLANK', 'NOTE_TEXT' => '']);
+        // Empty once control characters are removed.
+        $this->ehiDocOwnedNote('N-CONTROL', '9211');
+        $this->ehiDocRow('NOTE_ENC_INFO', ['CONTACT_SERIAL_NUM' => '22', 'NOTE_ID' => 'N-CONTROL', 'CONTACT_DATE_REAL' => '65000']);
+        $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '22', 'LINE' => '1', 'NOTE_ID' => 'N-CONTROL', 'NOTE_TEXT' => "\x07"]);
+        // Only blank lines: whitespace is not content either.
+        $this->ehiDocOwnedNote('N-SPACES', '9213');
+        $this->ehiDocRow('NOTE_ENC_INFO', ['CONTACT_SERIAL_NUM' => '24', 'NOTE_ID' => 'N-SPACES', 'CONTACT_DATE_REAL' => '65000']);
+        $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '24', 'LINE' => '1', 'NOTE_ID' => 'N-SPACES', 'NOTE_TEXT' => '']);
+        $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '24', 'LINE' => '2', 'NOTE_ID' => 'N-SPACES', 'NOTE_TEXT' => '   ']);
+        // An empty table text still falls back to the linked RTF member.
+        $this->ehiDocOwnedNote('N-BLANK-RTF', '9212');
+        $this->ehiDocRow('NOTE_ENC_INFO', ['CONTACT_SERIAL_NUM' => '23', 'NOTE_ID' => 'N-BLANK-RTF', 'CONTACT_DATE_REAL' => '65000']);
+        $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '23', 'LINE' => '1', 'NOTE_ID' => 'N-BLANK-RTF', 'NOTE_TEXT' => '']);
+        $this->ehiDocRow('DOC_INFORMATION', ['DOC_INFO_ID' => 'D-BLANK-RTF', 'DOC_HNO_ID' => 'N-BLANK-RTF', 'DOC_PT_ID' => self::DOC_PATIENT_KEY, 'SCAN_FILE' => 'blank-rtf.rtf']);
+        $this->ehiDocMember('Rich Text/blank-rtf.rtf', EhiMemberKind::NOTE, '{\\rtf1 rtf body}');
+
+        $drafts = $this->ehiDocPropose()['drafts'];
+
+        self::assertSame(['kind' => 'retain', 'reason' => 'no_content'], $this->kindAndReason($drafts, 'N-BLANK'));
+        self::assertSame(['kind' => 'retain', 'reason' => 'no_content'], $this->kindAndReason($drafts, 'N-CONTROL'));
+        self::assertSame(['kind' => 'retain', 'reason' => 'no_content'], $this->kindAndReason($drafts, 'N-SPACES'));
+        $rtf = $this->ehiDocDraftFor($drafts, 'note_id', 'N-BLANK-RTF');
+        self::assertSame(PhrEhiProposal::KIND_CREATE, $rtf->kind);
+        self::assertSame('rtf body', $rtf->proposed['attributes']['extracted_text']);
+        self::assertSame('rtf', $rtf->proposed['ehi']['text']['source']);
+    }
+
     public function test_text_lines_that_are_not_canonical_integers_are_not_ordered(): void
     {
         $this->ehiDocOwnedNote('N-LINE', '9300');
@@ -603,6 +635,38 @@ class EhiDocumentMappingTest extends TestCase
         $document->forceFill(['retracted_at' => now()])->save();
         self::assertSame(['kind' => 'retain', 'reason' => 'target_withdrawn'], $this->kindAndReason($this->ehiDocPropose()['drafts'], 'N1000'));
         self::assertSame(1, PhrDocument::withTrashed()->count());
+    }
+
+    public function test_a_note_linked_to_more_than_one_live_document_is_retained(): void
+    {
+        $first = $this->manualDocument(['title' => 'First manual']);
+        $second = $this->manualDocument(['title' => 'Second manual']);
+        $this->ehiDocOwnedNote('N1050', '10500');
+        $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '1', 'LINE' => '1', 'NOTE_ID' => 'N1050', 'NOTE_TEXT' => 'linked twice']);
+        // Two packages previewed concurrently, each reviewed against a different document.
+        $draft = $this->ehiDocDraftFor($this->ehiDocPropose()['drafts'], 'note_id', 'N1050');
+        $pending = $this->ehiDocPersist($draft);
+        $concurrent = $this->ehiDocPersist($draft, $this->ehiDocPackage());
+        $this->ehiDocLink($pending, $this->ehiDocApply($pending, PhrEhiProposal::DECISION_LINK, $first->id));
+        $this->ehiDocLink($concurrent, $this->ehiDocApply($concurrent, PhrEhiProposal::DECISION_LINK, $second->id));
+
+        // Neither the same evidence nor a later revision picks one of them.
+        $later = $this->ehiDocPackage();
+        $this->ehiDocOwnedNote('N1050', '10500', [], self::DOC_PATIENT_KEY, $later);
+        $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '1', 'LINE' => '1', 'NOTE_ID' => 'N1050', 'NOTE_TEXT' => 'amended'], $later);
+        foreach ([$this->ehiDocPropose(), $this->ehiDocPropose($later)] as $result) {
+            $retained = $this->ehiDocDraftFor($result['drafts'], 'note_id', 'N1050');
+            self::assertSame(['kind' => 'retain', 'reason' => 'ambiguous_link'], ['kind' => $retained->kind, 'reason' => $retained->proposed['reason'] ?? null]);
+            self::assertNull($retained->targetId);
+            $finding = collect($result['findings'])->firstWhere('code', EhiDocumentFinding::AMBIGUOUS_LINK);
+            self::assertSame(['severity' => 'warning', 'table' => 'HNO_INFO', 'records' => 2], $finding['detail']);
+        }
+
+        // Once one is withdrawn, the remaining live document is the target again.
+        $second->delete();
+        $again = $this->ehiDocDraftFor($this->ehiDocPropose()['drafts'], 'note_id', 'N1050');
+        self::assertSame(PhrEhiProposal::KIND_CORROBORATE, $again->kind);
+        self::assertSame($first->id, $again->targetId);
     }
 
     public function test_identical_text_on_the_same_day_is_a_possible_duplicate_that_can_be_linked(): void

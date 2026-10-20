@@ -26,6 +26,12 @@ final class EhiReviewRefused extends RuntimeException
     /** The mapping that produced the proposal is not registered or changed version. */
     public const string STALE_MAPPING = 'stale_mapping';
 
+    /**
+     * The package's last preview did not complete, or the proposal is not part
+     * of its completed preview (left by a failed run, or restored): re-preview.
+     */
+    public const string PREVIEW_INCOMPLETE = 'preview_incomplete';
+
     /** The proposal was already decided differently, or superseded. */
     public const string NOT_PENDING = 'not_pending';
 

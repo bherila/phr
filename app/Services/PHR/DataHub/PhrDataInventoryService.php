@@ -17,7 +17,7 @@ final class PhrDataInventoryService
      * Operational and derived tables are intentionally absent. This fixed map is
      * also the contract future native-backup work must reconcile against.
      *
-     * @var array<string, array{table: string, patient_column: string, storage_column?: string, original_dicom_only?: bool, without_soft_deleted?: bool, status?: string}>
+     * @var array<string, array{table: string, patient_column: string, storage_column?: string, original_dicom_only?: bool, without_soft_deleted?: bool, status?: string, completed_preview_only?: bool}>
      */
     public const array CATEGORIES = [
         'lab_results' => ['table' => 'phr_lab_results', 'patient_column' => 'patient_id'],
@@ -59,8 +59,9 @@ final class PhrDataInventoryService
             'storage_column' => 'byte_size',
         ],
         // EHI proposals still awaiting a review decision (#213 M2); decided and
-        // superseded ones are history, not work.
-        'ehi_pending_proposals' => ['table' => 'phr_ehi_proposals', 'patient_column' => 'patient_id', 'status' => PhrEhiProposal::STATUS_PENDING],
+        // superseded ones are history, not work, and a pending one outside its
+        // package's completed preview cannot be reviewed until a preview completes.
+        'ehi_pending_proposals' => ['table' => 'phr_ehi_proposals', 'patient_column' => 'patient_id', 'status' => PhrEhiProposal::STATUS_PENDING, 'completed_preview_only' => true],
     ];
 
     public function __construct(private readonly PhrPatientAccessService $accessService) {}
@@ -179,6 +180,9 @@ final class PhrDataInventoryService
             }
             if (isset($definition['status'])) {
                 $query->where('status', $definition['status']);
+            }
+            if ($definition['completed_preview_only'] ?? false) {
+                PhrEhiProposal::constrainToCompletedPreview($query);
             }
             if ($definition['original_dicom_only'] ?? false) {
                 $query->whereIn('file_kind', [PhrDicomFile::KIND_DICOM, PhrDicomFile::KIND_DICOMDIR]);

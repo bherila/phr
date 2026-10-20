@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands\Phr;
 
+use App\Models\PhrEhiPackage;
 use App\Models\PhrEhiProposal;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use Illuminate\Console\Attributes\Description;
@@ -34,7 +35,15 @@ class PhrEhiProposalsCommand extends BaseEhiCommand
             return self::INVALID;
         }
 
-        $query = PhrEhiProposal::query()->where('patient_id', $patient->id)->whereIn('package_id', $packages->modelKeys())->orderBy('id');
+        // A pending proposal outside its package's completed preview (left by a
+        // failed run, or restored) is not reviewable, so it is not listed.
+        foreach ($packages as $package) {
+            if ($package->preview_generation_started !== null && ! $package->previewCompleted()) {
+                $this->warn("package {$package->id}: the last preview did not complete; its pending proposals are hidden until phr:ehi:preview completes.");
+            }
+        }
+        $query = PhrEhiProposal::query()->where('patient_id', $patient->id)->whereIn('package_id', $packages->modelKeys())
+            ->tap(static fn ($query) => PhrEhiProposal::constrainToCompletedPreview($query->getQuery()))->orderBy('id');
         $status = $this->optionalStringOption('status');
         if ($status !== null) {
             $query->where('status', $status);
@@ -68,8 +77,12 @@ class PhrEhiProposalsCommand extends BaseEhiCommand
         $this->line("mapping: {$proposal->mapping} ({$proposal->mapping_version})");
         $this->line("kind: {$proposal->kind}");
         $this->line("status: {$proposal->status}");
+        if ($proposal->status === PhrEhiProposal::STATUS_PENDING) {
+            $package = PhrEhiPackage::query()->find($proposal->package_id);
+            $this->line('reviewable: '.($package?->completedPreviewIncludes($proposal) ? 'yes' : 'no (not part of a completed preview; run phr:ehi:preview)'));
+        }
         $this->line('target: '.$this->target($proposal));
-        $this->line('revisions: '.count($proposal->revision_ids_json));
+        $this->line('revisions: '.$proposal->revisions()->count());
         $this->line('candidates: '.($proposal->candidate_ids_json === null ? '(none)' : implode(', ', $proposal->candidate_ids_json)));
         $this->line("preview digest: {$proposal->preview_digest}");
         $this->line("revision digest: {$proposal->revision_digest}");

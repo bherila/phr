@@ -43,6 +43,9 @@ final class EhiDocumentFinding
     /** The record previously linked (or holding this identity) was deleted or retracted. */
     public const string TARGET_WITHDRAWN = 'document_target_withdrawn';
 
+    /** The entity is linked to (or its identity held by) more than one live document; detail.records. */
+    public const string AMBIGUOUS_LINK = 'document_ambiguous_link';
+
     /** Note/media members that no documented reference links to; detail.kind and detail.count. */
     public const string UNLINKED_NOTE_MEMBER = 'unlinked_note_member';
 
@@ -58,6 +61,7 @@ final class EhiDocumentFinding
         self::RTF_UNSUPPORTED => PhrEhiFinding::SEVERITY_WARNING,
         self::UNPARSED_DATETIME => PhrEhiFinding::SEVERITY_INFO,
         self::TARGET_WITHDRAWN => PhrEhiFinding::SEVERITY_INFO,
+        self::AMBIGUOUS_LINK => PhrEhiFinding::SEVERITY_WARNING,
         self::UNLINKED_NOTE_MEMBER => PhrEhiFinding::SEVERITY_INFO,
     ];
 }

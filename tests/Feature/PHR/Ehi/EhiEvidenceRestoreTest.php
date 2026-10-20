@@ -86,7 +86,8 @@ class EhiEvidenceRestoreTest extends TestCase
             $service->review($restoredPending, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $pending->preview_digest);
             self::fail('A restored pending proposal must be re-previewed first.');
         } catch (EhiReviewRefused $refused) {
-            self::assertSame(EhiReviewRefused::STALE_SOURCE, $refused->reason);
+            // Preview generations are not archived: no restored proposal is part of a completed preview.
+            self::assertSame(EhiReviewRefused::PREVIEW_INCOMPLETE, $refused->reason);
         }
 
         $service->preview($restoredPackage, $restoredPatient, $owner->id);

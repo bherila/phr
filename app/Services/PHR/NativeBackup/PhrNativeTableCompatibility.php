@@ -37,6 +37,7 @@ final class PhrNativeTableCompatibility
             'phr_ehi_revisions',
             'phr_ehi_occurrences',
             'phr_ehi_proposals',
+            'phr_ehi_proposal_revisions',
             'phr_ehi_proposal_decisions',
             'phr_ehi_record_links',
         ],

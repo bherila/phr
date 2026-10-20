@@ -58,27 +58,29 @@ under another identity is a `record_conflict`.
 `phr_ehi_table_accounts`, and `phr_ehi_findings` are archived in that order, so every
 parent restores before its children. They hold preservation and accounting state only;
 no clinical rows are derived from them. Blob storage location and the package intake
-lease (`lease_token`, `lease_expires_at`) and `checkpoint_json` are operational and
-excluded; a restored package is never mid-intake.
+lease (`lease_token`, `lease_expires_at`), `checkpoint_json`, and the proposal preview
+generations (`preview_generation_started`, `preview_generation_completed`, added with
+milestone 2) are operational and excluded; a restored package is never mid-intake or
+mid-preview.
 
 The evidence and review tables (#213 milestone 2) follow, after the clinical tables they
 link to: `phr_ehi_entities`, `phr_ehi_revisions`, `phr_ehi_occurrences`,
-`phr_ehi_proposals`, `phr_ehi_proposal_decisions`, and `phr_ehi_record_links`. Every
-foreign key is a declared relationship, so restored record links and decision history
-point at the restored `phr_immunizations` / `phr_documents` rows. A proposal's
-`target_id`, `revision_ids_json`, and `candidate_ids_json` are preview-time database
-ids kept verbatim: they are never trusted after a restore, because review re-verifies
-the revision digest and the target digest, so a restored pending proposal is refused
-(`stale_source` / `stale_target`) until a new preview rewrites it. Projection resume
-state lives in the excluded `checkpoint_json`, so the first preview after a restore
-re-projects, converging on the restored rows.
+`phr_ehi_proposals`, `phr_ehi_proposal_revisions`, `phr_ehi_proposal_decisions`, and
+`phr_ehi_record_links`. Every foreign key is a declared relationship, so restored record
+links, the revisions each proposal relies on, and decision history point at the restored
+rows. A proposal's `target_id` and `candidate_ids_json` are preview-time database ids
+kept verbatim, and its `preview_generation` is excluded, so a restored pending proposal
+belongs to no completed preview: review refuses it (`preview_incomplete`) until a new
+preview re-stamps or rewrites it, re-verifying its target. Projection resume state lives
+in the excluded `checkpoint_json`, so the first preview after a restore re-projects,
+converging on the restored rows.
 
 ## Archives older than a table
 
 Schema version 1 stays 1 when a table is added. The reader requires the manifest's
 table set to equal the catalog, except that a table generation added after v1 shipped
 (`PhrNativeTableCompatibility::LATER_GENERATIONS`: today `ehi_tables`, the six EHI
-preservation tables, then `ehi_evidence`, the six evidence and review tables) may be
+preservation tables, then `ehi_evidence`, the seven evidence and review tables) may be
 wholly absent, in which case it reads as empty. Generations are ordered: an archive may
 lack a generation only if it also lacks every later one, so pre-EHI and M1-era archives
 restore. Part of a generation, a later generation without an earlier one, a missing

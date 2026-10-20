@@ -89,8 +89,10 @@ class PhrDataHubTest extends TestCase
             'manifest_digest' => str_repeat('a', 64),
             'intake_kind' => PhrEhiPackage::INTAKE_DIRECTORY,
         ]);
-        // Only proposals still awaiting review are counted.
-        foreach ([PhrEhiProposal::STATUS_PENDING, PhrEhiProposal::STATUS_ACCEPTED, PhrEhiProposal::STATUS_SUPERSEDED] as $index => $status) {
+        $package->forceFill(['preview_generation_started' => 2, 'preview_generation_completed' => 2])->save();
+        // Only proposals still awaiting review are counted: pending ones of the
+        // package's completed preview, not those a failed (1) or no (null) preview left.
+        foreach ([[PhrEhiProposal::STATUS_PENDING, 2], [PhrEhiProposal::STATUS_ACCEPTED, 2], [PhrEhiProposal::STATUS_SUPERSEDED, 2], [PhrEhiProposal::STATUS_PENDING, 1], [PhrEhiProposal::STATUS_PENDING, null]] as $index => [$status, $generation]) {
             PhrEhiProposal::query()->create([
                 'patient_id' => $patient->id,
                 'package_id' => $package->id,
@@ -98,9 +100,9 @@ class PhrDataHubTest extends TestCase
                 'mapping_version' => 'ehi-imm-1',
                 'subject_key' => str_repeat((string) $index, 64),
                 'revision_digest' => str_repeat('d', 64),
-                'revision_ids_json' => [1],
                 'kind' => PhrEhiProposal::KIND_CREATE,
                 'preview_digest' => str_repeat('e', 64),
+                'preview_generation' => $generation,
                 'status' => $status,
             ]);
         }
@@ -141,6 +143,10 @@ class PhrDataHubTest extends TestCase
         );
         $this->assertNotNull($response->json('owned_patients.0.last_updated_at'));
         $this->assertTrue($document->exists);
+        // While a later preview has started but not completed, nothing is reviewable.
+        $package->forceFill(['preview_generation_started' => 3])->save();
+        $this->actingAs($owner)->getJson('/api/phr/data-hub')->assertOk()
+            ->assertJsonPath('owned_patients.0.record_counts.ehi_pending_proposals', 0);
         $logger->shouldNotHaveReceived('debug');
         $logger->shouldNotHaveReceived('info');
         $logger->shouldNotHaveReceived('notice');

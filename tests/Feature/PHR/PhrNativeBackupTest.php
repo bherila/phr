@@ -313,13 +313,14 @@ class PhrNativeBackupTest extends TestCase
         $this->assertSame(['dicom', 'document', 'ehi'], $this->artifactKinds($firstManifest));
         $this->assertSame(2, $firstManifest['tables']['phr_ehi_table_accounts']['count']);
         $this->assertSame(2, $firstManifest['tables']['phr_ehi_findings']['count']);
-        foreach (['phr_ehi_entities' => 1, 'phr_ehi_revisions' => 1, 'phr_ehi_occurrences' => 1, 'phr_ehi_proposals' => 1, 'phr_ehi_proposal_decisions' => 1, 'phr_ehi_record_links' => 2] as $evidenceTable => $count) {
+        foreach (['phr_ehi_entities' => 1, 'phr_ehi_revisions' => 1, 'phr_ehi_occurrences' => 1, 'phr_ehi_proposals' => 1, 'phr_ehi_proposal_revisions' => 1, 'phr_ehi_proposal_decisions' => 1, 'phr_ehi_record_links' => 2] as $evidenceTable => $count) {
             $this->assertSame($count, $firstManifest['tables'][$evidenceTable]['count'], $evidenceTable);
         }
         $packageRecords = $this->archiveEntry($archivePath, $firstManifest['tables']['phr_ehi_packages']['path']);
-        foreach (['lease_token', 'lease_expires_at', 'checkpoint_json'] as $operational) {
+        foreach (['lease_token', 'lease_expires_at', 'checkpoint_json', 'preview_generation_started', 'preview_generation_completed'] as $operational) {
             $this->assertStringNotContainsString('"'.$operational.'"', $packageRecords);
         }
+        $this->assertStringNotContainsString('"preview_generation"', $this->archiveEntry($archivePath, $firstManifest['tables']['phr_ehi_proposals']['path']));
         $this->assertStringNotContainsString('"storage_path"', $this->archiveEntry($archivePath, $firstManifest['tables']['phr_ehi_blobs']['path']));
         $ehiArtifact = $firstManifest['artifacts'][array_search('ehi', array_column($firstManifest['artifacts'], 'kind'), true)];
         $this->assertSame('artifacts/ehi/'.$ehiArtifact['recordNativeId'].'.blob', $ehiArtifact['path']);
@@ -376,6 +377,10 @@ class PhrNativeBackupTest extends TestCase
         // Evidence links and decision history point at the restored clinical rows.
         $restoredImmunizationId = DB::table('phr_immunizations')->where('patient_id', $restoredPatientId)->value('id');
         $restoredDocumentIds = DB::table('phr_documents')->where('patient_id', $restoredPatientId)->pluck('id')->all();
+        $this->assertSame(
+            DB::table('phr_ehi_revisions')->where('patient_id', $restoredPatientId)->value('id'),
+            DB::table('phr_ehi_proposal_revisions')->where('patient_id', $restoredPatientId)->value('revision_id'),
+        );
         $this->assertSame($restoredImmunizationId, DB::table('phr_ehi_proposal_decisions')->where('patient_id', $restoredPatientId)->value('linked_immunization_id'));
         $this->assertSame($restoredImmunizationId, DB::table('phr_ehi_record_links')->where('patient_id', $restoredPatientId)->where('link_kind', 'projected')->value('immunization_id'));
         $this->assertContains(DB::table('phr_ehi_record_links')->where('patient_id', $restoredPatientId)->where('link_kind', 'bridged')->value('document_id'), $restoredDocumentIds);
@@ -803,6 +808,8 @@ class PhrNativeBackupTest extends TestCase
             'lease_token' => '00000000-0000-4000-8000-0000000000aa',
             'lease_expires_at' => $now,
             'checkpoint_json' => json_encode(['step' => 'synthetic'], JSON_THROW_ON_ERROR),
+            'preview_generation_started' => 2,
+            'preview_generation_completed' => 2,
             'created_at' => $now,
             'updated_at' => $now,
         ]);
@@ -902,13 +909,21 @@ class PhrNativeBackupTest extends TestCase
             'mapping_version' => 'synthetic-1',
             'subject_key' => str_repeat('1', 64),
             'revision_digest' => str_repeat('3', 64),
-            'revision_ids_json' => json_encode([$revisionId], JSON_THROW_ON_ERROR),
             'kind' => 'create',
             'proposed_json' => json_encode(['vaccine_name' => 'Synthetic immunization'], JSON_THROW_ON_ERROR),
             'status' => 'accepted',
             'preview_digest' => str_repeat('4', 64),
+            'preview_generation' => 2,
             'decided_by_user_id' => $reviewer->id,
             'decided_at' => $now,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+        DB::table('phr_ehi_proposal_revisions')->insert([
+            'patient_id' => $patient->id,
+            'proposal_id' => $proposalId,
+            'revision_id' => $revisionId,
+            'position' => 0,
             'created_at' => $now,
             'updated_at' => $now,
         ]);

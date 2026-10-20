@@ -38,6 +38,8 @@ use Illuminate\Support\Carbon;
  * @property string|null $lease_token
  * @property Carbon|null $lease_expires_at
  * @property array<string, mixed>|null $checkpoint_json
+ * @property int|null $preview_generation_started
+ * @property int|null $preview_generation_completed
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read PhrPatient $patient
@@ -125,7 +127,27 @@ class PhrEhiPackage extends Model
             'bound_at' => 'datetime',
             'lease_expires_at' => 'datetime',
             'checkpoint_json' => 'array',
+            'preview_generation_started' => 'integer',
+            'preview_generation_completed' => 'integer',
         ];
+    }
+
+    /**
+     * Whether the last proposal preview that started also completed. Until one
+     * does, no pending proposal of this package may be reviewed.
+     */
+    public function previewCompleted(): bool
+    {
+        return $this->preview_generation_completed !== null
+            && $this->preview_generation_started === $this->preview_generation_completed;
+    }
+
+    /** Whether a proposal of this package was produced by its completed preview. */
+    public function completedPreviewIncludes(PhrEhiProposal $proposal): bool
+    {
+        return (int) $proposal->package_id === (int) $this->id
+            && $this->previewCompleted()
+            && $proposal->preview_generation === $this->preview_generation_completed;
     }
 
     /** @return BelongsTo<PhrPatient, $this> */

@@ -70,22 +70,41 @@ class PhrEhiStatusCommand extends BaseEhiCommand
         )));
     }
 
-    /** Proposal counts by status, and pending ones by mapping and kind. */
+    /**
+     * The proposal preview state, proposal counts by status, and pending ones by
+     * mapping and kind. A pending proposal outside the package's completed
+     * preview (left by a failed run, or restored) is not reviewable, so it is
+     * counted apart rather than as pending.
+     */
     private function lineProposals(PhrEhiPackage $package): void
     {
+        $this->line('preview: '.match (true) {
+            $package->preview_generation_started === null => '(not started)',
+            $package->previewCompleted() => "complete (generation {$package->preview_generation_completed})",
+            default => "incomplete (generation {$package->preview_generation_started} did not complete; run phr:ehi:preview)",
+        });
+
         $statuses = PhrEhiProposal::query()->where('package_id', $package->id)
+            ->tap(static fn ($query) => PhrEhiProposal::constrainToCompletedPreview($query->getQuery()))
             ->selectRaw('status, count(*) as aggregate')->groupBy('status')->orderBy('status')
             ->pluck('aggregate', 'status')->map(static fn (mixed $count): int => (int) $count)->all();
         $this->line('proposals: '.($statuses === [] ? '(none)' : $this->counts($statuses)));
 
         $pending = [];
         PhrEhiProposal::query()->where('package_id', $package->id)->where('status', PhrEhiProposal::STATUS_PENDING)
+            ->tap(static fn ($query) => PhrEhiProposal::constrainToCompletedPreview($query->getQuery()))
             ->selectRaw('mapping, kind, count(*) as aggregate')->groupBy('mapping', 'kind')->orderBy('mapping')->orderBy('kind')
             ->get()->each(function (PhrEhiProposal $row) use (&$pending): void {
                 $pending["{$row->mapping} {$row->kind}"] = (int) $row->getAttribute('aggregate');
             });
         if ($pending !== []) {
             $this->line('pending: '.$this->counts($pending));
+        }
+
+        $unreviewable = PhrEhiProposal::query()->where('package_id', $package->id)->where('status', PhrEhiProposal::STATUS_PENDING)->count()
+            - array_sum($pending);
+        if ($unreviewable > 0) {
+            $this->line("pending outside the completed preview: {$unreviewable} (not reviewable until a preview completes)");
         }
     }
 }
