@@ -68,6 +68,8 @@ explicit `--actor` and go through the same three methods.
 | Export request | `POST api/phr/patients/{patient}/exports` | **O** | — | existing-protected |
 | Native backup | `POST api/phr/patients/{patient}/native-backups` | **O** | — | existing-protected |
 | Patient page shell | `GET /phr/patient/{patient}` | R | — | existing-protected |
+| Stable EOB deep link | `GET /eobs/{public_id}` | R, resolved through the EOB native identity's patient | — (session) | existing-protected; unknown and inaccessible ids both return 404 |
+| Patient-scoped EOB page | `GET /phr/patient/{patient}/eobs/{eob}` | R; EOB must belong to the resolved patient | — (session) | existing-protected; source-less EOBs remain readable |
 | Agent: list patients | `GET api/v1/patients` | R (query) | `patients:read`, or `billing:read` (id, public id, display name, caller's access level only) | existing-protected |
 | Agent: show patient | `GET api/v1/patients/{patient}` | R | `patients:read`, or `billing:read` (same projection) | existing-protected |
 | Agent: create patient | `POST api/v1/patients` | — (creates own) | `patients:write` | existing-protected |
