@@ -87,6 +87,7 @@ class PhrPdfSummaryRenderer
                     $immunization->administered_on?->toDateString(),
                     $immunization->vaccine_name,
                     $immunization->lot_number,
+                    $this->immunizationDose($immunization),
                 ])->all()),
                 $this->section('Allergies', $data['allergies']->map(fn (PhrAllergy $allergy): array => [
                     $allergy->substance,
@@ -133,6 +134,20 @@ class PhrPdfSummaryRenderer
                 'Title' => 'PHR Summary',
             ])
             ->output();
+    }
+
+    /**
+     * Dose amount with its unit ("0.50 mL"), only when an amount was recorded; the amount
+     * is shown exactly as stored. Distinct from dose_number (the series position).
+     */
+    private function immunizationDose(PhrImmunization $immunization): ?string
+    {
+        $amount = trim((string) $immunization->dose_amount);
+        if ($amount === '') {
+            return null;
+        }
+
+        return trim($amount.' '.trim((string) $immunization->dose_unit));
     }
 
     private function messageParticipants(PhrPortalMessage $message): ?string

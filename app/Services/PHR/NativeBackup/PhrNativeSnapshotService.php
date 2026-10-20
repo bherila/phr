@@ -4,19 +4,35 @@ namespace App\Services\PHR\NativeBackup;
 
 use App\Models\PhrDicomFile;
 use App\Models\PhrDicomUpload;
-use Illuminate\Support\Collection;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * One consistent, streamed read of a patient's catalog rows.
+ *
+ * A patient that has imported a large EHI package holds millions of evidence rows
+ * (each projected source row adds an entity, a revision, an occurrence and a
+ * proposal revision), so rows are never materialized per table. Callers run
+ * inside snapshot() and pull each table in id-ordered keyset pages of at most
+ * chunkSize() rows; memory is bounded by the page size, not the row count.
+ * Artifact bytes are never read here; the archive builder streams those from
+ * their configured disks after the snapshot closes.
+ */
 final class PhrNativeSnapshotService
 {
+    public const int DEFAULT_CHUNK_SIZE = 500;
+
     /**
-     * Relational metadata is materialized so references can be translated before
-     * emission. Artifact bytes are never materialized; the archive builder streams
-     * those from their configured disks.
+     * Run $callback inside one repeatable-read transaction. Every chunks() and
+     * presentIds() call made by the callback observes the same snapshot, exactly
+     * as when every table was materialized inside it.
      *
-     * @return array<string, Collection<int, \stdClass>>
+     * @template TResult
+     *
+     * @param  callable(): TResult  $callback
+     * @return TResult
      */
-    public function rows(int $patientId, bool $lockForUpdate = false): array
+    public function snapshot(int $patientId, bool $lockForUpdate, callable $callback): mixed
     {
         $connection = DB::connection();
         $driver = $connection->getDriverName();
@@ -25,59 +41,108 @@ final class PhrNativeSnapshotService
         // MySQL/MariaDB applies this to the next transaction. PostgreSQL requires
         // it immediately after BEGIN. SQLite transactions already retain one read
         // snapshot after their first query. In every case, all relational rows are
-        // materialized before the transaction closes and artifact streaming begins.
+        // read before the transaction closes and artifact streaming begins.
         if ($driver === 'mysql' && ! $alreadyInTransaction) {
             $connection->statement('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
         }
 
-        return $connection->transaction(function () use ($connection, $driver, $patientId, $alreadyInTransaction, $lockForUpdate): array {
+        return $connection->transaction(function () use ($connection, $driver, $patientId, $alreadyInTransaction, $lockForUpdate, $callback): mixed {
             if ($driver === 'pgsql' && ! $alreadyInTransaction) {
                 $connection->statement('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ');
             }
 
-            return $this->materializeRows($patientId, $lockForUpdate);
+            if ($lockForUpdate) {
+                // The DICOM upload and instance row sets are defined by the original
+                // files. Lock those first (as the materialized snapshot did) so both
+                // dependent sets are stable for the rest of the transaction.
+                foreach ($this->chunks($patientId, 'phr_dicom_files', true, ['id']) as $ignored) {
+                    // Locking is the side effect; the page itself is discarded.
+                }
+            }
+
+            return $callback();
         });
     }
 
-    /** @return array<string, Collection<int, \stdClass>> */
-    private function materializeRows(int $patientId, bool $lockForUpdate): array
+    /**
+     * The table's snapshot rows in ascending id order, one keyset page at a time.
+     * Only meaningful inside snapshot().
+     *
+     * @param  list<string>  $columns
+     * @return \Generator<int, list<\stdClass>>
+     */
+    public function chunks(int $patientId, string $table, bool $lockForUpdate = false, array $columns = ['*']): \Generator
     {
-        $originalFilesQuery = DB::table('phr_dicom_files')
-            ->where('patient_id', $patientId)
-            ->whereIn('file_kind', [PhrDicomFile::KIND_DICOM, PhrDicomFile::KIND_DICOMDIR])
-            ->orderBy('id');
-        if ($lockForUpdate) {
-            $originalFilesQuery->lockForUpdate();
-        }
-        $originalFiles = $originalFilesQuery->get();
-        $originalFileIds = $originalFiles->pluck('id')->map(static fn ($id): int => (int) $id)->all();
-        $originalUploadIds = $originalFiles->pluck('upload_id')->map(static fn ($id): int => (int) $id)->unique()->all();
-
-        $rows = [];
-        foreach (PhrNativeBackupCatalog::included() as $table => $definition) {
-            $patientColumn = $definition['patient_column'];
-            $query = DB::table($table)->where($patientColumn, $patientId)->orderBy('id');
-            if ($lockForUpdate && $table !== 'phr_dicom_files') {
+        $size = self::chunkSize();
+        $lastId = null;
+        do {
+            $query = $this->query($patientId, $table)->select($columns);
+            if ($lastId !== null) {
+                $query->where('id', '>', $lastId);
+            }
+            $query->orderBy('id')->limit($size);
+            if ($lockForUpdate) {
                 $query->lockForUpdate();
             }
+            $rows = $query->get()->all();
+            if ($rows === []) {
+                return;
+            }
 
-            $rows[$table] = match ($table) {
-                'phr_dicom_files' => $originalFiles,
-                'phr_dicom_uploads' => $query
-                    ->where(function ($query) use ($originalUploadIds): void {
-                        $query->where('status', PhrDicomUpload::STATUS_PROCESSED);
-                        if ($originalUploadIds !== []) {
-                            $query->orWhereIn('id', $originalUploadIds);
-                        }
-                    })
-                    ->get(),
-                'phr_dicom_instances' => $originalFileIds === []
-                    ? collect()
-                    : $query->whereIn('file_id', $originalFileIds)->get(),
-                default => $query->get(),
-            };
+            yield $rows;
+
+            $lastId = (int) $rows[array_key_last($rows)]->id;
+        } while (count($rows) === $size);
+    }
+
+    /**
+     * Which of $ids are rows of $table in this snapshot. A relationship to a row
+     * outside the snapshot (another patient's row, a dangling id, or a row a
+     * catalog row policy excludes) has no archive identity.
+     *
+     * @param  list<int>  $ids
+     * @return list<int>
+     */
+    public function presentIds(int $patientId, string $table, array $ids): array
+    {
+        if ($ids === []) {
+            return [];
         }
 
-        return $rows;
+        return $this->query($patientId, $table)
+            ->whereIn('id', $ids)
+            ->pluck('id')
+            ->map(static fn ($id): int => (int) $id)
+            ->all();
+    }
+
+    public static function chunkSize(): int
+    {
+        return max(1, (int) config('phr.native_backup_chunk_size', self::DEFAULT_CHUNK_SIZE));
+    }
+
+    private function query(int $patientId, string $table): Builder
+    {
+        $definition = PhrNativeBackupCatalog::included()[$table] ?? throw new \InvalidArgumentException('Not a native backup catalog table.');
+        $query = DB::table($table)->where($definition['patient_column'], $patientId);
+
+        return match ($table) {
+            'phr_dicom_files' => $query->whereIn('file_kind', [PhrDicomFile::KIND_DICOM, PhrDicomFile::KIND_DICOMDIR]),
+            // Sub-selects rather than materialized id lists keep these predicates
+            // independent of the study size while selecting the same rows.
+            'phr_dicom_uploads' => $query->where(function (Builder $query) use ($patientId): void {
+                $query->where('status', PhrDicomUpload::STATUS_PROCESSED)
+                    ->orWhereIn('id', $this->originalFiles($patientId)->select('upload_id'));
+            }),
+            'phr_dicom_instances' => $query->whereIn('file_id', $this->originalFiles($patientId)->select('id')),
+            default => $query,
+        };
+    }
+
+    private function originalFiles(int $patientId): Builder
+    {
+        return DB::table('phr_dicom_files')
+            ->where('patient_id', $patientId)
+            ->whereIn('file_kind', [PhrDicomFile::KIND_DICOM, PhrDicomFile::KIND_DICOMDIR]);
     }
 }

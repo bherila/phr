@@ -11,8 +11,10 @@ use App\Models\PhrPatientUserAccess;
 use App\Models\User;
 use App\Services\PHR\DataHub\PhrPatientDeletionCleanupService;
 use App\Services\PHR\NativeBackup\NativeBackupException;
+use App\Services\PHR\NativeBackup\PhrNativeArchiveBuilder;
 use App\Services\PHR\NativeBackup\PhrNativeBackupCatalog;
 use App\Services\PHR\NativeBackup\PhrNativeBackupService;
+use App\Services\PHR\NativeBackup\PhrNativeRecordCodec;
 use App\Services\PHR\NativeBackup\PhrNativeSnapshotService;
 use App\Support\Storage\PhrStorageKey;
 use Illuminate\Contracts\Filesystem\Filesystem;
@@ -144,7 +146,7 @@ class PhrNativeBackupTest extends TestCase
     public function test_all_relational_snapshot_queries_run_inside_one_transaction(): void
     {
         $owner = $this->createUser();
-        $patient = $this->createPatient($owner);
+        $patient = $this->seedCompletePatientGraph($owner, $this->createUser());
         $outsideLevel = DB::transactionLevel();
         $transactionLevels = [];
         DB::listen(function (QueryExecuted $query) use (&$transactionLevels): void {
@@ -153,12 +155,98 @@ class PhrNativeBackupTest extends TestCase
             }
         });
 
-        $rows = app(PhrNativeSnapshotService::class)->rows($patient->id);
+        // Rows, the identities assigned to them, and the related rows they name
+        // are all read (page by page) inside the one snapshot transaction.
+        $result = app(PhrNativeArchiveBuilder::class)->build($patient);
+        try {
+            $this->assertSame(array_keys(PhrNativeBackupCatalog::included()), array_keys($result->counts));
+            $this->assertNotEmpty($transactionLevels);
+            $this->assertNotContains($outsideLevel, $transactionLevels);
+            $this->assertSame($outsideLevel, DB::transactionLevel());
+        } finally {
+            @unlink($result->path);
+        }
+    }
 
-        $this->assertSame(array_keys(PhrNativeBackupCatalog::included()), array_keys($rows));
-        $this->assertNotEmpty($transactionLevels);
-        $this->assertNotContains($outsideLevel, $transactionLevels);
-        $this->assertSame($outsideLevel, DB::transactionLevel());
+    public function test_snapshot_streams_every_table_in_bounded_id_pages(): void
+    {
+        config(['phr.native_backup_chunk_size' => 2]);
+        $owner = $this->createUser();
+        $patient = $this->seedCompletePatientGraph($owner, $this->createUser());
+        $this->seedExtraPagedRows($patient, $owner);
+        $catalogTables = array_keys(PhrNativeBackupCatalog::included());
+        $selects = [];
+        DB::listen(function (QueryExecuted $query) use (&$selects, $catalogTables): void {
+            if (preg_match('/^select .*? from "([a-z_]+)"/', $query->sql, $match) === 1 && in_array($match[1], $catalogTables, true)) {
+                $selects[$match[1]][] = [$query->sql, $query->bindings];
+            }
+        });
+
+        $result = app(PhrNativeArchiveBuilder::class)->build($patient);
+        @unlink($result->path);
+
+        // Five lab results at a page size of two: three keyset pages (2, 2, 1),
+        // each ordered by id and limited, the later ones resuming after the last id.
+        $this->assertSame(5, $result->counts['phr_lab_results']);
+        $labPages = array_values(array_filter(
+            $selects['phr_lab_results'],
+            static fn (array $select): bool => str_contains($select[0], 'limit 2'),
+        ));
+        $this->assertCount(3, $labPages);
+        foreach ($labPages as $index => [$sql]) {
+            $this->assertStringContainsString('order by "id" asc limit 2', $sql);
+            $this->assertSame($index > 0, str_contains($sql, '"id" > ?'));
+        }
+        $this->assertSame(5, $result->counts['phr_ehi_entities']);
+        $this->assertSame(5, $result->counts['phr_ehi_revisions']);
+        $this->assertSame(5, $result->counts['phr_ehi_occurrences']);
+
+        // No catalog table is ever read whole: a read is either one limited page
+        // or a lookup of at most one page's related ids.
+        foreach ($selects as $table => $tableSelects) {
+            foreach ($tableSelects as [$sql]) {
+                $paged = str_contains($sql, 'limit 2');
+                $lookup = preg_match('/"id" in \(([?, ]+)\)$/', $sql, $ids) === 1 && substr_count($ids[1], '?') <= 2;
+                $this->assertTrue($paged || $lookup, $table.' was read without a page bound: '.$sql);
+            }
+        }
+    }
+
+    public function test_archive_records_are_identical_whatever_the_page_size(): void
+    {
+        $this->freezeTime();
+        $owner = $this->createUser();
+        $patient = $this->seedCompletePatientGraph($owner, $this->createUser());
+        $this->seedExtraPagedRows($patient, $owner);
+
+        // The first (paged) build assigns every identity; the second reuses them.
+        config(['phr.native_backup_chunk_size' => 2]);
+        $paged = app(PhrNativeArchiveBuilder::class)->build($patient);
+        $identityCount = DB::table('phr_native_record_identities')->count();
+        config(['phr.native_backup_chunk_size' => PhrNativeSnapshotService::DEFAULT_CHUNK_SIZE]);
+        $whole = app(PhrNativeArchiveBuilder::class)->build($patient);
+        try {
+            $this->assertSame($identityCount, DB::table('phr_native_record_identities')->count());
+            $this->assertSame(
+                array_sum(array_map('intval', $whole->counts)) + 2, // + the owner and reviewer actors
+                $identityCount,
+            );
+            $this->assertSame($whole->counts, $paged->counts);
+            $this->assertSame(
+                PhrNativeRecordCodec::canonicalJson($whole->manifest),
+                PhrNativeRecordCodec::canonicalJson($paged->manifest),
+            );
+            foreach ($whole->manifest['tables'] as $table => $entry) {
+                $this->assertSame(
+                    $this->archiveEntry($whole->path, $entry['path']),
+                    $this->archiveEntry($paged->path, $entry['path']),
+                    $table,
+                );
+            }
+        } finally {
+            @unlink($paged->path);
+            @unlink($whole->path);
+        }
     }
 
     public function test_worker_failure_marks_active_backup_terminal_and_preserves_domain_failure(): void
@@ -954,6 +1042,64 @@ class PhrNativeBackupTest extends TestCase
         }
 
         return $patient;
+    }
+
+    /**
+     * Rows that span several pages at a page size of two, with relationships that
+     * reach rows on earlier pages and in earlier tables.
+     */
+    private function seedExtraPagedRows(PhrPatient $patient, User $owner): void
+    {
+        $now = '2026-01-02 03:04:05';
+        $documentId = DB::table('phr_documents')->where('patient_id', $patient->id)->min('id');
+        foreach (range(1, 4) as $n) {
+            DB::table('phr_lab_results')->insert([
+                'patient_id' => $patient->id,
+                'user_id' => $owner->id,
+                'source_document_id' => $n % 2 === 0 ? $documentId : null,
+                'test_name' => 'Synthetic paged test '.$n,
+                'analyte' => 'Synthetic analyte',
+                'value_numeric' => $n.'.0000000000',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        }
+
+        $sourceId = DB::table('phr_ehi_sources')->where('patient_id', $patient->id)->value('id');
+        $packageId = DB::table('phr_ehi_packages')->where('patient_id', $patient->id)->value('id');
+        $memberId = DB::table('phr_ehi_occurrences')->where('patient_id', $patient->id)->value('member_id');
+        foreach (range(1, 4) as $n) {
+            $entityId = DB::table('phr_ehi_entities')->insertGetId([
+                'patient_id' => $patient->id,
+                'source_id' => $sourceId,
+                'table_name' => 'SYNTHETIC_TABLE',
+                'key_digest' => str_repeat((string) ($n + 4), 64),
+                'key_json' => json_encode(['PAT_ID' => '00012'.$n], JSON_THROW_ON_ERROR),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+            $revisionId = DB::table('phr_ehi_revisions')->insertGetId([
+                'patient_id' => $patient->id,
+                'entity_id' => $entityId,
+                'first_package_id' => $packageId,
+                'content_digest' => str_repeat((string) ($n + 4), 64),
+                'values_json' => json_encode(['PAT_ID' => '00012'.$n], JSON_THROW_ON_ERROR),
+                'dictionary_fingerprint' => str_repeat('d', 64),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+            DB::table('phr_ehi_occurrences')->insert([
+                'patient_id' => $patient->id,
+                'package_id' => $packageId,
+                'member_id' => $memberId,
+                'revision_id' => $revisionId,
+                'line_number' => $n + 2,
+                'byte_offset' => 24 * ($n + 1),
+                'disposition' => 'projected',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        }
     }
 
     private function newBackup(PhrPatient $patient, User $owner): PhrNativeBackup

@@ -79,7 +79,11 @@ final class PhrNativeRestorePlanner
         $currentHashes = [];
         $actorIds = [$ownerNativeId => $actorUserId];
         if ($targetPatientId !== null) {
-            $identityRows = PhrNativeRecordIdentity::query()->where('patient_id', $targetPatientId)->get();
+            // Plain rows paged by id: no model is hydrated per identity.
+            $identityRows = DB::table('phr_native_record_identities')
+                ->where('patient_id', $targetPatientId)
+                ->select(['id', 'record_table', 'record_id', 'native_id'])
+                ->lazyById(PhrNativeSnapshotService::chunkSize());
             foreach ($identityRows as $identity) {
                 $table = (string) $identity->record_table;
                 $nativeId = (string) $identity->native_id;
@@ -97,26 +101,40 @@ final class PhrNativeRestorePlanner
                     $archived[$table][(string) $record['nativeId']] = true;
                 }
             }
-            try {
-                foreach ($this->snapshotService->rows($targetPatientId, $lockCurrentRows) as $table => $rows) {
-                    $definition = PhrNativeBackupCatalog::included()[$table];
-                    foreach ($rows as $row) {
-                        // Records the archive does not contain (created after it,
-                        // whether or not they have an identity yet: patients,
-                        // documents and EOBs get theirs when written) are outside
-                        // this restore's conflict set. They remain untouched. A
-                        // mapped current record still fails closed if one of its
-                        // own relationships has lost identity metadata.
-                        $nativeId = $identitiesByRecordId[$table][(int) $row->id] ?? null;
-                        if ($nativeId === null || ! isset($archived[$table][$nativeId])) {
-                            continue;
+            // Current rows are streamed in id-ordered pages inside one snapshot
+            // (locked when applying); only nativeId => contentHash is retained.
+            $failure = $this->snapshotService->snapshot(
+                $targetPatientId,
+                $lockCurrentRows,
+                function () use ($targetPatientId, $lockCurrentRows, $identitiesByRecordId, $archived, &$currentHashes): ?string {
+                    try {
+                        foreach (PhrNativeBackupCatalog::included() as $table => $definition) {
+                            foreach ($this->snapshotService->chunks($targetPatientId, $table, $lockCurrentRows) as $rows) {
+                                foreach ($rows as $row) {
+                                    // Records the archive does not contain (created after it,
+                                    // whether or not they have an identity yet: patients,
+                                    // documents and EOBs get theirs when written) are outside
+                                    // this restore's conflict set. They remain untouched. A
+                                    // mapped current record still fails closed if one of its
+                                    // own relationships has lost identity metadata.
+                                    $nativeId = $identitiesByRecordId[$table][(int) $row->id] ?? null;
+                                    if ($nativeId === null || ! isset($archived[$table][$nativeId])) {
+                                        continue;
+                                    }
+                                    $projected = $this->projector->project($targetPatientId, $table, $definition, $row, $identitiesByRecordId);
+                                    $currentHashes[$table][$projected['nativeId']] = $projected['contentHash'];
+                                }
+                            }
                         }
-                        $projected = $this->projector->project($targetPatientId, $table, $definition, $row, $identitiesByRecordId);
-                        $currentHashes[$table][$projected['nativeId']] = $projected['contentHash'];
+                    } catch (NativeRestoreException $exception) {
+                        return $exception->failureCategory;
                     }
-                }
-            } catch (NativeRestoreException $exception) {
-                $blockers[] = $exception->failureCategory;
+
+                    return null;
+                },
+            );
+            if ($failure !== null) {
+                $blockers[] = $failure;
             }
         }
 

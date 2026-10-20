@@ -490,7 +490,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
     }
 
     /**
-     * Reconstruct HNO_PLAIN_TEXT for the latest contact that has text lines.
+     * Reconstruct HNO_PLAIN_TEXT for the latest contact whose lines hold text.
      *
      * @param  list<PhrEhiRevision>  $contacts  oldest first
      * @param  list<int>  $revisionIds
@@ -498,60 +498,67 @@ final readonly class EhiDocumentMapping implements EhiMapping
      */
     private function noteText(EhiMappingContext $context, EhiDocumentEvidence $evidence, PhrEhiRevision $note, string $noteId, array $contacts, array &$revisionIds): array
     {
-        // Line ids by contact; only the chosen contact's lines are read back.
+        // Line ids by contact; lines are read back one contact at a time.
         $groups = $evidence->groups(self::HNO_PLAIN_TEXT, 'NOTE_ID', $noteId);
         if ($groups === []) {
             return ['text' => null, 'provenance' => null];
         }
 
-        $chosen = null;
+        /** @var list<string> $candidates contact serial numbers with lines, newest first */
+        $candidates = [];
         foreach (array_reverse($contacts) as $contact) {
             $csn = EhiDocumentValues::cell($contact, 'CONTACT_SERIAL_NUM');
             if ($csn !== null && isset($groups[$csn])) {
-                $chosen = $csn;
-                break;
+                $candidates[] = $csn;
             }
         }
-        if ($chosen === null && $contacts === [] && count($groups) === 1 && array_key_first($groups) !== '') {
-            $chosen = (string) array_key_first($groups);
+        if ($candidates === [] && $contacts === [] && count($groups) === 1 && array_key_first($groups) !== '') {
+            $candidates[] = (string) array_key_first($groups);
         }
-        if ($chosen === null) {
+        if ($candidates === []) {
             $this->finding($context, EhiDocumentFinding::TEXT_UNORDERED, $note, ['table' => self::HNO_PLAIN_TEXT, 'reason' => 'no_contact']);
 
             return ['text' => null, 'provenance' => null];
         }
 
-        $lines = $evidence->fetch($groups[$chosen]);
-        foreach ($lines as $line) {
-            $revisionIds[] = $line->id;
-            $number = EhiDocumentValues::cell($line, 'LINE');
-            if ($evidence->isAmbiguous($line) || $number === null || ! EhiDocumentValues::isExactInteger($number)) {
-                $this->finding($context, EhiDocumentFinding::TEXT_UNORDERED, $note, ['table' => self::HNO_PLAIN_TEXT, 'reason' => $evidence->isAmbiguous($line) ? 'ambiguous' : 'line']);
+        // A contact whose lines are all blank does not hide an older contact's
+        // text: each older group is read only once every newer one proved blank,
+        // and the blank lines read stay relied upon, since they decided the choice.
+        foreach ($candidates as $chosen) {
+            $lines = $evidence->fetch($groups[$chosen]);
+            foreach ($lines as $line) {
+                $revisionIds[] = $line->id;
+                $number = EhiDocumentValues::cell($line, 'LINE');
+                if ($evidence->isAmbiguous($line) || $number === null || ! EhiDocumentValues::isExactInteger($number)) {
+                    $this->finding($context, EhiDocumentFinding::TEXT_UNORDERED, $note, ['table' => self::HNO_PLAIN_TEXT, 'reason' => $evidence->isAmbiguous($line) ? 'ambiguous' : 'line']);
 
-                return ['text' => null, 'provenance' => null];
+                    return ['text' => null, 'provenance' => null];
+                }
             }
-        }
-        $lines = $this->sortedBy($lines, 'LINE');
-        $parts = [];
-        $gaps = false;
-        foreach ($lines as $position => $line) {
-            $gaps = $gaps || EhiDocumentValues::cell($line, 'LINE') !== (string) ($position + 1);
-            $parts[] = EhiDocumentValues::cell($line, 'NOTE_TEXT') ?? '';
-        }
-        [$text, $truncated] = $this->boundedText(implode("\n", $parts));
-        if (trim($text) === '') {
-            // No content, as applyCreate() judges it: blank lines are not text.
-            return ['text' => null, 'provenance' => null];
+            $lines = $this->sortedBy($lines, 'LINE');
+            $parts = [];
+            $gaps = false;
+            foreach ($lines as $position => $line) {
+                $gaps = $gaps || EhiDocumentValues::cell($line, 'LINE') !== (string) ($position + 1);
+                $parts[] = EhiDocumentValues::cell($line, 'NOTE_TEXT') ?? '';
+            }
+            [$text, $truncated] = $this->boundedText(implode("\n", $parts));
+            if (trim($text) === '') {
+                // No content, as applyCreate() judges it: blank lines are not text.
+                continue;
+            }
+
+            return ['text' => $text, 'provenance' => [
+                'derived' => true,
+                'source' => self::HNO_PLAIN_TEXT,
+                'contact_serial_num' => $chosen,
+                'line_count' => count($lines),
+                'line_gaps' => $gaps,
+                'truncated' => $truncated,
+            ]];
         }
 
-        return ['text' => $text, 'provenance' => [
-            'derived' => true,
-            'source' => self::HNO_PLAIN_TEXT,
-            'contact_serial_num' => $chosen,
-            'line_count' => count($lines),
-            'line_gaps' => $gaps,
-            'truncated' => $truncated,
-        ]];
+        return ['text' => null, 'provenance' => null];
     }
 
     /**

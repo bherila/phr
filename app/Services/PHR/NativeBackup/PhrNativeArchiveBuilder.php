@@ -5,7 +5,6 @@ namespace App\Services\PHR\NativeBackup;
 use App\Models\PhrDicomFile;
 use App\Models\PhrDocument;
 use App\Models\PhrPatient;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Storage;
 use ZipStream\CompressionMethod;
 use ZipStream\ZipStream;
@@ -21,10 +20,179 @@ final class PhrNativeArchiveBuilder
     public function build(PhrPatient $patient): NativeBackupBuildResult
     {
         $patientId = (int) $patient->id;
-        $rows = $this->snapshotService->rows($patientId);
-        $identities = $this->identities($patientId, $rows);
         $maxBytes = (int) config('phr.native_backup_max_uncompressed_bytes', 20 * 1024 * 1024 * 1024);
-        $artifacts = $this->artifacts($patientId, $rows, $identities, $maxBytes);
+        /** @var array<string, array{stream: resource, count: int, size: int}> $records */
+        $records = [];
+
+        try {
+            // Records are encoded while the snapshot transaction is open, one page
+            // at a time, into per-table temporary files; nothing row-sized is kept.
+            // Artifact bytes are read only after the transaction closes.
+            [$patientNativeId, $candidates] = $this->snapshotService->snapshot(
+                $patientId,
+                false,
+                function () use ($patientId, $maxBytes, &$records): array {
+                    return $this->writeRecords($patientId, $maxBytes, $records);
+                },
+            );
+            $artifacts = $this->artifacts($candidates, $maxBytes);
+
+            return $this->writeArchive($patientNativeId, $records, $artifacts, $maxBytes);
+        } finally {
+            foreach ($records as $record) {
+                fclose($record['stream']);
+            }
+        }
+    }
+
+    /**
+     * @param  array<string, array{stream: resource, count: int, size: int}>  $records
+     * @return array{0: string, 1: list<array{kind: string, recordNativeId: string, path: string, disk: string, source_key: string, expected_size: int, expected_hash: string|null}>}
+     */
+    private function writeRecords(int $patientId, int $maxBytes, array &$records): array
+    {
+        $patientNativeId = $this->identityRepository->forRecords($patientId, 'phr_patients', [$patientId])[$patientId];
+        $candidates = ['document' => [], 'dicom' => [], 'ehi' => []];
+        $recordBytes = 0;
+
+        foreach (PhrNativeBackupCatalog::included() as $table => $definition) {
+            $recordStream = tmpfile();
+            if ($recordStream === false) {
+                throw new NativeBackupException('temporary_storage_failed');
+            }
+            $records[$table] = ['stream' => $recordStream, 'count' => 0, 'size' => 0];
+
+            foreach ($this->snapshotService->chunks($patientId, $table) as $rows) {
+                $identities = $this->pageIdentities($patientId, $patientNativeId, $table, $definition, $rows);
+                foreach ($rows as $row) {
+                    try {
+                        $record = $this->encodeRecord($patientId, $table, $definition, $row, $identities);
+                        $line = PhrNativeRecordCodec::canonicalJson($record)."\n";
+                    } catch (NativeBackupException $exception) {
+                        throw $exception;
+                    } catch (\Throwable) {
+                        throw new NativeBackupException('archive_write_failed');
+                    }
+                    if (fwrite($recordStream, $line) === false) {
+                        throw new NativeBackupException('temporary_storage_failed');
+                    }
+                    // Fail closed as soon as records alone pass the ceiling rather
+                    // than filling temporary storage first.
+                    $recordBytes = $this->checkedTotal($recordBytes, strlen($line), $maxBytes);
+                    $records[$table]['count']++;
+                    $this->collectArtifactCandidate($table, $row, $identities, $candidates);
+                }
+            }
+
+            $recordSize = ftell($recordStream);
+            if (! is_int($recordSize)) {
+                throw new NativeBackupException('temporary_storage_failed');
+            }
+            $records[$table]['size'] = $recordSize;
+        }
+
+        return [$patientNativeId, [...$candidates['document'], ...$candidates['dicom'], ...$candidates['ehi']]];
+    }
+
+    /**
+     * Identities for one page: its own rows, the actors it names, and the rows it
+     * relates to that are themselves in the snapshot. A related row outside the
+     * snapshot has no identity here, exactly as when the whole snapshot was mapped.
+     *
+     * @param  array<string, mixed>  $definition
+     * @param  list<\stdClass>  $rows
+     * @return array<string, array<int, string>>
+     */
+    private function pageIdentities(int $patientId, string $patientNativeId, string $table, array $definition, array $rows): array
+    {
+        $identities = ['phr_patients' => [$patientId => $patientNativeId]];
+        $identities[$table] = ($identities[$table] ?? []) + $this->identityRepository->forRecords(
+            $patientId,
+            $table,
+            array_map(static fn (\stdClass $row): int => (int) $row->id, $rows),
+        );
+
+        $actorIds = [];
+        $relatedIds = [];
+        foreach ($definition['relationships'] ?? [] as $column => $relationship) {
+            foreach ($rows as $row) {
+                $relatedId = $row->{$column};
+                if ($relatedId === null) {
+                    continue;
+                }
+                if ($relationship['kind'] === 'actor') {
+                    $actorIds[(int) $relatedId] = true;
+                } else {
+                    $relatedIds[$relationship['target']][(int) $relatedId] = true;
+                }
+            }
+        }
+
+        if ($actorIds !== []) {
+            $identities['users'] = $this->identityRepository->forRecords($patientId, 'users', array_keys($actorIds));
+        }
+        foreach ($relatedIds as $target => $ids) {
+            $present = $this->snapshotService->presentIds($patientId, $target, array_keys($ids));
+            $identities[$target] = ($identities[$target] ?? []) + $this->identityRepository->forRecords($patientId, $target, $present);
+        }
+
+        return $identities;
+    }
+
+    /**
+     * Artifacts keep the order the manifest has always used: every document, then
+     * every DICOM file, then every EHI blob, each in id order.
+     *
+     * @param  array<string, array<int, string>>  $identities
+     * @param  array<string, list<array{kind: string, recordNativeId: string, path: string, disk: string, source_key: string, expected_size: int, expected_hash: string|null}>>  $candidates
+     */
+    private function collectArtifactCandidate(string $table, \stdClass $row, array $identities, array &$candidates): void
+    {
+        if ($table === 'phr_documents') {
+            if ($row->storage_path === null || $row->storage_path === '') {
+                return;
+            }
+            $candidates['document'][] = [
+                'kind' => 'document',
+                'recordNativeId' => $identities['phr_documents'][(int) $row->id],
+                'path' => PhrNativeBackupCatalog::artifactPath('document', $identities['phr_documents'][(int) $row->id]),
+                'disk' => PhrDocument::STORAGE_DISK,
+                'source_key' => (string) $row->storage_path,
+                'expected_size' => (int) $row->byte_size,
+                'expected_hash' => $row->file_hash === null ? null : strtolower((string) $row->file_hash),
+            ];
+        } elseif ($table === 'phr_dicom_files') {
+            $kind = $row->file_kind === PhrDicomFile::KIND_DICOMDIR ? 'dicomdir' : 'dicom';
+            $candidates['dicom'][] = [
+                'kind' => $kind,
+                'recordNativeId' => $identities['phr_dicom_files'][(int) $row->id],
+                'path' => PhrNativeBackupCatalog::artifactPath($kind, $identities['phr_dicom_files'][(int) $row->id]),
+                'disk' => 'phr_dicom',
+                'source_key' => (string) $row->r2_key,
+                'expected_size' => (int) $row->file_size_bytes,
+                'expected_hash' => strtolower((string) $row->sha256),
+            ];
+        } elseif ($table === 'phr_ehi_blobs') {
+            // Preserved EHI member bytes: one artifact per content-addressed blob row,
+            // shared by every member (in every package) that has those bytes.
+            $candidates['ehi'][] = [
+                'kind' => 'ehi',
+                'recordNativeId' => $identities['phr_ehi_blobs'][(int) $row->id],
+                'path' => PhrNativeBackupCatalog::artifactPath('ehi', $identities['phr_ehi_blobs'][(int) $row->id]),
+                'disk' => (string) $row->storage_disk,
+                'source_key' => (string) $row->storage_path,
+                'expected_size' => (int) $row->byte_size,
+                'expected_hash' => strtolower((string) $row->sha256),
+            ];
+        }
+    }
+
+    /**
+     * @param  array<string, array{stream: resource, count: int, size: int}>  $records
+     * @param  list<array{kind: string, recordNativeId: string, path: string, size: int, sha256: string, disk: string, source_key: string}>  $artifacts
+     */
+    private function writeArchive(string $patientNativeId, array $records, array $artifacts, int $maxBytes): NativeBackupBuildResult
+    {
         $targetPath = tempnam(sys_get_temp_dir(), 'phr-native-');
         if ($targetPath === false) {
             throw new NativeBackupException('temporary_storage_failed');
@@ -54,46 +222,26 @@ final class PhrNativeArchiveBuilder
 
             foreach (PhrNativeBackupCatalog::included() as $table => $definition) {
                 $recordPath = 'records/'.$table.'.ndjson';
-                $recordStream = tmpfile();
-                if ($recordStream === false) {
-                    throw new NativeBackupException('temporary_storage_failed');
-                }
+                $recordStream = $records[$table]['stream'];
+                $uncompressedBytes = $this->checkedTotal($uncompressedBytes, $records[$table]['size'], $maxBytes);
+                rewind($recordStream);
+                $hashContext = hash_init('sha256');
+                hash_update_stream($hashContext, $recordStream);
+                $recordHash = hash_final($hashContext);
+                rewind($recordStream);
 
-                try {
-                    foreach ($rows[$table] as $row) {
-                        $record = $this->encodeRecord($patientId, $table, $definition, $row, $identities);
-                        $line = PhrNativeRecordCodec::canonicalJson($record)."\n";
-                        if (fwrite($recordStream, $line) === false) {
-                            throw new NativeBackupException('temporary_storage_failed');
-                        }
-                    }
-
-                    $recordSize = ftell($recordStream);
-                    if (! is_int($recordSize)) {
-                        throw new NativeBackupException('temporary_storage_failed');
-                    }
-                    $uncompressedBytes = $this->checkedTotal($uncompressedBytes, $recordSize, $maxBytes);
-                    rewind($recordStream);
-                    $hashContext = hash_init('sha256');
-                    hash_update_stream($hashContext, $recordStream);
-                    $recordHash = hash_final($hashContext);
-                    rewind($recordStream);
-
-                    $zip->addFileFromStream(
-                        fileName: $recordPath,
-                        stream: $recordStream,
-                        compressionMethod: CompressionMethod::DEFLATE,
-                    );
-                    $count = $rows[$table]->count();
-                    $counts[$table] = $count;
-                    $tableManifest[$table] = [
-                        'path' => $recordPath,
-                        'count' => $count,
-                        'sha256' => $recordHash,
-                    ];
-                } finally {
-                    fclose($recordStream);
-                }
+                $zip->addFileFromStream(
+                    fileName: $recordPath,
+                    stream: $recordStream,
+                    compressionMethod: CompressionMethod::DEFLATE,
+                );
+                $count = $records[$table]['count'];
+                $counts[$table] = $count;
+                $tableManifest[$table] = [
+                    'path' => $recordPath,
+                    'count' => $count,
+                    'sha256' => $recordHash,
+                ];
             }
 
             foreach ($artifacts as $artifact) {
@@ -125,7 +273,7 @@ final class PhrNativeArchiveBuilder
                 }
             }
 
-            $manifest = $this->manifest($patientId, $identities['phr_patients'][$patientId], $tableManifest, $artifacts, $maxBytes, $uncompressedBytes);
+            $manifest = $this->manifest($patientNativeId, $tableManifest, $artifacts, $maxBytes, $uncompressedBytes);
             $manifestJson = PhrNativeRecordCodec::canonicalJson($manifest)."\n";
             $this->checkedTotal($uncompressedBytes, strlen($manifestJson), $maxBytes);
             $zip->addFile('manifest.json', $manifestJson, compressionMethod: CompressionMethod::DEFLATE);
@@ -149,31 +297,6 @@ final class PhrNativeArchiveBuilder
         }
 
         return new NativeBackupBuildResult($targetPath, $fileSize, $sha256, $manifest, $counts);
-    }
-
-    /**
-     * @param  array<string, Collection<int, \stdClass>>  $rows
-     * @return array<string, array<int, string>>
-     */
-    private function identities(int $patientId, array $rows): array
-    {
-        $identities = [];
-        foreach (PhrNativeBackupCatalog::included() as $table => $definition) {
-            foreach ($rows[$table] as $row) {
-                $recordId = (int) $row->id;
-                $identities[$table][$recordId] = $this->identityRepository->forRecord($patientId, $table, $recordId);
-
-                foreach ($definition['relationships'] ?? [] as $column => $relationship) {
-                    $relatedId = $row->{$column};
-                    if ($relatedId !== null && $relationship['kind'] === 'actor') {
-                        $actorId = (int) $relatedId;
-                        $identities['users'][$actorId] = $this->identityRepository->forRecord($patientId, 'users', $actorId);
-                    }
-                }
-            }
-        }
-
-        return $identities;
     }
 
     /**
@@ -229,53 +352,11 @@ final class PhrNativeArchiveBuilder
     }
 
     /**
-     * @param  array<string, Collection<int, \stdClass>>  $rows
-     * @param  array<string, array<int, string>>  $identities
+     * @param  list<array{kind: string, recordNativeId: string, path: string, disk: string, source_key: string, expected_size: int, expected_hash: string|null}>  $candidates
      * @return list<array{kind: string, recordNativeId: string, path: string, size: int, sha256: string, disk: string, source_key: string}>
      */
-    private function artifacts(int $patientId, array $rows, array $identities, int $maxBytes): array
+    private function artifacts(array $candidates, int $maxBytes): array
     {
-        $candidates = [];
-        foreach ($rows['phr_documents'] as $row) {
-            if ($row->storage_path === null || $row->storage_path === '') {
-                continue;
-            }
-            $candidates[] = [
-                'kind' => 'document',
-                'recordNativeId' => $identities['phr_documents'][(int) $row->id],
-                'path' => PhrNativeBackupCatalog::artifactPath('document', $identities['phr_documents'][(int) $row->id]),
-                'disk' => PhrDocument::STORAGE_DISK,
-                'source_key' => (string) $row->storage_path,
-                'expected_size' => (int) $row->byte_size,
-                'expected_hash' => $row->file_hash === null ? null : strtolower((string) $row->file_hash),
-            ];
-        }
-        foreach ($rows['phr_dicom_files'] as $row) {
-            $kind = $row->file_kind === PhrDicomFile::KIND_DICOMDIR ? 'dicomdir' : 'dicom';
-            $candidates[] = [
-                'kind' => $kind,
-                'recordNativeId' => $identities['phr_dicom_files'][(int) $row->id],
-                'path' => PhrNativeBackupCatalog::artifactPath($kind, $identities['phr_dicom_files'][(int) $row->id]),
-                'disk' => 'phr_dicom',
-                'source_key' => (string) $row->r2_key,
-                'expected_size' => (int) $row->file_size_bytes,
-                'expected_hash' => strtolower((string) $row->sha256),
-            ];
-        }
-        // Preserved EHI member bytes: one artifact per content-addressed blob row,
-        // shared by every member (in every package) that has those bytes.
-        foreach ($rows['phr_ehi_blobs'] as $row) {
-            $candidates[] = [
-                'kind' => 'ehi',
-                'recordNativeId' => $identities['phr_ehi_blobs'][(int) $row->id],
-                'path' => PhrNativeBackupCatalog::artifactPath('ehi', $identities['phr_ehi_blobs'][(int) $row->id]),
-                'disk' => (string) $row->storage_disk,
-                'source_key' => (string) $row->storage_path,
-                'expected_size' => (int) $row->byte_size,
-                'expected_hash' => strtolower((string) $row->sha256),
-            ];
-        }
-
         $expectedTotal = array_sum(array_column($candidates, 'expected_size'));
         if ($expectedTotal > $maxBytes) {
             throw new NativeBackupException('size_limit');
@@ -324,7 +405,7 @@ final class PhrNativeArchiveBuilder
      * @param  list<array{kind: string, recordNativeId: string, path: string, size: int, sha256: string, disk: string, source_key: string}>  $artifacts
      * @return array<string, mixed>
      */
-    private function manifest(int $patientId, string $patientNativeId, array $tables, array $artifacts, int $maxBytes, int $uncompressedBytes): array
+    private function manifest(string $patientNativeId, array $tables, array $artifacts, int $maxBytes, int $uncompressedBytes): array
     {
         $artifactManifest = array_map(
             static fn (array $artifact): array => [

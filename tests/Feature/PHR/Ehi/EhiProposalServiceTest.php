@@ -44,6 +44,7 @@ class EhiProposalServiceTest extends TestCase
 
     protected function tearDown(): void
     {
+        EhiInterleavedMapping::$during = null;
         EhiFailingDraftsMapping::$subjects = [];
         EhiFailingDraftsMapping::$failAfter = null;
         $this->tearDownEhiProjection();
@@ -466,6 +467,34 @@ class EhiProposalServiceTest extends TestCase
         self::assertSame(['ehi-syn-1', 'ehi-syn-2'], PhrEhiProposalDecision::query()->orderBy('id')->pluck('mapping_version')->all());
     }
 
+    public function test_an_older_run_without_a_newly_added_mapping_keeps_a_later_runs_proposals(): void
+    {
+        // A rolling deploy: an older worker, whose registry lacks the added
+        // mapping, starts generation 1; a newer worker with it starts generation
+        // 2 and completes while the older run is still inside its mapping.
+        config(['phr.ehi_mappings' => [EhiInterleavedMapping::class]]);
+        [$owner, $patient, $package] = $this->previewable('rolling');
+        $older = app(EhiProposalService::class);
+        EhiInterleavedMapping::$during = function () use ($package, $patient, $owner): void {
+            config(['phr.ehi_mappings' => [EhiInterleavedMapping::class, EhiAddedMapping::class]]);
+            app(EhiProposalService::class)->preview(PhrEhiPackage::query()->findOrFail($package->id), $patient, $owner->id);
+        };
+
+        $older->preview($package, $patient, $owner->id);
+
+        $added = PhrEhiProposal::query()->where('package_id', $package->id)->where('mapping', 'synthetic_added')->sole();
+        self::assertSame(PhrEhiProposal::STATUS_PENDING, $added->status, 'the older run supersedes nothing the newer run stamped');
+        self::assertSame(2, $added->preview_generation);
+        $interleaved = PhrEhiProposal::query()->where('package_id', $package->id)->where('mapping', 'synthetic_interleaved')->sole();
+        self::assertSame([PhrEhiProposal::STATUS_PENDING, 2], [$interleaved->status, $interleaved->preview_generation]);
+        $package->refresh();
+        self::assertSame([2, 2], [$package->preview_generation_started, $package->preview_generation_completed]);
+        self::assertTrue($package->completedPreviewIncludes($added));
+        $service = app(EhiProposalService::class);
+        $service->review($added, PhrEhiProposal::DECISION_RETAIN, $owner->id, $added->preview_digest);
+        self::assertSame(PhrEhiProposal::STATUS_RETAINED, $added->refresh()->status);
+    }
+
     public function test_a_revision_shared_by_two_proposals_keeps_its_strongest_disposition_in_either_review_order(): void
     {
         config(['phr.ehi_mappings' => [EhiSharedRevisionMapping::class]]);
@@ -748,6 +777,84 @@ final class EhiAllRevisionsMapping implements EhiMapping
         }
 
         yield new EhiProposalDraft(hash('sha256', 'synthetic-all-lines'), PhrEhiProposal::KIND_CREATE, $ids, ['vaccine_name' => 'Synthetic multi-line', 'administered_on' => null]);
+    }
+
+    public function apply(PhrEhiProposal $proposal, EhiApplyContext $context): EhiApplyOutcome
+    {
+        return (new EhiFakeMapping)->apply($proposal, $context);
+    }
+}
+
+/**
+ * A retain for ITEM 100/1 that, once, runs $during before yielding it: the
+ * point at which a test interleaves another preview run.
+ */
+final class EhiInterleavedMapping implements EhiMapping
+{
+    public static ?\Closure $during = null;
+
+    public function name(): string
+    {
+        return 'synthetic_interleaved';
+    }
+
+    public function version(): string
+    {
+        return 'interleaved-1';
+    }
+
+    public function expectedKeys(): array
+    {
+        return [EhiFakeMapping::TABLE => ['ITEM_ID', 'LINE']];
+    }
+
+    public function propose(EhiMappingContext $context): iterable
+    {
+        $during = self::$during;
+        self::$during = null;
+        if ($during !== null) {
+            $during();
+        }
+        $revision = $context->revisionByKey(EhiFakeMapping::TABLE, ['ITEM_ID' => '100', 'LINE' => '1']);
+        if ($revision === null) {
+            return;
+        }
+
+        yield new EhiProposalDraft(hash('sha256', 'synthetic-interleaved-subject'), PhrEhiProposal::KIND_RETAIN, [$revision->id]);
+    }
+
+    public function apply(PhrEhiProposal $proposal, EhiApplyContext $context): EhiApplyOutcome
+    {
+        return (new EhiFakeMapping)->apply($proposal, $context);
+    }
+}
+
+/** A mapping a newer deployment adds: one retain for ITEM 100/1. */
+final class EhiAddedMapping implements EhiMapping
+{
+    public function name(): string
+    {
+        return 'synthetic_added';
+    }
+
+    public function version(): string
+    {
+        return 'added-1';
+    }
+
+    public function expectedKeys(): array
+    {
+        return [EhiFakeMapping::TABLE => ['ITEM_ID', 'LINE']];
+    }
+
+    public function propose(EhiMappingContext $context): iterable
+    {
+        $revision = $context->revisionByKey(EhiFakeMapping::TABLE, ['ITEM_ID' => '100', 'LINE' => '1']);
+        if ($revision === null) {
+            return;
+        }
+
+        yield new EhiProposalDraft(hash('sha256', 'synthetic-added-subject'), PhrEhiProposal::KIND_RETAIN, [$revision->id]);
     }
 
     public function apply(PhrEhiProposal $proposal, EhiApplyContext $context): EhiApplyOutcome

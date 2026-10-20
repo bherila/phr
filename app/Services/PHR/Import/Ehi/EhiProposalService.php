@@ -173,7 +173,7 @@ final class EhiProposalService
                 $findingCounts[$code] = ($findingCounts[$code] ?? 0) + $count;
             }
         }
-        $this->supersedeUnregistered($package, $actorUserId);
+        $this->supersedeUnregistered($package, $actorUserId, $generation);
         $this->completePreview($package, $actorUserId, $generation);
         $package->refresh();
         ksort($findingCounts, SORT_STRING);
@@ -609,27 +609,34 @@ final class EhiProposalService
         $this->supersede($package, $actorUserId, $stale, $generation);
     }
 
-    /** Pending proposals of mappings that are no longer registered can never be applied. */
-    private function supersedeUnregistered(PhrEhiPackage $package, int $actorUserId): void
+    /**
+     * Pending proposals of mappings that are no longer registered can never be
+     * applied. "Unregistered" is only this run's view: during a rolling deploy a
+     * worker without a newly added mapping may run beside one that has it, so a
+     * row a later-started preview stamped is that preview's, never superseded.
+     */
+    private function supersedeUnregistered(PhrEhiPackage $package, int $actorUserId, int $generation): void
     {
         $stale = PhrEhiProposal::query()->where('package_id', $package->id)
             ->where('status', PhrEhiProposal::STATUS_PENDING)
-            ->whereNotIn('mapping', array_keys($this->registry->all()))->pluck('id')->all();
-        $this->supersede($package, $actorUserId, $stale);
+            ->whereNotIn('mapping', array_keys($this->registry->all()))
+            ->where(fn ($query) => $this->stampedBefore($query, $generation))
+            ->pluck('id')->all();
+        $this->supersede($package, $actorUserId, $stale, $generation);
     }
 
     /**
      * @param  list<int|string>  $ids
-     * @param  int|null  $generation  when given, a row a later-started preview stamped meanwhile is kept
+     * @param  int  $generation  a row a later-started preview stamped meanwhile is kept
      */
-    private function supersede(PhrEhiPackage $package, int $actorUserId, array $ids, ?int $generation = null): void
+    private function supersede(PhrEhiPackage $package, int $actorUserId, array $ids, int $generation): void
     {
         foreach (array_chunk($ids, self::CHUNK) as $chunk) {
             $this->writeGuard->run((int) $package->patient_id, function (PhrPatient $patient) use ($actorUserId, $chunk, $generation): void {
                 $this->access->ensureCanWrite($patient, $actorUserId);
                 PhrEhiProposal::query()->whereIn('id', $chunk)->where('patient_id', $patient->id)
                     ->where('status', PhrEhiProposal::STATUS_PENDING)
-                    ->when($generation !== null, fn ($query) => $query->where(fn ($stamped) => $this->stampedBefore($stamped, (int) $generation)))
+                    ->where(fn ($stamped) => $this->stampedBefore($stamped, $generation))
                     ->update(['status' => PhrEhiProposal::STATUS_SUPERSEDED, 'updated_at' => now()]);
             });
         }

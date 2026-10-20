@@ -19,6 +19,9 @@ return [
     // R6: Zip64 supports multi-gigabyte studies, while this source-byte ceiling
     // fails closed before one request can exhaust shared cPanel storage.
     'native_backup_max_uncompressed_bytes' => max(1, (int) env('PHR_NATIVE_BACKUP_MAX_UNCOMPRESSED_BYTES', 20 * 1024 * 1024 * 1024)),
+    // Rows read per keyset page while a native backup (or restore preview) streams
+    // a patient's tables. Memory is bounded by this, not by the patient's row count.
+    'native_backup_chunk_size' => max(1, (int) env('PHR_NATIVE_BACKUP_CHUNK_SIZE', 500)),
     'native_restore_source_retention_days' => max(1, (int) env('PHR_NATIVE_RESTORE_SOURCE_RETENTION_DAYS', 7)),
     'native_restore_max_record_bytes' => max(1024, (int) env('PHR_NATIVE_RESTORE_MAX_RECORD_BYTES', 2 * 1024 * 1024)),
     'native_restore_chunk_bytes' => max(1024 * 1024, (int) env('PHR_NATIVE_RESTORE_CHUNK_BYTES', 8 * 1024 * 1024)),

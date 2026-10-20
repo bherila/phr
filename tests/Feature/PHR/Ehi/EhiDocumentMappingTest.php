@@ -427,6 +427,45 @@ class EhiDocumentMappingTest extends TestCase
         self::assertSame('rtf', $rtf->proposed['ehi']['text']['source']);
     }
 
+    public function test_a_blank_latest_contact_falls_back_to_the_latest_contact_with_text(): void
+    {
+        $note = $this->ehiDocOwnedNote('N-FALLBACK', '9220');
+        $this->ehiDocRow('NOTE_ENC_INFO', ['CONTACT_SERIAL_NUM' => '31', 'NOTE_ID' => 'N-FALLBACK', 'CONTACT_DATE_REAL' => '65000']);
+        $this->ehiDocRow('NOTE_ENC_INFO', ['CONTACT_SERIAL_NUM' => '32', 'NOTE_ID' => 'N-FALLBACK', 'CONTACT_DATE_REAL' => '65001']);
+        $this->ehiDocRow('NOTE_ENC_INFO', ['CONTACT_SERIAL_NUM' => '33', 'NOTE_ID' => 'N-FALLBACK', 'CONTACT_DATE_REAL' => '65002']);
+        $oldest = $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '31', 'LINE' => '1', 'NOTE_ID' => 'N-FALLBACK', 'NOTE_TEXT' => 'oldest text']);
+        $text = [
+            $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '32', 'LINE' => '2', 'NOTE_ID' => 'N-FALLBACK', 'NOTE_TEXT' => 'second']),
+            $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '32', 'LINE' => '1', 'NOTE_ID' => 'N-FALLBACK', 'NOTE_TEXT' => 'older text']),
+        ];
+        // The latest contact has lines, but none survives sanitizing and trimming.
+        $blank = [
+            $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '33', 'LINE' => '1', 'NOTE_ID' => 'N-FALLBACK', 'NOTE_TEXT' => '']),
+            $this->ehiDocRow('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '33', 'LINE' => '2', 'NOTE_ID' => 'N-FALLBACK', 'NOTE_TEXT' => " \x07 "]),
+        ];
+
+        // Streaming the index loads every row with all its columns; a read-back
+        // by id (EhiDocumentEvidence::fetch) selects only what a draft needs.
+        $readBack = 0;
+        PhrEhiRevision::retrieved(static function (PhrEhiRevision $revision) use ($oldest, &$readBack): void {
+            if ($revision->id === $oldest->id && ! array_key_exists('patient_id', $revision->getAttributes())) {
+                $readBack++;
+            }
+        });
+        $draft = $this->ehiDocDraftFor($this->ehiDocPropose()['drafts'], 'note_id', 'N-FALLBACK');
+
+        self::assertSame(PhrEhiProposal::KIND_CREATE, $draft->kind);
+        self::assertSame("older text\nsecond", $draft->proposed['attributes']['extracted_text']);
+        self::assertSame(['derived' => true, 'source' => 'HNO_PLAIN_TEXT', 'contact_serial_num' => '32', 'line_count' => 2, 'line_gaps' => false, 'truncated' => false], $draft->proposed['ehi']['text']);
+        // The blank lines decided the choice and are relied upon; an older
+        // contact than the one chosen is never read back.
+        foreach ([$note, ...$text, ...$blank] as $revision) {
+            self::assertContains($revision->id, $draft->revisionIds);
+        }
+        self::assertNotContains($oldest->id, $draft->revisionIds);
+        self::assertSame(0, $readBack);
+    }
+
     public function test_text_lines_that_are_not_canonical_integers_are_not_ordered(): void
     {
         $this->ehiDocOwnedNote('N-LINE', '9300');

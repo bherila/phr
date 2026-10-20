@@ -19,6 +19,23 @@ use Illuminate\Support\Carbon;
 
 class PhrFhirExporter
 {
+    private const string UCUM_SYSTEM = 'http://unitsofmeasure.org';
+
+    /**
+     * Stored dose units that are unambiguous UCUM units, mapped to their UCUM code.
+     *
+     * Deliberately small and exact-match only: a unit missing from this map is still
+     * exported as Quantity.unit text, just without a UCUM system/code. Never guess.
+     *
+     * @var array<string, string>
+     */
+    private const array UCUM_DOSE_UNITS = [
+        'mL' => 'mL',
+        'mg' => 'mg',
+        'mcg' => 'ug',
+        'ug' => 'ug',
+    ];
+
     /**
      * @param  array<string, mixed>  $data
      */
@@ -229,11 +246,45 @@ class PhrFhirExporter
             'occurrenceDateTime' => $this->fhirDate($immunization->administered_on),
             'manufacturer' => $immunization->manufacturer ? ['display' => $immunization->manufacturer] : null,
             'lotNumber' => $immunization->lot_number,
+            'isSubpotent' => $immunization->administration_status === 'partial' ? true : null,
+            'subpotentReason' => $immunization->administration_status === 'partial'
+                ? [$this->coding('http://terminology.hl7.org/CodeSystem/immunization-subpotent-reason', 'partial', 'Partial Dose')]
+                : null,
             'site' => $immunization->site ? $this->textCode($immunization->site) : null,
             'route' => $immunization->route ? $this->textCode($immunization->route) : null,
+            'doseQuantity' => $this->doseQuantity($immunization->dose_amount, $immunization->dose_unit),
             'performer' => $immunization->administered_by ? [['actor' => ['display' => $immunization->administered_by]]] : null,
             'note' => $immunization->notes ? [['text' => $immunization->notes]] : null,
         ];
+    }
+
+    /**
+     * Immunization.doseQuantity (administered volume/amount), distinct from the series
+     * position in protocolApplied.doseNumber. Omitted unless the amount is a plain
+     * non-negative decimal; emitted as a JSON number like the exporter's other
+     * quantities (the exact text stays on the record).
+     *
+     * @return array{value: float, unit?: string, system?: string, code?: string}|null
+     */
+    private function doseQuantity(?string $amount, ?string $unit): ?array
+    {
+        $amount = trim((string) $amount);
+        if (preg_match('/^(?:\d+(?:\.\d+)?|\.\d+)$/', $amount) !== 1) {
+            return null;
+        }
+
+        $quantity = ['value' => (float) $amount];
+        $unit = trim((string) $unit);
+        if ($unit !== '') {
+            $quantity['unit'] = $unit;
+            $ucum = self::UCUM_DOSE_UNITS[$unit] ?? null;
+            if ($ucum !== null) {
+                $quantity['system'] = self::UCUM_SYSTEM;
+                $quantity['code'] = $ucum;
+            }
+        }
+
+        return $quantity;
     }
 
     /**
