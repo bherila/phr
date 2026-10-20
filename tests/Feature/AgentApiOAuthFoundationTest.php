@@ -268,6 +268,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             ->assertJsonPath('limits.authorization_attempts_per_minute', 30)
             ->assertJsonPath('limits.client_registrations_per_hour', 10)
             ->assertJsonPath('oauth.authorization_code_pkce', true)
+            ->assertJsonPath('oauth.billing_patient_consent.version', 1)
             ->json();
 
         $document = json_decode((string) file_get_contents(public_path('openapi/phr-agent-v1.json')), true, flags: JSON_THROW_ON_ERROR);
@@ -343,6 +344,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             'genai.attachments.download',
             'oauth.disconnect',
             'oauth.consent.revoke',
+            'oauth.patient_consent.revoke',
         ];
         // The generated document orders paths by operation id, not as listed here.
         $this->assertEqualsCanonicalizing(
