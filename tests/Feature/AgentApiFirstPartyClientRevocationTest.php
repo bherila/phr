@@ -131,6 +131,22 @@ final class AgentApiFirstPartyClientRevocationTest extends TestCase
         $this->assertTrue($refresh->refresh()->revoked);
     }
 
+    public function test_an_open_consent_screen_cannot_approve_after_operator_revocation(): void
+    {
+        $user = $this->createUser();
+        $client = $this->firstPartyClient();
+        $this->authorize($user, $client, [AgentApiScopes::IDENTITY_READ])->assertOk();
+        $authToken = session('authToken');
+        $this->assertSame(0, Artisan::call('phr:agent-api:revoke-first-party-client', ['client_id' => $client->id]));
+
+        Once::flush();
+        $this->post('/oauth/authorize', ['auth_token' => $authToken])->assertBadRequest();
+
+        $this->assertSame(0, OAuthClientConsent::query()->where('client_id', $client->id)->count());
+        $this->assertSame(0, AuthCode::query()->where('client_id', $client->id)->count());
+        $this->assertTrue($client->refresh()->revoked);
+    }
+
     public function test_ineligible_registrations_are_refused(): void
     {
         $repository = app(ClientRepository::class);
