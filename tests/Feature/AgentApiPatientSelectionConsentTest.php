@@ -74,6 +74,40 @@ final class AgentApiPatientSelectionConsentTest extends TestCase
         $this->assertSame(0, AuthCode::query()->count());
     }
 
+    #[DataProvider('failedPickerApprovals')]
+    public function test_failed_picker_approval_consumes_the_form_and_requires_a_fresh_authorization(string $failure): void
+    {
+        $user = $this->createUser(['name' => 'Synthetic Owner', 'email' => 'owner@example.test']);
+        $other = $this->createUser(['name' => 'Synthetic Other', 'email' => 'other@example.test']);
+        $patient = $this->patient($user, 'Synthetic Owned Patient');
+        $managed = $this->patient($other, 'Synthetic Managed Patient');
+        $this->grant($managed, $user, PhrPatientUserAccess::LEVEL_MANAGER);
+        $client = $this->client();
+        $this->startSelection($user, $client)->assertOk();
+        $authToken = session('authToken');
+        $selection = [];
+        if ($failure === 'access_removed') {
+            PhrPatientUserAccess::query()->where('patient_id', $managed->id)->where('user_id', $user->id)->delete();
+            $selection['patient_public_id'] = $this->publicId($managed);
+        }
+        $this->postJson('/oauth/authorize', ['auth_token' => $authToken, ...$selection])
+            ->assertUnprocessable()->assertSessionMissing('authToken')->assertSessionMissing('authRequest');
+        $this->postJson('/oauth/authorize', ['auth_token' => $authToken, 'patient_public_id' => $this->publicId($patient)])
+            ->assertForbidden();
+        $this->assertSame(0, AuthCode::query()->count());
+        $this->assertDatabaseCount('oauth_client_consents', 0);
+        $this->assertSame(0, OAuthPatientConsent::query()->count());
+        $this->startSelection($user, $client)->assertOk();
+        $this->assertNotSame($authToken, session('authToken'));
+        $this->exchange($client, $this->approve($this->publicId($patient)))->assertOk()
+            ->assertJsonPath('patient', $this->publicId($patient));
+    }
+
+    public static function failedPickerApprovals(): array
+    {
+        return [['missing'], ['access_removed']];
+    }
+
     public function test_the_picker_shows_names_only_for_owned_or_managed_patients(): void
     {
         $user = $this->createUser(['name' => 'Synthetic Owner', 'email' => 'owner@example.test']);

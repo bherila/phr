@@ -303,7 +303,9 @@ inside PHR, and offers patients the signed-in person owns or manages. Viewer gra
 cannot authorize onward billing access. The person chooses exactly one patient;
 missing, malformed, inaccessible or no-longer-manageable choices are refused before
 issuing a code. The selection mode is bound to Passport's authorization session and
-approval token, rather than trusted from an approval form flag.
+approval token, rather than trusted from an approval form flag. A failed approval
+consumes that form; retry requires a fresh authorization request, and replaying
+the earlier approval is refused.
 
 A successful token response adds `patient`, that patient's opaque `public_id`, without
 names or access levels. Clients must retain their ordinary PKCE, state and exact-issuer
