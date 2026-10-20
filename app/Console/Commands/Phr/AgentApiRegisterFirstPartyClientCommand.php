@@ -70,6 +70,12 @@ final class AgentApiRegisterFirstPartyClientCommand extends BasePhrCommand
             return self::FAILURE;
         }
 
+        $warnings = [];
+        if (in_array(AgentApiScopes::BILLING_READ, $scopes, true)
+            && array_diff($scopes, [AgentApiScopes::BILLING_READ, AgentApiScopes::IDENTITY_READ]) !== []) {
+            $warnings[] = 'A finance client should need only billing:read and identity:read; additional scopes grant broader access.';
+        }
+
         $client = Passport::client()->getConnection()->transaction(function () use ($clients, $name, $redirectUris, $scopes) {
             // No owner: a person-registered app is never first-party. The
             // repository grants authorization_code and refresh_token only.
@@ -88,12 +94,15 @@ final class AgentApiRegisterFirstPartyClientCommand extends BasePhrCommand
                 'scopes' => $scopes,
                 'secret_notice' => $secretNotice,
                 'repeat_consent_skip_required' => false,
-                'warnings' => [],
+                'warnings' => $warnings,
             ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
 
             return self::SUCCESS;
         }
 
+        foreach ($warnings as $warning) {
+            $this->warn($warning);
+        }
         $this->info('Registered first-party client "'.$name.'".');
         $this->line('Client ID:     '.$client->getKey());
         $this->line('Client secret: '.$client->plainSecret);

@@ -42,6 +42,34 @@ final class AgentApiFirstPartyClientSetupTest extends TestCase
         $this->assertStringNotContainsString($client->secret, Artisan::output());
     }
 
+    public function test_billing_registration_warns_about_additional_scopes_without_changing_them(): void
+    {
+        $arguments = $this->arguments();
+        $arguments['--scope'][] = AgentApiScopes::PATIENTS_READ;
+        $this->assertSame(0, Artisan::call('phr:agent-api:register-first-party-client', $arguments));
+        $this->assertStringContainsString('A finance client should need only billing:read and identity:read', Artisan::output());
+        $this->assertContains(AgentApiScopes::PATIENTS_READ, Client::query()->sole()->scopes);
+    }
+
+    public function test_json_keeps_the_scope_warning_in_the_json_document(): void
+    {
+        $arguments = $this->arguments();
+        $arguments['--scope'][] = AgentApiScopes::CLINICAL_READ;
+        $this->assertSame(0, Artisan::call('phr:agent-api:register-first-party-client', ['--json' => true] + $arguments));
+        $payload = json_decode(Artisan::output(), true, 512, JSON_THROW_ON_ERROR);
+        $this->assertCount(1, $payload['warnings']);
+        $this->assertStringContainsString('A finance client should need only billing:read and identity:read', $payload['warnings'][0]);
+        $this->assertContains(AgentApiScopes::CLINICAL_READ, $payload['scopes']);
+    }
+
+    public function test_non_billing_clients_do_not_receive_the_finance_scope_warning(): void
+    {
+        $arguments = $this->arguments();
+        $arguments['--scope'] = [AgentApiScopes::CLINICAL_READ, AgentApiScopes::PATIENTS_READ];
+        $this->assertSame(0, Artisan::call('phr:agent-api:register-first-party-client', $arguments));
+        $this->assertStringNotContainsString('A finance client should need only', Artisan::output());
+    }
+
     /** @return array<string, mixed> */
     private function arguments(): array
     {
