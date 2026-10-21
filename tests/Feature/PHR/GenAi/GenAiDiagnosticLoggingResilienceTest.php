@@ -265,10 +265,14 @@ final class GenAiDiagnosticLoggingResilienceTest extends TestCase
 
     public function test_a_failing_diagnostic_read_does_not_recover_a_successful_reused_enqueue(): void
     {
+        $this->freezeTime();
         [, $job, $requestId] = $this->linkedExternalJob();
         $before = $this->jobRow($job->id);
         $request = DB::table('genai_mcp_requests')->where('id', $requestId)->first();
         $failed = $this->failRequestReadsIssuedByParseImportJob();
+
+        // Cross a timestamp boundary deterministically before redispatch.
+        $this->travel(1)->seconds();
 
         // A stale-pending redispatch: enqueue() reuses the link and conforms
         // the import to its still-queued request. Only the job's own re-read
@@ -276,7 +280,13 @@ final class GenAiDiagnosticLoggingResilienceTest extends TestCase
         (new ParseImportJob($job->id))->handle();
 
         $this->assertTrue($failed->hit, 'Fixture precondition: the diagnostic read must have been attempted and failed.');
-        $this->assertSame($before, $this->jobRow($job->id), 'A successful enqueue was rewritten by recovery.');
+        // A successful re-enqueue legitimately refreshes updated_at while
+        // conforming the import to its queued request; every other field stays put.
+        $this->assertSame(
+            array_replace($before, ['updated_at' => now()->toDateTimeString()]),
+            $this->jobRow($job->id),
+            'A successful enqueue was rewritten by recovery.',
+        );
         $this->assertEquals($request, DB::table('genai_mcp_requests')->where('id', $requestId)->first());
         $this->assertNotContains('ParseImportJob: external enqueue deferred to recovery', $this->loggedMessages());
         $this->assertNotContains('ParseImportJob: external enqueue recovery left the import unchanged', $this->loggedMessages());
