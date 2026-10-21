@@ -347,7 +347,9 @@ Atomic deployments verify the exact serving release and PHR's HTTP, assets, OAut
 MCP, OHIF, queue, key and cron contracts before probing web PHP. An inconclusive
 PHP probe can leave that verified release serving and uncommitted while the run
 fails. HTTP 200 alone cannot grant this exception; failed application checks and
-definitive PHP or memory mismatches follow the maintenance failure policy.
+definitive PHP or memory mismatches restore the retained prior application release
+and its scheduler entries through `failure-policy: rollback`. Shared data and applied
+migrations are retained, so migrations must remain compatible with that prior code.
 The shared health and PHP probes run on the host against its own web server,
 while PHR's application verifier checks the public HTTPS endpoints, including
 their OAuth, MCP and OHIF access boundaries. HTTP failures report the check name, status,

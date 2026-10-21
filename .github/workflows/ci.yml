@@ -498,7 +498,8 @@ jobs:
           atomic-layout: stable-directory
           initial-live-commit: ${{ vars.ATOMIC_INITIAL_LIVE_COMMIT }}
           recovery-release-id: ${{ vars.ATOMIC_RECOVERY_RELEASE_ID }}
-          failure-policy: maintenance
+          # Preserve previous-code compatibility when adding migrations; rollback keeps shared data.
+          failure-policy: rollback
           operational-audit: true
           runtime-audit: true
           post-finalize-script: .github/scripts/verify-phr-finalized.sh
