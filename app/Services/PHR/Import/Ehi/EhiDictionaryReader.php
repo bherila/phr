@@ -15,7 +15,7 @@ use DOMXPath;
  * substitution; nothing referenced (scripts, stylesheets, images, frames) is ever
  * fetched, and script-like elements are removed before analysis.
  *
- * Strategy VERSION ehi-dict-1 (structural heuristics; bump on any change):
+ * Strategy VERSION ehi-dict-2 (structural heuristics; bump on any change):
  * 1. Headings (h1-h6), captions, and elements whose class contains "tablename"
  *    are read in document order. A heading names a table when its whole text is
  *    an upper-case identifier (`PAT_ENC`), `Table: NAME` / `Table Name - NAME` /
@@ -35,7 +35,7 @@ use DOMXPath;
  */
 final class EhiDictionaryReader
 {
-    public const string VERSION = 'ehi-dict-1';
+    public const string VERSION = 'ehi-dict-2';
 
     private const array NAME_HEADERS = ['column name', 'column', 'name', 'field name', 'field', 'column_name'];
 
@@ -199,9 +199,16 @@ final class EhiDictionaryReader
                     continue;
                 }
                 $text = self::text($node);
-                $name = $this->tableNameFrom($text);
+                $unsupportedName = false;
+                $name = $this->tableNameFrom($text, $unsupportedName);
                 if ($name !== null) {
                     $current = $name;
+                    $keySection = false;
+                } elseif ($unsupportedName) {
+                    // Its grids must not be attributed to an earlier valid
+                    // table or the document's title.
+                    $current = null;
+                    $title = null;
                     $keySection = false;
                 } elseif ($text !== '') {
                     $keySection = (bool) preg_match('/primary\s*key/i', $text);
@@ -212,9 +219,10 @@ final class EhiDictionaryReader
 
             $caption = $xpath->query('./caption', $node);
             $captionText = $caption !== false && $caption->item(0) !== null ? self::text($caption->item(0)) : '';
-            $captionName = $this->tableNameFrom($captionText);
+            $unsupportedCaptionName = false;
+            $captionName = $this->tableNameFrom($captionText, $unsupportedCaptionName);
             $isKeyGrid = $keySection || preg_match('/primary\s*key/i', $captionText) === 1;
-            $name = $captionName ?? $current ?? $title;
+            $name = $unsupportedCaptionName ? null : ($captionName ?? $current ?? $title);
 
             $rows = $this->rowsOf($xpath, $node);
             if ($rows === []) {
@@ -289,13 +297,16 @@ final class EhiDictionaryReader
         return $tables;
     }
 
-    private function tableNameFrom(string $text): ?string
+    private function tableNameFrom(string $text, bool &$unsupportedName = false): ?string
     {
+        $unsupportedName = false;
         if ($text === '') {
             return null;
         }
         if (preg_match(self::TABLE_IDENTIFIER, $text) === 1) {
-            return $text;
+            $unsupportedName = preg_match(EhiMemberClassifier::TABLE_NAME, $text) !== 1;
+
+            return $unsupportedName ? null : $text;
         }
         $patterns = [
             '/^table(?:\s+name)?\s*[:\x{2013}-]\s*([A-Za-z][A-Za-z0-9_$#]{1,127})$/iu',
@@ -305,7 +316,12 @@ final class EhiDictionaryReader
         ];
         foreach ($patterns as $pattern) {
             if (preg_match($pattern, $text, $match) === 1) {
-                return $match[1];
+                // Unicode case-insensitive heading matching also admits letters
+                // such as Kelvin sign. Account keys must use the same ASCII
+                // contract as member names, regardless of heading syntax.
+                $unsupportedName = preg_match(EhiMemberClassifier::TABLE_NAME, $match[1]) !== 1;
+
+                return $unsupportedName ? null : $match[1];
             }
         }
 

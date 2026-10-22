@@ -6,6 +6,7 @@ use App\Models\PhrCondition;
 use App\Models\PhrPatient;
 use App\Services\PHR\Import\Ehi\EhiExportNotSupportedHere;
 use App\Services\PHR\Import\PhrMyChartZipImporter;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Support\EhiSyntheticPackage;
 use Tests\TestCase;
 use ZipArchive;
@@ -50,6 +51,70 @@ class PhrMyChartZipEhiDispatchTest extends TestCase
         self::assertTrue($zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE));
         $zip->addFromString('records/bundle.json', $this->bundle());
         $zip->addFromString('records/README.txt', 'Synthetic readme');
+        $zip->close();
+
+        $result = app(PhrMyChartZipImporter::class)->importFile($path, $patient, $owner->id);
+
+        self::assertSame(1, $result->created);
+        self::assertSame('Synthetic condition', PhrCondition::query()->where('patient_id', $patient->id)->sole()->name);
+    }
+
+    #[DataProvider('incidentalMetadata')]
+    public function test_incidental_json_or_xml_does_not_hide_an_ehi_export(string $name, string $contents): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->patient($owner->id);
+        $path = $this->path();
+        $zip = new ZipArchive;
+        self::assertTrue($zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE));
+        $zip->addFromString('tables/UNKNOWN_SYNTHETIC.tsv', "SYNTH_ID\tVALUE\n1\tSynthetic\n");
+        $zip->addFromString('tables/ANOTHER_SYNTHETIC.tsv', "SYNTH_ID\tVALUE\n2\tSynthetic\n");
+        $zip->addFromString('index.html', '<html><body>Synthetic dictionary</body></html>');
+        $zip->addFromString($name, $contents);
+        $zip->close();
+
+        try {
+            app(PhrMyChartZipImporter::class)->importFile($path, $patient, $owner->id);
+            self::fail('Incidental metadata must not suppress EHI dispatch.');
+        } catch (EhiExportNotSupportedHere) {
+            self::assertSame(0, PhrCondition::query()->count());
+        }
+    }
+
+    /** @return array<string, array{string, string}> */
+    public static function incidentalMetadata(): array
+    {
+        return [
+            'JSON manifest' => ['manifest.json', '{"synthetic":true}'],
+            'invalid JSON' => ['manifest.json', '{'],
+            'invalid Bundle entries' => ['bundle.json', '{"resourceType":"Bundle","entry":"metadata"}'],
+            'XML manifest' => ['manifest.xml', '<manifest><synthetic>true</synthetic></manifest>'],
+            'invalid XML' => ['manifest.xml', '<manifest>'],
+            'nested clinical root' => ['manifest.xml', '<manifest><ClinicalDocument xmlns="urn:hl7-org:v3"/></manifest>'],
+            'wrong clinical namespace' => ['manifest.xml', '<ClinicalDocument xmlns="urn:synthetic:metadata"/>'],
+            'empty member' => ['manifest.xml', ''],
+        ];
+    }
+
+    public function test_ccda_zip_with_unrelated_tsv_and_html_attachments_still_imports(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->patient($owner->id);
+        $path = $this->path();
+        $zip = new ZipArchive;
+        self::assertTrue($zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE));
+        $zip->addFromString('records/clinical.xml', <<<'XML'
+<ClinicalDocument xmlns="urn:hl7-org:v3">
+  <component><structuredBody><component><section>
+    <title>Problems</title>
+    <text><table><tbody><tr><td>Synthetic condition</td><td>SYNTH-1</td><td>active</td></tr></tbody></table></text>
+  </section></component></structuredBody></component>
+</ClinicalDocument>
+XML);
+        $zip->addFromString('manifest.json', '{"synthetic":true}');
+        $zip->addFromString('attachments/readings.tsv', "SYNTH_A\tSYNTH_B\n1\t2\n");
+        $zip->addFromString('attachments/summary.tsv', "SYNTH_C\tSYNTH_D\n3\t4\n");
+        $zip->addFromString('attachments/letter.html', '<html><body>Synthetic letter</body></html>');
         $zip->close();
 
         $result = app(PhrMyChartZipImporter::class)->importFile($path, $patient, $owner->id);

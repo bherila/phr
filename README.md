@@ -192,6 +192,14 @@ backups, validates native restores before applying them, and coordinates patient
 deletion with durable artifact cleanup. The native archive format is documented in
 [`docs/phr-native-v1.md`](docs/phr-native-v1.md).
 
+Epic EHI Tables exports use `phr:ehi:intake` to preserve and account for their
+source evidence. The MyChart ZIP importer directs EHI-shaped packages there unless
+it finds actual FHIR Bundle or C-CDA ClinicalDocument content; a JSON/XML manifest
+alone is insufficient. TSV headers and records are limited to 8,192 fields before
+cell arrays can grow beyond that bound. Over-limit records are accounted as
+malformed while their original bytes remain preserved. Dictionary table names must
+match the same ASCII identifier rules as table member names.
+
 ## Repository map
 
 | Path | Responsibility |
