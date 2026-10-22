@@ -147,8 +147,17 @@ jobs:
       - name: Audit Composer dependencies
         run: composer audit --locked --no-interaction
 
+      # Pint validates file contents and its PHP/rules signature on every run.
+      # Reuse unchanged results while still checking the complete source set.
+      - name: Cache Pint results
+        uses: actions/cache@v6
+        with:
+          path: .cache/pint.cache
+          key: pint-${{ runner.os }}-${{ runner.arch }}-php85-${{ hashFiles('composer.lock', 'pint.json') }}-${{ github.sha }}
+          restore-keys: pint-${{ runner.os }}-${{ runner.arch }}-php85-${{ hashFiles('composer.lock', 'pint.json') }}-
+
       - name: Run Pint
-        run: ./vendor/bin/pint --test
+        run: ./vendor/bin/pint --test --parallel --max-processes=2
 
       # phpstan.neon and the larastan dev dependency exist so this can gate; a
       # config that CI never runs is not a gate.
@@ -156,7 +165,11 @@ jobs:
         run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
 
   backend-tests:
-    name: Backend Tests
+    name: Backend Tests (${{ matrix.shard }}/3)
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     # Some page tests render a real Blade view without ->withoutVite(), so they need
     # an actual public/build/manifest.json — reuse frontend-build's artifact instead
     # of building twice.
@@ -172,6 +185,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.5'
+          extensions: simplexml
 
       - name: Authorize private MCP bridge dependency
         uses: webfactory/ssh-agent@e83874834305fe9a4a2997156cb26c5de65a8555 # upstream main: v0.9.1 + node24 runtime (#243), no tag yet
@@ -199,8 +213,28 @@ jobs:
           cp .env.example .env
           php artisan key:generate --no-interaction
 
+      - name: Discover and partition PHPUnit tests
+        run: |
+          mkdir -p build/phpunit
+          php -d memory_limit=1G vendor/bin/phpunit --list-tests-xml build/phpunit/inventory.xml
+          php scripts/phpunit-shards.php plan build/phpunit/inventory.xml .github/phpunit-timings.json 3 ${{ matrix.shard }} build/phpunit
+
       - name: Run PHPUnit
-        run: php -d memory_limit=1G vendor/bin/phpunit
+        run: >-
+          php -d memory_limit=1G vendor/bin/phpunit
+          --test-id-filter-file build/phpunit/test-ids.txt
+          --fail-on-empty-test-suite
+          --log-junit build/phpunit/junit.xml
+
+      - name: Upload PHPUnit results and timings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: phpunit-shard-${{ matrix.shard }}
+          overwrite: true # A rerun replaces this leg's report.
+          path: build/phpunit/
+          if-no-files-found: error
+          retention-days: 14
 
   e2e:
     name: Playwright E2E
@@ -343,6 +377,8 @@ jobs:
     if: ${{ always() }}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 5
+    permissions:
+      contents: read
     steps:
       - name: Check required job results
         run: |
@@ -361,6 +397,23 @@ jobs:
           check "backend-tests" "${{ needs.backend-tests.result }}"
           check "e2e" "${{ needs.e2e.result }}"
           check "ohif-transport-integration" "${{ needs.ohif-transport-integration.result }}"
+
+      - uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: simplexml
+
+      - name: Download PHPUnit results
+        uses: actions/download-artifact@v8
+        with:
+          pattern: phpunit-shard-*
+          path: build/phpunit-results/
+
+      - name: Verify every PHPUnit test ran once
+        run: php scripts/phpunit-shards.php verify build/phpunit-results 3
 
   deploy:
     name: Deploy to Production

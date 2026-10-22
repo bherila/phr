@@ -338,6 +338,44 @@ composer audit --locked --no-interaction
 php -d memory_limit=1G vendor/bin/phpunit
 ```
 
+CI runs PHPUnit in three separate runner jobs to isolate their in-memory databases,
+fake disks and cached Laravel configuration. PHPUnit's `--list-tests-xml` inventory
+is partitioned by class using `.github/phpunit-timings.json`; new classes are
+included automatically. These relative weights were measured in [GitHub CI](https://github.com/bherila/phr/actions/runs/39836186052).
+They guide balancing, not test selection or runtime guarantees.
+The required **Run Tests** check verifies the JUnit reports against the inventory
+so every discovered test, including data-provider cases, must appear exactly once.
+It continues to require every frontend, backend and integration check.
+
+Each `phpunit-shard-*` artifact retains its inventory, selection and JUnit timings
+for 14 days. To rebalance after a successful CI run, download its artifacts and
+regenerate the weights (review and commit the resulting JSON):
+
+```bash
+gh run download RUN_ID --pattern 'phpunit-shard-*' --dir build/phpunit-results
+php scripts/phpunit-shards.php verify build/phpunit-results 3
+php scripts/phpunit-shards.php weights .github/phpunit-timings.json build/phpunit-results/phpunit-shard-*/junit.xml
+```
+
+For a local shard, generate the inventory, plan a shard numbered 1–3, then run it:
+
+```bash
+mkdir -p build/phpunit
+php vendor/bin/phpunit --list-tests-xml build/phpunit/inventory.xml
+php scripts/phpunit-shards.php plan build/phpunit/inventory.xml .github/phpunit-timings.json 3 1 build/phpunit
+php vendor/bin/phpunit --test-id-filter-file build/phpunit/test-ids.txt --fail-on-empty-test-suite
+```
+
+Run local shards sequentially unless each process has its own correctly configured
+worktree; sharing a checkout also shares fake disks and cached configuration.
+The ordinary full-suite command above remains available.
+
+Pint retains a content cache at `.cache/pint.cache`, including when using `--test`.
+CI restores that cache and uses two formatter processes for cold or changed files.
+The cache checks file contents and the formatter/PHP/rules signature; the full
+source set remains checked. For the same local parallel check, run
+`./vendor/bin/pint --test --parallel --max-processes=2`.
+
 Production deployments opt into the shared action's canonical runtime audit after
 final-path cache refresh and again after finalization. Missing or escaped cached
 runtime paths fail without provisioning directories. The post-finalizer PHR hook
