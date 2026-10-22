@@ -445,6 +445,7 @@ const PatientsPage = lazy(() => import('@/phr/patients/PatientsPage'))
 const PatientsManagePage = lazy(() => import('@/phr/patients-manage/PatientsManagePage'))
 const AiProviderSettingsPage = lazy(() => import('@/phr/config/AiProviderSettingsPage'))
 const ConnectedDevicesPanel = lazy(() => import('@/phr/config/ConnectedDevicesPanel'))
+const ConnectedAppsPage = lazy(() => import('@/phr/config/ConnectedAppsPage'))
 const ApiAccessPanel = lazy(() => import('@/phr/config/ApiAccessPanel'))
 const DataHubPage = lazy(() => import('@/phr/data-hub/DataHubPage'))
 const ImportsPage = lazy(() => import('@/phr/imports/ImportsPage'))
@@ -557,11 +558,12 @@ function ImportsColumn({ state }: PhrRenderProps) {
   return <ImportsPage {...(state.patientId !== undefined ? { patientId: state.patientId } : {})} />
 }
 
-type ConfigTab = 'ai-providers' | 'devices' | 'api-access'
+type ConfigTab = 'ai-providers' | 'devices' | 'connected-apps' | 'api-access'
 
 const CONFIG_TABS: { id: ConfigTab, label: string }[] = [
   { id: 'ai-providers', label: 'AI Provider Settings' },
   { id: 'devices', label: 'Connected Devices' },
+  { id: 'connected-apps', label: 'Connected apps' },
   { id: 'api-access', label: 'API Access' },
 ]
 
@@ -569,7 +571,7 @@ function ConfigColumn() {
   const [tab, setTab] = useState<ConfigTab>('ai-providers')
   return (
     <div className="flex h-full flex-col">
-      <div role="tablist" aria-label="PHR configuration" className="flex gap-2 border-b border-border px-6 pt-4">
+      <div role="tablist" aria-label="PHR configuration" className="flex shrink-0 gap-2 overflow-x-auto border-b border-border px-6 pt-4">
         {CONFIG_TABS.map((candidate) => (
           <Button
             key={candidate.id}
@@ -588,6 +590,7 @@ function ConfigColumn() {
       <div className="min-h-0 flex-1">
         {tab === 'ai-providers' ? <AiProviderSettingsPage /> : null}
         {tab === 'devices' ? <ConnectedDevicesPanel /> : null}
+        {tab === 'connected-apps' ? <ConnectedAppsPage /> : null}
         {tab === 'api-access' ? <ApiAccessPanel /> : null}
       </div>
     </div>
