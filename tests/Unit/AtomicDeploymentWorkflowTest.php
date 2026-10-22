@@ -45,7 +45,7 @@ class AtomicDeploymentWorkflowTest extends TestCase
         $this->assertStringContainsString('post-finalize-script: .github/scripts/verify-phr-finalized.sh', $workflow);
         $this->assertStringContainsString('initial-live-commit: ${{ vars.ATOMIC_INITIAL_LIVE_COMMIT }}', $workflow);
         $this->assertStringContainsString('recovery-release-id: ${{ vars.ATOMIC_RECOVERY_RELEASE_ID }}', $workflow);
-        $this->assertStringContainsString('failure-policy: maintenance', $workflow);
+        $this->assertStringContainsString('failure-policy: rollback', $workflow);
         $this->assertSame(1, preg_match_all('/^          operational-audit: true$/m', $workflow));
         $this->assertStringContainsString("vars.ATOMIC_DEPLOY_ENABLED != 'false'", $workflow);
         $this->assertMatchesRegularExpression('/persistent-paths:\s*\|\R\s+storage\R\s+public\/ohif/', $workflow);

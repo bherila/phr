@@ -207,20 +207,29 @@ final class AgentApiPublicIdTest extends TestCase
 
     public function test_records_with_public_ids_created_after_a_backup_stay_outside_its_restore_conflict_set(): void
     {
+        $this->freezeTime();
         $owner = $this->createUser();
         $manager = $this->createUser();
         $patient = $this->patient($owner);
+        $patientUpdatedAt = $patient->fresh()->updated_at;
         $archivePath = $this->archive($patient, $owner);
+        $this->travel(1)->seconds();
 
         // Written after the backup, by a person the archive has no identity for:
         // its own public id must not pull it into the archive's conflict set.
-        PhrPatientUserAccess::query()->create([
-            'patient_id' => $patient->id, 'user_id' => $manager->id,
-            'access_level' => PhrPatientUserAccess::LEVEL_MANAGER,
-            'granted_by_user_id' => $owner->id, 'granted_at' => now(),
-        ]);
-        $later = $this->document($patient, $manager, 'synthetic-later');
-        $this->eob($patient, $manager, $later);
+        // Grant creation normally touches the archived patient, which would be
+        // a separate, legitimate root conflict. Isolate these unrelated rows.
+        PhrPatient::withoutTouching(function () use ($patient, $manager, $owner): void {
+            PhrPatientUserAccess::query()->create([
+                'patient_id' => $patient->id, 'user_id' => $manager->id,
+                'access_level' => PhrPatientUserAccess::LEVEL_MANAGER,
+                'granted_by_user_id' => $owner->id, 'granted_at' => now(),
+            ]);
+            $later = $this->document($patient, $manager, 'synthetic-later');
+            $this->eob($patient, $manager, $later);
+            $this->assertTrue($later->created_at->greaterThan($patient->created_at));
+        });
+        $this->assertTrue($patient->fresh()->updated_at->equalTo($patientUpdatedAt));
 
         $attempt = app(PhrNativeRestoreService::class)->createPreview($this->upload($archivePath), (int) $owner->id, false);
         $attempt = app(PhrNativeRestoreService::class)->preview($attempt);

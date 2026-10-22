@@ -480,7 +480,7 @@ jobs:
 
       - name: Deploy with the shared cPanel action
         if: ${{ steps.app-plan.outputs.proceed == 'true' }}
-        uses: bherila/shared-cpanel-deployment@223c7a976fff738b532adb4a54f680ee75ff4cb3 # reviewed deployment validation, guards and recovery
+        uses: bherila/shared-cpanel-deployment@cdd3b5eafb0555eedced6f966b9a1f5f1e68cdff # reviewed deployment validation, guards and recovery
         env:
           OHIF_SSH_TARGET: phr-ohif
           OHIF_BUNDLE_DIR: ohif-desired
@@ -498,7 +498,8 @@ jobs:
           atomic-layout: stable-directory
           initial-live-commit: ${{ vars.ATOMIC_INITIAL_LIVE_COMMIT }}
           recovery-release-id: ${{ vars.ATOMIC_RECOVERY_RELEASE_ID }}
-          failure-policy: maintenance
+          # Preserve previous-code compatibility when adding migrations; rollback keeps shared data.
+          failure-policy: rollback
           operational-audit: true
           runtime-audit: true
           post-finalize-script: .github/scripts/verify-phr-finalized.sh
