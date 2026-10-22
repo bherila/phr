@@ -1,0 +1,873 @@
+<?php
+
+namespace Tests\Feature\PHR\Ehi;
+
+use App\Models\PhrEhiFinding;
+use App\Models\PhrEhiOccurrence;
+use App\Models\PhrEhiPackage;
+use App\Models\PhrEhiProposal;
+use App\Models\PhrEhiProposalDecision;
+use App\Models\PhrEhiProposalRevision;
+use App\Models\PhrEhiRecordLink;
+use App\Models\PhrEhiTableAccount;
+use App\Models\PhrImmunization;
+use App\Models\PhrPatient;
+use App\Models\PhrPatientUserAccess;
+use App\Models\User;
+use App\Services\PHR\Import\Ehi\EhiPackageSummary;
+use App\Services\PHR\Import\Ehi\EhiProjectionRefused;
+use App\Services\PHR\Import\Ehi\EhiProposalService;
+use App\Services\PHR\Import\Ehi\EhiReviewRefused;
+use App\Services\PHR\Import\Ehi\Mapping\EhiApplyContext;
+use App\Services\PHR\Import\Ehi\Mapping\EhiApplyOutcome;
+use App\Services\PHR\Import\Ehi\Mapping\EhiApplyRefused;
+use App\Services\PHR\Import\Ehi\Mapping\EhiMapping;
+use App\Services\PHR\Import\Ehi\Mapping\EhiMappingContext;
+use App\Services\PHR\Import\Ehi\Mapping\EhiProposalDraft;
+use App\Support\PHR\PhrReviewStatus;
+use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
+use Tests\Support\EhiFakeMapping;
+use Tests\Support\EhiProjectionFixtures;
+use Tests\Support\EhiSyntheticPackage;
+use Tests\TestCase;
+
+class EhiProposalServiceTest extends TestCase
+{
+    use EhiProjectionFixtures;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->setUpEhiProjection();
+    }
+
+    protected function tearDown(): void
+    {
+        EhiInterleavedMapping::$during = null;
+        EhiFailingDraftsMapping::$subjects = [];
+        EhiFailingDraftsMapping::$failAfter = null;
+        $this->tearDownEhiProjection();
+        parent::tearDown();
+    }
+
+    public function test_preview_persists_digested_proposals_and_re_preview_converges(): void
+    {
+        [$owner, $patient, $package] = $this->previewable();
+        $service = app(EhiProposalService::class);
+
+        $preview = $service->preview($package, $patient, $owner->id);
+
+        self::assertSame(['synthetic' => ['create' => 3, 'retain' => 1]], $preview->counts);
+        self::assertSame(['pending' => 4], $preview->statuses);
+        self::assertSame(['synthetic_deleted_row' => 1], $preview->findings);
+        self::assertSame(1, $preview->projection->tablesProjected);
+        $finding = PhrEhiFinding::query()->where('code', 'synthetic_deleted_row')->sole();
+        self::assertSame('info', $finding->severity);
+        self::assertSame(['stage' => 'preview', 'mapping' => 'synthetic'], $finding->detail_json);
+        self::assertNotNull($finding->line_number);
+
+        $proposal = $this->proposalFor($package, '100', '1');
+        self::assertSame('ehi-syn-1', $proposal->mapping_version);
+        self::assertSame(PhrEhiProposal::KIND_CREATE, $proposal->kind);
+        self::assertSame([EhiFakeMapping::revisionFor($package->id, '100', '1')?->id], PhrEhiProposalRevision::idsFor($proposal));
+        self::assertSame(64, strlen($proposal->preview_digest));
+        self::assertSame(64, strlen($proposal->revision_digest));
+        self::assertNull($proposal->target_digest);
+
+        $before = PhrEhiProposal::query()->orderBy('id')->get(['id', 'preview_digest', 'updated_at'])->toArray();
+        $again = $service->preview($package, $patient, $owner->id);
+        self::assertSame($preview->digest, $again->digest);
+        self::assertTrue($again->projection->replayed);
+        self::assertSame($before, PhrEhiProposal::query()->orderBy('id')->get(['id', 'preview_digest', 'updated_at'])->toArray());
+        self::assertSame(1, PhrEhiFinding::query()->where('code', 'synthetic_deleted_row')->count());
+        self::assertSame(0, PhrImmunization::query()->count(), 'a preview writes no clinical rows');
+    }
+
+    public function test_pending_proposals_no_longer_produced_are_superseded_and_decided_ones_never_rewritten(): void
+    {
+        [$owner, $patient, $package] = $this->previewable();
+        $service = app(EhiProposalService::class);
+        $service->preview($package, $patient, $owner->id);
+        $decided = $this->proposalFor($package, '100', '1');
+        $service->review($decided, PhrEhiProposal::DECISION_REJECT, $owner->id, $decided->preview_digest);
+        $decidedRow = $decided->refresh()->getAttributes();
+        $pending = $this->proposalFor($package, '100', '2');
+
+        // The mapping now proposes different values and no longer covers one subject.
+        EhiFakeMapping::$suffix = ' revised';
+        $skipped = EhiMappingContext::keyDigest(['ITEM_ID' => '0100', 'LINE' => '1']);
+        EhiFakeMapping::$skip = [$skipped];
+        $preview = $service->preview($package, $patient, $owner->id);
+
+        self::assertSame($decidedRow, $decided->refresh()->getAttributes(), 'a decided proposal is never rewritten');
+        $pending->refresh();
+        self::assertSame(PhrEhiProposal::STATUS_PENDING, $pending->status);
+        self::assertStringEndsWith(' revised', (string) ($pending->proposed_json['vaccine_name'] ?? ''));
+        $superseded = PhrEhiProposal::query()->where('subject_key', $skipped)->sole();
+        self::assertSame(PhrEhiProposal::STATUS_SUPERSEDED, $superseded->status);
+        self::assertSame(['pending' => 2, 'rejected' => 1, 'superseded' => 1], $preview->statuses);
+        $this->assertRefused(EhiReviewRefused::NOT_PENDING, fn () => $service->review($superseded, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $superseded->preview_digest));
+
+        // Produced again, it reopens as pending.
+        EhiFakeMapping::$skip = [];
+        $service->preview($package, $patient, $owner->id);
+        self::assertSame(PhrEhiProposal::STATUS_PENDING, $superseded->refresh()->status);
+    }
+
+    public function test_accept_creates_the_record_links_every_revision_and_appends_history(): void
+    {
+        [$owner, $patient, $package] = $this->previewable();
+        $service = app(EhiProposalService::class);
+        $service->preview($package, $patient, $owner->id);
+        $proposal = $this->proposalFor($package, '100', '1');
+
+        $accepted = $service->review($proposal, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $proposal->preview_digest);
+
+        self::assertSame(PhrEhiProposal::STATUS_ACCEPTED, $accepted->status);
+        self::assertSame($owner->id, $accepted->decided_by_user_id);
+        self::assertNotNull($accepted->decided_at);
+        $record = PhrImmunization::query()->sole();
+        self::assertSame(PhrReviewStatus::CONFIRMED, $record->review_status);
+        $link = PhrEhiRecordLink::query()->sole();
+        self::assertSame([$link->revision_id], PhrEhiProposalRevision::idsFor($proposal));
+        self::assertSame($record->id, $link->immunization_id);
+        self::assertSame(PhrEhiRecordLink::KIND_PROJECTED, $link->link_kind);
+        self::assertSame($proposal->id, $link->proposal_id);
+        self::assertSame('ehi-syn-1', $link->mapping_version);
+        $decision = PhrEhiProposalDecision::query()->sole();
+        self::assertSame(PhrEhiProposal::DECISION_ACCEPT, $decision->decision);
+        self::assertSame(PhrEhiProposal::STATUS_PENDING, $decision->previous_status);
+        self::assertSame($proposal->revision_digest, $decision->revision_digest);
+        self::assertSame($record->id, $decision->linked_immunization_id);
+        self::assertSame(PhrEhiOccurrence::DISPOSITION_PROJECTED, PhrEhiOccurrence::query()->where('revision_id', $link->revision_id)->value('disposition'));
+        $account = PhrEhiTableAccount::query()->where('package_id', $package->id)->where('table_name', EhiFakeMapping::TABLE)->sole();
+        self::assertSame(1, $account->disposition_counts_json['projected'] ?? null);
+        self::assertSame(0, EhiPackageSummary::forPackage($package)->unreconciledTables);
+
+        // The same decision again is a no-op; any other is refused.
+        $service->review($proposal, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $proposal->preview_digest);
+        self::assertSame(1, PhrImmunization::query()->count());
+        self::assertSame(1, PhrEhiProposalDecision::query()->count());
+        $this->assertRefused(EhiReviewRefused::NOT_PENDING, fn () => $service->review($proposal, PhrEhiProposal::DECISION_REJECT, $owner->id, $proposal->preview_digest));
+    }
+
+    public function test_reject_and_retain_write_no_clinical_rows(): void
+    {
+        [$owner, $patient, $package] = $this->previewable();
+        $service = app(EhiProposalService::class);
+        $service->preview($package, $patient, $owner->id);
+        $rejected = $this->proposalFor($package, '100', '1');
+        $retained = $this->proposalFor($package, '300', '1');
+        self::assertSame(PhrEhiProposal::KIND_RETAIN, $retained->kind);
+
+        $service->review($rejected, PhrEhiProposal::DECISION_REJECT, $owner->id, $rejected->preview_digest);
+        $this->assertRefused(EhiReviewRefused::DECISION_NOT_ALLOWED, fn () => $service->review($retained, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $retained->preview_digest));
+        $service->review($retained, PhrEhiProposal::DECISION_RETAIN, $owner->id, $retained->preview_digest);
+
+        self::assertSame(PhrEhiProposal::STATUS_REJECTED, $rejected->refresh()->status);
+        self::assertSame(PhrEhiProposal::STATUS_RETAINED, $retained->refresh()->status);
+        self::assertSame(0, PhrImmunization::query()->count());
+        self::assertSame(0, PhrEhiRecordLink::query()->count());
+        self::assertSame(2, PhrEhiProposalDecision::query()->whereNull('linked_immunization_id')->count());
+        self::assertSame(2, PhrEhiOccurrence::query()->where('disposition', PhrEhiOccurrence::DISPOSITION_RETAINED)->count());
+    }
+
+    public function test_link_existing_bridges_to_a_prior_record(): void
+    {
+        [$owner, $patient, $package] = $this->previewable();
+        $existing = $this->immunization($patient, 'Synthetic vaccine A '.EhiSyntheticPackage::MARKER);
+        $service = app(EhiProposalService::class);
+        $service->preview($package, $patient, $owner->id);
+        $proposal = $this->proposalFor($package, '100', '1');
+        self::assertSame(PhrEhiProposal::KIND_POSSIBLE_DUPLICATE, $proposal->kind);
+        self::assertSame([$existing->id], $proposal->candidate_ids_json);
+
+        $this->assertRefused(EhiReviewRefused::LINK_TARGET_REQUIRED, fn () => $service->review($proposal, PhrEhiProposal::DECISION_LINK, $owner->id, $proposal->preview_digest));
+        $deleted = $this->immunization($patient, 'Synthetic deleted');
+        $deleted->delete();
+        $this->assertRefused(EhiReviewRefused::TARGET_WITHDRAWN, fn () => $service->review($proposal, PhrEhiProposal::DECISION_LINK, $owner->id, $proposal->preview_digest, $deleted->id));
+
+        $linked = $service->review($proposal, PhrEhiProposal::DECISION_LINK, $owner->id, $proposal->preview_digest, $existing->id);
+
+        self::assertSame(PhrEhiProposal::STATUS_LINKED, $linked->status);
+        self::assertSame(2, PhrImmunization::query()->withTrashed()->count(), 'linking creates no record');
+        $link = PhrEhiRecordLink::query()->sole();
+        self::assertSame(PhrEhiRecordLink::KIND_BRIDGED, $link->link_kind);
+        self::assertSame($existing->id, $link->immunization_id);
+        self::assertSame($existing->id, PhrEhiProposalDecision::query()->sole()->linked_immunization_id);
+        self::assertSame(PhrEhiOccurrence::DISPOSITION_CORROBORATING, PhrEhiOccurrence::query()->where('revision_id', $link->revision_id)->value('disposition'));
+        self::assertTrue($deleted->refresh()->trashed());
+        // Idempotent for the same link only.
+        $service->review($proposal, PhrEhiProposal::DECISION_LINK, $owner->id, $proposal->preview_digest, $existing->id);
+        $this->assertRefused(EhiReviewRefused::NOT_PENDING, fn () => $service->review($proposal, PhrEhiProposal::DECISION_LINK, $owner->id, $proposal->preview_digest, $deleted->id));
+    }
+
+    public function test_changed_and_unchanged_later_evidence_update_or_corroborate_after_review(): void
+    {
+        [$owner, $patient, $first] = $this->previewable('first');
+        $service = app(EhiProposalService::class);
+        $service->preview($first, $patient, $owner->id);
+        foreach ([['100', '1'], ['100', '2']] as [$item, $line]) {
+            $proposal = $this->proposalFor($first, $item, $line);
+            $service->review($proposal, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $proposal->preview_digest);
+        }
+        $updated = PhrImmunization::query()->orderBy('id')->firstOrFail();
+
+        $rows = $this->standardItems();
+        $rows[0][2] = 'Synthetic vaccine A corrected';
+        $second = $this->boundPackage($this->itemPackage($rows), $patient, $owner, 'second');
+        $preview = $service->preview($second, $patient, $owner->id);
+        self::assertSame(['synthetic' => ['corroborate' => 1, 'create' => 1, 'retain' => 1, 'update' => 1]], $preview->counts);
+        // Unchanged, already-linked content is corroborating evidence from the start.
+        $corroborate = $this->proposalFor($second, '100', '2');
+        self::assertSame(PhrEhiOccurrence::DISPOSITION_CORROBORATING, PhrEhiOccurrence::query()->where('package_id', $second->id)->whereIn('revision_id', PhrEhiProposalRevision::idsFor($corroborate))->value('disposition'));
+
+        $update = $this->proposalFor($second, '100', '1');
+        self::assertSame(PhrEhiProposal::KIND_UPDATE, $update->kind);
+        self::assertSame($updated->id, $update->target_id);
+        self::assertNotNull($update->target_digest);
+        $this->assertRefused(EhiReviewRefused::DECISION_NOT_ALLOWED, fn () => $service->review($update, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $update->preview_digest));
+        $service->review($update, PhrEhiProposal::DECISION_APPROVE_UPDATE, $owner->id, $update->preview_digest);
+        self::assertSame('Synthetic vaccine A corrected', $updated->refresh()->vaccine_name);
+        self::assertSame(2, PhrEhiRecordLink::query()->where('immunization_id', $updated->id)->where('link_kind', PhrEhiRecordLink::KIND_PROJECTED)->count());
+
+        $service->review($corroborate, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $corroborate->preview_digest);
+        self::assertSame(2, PhrImmunization::query()->count());
+        self::assertSame(1, PhrEhiRecordLink::query()->where('link_kind', PhrEhiRecordLink::KIND_CORROBORATING)->count());
+    }
+
+    public function test_stale_preview_target_change_and_withdrawn_targets_are_refused_without_writes(): void
+    {
+        [$owner, $patient, $first] = $this->previewable('first');
+        $service = app(EhiProposalService::class);
+        $service->preview($first, $patient, $owner->id);
+        $created = $this->proposalFor($first, '100', '1');
+        $this->assertRefused(EhiReviewRefused::STALE_PREVIEW, fn () => $service->review($created, PhrEhiProposal::DECISION_ACCEPT, $owner->id, str_repeat('0', 64)));
+        $service->review($created, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $created->preview_digest);
+        $record = PhrImmunization::query()->sole();
+
+        $rows = $this->standardItems();
+        $rows[0][2] = 'Synthetic vaccine A corrected';
+        $second = $this->boundPackage($this->itemPackage($rows), $patient, $owner, 'second');
+        $service->preview($second, $patient, $owner->id);
+        $update = $this->proposalFor($second, '100', '1');
+
+        // Changed since the preview: refused until re-previewed.
+        $record->forceFill(['notes' => 'Synthetic manual note'])->save();
+        $this->assertRefused(EhiReviewRefused::STALE_TARGET, fn () => $service->review($update, PhrEhiProposal::DECISION_APPROVE_UPDATE, $owner->id, $update->preview_digest));
+        $service->preview($second, $patient, $owner->id);
+        $update->refresh();
+
+        // Deleted or retracted since: refused and never resurrected.
+        $record->delete();
+        $this->assertRefused(EhiReviewRefused::TARGET_WITHDRAWN, fn () => $service->review($update, PhrEhiProposal::DECISION_APPROVE_UPDATE, $owner->id, $update->preview_digest));
+        self::assertTrue($record->refresh()->trashed());
+        $record->restore();
+        $record->forceFill(['retracted_at' => now()])->save();
+        $service->preview($second, $patient, $owner->id);
+        $update->refresh();
+        $this->assertRefused(EhiReviewRefused::TARGET_WITHDRAWN, fn () => $service->review($update, PhrEhiProposal::DECISION_APPROVE_UPDATE, $owner->id, $update->preview_digest));
+
+        self::assertSame('Synthetic vaccine A '.EhiSyntheticPackage::MARKER, $record->refresh()->vaccine_name);
+        self::assertNotNull($record->retracted_at);
+        self::assertSame(PhrEhiProposal::STATUS_PENDING, $update->refresh()->status);
+        self::assertSame(1, PhrEhiProposalDecision::query()->count());
+    }
+
+    public function test_a_proposal_whose_evidence_is_no_longer_projected_is_refused(): void
+    {
+        [$owner, $patient, $package] = $this->previewable('first');
+        $service = app(EhiProposalService::class);
+        $service->preview($package, $patient, $owner->id);
+        $pending = $this->proposalFor($package, '100', '1');
+        // Its table's occurrences were withdrawn (as a mapping-key mismatch does)
+        // before the pending proposal was superseded by a re-preview.
+        PhrEhiOccurrence::query()->where('package_id', $package->id)->delete();
+
+        $this->assertRefused(EhiReviewRefused::STALE_SOURCE, fn () => $service->review($pending, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $pending->preview_digest));
+        self::assertSame(0, PhrImmunization::query()->count());
+        self::assertSame(PhrEhiProposal::STATUS_PENDING, $pending->refresh()->status);
+    }
+
+    public function test_a_second_concurrent_decision_and_a_revoked_reviewer_are_refused(): void
+    {
+        [$owner, $patient, $package] = $this->previewable();
+        $service = app(EhiProposalService::class);
+        $service->preview($package, $patient, $owner->id);
+        $first = $this->proposalFor($package, '100', '1');
+        $stale = PhrEhiProposal::query()->findOrFail($first->id);
+
+        $service->review($first, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $first->preview_digest);
+        self::assertSame(PhrEhiProposal::STATUS_PENDING, $stale->status, 'the second reviewer still holds the pending copy');
+        $this->assertRefused(EhiReviewRefused::NOT_PENDING, fn () => $service->review($stale, PhrEhiProposal::DECISION_REJECT, $owner->id, $stale->preview_digest));
+        self::assertSame(1, PhrImmunization::query()->count());
+
+        $viewer = User::factory()->create(['user_role' => 'user']);
+        PhrPatientUserAccess::query()->create(['patient_id' => $patient->id, 'user_id' => $viewer->id, 'access_level' => PhrPatientUserAccess::LEVEL_VIEWER, 'granted_by_user_id' => $owner->id, 'granted_at' => now()]);
+        $other = $this->proposalFor($package, '100', '2');
+        $this->expectException(AuthorizationException::class);
+        $service->review($other, PhrEhiProposal::DECISION_ACCEPT, $viewer->id, $other->preview_digest);
+    }
+
+    public function test_a_mapping_refusal_or_version_change_rolls_back_and_keeps_its_reason(): void
+    {
+        [$owner, $patient, $package] = $this->previewable();
+        $service = app(EhiProposalService::class);
+        $service->preview($package, $patient, $owner->id);
+        $proposal = $this->proposalFor($package, '100', '1');
+
+        EhiFakeMapping::$afterApply = static function (): void {
+            throw new EhiApplyRefused('identity_exists', 'synthetic refusal');
+        };
+        $this->assertRefused('identity_exists', fn () => $service->review($proposal, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $proposal->preview_digest));
+        self::assertSame(0, PhrImmunization::query()->withTrashed()->count(), 'the mapping write rolled back');
+        self::assertSame(0, PhrEhiRecordLink::query()->count());
+        self::assertSame(PhrEhiProposal::STATUS_PENDING, $proposal->refresh()->status);
+        EhiFakeMapping::$afterApply = null;
+
+        EhiFakeMapping::$version = 'ehi-syn-2';
+        $this->assertRefused(EhiReviewRefused::STALE_MAPPING, fn () => $service->review($proposal, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $proposal->preview_digest));
+        self::assertSame(0, PhrEhiProposalDecision::query()->count());
+    }
+
+    public function test_drafts_are_persisted_in_chunks_while_the_mapping_still_yields(): void
+    {
+        config(['phr.ehi_mappings' => [EhiManyDraftsMapping::class]]);
+        [$owner, $patient, $package] = $this->previewable('many');
+
+        $preview = app(EhiProposalService::class)->preview($package, $patient, $owner->id);
+
+        self::assertSame(['synthetic_many' => [PhrEhiProposal::KIND_RETAIN => EhiManyDraftsMapping::DRAFTS]], $preview->counts);
+        self::assertSame(EhiManyDraftsMapping::DRAFTS, PhrEhiProposal::query()->where('package_id', $package->id)->count());
+        // Two full chunks were already written when the last draft was yielded.
+        self::assertSame(400, EhiManyDraftsMapping::$persistedBeforeLast);
+
+        // A re-preview producing fewer subjects supersedes only the missing ones.
+        EhiManyDraftsMapping::$limit = 300;
+        $again = app(EhiProposalService::class)->preview($package->refresh(), $patient, $owner->id);
+        self::assertSame(['pending' => 300, 'superseded' => EhiManyDraftsMapping::DRAFTS - 300], $again->statuses);
+        EhiManyDraftsMapping::$limit = EhiManyDraftsMapping::DRAFTS;
+    }
+
+    public function test_a_preview_that_fails_after_persisting_chunks_leaves_nothing_reviewable_until_one_completes(): void
+    {
+        config(['phr.ehi_mappings' => [EhiFailingDraftsMapping::class]]);
+        [$owner, $patient, $package] = $this->previewable('failing');
+        $service = app(EhiProposalService::class);
+        EhiFailingDraftsMapping::$subjects = range(1, 300);
+        $service->preview($package, $patient, $owner->id);
+        $omitted = $this->failingProposal($package, 1);
+        $unchanged = $this->failingProposal($package, 150);
+        $unchangedRow = [$unchanged->preview_digest, $unchanged->getRawOriginal('updated_at')];
+
+        // The next run no longer proposes subjects 1-100, adds 301-400, and fails
+        // after its first chunk was committed: neither its new rows nor the
+        // previous run's rows it would have superseded may be reviewed.
+        EhiFailingDraftsMapping::$subjects = [...range(301, 400), ...range(101, 300)];
+        EhiFailingDraftsMapping::$failAfter = 250;
+        try {
+            $service->preview($package->refresh(), $patient, $owner->id);
+            self::fail('The synthetic mapping should have failed.');
+        } catch (\RuntimeException $failed) {
+            self::assertSame('synthetic mapping failure', $failed->getMessage());
+        }
+        $written = $this->failingProposal($package, 301);
+        self::assertSame(PhrEhiProposal::STATUS_PENDING, $omitted->refresh()->status);
+        foreach ([$omitted, $written, $unchanged] as $proposal) {
+            $this->assertRefused(EhiReviewRefused::PREVIEW_INCOMPLETE, fn () => $service->review($proposal, PhrEhiProposal::DECISION_RETAIN, $owner->id, $proposal->preview_digest));
+        }
+        self::assertSame(0, PhrEhiProposalDecision::query()->count());
+        Artisan::call('phr:ehi:proposals', ['--patient' => $patient->id, '--actor' => $owner->id, '--status' => PhrEhiProposal::STATUS_PENDING]);
+        $listing = Artisan::output();
+        self::assertStringContainsString("package {$package->id}: the last preview did not complete", $listing);
+        self::assertStringContainsString('No EHI proposals.', $listing);
+        Artisan::call('phr:ehi:status', ['--patient' => $patient->id, '--actor' => $owner->id]);
+        $status = Artisan::output();
+        self::assertStringContainsString('preview: incomplete (generation 2 did not complete; run phr:ehi:preview)', $status);
+        self::assertStringContainsString('pending outside the completed preview: 400', $status);
+
+        // A later successful preview converges: the omitted subject is superseded,
+        // the new one is reviewable, and an unchanged one keeps its digest.
+        EhiFailingDraftsMapping::$failAfter = null;
+        $service->preview($package->refresh(), $patient, $owner->id);
+        self::assertSame(PhrEhiProposal::STATUS_SUPERSEDED, $omitted->refresh()->status);
+        $unchanged->refresh();
+        self::assertSame($unchangedRow, [$unchanged->preview_digest, $unchanged->getRawOriginal('updated_at')]);
+        self::assertSame(3, $unchanged->preview_generation);
+        $written->refresh();
+        $service->review($written, PhrEhiProposal::DECISION_RETAIN, $owner->id, $written->preview_digest);
+        self::assertSame(PhrEhiProposal::STATUS_RETAINED, $written->refresh()->status);
+        Artisan::call('phr:ehi:status', ['--patient' => $patient->id, '--actor' => $owner->id]);
+        $status = Artisan::output();
+        self::assertStringContainsString('preview: complete (generation 3)', $status);
+        self::assertStringContainsString('proposals: pending 299, retained 1, superseded 100', $status);
+        self::assertStringNotContainsString('pending outside', $status);
+    }
+
+    public function test_a_proposal_relying_on_many_revisions_stores_and_reads_them_in_bounded_chunks(): void
+    {
+        config(['phr.ehi_mappings' => [EhiAllRevisionsMapping::class]]);
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        PhrPatientUserAccess::query()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'access_level' => PhrPatientUserAccess::LEVEL_OWNER, 'granted_by_user_id' => $owner->id, 'granted_at' => now()]);
+        $lines = 450;
+        $rows = array_map(static fn (int $line): array => ['500', (string) $line, 'Synthetic note line '.$line, '', 'A'], range(1, $lines));
+        $package = $this->boundPackage($this->itemPackage($rows), $patient, $owner, 'lines');
+        $service = app(EhiProposalService::class);
+        $service->preview($package, $patient, $owner->id);
+        $proposal = PhrEhiProposal::query()->where('package_id', $package->id)->sole();
+
+        $revisionIds = PhrEhiProposalRevision::idsFor($proposal);
+        self::assertCount($lines, $revisionIds);
+        $sorted = $revisionIds;
+        sort($sorted);
+        self::assertSame($sorted, $revisionIds, 'positions follow ascending revision id');
+        self::assertSame(range(0, $lines - 1), PhrEhiProposalRevision::query()->where('proposal_id', $proposal->id)->orderBy('position')->pluck('position')->all());
+        self::assertArrayNotHasKey('revision_ids_json', $proposal->getAttributes());
+
+        // Review reads the revisions back without one statement naming them all.
+        $widest = 0;
+        DB::listen(static function ($query) use (&$widest): void {
+            if (! str_starts_with(strtolower(ltrim($query->sql)), 'insert')) {
+                $widest = max($widest, count($query->bindings));
+            }
+        });
+        $service->review($proposal, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $proposal->preview_digest);
+        self::assertLessThanOrEqual(210, $widest);
+
+        $record = PhrImmunization::query()->sole();
+        self::assertSame($lines, PhrEhiRecordLink::query()->where('immunization_id', $record->id)->where('proposal_id', $proposal->id)->count());
+        self::assertSame($lines, PhrEhiOccurrence::query()->where('package_id', $package->id)->where('disposition', PhrEhiOccurrence::DISPOSITION_PROJECTED)->count());
+        self::assertSame($proposal->revision_digest, PhrEhiProposalDecision::query()->sole()->revision_digest);
+    }
+
+    public function test_a_mapping_version_bump_proposes_anew_beside_decided_proposals_of_the_earlier_version(): void
+    {
+        [$owner, $patient, $package] = $this->previewable();
+        $service = app(EhiProposalService::class);
+        $service->preview($package, $patient, $owner->id);
+        $decided = $this->proposalFor($package, '100', '1');
+        $service->review($decided, PhrEhiProposal::DECISION_REJECT, $owner->id, $decided->preview_digest);
+        $decidedRow = $decided->refresh()->getAttributes();
+        $pending = $this->proposalFor($package, '100', '2');
+
+        EhiFakeMapping::$version = 'ehi-syn-2';
+        $preview = $service->preview($package->refresh(), $patient, $owner->id);
+
+        self::assertSame($decidedRow, $decided->refresh()->getAttributes(), 'a decision under the earlier version is kept untouched');
+        self::assertSame(PhrEhiProposal::STATUS_SUPERSEDED, $pending->refresh()->status, 'pending proposals of the earlier version are superseded');
+        self::assertSame(['pending' => 4, 'rejected' => 1, 'superseded' => 3], $preview->statuses);
+        $renewed = PhrEhiProposal::query()->where('package_id', $package->id)->where('subject_key', $decided->subject_key)
+            ->where('mapping_version', 'ehi-syn-2')->sole();
+        self::assertSame(PhrEhiProposal::STATUS_PENDING, $renewed->status);
+        $service->review($renewed, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $renewed->preview_digest);
+        self::assertSame(PhrEhiProposal::STATUS_ACCEPTED, $renewed->refresh()->status);
+        self::assertSame(PhrEhiProposal::STATUS_REJECTED, $decided->refresh()->status);
+        self::assertSame(['ehi-syn-1', 'ehi-syn-2'], PhrEhiProposalDecision::query()->orderBy('id')->pluck('mapping_version')->all());
+    }
+
+    public function test_an_older_run_without_a_newly_added_mapping_keeps_a_later_runs_proposals(): void
+    {
+        // A rolling deploy: an older worker, whose registry lacks the added
+        // mapping, starts generation 1; a newer worker with it starts generation
+        // 2 and completes while the older run is still inside its mapping.
+        config(['phr.ehi_mappings' => [EhiInterleavedMapping::class]]);
+        [$owner, $patient, $package] = $this->previewable('rolling');
+        $older = app(EhiProposalService::class);
+        EhiInterleavedMapping::$during = function () use ($package, $patient, $owner): void {
+            config(['phr.ehi_mappings' => [EhiInterleavedMapping::class, EhiAddedMapping::class]]);
+            app(EhiProposalService::class)->preview(PhrEhiPackage::query()->findOrFail($package->id), $patient, $owner->id);
+        };
+
+        try {
+            $older->preview($package, $patient, $owner->id);
+            self::fail('The older run must report supersession.');
+        } catch (EhiProjectionRefused $refused) {
+            self::assertSame('preview_superseded', $refused->reason);
+        }
+
+        $added = PhrEhiProposal::query()->where('package_id', $package->id)->where('mapping', 'synthetic_added')->sole();
+        self::assertSame(PhrEhiProposal::STATUS_PENDING, $added->status, 'the older run supersedes nothing the newer run stamped');
+        self::assertSame(2, $added->preview_generation);
+        $interleaved = PhrEhiProposal::query()->where('package_id', $package->id)->where('mapping', 'synthetic_interleaved')->sole();
+        self::assertSame([PhrEhiProposal::STATUS_PENDING, 2], [$interleaved->status, $interleaved->preview_generation]);
+        $package->refresh();
+        self::assertSame([2, 2], [$package->preview_generation_started, $package->preview_generation_completed]);
+        self::assertTrue($package->completedPreviewIncludes($added));
+        self::assertSame(['synthetic_new_findings'], PhrEhiFinding::query()->where('detail_json->stage', 'preview')->pluck('code')->all());
+        $service = app(EhiProposalService::class);
+        $service->review($added, PhrEhiProposal::DECISION_RETAIN, $owner->id, $added->preview_digest);
+        self::assertSame(PhrEhiProposal::STATUS_RETAINED, $added->refresh()->status);
+    }
+
+    public function test_a_revision_shared_by_two_proposals_keeps_its_strongest_disposition_in_either_review_order(): void
+    {
+        config(['phr.ehi_mappings' => [EhiSharedRevisionMapping::class]]);
+        $settled = [];
+        foreach (['accept_first' => [PhrEhiProposal::DECISION_ACCEPT, PhrEhiProposal::DECISION_RETAIN], 'retain_first' => [PhrEhiProposal::DECISION_RETAIN, PhrEhiProposal::DECISION_ACCEPT]] as $order => $decisions) {
+            [$owner, $patient, $package] = $this->previewable($order);
+            $service = app(EhiProposalService::class);
+            $service->preview($package, $patient, $owner->id);
+            $byDecision = [
+                PhrEhiProposal::DECISION_ACCEPT => $this->proposalFor($package, '100', '1'),
+                PhrEhiProposal::DECISION_RETAIN => $this->proposalFor($package, '300', '1'),
+            ];
+            $shared = EhiFakeMapping::revisionFor($package->id, '0100', '1');
+            self::assertNotNull($shared);
+            foreach ($byDecision as $proposal) {
+                self::assertContains($shared->id, PhrEhiProposalRevision::idsFor($proposal));
+            }
+
+            foreach ($decisions as $decision) {
+                $service->review($byDecision[$decision], $decision, $owner->id, $byDecision[$decision]->preview_digest);
+            }
+
+            $settled[$order] = [];
+            foreach ([['100', '1'], ['0100', '1'], ['300', '1'], ['100', '2']] as [$item, $line]) {
+                $settled[$order]["{$item}/{$line}"] = PhrEhiOccurrence::query()->where('package_id', $package->id)
+                    ->where('revision_id', EhiFakeMapping::revisionFor($package->id, $item, $line)?->id)->value('disposition');
+            }
+            $settled[$order]['account'] = PhrEhiTableAccount::query()->where('package_id', $package->id)->where('table_name', EhiFakeMapping::TABLE)->sole()->disposition_counts_json;
+            self::assertSame(0, EhiPackageSummary::forPackage($package)->unreconciledTables);
+        }
+
+        // The shared row backs a committed record link, so it stays projected however the reviews were ordered.
+        self::assertSame([
+            '100/1' => PhrEhiOccurrence::DISPOSITION_PROJECTED,
+            '0100/1' => PhrEhiOccurrence::DISPOSITION_PROJECTED,
+            '300/1' => PhrEhiOccurrence::DISPOSITION_RETAINED,
+            '100/2' => PhrEhiOccurrence::DISPOSITION_PENDING_REVIEW,
+            'account' => ['projected' => 2, 'corroborating' => 0, 'pending_review' => 1, 'retained' => 1, 'quarantined' => 0],
+        ], $settled['accept_first']);
+        self::assertSame($settled['accept_first'], $settled['retain_first']);
+    }
+
+    public function test_patient_deletion_removes_every_evidence_and_review_row(): void
+    {
+        [$owner, $patient, $package] = $this->previewable();
+        $service = app(EhiProposalService::class);
+        $service->preview($package, $patient, $owner->id);
+        $proposal = $this->proposalFor($package, '100', '1');
+        $service->review($proposal, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $proposal->preview_digest);
+        $tables = ['phr_ehi_entities', 'phr_ehi_revisions', 'phr_ehi_occurrences', 'phr_ehi_proposals', 'phr_ehi_proposal_decisions', 'phr_ehi_record_links'];
+        foreach ($tables as $table) {
+            self::assertGreaterThan(0, DB::table($table)->where('patient_id', $patient->id)->count(), $table);
+        }
+
+        $preview = $this->actingAs($owner)->getJson("/api/phr/data-hub/patients/{$patient->id}/deletion-preview")
+            ->assertOk()->assertJsonCount(0, 'deletion_preview.blockers');
+        foreach ($tables as $table) {
+            $preview->assertJsonPath("deletion_preview.record_counts.{$table}", DB::table($table)->where('patient_id', $patient->id)->count());
+        }
+        $this->actingAs($owner)->deleteJson("/api/phr/patients/{$patient->id}", [
+            'confirmation' => 'DELETE',
+            'preview_digest' => (string) $preview->json('deletion_preview.preview_digest'),
+        ])->assertAccepted();
+
+        foreach ([...$tables, 'phr_immunizations', 'phr_ehi_packages'] as $table) {
+            self::assertSame(0, DB::table($table)->count(), $table);
+        }
+    }
+
+    /** @return array{User, PhrPatient, PhrEhiPackage} */
+    private function previewable(string $name = 'package'): array
+    {
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        PhrPatientUserAccess::query()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'access_level' => PhrPatientUserAccess::LEVEL_OWNER, 'granted_by_user_id' => $owner->id, 'granted_at' => now()]);
+
+        return [$owner, $patient, $this->boundPackage($this->itemPackage($this->standardItems()), $patient, $owner, $name)];
+    }
+
+    private function proposalFor(PhrEhiPackage $package, string $item, string $line): PhrEhiProposal
+    {
+        return PhrEhiProposal::query()->where('package_id', $package->id)
+            ->where('subject_key', EhiMappingContext::keyDigest(['ITEM_ID' => $item, 'LINE' => $line]))->sole();
+    }
+
+    private function failingProposal(PhrEhiPackage $package, int $subject): PhrEhiProposal
+    {
+        return PhrEhiProposal::query()->where('package_id', $package->id)->where('subject_key', EhiFailingDraftsMapping::subject($subject))->sole();
+    }
+
+    private function immunization(PhrPatient $patient, string $name): PhrImmunization
+    {
+        return PhrImmunization::query()->create([
+            'patient_id' => $patient->id,
+            'user_id' => $patient->owner_user_id,
+            'review_status' => PhrReviewStatus::CONFIRMED,
+            'vaccine_name' => $name,
+        ]);
+    }
+
+    private function assertRefused(string $reason, \Closure $call): void
+    {
+        try {
+            $call();
+            self::fail("Expected EhiReviewRefused ({$reason}).");
+        } catch (EhiReviewRefused $refused) {
+            self::assertSame($reason, $refused->reason);
+            self::assertStringNotContainsString(EhiSyntheticPackage::MARKER, $refused->getMessage());
+        }
+    }
+}
+
+/**
+ * Two proposals relying on one shared row, as two notes owned through one
+ * encounter do: a create for ITEM 100/1 and a retain for the deleted 300/1, both
+ * citing 0100/1.
+ */
+final class EhiSharedRevisionMapping implements EhiMapping
+{
+    public function name(): string
+    {
+        return 'synthetic_shared';
+    }
+
+    public function version(): string
+    {
+        return 'shared-1';
+    }
+
+    public function expectedKeys(): array
+    {
+        return [EhiFakeMapping::TABLE => ['ITEM_ID', 'LINE']];
+    }
+
+    public function propose(EhiMappingContext $context): iterable
+    {
+        $shared = $context->revisionByKey(EhiFakeMapping::TABLE, ['ITEM_ID' => '0100', 'LINE' => '1']);
+        $created = $context->revisionByKey(EhiFakeMapping::TABLE, ['ITEM_ID' => '100', 'LINE' => '1']);
+        $deleted = $context->revisionByKey(EhiFakeMapping::TABLE, ['ITEM_ID' => '300', 'LINE' => '1']);
+        if ($shared === null || $created === null || $deleted === null) {
+            return;
+        }
+
+        yield new EhiProposalDraft(
+            EhiMappingContext::keyDigest(['ITEM_ID' => '100', 'LINE' => '1']),
+            PhrEhiProposal::KIND_CREATE,
+            [$created->id, $shared->id],
+            ['vaccine_name' => $created->values_json['NAME'] ?? null, 'administered_on' => null],
+        );
+        yield new EhiProposalDraft(EhiMappingContext::keyDigest(['ITEM_ID' => '300', 'LINE' => '1']), PhrEhiProposal::KIND_RETAIN, [$deleted->id, $shared->id]);
+    }
+
+    public function apply(PhrEhiProposal $proposal, EhiApplyContext $context): EhiApplyOutcome
+    {
+        return (new EhiFakeMapping)->apply($proposal, $context);
+    }
+}
+
+final class EhiManyDraftsMapping implements EhiMapping
+{
+    public const int DRAFTS = 450;
+
+    public static int $limit = self::DRAFTS;
+
+    public static int $persistedBeforeLast = 0;
+
+    public function name(): string
+    {
+        return 'synthetic_many';
+    }
+
+    public function version(): string
+    {
+        return 'many-1';
+    }
+
+    public function expectedKeys(): array
+    {
+        return [EhiFakeMapping::TABLE => ['ITEM_ID', 'LINE']];
+    }
+
+    public function propose(EhiMappingContext $context): iterable
+    {
+        $revision = $context->revisionByKey(EhiFakeMapping::TABLE, ['ITEM_ID' => '100', 'LINE' => '1']);
+        if ($revision === null) {
+            return;
+        }
+        for ($i = 1; $i <= self::$limit; $i++) {
+            if ($i === self::$limit) {
+                self::$persistedBeforeLast = PhrEhiProposal::query()->where('mapping', $this->name())->count();
+            }
+            yield new EhiProposalDraft(hash('sha256', 'synthetic-subject-'.$i), PhrEhiProposal::KIND_RETAIN, [$revision->id]);
+        }
+    }
+
+    public function apply(PhrEhiProposal $proposal, EhiApplyContext $context): EhiApplyOutcome
+    {
+        return (new EhiFakeMapping)->apply($proposal, $context);
+    }
+}
+
+/**
+ * Retain proposals for a configurable list of synthetic subjects, all citing
+ * ITEM 100/1, that can fail part way through yielding.
+ */
+final class EhiFailingDraftsMapping implements EhiMapping
+{
+    /** @var list<int> */
+    public static array $subjects = [];
+
+    /** Throw before yielding this many more drafts; null never throws. */
+    public static ?int $failAfter = null;
+
+    public static function subject(int $subject): string
+    {
+        return hash('sha256', 'synthetic-failing-subject-'.$subject);
+    }
+
+    public function name(): string
+    {
+        return 'synthetic_failing';
+    }
+
+    public function version(): string
+    {
+        return 'failing-1';
+    }
+
+    public function expectedKeys(): array
+    {
+        return [EhiFakeMapping::TABLE => ['ITEM_ID', 'LINE']];
+    }
+
+    public function propose(EhiMappingContext $context): iterable
+    {
+        $revision = $context->revisionByKey(EhiFakeMapping::TABLE, ['ITEM_ID' => '100', 'LINE' => '1']);
+        if ($revision === null) {
+            return;
+        }
+        foreach (self::$subjects as $index => $subject) {
+            if (self::$failAfter !== null && $index >= self::$failAfter) {
+                throw new \RuntimeException('synthetic mapping failure');
+            }
+            yield new EhiProposalDraft(self::subject($subject), PhrEhiProposal::KIND_RETAIN, [$revision->id]);
+        }
+    }
+
+    public function apply(PhrEhiProposal $proposal, EhiApplyContext $context): EhiApplyOutcome
+    {
+        return (new EhiFakeMapping)->apply($proposal, $context);
+    }
+}
+
+/**
+ * One create relying on every SYNTH_ITEM revision, as a note relies on each of
+ * its text lines.
+ */
+final class EhiAllRevisionsMapping implements EhiMapping
+{
+    public function name(): string
+    {
+        return 'synthetic_all';
+    }
+
+    public function version(): string
+    {
+        return 'all-1';
+    }
+
+    public function expectedKeys(): array
+    {
+        return [EhiFakeMapping::TABLE => ['ITEM_ID', 'LINE']];
+    }
+
+    public function propose(EhiMappingContext $context): iterable
+    {
+        $ids = $context->lazyRevisions(EhiFakeMapping::TABLE)->map(static fn ($revision): int => (int) $revision->id)->values()->all();
+        if ($ids === []) {
+            return;
+        }
+
+        yield new EhiProposalDraft(hash('sha256', 'synthetic-all-lines'), PhrEhiProposal::KIND_CREATE, $ids, ['vaccine_name' => 'Synthetic multi-line', 'administered_on' => null]);
+    }
+
+    public function apply(PhrEhiProposal $proposal, EhiApplyContext $context): EhiApplyOutcome
+    {
+        return (new EhiFakeMapping)->apply($proposal, $context);
+    }
+}
+
+/**
+ * A retain for ITEM 100/1 that, once, runs $during before yielding it: the
+ * point at which a test interleaves another preview run.
+ */
+final class EhiInterleavedMapping implements EhiMapping
+{
+    public static ?\Closure $during = null;
+
+    public function name(): string
+    {
+        return 'synthetic_interleaved';
+    }
+
+    public function version(): string
+    {
+        return 'interleaved-1';
+    }
+
+    public function expectedKeys(): array
+    {
+        return [EhiFakeMapping::TABLE => ['ITEM_ID', 'LINE']];
+    }
+
+    public function propose(EhiMappingContext $context): iterable
+    {
+        $during = self::$during;
+        self::$during = null;
+        if ($during !== null) {
+            $during();
+        }
+        $revision = $context->revisionByKey(EhiFakeMapping::TABLE, ['ITEM_ID' => '100', 'LINE' => '1']);
+        if ($revision === null) {
+            return;
+        }
+
+        $context->finding($during === null ? 'synthetic_new_findings' : 'synthetic_old_findings', $revision);
+
+        yield new EhiProposalDraft(hash('sha256', 'synthetic-interleaved-subject'), PhrEhiProposal::KIND_RETAIN, [$revision->id]);
+    }
+
+    public function apply(PhrEhiProposal $proposal, EhiApplyContext $context): EhiApplyOutcome
+    {
+        return (new EhiFakeMapping)->apply($proposal, $context);
+    }
+}
+
+/** A mapping a newer deployment adds: one retain for ITEM 100/1. */
+final class EhiAddedMapping implements EhiMapping
+{
+    public function name(): string
+    {
+        return 'synthetic_added';
+    }
+
+    public function version(): string
+    {
+        return 'added-1';
+    }
+
+    public function expectedKeys(): array
+    {
+        return [EhiFakeMapping::TABLE => ['ITEM_ID', 'LINE']];
+    }
+
+    public function propose(EhiMappingContext $context): iterable
+    {
+        $revision = $context->revisionByKey(EhiFakeMapping::TABLE, ['ITEM_ID' => '100', 'LINE' => '1']);
+        if ($revision === null) {
+            return;
+        }
+
+        yield new EhiProposalDraft(hash('sha256', 'synthetic-added-subject'), PhrEhiProposal::KIND_RETAIN, [$revision->id]);
+    }
+
+    public function apply(PhrEhiProposal $proposal, EhiApplyContext $context): EhiApplyOutcome
+    {
+        return (new EhiFakeMapping)->apply($proposal, $context);
+    }
+}

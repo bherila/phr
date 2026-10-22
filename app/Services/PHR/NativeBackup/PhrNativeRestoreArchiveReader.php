@@ -10,6 +10,9 @@ use ZipArchive;
 
 final class PhrNativeRestoreArchiveReader
 {
+    /** @var array<string, list<string>> */
+    private array $columns = [];
+
     public function openFromStorage(string $disk, string $path): PhrNativeRestoreArchive
     {
         $localPath = tempnam(sys_get_temp_dir(), 'phr-restore-');
@@ -31,10 +34,14 @@ final class PhrNativeRestoreArchiveReader
         }
 
         try {
-            $bytes = stream_copy_to_stream($source, $target);
+            $bytes = stream_copy_to_stream($source, $target, (int) config('phr.native_backup_max_uncompressed_bytes') + 1);
         } finally {
             fclose($source);
             fclose($target);
+        }
+        if (is_int($bytes) && $bytes > (int) config('phr.native_backup_max_uncompressed_bytes')) {
+            @unlink($localPath);
+            throw new NativeRestoreException('size_limit');
         }
         if (! is_int($bytes)) {
             @unlink($localPath);
@@ -46,14 +53,19 @@ final class PhrNativeRestoreArchiveReader
 
     public function openLocal(string $localPath): PhrNativeRestoreArchive
     {
+        $this->columns = [];
         $fileSize = filesize($localPath);
-        $sha256 = hash_file('sha256', $localPath);
         $maxBytes = (int) config('phr.native_backup_max_uncompressed_bytes');
-        if (! is_int($fileSize) || ! is_string($sha256) || $fileSize < 1 || $fileSize > $maxBytes) {
+        if (! is_int($fileSize) || $fileSize < 1 || $fileSize > $maxBytes) {
             @unlink($localPath);
             throw new NativeRestoreException('size_limit');
         }
 
+        $sha256 = hash_file('sha256', $localPath);
+        if (! is_string($sha256)) {
+            @unlink($localPath);
+            throw new NativeRestoreException('source_unreadable');
+        }
         $zip = new ZipArchive;
         if ($zip->open($localPath, ZipArchive::RDONLY) !== true) {
             @unlink($localPath);
@@ -62,9 +74,10 @@ final class PhrNativeRestoreArchiveReader
 
         try {
             $manifestBytes = $zip->getFromName('manifest.json', 1024 * 1024);
-            if (! is_string($manifestBytes) || strlen($manifestBytes) >= 1024 * 1024) {
+            if (! is_string($manifestBytes)) {
                 throw new NativeRestoreException('invalid_archive');
             }
+            (new NativeResourceBudget(true))->manifest(strlen($manifestBytes));
             $manifest = json_decode($manifestBytes, true, flags: JSON_THROW_ON_ERROR);
             if (! is_array($manifest)) {
                 throw new NativeRestoreException('invalid_archive');
@@ -126,7 +139,9 @@ final class PhrNativeRestoreArchiveReader
         foreach ($manifest['tables'] as $entry) {
             $allowed[$entry['path']] = true;
         }
+        $metadataBudget = new NativeResourceBudget(true);
         foreach ($manifest['artifacts'] as $artifact) {
+            $metadataBudget->artifact(strlen(PhrNativeRecordCodec::canonicalJson($artifact)));
             if (! is_array($artifact) || ! is_string($artifact['path'] ?? null)) {
                 throw new NativeRestoreException('invalid_archive');
             }
@@ -135,6 +150,9 @@ final class PhrNativeRestoreArchiveReader
 
         $seen = [];
         $total = 0;
+        $recordBytes = 0;
+        $budget = new NativeResourceBudget(true);
+        $budget->preflight(array_sum(array_column($manifest['tables'], 'count')), 0);
         for ($index = 0; $index < $zip->numFiles; $index++) {
             $stat = $zip->statIndex($index, ZipArchive::FL_UNCHANGED);
             if ($stat === false) {
@@ -149,6 +167,10 @@ final class PhrNativeRestoreArchiveReader
                 throw new NativeRestoreException('size_limit');
             }
             $total += $stat['size'];
+            if (str_starts_with($name, 'records/')) {
+                $recordBytes += $stat['size'];
+                $budget->preflight(0, $recordBytes);
+            }
             if ($stat['encryption_method'] !== 0) {
                 throw new NativeRestoreException('invalid_archive');
             }
@@ -173,6 +195,7 @@ final class PhrNativeRestoreArchiveReader
      */
     private function validateRecords(ZipArchive $zip, array $manifest, int $maxRecordBytes): array
     {
+        $budget = new NativeResourceBudget(true);
         $allIds = [];
         $actorIds = [];
         $artifactRecords = array_fill_keys(array_keys(PhrNativeBackupCatalog::artifactBearingTables()), []);
@@ -194,6 +217,7 @@ final class PhrNativeRestoreArchiveReader
                     if (strlen($line) > $maxRecordBytes || (! str_ends_with($line, "\n") && ! feof($stream))) {
                         throw new NativeRestoreException('record_size_limit');
                     }
+                    $budget->charge(strlen($line), rtrim($line, "\r\n") !== '');
                     hash_update($hash, $line);
                     $trimmed = rtrim($line, "\r\n");
                     if ($trimmed === '') {
@@ -227,7 +251,7 @@ final class PhrNativeRestoreArchiveReader
                         $actorIds[$actorNativeId] = true;
                     }
                     if (isset($artifactRecords[$table])) {
-                        $artifactRecords[$table][$record['nativeId']] = $record['attributes'];
+                        $artifactRecords[$table][$record['nativeId']] = array_intersect_key($record['attributes'], array_fill_keys(['byte_size', 'file_hash', 'file_kind', 'file_size_bytes', 'sha256', 'original_relative_path'], true));
                     }
                     $count++;
                 }
@@ -261,7 +285,7 @@ final class PhrNativeRestoreArchiveReader
         $expectedAttributes = [];
         $relationships = $definition['relationships'] ?? [];
         $excluded = $definition['excluded_columns'] ?? [];
-        foreach (Schema::getColumnListing($table) as $column) {
+        foreach ($this->columns[$table] ??= Schema::getColumnListing($table) as $column) {
             if ($column !== 'id' && $column !== $definition['patient_column'] && ! isset($relationships[$column]) && ! isset($excluded[$column])) {
                 $expectedAttributes[] = $column;
             }
@@ -270,11 +294,13 @@ final class PhrNativeRestoreArchiveReader
         $actualAttributes = array_keys($record['attributes']);
         sort($actualAttributes);
         // An archive written before the record lifecycle existed has no
-        // deleted_at or retracted_at. Those two absences are the only tolerated
-        // difference; the records are normalized to null on the way out, after
-        // their stored hash has been verified against what was actually written.
+        // deleted_at or retracted_at, and one written before a later nullable
+        // column (PhrNativeLifecycleCompatibility::TABLE_COLUMNS) lacks it. Those
+        // absences are the only tolerated difference; the records are normalized
+        // to null on the way out, after their stored hash has been verified
+        // against what was actually written.
         $missing = array_values(array_diff($expectedAttributes, $actualAttributes));
-        if (array_diff($missing, PhrNativeLifecycleCompatibility::COLUMNS) !== []
+        if (array_diff($missing, PhrNativeLifecycleCompatibility::tolerated($table)) !== []
             || array_diff($actualAttributes, $expectedAttributes) !== []) {
             throw new NativeRestoreException('invalid_archive');
         }

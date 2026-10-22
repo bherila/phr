@@ -99,6 +99,9 @@ explicit `--actor` and go through the same three methods.
 | Intake an EHI Tables package | `php artisan phr:ehi:intake` | W (`writablePatient`) | — | planned (#214), explicit `--actor`; also the repair path (republishes missing/tampered blobs) and sole writer of blob `verified_at` |
 | Bind an EHI package to a declared source | `php artisan phr:ehi:bind` | **O** (`ownedPatient`) | — | planned (#214), explicit `--actor` |
 | EHI package status / byte verification | `php artisan phr:ehi:status`, `phr:ehi:verify` | R (`accessiblePatient`) | — | planned (#214), explicit `--actor`; read-only (verify writes nothing, not even `verified_at`) |
+| Project an EHI package and persist proposals | `php artisan phr:ehi:preview` | W (`writablePatient`) | — | planned (#213 M2), explicit `--actor`; write access re-checked in every bounded step; no clinical writes |
+| List / describe EHI proposals | `php artisan phr:ehi:proposals` | R (`accessiblePatient`) | — | planned (#213 M2), explicit `--actor`; read-only; field names only, values only behind `--values` (prints a health-data warning) |
+| Review an EHI proposal (accept, approve update, link, reject, retain) | `php artisan phr:ehi:review` | W (`writablePatient`) | — | planned (#213 M2), explicit `--actor`; write access re-checked under the patient artifact guard; requires the proposal's current preview digest |
 | Accept a GenAI extraction | `POST` GenAI import accept | W | — | existing-protected (patient id read from the job's own context, not the client) |
 | Export data assembly | `PhrExportDataService` | caller-resolved | — | trusted infrastructure |
 | Structured import | `PhrStructuredDataImporter::importPayload` | caller-resolved (`PhrPatient` object) | — | trusted infrastructure |

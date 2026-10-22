@@ -3,6 +3,7 @@
 namespace App\Services\PHR\NativeBackup;
 
 use App\Models\PhrNativeRecordIdentity;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
@@ -36,5 +37,84 @@ final class PhrNativeIdentityRepository
         );
 
         return $this->cache[$key] = $identity->native_id;
+    }
+
+    /** Pure indexed lookup: restore reads must never assign or cache identities. */
+    public function existingRecordId(int $patientId, string $table, string $nativeId): ?int
+    {
+        $id = DB::table('phr_native_record_identities')->where('patient_id', $patientId)
+            ->where('record_table', $table)->where('native_id', $nativeId)->value('record_id');
+
+        return $id === null ? null : (int) $id;
+    }
+
+    public function existingNativeId(int $patientId, string $table, int $recordId): ?string
+    {
+        $id = DB::table('phr_native_record_identities')->where('patient_id', $patientId)
+            ->where('record_table', $table)->where('record_id', $recordId)->value('native_id');
+
+        return $id === null ? null : (string) $id;
+    }
+
+    /**
+     * Bulk form for one page of a streamed snapshot: fetch the identities that
+     * exist and assign the rest, in a constant number of queries. Nothing is
+     * cached, so memory stays bounded by the page rather than the patient.
+     *
+     * An insert that loses a race to a concurrent writer is ignored and the
+     * winner's identity is read back, as firstOrCreate() would.
+     *
+     * @param  list<int>  $recordIds
+     * @return array<int, string> native id keyed by record id
+     */
+    public function forRecords(int $patientId, string $table, array $recordIds): array
+    {
+        $recordIds = array_values(array_unique($recordIds));
+        if ($recordIds === []) {
+            return [];
+        }
+
+        $found = $this->existing($patientId, $table, $recordIds);
+        $missing = array_values(array_diff($recordIds, array_keys($found)));
+        if ($missing === []) {
+            return $found;
+        }
+
+        $now = now();
+        DB::table('phr_native_record_identities')->insertOrIgnore(array_map(
+            static fn (int $recordId): array => [
+                'patient_id' => $patientId,
+                'record_table' => $table,
+                'record_id' => $recordId,
+                'native_id' => (string) Str::uuid(),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ],
+            $missing,
+        ));
+        $found += $this->existing($patientId, $table, $missing);
+        if (count($found) !== count($recordIds)) {
+            throw new \RuntimeException('Native record identity could not be assigned.');
+        }
+
+        return $found;
+    }
+
+    /**
+     * @param  list<int>  $recordIds
+     * @return array<int, string>
+     */
+    private function existing(int $patientId, string $table, array $recordIds): array
+    {
+        $found = [];
+        foreach (DB::table('phr_native_record_identities')
+            ->where('patient_id', $patientId)
+            ->where('record_table', $table)
+            ->whereIn('record_id', $recordIds)
+            ->get(['record_id', 'native_id']) as $identity) {
+            $found[(int) $identity->record_id] = (string) $identity->native_id;
+        }
+
+        return $found;
     }
 }

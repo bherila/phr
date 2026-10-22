@@ -11,10 +11,10 @@ final class PhrNativeRecordProjector
      * identities. Restore previews are strictly read-only.
      *
      * @param  array<string, mixed>  $definition
-     * @param  array<string, array<int, string>>  $identitiesByRecordId
+     * @param  callable(string, int): ?string  $nativeIdFor
      * @return array<string, mixed>
      */
-    public function project(int $patientId, string $table, array $definition, \stdClass $row, array $identitiesByRecordId): array
+    public function project(int $patientId, string $table, array $definition, \stdClass $row, callable $nativeIdFor): array
     {
         $relationships = $definition['relationships'] ?? [];
         $excluded = $definition['excluded_columns'] ?? [];
@@ -28,7 +28,7 @@ final class PhrNativeRecordProjector
 
         $projectedRelationships = [];
         if (! ($definition['root'] ?? false)) {
-            $rootNativeId = $identitiesByRecordId['phr_patients'][$patientId] ?? null;
+            $rootNativeId = $nativeIdFor('phr_patients', $patientId);
             if (! is_string($rootNativeId)) {
                 throw new NativeRestoreException('current_identity_missing');
             }
@@ -46,7 +46,7 @@ final class PhrNativeRecordProjector
 
                 continue;
             }
-            $nativeId = $identitiesByRecordId[$relationship['target']][(int) $relatedId] ?? null;
+            $nativeId = $nativeIdFor($relationship['target'], (int) $relatedId);
             if (! is_string($nativeId)) {
                 throw new NativeRestoreException('current_identity_missing');
             }
@@ -57,7 +57,7 @@ final class PhrNativeRecordProjector
             ];
         }
 
-        $nativeId = $identitiesByRecordId[$table][(int) $row->id] ?? null;
+        $nativeId = $nativeIdFor($table, (int) $row->id);
         if (! is_string($nativeId)) {
             throw new NativeRestoreException('current_identity_missing');
         }

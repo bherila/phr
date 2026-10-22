@@ -344,6 +344,28 @@ describe('PHR page mounts', () => {
     expect(onDrill).toHaveBeenCalledWith({ id: 'documents' })
   })
 
+  it('lists an imported dose amount separately from the series position', async () => {
+    mockGet.mockImplementation(async (url: string) => {
+      if (url.includes('/immunizations')) {
+        return {
+          immunizations: [
+            makeImmunization({ id: 8202, vaccine_name: 'Synthetic amount-only vaccine', dose_number: null, series_doses: null, dose_amount: '0.50', dose_unit: 'mL' }),
+            makeImmunization({ id: 8203, vaccine_name: 'Synthetic series vaccine', administered_on: '2026-07-01' }),
+          ],
+          can_manage: true,
+        }
+      }
+      return {}
+    })
+
+    render(<ImmunizationsPage patientId={PATIENT_ID} />)
+
+    expect(await screen.findByText('Synthetic amount-only vaccine')).toBeInTheDocument()
+    expect(screen.getByText('0.50 mL')).toBeInTheDocument()
+    expect(screen.getByText('Dose 2 / 2')).toBeInTheDocument()
+    expect(screen.queryByText('Dose not recorded')).not.toBeInTheDocument()
+  })
+
   it('renders allergy manual entry with import guidance', async () => {
     render(<AllergiesPage patientId={PATIENT_ID} />)
 

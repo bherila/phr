@@ -54,6 +54,10 @@ columns, row order, and clinical import behavior remain intact. The changes add 
 header/section metadata and replace schema-invalid empty table bodies with an explicit
 "No information available" paragraph.
 
+The Immunizations table appends a trailing Dose column (amount and unit exactly as stored,
+e.g. "0.50 mL") only when at least one exported immunization records a dose amount, so
+exports without dose data keep the original Vaccine/Date/Lot table byte for byte.
+
 ## Validation gate
 
 Run:

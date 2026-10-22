@@ -113,11 +113,19 @@ class PhrCcdaExporter
             $procedure->performed_at?->toDateString() ?? $procedure->performed_on?->toDateString(),
             $procedure->status,
         ])->all());
-        $this->section($xml, 'Immunizations', ['Vaccine', 'Date', 'Lot'], $data['immunizations']->map(fn ($immunization): array => [
+        $immunizationRows = $data['immunizations']->map(fn ($immunization): array => [
             $immunization->vaccine_name,
             $immunization->administered_on?->toDateString(),
             $immunization->lot_number,
-        ])->all());
+            $this->doseText($immunization->dose_amount ?? null, $immunization->dose_unit ?? null),
+        ])->all();
+        // The Dose column appears only when some immunization carries a dose amount, so an
+        // export without dose data keeps its established Vaccine/Date/Lot table unchanged.
+        $immunizationHeaders = ['Vaccine', 'Date', 'Lot'];
+        if (array_filter($immunizationRows, static fn (array $row): bool => $row[3] !== null) !== []) {
+            $immunizationHeaders[] = 'Dose';
+        }
+        $this->section($xml, 'Immunizations', $immunizationHeaders, $immunizationRows);
         $this->section($xml, 'Allergies', ['Substance', 'Reaction', 'Severity'], $data['allergies']->map(fn ($allergy): array => [
             $allergy->substance,
             $allergy->reaction,
@@ -329,6 +337,20 @@ class PhrCcdaExporter
         $xml->endElement();
         $xml->endElement();
         $xml->endElement();
+    }
+
+    /**
+     * Narrative dose text ("0.50 mL"), shown only when an amount was recorded: a unit on
+     * its own says nothing about the dose. The amount is kept exactly as stored.
+     */
+    private function doseText(mixed $amount, mixed $unit): ?string
+    {
+        $amount = is_scalar($amount) ? trim((string) $amount) : '';
+        if ($amount === '') {
+            return null;
+        }
+
+        return trim($amount.' '.(is_scalar($unit) ? trim((string) $unit) : ''));
     }
 
     private function cell(mixed $value): string

@@ -15,8 +15,10 @@ namespace App\Services\PHR\NativeBackup;
  * generation is either wholly present or wholly absent: a build that knew the
  * tables wrote all of them, so a partial set is a damaged or forged archive, not
  * an old one. A wholly absent generation reads as empty tables -- what such a
- * patient had before the tables existed. Any other difference (an unknown table,
- * a missing original v1 table) still fails closed, and SCHEMA_VERSION stays 1.
+ * patient had before the tables existed. Generations are listed oldest first and
+ * an archive predates a generation only if it also predates every later one. Any
+ * other difference (an unknown table, a missing original v1 table) still fails
+ * closed, and SCHEMA_VERSION stays 1.
  */
 final class PhrNativeTableCompatibility
 {
@@ -29,6 +31,15 @@ final class PhrNativeTableCompatibility
             'phr_ehi_package_members',
             'phr_ehi_table_accounts',
             'phr_ehi_findings',
+        ],
+        'ehi_evidence' => [
+            'phr_ehi_entities',
+            'phr_ehi_revisions',
+            'phr_ehi_occurrences',
+            'phr_ehi_proposals',
+            'phr_ehi_proposal_revisions',
+            'phr_ehi_proposal_decisions',
+            'phr_ehi_record_links',
         ],
     ];
 
@@ -51,6 +62,11 @@ final class PhrNativeTableCompatibility
         foreach (self::LATER_GENERATIONS as $tables) {
             $absent = array_intersect($tables, $missing);
             if ($absent === []) {
+                // No build wrote a later generation without every earlier one.
+                if ($tolerated !== []) {
+                    throw new NativeRestoreException('invalid_archive');
+                }
+
                 continue;
             }
             if (count($absent) !== count($tables)) {

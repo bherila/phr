@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\PHR;
 
+use App\Models\PhrImmunization;
 use Tests\TestCase;
 
 class PhrClinicalDataTest extends TestCase
@@ -362,6 +363,43 @@ class PhrClinicalDataTest extends TestCase
         ])->assertOk()->assertJsonPath('immunization.dose_number', 2);
 
         $this->actingAs($manager)->deleteJson("/api/phr/patients/{$patientId}/immunizations/{$immunId}")->assertNoContent();
+    }
+
+    public function test_immunization_exposes_imported_dose_amount_status_and_time_provenance(): void
+    {
+        ['owner' => $owner, 'viewer' => $viewer, 'patientId' => $patientId] = $this->createPatientWithAccess();
+
+        $imported = PhrImmunization::query()->create([
+            'patient_id' => $patientId,
+            'user_id' => $owner->id,
+            'review_status' => 'confirmed',
+            'import_source' => 'ehi:1',
+            'external_id' => 'IMMUNE:synthetic-1',
+            'vaccine_name' => 'SYNTHETIC VACCINE A',
+            'administered_on' => '2030-03-05',
+            'administered_at_source' => '2030-03-05|10:15',
+            'administered_at_precision' => 'minute',
+            'administered_at_timezone' => 'local',
+            'administration_status' => 'given',
+            'dose_amount' => '0.50',
+            'dose_unit' => 'mL',
+        ]);
+
+        $this->actingAs($viewer)->getJson("/api/phr/patients/{$patientId}/immunizations/{$imported->id}")
+            ->assertOk()
+            ->assertJsonPath('immunization.administered_at_source', '2030-03-05|10:15')
+            ->assertJsonPath('immunization.administered_at_precision', 'minute')
+            ->assertJsonPath('immunization.administered_at_timezone', 'local')
+            ->assertJsonPath('immunization.administration_status', 'given')
+            ->assertJsonPath('immunization.dose_amount', '0.50')
+            ->assertJsonPath('immunization.dose_unit', 'mL')
+            ->assertJsonPath('immunization.dose_number', null)
+            ->assertJsonPath('immunization.series_doses', null);
+
+        $this->actingAs($viewer)->getJson("/api/phr/patients/{$patientId}/immunizations")
+            ->assertOk()
+            ->assertJsonPath('immunizations.0.dose_amount', '0.50')
+            ->assertJsonPath('immunizations.0.dose_unit', 'mL');
     }
 
     // ── Allergies ─────────────────────────────────────────────────────────────

@@ -29,6 +29,12 @@ use Illuminate\Support\Carbon;
  * @property string|null $facility_name
  * @property string|null $notes
  * @property string|null $raw_text
+ * @property string|null $administered_at_source
+ * @property string|null $administered_at_precision
+ * @property string|null $administered_at_timezone
+ * @property string|null $dose_amount
+ * @property string|null $dose_unit
+ * @property string|null $administration_status
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -57,6 +63,12 @@ class PhrImmunization extends Model
         'facility_name',
         'notes',
         'raw_text',
+        'administered_at_source',
+        'administered_at_precision',
+        'administered_at_timezone',
+        'dose_amount',
+        'dose_unit',
+        'administration_status',
     ];
 
     protected function casts(): array

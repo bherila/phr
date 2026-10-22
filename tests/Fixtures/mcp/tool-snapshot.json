@@ -604,7 +604,7 @@
                 "openWorldHint": false
             },
             "description": "List document metadata without returning file contents.",
-            "inputSchema": "sha256:0ea57a7b6e42d62a4f92a3267043af5d838a353ca55c349fd35c2a4007efb3e9",
+            "inputSchema": "sha256:6aae754ef229ff7fded2cbcdd32a75e5becd2c571a2a6bb345c1e06525c2cba4",
             "name": "documents.list",
             "outputSchema": "sha256:5756b0b8c6b785f1de9b0d213fc48e9b5341afb6b214b940c9c52a6bf1169d90",
             "title": "List documents"

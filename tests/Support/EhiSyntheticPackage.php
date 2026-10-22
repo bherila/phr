@@ -82,6 +82,19 @@ final class EhiSyntheticPackage
         return new self($files);
     }
 
+    /**
+     * A package of exactly these files (path => bytes), for builders that
+     * assemble their own tables and dictionary pages.
+     *
+     * @param  array<string, string>  $files
+     */
+    public static function fromFiles(array $files): self
+    {
+        ksort($files, SORT_STRING);
+
+        return new self($files);
+    }
+
     public function with(string $path, string $bytes): self
     {
         $files = $this->files;

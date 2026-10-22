@@ -20,6 +20,7 @@ const SOURCE_LABELS: Record<NonNullable<PhrDocument['source']>, string> = {
   fhir_import: 'FHIR Import',
   ccda_import: 'CCDA Import',
   mychart_zip: 'MyChart ZIP',
+  ehi_tables: 'EHI Tables Import',
 }
 
 export default function DocumentViewer({ patientId, recordId }: DocumentViewerProps) {

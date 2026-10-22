@@ -23,6 +23,7 @@ export const DATA_HUB_CATEGORY_KEYS = [
   'original_dicom_files',
   'ehi_packages',
   'ehi_preserved_files',
+  'ehi_pending_proposals',
 ] as const
 
 export type DataHubCategoryKey = typeof DATA_HUB_CATEGORY_KEYS[number]
@@ -178,4 +179,5 @@ export const DATA_HUB_CATEGORY_LABELS: Record<DataHubCategoryKey, string> = {
   original_dicom_files: 'Original DICOM files',
   ehi_packages: 'EHI packages',
   ehi_preserved_files: 'Preserved EHI files',
+  ehi_pending_proposals: 'EHI proposals awaiting review',
 }
