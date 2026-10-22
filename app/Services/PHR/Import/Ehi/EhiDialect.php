@@ -25,7 +25,7 @@ final readonly class EhiDialect
     public const string ENCODING_UTF8 = 'UTF-8';
 
     /** Bumped when the reader's record/field rules change for the same settings. */
-    public const string RULES_VERSION = 'ehi-tsv-1';
+    public const string RULES_VERSION = 'ehi-tsv-2';
 
     public string $version;
 
