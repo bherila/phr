@@ -300,11 +300,16 @@ consent screens after the person has approved the requested scopes once. Leaving
 it unset is supported: the client still works, and consent screens remain. Requests
 with `patient_select=1` always show the patient picker, including allow-listed clients.
 
-To withdraw a person's grant later, use the consumer's Disconnect action if it
-calls `DELETE /api/v1/oauth/consent`, or send that request to this PHR instance
-with that connection's bearer token. It withdraws consent and revokes all of
-that client's authorization codes, access tokens and refresh tokens for that
-person across resources. Reconnecting requires fresh consent. Remove the ID
+Open **PHR Config → Connected apps** to review the apps you have authorized,
+including their permissions, protected resources and grant dates. **Revoke access**
+disconnects that app for your account across resources. Reconnecting requires fresh
+consent.
+
+You can also use the consumer's Disconnect action if it calls
+`DELETE /api/v1/oauth/consent`, or send that request to this PHR instance with that
+connection's bearer token. Both paths withdraw consent and revoke that client's
+authorization codes, access tokens and refresh tokens for that person across
+resources. Remove the ID
 from the optional allow-list if you no longer want repeat-consent skipping.
 These steps withdraw access for that person; they do not permanently disable the
 client registration for everyone.

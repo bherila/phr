@@ -37,6 +37,19 @@ async function ownerPatientId(page: Page, patientName: string): Promise<number> 
   return patient!.id
 }
 
+interface ConnectedApp {
+  client_id: string
+  name: string
+  resources: Array<{ resource: string, scopes: string[], granted_at: string }>
+}
+
+async function connectedApps(page: Page): Promise<ConnectedApp[]> {
+  const response = await page.request.get('/api/user/connected-apps')
+  expect(response.status()).toBe(200)
+  const payload = await response.json() as { data: ConnectedApp[] }
+  return payload.data
+}
+
 test.describe.serial('PHR browser journeys', () => {
   test('requires authentication for PHR and OHIF routes, then completes OAuth PKCE login', async ({ page }) => {
     // A bare visit keeps the sign-in page.
@@ -134,5 +147,67 @@ test.describe.serial('PHR browser journeys', () => {
     const ohif = await page.goto('/ohif/viewer/dicomjson')
     expect(ohif?.status()).toBe(404)
     await expect(page).not.toHaveURL(/\/login$/)
+  })
+
+  test('reviews and withdraws only the signed-in person’s consent for a connected app', async ({ page }, testInfo) => {
+    // This journey signs in as both people and checks multiple persisted API
+    // transitions, so allow more time than a single-page interaction.
+    test.setTimeout(60_000)
+    const appName = `Synthetic Connected App ${testInfo.retry}`
+    await signIn(page, ownerCredentials)
+    await page.goto('/phr/config')
+    await page.getByRole('tab', { name: 'Connected apps', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Connected apps', exact: true })).toBeVisible()
+
+    const target = page.getByRole('article').filter({ has: page.getByRole('heading', { name: appName, exact: true }) })
+    await expect(target).toBeVisible()
+    await expect(target.getByText('http://127.0.0.1:4173/api/v1', { exact: true })).toBeVisible()
+    await expect(target.getByText('http://127.0.0.1:4173/api/v1/mcp', { exact: true })).toBeVisible()
+    await expect(target.getByText('identity:read', { exact: true })).toBeVisible()
+    await expect(target.getByText('mcp:use', { exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Synthetic Other Connected App', exact: true })).toBeVisible()
+    for (const hiddenName of ['Synthetic Outsider Only App', 'Synthetic Previously Revoked App', 'Synthetic Token Only App']) {
+      await expect(page.getByRole('heading', { name: hiddenName, exact: true })).toHaveCount(0)
+    }
+
+    const appsBefore = await connectedApps(page)
+    const selected = appsBefore.find((app) => app.name === appName)
+    expect(selected).toBeDefined()
+    expect(selected!.resources).toEqual(expect.arrayContaining([
+      expect.objectContaining({ resource: 'http://127.0.0.1:4173/api/v1', scopes: ['identity:read'] }),
+      expect.objectContaining({ resource: 'http://127.0.0.1:4173/api/v1/mcp', scopes: ['mcp:use'] }),
+    ]))
+
+    // Cookies alone must not authorize the mutation: this request deliberately
+    // omits the CSRF header that the real browser UI sends.
+    const withoutCsrf = await page.request.delete(`/api/user/connected-apps/${selected!.client_id}`)
+    expect(withoutCsrf.status()).toBe(419)
+    expect((await connectedApps(page)).some((app) => app.client_id === selected!.client_id)).toBeTruthy()
+
+    await target.getByRole('button', { name: 'Revoke access', exact: true }).click()
+    const dialog = page.getByRole('alertdialog', { name: `Revoke access for ${appName}?` })
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await expect(dialog).toHaveCount(0)
+    await expect(target).toBeVisible()
+    expect((await connectedApps(page)).some((app) => app.client_id === selected!.client_id)).toBeTruthy()
+
+    await target.getByRole('button', { name: 'Revoke access', exact: true }).click()
+    await dialog.getByRole('button', { name: 'Revoke access', exact: true }).click()
+    await expect(target).toHaveCount(0)
+    await page.reload()
+    await page.getByRole('tab', { name: 'Connected apps', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Connected apps', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: appName, exact: true })).toHaveCount(0)
+    const appsAfter = await connectedApps(page)
+    expect(appsAfter).toEqual(appsBefore.filter((app) => app.client_id !== selected!.client_id))
+
+    await signIn(page, outsiderCredentials)
+    const outsiderApps = await connectedApps(page)
+    expect(outsiderApps).toEqual(expect.arrayContaining([
+      expect.objectContaining({ client_id: selected!.client_id, name: appName }),
+      expect.objectContaining({ name: 'Synthetic Outsider Only App' }),
+    ]))
+    expect(outsiderApps.some((app) => app.name === 'Synthetic Other Connected App')).toBeFalsy()
   })
 })

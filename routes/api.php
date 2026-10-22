@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\DevicePairingExchangeController;
 use App\Http\Controllers\Api\UserAiConfigurationController;
 use App\Http\Controllers\Api\UserAiExecutionModeController;
 use App\Http\Controllers\Api\UserAiModelsController;
+use App\Http\Controllers\Api\UserConnectedAppsController;
 use App\Http\Controllers\Api\UserDeviceController;
 use App\Http\Controllers\Api\V1\AgentClinicalReadController;
 use App\Http\Controllers\Api\V1\AgentClinicalWriteController;
@@ -318,6 +319,12 @@ Route::middleware(['web', 'auth'])->group(function (): void {
     Route::post('/user/ai-prefs/models', [UserAiModelsController::class, 'fetch']);
     Route::get('/user/ai-execution-mode', [UserAiExecutionModeController::class, 'show']);
     Route::put('/user/ai-execution-mode', [UserAiExecutionModeController::class, 'update']);
+
+    // Browser-session management of OAuth consent; writes retain the web CSRF guard.
+    Route::middleware(PreventAgentApiResponseCaching::class)->group(function (): void {
+        Route::get('/user/connected-apps', [UserConnectedAppsController::class, 'index']);
+        Route::delete('/user/connected-apps/{clientId}', [UserConnectedAppsController::class, 'destroy']);
+    });
 
     // Device management for devices paired via /device-pairing (DevicePairingController).
     // Session-only: this never accepts a device's own bearer key, only a browser session,
