@@ -10,6 +10,8 @@ final readonly class EhiTsvMalformedRow
 {
     public const string FIELD_COUNT_MISMATCH = 'field_count_mismatch';
 
+    public const string FIELD_COUNT_LIMIT = 'field_count_limit';
+
     public const string INVALID_ENCODING = 'invalid_encoding';
 
     public const string ROW_TOO_LARGE = 'row_too_large';
@@ -25,6 +27,7 @@ final readonly class EhiTsvMalformedRow
 
     public const array CODES = [
         self::FIELD_COUNT_MISMATCH,
+        self::FIELD_COUNT_LIMIT,
         self::INVALID_ENCODING,
         self::ROW_TOO_LARGE,
         self::VALUE_TOO_LARGE,

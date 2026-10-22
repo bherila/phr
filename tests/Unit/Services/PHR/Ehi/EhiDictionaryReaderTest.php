@@ -5,6 +5,7 @@ namespace Tests\Unit\Services\PHR\Ehi;
 use App\Services\PHR\Import\Ehi\EhiDictionary;
 use App\Services\PHR\Import\Ehi\EhiDictionaryReader;
 use App\Services\PHR\Import\Ehi\EhiDictionaryTable;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 class EhiDictionaryReaderTest extends TestCase
@@ -41,6 +42,50 @@ class EhiDictionaryReaderTest extends TestCase
         $ambiguous = new EhiDictionary([$patient, new EhiDictionaryTable('PATIENT', [['name' => 'PAT_ID', 'type' => null]], [])], 'test');
         self::assertSame('PATIENT', $ambiguous->table('PATIENT')?->name, 'an exact name still wins');
         self::assertNull($ambiguous->table('patient'), 'two names that fold together match neither');
+    }
+
+    #[DataProvider('tableNameLocations')]
+    public function test_table_names_use_the_member_ascii_contract(string $layout): void
+    {
+        $reader = new EhiDictionaryReader(1024 * 1024);
+        foreach (["\u{212A}EY_TABLE", "\u{017F}AFE_TABLE", 'KEY$TABLE', 'KEY#TABLE'] as $name) {
+            $dictionary = $reader->read([sprintf($layout, $name)]);
+            self::assertTrue($dictionary->isEmpty(), $name.' must not become an account name');
+        }
+
+        $dictionary = $reader->read([sprintf($layout, 'Key_Table')]);
+        $table = $dictionary->table('KEY_TABLE');
+        self::assertNotNull($table, 'valid ASCII names still support case-insensitive headings');
+        self::assertSame(['PAT_ID'], $table->columnNames());
+        self::assertSame(['PAT_ID'], $table->primaryKey);
+    }
+
+    /** @return array<string, array{string}> */
+    public static function tableNameLocations(): array
+    {
+        $grid = '<table><tr><th>Column Name</th><th>PK</th></tr><tr><td>PAT_ID</td><td>Y</td></tr></table>';
+
+        return [
+            'heading prefix' => ['<h1>Table: %s</h1>'.$grid],
+            'heading suffix' => ['<h1>%s Table</h1>'.$grid],
+            'title' => ['<html><head><title>Table: %s</title></head><body>'.$grid.'</body></html>'],
+            'caption' => ['<table><caption>Table: %s</caption><tr><th>Column Name</th><th>PK</th></tr><tr><td>PAT_ID</td><td>Y</td></tr></table>'],
+            'table name column' => ['<table><tr><th>Table Name</th><th>Column Name</th><th>PK</th></tr><tr><td>Table: %s</td><td>PAT_ID</td><td>Y</td></tr></table>'],
+        ];
+    }
+
+    public function test_unsupported_table_headings_and_captions_do_not_inherit_a_previous_name(): void
+    {
+        $html = '<html><head><title>Table: KEY_TABLE</title></head><body>'
+            .'<h1>Table: KEY_TABLE</h1><table><tr><th>Column Name</th></tr><tr><td>PAT_ID</td></tr></table>'
+            ."<table><caption>Table: \u{212A}EY_TABLE</caption><tr><th>Column Name</th></tr><tr><td>BAD_CAPTION_COLUMN</td></tr></table>"
+            ."<h1>Table: \u{212A}EY_TABLE</h1><table><tr><th>Column Name</th></tr><tr><td>BAD_HEADING_COLUMN</td></tr></table>"
+            .'</body></html>';
+        $dictionary = (new EhiDictionaryReader(1024 * 1024))->read([$html]);
+
+        self::assertSame(['KEY_TABLE'], array_keys($dictionary->tables));
+        self::assertSame(['PAT_ID'], $dictionary->table('KEY_TABLE')?->columnNames());
+        self::assertSame(2, $dictionary->unnamedGrids);
     }
 
     public function test_primary_key_ordinals_order_the_key(): void

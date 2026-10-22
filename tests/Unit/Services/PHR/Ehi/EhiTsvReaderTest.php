@@ -195,6 +195,98 @@ class EhiTsvReaderTest extends TestCase
         self::assertSame(4, $rows[2]->lineNumber);
     }
 
+    public function test_field_count_limit_accepts_the_boundary_and_rejects_one_more_in_both_dialects(): void
+    {
+        $names = array_map(fn (int $i): string => 'C'.$i, range(1, EhiTsvReader::MAX_FIELDS));
+        foreach ([EhiDialect::provisional(), EhiDialect::provisional()->withQuoteMode(EhiDialect::QUOTE_RFC4180)] as $dialect) {
+            $quoted = $dialect->quoteMode === EhiDialect::QUOTE_RFC4180;
+            $header = implode("\t", $quoted ? array_map(fn (string $name): string => '"'.$name.'"', $names) : $names);
+            $value = $quoted ? '"v"' : 'v';
+            $valid = str_repeat($value."\t", EhiTsvReader::MAX_FIELDS - 1).$value;
+            $reader = $this->reader($header."\n".$valid."\n".$valid."\tv\n".$valid."\n", $dialect);
+            self::assertCount(EhiTsvReader::MAX_FIELDS, $reader->header());
+            $rows = iterator_to_array($reader->rows(), false);
+
+            self::assertInstanceOf(EhiTsvRow::class, $rows[0]);
+            self::assertCount(EhiTsvReader::MAX_FIELDS, $rows[0]->values);
+            self::assertInstanceOf(EhiTsvMalformedRow::class, $rows[1]);
+            self::assertSame(EhiTsvMalformedRow::FIELD_COUNT_LIMIT, $rows[1]->code);
+            self::assertSame(3, $rows[1]->lineNumber);
+            self::assertSame(strlen($header."\n".$valid."\n"), $rows[1]->byteOffset);
+            self::assertInstanceOf(EhiTsvRow::class, $rows[2]);
+            self::assertSame(1, $reader->counters()['malformed_field_count_limit']);
+            self::assertSame(0, $reader->counters()['empty_cells']);
+
+            $unusable = $this->reader($header."\tEXTRA\nvalue\n", $dialect);
+            self::assertNull($unusable->header());
+            self::assertSame(PhrEhiTableAccount::STATE_MALFORMED, $unusable->state());
+            self::assertSame(EhiTsvMalformedRow::FIELD_COUNT_LIMIT, $unusable->headerProblem());
+            self::assertNull($unusable->declaresColumn('PAT_ID'), 'an unsplit header cannot establish patient scope');
+            self::assertSame(EhiTsvMalformedRow::HEADER_UNUSABLE, iterator_to_array($unusable->rows(), false)[0]->code);
+        }
+    }
+
+    public function test_delimiter_heavy_records_do_not_allocate_unbounded_field_arrays(): void
+    {
+        foreach ([EhiDialect::provisional(), EhiDialect::provisional()->withQuoteMode(EhiDialect::QUOTE_RFC4180)] as $dialect) {
+            foreach ([false, true] as $isHeader) {
+                $stream = tmpfile();
+                self::assertIsResource($stream);
+                try {
+                    if (! $isHeader) {
+                        fwrite($stream, "A\tB\n");
+                    }
+                    // Two MiB on disk, far below the production eight-MiB row
+                    // limit, formerly allocated millions of zvals via explode().
+                    for ($i = 0; $i < 32; $i++) {
+                        fwrite($stream, str_repeat("\t", 64 * 1024));
+                    }
+                    fwrite($stream, "\nok\t2\n");
+                    rewind($stream);
+                    $before = memory_get_usage();
+                    memory_reset_peak_usage();
+                    $reader = new EhiTsvReader($stream, $dialect, $this->limits(rowBytes: 8 * 1024 * 1024));
+                    $rows = iterator_to_array($reader->rows(), false);
+
+                    if ($isHeader) {
+                        self::assertSame(EhiTsvMalformedRow::FIELD_COUNT_LIMIT, $reader->headerProblem());
+                        self::assertSame(EhiTsvMalformedRow::HEADER_UNUSABLE, $rows[0]->code);
+                        self::assertSame(1, $reader->counters()['records']);
+                    } else {
+                        self::assertSame(EhiTsvMalformedRow::FIELD_COUNT_LIMIT, $rows[0]->code);
+                        self::assertInstanceOf(EhiTsvRow::class, $rows[1]);
+                        self::assertSame(['ok', '2'], $rows[1]->values);
+                        self::assertSame(3, $rows[1]->lineNumber);
+                        self::assertSame(2, $reader->counters()['records']);
+                    }
+                    self::assertLessThan(12 * 1024 * 1024, memory_get_peak_usage() - $before);
+                    self::assertSame(0, $reader->counters()['empty_cells']);
+                    $digest = $reader->digest();
+                    rewind($stream);
+                    self::assertSame(hash('sha256', stream_get_contents($stream)), $digest['sha256']);
+                    self::assertSame(2 * 1024 * 1024 + ($isHeader ? 6 : 10), $digest['bytes']);
+                } finally {
+                    fclose($stream);
+                }
+            }
+        }
+    }
+
+    public function test_quoted_delimiters_do_not_count_as_fields_and_encoding_validation_precedes_the_limit(): void
+    {
+        $tabs = str_repeat("\t", EhiTsvReader::MAX_FIELDS + 1);
+        $dialect = EhiDialect::provisional()->withQuoteMode(EhiDialect::QUOTE_RFC4180);
+        $reader = $this->reader("A\tB\n\"".$tabs."\"\tNULL\n", $dialect->withNullMarker('NULL'));
+        $rows = $this->rows($reader);
+        self::assertSame([$tabs, null], $rows[0]->values);
+        self::assertSame(1, $reader->counters()['null_marker_cells']);
+
+        foreach ([EhiDialect::provisional(), $dialect] as $encodingDialect) {
+            $invalid = $this->reader("A\tB\n".$tabs."\xFF\n", $encodingDialect);
+            self::assertSame(EhiTsvMalformedRow::INVALID_ENCODING, iterator_to_array($invalid->rows(), false)[0]->code);
+        }
+    }
+
     public function test_rfc4180_quoted_fields_hold_tabs_newlines_and_doubled_quotes(): void
     {
         $bytes = "A\tB\tC\n\"x\ty\"\t\"line1\nline2\"\t\"say \"\"hi\"\"\"\nnext\t\"\"\tz\n";

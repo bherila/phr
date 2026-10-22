@@ -10,8 +10,10 @@ use LogicException;
 
 /**
  * Streams one EHI table member under an explicit EhiDialect. Memory is bounded by
- * one read chunk plus EhiLimits::$maxRowBytes: a longer record is skipped, never
- * buffered, and reported as row_too_large.
+ * one read chunk plus EhiLimits::$maxRowBytes and MAX_FIELDS cells: a longer
+ * record is skipped, never buffered, and reported as row_too_large. Headers and
+ * data records above MAX_FIELDS are field_count_limit, before an unbounded cell
+ * array can be allocated.
  *
  * Record rules:
  * - A record ends at an LF outside quotes; a CR immediately before it belongs to
@@ -39,6 +41,9 @@ final class EhiTsvReader
     public const string HEADER_UNEXPECTED_BOM = 'unexpected_bom';
 
     public const string BOM = "\xEF\xBB\xBF";
+
+    /** Separate allocation bound: a short record can still contain millions of empty cells. */
+    public const int MAX_FIELDS = 8192;
 
     /** Counter keys returned by counters(); all are always present. */
     public const array COUNTERS = [
@@ -359,6 +364,12 @@ final class EhiTsvReader
     /** @return list<string|null>|string */
     private function splitPlain(string $raw, bool $applyNullMarker): array|string
     {
+        // Count without allocating the potentially enormous explode() result.
+        // The same limit applies to headers, before column-name/account checks.
+        if (substr_count($raw, $this->dialect->delimiter) >= self::MAX_FIELDS) {
+            return EhiTsvMalformedRow::FIELD_COUNT_LIMIT;
+        }
+
         $values = [];
         foreach (explode($this->dialect->delimiter, $raw) as $value) {
             if (strlen($value) > $this->limits->maxValueBytes) {
@@ -378,6 +389,12 @@ final class EhiTsvReader
         $values = [];
         $i = 0;
         while (true) {
+            // Delimiters inside quotes are data. Bound the incremental parser's
+            // retained cells before parsing or allocating the next field.
+            if (count($values) >= self::MAX_FIELDS) {
+                return EhiTsvMalformedRow::FIELD_COUNT_LIMIT;
+            }
+
             $quoted = $i < $length && $raw[$i] === '"';
             if ($quoted) {
                 $value = '';

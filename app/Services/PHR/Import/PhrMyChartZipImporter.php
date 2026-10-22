@@ -5,6 +5,7 @@ namespace App\Services\PHR\Import;
 use App\Models\PhrPatient;
 use App\Services\PHR\Import\Ehi\EhiExportNotSupportedHere;
 use App\Services\PHR\Import\Ehi\EhiPackageDetector;
+use DOMDocument;
 use InvalidArgumentException;
 use ZipArchive;
 
@@ -30,18 +31,15 @@ class PhrMyChartZipImporter
         try {
             // An EHI Tables export holds no FHIR/C-CDA this loop would read; without
             // this check it would skip every member and report an empty success.
-            // Name signals alone are weak, so a ZIP that also carries JSON/XML (a
-            // FHIR bundle with TSV/HTML attachments) is refused only when a member
-            // named after a well-known EHI table opens with a real TSV header.
+            // Name signals alone are weak: genuine clinical content may accompany
+            // TSV/HTML attachments. Incidental JSON/XML metadata is not clinical
+            // content, and must not turn an EHI export into a skipped success.
             $names = [];
-            $importable = false;
             for ($index = 0; $index < $zip->numFiles; $index++) {
                 $name = (string) $zip->getNameIndex($index);
                 $names[] = $name;
-                $lower = strtolower($name);
-                $importable = $importable || str_ends_with($lower, '.json') || str_ends_with($lower, '.xml');
             }
-            if (EhiPackageDetector::detectZipPaths($names) && (! $importable || $this->hasHeadedKnownTable($zip, $names))) {
+            if (EhiPackageDetector::detectZipPaths($names) && ($this->hasHeadedKnownTable($zip, $names) || ! $this->hasClinicalMember($zip))) {
                 throw new EhiExportNotSupportedHere;
             }
 
@@ -86,6 +84,47 @@ class PhrMyChartZipImporter
         }
 
         return $result;
+    }
+
+    /** Recognize content without calling importers, which can write clinical rows. */
+    private function hasClinicalMember(ZipArchive $zip): bool
+    {
+        for ($index = 0; $index < $zip->numFiles; $index++) {
+            $extension = strtolower(pathinfo((string) $zip->getNameIndex($index), PATHINFO_EXTENSION));
+            if (! in_array($extension, ['json', 'xml'], true)) {
+                continue;
+            }
+            $contents = $zip->getFromIndex($index);
+            if ($contents === false || trim($contents) === '') {
+                continue;
+            }
+            if ($extension === 'json') {
+                $bundle = json_decode($contents, true);
+                if (is_array($bundle) && ($bundle['resourceType'] ?? null) === 'Bundle'
+                    && (! isset($bundle['entry']) || is_array($bundle['entry']))) {
+                    return true;
+                }
+                unset($bundle);
+
+                continue;
+            }
+
+            $document = new DOMDocument;
+            $previous = libxml_use_internal_errors(true);
+            try {
+                $loaded = $document->loadXML($contents, LIBXML_NONET);
+            } finally {
+                libxml_clear_errors();
+                libxml_use_internal_errors($previous);
+            }
+            if ($loaded && $document->documentElement?->localName === 'ClinicalDocument'
+                && $document->documentElement->namespaceURI === 'urn:hl7-org:v3') {
+                return true;
+            }
+            unset($document);
+        }
+
+        return false;
     }
 
     /** @param  list<string>  $names */
