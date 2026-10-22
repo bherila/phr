@@ -341,8 +341,8 @@ php -d memory_limit=1G vendor/bin/phpunit
 CI runs PHPUnit in three separate runner jobs to isolate their in-memory databases,
 fake disks and cached Laravel configuration. PHPUnit's `--list-tests-xml` inventory
 is partitioned by class using `.github/phpunit-timings.json`; new classes are
-included automatically. These initial relative weights came from a local suite
-timing cache. They guide balancing, not test selection or runtime guarantees.
+included automatically. These relative weights were measured in [GitHub CI](https://github.com/bherila/phr/actions/runs/39836186052).
+They guide balancing, not test selection or runtime guarantees.
 The required **Run Tests** check verifies the JUnit reports against the inventory
 so every discovered test, including data-provider cases, must appear exactly once.
 It continues to require every frontend, backend and integration check.

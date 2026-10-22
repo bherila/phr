@@ -231,6 +231,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: phpunit-shard-${{ matrix.shard }}
+          overwrite: true # A rerun replaces this leg's report.
           path: build/phpunit/
           if-no-files-found: error
           retention-days: 14
@@ -411,7 +412,7 @@ jobs:
           pattern: phpunit-shard-*
           path: build/phpunit-results/
 
-      - name: Verify complete PHPUnit coverage
+      - name: Verify every PHPUnit test ran once
         run: php scripts/phpunit-shards.php verify build/phpunit-results 3
 
   deploy:

@@ -1,605 +1,609 @@
 {
-  "version": 1,
-  "classes": {
-    "Tests\\Feature\\AgentApiBillingReadTest": {
-      "seconds": 1.957,
-      "tests": 23
-    },
-    "Tests\\Feature\\AgentApiChangeFeedTest": {
-      "seconds": 0.146,
-      "tests": 2
-    },
-    "Tests\\Feature\\AgentApiClinicalReadTest": {
-      "seconds": 1.118,
-      "tests": 10
-    },
-    "Tests\\Feature\\AgentApiClinicalResolveTest": {
-      "seconds": 1.203,
-      "tests": 23
-    },
-    "Tests\\Feature\\AgentApiClinicalWriteTest": {
-      "seconds": 1.033,
-      "tests": 12
-    },
-    "Tests\\Feature\\AgentApiContextTest": {
-      "seconds": 0.376,
-      "tests": 2
-    },
-    "Tests\\Feature\\AgentApiDocumentUploadTest": {
-      "seconds": 0.441,
-      "tests": 7
-    },
-    "Tests\\Feature\\AgentApiExportTest": {
-      "seconds": 0.227,
-      "tests": 2
-    },
-    "Tests\\Feature\\AgentApiFirstPartyClientRevocationTest": {
-      "seconds": 2.193,
-      "tests": 6
-    },
-    "Tests\\Feature\\AgentApiFirstPartyClientSetupTest": {
-      "seconds": 0.073,
-      "tests": 6
-    },
-    "Tests\\Feature\\AgentApiHealthDeviceIngestionTest": {
-      "seconds": 0.647,
-      "tests": 7
-    },
-    "Tests\\Feature\\AgentApiOAuthClientRegistrationTest": {
-      "seconds": 3.956,
-      "tests": 17
-    },
-    "Tests\\Feature\\AgentApiOAuthConsentTest": {
-      "seconds": 11.587,
-      "tests": 13
-    },
-    "Tests\\Feature\\AgentApiOAuthFoundationTest": {
-      "seconds": 4.454,
-      "tests": 33
-    },
-    "Tests\\Feature\\AgentApiOAuthHardeningTest": {
-      "seconds": 0.274,
-      "tests": 5
-    },
-    "Tests\\Feature\\AgentApiOpenApiDocumentTest": {
-      "seconds": 0.093,
-      "tests": 3
-    },
-    "Tests\\Feature\\AgentApiOpenApiGenerationTest": {
-      "seconds": 0.128,
-      "tests": 2
-    },
-    "Tests\\Feature\\AgentApiPatientSelectionConsentTest": {
-      "seconds": 30.73,
-      "tests": 38
-    },
-    "Tests\\Feature\\AgentApiProtectedResourcesTest": {
-      "seconds": 3.831,
-      "tests": 6
-    },
-    "Tests\\Feature\\AgentApiProviderSubjectTest": {
-      "seconds": 0.113,
-      "tests": 3
-    },
-    "Tests\\Feature\\AgentApiPublicIdTest": {
-      "seconds": 1.006,
-      "tests": 6
-    },
-    "Tests\\Feature\\AgentApiReconciliationTest": {
-      "seconds": 0.114,
-      "tests": 1
-    },
-    "Tests\\Feature\\AgentApiRecordLifecycleTest": {
-      "seconds": 0.769,
-      "tests": 11
-    },
-    "Tests\\Feature\\AgentApiSearchEvidenceTest": {
-      "seconds": 0.522,
-      "tests": 4
-    },
-    "Tests\\Feature\\AgentApiStructuredImportTest": {
-      "seconds": 0.717,
-      "tests": 9
-    },
-    "Tests\\Feature\\AgentMcpDiscoveryTest": {
-      "seconds": 0.461,
-      "tests": 9
-    },
-    "Tests\\Feature\\AgentMcpOutputSchemaTest": {
-      "seconds": 0.247,
-      "tests": 7
-    },
-    "Tests\\Feature\\AgentMcpReadAdapterTest": {
-      "seconds": 4.64,
-      "tests": 22
-    },
-    "Tests\\Feature\\AgentMcpToolSnapshotTest": {
-      "seconds": 1.916,
-      "tests": 3
-    },
-    "Tests\\Feature\\AgentOAuthPresetContractTest": {
-      "seconds": 1.435,
-      "tests": 2
-    },
-    "Tests\\Feature\\AgentOperationRegistryTest": {
-      "seconds": 0.107,
-      "tests": 8
-    },
-    "Tests\\Feature\\ApiCredentialsTest": {
-      "seconds": 0.182,
-      "tests": 5
-    },
-    "Tests\\Feature\\ApiUnauthenticatedResponseTest": {
-      "seconds": 0.037,
-      "tests": 5
-    },
-    "Tests\\Feature\\ChatGptPluginTest": {
-      "seconds": 0.216,
-      "tests": 3
-    },
-    "Tests\\Feature\\DelegatedAccess\\DelegatedAccessConformanceTest": {
-      "seconds": 0.312,
-      "tests": 6
-    },
-    "Tests\\Feature\\DelegatedAccess\\DelegatedAccessEndpointTest": {
-      "seconds": 0.232,
-      "tests": 3
-    },
-    "Tests\\Feature\\DelegatedAccess\\DelegatedAccessMetadataTest": {
-      "seconds": 0.043,
-      "tests": 4
-    },
-    "Tests\\Feature\\DelegatedAccess\\DelegatedAccessRemoveTest": {
-      "seconds": 0.18,
-      "tests": 11
-    },
-    "Tests\\Feature\\DelegatedAccess\\DelegatedAccessRulesTest": {
-      "seconds": 0.456,
-      "tests": 14
-    },
-    "Tests\\Feature\\DelegatedAccess\\DelegatedAccessSearchTest": {
-      "seconds": 0.078,
-      "tests": 6
-    },
-    "Tests\\Feature\\DevicePairingTest": {
-      "seconds": 1.111,
-      "tests": 26
-    },
-    "Tests\\Feature\\Http\\TrustedProxiesTest": {
-      "seconds": 0.045,
-      "tests": 4
-    },
-    "Tests\\Feature\\OAuthLoginTest": {
-      "seconds": 3.471,
-      "tests": 17
-    },
-    "Tests\\Feature\\OauthIdentityBindingTest": {
-      "seconds": 0.017,
-      "tests": 3
-    },
-    "Tests\\Feature\\OhifViewerRouteTest": {
-      "seconds": 0.168,
-      "tests": 5
-    },
-    "Tests\\Feature\\PHR\\ClinicalEobLinksApiTest": {
-      "seconds": 0.93,
-      "tests": 3
-    },
-    "Tests\\Feature\\PHR\\ClinicalReviewControllerTest": {
-      "seconds": 6.307,
-      "tests": 21
-    },
-    "Tests\\Feature\\PHR\\DeltaDentalEobVisitReconcilerTest": {
-      "seconds": 0.072,
-      "tests": 1
-    },
-    "Tests\\Feature\\PHR\\DevLoginRemovedTest": {
-      "seconds": 1.112,
-      "tests": 7
-    },
-    "Tests\\Feature\\PHR\\DicomUploadCleanupLoggingTest": {
-      "seconds": 0.113,
-      "tests": 3
-    },
-    "Tests\\Feature\\PHR\\Ehi\\EhiBindingServiceTest": {
-      "seconds": 2.427,
-      "tests": 5
-    },
-    "Tests\\Feature\\PHR\\Ehi\\EhiDictionaryNameSafetyTest": {
-      "seconds": 0.503,
-      "tests": 1
-    },
-    "Tests\\Feature\\PHR\\Ehi\\EhiDocumentMappingTest": {
-      "seconds": 15.623,
-      "tests": 27
-    },
-    "Tests\\Feature\\PHR\\Ehi\\EhiEndToEndTest": {
-      "seconds": 14.172,
-      "tests": 2
-    },
-    "Tests\\Feature\\PHR\\Ehi\\EhiEvidenceRestoreTest": {
-      "seconds": 4.929,
-      "tests": 2
-    },
-    "Tests\\Feature\\PHR\\Ehi\\EhiImmunizationMappingTest": {
-      "seconds": 5.069,
-      "tests": 21
-    },
-    "Tests\\Feature\\PHR\\Ehi\\EhiIntakeRecoveryTest": {
-      "seconds": 2.128,
-      "tests": 9
-    },
-    "Tests\\Feature\\PHR\\Ehi\\EhiIntakeServiceTest": {
-      "seconds": 3.056,
-      "tests": 26
-    },
-    "Tests\\Feature\\PHR\\Ehi\\EhiProjectionServiceTest": {
-      "seconds": 3.271,
-      "tests": 9
-    },
-    "Tests\\Feature\\PHR\\Ehi\\EhiProposalServiceTest": {
-      "seconds": 11.063,
-      "tests": 17
-    },
-    "Tests\\Feature\\PHR\\Ehi\\EhiResourceBoundariesTest": {
-      "seconds": 3.133,
-      "tests": 6
-    },
-    "Tests\\Feature\\PHR\\Ehi\\PhrEhiCommandsTest": {
-      "seconds": 1.277,
-      "tests": 6
-    },
-    "Tests\\Feature\\PHR\\Ehi\\PhrEhiProbeCommandTest": {
-      "seconds": 0.106,
-      "tests": 5
-    },
-    "Tests\\Feature\\PHR\\Ehi\\PhrEhiReviewCommandsTest": {
-      "seconds": 1.171,
-      "tests": 3
-    },
-    "Tests\\Feature\\PHR\\Ehi\\PhrMyChartZipEhiDispatchTest": {
-      "seconds": 0.187,
-      "tests": 12
-    },
-    "Tests\\Feature\\PHR\\GenAi\\ExternalGenAiAttachmentIntegrityTest": {
-      "seconds": 1.801,
-      "tests": 9
-    },
-    "Tests\\Feature\\PHR\\GenAi\\ExternalGenAiAuthorizationLoggingTest": {
-      "seconds": 0.467,
-      "tests": 5
-    },
-    "Tests\\Feature\\PHR\\GenAi\\ExternalGenAiCompletionReplayTest": {
-      "seconds": 4.12,
-      "tests": 16
-    },
-    "Tests\\Feature\\PHR\\GenAi\\ExternalGenAiEnqueueLifecycleTest": {
-      "seconds": 7.89,
-      "tests": 35
-    },
-    "Tests\\Feature\\PHR\\GenAi\\ExternalGenAiProcessingTest": {
-      "seconds": 2.397,
-      "tests": 9
-    },
-    "Tests\\Feature\\PHR\\GenAi\\ExternalGenAiStatusCoherenceTest": {
-      "seconds": 2.049,
-      "tests": 14
-    },
-    "Tests\\Feature\\PHR\\GenAi\\GenAiDiagnosticLoggingResilienceTest": {
-      "seconds": 2.39,
-      "tests": 21
-    },
-    "Tests\\Feature\\PHR\\GenAi\\GenAiQueueRecoveryTest": {
-      "seconds": 0.258,
-      "tests": 9
-    },
-    "Tests\\Feature\\PHR\\GenAi\\PhrGenAiEnqueueCommandTest": {
-      "seconds": 0.429,
-      "tests": 7
-    },
-    "Tests\\Feature\\PHR\\GenAi\\PhrGenAiImportTest": {
-      "seconds": 0.287,
-      "tests": 7
-    },
-    "Tests\\Feature\\PHR\\GenAi\\PhrQueueAuditCommandTest": {
-      "seconds": 0.024,
-      "tests": 1
-    },
-    "Tests\\Feature\\PHR\\LabPanelDetailApiTest": {
-      "seconds": 0.044,
-      "tests": 1
-    },
-    "Tests\\Feature\\PHR\\McpTokenLifecycleTest": {
-      "seconds": 0.43,
-      "tests": 12
-    },
-    "Tests\\Feature\\PHR\\MedicationControllerTest": {
-      "seconds": 0.987,
-      "tests": 7
-    },
-    "Tests\\Feature\\PHR\\MeritainEobAllergyProcedureReconcilerTest": {
-      "seconds": 0.121,
-      "tests": 2
-    },
-    "Tests\\Feature\\PHR\\MeritainEobVisitReconcilerTest": {
-      "seconds": 0.066,
-      "tests": 2
-    },
-    "Tests\\Feature\\PHR\\PhrAllergyAgentAuthorizationCharacterizationTest": {
-      "seconds": 0.822,
-      "tests": 9
-    },
-    "Tests\\Feature\\PHR\\PhrClinicalDataTest": {
-      "seconds": 1.968,
-      "tests": 26
-    },
-    "Tests\\Feature\\PHR\\PhrDataHubTest": {
-      "seconds": 0.144,
-      "tests": 3
-    },
-    "Tests\\Feature\\PHR\\PhrDicomTest": {
-      "seconds": 1.558,
-      "tests": 24
-    },
-    "Tests\\Feature\\PHR\\PhrDicomViewerUrlDriverTest": {
-      "seconds": 0.005,
-      "tests": 4
-    },
-    "Tests\\Feature\\PHR\\PhrDicomVolumeCacheTest": {
-      "seconds": 1.265,
-      "tests": 11
-    },
-    "Tests\\Feature\\PHR\\PhrDicomVolumeManifestTest": {
-      "seconds": 0.552,
-      "tests": 6
-    },
-    "Tests\\Feature\\PHR\\PhrDocumentImportStoragePathTest": {
-      "seconds": 0.095,
-      "tests": 3
-    },
-    "Tests\\Feature\\PHR\\PhrDocumentsTest": {
-      "seconds": 0.274,
-      "tests": 9
-    },
-    "Tests\\Feature\\PHR\\PhrEobDeepLinkTest": {
-      "seconds": 0.496,
-      "tests": 12
-    },
-    "Tests\\Feature\\PHR\\PhrExplore3dPageTest": {
-      "seconds": 0.061,
-      "tests": 3
-    },
-    "Tests\\Feature\\PHR\\PhrExportTest": {
-      "seconds": 1.217,
-      "tests": 3
-    },
-    "Tests\\Feature\\PHR\\PhrHealthLogCommandTest": {
-      "seconds": 0.152,
-      "tests": 6
-    },
-    "Tests\\Feature\\PHR\\PhrHealthLogTest": {
-      "seconds": 0.386,
-      "tests": 7
-    },
-    "Tests\\Feature\\PHR\\PhrImportCommandTest": {
-      "seconds": 0.049,
-      "tests": 2
-    },
-    "Tests\\Feature\\PHR\\PhrNativeBackupCatalogCoverageTest": {
-      "seconds": 0.033,
-      "tests": 3
-    },
-    "Tests\\Feature\\PHR\\PhrNativeBackupTest": {
-      "seconds": 1.435,
-      "tests": 15
-    },
-    "Tests\\Feature\\PHR\\PhrNativeResourceLimitsTest": {
-      "seconds": 0.841,
-      "tests": 8
-    },
-    "Tests\\Feature\\PHR\\PhrNativeRestoreTest": {
-      "seconds": 3.962,
-      "tests": 26
-    },
-    "Tests\\Feature\\PHR\\PhrNavigationTest": {
-      "seconds": 0.177,
-      "tests": 8
-    },
-    "Tests\\Feature\\PHR\\PhrPatientAccessTest": {
-      "seconds": 0.336,
-      "tests": 6
-    },
-    "Tests\\Feature\\PHR\\PhrPatientAllergyAuthorizationCharacterizationTest": {
-      "seconds": 1.077,
-      "tests": 9
-    },
-    "Tests\\Feature\\PHR\\PhrPatientCrudTest": {
-      "seconds": 0.447,
-      "tests": 12
-    },
-    "Tests\\Feature\\PHR\\PhrPatientDeletionTest": {
-      "seconds": 1.035,
-      "tests": 12
-    },
-    "Tests\\Feature\\PHR\\PhrPatientSearchTest": {
-      "seconds": 0.159,
-      "tests": 3
-    },
-    "Tests\\Feature\\PHR\\PhrRespiratoryEventsTest": {
-      "seconds": 1.59,
-      "tests": 21
-    },
-    "Tests\\Feature\\PHR\\PhrSectionTest": {
-      "seconds": 0.212,
-      "tests": 5
-    },
-    "Tests\\Feature\\PHR\\PhrSinusEnrollmentsTest": {
-      "seconds": 0.906,
-      "tests": 11
-    },
-    "Tests\\Feature\\PHR\\PhrSinusSettingsTest": {
-      "seconds": 0.84,
-      "tests": 11
-    },
-    "Tests\\Feature\\PhrSchemaTest": {
-      "seconds": 0.143,
-      "tests": 2
-    },
-    "Tests\\Feature\\ProviderIdentityEnforcementTest": {
-      "seconds": 4.491,
-      "tests": 10
-    },
-    "Tests\\Feature\\ReceiptsMigrationTest": {
-      "seconds": 0.003,
-      "tests": 1
-    },
-    "Tests\\Feature\\Storage\\BlobReferencesCoverageTest": {
-      "seconds": 0.057,
-      "tests": 2
-    },
-    "Tests\\Feature\\Storage\\PhrBlobCleanupTest": {
-      "seconds": 0.214,
-      "tests": 5
-    },
-    "Tests\\Feature\\Storage\\PhrBlobMigrationTest": {
-      "seconds": 0.458,
-      "tests": 12
-    },
-    "Tests\\Feature\\Storage\\PhrSourceReconciliationTest": {
-      "seconds": 0.084,
-      "tests": 4
-    },
-    "Tests\\Feature\\Storage\\StoragePrunerTest": {
-      "seconds": 0.205,
-      "tests": 12
-    },
-    "Tests\\Feature\\ThemeMetaTest": {
-      "seconds": 0.001,
-      "tests": 1
-    },
-    "Tests\\Feature\\UptimeDashboardTest": {
-      "seconds": 1.301,
-      "tests": 9
-    },
-    "Tests\\Feature\\UserAiConfigurationApiTest": {
-      "seconds": 0.283,
-      "tests": 10
-    },
-    "Tests\\Unit\\AtomicDeploymentWorkflowTest": {
-      "seconds": 0.076,
-      "tests": 5
-    },
-    "Tests\\Unit\\BootstrapConsoleMemoryLimitTest": {
-      "seconds": 0.146,
-      "tests": 1
-    },
-    "Tests\\Unit\\CodexSetupScriptTest": {
-      "seconds": 0.005,
-      "tests": 4
-    },
-    "Tests\\Unit\\Database\\AgentExternalIdCollationMigrationTest": {
-      "seconds": 0.021,
-      "tests": 2
-    },
-    "Tests\\Unit\\Database\\RecordLifecycleColumnsTest": {
-      "seconds": 0.023,
-      "tests": 2
-    },
-    "Tests\\Unit\\LocalDiskDeployExcludeTest": {
-      "seconds": 0.004,
-      "tests": 4
-    },
-    "Tests\\Unit\\MaintenanceResumeWorkflowTest": {
-      "seconds": 2.372,
-      "tests": 2
-    },
-    "Tests\\Unit\\PHR\\VolumeSeriesInspectorTest": {
-      "seconds": 0.045,
-      "tests": 4
-    },
-    "Tests\\Unit\\PhrDicomDiskRootTest": {
-      "seconds": 0.009,
-      "tests": 9
-    },
-    "Tests\\Unit\\PhrStorageKeyTest": {
-      "seconds": 0.022,
-      "tests": 16
-    },
-    "Tests\\Unit\\PhrStorageOptionExceptionTest": {
-      "seconds": 0.001,
-      "tests": 2
-    },
-    "Tests\\Unit\\Scripts\\BlobsScriptTest": {
-      "seconds": 0.065,
-      "tests": 3
-    },
-    "Tests\\Unit\\Services\\AgentApiReadDaoTest": {
-      "seconds": 0.013,
-      "tests": 13
-    },
-    "Tests\\Unit\\Services\\GenAiFileHelperTest": {
-      "seconds": 0.023,
-      "tests": 4
-    },
-    "Tests\\Unit\\Services\\PHR\\DeltaDentalEobCsvParserTest": {
-      "seconds": 0.002,
-      "tests": 2
-    },
-    "Tests\\Unit\\Services\\PHR\\DeltaDentalEobFingerprintTest": {
-      "seconds": 0.001,
-      "tests": 1
-    },
-    "Tests\\Unit\\Services\\PHR\\Ehi\\EhiArchiveGuardTest": {
-      "seconds": 0.159,
-      "tests": 35
-    },
-    "Tests\\Unit\\Services\\PHR\\Ehi\\EhiDictionaryReaderTest": {
-      "seconds": 0.016,
-      "tests": 15
-    },
-    "Tests\\Unit\\Services\\PHR\\Ehi\\EhiMemberClassifierTest": {
-      "seconds": 0.001,
-      "tests": 2
-    },
-    "Tests\\Unit\\Services\\PHR\\Ehi\\EhiPackageDetectorTest": {
-      "seconds": 0.003,
-      "tests": 5
-    },
-    "Tests\\Unit\\Services\\PHR\\Ehi\\EhiRtfTextTest": {
-      "seconds": 0.093,
-      "tests": 19
-    },
-    "Tests\\Unit\\Services\\PHR\\Ehi\\EhiTsvReaderTest": {
-      "seconds": 2.721,
-      "tests": 29
-    },
-    "Tests\\Unit\\Services\\PHR\\MeritainEobFingerprintTest": {
-      "seconds": 0.001,
-      "tests": 2
-    },
-    "Tests\\Unit\\Services\\PHR\\MeritainEobParserTest": {
-      "seconds": 0.005,
-      "tests": 2
-    },
-    "Tests\\Unit\\Services\\PHR\\PhrCcdaExporterConformanceTest": {
-      "seconds": 0.011,
-      "tests": 1
-    },
-    "Tests\\Unit\\Services\\PHR\\PhrImmunizationDoseExportTest": {
-      "seconds": 0.882,
-      "tests": 6
-    },
-    "Tests\\Unit\\Services\\PHR\\PhrPdfSummaryRendererTest": {
-      "seconds": 1.766,
-      "tests": 3
-    },
-    "Tests\\Unit\\SshAgentActionPinTest": {
-      "seconds": 0.002,
-      "tests": 2
-    },
-    "Tests\\Unit\\Support\\Logging\\SafeLogTest": {
-      "seconds": 0.027,
-      "tests": 8
+    "version": 1,
+    "classes": {
+        "Tests\\Feature\\AgentApiBillingReadTest": {
+            "seconds": 9.92,
+            "tests": 23
+        },
+        "Tests\\Feature\\AgentApiChangeFeedTest": {
+            "seconds": 0.914,
+            "tests": 2
+        },
+        "Tests\\Feature\\AgentApiClinicalReadTest": {
+            "seconds": 5.242,
+            "tests": 10
+        },
+        "Tests\\Feature\\AgentApiClinicalResolveTest": {
+            "seconds": 10.343,
+            "tests": 23
+        },
+        "Tests\\Feature\\AgentApiClinicalWriteTest": {
+            "seconds": 6.719,
+            "tests": 12
+        },
+        "Tests\\Feature\\AgentApiContextTest": {
+            "seconds": 0.835,
+            "tests": 2
+        },
+        "Tests\\Feature\\AgentApiDocumentUploadTest": {
+            "seconds": 3.336,
+            "tests": 7
+        },
+        "Tests\\Feature\\AgentApiExportTest": {
+            "seconds": 0.918,
+            "tests": 2
+        },
+        "Tests\\Feature\\AgentApiFirstPartyClientRevocationTest": {
+            "seconds": 4.691,
+            "tests": 6
+        },
+        "Tests\\Feature\\AgentApiFirstPartyClientSetupTest": {
+            "seconds": 1.064,
+            "tests": 6
+        },
+        "Tests\\Feature\\AgentApiHealthDeviceIngestionTest": {
+            "seconds": 3.601,
+            "tests": 7
+        },
+        "Tests\\Feature\\AgentApiOAuthClientRegistrationTest": {
+            "seconds": 11.458,
+            "tests": 17
+        },
+        "Tests\\Feature\\AgentApiOAuthConsentTest": {
+            "seconds": 18.69,
+            "tests": 13
+        },
+        "Tests\\Feature\\AgentApiOAuthFoundationTest": {
+            "seconds": 17.579,
+            "tests": 33
+        },
+        "Tests\\Feature\\AgentApiOAuthHardeningTest": {
+            "seconds": 1.803,
+            "tests": 5
+        },
+        "Tests\\Feature\\AgentApiOpenApiDocumentTest": {
+            "seconds": 0.595,
+            "tests": 3
+        },
+        "Tests\\Feature\\AgentApiOpenApiGenerationTest": {
+            "seconds": 0.444,
+            "tests": 2
+        },
+        "Tests\\Feature\\AgentApiPatientSelectionConsentTest": {
+            "seconds": 45.692,
+            "tests": 38
+        },
+        "Tests\\Feature\\AgentApiProtectedResourcesTest": {
+            "seconds": 6.307,
+            "tests": 6
+        },
+        "Tests\\Feature\\AgentApiProviderSubjectTest": {
+            "seconds": 1.386,
+            "tests": 3
+        },
+        "Tests\\Feature\\AgentApiPublicIdTest": {
+            "seconds": 3.129,
+            "tests": 6
+        },
+        "Tests\\Feature\\AgentApiReconciliationTest": {
+            "seconds": 0.75,
+            "tests": 1
+        },
+        "Tests\\Feature\\AgentApiRecordLifecycleTest": {
+            "seconds": 4.533,
+            "tests": 11
+        },
+        "Tests\\Feature\\AgentApiSearchEvidenceTest": {
+            "seconds": 1.901,
+            "tests": 4
+        },
+        "Tests\\Feature\\AgentApiStructuredImportTest": {
+            "seconds": 4.337,
+            "tests": 9
+        },
+        "Tests\\Feature\\AgentMcpDiscoveryTest": {
+            "seconds": 4.154,
+            "tests": 9
+        },
+        "Tests\\Feature\\AgentMcpOutputSchemaTest": {
+            "seconds": 3.345,
+            "tests": 7
+        },
+        "Tests\\Feature\\AgentMcpReadAdapterTest": {
+            "seconds": 13.128,
+            "tests": 22
+        },
+        "Tests\\Feature\\AgentMcpToolSnapshotTest": {
+            "seconds": 2.553,
+            "tests": 3
+        },
+        "Tests\\Feature\\AgentOAuthPresetContractTest": {
+            "seconds": 1.589,
+            "tests": 2
+        },
+        "Tests\\Feature\\AgentOperationRegistryTest": {
+            "seconds": 3.343,
+            "tests": 8
+        },
+        "Tests\\Feature\\ApiCredentialsTest": {
+            "seconds": 2.102,
+            "tests": 5
+        },
+        "Tests\\Feature\\ApiUnauthenticatedResponseTest": {
+            "seconds": 0.919,
+            "tests": 5
+        },
+        "Tests\\Feature\\ChatGptPluginTest": {
+            "seconds": 0.911,
+            "tests": 3
+        },
+        "Tests\\Feature\\DelegatedAccess\\DelegatedAccessConformanceTest": {
+            "seconds": 1.539,
+            "tests": 6
+        },
+        "Tests\\Feature\\DelegatedAccess\\DelegatedAccessEndpointTest": {
+            "seconds": 0.84,
+            "tests": 3
+        },
+        "Tests\\Feature\\DelegatedAccess\\DelegatedAccessMetadataTest": {
+            "seconds": 0.753,
+            "tests": 4
+        },
+        "Tests\\Feature\\DelegatedAccess\\DelegatedAccessRemoveTest": {
+            "seconds": 2.258,
+            "tests": 11
+        },
+        "Tests\\Feature\\DelegatedAccess\\DelegatedAccessRulesTest": {
+            "seconds": 2.735,
+            "tests": 14
+        },
+        "Tests\\Feature\\DelegatedAccess\\DelegatedAccessSearchTest": {
+            "seconds": 1.199,
+            "tests": 6
+        },
+        "Tests\\Feature\\DevicePairingTest": {
+            "seconds": 5.388,
+            "tests": 26
+        },
+        "Tests\\Feature\\Http\\TrustedProxiesTest": {
+            "seconds": 0.713,
+            "tests": 4
+        },
+        "Tests\\Feature\\OAuthLoginTest": {
+            "seconds": 4.195,
+            "tests": 17
+        },
+        "Tests\\Feature\\OauthIdentityBindingTest": {
+            "seconds": 0.532,
+            "tests": 3
+        },
+        "Tests\\Feature\\OhifViewerRouteTest": {
+            "seconds": 0.948,
+            "tests": 5
+        },
+        "Tests\\Feature\\PHR\\ClinicalEobLinksApiTest": {
+            "seconds": 0.885,
+            "tests": 3
+        },
+        "Tests\\Feature\\PHR\\ClinicalReviewControllerTest": {
+            "seconds": 5.726,
+            "tests": 21
+        },
+        "Tests\\Feature\\PHR\\DeltaDentalEobVisitReconcilerTest": {
+            "seconds": 0.207,
+            "tests": 1
+        },
+        "Tests\\Feature\\PHR\\DevLoginRemovedTest": {
+            "seconds": 1.575,
+            "tests": 7
+        },
+        "Tests\\Feature\\PHR\\DicomUploadCleanupLoggingTest": {
+            "seconds": 0.581,
+            "tests": 3
+        },
+        "Tests\\Feature\\PHR\\Ehi\\EhiBindingServiceTest": {
+            "seconds": 2.062,
+            "tests": 5
+        },
+        "Tests\\Feature\\PHR\\Ehi\\EhiDictionaryNameSafetyTest": {
+            "seconds": 0.716,
+            "tests": 1
+        },
+        "Tests\\Feature\\PHR\\Ehi\\EhiDocumentMappingTest": {
+            "seconds": 10.858,
+            "tests": 27
+        },
+        "Tests\\Feature\\PHR\\Ehi\\EhiEndToEndTest": {
+            "seconds": 5.58,
+            "tests": 2
+        },
+        "Tests\\Feature\\PHR\\Ehi\\EhiEvidenceRestoreTest": {
+            "seconds": 1.934,
+            "tests": 2
+        },
+        "Tests\\Feature\\PHR\\Ehi\\EhiImmunizationMappingTest": {
+            "seconds": 5.776,
+            "tests": 21
+        },
+        "Tests\\Feature\\PHR\\Ehi\\EhiIntakeRecoveryTest": {
+            "seconds": 3.012,
+            "tests": 9
+        },
+        "Tests\\Feature\\PHR\\Ehi\\EhiIntakeServiceTest": {
+            "seconds": 7.302,
+            "tests": 26
+        },
+        "Tests\\Feature\\PHR\\Ehi\\EhiProjectionServiceTest": {
+            "seconds": 4.944,
+            "tests": 9
+        },
+        "Tests\\Feature\\PHR\\Ehi\\EhiProposalServiceTest": {
+            "seconds": 14.368,
+            "tests": 17
+        },
+        "Tests\\Feature\\PHR\\Ehi\\EhiResourceBoundariesTest": {
+            "seconds": 4.254,
+            "tests": 6
+        },
+        "Tests\\Feature\\PHR\\Ehi\\PhrEhiCommandsTest": {
+            "seconds": 1.989,
+            "tests": 6
+        },
+        "Tests\\Feature\\PHR\\Ehi\\PhrEhiProbeCommandTest": {
+            "seconds": 0.981,
+            "tests": 5
+        },
+        "Tests\\Feature\\PHR\\Ehi\\PhrEhiReviewCommandsTest": {
+            "seconds": 1.636,
+            "tests": 3
+        },
+        "Tests\\Feature\\PHR\\Ehi\\PhrMyChartZipEhiDispatchTest": {
+            "seconds": 2.137,
+            "tests": 12
+        },
+        "Tests\\Feature\\PHR\\GenAi\\ExternalGenAiAttachmentIntegrityTest": {
+            "seconds": 3.103,
+            "tests": 9
+        },
+        "Tests\\Feature\\PHR\\GenAi\\ExternalGenAiAuthorizationLoggingTest": {
+            "seconds": 1.331,
+            "tests": 5
+        },
+        "Tests\\Feature\\PHR\\GenAi\\ExternalGenAiCompletionReplayTest": {
+            "seconds": 6.964,
+            "tests": 16
+        },
+        "Tests\\Feature\\PHR\\GenAi\\ExternalGenAiEnqueueLifecycleTest": {
+            "seconds": 13.944,
+            "tests": 35
+        },
+        "Tests\\Feature\\PHR\\GenAi\\ExternalGenAiProcessingTest": {
+            "seconds": 3.621,
+            "tests": 9
+        },
+        "Tests\\Feature\\PHR\\GenAi\\ExternalGenAiStatusCoherenceTest": {
+            "seconds": 4.778,
+            "tests": 14
+        },
+        "Tests\\Feature\\PHR\\GenAi\\GenAiDiagnosticLoggingResilienceTest": {
+            "seconds": 5.821,
+            "tests": 21
+        },
+        "Tests\\Feature\\PHR\\GenAi\\GenAiQueueRecoveryTest": {
+            "seconds": 1.867,
+            "tests": 9
+        },
+        "Tests\\Feature\\PHR\\GenAi\\PhrGenAiEnqueueCommandTest": {
+            "seconds": 1.54,
+            "tests": 7
+        },
+        "Tests\\Feature\\PHR\\GenAi\\PhrGenAiImportTest": {
+            "seconds": 1.405,
+            "tests": 7
+        },
+        "Tests\\Feature\\PHR\\GenAi\\PhrQueueAuditCommandTest": {
+            "seconds": 0.194,
+            "tests": 1
+        },
+        "Tests\\Feature\\PHR\\LabPanelDetailApiTest": {
+            "seconds": 0.233,
+            "tests": 1
+        },
+        "Tests\\Feature\\PHR\\McpTokenLifecycleTest": {
+            "seconds": 2.528,
+            "tests": 12
+        },
+        "Tests\\Feature\\PHR\\MedicationControllerTest": {
+            "seconds": 1.765,
+            "tests": 7
+        },
+        "Tests\\Feature\\PHR\\MeritainEobAllergyProcedureReconcilerTest": {
+            "seconds": 0.387,
+            "tests": 2
+        },
+        "Tests\\Feature\\PHR\\MeritainEobVisitReconcilerTest": {
+            "seconds": 0.384,
+            "tests": 2
+        },
+        "Tests\\Feature\\PHR\\PhrAllergyAgentAuthorizationCharacterizationTest": {
+            "seconds": 3.904,
+            "tests": 9
+        },
+        "Tests\\Feature\\PHR\\PhrClinicalDataTest": {
+            "seconds": 6.637,
+            "tests": 26
+        },
+        "Tests\\Feature\\PHR\\PhrDataHubTest": {
+            "seconds": 0.627,
+            "tests": 3
+        },
+        "Tests\\Feature\\PHR\\PhrDicomTest": {
+            "seconds": 5.98,
+            "tests": 24
+        },
+        "Tests\\Feature\\PHR\\PhrDicomViewerUrlDriverTest": {
+            "seconds": 0.725,
+            "tests": 4
+        },
+        "Tests\\Feature\\PHR\\PhrDicomVolumeCacheTest": {
+            "seconds": 3.504,
+            "tests": 11
+        },
+        "Tests\\Feature\\PHR\\PhrDicomVolumeManifestTest": {
+            "seconds": 1.839,
+            "tests": 6
+        },
+        "Tests\\Feature\\PHR\\PhrDocumentImportStoragePathTest": {
+            "seconds": 0.624,
+            "tests": 3
+        },
+        "Tests\\Feature\\PHR\\PhrDocumentsTest": {
+            "seconds": 1.833,
+            "tests": 9
+        },
+        "Tests\\Feature\\PHR\\PhrEobDeepLinkTest": {
+            "seconds": 2.719,
+            "tests": 12
+        },
+        "Tests\\Feature\\PHR\\PhrExplore3dPageTest": {
+            "seconds": 0.61,
+            "tests": 3
+        },
+        "Tests\\Feature\\PHR\\PhrExportTest": {
+            "seconds": 1.874,
+            "tests": 3
+        },
+        "Tests\\Feature\\PHR\\PhrHealthLogCommandTest": {
+            "seconds": 1.141,
+            "tests": 6
+        },
+        "Tests\\Feature\\PHR\\PhrHealthLogTest": {
+            "seconds": 1.775,
+            "tests": 7
+        },
+        "Tests\\Feature\\PHR\\PhrImportCommandTest": {
+            "seconds": 0.447,
+            "tests": 2
+        },
+        "Tests\\Feature\\PHR\\PhrNativeBackupCatalogCoverageTest": {
+            "seconds": 0.589,
+            "tests": 3
+        },
+        "Tests\\Feature\\PHR\\PhrNativeBackupTest": {
+            "seconds": 4.731,
+            "tests": 15
+        },
+        "Tests\\Feature\\PHR\\PhrNativeResourceLimitsTest": {
+            "seconds": 2.606,
+            "tests": 8
+        },
+        "Tests\\Feature\\PHR\\PhrNativeRestoreTest": {
+            "seconds": 8.901,
+            "tests": 26
+        },
+        "Tests\\Feature\\PHR\\PhrNavigationTest": {
+            "seconds": 1.592,
+            "tests": 8
+        },
+        "Tests\\Feature\\PHR\\PhrPatientAccessTest": {
+            "seconds": 1.425,
+            "tests": 6
+        },
+        "Tests\\Feature\\PHR\\PhrPatientAllergyAuthorizationCharacterizationTest": {
+            "seconds": 2.36,
+            "tests": 9
+        },
+        "Tests\\Feature\\PHR\\PhrPatientCrudTest": {
+            "seconds": 2.624,
+            "tests": 12
+        },
+        "Tests\\Feature\\PHR\\PhrPatientDeletionTest": {
+            "seconds": 2.994,
+            "tests": 12
+        },
+        "Tests\\Feature\\PHR\\PhrPatientSearchTest": {
+            "seconds": 0.731,
+            "tests": 3
+        },
+        "Tests\\Feature\\PHR\\PhrRespiratoryEventsTest": {
+            "seconds": 5.618,
+            "tests": 21
+        },
+        "Tests\\Feature\\PHR\\PhrSectionTest": {
+            "seconds": 1.138,
+            "tests": 5
+        },
+        "Tests\\Feature\\PHR\\PhrSinusEnrollmentsTest": {
+            "seconds": 2.52,
+            "tests": 11
+        },
+        "Tests\\Feature\\PHR\\PhrSinusSettingsTest": {
+            "seconds": 2.654,
+            "tests": 11
+        },
+        "Tests\\Feature\\PhrSchemaTest": {
+            "seconds": 0.43,
+            "tests": 2
+        },
+        "Tests\\Feature\\ProviderIdentityEnforcementTest": {
+            "seconds": 7.083,
+            "tests": 10
+        },
+        "Tests\\Feature\\ReceiptsMigrationTest": {
+            "seconds": 0.165,
+            "tests": 1
+        },
+        "Tests\\Feature\\Storage\\BlobReferencesCoverageTest": {
+            "seconds": 0.358,
+            "tests": 2
+        },
+        "Tests\\Feature\\Storage\\PhrBlobCleanupTest": {
+            "seconds": 0.919,
+            "tests": 5
+        },
+        "Tests\\Feature\\Storage\\PhrBlobMigrationTest": {
+            "seconds": 2.523,
+            "tests": 12
+        },
+        "Tests\\Feature\\Storage\\PhrSourceReconciliationTest": {
+            "seconds": 0.766,
+            "tests": 4
+        },
+        "Tests\\Feature\\Storage\\StoragePrunerTest": {
+            "seconds": 2.322,
+            "tests": 12
+        },
+        "Tests\\Feature\\ThemeMetaTest": {
+            "seconds": 0.182,
+            "tests": 1
+        },
+        "Tests\\Feature\\UptimeDashboardTest": {
+            "seconds": 2.664,
+            "tests": 9
+        },
+        "Tests\\Feature\\UserAiConfigurationApiTest": {
+            "seconds": 2.12,
+            "tests": 10
+        },
+        "Tests\\Unit\\AtomicDeploymentWorkflowTest": {
+            "seconds": 1.44,
+            "tests": 5
+        },
+        "Tests\\Unit\\BootstrapConsoleMemoryLimitTest": {
+            "seconds": 0.078,
+            "tests": 1
+        },
+        "Tests\\Unit\\CodexSetupScriptTest": {
+            "seconds": 0.006,
+            "tests": 4
+        },
+        "Tests\\Unit\\Database\\AgentExternalIdCollationMigrationTest": {
+            "seconds": 0.356,
+            "tests": 2
+        },
+        "Tests\\Unit\\Database\\RecordLifecycleColumnsTest": {
+            "seconds": 0.893,
+            "tests": 2
+        },
+        "Tests\\Unit\\LocalDiskDeployExcludeTest": {
+            "seconds": 1.211,
+            "tests": 4
+        },
+        "Tests\\Unit\\MaintenanceResumeWorkflowTest": {
+            "seconds": 1.017,
+            "tests": 2
+        },
+        "Tests\\Unit\\PHR\\VolumeSeriesInspectorTest": {
+            "seconds": 0.042,
+            "tests": 4
+        },
+        "Tests\\Unit\\PhpunitShardsTest": {
+            "seconds": 0.013,
+            "tests": 9
+        },
+        "Tests\\Unit\\PhrDicomDiskRootTest": {
+            "seconds": 1.469,
+            "tests": 9
+        },
+        "Tests\\Unit\\PhrStorageKeyTest": {
+            "seconds": 2.65,
+            "tests": 16
+        },
+        "Tests\\Unit\\PhrStorageOptionExceptionTest": {
+            "seconds": 0.001,
+            "tests": 2
+        },
+        "Tests\\Unit\\Scripts\\BlobsScriptTest": {
+            "seconds": 0.035,
+            "tests": 3
+        },
+        "Tests\\Unit\\Services\\AgentApiReadDaoTest": {
+            "seconds": 0.008,
+            "tests": 13
+        },
+        "Tests\\Unit\\Services\\GenAiFileHelperTest": {
+            "seconds": 0.007,
+            "tests": 4
+        },
+        "Tests\\Unit\\Services\\PHR\\DeltaDentalEobCsvParserTest": {
+            "seconds": 0.003,
+            "tests": 2
+        },
+        "Tests\\Unit\\Services\\PHR\\DeltaDentalEobFingerprintTest": {
+            "seconds": 0.001,
+            "tests": 1
+        },
+        "Tests\\Unit\\Services\\PHR\\Ehi\\EhiArchiveGuardTest": {
+            "seconds": 0.147,
+            "tests": 35
+        },
+        "Tests\\Unit\\Services\\PHR\\Ehi\\EhiDictionaryReaderTest": {
+            "seconds": 0.014,
+            "tests": 15
+        },
+        "Tests\\Unit\\Services\\PHR\\Ehi\\EhiMemberClassifierTest": {
+            "seconds": 0.002,
+            "tests": 2
+        },
+        "Tests\\Unit\\Services\\PHR\\Ehi\\EhiPackageDetectorTest": {
+            "seconds": 0.003,
+            "tests": 5
+        },
+        "Tests\\Unit\\Services\\PHR\\Ehi\\EhiRtfTextTest": {
+            "seconds": 0.043,
+            "tests": 19
+        },
+        "Tests\\Unit\\Services\\PHR\\Ehi\\EhiTsvReaderTest": {
+            "seconds": 3.832,
+            "tests": 29
+        },
+        "Tests\\Unit\\Services\\PHR\\MeritainEobFingerprintTest": {
+            "seconds": 0.001,
+            "tests": 2
+        },
+        "Tests\\Unit\\Services\\PHR\\MeritainEobParserTest": {
+            "seconds": 0.003,
+            "tests": 2
+        },
+        "Tests\\Unit\\Services\\PHR\\PhrCcdaExporterConformanceTest": {
+            "seconds": 0.169,
+            "tests": 1
+        },
+        "Tests\\Unit\\Services\\PHR\\PhrImmunizationDoseExportTest": {
+            "seconds": 1.633,
+            "tests": 6
+        },
+        "Tests\\Unit\\Services\\PHR\\PhrPdfSummaryRendererTest": {
+            "seconds": 2.388,
+            "tests": 3
+        },
+        "Tests\\Unit\\SshAgentActionPinTest": {
+            "seconds": 0.002,
+            "tests": 2
+        },
+        "Tests\\Unit\\Support\\Logging\\SafeLogTest": {
+            "seconds": 1.337,
+            "tests": 8
+        }
     }
-  }
 }
