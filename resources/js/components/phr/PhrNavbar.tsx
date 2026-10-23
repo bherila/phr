@@ -1,7 +1,7 @@
 'use client'
 
 import { ArrowLeft, Command, Database, Search, Settings, UserRound } from 'lucide-react'
-import { type MouseEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { type MouseEvent, type ReactNode, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -28,12 +28,12 @@ import {
   navigationMenuTriggerStyle,
 } from '@/components/ui/navigation-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { fetchWrapper } from '@/fetchWrapper'
 import { currentUser, relyingApplications } from '@/lib/appShell'
 import type { PhrSection } from '@/lib/phrRouteBuilder'
 import { phrSectionUrl } from '@/lib/phrRouteBuilder'
 import { cn } from '@/lib/utils'
-import { type PhrPatient, PhrPatientListResponseSchema } from '@/phr/types'
+import { usePhrPatients } from '@/phr/patients/usePhrPatients'
+import type { PhrPatient } from '@/phr/types'
 
 interface PhrNavbarProps {
   patientId?: number
@@ -59,7 +59,7 @@ export default function PhrNavbar({
   onSectionChange,
   onSearch,
 }: PhrNavbarProps) {
-  const [patients, setPatients] = useState<PhrPatient[]>([])
+  const { patients } = usePhrPatients()
   const [searchValue, setSearchValue] = useState('')
   const [isComboboxOpen, setIsComboboxOpen] = useState(false)
 
@@ -75,20 +75,6 @@ export default function PhrNavbar({
   const csrfToken = typeof document === 'undefined'
     ? ''
     : (document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '')
-
-  const fetchPatients = useCallback(async () => {
-    try {
-      const rawResponse: unknown = await fetchWrapper.get('/api/phr/patients')
-      const response = PhrPatientListResponseSchema.parse(rawResponse)
-      setPatients(response.patients)
-    } catch (error) {
-      console.error('Failed to fetch PHR patients:', error)
-    }
-  }, [])
-
-  useEffect(() => {
-    void fetchPatients()
-  }, [fetchPatients])
 
   const currentPatient = useMemo<PhrPatient | null>(
     () => patients.find((patient) => patient.id === patientId) ?? null,

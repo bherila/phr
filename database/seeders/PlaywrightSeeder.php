@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\PhrPatient;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
@@ -38,6 +39,12 @@ class PlaywrightSeeder extends Seeder
             name: 'E2E Unrelated User',
             email: 'unrelated-user@example.test',
         );
+
+        PhrPatient::query()->create([
+            'owner_user_id' => 2,
+            'display_name' => 'Synthetic Bootstrap Patient',
+            'relationship' => 'self',
+        ]);
     }
 
     private function createOAuthUser(int $id, string $subject, string $name, string $email): void

@@ -9,7 +9,7 @@
     <meta name="color-scheme" content="dark light">
     <meta name="darkreader-lock">
     <script id="app-initial-data" type="application/json">
-      {!! json_encode([
+      {!! \Illuminate\Support\Js::encode([
         'appName' => config('app.name', 'Personal Health Record'),
         'appUrl' => config('app.url', ''),
         'authenticated' => auth()->check(),
@@ -25,6 +25,7 @@
         // Rendered per request from the session rather than compiled into the bundle, so the
         // set of sibling applications is visible only to someone who is actually signed in.
         'applications' => auth()->check() ? \BWH\Auth\OAuth\ProviderApplications::forRequest(request()) : [],
+        ...(isset($phrPatientList) ? ['phr' => ['patient_list' => $phrPatientList]] : []),
       ], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) !!}
     </script>
     @stack('data-head')

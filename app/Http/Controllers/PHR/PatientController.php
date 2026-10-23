@@ -8,6 +8,7 @@ use App\Http\Requests\PHR\UpdatePatientRequest;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Services\PHR\Access\PhrPatientListService;
 use App\Services\PHR\Access\PhrPatientPresenter;
 use App\Services\PHR\DataHub\PhrPatientDeletionException;
 use App\Services\PHR\DataHub\PhrPatientDeletionPresenter;
@@ -22,6 +23,7 @@ class PatientController extends Controller
     public function __construct(
         private PhrPatientAccessService $accessService,
         private PhrPatientPresenter $presenter,
+        private PhrPatientListService $patientList,
         private PhrPatientDeletionService $deletionService,
         private PhrPatientDeletionPresenter $deletionPresenter,
     ) {}
@@ -30,16 +32,7 @@ class PatientController extends Controller
     {
         $userId = (int) $request->user()?->id;
 
-        $patients = PhrPatient::query()
-            ->accessibleBy($userId)
-            ->with(['accessGrants.user'])
-            ->orderBy('owner_user_id')
-            ->orderBy('display_name')
-            ->get()
-            ->map(fn (PhrPatient $patient): array => $this->presenter->payload($patient, $userId))
-            ->values();
-
-        return response()->json(['patients' => $patients]);
+        return $this->privateJson($this->patientList->payload($userId), 200);
     }
 
     public function store(StorePatientRequest $request): JsonResponse
