@@ -1,16 +1,16 @@
 import { Pencil, Plus, Trash2, UserRound } from 'lucide-react'
 import type { FormEvent } from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
+import { usePhrPatients } from '@/phr/patients/usePhrPatients'
 import { compactPayload, errorMessage } from '@/phr/shared'
 import {
   type PhrPatient,
   type PhrPatientFormData,
   PhrPatientFormSchema,
-  PhrPatientListResponseSchema,
   PhrPatientResponseSchema,
 } from '@/phr/types'
 
@@ -86,9 +86,7 @@ function PatientFields({ form, onChange }: PatientFieldsProps) {
 }
 
 export default function PatientsManagePage() {
-  const [patients, setPatients] = useState<PhrPatient[]>([])
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { patients, busy, error, loaded, upsertPatient, reloadPatients } = usePhrPatients()
 
   const [createForm, setCreateForm] = useState<PhrPatientFormData>(emptyForm)
   const [createBusy, setCreateBusy] = useState(false)
@@ -100,24 +98,6 @@ export default function PatientsManagePage() {
   const [editError, setEditError] = useState<string | null>(null)
 
   const [deletingId, setDeletingId] = useState<number | null>(null)
-
-  const loadPatients = useCallback(async () => {
-    setBusy(true)
-    setError(null)
-    try {
-      const raw: unknown = await fetchWrapper.get('/api/phr/patients')
-      const response = PhrPatientListResponseSchema.parse(raw)
-      setPatients(response.patients)
-    } catch (err) {
-      setError(errorMessage(err))
-    } finally {
-      setBusy(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    void loadPatients()
-  }, [loadPatients])
 
   async function handleCreate(e: FormEvent<HTMLFormElement>): Promise<void> {
     e.preventDefault()
@@ -131,7 +111,7 @@ export default function PatientsManagePage() {
     try {
       const raw: unknown = await fetchWrapper.post('/api/phr/patients', compactPayload(parsed.data))
       const response = PhrPatientResponseSchema.parse(raw)
-      setPatients((prev) => [...prev, response.patient])
+      upsertPatient(response.patient)
       setCreateForm(emptyForm)
     } catch (err) {
       setCreateError(errorMessage(err))
@@ -166,7 +146,7 @@ export default function PatientsManagePage() {
     try {
       const raw: unknown = await fetchWrapper.patch(`/api/phr/patients/${editingId}`, compactPayload(parsed.data))
       const response = PhrPatientResponseSchema.parse(raw)
-      setPatients((prev) => prev.map((p) => (p.id === editingId ? response.patient : p)))
+      upsertPatient(response.patient)
       setEditingId(null)
     } catch (err) {
       setEditError(errorMessage(err))
@@ -183,8 +163,9 @@ export default function PatientsManagePage() {
       </div>
 
       {error && (
-        <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error}
+        <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <span>{error}</span>
+          <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void reloadPatients()}>Retry</Button>
         </div>
       )}
 
@@ -205,9 +186,9 @@ export default function PatientsManagePage() {
         </form>
       </div>
 
-      {busy && <p className="text-sm text-muted-foreground">Loading…</p>}
+      {busy && !loaded && <p className="text-sm text-muted-foreground">Loading…</p>}
 
-      {!busy && patients.length === 0 && (
+      {loaded && !error && patients.length === 0 && (
         <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-border py-12 text-center">
           <UserRound className="h-8 w-8 text-muted-foreground/50" />
           <p className="text-sm text-muted-foreground">No patient profiles yet. Add one above.</p>

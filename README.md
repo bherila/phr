@@ -202,6 +202,14 @@ match the same ASCII identifier rules as table member names.
 
 ## Repository map
 
+PHR pages include the authorized patient list in the existing `application/json`
+initial data. A shared React store supplies the navbar, patient pages and import
+selector, using the same response shape as `/api/phr/patients`. Create, edit and
+delete update that store; sharing changes and completed restores refresh it.
+The server uses one list service for HTML and the API. The HTML seed is limited
+to 100 profiles and 128 KiB; larger lists use one shared API fallback. Empty lists
+are valid initial data. Both HTML and the list API use private, no-store responses.
+
 | Path | Responsibility |
 | --- | --- |
 | `app/Models/Phr*.php` | Patient, clinical, evidence, imaging, and portability models |

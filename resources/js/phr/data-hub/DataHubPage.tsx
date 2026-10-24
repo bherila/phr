@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
+import { usePhrPatientListActions } from '@/phr/patients/usePhrPatients'
 import { errorMessage } from '@/phr/shared'
 import { type PhrExport, PhrExportResponseSchema, PhrExportsResponseSchema } from '@/phr/types'
 
@@ -467,6 +468,7 @@ function RestorePanel({ onCompleted }: { onCompleted: () => Promise<void> }): Re
 }
 
 export default function DataHubPage(): ReactElement {
+  const patientList = usePhrPatientListActions()
   const [inventory, setInventory] = useState<ReturnType<typeof DataHubResponseSchema.parse> | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -629,6 +631,7 @@ export default function DataHubPage(): ReactElement {
         acknowledge_active_shares: acknowledgeShares,
       })
       const deletion = PatientDeletionResponseSchema.parse(raw).deletion
+      patientList?.removePatient(patientId)
       setInventory((current) => current ? {
         ...current,
         owned_patients: current.owned_patients.filter((item) => item.id !== patientId),
@@ -688,7 +691,7 @@ export default function DataHubPage(): ReactElement {
           <p>Only patient owners can export, back up, restore, or delete an aggregate. Shared records are listed separately without exposing their inventory.</p>
         </div>
 
-        <RestorePanel onCompleted={loadInventory} />
+        <RestorePanel onCompleted={async () => { await Promise.all([loadInventory(), patientList?.reloadPatients({ afterMutation: true })]) }} />
 
         {loading ? <p role="status" aria-live="polite" className="mt-6 text-sm text-muted-foreground">Loading private inventory…</p> : null}
         {loadError ? (

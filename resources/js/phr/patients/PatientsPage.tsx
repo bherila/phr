@@ -1,12 +1,11 @@
 import { Plus, UserRound } from 'lucide-react'
-import { type MouseEvent, useCallback, useEffect, useState } from 'react'
+import { type MouseEvent } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { fetchWrapper } from '@/fetchWrapper'
 import { patientUrl } from '@/lib/phrRouteBuilder'
-import { errorMessage } from '@/phr/shared'
-import { type PhrPatient, PhrPatientListResponseSchema } from '@/phr/types'
+
+import { usePhrPatients } from './usePhrPatients'
 
 interface PatientsPageProps {
   onPatientSelect?: (patientId: number, hash?: string) => void
@@ -20,27 +19,7 @@ const ACCESS_BADGE: Record<string, string> = {
 }
 
 export default function PatientsPage({ onPatientSelect, onManagePatients }: PatientsPageProps) {
-  const [patients, setPatients] = useState<PhrPatient[]>([])
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const loadPatients = useCallback(async () => {
-    setBusy(true)
-    setError(null)
-    try {
-      const raw: unknown = await fetchWrapper.get('/api/phr/patients')
-      const response = PhrPatientListResponseSchema.parse(raw)
-      setPatients(response.patients)
-    } catch (err) {
-      setError(errorMessage(err))
-    } finally {
-      setBusy(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    void loadPatients()
-  }, [loadPatients])
+  const { patients, busy, error, loaded, reloadPatients } = usePhrPatients()
 
   function handleManagePatientsClick(event: MouseEvent<HTMLAnchorElement>): void {
     if (!onManagePatients) {
@@ -76,14 +55,15 @@ export default function PatientsPage({ onPatientSelect, onManagePatients }: Pati
       </div>
 
       {error && (
-        <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error}
+        <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <span>{error}</span>
+          <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void reloadPatients()}>Retry</Button>
         </div>
       )}
 
-      {busy && <p className="text-sm text-muted-foreground">Loading…</p>}
+      {busy && !loaded && <p className="text-sm text-muted-foreground">Loading…</p>}
 
-      {!busy && patients.length === 0 && (
+      {loaded && !error && patients.length === 0 && (
         <div className="flex flex-col items-center gap-4 rounded-lg border border-dashed border-border py-16 text-center">
           <UserRound className="h-10 w-10 text-muted-foreground/50" />
           <div>

@@ -37,6 +37,16 @@ async function ownerPatientId(page: Page, patientName: string): Promise<number> 
   return patient!.id
 }
 
+function recordPatientListRequests(page: Page): string[] {
+  const requests: string[] = []
+  page.on('request', (request) => {
+    if (request.method() === 'GET' && new URL(request.url()).pathname === '/api/phr/patients') {
+      requests.push(request.url())
+    }
+  })
+  return requests
+}
+
 test.describe.serial('PHR browser journeys', () => {
   test('requires authentication for PHR and OHIF routes, then completes OAuth PKCE login', async ({ page }) => {
     // A bare visit keeps the sign-in page.
@@ -63,7 +73,9 @@ test.describe.serial('PHR browser journeys', () => {
     await page.getByLabel('Name *').fill(patientName)
     await page.getByLabel('Relationship').fill('self')
     await page.getByRole('button', { name: 'Add Profile' }).click()
-    await expect(page.getByText(patientName)).toBeVisible()
+    // The shared list updates the still-mounted Patients column as well.
+    const managePage = page.getByRole('heading', { name: 'Manage Patients', exact: true }).locator('..').locator('..')
+    await expect(managePage.getByText(patientName, { exact: true })).toBeVisible()
 
     await page.goto('/phr/patients')
     await page.getByRole('link', { name: new RegExp(patientName) }).click()
@@ -134,5 +146,102 @@ test.describe.serial('PHR browser journeys', () => {
     const ohif = await page.goto('/ohif/viewer/dicomjson')
     expect(ohif?.status()).toBe(404)
     await expect(page).not.toHaveURL(/\/login$/)
+  })
+
+  test('shares bootstrapped patients across navigation, creation and renaming without redundant list requests', async ({ page }, testInfo) => {
+    test.setTimeout(60_000)
+    const patientName = `Synthetic Shared List Patient ${testInfo.retry}`
+    const renamed = `${patientName} Renamed`
+    const patientRequests = recordPatientListRequests(page)
+    await page.addInitScript(() => {
+      const placeholders: string[] = []
+      Object.defineProperty(window, '__patientListPlaceholders', { value: placeholders })
+      new MutationObserver(() => {
+        for (const heading of document.querySelectorAll('h1')) {
+          if (heading.textContent !== 'Patients') continue
+          const patientsPage = heading.parentElement?.parentElement?.parentElement
+          const text = patientsPage?.innerText ?? ''
+          if (/No patient profiles yet|Loading…/.test(text)) placeholders.push(text)
+        }
+      }).observe(document, { childList: true, subtree: true, characterData: true })
+    })
+
+    await signIn(page, ownerCredentials)
+    await expect(page.getByRole('link', { name: /Synthetic Bootstrap Patient/ })).toBeVisible()
+    expect(patientRequests).toHaveLength(0)
+    await page.getByRole('link', { name: /Synthetic Bootstrap Patient/ }).click()
+    await expect(page.getByRole('combobox', { name: 'Selected patient: Synthetic Bootstrap Patient' })).toHaveValue('Synthetic Bootstrap Patient')
+
+    await page.getByRole('link', { name: 'Manage Patients', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Manage Patients', exact: true })).toBeVisible()
+    await page.getByLabel('Name *').fill(patientName)
+    await page.getByLabel('Relationship').fill('self')
+    await page.getByRole('button', { name: 'Add Profile', exact: true }).click()
+    await expect(page.getByText(patientName, { exact: true })).toBeVisible()
+
+    await page.getByRole('link', { name: 'Patients', exact: true }).click()
+    await page.getByRole('link', { name: new RegExp(patientName) }).click()
+    await expect(page.getByRole('combobox', { name: `Selected patient: ${patientName}` })).toHaveValue(patientName)
+    const patientId = new URL(page.url()).pathname.match(/\/phr\/patient\/(\d+)/)?.[1]
+    expect(patientId).toBeDefined()
+
+    await page.getByRole('link', { name: 'Manage Patients', exact: true }).click()
+    const profileCard = page.getByText(patientName, { exact: true }).locator('..').locator('..').locator('..')
+    await profileCard.getByTitle('Edit', { exact: true }).click()
+    const editForm = page.getByRole('heading', { name: 'Edit Profile', exact: true }).locator('..')
+    await editForm.getByLabel('Name *').fill(renamed)
+    await editForm.getByRole('button', { name: 'Save', exact: true }).click()
+    await expect(page.getByText(renamed, { exact: true })).toBeVisible()
+
+    await page.getByRole('link', { name: 'Patients', exact: true }).click()
+    await expect(page.getByRole('link', { name: new RegExp(renamed) })).toBeVisible()
+    await expect(page.getByText(patientName, { exact: true })).toHaveCount(0)
+    await page.getByRole('link', { name: new RegExp(renamed) }).click()
+    await expect(page.getByRole('combobox', { name: `Selected patient: ${renamed}` })).toHaveValue(renamed)
+    await expect(page).toHaveURL(new RegExp(`/phr/patient/${patientId}(?:#|$)`))
+
+    await page.getByRole('link', { name: 'Imports', exact: true }).click()
+    const importPatient = page.getByRole('combobox', { name: 'Import into', exact: true })
+    await expect(importPatient.getByRole('option', { name: renamed, exact: true })).toHaveAttribute('value', patientId!)
+    await expect(importPatient.getByRole('option', { name: patientName, exact: true })).toHaveCount(0)
+    await importPatient.selectOption(patientId!)
+    await expect(importPatient).toHaveValue(patientId!)
+    expect(patientRequests).toHaveLength(0)
+    const placeholders = await page.evaluate(() => (
+      window as unknown as { __patientListPlaceholders: string[] }
+    ).__patientListPlaceholders)
+    expect(placeholders).toEqual([])
+  })
+
+  test('shares one patient-list fallback request when shell bootstrap data is absent', async ({ page }) => {
+    test.setTimeout(60_000)
+    await signIn(page, ownerCredentials)
+    const patientRequests = recordPatientListRequests(page)
+    await page.route((url) => url.pathname === '/phr/patients', async (route) => {
+      if (route.request().resourceType() !== 'document') {
+        await route.continue()
+        return
+      }
+      const response = await route.fetch()
+      const html = await response.text()
+      const script = /(<script\b[^>]*\bid="app-initial-data"[^>]*>)([\s\S]*?)(<\/script>)/
+      const body = html.replace(script, (_match, opening: string, json: string, closing: string) => {
+        const initial = JSON.parse(json) as { phr?: { patient_list?: unknown } }
+        expect(initial.phr).toHaveProperty('patient_list')
+        delete initial.phr?.patient_list
+        return `${opening}${JSON.stringify(initial)}${closing}`
+      })
+      expect(body).not.toBe(html)
+      await route.fulfill({ response, body })
+    })
+
+    await page.goto('/phr/patients')
+    await expect(page.getByRole('link', { name: /Synthetic Bootstrap Patient/ })).toBeVisible()
+    expect(patientRequests).toHaveLength(1)
+    await page.getByRole('link', { name: 'Manage Patients', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Manage Patients', exact: true })).toBeVisible()
+    await page.getByRole('link', { name: 'Imports', exact: true }).click()
+    await expect(page.getByRole('combobox', { name: 'Import into', exact: true }).getByRole('option', { name: 'Synthetic Bootstrap Patient', exact: true })).toBeAttached()
+    expect(patientRequests).toHaveLength(1)
   })
 })

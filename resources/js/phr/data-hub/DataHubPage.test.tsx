@@ -2,6 +2,8 @@ import '@testing-library/jest-dom'
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
+import { PhrPatientsProvider, usePhrPatients } from '@/phr/patients/usePhrPatients'
+
 import { DATA_HUB_CATEGORY_KEYS } from './dataHub'
 import DataHubPage from './DataHubPage'
 
@@ -20,6 +22,30 @@ jest.mock('@/fetchWrapper', () => ({
 function counts(overrides: Partial<Record<typeof DATA_HUB_CATEGORY_KEYS[number], number>> = {}) {
   return Object.fromEntries(DATA_HUB_CATEGORY_KEYS.map((key) => [key, overrides[key] ?? 0]))
 }
+
+function listPatient() {
+  return {
+    id: 42, owner_user_id: 7, display_name: 'Synthetic Record Owner', relationship: 'self',
+    birth_date: null, sex_at_birth: null, notes: 'Full notes', archived_at: null,
+    created_at: null, updated_at: null, access_level: 'owner', can_manage: true, can_share: true, access_grants: [],
+  }
+}
+
+function SharedPatientNames() {
+  const { patients } = usePhrPatients()
+  return <output data-testid="shared-patients">{JSON.stringify(patients.map((patient) => patient.display_name))}</output>
+}
+
+function renderWithPatientList(patients = [listPatient()]) {
+  const node = document.createElement('script')
+  node.id = 'app-initial-data'
+  node.type = 'application/json'
+  node.textContent = JSON.stringify({ phr: { patient_list: { patients } } })
+  document.body.appendChild(node)
+  return render(<PhrPatientsProvider><DataHubPage /><SharedPatientNames /></PhrPatientsProvider>)
+}
+
+afterEach(() => { document.getElementById('app-initial-data')?.remove() })
 
 function inventoryPayload() {
   return {
@@ -270,6 +296,22 @@ describe('DataHubPage', () => {
     expect(await screen.findByRole('button', { name: 'Check restore status' })).toBeInTheDocument()
   })
 
+  it('refreshes the shared patient list only after a restore reports completion', async () => {
+    const originalGet = mockGet.getMockImplementation()!
+    mockGet.mockImplementation(async (url: string) => {
+      if (url === '/api/phr/data-hub/native-restores') return { restores: [{ ...restorePreview, status: 'restore_processing' }] }
+      if (url === '/api/phr/data-hub/native-restores/31') return { restore: { ...restorePreview, status: 'completed' } }
+      if (url === '/api/phr/patients') return { patients: [listPatient()] }
+      return originalGet(url)
+    })
+    renderWithPatientList([])
+    const check = await screen.findByRole('button', { name: 'Check restore status' })
+    expect(mockGet).not.toHaveBeenCalledWith('/api/phr/patients')
+    fireEvent.click(check)
+    await waitFor(() => expect(screen.getByTestId('shared-patients')).toHaveTextContent('Synthetic Record Owner'))
+    expect(mockGet.mock.calls.filter(([url]: [string]) => url === '/api/phr/patients')).toHaveLength(1)
+  })
+
   it('invalidates a ready restore when the archive or archived-share choice changes', async () => {
     render(<DataHubPage />)
     const archiveInput = await screen.findByLabelText('Native backup archive')
@@ -304,7 +346,8 @@ describe('DataHubPage', () => {
   })
 
   it('previews and confirms patient deletion with a separate share acknowledgement', async () => {
-    render(<DataHubPage />)
+    renderWithPatientList()
+    expect(screen.getByTestId('shared-patients')).toHaveTextContent('Synthetic Record Owner')
     fireEvent.click(await screen.findByRole('button', { name: 'Preview deletion' }))
 
     await waitFor(() => {
@@ -327,6 +370,7 @@ describe('DataHubPage', () => {
       })
     })
     expect(await screen.findByText(/Storage cleanup: queued/)).toBeInTheDocument()
+    expect(screen.getByTestId('shared-patients')).toHaveTextContent('[]')
     expect(screen.queryByRole('heading', { name: 'Synthetic Record Owner' })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Check cleanup status' }))
@@ -373,7 +417,7 @@ describe('DataHubPage', () => {
 
   it('discards a stale preview when the commit reports preview_changed', async () => {
     mockDelete.mockRejectedValueOnce('preview_changed')
-    render(<DataHubPage />)
+    renderWithPatientList()
     fireEvent.click(await screen.findByRole('button', { name: 'Preview deletion' }))
     await screen.findByText(/3 database rows/)
     fireEvent.change(screen.getByLabelText('Type DELETE to delete Synthetic Record Owner'), { target: { value: 'DELETE' } })
@@ -382,6 +426,7 @@ describe('DataHubPage', () => {
 
     const previewAgain = await screen.findByRole('button', { name: 'Preview deletion' })
     expect(screen.getByText(/patient data changed/i)).toBeInTheDocument()
+    expect(screen.getByTestId('shared-patients')).toHaveTextContent('Synthetic Record Owner')
     fireEvent.click(previewAgain)
     expect(await screen.findByLabelText('Type DELETE to delete Synthetic Record Owner')).toHaveValue('')
     expect(screen.getByLabelText('I understand active shares will be revoked.')).not.toBeChecked()
