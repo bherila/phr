@@ -1,9 +1,18 @@
+import { generateKeyPairSync } from 'node:crypto'
 import path from 'node:path'
 
 const projectRoot = process.cwd()
 
 export const e2eDatabasePath = path.join(projectRoot, 'storage/framework/testing/playwright.sqlite')
 export const e2eStorageRoot = path.join(projectRoot, 'storage/framework/testing/playwright-storage')
+
+// /up fails unless Passport can load its signing keys. An ephemeral pair passed in
+// env leaves any local key files untouched.
+const oauthKeys = generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+  publicKeyEncoding: { type: 'spki', format: 'pem' },
+  privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+})
 
 export const e2eEnv: Record<string, string> = {
   ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
@@ -22,6 +31,8 @@ export const e2eEnv: Record<string, string> = {
   OAUTH_PROVIDER: 'playwright',
   OAUTH_PROVIDER_URL: 'http://127.0.0.1:4174',
   OAUTH_REDIRECT_URI: 'http://127.0.0.1:4173/oauth/callback',
+  PASSPORT_PRIVATE_KEY: oauthKeys.privateKey,
+  PASSPORT_PUBLIC_KEY: oauthKeys.publicKey,
   PHR_DICOM_DISK_DRIVER: 'local',
   PHR_DICOM_DISK_ROOT: path.join(e2eStorageRoot, 'dicom'),
   PHR_DOCUMENTS_DISK_ROOT: path.join(e2eStorageRoot, 'documents'),
