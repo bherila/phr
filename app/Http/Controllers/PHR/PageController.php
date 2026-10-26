@@ -4,6 +4,7 @@ namespace App\Http\Controllers\PHR;
 
 use App\Http\Controllers\Controller;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Services\PHR\Access\PhrPatientListService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -13,6 +14,7 @@ class PageController extends Controller
 {
     public function __construct(
         private PhrPatientAccessService $accessService,
+        private PhrPatientListService $patientList,
     ) {}
 
     public function index(): RedirectResponse
@@ -20,35 +22,32 @@ class PageController extends Controller
         return redirect('/phr/patients');
     }
 
-    public function patients(): View
+    public function patients(): Response
     {
         return $this->shell('patients', 'PHR Patients');
     }
 
-    public function managePatients(): View
+    public function managePatients(): Response
     {
         return $this->shell('manage-patients', 'Manage Patients');
     }
 
-    public function imports(): View
+    public function imports(): Response
     {
         return $this->shell('imports', 'PHR Imports');
     }
 
-    public function config(): View
+    public function config(): Response
     {
         return $this->shell('config', 'PHR Config');
     }
 
     public function dataHub(): Response
     {
-        return response()
-            ->view('phr.shell', $this->shellData('data-hub', 'PHR Data Hub'))
-            ->header('Cache-Control', 'private, no-store, max-age=0')
-            ->header('Pragma', 'no-cache');
+        return $this->shell('data-hub', 'PHR Data Hub');
     }
 
-    public function patient(Request $request, int $patient): View
+    public function patient(Request $request, int $patient): Response
     {
         $user = $request->user();
         abort_unless($user !== null, 403);
@@ -71,9 +70,11 @@ class PageController extends Controller
         ]);
     }
 
-    private function shell(?string $activeSection, string $title, ?int $patientId = null, bool $canManage = false): View
+    private function shell(?string $activeSection, string $title, ?int $patientId = null, bool $canManage = false): Response
     {
-        return view('phr.shell', $this->shellData($activeSection, $title, $patientId, $canManage));
+        return response()->view('phr.shell', $this->shellData($activeSection, $title, $patientId, $canManage))
+            ->header('Cache-Control', 'private, no-store, max-age=0')
+            ->header('Pragma', 'no-cache');
     }
 
     /** @return array<string, mixed> */
@@ -85,6 +86,7 @@ class PageController extends Controller
             'canManage' => $canManage,
             'title' => $title,
             'backUrl' => $this->backUrl(),
+            'phrPatientList' => $this->patientList->bootstrapPayload((int) request()->user()?->id),
         ];
     }
 

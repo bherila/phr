@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
 import type { PhrListPageProps } from '@/phr/miller'
+import { usePhrPatientListActions } from '@/phr/patients/usePhrPatients'
 import { errorMessage } from '@/phr/shared'
 import { type PhrAccessGrant, type PhrPatient, PhrPatientResponseSchema } from '@/phr/types'
 
@@ -21,6 +22,7 @@ const LEVEL_CLASS: Record<string, string> = {
 }
 
 export default function AccessPage({ patientId, onDrill }: PhrListPageProps) {
+  const patientList = usePhrPatientListActions()
   const [patient, setPatient] = useState<PhrPatient | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -58,7 +60,7 @@ export default function AccessPage({ patientId, onDrill }: PhrListPageProps) {
       // The grant endpoint returns no patient payload on purpose — echoing the
       // grant back would reveal whether the address belongs to an account.
       // Reload instead; the grant list below is the owner's own data.
-      await load()
+      await Promise.all([load(), patientList?.reloadPatients({ afterMutation: true })])
       setEmail('')
     } catch (err) {
       setFormError(errorMessage(err))
@@ -75,7 +77,7 @@ export default function AccessPage({ patientId, onDrill }: PhrListPageProps) {
     setFormError(null)
     try {
       await fetchWrapper.delete(`/api/phr/patients/${patientId}/access/${access.id}`, {})
-      await load()
+      await Promise.all([load(), patientList?.reloadPatients({ afterMutation: true })])
     } catch (err) {
       setFormError(errorMessage(err))
     } finally {

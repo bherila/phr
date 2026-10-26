@@ -1,86 +1,131 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { createContext, createElement, type ReactElement, type ReactNode, use, useEffect, useState, useSyncExternalStore } from 'react'
 
 import { fetchWrapper } from '@/fetchWrapper'
-import { errorMessage, readPatientIdFromQuery, setPatientIdInQuery } from '@/phr/shared'
+import { errorMessage } from '@/phr/shared'
 import { type PhrPatient, PhrPatientListResponseSchema } from '@/phr/types'
 
-interface UsePhrPatientsResult {
+interface PatientListState {
   patients: PhrPatient[]
-  selectedPatientId: number | null
-  selectedPatient: PhrPatient | null
+  loaded: boolean
   busy: boolean
   error: string | null
-  setSelectedPatientId: (patientId: number | null) => void
-  upsertPatient: (patient: PhrPatient) => void
-  reloadPatients: () => Promise<void>
 }
 
-export function usePhrPatients(): UsePhrPatientsResult {
-  const [patients, setPatients] = useState<PhrPatient[]>([])
-  const [selectedPatientIdState, setSelectedPatientIdState] = useState<number | null>(() => readPatientIdFromQuery())
-  const selectedPatientId = selectedPatientIdState
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+interface PatientListStore {
+  subscribe: (listener: () => void) => () => void
+  snapshot: () => PatientListState
+  ensureLoaded: () => Promise<void>
+  reloadPatients: (options?: { afterMutation?: boolean }) => Promise<void>
+  upsertPatient: (patient: PhrPatient) => void
+  removePatient: (patientId: number) => void
+}
 
-  const selectedPatient = useMemo(
-    () => patients.find((patient) => patient.id === selectedPatientId) ?? null,
-    [patients, selectedPatientId],
-  )
+/** Read only when a PHR-scoped store is created; never retain patient data globally. */
+function bootstrapPatients(): PhrPatient[] | undefined {
+  if (typeof document === 'undefined') return undefined
+  const text = document.getElementById('app-initial-data')?.textContent
+  if (!text) return undefined
+  try {
+    const raw: unknown = JSON.parse(text)
+    if (typeof raw !== 'object' || raw === null || !('phr' in raw)) return undefined
+    const phr = raw.phr
+    if (typeof phr !== 'object' || phr === null || !('patient_list' in phr)) return undefined
+    const parsed = PhrPatientListResponseSchema.safeParse(phr.patient_list)
+    return parsed.success ? parsed.data.patients : undefined
+  } catch {
+    return undefined
+  }
+}
 
-  const setSelectedPatientId = useCallback((patientId: number | null) => {
-    setSelectedPatientIdState(patientId)
-    setPatientIdInQuery(patientId)
-  }, [])
+function createPatientListStore(): PatientListStore {
+  const seed = bootstrapPatients()
+  let state: PatientListState = { patients: seed ?? [], loaded: seed !== undefined, busy: seed === undefined, error: null }
+  const listeners = new Set<() => void>()
+  let inFlight: Promise<void> | null = null
+  // Only mutations during a request need an overlay. It is discarded once that
+  // request settles, so deleted profiles do not become a growing lifetime cache.
+  const pendingMutations = new Map<number, PhrPatient | null>()
 
-  const reloadPatients = useCallback(async (): Promise<void> => {
-    setBusy(true)
-    setError(null)
+  function publish(next: PatientListState): void {
+    state = next
+    for (const listener of listeners) listener()
+  }
 
-    try {
-      const rawResponse: unknown = await fetchWrapper.get('/api/phr/patients')
-      const response = PhrPatientListResponseSchema.parse(rawResponse)
-      setPatients(response.patients)
-      setSelectedPatientIdState((current) => {
-        const fromQuery = readPatientIdFromQuery()
-        const fallback = response.patients[0]?.id ?? null
-        const next = fromQuery ?? current ?? fallback
-        const isPresent = next !== null && response.patients.some((patient) => patient.id === next)
-        return isPresent ? next : fallback
-      })
-    } catch (caught) {
-      setError(errorMessage(caught))
-    } finally {
-      setBusy(false)
+  function reloadPatients(options: { afterMutation?: boolean } = {}): Promise<void> {
+    if (inFlight !== null) {
+      // Share/restore writes have no complete list DTO to merge. Their refresh
+      // must begin after any older request, rather than reusing its snapshot.
+      return options.afterMutation ? inFlight.then(() => reloadPatients()) : inFlight
     }
-  }, [])
-
-  useEffect(() => {
-    void reloadPatients()
-  }, [reloadPatients])
-
-  useEffect(() => {
-    if (selectedPatientId !== null) {
-      setPatientIdInQuery(selectedPatientId)
-    }
-  }, [selectedPatientId])
-
-  const upsertPatient = useCallback((patient: PhrPatient): void => {
-    setPatients((current) => {
-      const next = current.filter((item) => item.id !== patient.id)
-      next.push(patient)
-      return next.sort((a, b) => (a.display_name ?? '').localeCompare(b.display_name ?? ''))
+    publish({ ...state, busy: true, error: null })
+    inFlight = Promise.resolve().then(async () => {
+      try {
+        const raw: unknown = await fetchWrapper.get('/api/phr/patients')
+        const response = PhrPatientListResponseSchema.parse(raw)
+        const patients = response.patients.filter((patient) => !pendingMutations.has(patient.id))
+        for (const patient of pendingMutations.values()) {
+          if (patient !== null) patients.push(patient)
+        }
+        publish({ patients, loaded: true, busy: false, error: null })
+      } catch (caught) {
+        publish({ ...state, busy: false, error: errorMessage(caught) })
+      } finally {
+        pendingMutations.clear()
+        inFlight = null
+      }
     })
-    setSelectedPatientId(patient.id)
-  }, [setSelectedPatientId])
+    return inFlight
+  }
 
   return {
-    patients,
-    selectedPatientId,
-    selectedPatient,
-    busy,
-    error,
-    setSelectedPatientId,
-    upsertPatient,
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => { listeners.delete(listener) }
+    },
+    snapshot: () => state,
+    ensureLoaded: () => state.loaded ? Promise.resolve() : reloadPatients(),
     reloadPatients,
+    upsertPatient(patient) {
+      if (inFlight !== null) pendingMutations.set(patient.id, patient)
+      const patients = state.patients.filter((item) => item.id !== patient.id)
+      patients.push(patient)
+      // A mutation supplies one row, not a successfully loaded whole list.
+      publish({ ...state, patients })
+    },
+    removePatient(patientId) {
+      if (inFlight !== null) pendingMutations.set(patientId, null)
+      publish({ ...state, patients: state.patients.filter((patient) => patient.id !== patientId) })
+    },
   }
+}
+
+const PatientListContext = createContext<PatientListStore | null>(null)
+
+/** One provider lives for the shell, above every patient picker and Miller column. */
+export function PhrPatientsProvider({ children }: { children: ReactNode }): ReactElement {
+  const [store] = useState(createPatientListStore)
+  useEffect(() => { void store.ensureLoaded() }, [store])
+  return createElement(PatientListContext.Provider, { value: store }, children)
+}
+
+/** Standalone pages retain their own scoped fallback for isolated mounts/tests. */
+export function usePhrPatients() {
+  const sharedStore = use(PatientListContext)
+  const [store] = useState(() => sharedStore ?? createPatientListStore())
+  const state = useSyncExternalStore(store.subscribe, store.snapshot, store.snapshot)
+  useEffect(() => {
+    if (sharedStore === null) void store.ensureLoaded()
+  }, [sharedStore, store])
+  return {
+    ...state,
+    reloadPatients: store.reloadPatients,
+    upsertPatient: store.upsertPatient,
+    removePatient: store.removePatient,
+  }
+}
+
+
+/** Mutation-only screens update the shell without starting a separate list request. */
+export function usePhrPatientListActions(): Pick<PatientListStore, 'upsertPatient' | 'removePatient' | 'reloadPatients'> | null {
+  return use(PatientListContext)
 }

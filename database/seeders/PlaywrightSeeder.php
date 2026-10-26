@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\PhrPatient;
 use App\Models\User;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\OAuthClientConsents;
@@ -42,6 +43,12 @@ class PlaywrightSeeder extends Seeder
             name: 'E2E Unrelated User',
             email: 'unrelated-user@example.test',
         );
+
+        PhrPatient::query()->create([
+            'owner_user_id' => 2,
+            'display_name' => 'Synthetic Bootstrap Patient',
+            'relationship' => 'self',
+        ]);
 
         $this->createConnectedApps();
     }

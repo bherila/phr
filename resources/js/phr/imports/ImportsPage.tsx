@@ -1,11 +1,9 @@
 import { FileStack, Images, UploadCloud } from 'lucide-react'
 import type { ReactElement } from 'react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { fetchWrapper } from '@/fetchWrapper'
-import { errorMessage } from '@/phr/shared'
-import { type PhrPatient, PhrPatientListResponseSchema } from '@/phr/types'
+import { usePhrPatients } from '@/phr/patients/usePhrPatients'
 import { useDicomUploads } from '@/phr/uploads'
 
 const SELECT_CLASS = 'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm'
@@ -33,47 +31,27 @@ export interface ImportsPageProps {
  */
 export default function ImportsPage({ patientId }: ImportsPageProps): ReactElement {
   const inputRef = useRef<HTMLInputElement | null>(null)
-  const [patients, setPatients] = useState<PhrPatient[]>([])
-  const [selectedPatientId, setSelectedPatientId] = useState<number | undefined>(patientId)
-  const [loading, setLoading] = useState(true)
+  const { patients, busy: loading, error: loadError, loaded, reloadPatients } = usePhrPatients()
+  const [preferredPatientId, setPreferredPatientId] = useState<number | undefined>(patientId)
   const [error, setError] = useState<string | null>(null)
   const { startUpload } = useDicomUploads()
-
-  const loadPatients = useCallback(async () => {
-    setLoading(true)
-    try {
-      const raw = await fetchWrapper.get('/api/phr/patients')
-      setPatients(PhrPatientListResponseSchema.parse(raw).patients)
-    } catch (caught) {
-      setError(errorMessage(caught))
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    void loadPatients()
-  }, [loadPatients])
 
   const manageablePatients = useMemo(
     () => patients.filter((patient) => patient.can_manage && patient.archived_at === null),
     [patients],
   )
 
-  // Only reconcile once the list has arrived, so the patient passed in from the column's
-  // shell state stays selected while the request is still in flight.
-  useEffect(() => {
-    if (manageablePatients.length === 0) {
-      return
-    }
-    setSelectedPatientId((current) => (
-      current !== undefined && manageablePatients.some((patient) => patient.id === current)
-        ? current
-        : manageablePatients[0]?.id
-    ))
-  }, [manageablePatients])
+  // Keep the requested target while the initial list is loading. Once loaded,
+  // retain the resolved fallback until that profile is removed or archived.
+  const selectedPatientId = !loaded
+    ? preferredPatientId
+    : manageablePatients.find((patient) => patient.id === preferredPatientId)?.id ?? manageablePatients[0]?.id
 
-  const canUpload = selectedPatientId !== undefined
+  if (loaded && selectedPatientId !== preferredPatientId) {
+    setPreferredPatientId(selectedPatientId)
+  }
+
+  const canUpload = selectedPatientId !== undefined && manageablePatients.some((patient) => patient.id === selectedPatientId)
 
   function onFolderChosen(files: FileList | null): void {
     // Snapshot before touching the input: `input.value = ''` empties the very `FileList`
@@ -86,7 +64,7 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
       input.value = ''
     }
 
-    if (selectedPatientId === undefined) {
+    if (selectedPatientId === undefined || !canUpload) {
       setError('Choose a patient to import into first.')
       return
     }
@@ -113,8 +91,14 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
         progress appears in the tray at the bottom right.
       </p>
 
+      {loadError && (
+        <div role="alert" className="mt-4 flex max-w-2xl flex-wrap items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+          <span>{loadError}</span>
+          <Button type="button" variant="outline" size="sm" disabled={loading} onClick={() => void reloadPatients()}>Retry</Button>
+        </div>
+      )}
       {error && (
-        <div className="mt-4 max-w-2xl rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+        <div role="alert" className="mt-4 max-w-2xl rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {error}
         </div>
       )}
@@ -137,7 +121,7 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
               className={SELECT_CLASS}
               value={selectedPatientId === undefined ? '' : String(selectedPatientId)}
               disabled={manageablePatients.length === 0}
-              onChange={(event) => setSelectedPatientId(Number.parseInt(event.target.value, 10))}
+              onChange={(event) => setPreferredPatientId(Number.parseInt(event.target.value, 10))}
             >
               {manageablePatients.length === 0 && <option value="">No patients available</option>}
               {manageablePatients.map((patient) => (
@@ -153,7 +137,7 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
           </Button>
         </div>
 
-        {!loading && manageablePatients.length === 0 && (
+        {!loading && !loadError && manageablePatients.length === 0 && (
           <p className="mt-3 text-sm text-muted-foreground">
             You need manage access to a patient before you can import imaging.
           </p>

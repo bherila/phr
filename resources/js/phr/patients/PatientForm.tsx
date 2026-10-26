@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
+import { usePhrPatientListActions } from '@/phr/patients/usePhrPatients'
 import { compactPayload, errorMessage } from '@/phr/shared'
 import {
   type PhrPatient,
@@ -27,6 +28,7 @@ const emptyPatientForm: PhrPatientFormData = {
 }
 
 export default function PatientForm({ onCreated, setBusy }: PatientFormProps) {
+  const patientList = usePhrPatientListActions()
   const [form, setForm] = useState<PhrPatientFormData>(emptyPatientForm)
   const [error, setError] = useState<string | null>(null)
 
@@ -44,6 +46,7 @@ export default function PatientForm({ onCreated, setBusy }: PatientFormProps) {
     try {
       const rawResponse: unknown = await fetchWrapper.post('/api/phr/patients', compactPayload(parsed.data))
       const response = PhrPatientResponseSchema.parse(rawResponse)
+      patientList?.upsertPatient(response.patient)
       onCreated(response.patient)
       setForm(emptyPatientForm)
     } catch (caught) {
