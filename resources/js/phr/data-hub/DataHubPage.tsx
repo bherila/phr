@@ -334,12 +334,15 @@ function RestorePanel({ onCompleted }: { onCompleted: () => Promise<void> }): Re
 
   useEffect(() => {
     void fetchWrapper.get('/api/phr/data-hub/native-restores')
-      .then((raw: unknown) => {
+      .then(async (raw: unknown) => {
         const latest = NativeRestoresResponseSchema.parse(raw).restores[0]
-        if (latest) setRestore(latest)
+        if (latest) {
+          setRestore(latest)
+          if (latest.status === 'completed') await onCompleted()
+        }
       })
       .catch((caught: unknown) => setError(restoreMessage(caught)))
-  }, [])
+  }, [onCompleted])
 
   function selectArchive(next: File | null): void {
     setArchive(next)
@@ -502,6 +505,10 @@ export default function DataHubPage(): ReactElement {
   useEffect(() => {
     void loadInventory()
   }, [loadInventory])
+
+  const restoreCompleted = useCallback(async (): Promise<void> => {
+    await Promise.all([loadInventory(), patientList?.reloadPatients({ afterMutation: true })])
+  }, [loadInventory, patientList])
 
   function setExportError(patientId: number, message?: string): void {
     setExportErrors((current) => {
@@ -691,7 +698,7 @@ export default function DataHubPage(): ReactElement {
           <p>Only patient owners can export, back up, restore, or delete an aggregate. Shared records are listed separately without exposing their inventory.</p>
         </div>
 
-        <RestorePanel onCompleted={async () => { await Promise.all([loadInventory(), patientList?.reloadPatients({ afterMutation: true })]) }} />
+        <RestorePanel onCompleted={restoreCompleted} />
 
         {loading ? <p role="status" aria-live="polite" className="mt-6 text-sm text-muted-foreground">Loading private inventory…</p> : null}
         {loadError ? (

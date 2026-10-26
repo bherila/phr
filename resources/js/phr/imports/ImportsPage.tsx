@@ -42,10 +42,14 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
   )
 
   // Keep the requested target while the initial list is loading. Once loaded,
-  // derive a valid target immediately when a profile is removed or archived.
+  // retain the resolved fallback until that profile is removed or archived.
   const selectedPatientId = !loaded
     ? preferredPatientId
     : manageablePatients.find((patient) => patient.id === preferredPatientId)?.id ?? manageablePatients[0]?.id
+
+  if (loaded && selectedPatientId !== preferredPatientId) {
+    setPreferredPatientId(selectedPatientId)
+  }
 
   const canUpload = selectedPatientId !== undefined && manageablePatients.some((patient) => patient.id === selectedPatientId)
 

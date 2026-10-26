@@ -89,11 +89,12 @@ function createPatientListStore(): PatientListStore {
       if (inFlight !== null) pendingMutations.set(patient.id, patient)
       const patients = state.patients.filter((item) => item.id !== patient.id)
       patients.push(patient)
-      publish({ ...state, patients, loaded: true, error: null })
+      // A mutation supplies one row, not a successfully loaded whole list.
+      publish({ ...state, patients })
     },
     removePatient(patientId) {
       if (inFlight !== null) pendingMutations.set(patientId, null)
-      publish({ ...state, patients: state.patients.filter((patient) => patient.id !== patientId), error: null })
+      publish({ ...state, patients: state.patients.filter((patient) => patient.id !== patientId) })
     },
   }
 }

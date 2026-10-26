@@ -312,6 +312,28 @@ describe('DataHubPage', () => {
     expect(mockGet.mock.calls.filter(([url]: [string]) => url === '/api/phr/patients')).toHaveLength(1)
   })
 
+  it('reconciles a restore completed while Data Hub was unmounted without replacing the shell store', async () => {
+    const originalGet = mockGet.getMockImplementation()!
+    let completed = false
+    mockGet.mockImplementation(async (url: string) => {
+      if (url === '/api/phr/data-hub/native-restores') {
+        return { restores: [{ ...restorePreview, status: completed ? 'completed' : 'restore_processing' }] }
+      }
+      if (url === '/api/phr/patients') return { patients: [listPatient()] }
+      return originalGet(url)
+    })
+    const view = renderWithPatientList([])
+    await screen.findByRole('button', { name: 'Check restore status' })
+    view.rerender(<PhrPatientsProvider><SharedPatientNames /></PhrPatientsProvider>)
+    completed = true
+    expect(screen.getByTestId('shared-patients')).toHaveTextContent('[]')
+    view.rerender(<PhrPatientsProvider><DataHubPage /><SharedPatientNames /></PhrPatientsProvider>)
+    await waitFor(() => expect(screen.getByTestId('shared-patients')).toHaveTextContent('Synthetic Record Owner'))
+    expect(screen.queryByRole('button', { name: 'Check restore status' })).not.toBeInTheDocument()
+    expect(mockGet.mock.calls.filter(([url]: [string]) => url === '/api/phr/patients')).toHaveLength(1)
+    expect(mockGet.mock.calls.filter(([url]: [string]) => url === '/api/phr/data-hub/native-restores')).toHaveLength(2)
+  })
+
   it('invalidates a ready restore when the archive or archived-share choice changes', async () => {
     render(<DataHubPage />)
     const archiveInput = await screen.findByLabelText('Native backup archive')
