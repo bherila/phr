@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import type React from 'react'
 import { Suspense } from 'react'
 
@@ -37,6 +37,8 @@ jest.mock('@/phr/immunizations/ImmunizationsPage', () => ({ __esModule: true, de
 jest.mock('@/phr/allergies/AllergiesPage', () => ({ __esModule: true, default: makeMockListPage('allergies') }))
 jest.mock('@/phr/documents/DocumentsPage', () => ({ __esModule: true, default: makeMockListPage('documents') }))
 jest.mock('@/phr/access/AccessPage', () => ({ __esModule: true, default: makeMockListPage('access') }))
+jest.mock('@/phr/config/AiProviderSettingsPage', () => ({ __esModule: true, default: () => <h1>AI Provider Settings</h1> }))
+jest.mock('@/phr/config/ConnectedAppsPage', () => ({ __esModule: true, default: () => <h1>Connected apps</h1> }))
 
 const LIST_MODULES: PhrModuleId[] = [
   'health-log',
@@ -112,6 +114,17 @@ describe('phrModuleRegistry', () => {
       })
       rendered.unmount()
     }
+  })
+
+  it('opens connected apps from Config without requiring a selected patient', async () => {
+    const ConfigColumn = phrModuleRegistry.config.component
+    render(<Suspense fallback={null}><ConfigColumn state={{ patientId: undefined }} onDrill={jest.fn()} /></Suspense>)
+    await screen.findByRole('heading', { name: 'AI Provider Settings' })
+    const appsTab = screen.getByRole('tab', { name: 'Connected apps' })
+    fireEvent.click(appsTab)
+    expect(await screen.findByRole('heading', { name: 'Connected apps' })).toBeTruthy()
+    expect(appsTab.getAttribute('aria-selected')).toBe('true')
+    expect(screen.queryByRole('heading', { name: 'AI Provider Settings' })).toBeNull()
   })
 
   it('registers data-rich list columns and visual detail columns with wider layouts', () => {
