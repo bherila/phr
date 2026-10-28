@@ -134,7 +134,7 @@ final class AgentMcpToolCatalog
             $this->write(
                 'imports.create',
                 'Create import',
-                'Idempotently enqueue structured extraction for a stored patient document.',
+                'Import a stored patient document. C-CDA, FHIR, and MyChart or EHI export ZIPs are read by PHR\'s own parsers, not AI: C-CDA and FHIR records are written directly and land pending review; a ZIP is staged for intake, and an EHI export\'s source and proposals are then confirmed by the patient\'s owner in PHR. Any other document is queued for AI extraction. One import per document; a repeat returns it as it stands.',
                 [$writes, 'importsCreate'],
                 new WriteSafety(note: 'One import per stored document; a repeat returns it.'),
             ),
