@@ -163,15 +163,7 @@ final class AgentApiStructuredImportTest extends TestCase
     {
         $owner = $this->user('zip-owner@example.test');
         $patient = $this->patient($owner, 'Synthetic ZIP Patient');
-        $zipPath = tempnam(sys_get_temp_dir(), 'phr-agent-zip-');
-        $zip = new ZipArchive;
-        $this->assertTrue($zip->open($zipPath, ZipArchive::OVERWRITE));
-        $zip->addFromString('Records/bundle.json', (string) json_encode(['resourceType' => 'Bundle', 'entry' => [
-            ['resource' => ['resourceType' => 'Condition', 'id' => 'zip-condition', 'code' => ['text' => 'Synthetic ZIP condition']]],
-        ]]));
-        $zip->close();
-        $document = $this->storedDocument($patient, $owner, 'mychart.zip', 'application/zip', (string) file_get_contents($zipPath));
-        @unlink($zipPath);
+        $document = $this->storedDocument($patient, $owner, 'mychart.zip', 'application/zip', $this->myChartZip());
         Passport::actingAs($owner, [AgentApiScopes::IMPORTS_WRITE], 'api', $this->client('Synthetic ZIP Client'));
         $url = "/api/v1/patients/{$patient->id}/imports";
 
@@ -200,11 +192,33 @@ final class AgentApiStructuredImportTest extends TestCase
         $this->assertDatabaseCount('genai_import_jobs', 0);
     }
 
+    public function test_a_zip_that_is_not_an_export_still_goes_to_ai(): void
+    {
+        $owner = $this->user('docx-owner@example.test');
+        $patient = $this->patient($owner, 'Synthetic DOCX Patient');
+        $zipPath = tempnam(sys_get_temp_dir(), 'phr-agent-docx-');
+        $zip = new ZipArchive;
+        $this->assertTrue($zip->open($zipPath, ZipArchive::OVERWRITE));
+        // A word-processing file is a ZIP of XML, none of it clinical.
+        $zip->addFromString('[Content_Types].xml', '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"/>');
+        $zip->addFromString('word/document.xml', '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"/>');
+        $zip->close();
+        $document = $this->storedDocument($patient, $owner, 'letter.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', (string) file_get_contents($zipPath));
+        @unlink($zipPath);
+        Passport::actingAs($owner, [AgentApiScopes::IMPORTS_WRITE], 'api', $this->client('Synthetic DOCX Client'));
+
+        $this->postJson("/api/v1/patients/{$patient->id}/imports", ['document_id' => $document->id])->assertAccepted()
+            ->assertJsonPath('resource_type', 'import_job')
+            ->assertJsonPath('outcome', 'created');
+        $this->assertSame(0, PhrEhiUpload::query()->count());
+        Queue::assertPushed(ParseImportJob::class, 1);
+    }
+
     public function test_a_zip_document_for_an_archived_patient_is_refused(): void
     {
         $owner = $this->user('archived-owner@example.test');
         $patient = $this->patient($owner, 'Synthetic Archived Patient');
-        $document = $this->storedDocument($patient, $owner, 'export.zip', 'application/zip', "PK\x03\x04synthetic");
+        $document = $this->storedDocument($patient, $owner, 'export.zip', 'application/zip', $this->myChartZip());
         $patient->update(['archived_at' => now()]);
         Passport::actingAs($owner, [AgentApiScopes::IMPORTS_WRITE], 'api', $this->client('Synthetic Archived Client'));
 
@@ -531,6 +545,22 @@ final class AgentApiStructuredImportTest extends TestCase
             'file_hash' => hash('sha256', $contents),
             'source' => 'manual_upload',
         ]);
+    }
+
+    /** A MyChart record ZIP's bytes: one FHIR bundle with one condition. */
+    private function myChartZip(): string
+    {
+        $zipPath = (string) tempnam(sys_get_temp_dir(), 'phr-agent-mychart-');
+        $zip = new ZipArchive;
+        $this->assertTrue($zip->open($zipPath, ZipArchive::OVERWRITE));
+        $zip->addFromString('Records/bundle.json', (string) json_encode(['resourceType' => 'Bundle', 'entry' => [
+            ['resource' => ['resourceType' => 'Condition', 'id' => 'zip-condition', 'code' => ['text' => 'Synthetic ZIP condition']]],
+        ]]));
+        $zip->close();
+        $bytes = (string) file_get_contents($zipPath);
+        @unlink($zipPath);
+
+        return $bytes;
     }
 
     /** @param array<string, mixed> $payload */

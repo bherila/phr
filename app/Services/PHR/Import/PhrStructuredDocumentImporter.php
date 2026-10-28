@@ -4,11 +4,13 @@ namespace App\Services\PHR\Import;
 
 use App\Models\PhrDocument;
 use App\Models\PhrPatient;
+use App\Services\PHR\Import\Ehi\EhiPackageDetector;
 use App\Services\PHR\Import\Ehi\EhiUploadRefused;
 use App\Services\PHR\Import\Ehi\EhiUploadService;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
+use ZipArchive;
 
 /**
  * Imports a stored document with PHR's own parsers when it is a format they
@@ -28,6 +30,7 @@ final class PhrStructuredDocumentImporter
     public function __construct(
         private readonly PhrStructuredFileImporter $files,
         private readonly EhiUploadService $uploads,
+        private readonly PhrMyChartZipImporter $myChart,
     ) {}
 
     public function import(PhrPatient $patient, int $actorUserId, PhrDocument $document): ?PhrStructuredDocumentImport
@@ -40,7 +43,7 @@ final class PhrStructuredDocumentImporter
             return null;
         }
 
-        if ($this->startsWith($document, self::ZIP_SIGNATURE)) {
+        if ($this->startsWith($document, self::ZIP_SIGNATURE) && $this->isExport($disk->path($document->storage_path))) {
             try {
                 [$upload, $queued] = $this->uploads->stageDocument($patient, $actorUserId, $document);
             } catch (EhiUploadRefused $refused) {
@@ -72,6 +75,29 @@ final class PhrStructuredDocumentImporter
         }
 
         return PhrStructuredDocumentImport::imported($format, $result);
+    }
+
+    /**
+     * An EHI Tables export (by its table paths) or a MyChart ZIP (holding a FHIR
+     * bundle or C-CDA document). Any other ZIP, a .docx among them, is not one,
+     * and goes to AI extraction as before.
+     */
+    private function isExport(string $path): bool
+    {
+        $zip = new ZipArchive;
+        if ($zip->open($path) !== true) {
+            return false;
+        }
+        try {
+            $names = [];
+            for ($index = 0; $index < $zip->numFiles; $index++) {
+                $names[] = (string) $zip->getNameIndex($index);
+            }
+        } finally {
+            $zip->close();
+        }
+
+        return EhiPackageDetector::detectZipPaths($names) || $this->myChart->recognizes($path);
     }
 
     private function startsWith(PhrDocument $document, string $signature): bool
