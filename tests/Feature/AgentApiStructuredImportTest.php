@@ -127,6 +127,21 @@ final class AgentApiStructuredImportTest extends TestCase
             ->assertJsonPath('data.import.unchanged', $created);
     }
 
+    public function test_a_structured_document_already_sent_to_ai_keeps_that_import(): void
+    {
+        $owner = $this->user('ccda-ai-owner@example.test');
+        $patient = $this->patient($owner, 'Synthetic Earlier AI Patient');
+        $document = $this->storedDocument($patient, $owner, 'visit-summary.xml', 'application/xml', PhrCcdaSyntheticDocument::xml());
+        $job = $this->linkedJob($document, $owner, 'parsed');
+        Passport::actingAs($owner, [AgentApiScopes::IMPORTS_WRITE], 'api', $this->client('Synthetic Earlier AI Client'));
+
+        $this->postJson("/api/v1/patients/{$patient->id}/imports", ['document_id' => $document->id])->assertOk()
+            ->assertJsonPath('resource_type', 'import_job')
+            ->assertJsonPath('outcome', 'unchanged')
+            ->assertJsonPath('data.id', $job->id);
+        $this->assertSame(0, PhrImmunization::query()->count(), 'not imported a second time beside the AI proposals');
+    }
+
     public function test_a_structured_document_naming_two_people_is_refused_not_sent_to_ai(): void
     {
         $owner = $this->user('family-owner@example.test');

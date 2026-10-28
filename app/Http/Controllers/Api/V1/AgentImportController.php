@@ -105,7 +105,9 @@ final class AgentImportController extends Controller
         $resolved = $this->writablePatient($request, $patient);
         $actor = (int) $request->user('api')?->id;
         $document = PhrDocument::query()->where('patient_id', $resolved->id)->findOrFail((int) $request->validated('document_id'));
-        $structured = $this->structured->import($resolved, $actor, $document);
+        // A document already sent to AI keeps that import: one import per
+        // document, and its proposals are not doubled by a direct import.
+        $structured = $document->genai_job_id === null ? $this->structured->import($resolved, $actor, $document) : null;
         if ($structured !== null) {
             return response()->json(
                 $this->structuredPayload($resolved, $document, $structured),
