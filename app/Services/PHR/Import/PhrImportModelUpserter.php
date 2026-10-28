@@ -7,6 +7,12 @@ use Illuminate\Database\Eloquent\Model;
 class PhrImportModelUpserter
 {
     /**
+     * Bookkeeping every import sets afresh. A difference in these alone is not a
+     * change: it neither rewrites the row nor reopens its review.
+     */
+    private const array VOLATILE = ['imported_at'];
+
+    /**
      * @template TModel of Model
      *
      * An existing row (matched by import source and external id) is written only
@@ -35,9 +41,13 @@ class PhrImportModelUpserter
 
         $existing = $modelClass::query()->where($queryAttributes)->first();
         if ($existing !== null) {
-            $existing->fill(array_diff_key($attributes, ['review_status' => true]));
-            if ($reviewOnChange !== null && $existing->isDirty()) {
-                $existing->setAttribute('review_status', $reviewOnChange);
+            $volatile = array_intersect_key($attributes, array_flip(self::VOLATILE));
+            $existing->fill(array_diff_key($attributes, ['review_status' => true], $volatile));
+            if ($existing->isDirty()) {
+                $existing->fill($volatile);
+                if ($reviewOnChange !== null) {
+                    $existing->setAttribute('review_status', $reviewOnChange);
+                }
             }
             $existing->save();
             $existing->wasRecentlyCreated = false;

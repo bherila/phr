@@ -59,7 +59,12 @@ class PhrStructuredDataImporter
         return DB::transaction(function () use ($patient, $actorUserId, $jobType, $payload, $options): PhrImportResult {
             if ($jobType === 'phr_document') {
                 $document = $this->documentImporter->createOrUpdateDocument($patient, $actorUserId, $payload, $options);
-                $result = new PhrImportResult(documents: 1, created: $document->wasRecentlyCreated ? 1 : 0, updated: $document->wasRecentlyCreated ? 0 : 1);
+                $result = new PhrImportResult(
+                    documents: 1,
+                    created: $document->wasRecentlyCreated ? 1 : 0,
+                    updated: ! $document->wasRecentlyCreated && $document->wasChanged() ? 1 : 0,
+                    unchanged: ! $document->wasRecentlyCreated && ! $document->wasChanged() ? 1 : 0,
+                );
                 $result->merge($this->importDocumentBundle($patient, $actorUserId, $document, $payload, $options));
 
                 return $result;

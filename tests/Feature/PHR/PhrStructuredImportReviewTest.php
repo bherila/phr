@@ -51,6 +51,27 @@ class PhrStructuredImportReviewTest extends TestCase
         self::assertSame(PhrReviewStatus::REJECTED, PhrPatientVital::query()->where('patient_id', $patient->id)->sole()->review_status);
     }
 
+    public function test_an_identical_reimport_is_unchanged_despite_import_bookkeeping_and_decimal_precision(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $importer = app(PhrFhirImporter::class);
+        $bundle = ['resourceType' => 'Bundle', 'type' => 'collection', 'entry' => [
+            // More decimal places than the column keeps.
+            ['resource' => ['resourceType' => 'Observation', 'id' => 'lab-precise', 'category' => [['coding' => [['code' => 'laboratory']]]], 'code' => ['text' => 'Synthetic ratio'], 'effectiveDateTime' => '2026-01-15T10:00:00-08:00', 'valueQuantity' => ['value' => 0.123456789012, 'unit' => '1']]],
+            // A document's import time is set afresh on every import.
+            ['resource' => ['resourceType' => 'DocumentReference', 'id' => 'doc-1', 'description' => 'Synthetic note', 'date' => '2026-01-15T10:00:00-08:00', 'content' => [['attachment' => ['contentType' => 'text/plain', 'title' => 'Synthetic note']]]]],
+        ]];
+
+        $first = $importer->importBundle($bundle, $patient, $owner->id);
+        self::assertSame(2, $first->created, 'the lab result and the document');
+        self::assertSame(1, $first->documents);
+        $this->travel(1)->minutes();
+        $again = $importer->importBundle($bundle, $patient, $owner->id);
+
+        self::assertSame(['created' => 0, 'updated' => 0], ['created' => $again->created, 'updated' => $again->updated], 'nothing the source holds changed');
+        self::assertSame(2, $again->unchanged);
+    }
+
     public function test_ccda_rows_land_pending_review(): void
     {
         [$owner, $patient] = $this->ownerAndPatient();
