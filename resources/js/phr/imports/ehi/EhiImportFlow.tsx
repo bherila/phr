@@ -298,7 +298,11 @@ export function EhiImportFlow({ patientId, canBind, job, uploadId, packageId, on
   const preserved = pkg !== null && pkg.preservation_status === 'preserved'
   const rejected = upload?.status === 'rejected'
   const uploadFailed = job?.phase === 'failed' || upload?.status === 'failed'
-  const stage1: StageState = preserved ? 'done' : rejected || uploadFailed || job?.phase === 'cancelled' ? 'failed' : 'active'
+  // The server still holds an unfinished upload and nothing in this tab is sending it:
+  // the transfer stopped, or every byte arrived and only queueing intake failed.
+  const stranded = !transferring && upload?.status === 'uploading'
+  const allBytesArrived = stranded && upload.uploaded_bytes === upload.file_size_bytes
+  const stage1: StageState = preserved ? 'done' : allBytesArrived ? 'action' : rejected || uploadFailed || stranded || job?.phase === 'cancelled' ? 'failed' : 'active'
 
   // ---- stage 2: read and account, confirm the source, prepare proposals
   const accounted = pkg !== null && pkg.accounting_status === 'accounted'
@@ -326,6 +330,17 @@ export function EhiImportFlow({ patientId, canBind, job, uploadId, packageId, on
           )}
           {job?.phase === 'failed' && <span className="text-sm text-destructive">{job.error}</span>}
           {job?.phase === 'cancelled' && <span className="text-sm text-muted-foreground">Upload cancelled.</span>}
+          {allBytesArrived && (
+            <span className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              Every byte arrived, but the import did not start.
+              <Button type="button" size="sm" disabled={busy} onClick={() => void act(() => queueEhiIntake(patientId, upload.id))}>Start the import</Button>
+            </span>
+          )}
+          {stranded && !allBytesArrived && job?.phase !== 'cancelled' && (
+            <span className="text-sm text-muted-foreground">
+              The upload stopped after {formatBytes(upload.uploaded_bytes)} of {formatBytes(upload.file_size_bytes)}. Choose the file again to start over.
+            </span>
+          )}
           {!transferring && intakeRunning && <span className="text-sm text-muted-foreground">Storing and checking every file in the export…</span>}
           {rejected && <span className="text-sm text-destructive">{describeEhiError(upload.failure_reason)} Nothing was imported.</span>}
           {upload?.status === 'failed' && (
