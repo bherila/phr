@@ -20,10 +20,13 @@ use App\Services\PHR\Import\Ehi\EhiPreviewQueue;
 use App\Services\PHR\Import\Ehi\EhiUploadService;
 use App\Services\PHR\Import\Ehi\Mapping\EhiDocumentMapping;
 use App\Services\PHR\Import\Ehi\Mapping\EhiImmunizationMapping;
+use Illuminate\Database\DeadlockException;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
+use PDOException;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\Support\EhiClinicalPackage;
 use Tests\Support\EhiIntakeFixtures;
@@ -356,6 +359,25 @@ class PhrEhiImportRoutesTest extends TestCase
 
         $this->chunk($owner, $patient, $id, 'efgh', 4)->assertOk()->assertJsonPath('upload.uploaded_bytes', 8);
         self::assertSame('abcdefgh', $disk->get($staged));
+    }
+
+    public function test_a_deadlock_while_starting_an_upload_reaches_the_guard_unwrapped(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        PhrEhiUpload::creating(function (): void {
+            throw new QueryException('sqlite', 'insert into phr_ehi_uploads', [], new PDOException('Deadlock found when trying to get lock; try restarting transaction'));
+        });
+
+        // The guard's transaction retries a concurrency error only if it sees
+        // the original exception. Tests run inside a transaction, where Laravel
+        // rethrows what it recognized as a DeadlockException instead of retrying.
+        try {
+            app(EhiUploadService::class)->start($patient, $owner->id, 10);
+            self::fail('expected the deadlock to propagate');
+        } catch (DeadlockException $deadlock) {
+            self::assertStringContainsString('Deadlock found', $deadlock->getMessage());
+        }
+        self::assertSame([], Storage::disk((string) config('phr.ehi_disk'))->allFiles(), 'the attempt left no archive behind');
     }
 
     public function test_patient_deletion_removes_a_staged_archive(): void

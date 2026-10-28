@@ -70,7 +70,9 @@ final class EhiUploadService
             } catch (Throwable $failure) {
                 $this->deleteQuietly($diskName, $path);
 
-                throw $failure instanceof EhiUploadRefused ? $failure : new EhiUploadRefused(EhiUploadRefused::STORAGE_FAILED, 'the staged archive could not be created');
+                // Rethrown as is: the guard's transaction retries a deadlock or
+                // lock timeout only if it sees the original exception.
+                throw $failure;
             }
         });
     }
