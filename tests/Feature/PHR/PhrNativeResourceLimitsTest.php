@@ -145,7 +145,11 @@ class PhrNativeResourceLimitsTest extends TestCase
             $expanded += $zip->statIndex($index)['size'];
         }
         $zip->close();
-        self::assertGreaterThan($expanded + 100, $built->fileSize);
+        // ZIP headers must outweigh what deflating the manifest saves. For this
+        // empty fixture that margin is only tens of bytes, and every excluded
+        // catalog table's reason text, compressed in the manifest, erodes it.
+        // Adding documents does not widen it: their records compress too.
+        self::assertGreaterThan($expanded, $built->fileSize, 'the completed ZIP must be larger than its expanded contents for this case to exist');
 
         // Reader admits an exact-size ZIP, then refuses the same bytes one over.
         config(['phr.native_backup_max_uncompressed_bytes' => $built->fileSize]);
@@ -156,9 +160,10 @@ class PhrNativeResourceLimitsTest extends TestCase
         config(['phr.native_backup_max_uncompressed_bytes' => $built->fileSize - 1]);
         $this->assertReaderRefused($built->path, 'size_limit');
 
-        // Expanded contents fit with room for the changed limit in the manifest;
-        // the writer must still refuse the larger completed ZIP.
-        config(['phr.native_backup_max_uncompressed_bytes' => $expanded + 100]);
+        // A limit between the two: the expanded contents fit, but the writer must
+        // still refuse the larger completed ZIP. Recording this limit in the
+        // manifest in place of the much longer default only shrinks both sizes.
+        config(['phr.native_backup_max_uncompressed_bytes' => intdiv($expanded + $built->fileSize, 2)]);
         $this->assertBackupRefused($patient, 'size_limit');
         @unlink($built->path);
     }
