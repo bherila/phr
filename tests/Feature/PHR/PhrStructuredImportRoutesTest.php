@@ -8,7 +8,11 @@ use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Models\User;
 use App\Support\PHR\PhrReviewStatus;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Testing\TestResponse;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\Support\PhrCcdaSyntheticDocument;
@@ -95,6 +99,37 @@ class PhrStructuredImportRoutesTest extends TestCase
 
         $this->send($owner, $patient, 'family.json', $bundle)->assertStatus(422)->assertExactJson(['error' => 'multiple_patients']);
         self::assertSame(0, PhrCondition::query()->count());
+    }
+
+    public function test_a_file_is_imported_under_the_patient_write_lock(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $bundle = (string) json_encode(['resourceType' => 'Bundle', 'type' => 'collection', 'entry' => [
+            ['resource' => ['resourceType' => 'Condition', 'id' => 'condition-1', 'code' => ['text' => 'Synthetic condition']]],
+        ]]);
+        // SQLite drops FOR UPDATE, so observe the guard's locked patient read: the
+        // first transaction the import opens reads the patient row before the
+        // record is written. (Access checks read it too, but outside it.)
+        $events = [];
+        Event::listen(TransactionBeginning::class, function () use (&$events): void {
+            $events[] = 'begin';
+        });
+        DB::listen(function (QueryExecuted $query) use (&$events): void {
+            $sql = strtolower($query->sql);
+            if (str_starts_with($sql, 'select') && str_contains($sql, 'from "phr_patients"') && str_contains($sql, 'limit 1')) {
+                $events[] = 'patient';
+            } elseif (str_starts_with($sql, 'insert into "phr_conditions"')) {
+                $events[] = 'insert';
+            }
+        });
+
+        $this->send($owner, $patient, 'bundle.json', $bundle)->assertOk();
+
+        $begin = array_search('begin', $events, true);
+        $insert = array_search('insert', $events, true);
+        self::assertNotFalse($begin);
+        self::assertNotFalse($insert);
+        self::assertContains('patient', array_slice($events, (int) $begin, (int) $insert - (int) $begin), 'the import\'s transaction locks the patient row before writing');
     }
 
     public function test_manage_access_is_required_and_archived_patients_are_refused(): void

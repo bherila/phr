@@ -3,7 +3,7 @@
 namespace App\Services\PHR\Import;
 
 use App\Models\PhrPatient;
-use Illuminate\Support\Facades\DB;
+use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use Throwable;
@@ -19,6 +19,7 @@ final class PhrStructuredFileImporter
     public function __construct(
         private readonly PhrCcdaImporter $ccda,
         private readonly PhrFhirImporter $fhir,
+        private readonly PhrPatientArtifactWriteGuard $writeGuard,
     ) {}
 
     /**
@@ -42,10 +43,12 @@ final class PhrStructuredFileImporter
 
         try {
             // All of the file or none of it: an entry that fails partway must not
-            // leave the entries before it written, unsummarized.
-            $result = DB::transaction(fn (): PhrImportResult => $format === PhrStructuredFormat::CCDA
-                ? $this->ccda->importXml($contents, $patient, $actorUserId)
-                : $this->fhir->importBundle((array) $bundle, $patient, $actorUserId));
+            // leave the entries before it written, unsummarized. Under the patient
+            // lock, so two imports of one source cannot race on the same records;
+            // the guard retries a deadlock before any failure is reported.
+            $result = $this->writeGuard->run((int) $patient->id, fn (PhrPatient $locked): PhrImportResult => $format === PhrStructuredFormat::CCDA
+                ? $this->ccda->importXml($contents, $locked, $actorUserId)
+                : $this->fhir->importBundle((array) $bundle, $locked, $actorUserId));
         } catch (Throwable $failure) {
             if (! $failure instanceof InvalidArgumentException) {
                 Log::warning('Structured file import failed.', ['exception' => $failure::class]);
