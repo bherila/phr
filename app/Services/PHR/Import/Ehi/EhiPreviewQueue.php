@@ -27,6 +27,9 @@ final class EhiPreviewQueue
     /** A queued or running run untouched this long is presumed lost and no longer blocks a new one. */
     private const int STALE_HOURS = 2;
 
+    /** A lost run closed when a new one replaced it; its job, if it ever runs, does nothing. */
+    public const string FAILURE_STALE = 'stale';
+
     public function __construct(
         private readonly PhrPatientAccessService $access,
         private readonly PhrPatientArtifactWriteGuard $writeGuard,
@@ -59,6 +62,12 @@ final class EhiPreviewQueue
             if ($active !== null) {
                 return [$active, false];
             }
+            // Close lost runs before replacing them, so a late job of one finds
+            // nothing to claim instead of previewing beside the new run.
+            PhrEhiPreviewRun::query()
+                ->where('package_id', $current->id)
+                ->whereIn('status', PhrEhiPreviewRun::ACTIVE_STATUSES)
+                ->update(['status' => PhrEhiPreviewRun::STATUS_FAILED, 'failure_reason' => self::FAILURE_STALE, 'completed_at' => now(), 'updated_at' => now()]);
 
             return [PhrEhiPreviewRun::query()->create([
                 'patient_id' => $locked->id,

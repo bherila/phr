@@ -233,11 +233,18 @@ class PhrEhiImportRoutesTest extends TestCase
         self::assertSame('patient_archived', PhrEhiPreviewRun::query()->findOrFail($next)->failure_reason);
         $patient->update(['archived_at' => null]);
 
-        // A run lost by a dead worker stops blocking once it is stale.
+        // A run stuck behind a backed-up queue stops blocking once it is stale,
+        // and is closed, so its job does nothing if it runs late.
         $lost = $this->actingAs($owner)->postJson($url)->assertStatus(202)->json('preview_run.id');
-        PhrEhiPreviewRun::query()->whereKey($lost)->update(['status' => PhrEhiPreviewRun::STATUS_RUNNING, 'updated_at' => now()->subHours(3)]);
+        PhrEhiPreviewRun::query()->whereKey($lost)->update(['updated_at' => now()->subHours(3)]);
         $fresh = $this->actingAs($owner)->postJson($url)->assertStatus(202)->json('preview_run.id');
         self::assertNotSame($lost, $fresh);
+        $this->runPreview($lost);
+        $closed = PhrEhiPreviewRun::query()->findOrFail($lost);
+        self::assertSame(PhrEhiPreviewRun::STATUS_FAILED, $closed->status);
+        self::assertSame('stale', $closed->failure_reason);
+        self::assertNull($closed->started_at, 'the late job did not run');
+        self::assertSame(PhrEhiPackage::CLINICAL_NOT_STARTED, $package->refresh()->clinical_status);
         $this->runPreview($fresh);
         self::assertSame(PhrEhiPreviewRun::STATUS_COMPLETED, PhrEhiPreviewRun::query()->findOrFail($fresh)->status);
         self::assertSame(PhrEhiPackage::CLINICAL_PROJECTED, $package->refresh()->clinical_status);
