@@ -169,6 +169,21 @@ jobs:
           set-php-handler: false
           deployment-mode: atomic
           atomic-layout: stable-directory
+          # The candidate-secret hook requires its installer alongside application paths.
+          paths: |
+            app
+            bootstrap
+            config
+            database
+            public
+            resources
+            routes
+            scripts
+            storage
+            vendor
+            artisan
+            composer.json
+            composer.lock
           persistent-paths: |
             storage
             public/ohif

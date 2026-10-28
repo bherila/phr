@@ -312,4 +312,17 @@ JS;
             $this->assertStringContainsString('            DB_HOST=127.0.0.1', $text);
         }
     }
+
+    public function test_candidate_upload_preserves_standard_paths_and_the_secret_installer(): void
+    {
+        $text = file_get_contents($this->root.'/.github/workflows/pilot-deploy.yml');
+        $this->assertSame(1, preg_match('/^          paths: \|\R((?:            [^\r\n]+\R)+)/m', $text, $matches));
+        $paths = array_map('trim', explode("\n", trim($matches[1])));
+        foreach (['app', 'bootstrap', 'config', 'database', 'public', 'resources', 'routes', 'scripts', 'storage', 'vendor', 'artisan', 'composer.json', 'composer.lock'] as $path) {
+            $this->assertContains($path, $paths, "Candidate upload requires {$path}.");
+        }
+        $installer = 'scripts/configure-agent-mutation-digest-key.php';
+        $this->assertFileExists($this->root.'/'.$installer);
+        $this->assertStringContainsString('$candidate_root/'.$installer, file_get_contents($this->root.'/.github/scripts/provision-phr-candidate-secrets.sh'));
+    }
 }
