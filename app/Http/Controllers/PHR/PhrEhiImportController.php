@@ -12,6 +12,7 @@ use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\Import\Ehi\EhiBindingRefused;
 use App\Services\PHR\Import\Ehi\EhiBindingService;
 use App\Services\PHR\Import\Ehi\EhiImportPresenter;
+use App\Services\PHR\Import\Ehi\EhiPreviewQueue;
 use App\Services\PHR\Import\Ehi\EhiProjectionRefused;
 use App\Services\PHR\Import\Ehi\EhiProposalService;
 use App\Services\PHR\Import\Ehi\EhiReviewRefused;
@@ -39,6 +40,7 @@ final class PhrEhiImportController extends Controller
         private readonly EhiUploadService $uploads,
         private readonly EhiBindingService $binding,
         private readonly EhiProposalService $proposals,
+        private readonly EhiPreviewQueue $previews,
         private readonly EhiImportPresenter $presenter,
     ) {}
 
@@ -152,9 +154,10 @@ final class PhrEhiImportController extends Controller
     }
 
     /**
-     * Project the package and persist its reviewable proposals, synchronously, as
-     * `phr:ehi:preview` does. The preview runs under its own row, byte and time
-     * budget, and an interrupted projection resumes on the next call.
+     * Queue a preview: project the package and persist its reviewable proposals,
+     * as `phr:ehi:preview` does, in a job, because it can outlast a proxied web
+     * request. The package payload carries the run's outcome for the client to
+     * poll. A package that is not ready or not bound is refused immediately.
      */
     public function preview(Request $request, int $patient, int $package): JsonResponse
     {
@@ -163,14 +166,17 @@ final class PhrEhiImportController extends Controller
         $packageModel = $this->package($patientModel, $package);
         try {
             $this->uploads->ensureWritable($patientModel, $actor);
-            $preview = $this->proposals->preview($packageModel, $patientModel, $actor);
+            $run = $this->previews->queue($packageModel, $patientModel, $actor);
         } catch (EhiUploadRefused $refused) {
             return $this->refused($refused->reason, $refused->status());
         } catch (EhiProjectionRefused $refused) {
             return $this->refused($refused->reason, 409);
         }
 
-        return $this->privateJson($this->presenter->preview($preview));
+        return $this->privateJson([
+            'preview_run' => $this->presenter->previewRun($run),
+            'package' => $this->presenter->package($packageModel->refresh()),
+        ], 202);
     }
 
     /** Proposals of the package's completed preview, in id order, a page at a time. */

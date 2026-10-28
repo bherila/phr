@@ -3,9 +3,11 @@
 namespace Tests\Feature\PHR\Ehi;
 
 use App\Jobs\PHR\IntakeEhiUploadJob;
+use App\Jobs\PHR\PreviewEhiPackageJob;
 use App\Models\PhrEhiBlob;
 use App\Models\PhrEhiPackage;
 use App\Models\PhrEhiPackageMember;
+use App\Models\PhrEhiPreviewRun;
 use App\Models\PhrEhiProposal;
 use App\Models\PhrEhiUpload;
 use App\Models\PhrImmunization;
@@ -14,6 +16,7 @@ use App\Models\PhrPatientUserAccess;
 use App\Models\User;
 use App\Services\PHR\DataHub\PhrPatientDeletionCleanupService;
 use App\Services\PHR\DataHub\PhrPatientDeletionService;
+use App\Services\PHR\Import\Ehi\EhiPreviewQueue;
 use App\Services\PHR\Import\Ehi\EhiUploadService;
 use App\Services\PHR\Import\Ehi\Mapping\EhiDocumentMapping;
 use App\Services\PHR\Import\Ehi\Mapping\EhiImmunizationMapping;
@@ -85,11 +88,18 @@ class PhrEhiImportRoutesTest extends TestCase
             ->assertOk()->assertJsonPath('package.binding_status', PhrEhiPackage::BINDING_BOUND)
             ->assertJsonPath('package.source.label', 'Synthetic Clinic');
 
-        $preview = $this->actingAs($owner)->postJson($this->base($patient)."/packages/{$package->id}/preview")->assertOk();
-        $preview->assertJsonPath('package.clinical_status', PhrEhiPackage::CLINICAL_PROJECTED)
+        $queued = $this->actingAs($owner)->postJson($this->base($patient)."/packages/{$package->id}/preview")->assertStatus(202);
+        $queued->assertJsonPath('preview_run.status', PhrEhiPreviewRun::STATUS_QUEUED)
+            ->assertJsonPath('package.preview.state', 'not_started')
+            ->assertJsonPath('package.preview_run.id', $queued->json('preview_run.id'));
+        self::assertSame(0, PhrEhiProposal::query()->count(), 'nothing is projected until the job runs');
+        $this->runPreview($queued->json('preview_run.id'));
+        $this->actingAs($owner)->getJson($this->base($patient)."/packages/{$package->id}")->assertOk()
+            ->assertJsonPath('package.clinical_status', PhrEhiPackage::CLINICAL_PROJECTED)
             ->assertJsonPath('package.preview.state', 'complete')
-            ->assertJsonPath('counts.immunization.create', 4)
-            ->assertJsonPath('statuses.pending', 9);
+            ->assertJsonPath('package.preview_run.status', PhrEhiPreviewRun::STATUS_COMPLETED)
+            ->assertJsonPath('package.preview_run.counts.immunization.create', 4)
+            ->assertJsonPath('package.preview_run.statuses.pending', 9);
         self::assertSame(0, PhrImmunization::query()->count(), 'a preview writes no clinical rows');
 
         $page = $this->actingAs($owner)->getJson($this->base($patient)."/packages/{$package->id}/proposals?status=pending&limit=4")->assertOk();
@@ -143,7 +153,7 @@ class PhrEhiImportRoutesTest extends TestCase
         $this->actingAs($manager)->postJson("{$base}/packages/{$package->id}/binding", ['new_source_label' => 'Manager'])->assertForbidden();
         self::assertSame(PhrEhiPackage::BINDING_UNBOUND, $package->refresh()->binding_status);
         $this->actingAs($owner)->postJson("{$base}/packages/{$package->id}/binding", ['new_source_label' => 'Synthetic Clinic'])->assertOk();
-        $this->actingAs($manager)->postJson("{$base}/packages/{$package->id}/preview")->assertOk();
+        $this->runPreview($this->actingAs($manager)->postJson("{$base}/packages/{$package->id}/preview")->assertStatus(202)->json('preview_run.id'));
 
         $proposal = $this->pendingProposal($package, 'immunization', PhrEhiProposal::KIND_CREATE);
         $this->review($viewer, $patient, $proposal, PhrEhiProposal::DECISION_ACCEPT)->assertForbidden();
@@ -178,6 +188,54 @@ class PhrEhiImportRoutesTest extends TestCase
 
         self::assertSame(PhrEhiProposal::STATUS_PENDING, $proposal->refresh()->status);
         self::assertSame(0, PhrImmunization::query()->count());
+    }
+
+    public function test_a_preview_is_queued_once_and_reports_its_outcome(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $manager = $this->grantee($patient, PhrPatientUserAccess::LEVEL_MANAGER);
+        $package = $this->previewedPackage($owner, $patient, bind: false);
+        $url = $this->base($patient)."/packages/{$package->id}/preview";
+
+        // What the projection would refuse first is refused before anything is queued.
+        $this->actingAs($owner)->postJson($url)->assertStatus(409)->assertExactJson(['error' => 'not_bound']);
+        Queue::assertNotPushed(PreviewEhiPackageJob::class);
+        self::assertSame(0, PhrEhiPreviewRun::query()->count());
+
+        $this->actingAs($owner)->postJson($this->base($patient)."/packages/{$package->id}/binding", ['new_source_label' => 'Synthetic Clinic'])->assertOk();
+        $first = $this->actingAs($manager)->postJson($url)->assertStatus(202)->json('preview_run.id');
+        $again = $this->actingAs($owner)->postJson($url)->assertStatus(202)->json('preview_run.id');
+        self::assertSame($first, $again, 'a second request while one is queued returns it');
+        Queue::assertPushed(PreviewEhiPackageJob::class, 1);
+
+        // The requester lost manage access before the job ran: recorded, not run.
+        PhrPatientUserAccess::query()->where('patient_id', $patient->id)->where('user_id', $manager->id)
+            ->update(['access_level' => PhrPatientUserAccess::LEVEL_VIEWER]);
+        $this->runPreview($first);
+        $this->actingAs($owner)->getJson($this->base($patient)."/packages/{$package->id}")->assertOk()
+            ->assertJsonPath('package.preview_run.status', PhrEhiPreviewRun::STATUS_FAILED)
+            ->assertJsonPath('package.preview_run.failure_reason', 'access_revoked')
+            ->assertJsonPath('package.preview.state', 'not_started');
+        self::assertSame(0, PhrEhiProposal::query()->count());
+        $this->runPreview($first);
+        self::assertSame(PhrEhiPreviewRun::STATUS_FAILED, PhrEhiPreviewRun::query()->findOrFail($first)->status, 'a finished run is not run again');
+
+        // A failed run does not block a new request; one queued before archiving is not run.
+        $next = $this->actingAs($owner)->postJson($url)->assertStatus(202)->json('preview_run.id');
+        self::assertNotSame($first, $next);
+        $patient->update(['archived_at' => now()]);
+        $this->runPreview($next);
+        self::assertSame('patient_archived', PhrEhiPreviewRun::query()->findOrFail($next)->failure_reason);
+        $patient->update(['archived_at' => null]);
+
+        // A run lost by a dead worker stops blocking once it is stale.
+        $lost = $this->actingAs($owner)->postJson($url)->assertStatus(202)->json('preview_run.id');
+        PhrEhiPreviewRun::query()->whereKey($lost)->update(['status' => PhrEhiPreviewRun::STATUS_RUNNING, 'updated_at' => now()->subHours(3)]);
+        $fresh = $this->actingAs($owner)->postJson($url)->assertStatus(202)->json('preview_run.id');
+        self::assertNotSame($lost, $fresh);
+        $this->runPreview($fresh);
+        self::assertSame(PhrEhiPreviewRun::STATUS_COMPLETED, PhrEhiPreviewRun::query()->findOrFail($fresh)->status);
+        self::assertSame(PhrEhiPackage::CLINICAL_PROJECTED, $package->refresh()->clinical_status);
     }
 
     public function test_a_stale_preview_digest_is_refused(): void
@@ -410,6 +468,11 @@ class PhrEhiImportRoutesTest extends TestCase
         ], ['Accept' => 'application/json']);
     }
 
+    private function runPreview(int $runId): void
+    {
+        (new PreviewEhiPackageJob($runId))->handle(app(EhiPreviewQueue::class));
+    }
+
     private function runIntake(PhrEhiUpload $upload): void
     {
         (new IntakeEhiUploadJob($upload->id))->handle(app(EhiUploadService::class));
@@ -422,7 +485,7 @@ class PhrEhiImportRoutesTest extends TestCase
         $package = PhrEhiPackage::query()->findOrFail($upload->refresh()->package_id);
         if ($bind) {
             $this->actingAs($owner)->postJson($this->base($patient)."/packages/{$package->id}/binding", ['new_source_label' => 'Synthetic Clinic'])->assertOk();
-            $this->actingAs($owner)->postJson($this->base($patient)."/packages/{$package->id}/preview")->assertOk();
+            $this->runPreview($this->actingAs($owner)->postJson($this->base($patient)."/packages/{$package->id}/preview")->assertStatus(202)->json('preview_run.id'));
         }
 
         return $package->refresh();

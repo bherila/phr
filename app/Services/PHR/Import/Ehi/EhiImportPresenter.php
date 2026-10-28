@@ -3,6 +3,7 @@
 namespace App\Services\PHR\Import\Ehi;
 
 use App\Models\PhrEhiPackage;
+use App\Models\PhrEhiPreviewRun;
 use App\Models\PhrEhiProposal;
 use App\Models\PhrEhiSource;
 use App\Models\PhrEhiUpload;
@@ -57,6 +58,7 @@ final class EhiImportPresenter
         $source = $package->source_id === null ? null : PhrEhiSource::query()->find($package->source_id);
         $leased = $package->lease_expires_at !== null && $package->lease_expires_at->isFuture();
         $projecting = $package->clinical_status === PhrEhiPackage::CLINICAL_PROJECTING;
+        $run = PhrEhiPreviewRun::query()->where('package_id', $package->id)->latest('id')->first();
 
         return [
             'id' => $package->id,
@@ -97,6 +99,8 @@ final class EhiImportPresenter
                 'generation' => $package->preview_generation_completed,
             ],
             'proposals' => $this->proposalCounts($package),
+            // The latest requested preview: queued, running, or its outcome.
+            'preview_run' => $run === null ? null : $this->previewRun($run),
         ];
     }
 
@@ -119,15 +123,23 @@ final class EhiImportPresenter
     }
 
     /** @return array<string, mixed> */
-    public function preview(EhiPreview $preview): array
+    public function previewRun(PhrEhiPreviewRun $run): array
     {
+        $result = $run->result_json ?? [];
+
         return [
-            'package' => $this->package($preview->package),
-            'replayed' => $preview->projection->replayed,
-            'counts' => $preview->counts,
-            'statuses' => $preview->statuses,
-            'findings' => $preview->findings,
-            'preview_digest' => $preview->digest,
+            'id' => $run->id,
+            'package_id' => $run->package_id,
+            'status' => $run->status,
+            'failure_reason' => $run->failure_reason,
+            'counts' => $result['counts'] ?? null,
+            'statuses' => $result['statuses'] ?? null,
+            'findings' => $result['findings'] ?? null,
+            'preview_digest' => $result['preview_digest'] ?? null,
+            'replayed' => isset($result['replayed']) ? (bool) $result['replayed'] : null,
+            'requested_at' => $run->created_at?->toIso8601String(),
+            'started_at' => $run->started_at?->toIso8601String(),
+            'completed_at' => $run->completed_at?->toIso8601String(),
         ];
     }
 
