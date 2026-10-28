@@ -15,10 +15,20 @@ final class PhrStructuredFormat
 
     public const string CCDA = 'ccda';
 
+    /**
+     * The text as the importers must read it: without a UTF-8 byte order mark or
+     * leading whitespace, either of which a JSON decoder or an XML declaration
+     * refuses. Detect and import the same normalized text.
+     */
+    public static function normalize(string $contents): string
+    {
+        return ltrim($contents, "\xEF\xBB\xBF \t\r\n");
+    }
+
     /** @return self::FHIR|self::CCDA|null */
     public static function detect(string $contents): ?string
     {
-        $trimmed = ltrim($contents, "\xEF\xBB\xBF \t\r\n");
+        $trimmed = self::normalize($contents);
         if ($trimmed === '') {
             return null;
         }

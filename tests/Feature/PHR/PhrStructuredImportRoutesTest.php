@@ -50,6 +50,17 @@ class PhrStructuredImportRoutesTest extends TestCase
         self::assertSame(PhrReviewStatus::PENDING, PhrCondition::query()->where('patient_id', $patient->id)->sole()->review_status);
     }
 
+    public function test_a_byte_order_mark_or_leading_whitespace_does_not_stop_an_import(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $bundle = (string) json_encode(['resourceType' => 'Bundle', 'type' => 'collection', 'entry' => [
+            ['resource' => ['resourceType' => 'Condition', 'id' => 'condition-1', 'code' => ['text' => 'Synthetic condition']]],
+        ]]);
+
+        $this->send($owner, $patient, 'bundle.json', "\xEF\xBB\xBF".$bundle)->assertOk()->assertJsonPath('result.created', 1);
+        $this->send($owner, $patient, 'summary.xml', "\n  ".PhrCcdaSyntheticDocument::xml())->assertOk()->assertJsonPath('format', 'ccda');
+    }
+
     public function test_content_that_is_neither_format_is_refused_whatever_its_name(): void
     {
         [$owner, $patient] = $this->ownerAndPatient();

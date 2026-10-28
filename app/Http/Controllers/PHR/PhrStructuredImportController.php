@@ -44,7 +44,7 @@ final class PhrStructuredImportController extends Controller
             return $this->privateJson(['error' => $refused->reason], $refused->status());
         }
 
-        $contents = (string) file_get_contents($validated['file']->getRealPath());
+        $contents = PhrStructuredFormat::normalize((string) file_get_contents($validated['file']->getRealPath()));
         $format = PhrStructuredFormat::detect($contents);
         try {
             $result = match ($format) {
