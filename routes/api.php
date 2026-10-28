@@ -37,6 +37,7 @@ use App\Http\Controllers\PHR\MedicationController as PHRMedicationController;
 use App\Http\Controllers\PHR\OfficeVisitController as PHROfficeVisitController;
 use App\Http\Controllers\PHR\PatientAccessController as PHRPatientAccessController;
 use App\Http\Controllers\PHR\PatientController as PHRPatientController;
+use App\Http\Controllers\PHR\PhrAiImportController;
 use App\Http\Controllers\PHR\PhrDataHubController;
 use App\Http\Controllers\PHR\PhrDocumentController;
 use App\Http\Controllers\PHR\PhrEhiImportController;
@@ -462,6 +463,11 @@ Route::middleware(['web', 'auth'])
         Route::post('/patients/{patient}/documents/{document}/process', [PhrDocumentController::class, 'process'])->whereNumber(['patient', 'document'])->name('patients.documents.process');
         // Epic EHI Tables import from the browser (#235): chunked ZIP upload, queued
         // intake, binding, preview, and per-proposal review over the CLI's services.
+        Route::get('/patients/{patient}/ai-imports', [PhrAiImportController::class, 'index'])->whereNumber('patient')->name('patients.ai-imports.index');
+        Route::get('/patients/{patient}/ai-imports/{import}', [PhrAiImportController::class, 'show'])->whereNumber(['patient', 'import'])->name('patients.ai-imports.show');
+        Route::post('/patients/{patient}/ai-imports/{import}/results/{result}/accept', [PhrAiImportController::class, 'accept'])->whereNumber(['patient', 'import', 'result'])->name('patients.ai-imports.results.accept');
+        Route::post('/patients/{patient}/ai-imports/{import}/results/{result}/reject', [PhrAiImportController::class, 'reject'])->whereNumber(['patient', 'import', 'result'])->name('patients.ai-imports.results.reject');
+        Route::post('/patients/{patient}/ai-imports/{import}/retry', [PhrAiImportController::class, 'retry'])->whereNumber(['patient', 'import'])->middleware('throttle:10,1')->name('patients.ai-imports.retry');
         Route::post('/patients/{patient}/imports/structured', [PhrStructuredImportController::class, 'store'])->whereNumber('patient')->middleware('throttle:20,1')->name('patients.imports.structured.store');
         Route::get('/patients/{patient}/ehi/uploads', [PhrEhiImportController::class, 'uploads'])->whereNumber('patient')->name('patients.ehi.uploads.index');
         Route::post('/patients/{patient}/ehi/uploads', [PhrEhiImportController::class, 'startUpload'])->whereNumber('patient')->middleware('throttle:10,1')->name('patients.ehi.uploads.store');
