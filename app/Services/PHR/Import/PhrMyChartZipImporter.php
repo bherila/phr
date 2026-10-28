@@ -60,22 +60,21 @@ class PhrMyChartZipImporter
                     continue;
                 }
 
-                $temp = tempnam(sys_get_temp_dir(), 'phr-import-');
-                if ($temp === false) {
-                    throw new InvalidArgumentException('Unable to create temporary file for ZIP entry.');
+                // Routed by what the member is, as recognizes() decided, never by its
+                // extension; JSON or XML that is neither format is not clinical content.
+                $contents = PhrStructuredFormat::normalize($contents);
+                $format = PhrStructuredFormat::detect($contents);
+                if ($format === null) {
+                    continue;
                 }
 
-                file_put_contents($temp, $contents);
-
                 try {
-                    $result->merge(str_ends_with($lower, '.json')
-                        ? $this->fhirImporter->importFile($temp, $patient, $actorUserId)
-                        : $this->ccdaImporter->importFile($temp, $patient, $actorUserId));
+                    $result->merge($format === PhrStructuredFormat::FHIR
+                        ? $this->fhirImporter->importBundle((array) PhrStructuredFormat::fhirBundle($contents), $patient, $actorUserId)
+                        : $this->ccdaImporter->importXml($contents, $patient, $actorUserId));
                 } catch (\Throwable $exception) {
                     $result->warn("Skipped {$name}: ".$exception->getMessage());
                     $result->addSkipped();
-                } finally {
-                    @unlink($temp);
                 }
             }
         } finally {

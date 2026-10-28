@@ -349,7 +349,8 @@ class PhrEhiImportRoutesTest extends TestCase
         $zip->addFromString('Records/bundle.json', (string) json_encode(['resourceType' => 'Bundle', 'type' => 'collection', 'entry' => [
             ['resource' => ['resourceType' => 'Condition', 'id' => 'condition-1', 'code' => ['text' => 'Synthetic condition']]],
         ]]));
-        $zip->addFromString('Records/broken.json', '{"resourceType":"Bundle","entry":"not a list"}');
+        // A bundle PHR recognizes, whose one entry cannot be imported.
+        $zip->addFromString('Records/broken.json', '{"resourceType":"Bundle","entry":[{"resource":{"resourceType":"Observation","id":"x","category":"laboratory","code":{"text":"Synthetic"}}}]}');
         $zip->addFromString('README.txt', 'Synthetic readme');
         $zip->close();
         $upload = $this->uploadZip($owner, $patient, $path);
