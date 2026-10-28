@@ -13,8 +13,8 @@ use App\Models\PhrPatient;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\Import\PhrDocumentProcessingService;
 use App\Services\PHR\Import\PhrImportJobDao;
+use App\Services\PHR\Import\PhrImportJobPresenter;
 use App\Services\PHR\Import\PhrImportResult;
-use App\Services\PHR\Import\PhrImportRetryPolicy;
 use App\Services\PHR\Import\PhrImportReviewService;
 use App\Services\PHR\Import\PhrStructuredDocumentImport;
 use App\Services\PHR\Import\PhrStructuredDocumentImporter;
@@ -32,8 +32,8 @@ final class AgentImportController extends Controller
         private PhrImportJobDao $jobs,
         private PhrDocumentProcessingService $processing,
         private PhrImportReviewService $reviews,
-        private PhrImportRetryPolicy $retryPolicy,
         private PhrStructuredDocumentImporter $structured,
+        private PhrImportJobPresenter $presenter,
     ) {}
 
     public function index(Request $request, int $patient): JsonResponse
@@ -64,7 +64,7 @@ final class AgentImportController extends Controller
         return response()->json([
             'resource_type' => 'import_job',
             'patient_id' => $resolved->id,
-            'data' => $page->getCollection()->map(fn (GenAiImportJob $job): array => $this->jobPayload($job))->values(),
+            'data' => $page->getCollection()->map(fn (GenAiImportJob $job): array => $this->presenter->job($job))->values(),
             'pagination' => [
                 'limit' => $limit,
                 'has_more' => $page->hasMorePages(),
@@ -89,8 +89,8 @@ final class AgentImportController extends Controller
             'resource_type' => 'import_job',
             'patient_id' => $resolved->id,
             'data' => [
-                ...$this->jobPayload($job),
-                'results' => $job->results->map(fn (GenAiImportResult $result): array => $this->resultPayload($result))->values(),
+                ...$this->presenter->job($job),
+                'results' => $job->results->map(fn (GenAiImportResult $result): array => $this->presenter->result($result))->values(),
             ],
         ]);
     }
@@ -157,8 +157,8 @@ final class AgentImportController extends Controller
             'outcome' => $review->outcome,
             'import' => $this->importCounts($review->import),
             'data' => $request->user('api')?->tokenCan(AgentApiScopes::IMPORTS_READ)
-                ? $this->resultPayload($review->result)
-                : $this->resultReceipt($review->result),
+                ? $this->presenter->result($review->result)
+                : $this->presenter->resultReceipt($review->result),
         ];
 
         return response()->json($payload);
@@ -200,53 +200,6 @@ final class AgentImportController extends Controller
     private function writablePatient(Request $request, int $patient): PhrPatient
     {
         return $this->access->writablePatient($patient, (int) $request->user('api')?->id);
-    }
-
-    /** @return array<string, mixed> */
-    private function jobPayload(GenAiImportJob $job): array
-    {
-        return [
-            'id' => (int) $job->id,
-            'document_id' => $job->sourceDocument?->id,
-            'job_type' => $job->job_type,
-            'status' => $job->status,
-            'retry_count' => $job->retry_count,
-            'can_retry' => $this->retryPolicy->canRetry(
-                $job,
-                $job->sourceDocument,
-                (int) ($job->results_count ?? 0) !== (int) ($job->pending_results_count ?? 0),
-            ),
-            'result_count' => (int) ($job->results_count ?? 0),
-            'pending_result_count' => (int) ($job->pending_results_count ?? 0),
-            'processing_tier' => $job->processing_tier,
-            'scheduled_for' => $job->scheduled_for?->toDateString(),
-            'parsed_at' => $job->parsed_at?->toIso8601String(),
-            'failure_code' => $job->status === 'failed' ? 'processing_failed' : null,
-            'created_at' => $job->created_at?->toIso8601String(),
-            'updated_at' => $job->updated_at?->toIso8601String(),
-        ];
-    }
-
-    /** @return array<string, mixed> */
-    private function resultPayload(GenAiImportResult $result): array
-    {
-        $data = $result->getResultArray();
-
-        return [
-            ...$this->resultReceipt($result),
-            'result_index' => $result->result_index,
-            'produced_by' => $result->produced_by,
-            'data' => $data === [] ? (object) [] : $data,
-            'imported_at' => $result->imported_at?->toIso8601String(),
-            'created_at' => $result->created_at?->toIso8601String(),
-            'updated_at' => $result->updated_at?->toIso8601String(),
-        ];
-    }
-
-    /** @return array{id: int, status: string} */
-    private function resultReceipt(GenAiImportResult $result): array
-    {
-        return ['id' => (int) $result->id, 'status' => (string) $result->status];
     }
 
     /** @return array<string, mixed> */

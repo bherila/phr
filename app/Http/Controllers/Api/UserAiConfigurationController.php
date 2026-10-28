@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\GenAiProcessor\Models\GenAiImportJob;
+use App\GenAiProcessor\Services\PhrGenAiExecutionModeService;
 use App\GenAiProcessor\Support\GenAiCredentialErrorClassifier;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\UserAiConfigurationRequest;
@@ -16,7 +17,10 @@ use Illuminate\Support\Facades\DB;
 
 class UserAiConfigurationController extends Controller
 {
-    public function __construct(private readonly UserAiModelCatalog $modelCatalog) {}
+    public function __construct(
+        private readonly UserAiModelCatalog $modelCatalog,
+        private readonly PhrGenAiExecutionModeService $modes,
+    ) {}
 
     public function index(): JsonResponse
     {
@@ -114,6 +118,9 @@ class UserAiConfigurationController extends Controller
             return $config;
         });
 
+        // A first usable key moves a user who never chose to server-side AI (#235).
+        $this->modes->adoptDefault($user);
+
         return response()->json([
             ...$config->toApiArray(),
             'available_models' => $models,
@@ -189,6 +196,8 @@ class UserAiConfigurationController extends Controller
         }
 
         $config->update($update);
+        // A key made usable again (renewed, or its credentials fixed) counts as saved.
+        $this->modes->adoptDefault(Auth::user());
 
         return response()->json([
             ...$config->toApiArray(),
@@ -236,6 +245,8 @@ class UserAiConfigurationController extends Controller
             Auth::user()->aiConfigurations()->update(['is_active' => false]);
             $config->update(['is_active' => true]);
         });
+
+        $this->modes->adoptDefault(Auth::user());
 
         return response()->json($config->fresh()->toApiArray());
     }

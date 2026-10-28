@@ -105,10 +105,11 @@ describe('DocumentsPage', () => {
     expect(screen.getByText('Hemoglobin')).toHaveAttribute('href', '/phr/patient/42/labs')
   })
 
-  it('fires the Process with GenAI action for the selected document', async () => {
+  it('sends the selected document to AI, named for where AI work goes', async () => {
     render(<DocumentsPage patientId={42} />)
 
-    fireEvent.click(await screen.findByRole('button', { name: /process with genai/i }))
+    // No shell data in the test: the server-side mode's label.
+    fireEvent.click(await screen.findByRole('button', { name: /process with ai/i }))
 
     await waitFor(() => {
       expect(mockPost).toHaveBeenCalledWith('/api/phr/patients/42/documents/10/process', {})

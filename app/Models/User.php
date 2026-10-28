@@ -73,6 +73,11 @@ class User extends Authenticatable implements OAuthenticatable
      * bearer token is a full-account credential and must only ever be written
      * through issueMcpToken()/revokeMcpToken(), never through mass assignment.
      */
+    /** New users start on the AI Agent Inbox (#235). */
+    protected $attributes = [
+        'genai_execution_mode' => GenAiImportJob::EXECUTION_EXTERNAL,
+    ];
+
     protected $fillable = [
         'name',
         'email',
@@ -133,16 +138,46 @@ class User extends Authenticatable implements OAuthenticatable
             'mcp_api_key_last_used_at' => 'datetime',
             'oauth_security_version' => 'integer',
             'genai_execution_mode' => 'string',
+            'genai_execution_mode_chosen_at' => 'datetime',
         ];
     }
 
+    /**
+     * Where this user's AI extraction runs. Always the stored mode, never derived
+     * on read: a key expiring or being marked invalid must not move queued work.
+     * New users start on the AI Agent Inbox; the default moves to server-side AI
+     * only when a user who never chose saves a usable key
+     * (PhrGenAiExecutionModeService::adoptDefault), which also moves their jobs.
+     */
     public function genAiExecutionMode(): string
     {
-        $mode = (string) ($this->attributes['genai_execution_mode'] ?? GenAiImportJob::EXECUTION_API);
+        $mode = $this->attributes['genai_execution_mode'] ?? null;
 
-        return in_array($mode, GenAiImportJob::VALID_EXECUTION_MODES, true)
+        return is_string($mode) && in_array($mode, GenAiImportJob::VALID_EXECUTION_MODES, true)
             ? $mode
-            : GenAiImportJob::EXECUTION_API;
+            : GenAiImportJob::EXECUTION_EXTERNAL;
+    }
+
+    /** The mode the user explicitly chose, or null to follow the default. */
+    public function chosenGenAiExecutionMode(): ?string
+    {
+        if (($this->attributes['genai_execution_mode_chosen_at'] ?? null) === null) {
+            return null;
+        }
+        $mode = $this->attributes['genai_execution_mode'] ?? null;
+
+        return is_string($mode) && in_array($mode, GenAiImportJob::VALID_EXECUTION_MODES, true) ? $mode : null;
+    }
+
+    /** A saved provider key PHR can use: an active, unexpired, valid configuration, or the legacy Gemini key. */
+    public function hasUsableAiProvider(): bool
+    {
+        $config = $this->activeAiConfiguration();
+        if ($config !== null && ! $config->isExpired() && ! $config->hasInvalidApiKey()) {
+            return true;
+        }
+
+        return is_string($this->gemini_api_key) && $this->gemini_api_key !== '';
     }
 
     /**

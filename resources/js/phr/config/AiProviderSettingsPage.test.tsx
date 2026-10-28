@@ -1,18 +1,20 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import type { AiConfiguration } from './aiPrefs'
 import AiProviderSettingsPage from './AiProviderSettingsPage'
 
 const mockGet = jest.fn()
+const mockModeGet = jest.fn()
 const mockPost = jest.fn()
 const mockPut = jest.fn()
 const mockDelete = jest.fn()
 
 jest.mock('@/fetchWrapper', () => ({
   fetchWrapper: {
-    get: (...args: unknown[]) => mockGet(...args),
+    // The mode is read on its own, so it never consumes a configuration-list response.
+    get: (url: string, ...args: unknown[]) => (url === '/api/user/ai-execution-mode' ? mockModeGet() : mockGet(url, ...args)),
     post: (...args: unknown[]) => mockPost(...args),
     put: (...args: unknown[]) => mockPut(...args),
     delete: (...args: unknown[]) => mockDelete(...args),
@@ -43,8 +45,16 @@ function configuration(overrides: Partial<AiConfiguration> = {}): AiConfiguratio
   }
 }
 
+const MODE_RESPONSE = {
+  mcp_url: 'https://phr.example.test/api/v1/mcp',
+  rest_base_url: 'https://phr.example.test/api/v1/genai',
+  required_scopes: ['mcp:use', 'genai:read', 'genai:work'],
+}
+
 beforeEach(() => {
   mockGet.mockReset()
+  mockModeGet.mockReset()
+  mockModeGet.mockResolvedValue({ ...MODE_RESPONSE, mode: 'api', mode_chosen: true })
   mockPost.mockReset()
   mockPut.mockReset()
   mockDelete.mockReset()
@@ -202,20 +212,50 @@ it('announces loading and request errors and allows retrying', async () => {
   expect(await screen.findByText('No AI provider configured')).toBeInTheDocument()
 })
 
-it('switches to subscription-client processing without requiring an API configuration', async () => {
+it('switches to the AI Agent Inbox without requiring an API configuration', async () => {
   mockGet.mockResolvedValue([])
-  mockPut.mockResolvedValue({
-    mode: 'external',
-    mcp_url: 'https://phr.example.test/api/v1/mcp',
-    rest_base_url: 'https://phr.example.test/api/v1/genai',
-    required_scopes: ['mcp:use', 'genai:read', 'genai:work'],
-  })
+  mockPut.mockResolvedValue({ ...MODE_RESPONSE, mode: 'external', mode_chosen: true })
 
   render(<AiProviderSettingsPage />)
   await screen.findByText('No AI provider configured')
-  fireEvent.click(screen.getByRole('radio', { name: /My subscription client/ }))
+  fireEvent.click(screen.getByRole('radio', { name: /AI Agent Inbox/ }))
 
   await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/api/user/ai-execution-mode', { mode: 'external' }))
-  expect(await screen.findByText('Pending imports will wait for your connected subscription client.')).toBeInTheDocument()
+  expect(await screen.findByText('Documents you send to AI will wait in your AI Agent Inbox for your connected assistant.')).toBeInTheDocument()
   expect(screen.getByText(/mcp:use genai:read genai:work/)).toBeInTheDocument()
+})
+
+it('records choosing the mode the default already gives, and says when the default applies', async () => {
+  mockGet.mockResolvedValue([])
+  mockModeGet.mockResolvedValue({ ...MODE_RESPONSE, mode: 'external', mode_chosen: false })
+  mockPut.mockResolvedValue({ ...MODE_RESPONSE, mode: 'external', mode_chosen: true })
+
+  render(<AiProviderSettingsPage />)
+  expect(await screen.findByText(/the default applies: the AI Agent Inbox, unless you save a usable provider key/)).toBeInTheDocument()
+  await waitFor(() => expect(screen.getByRole('radio', { name: /AI Agent Inbox/ })).toBeChecked())
+  // A checked radio cannot be chosen again, so the default offers an explicit choice.
+  fireEvent.click(screen.getByRole('button', { name: 'Always use the AI Agent Inbox' }))
+
+  await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/api/user/ai-execution-mode', { mode: 'external' }))
+  await waitFor(() => expect(screen.queryByText(/the default applies/)).not.toBeInTheDocument())
+})
+
+it('keeps a mode just chosen when the initial read of the mode answers late', async () => {
+  mockGet.mockResolvedValue([])
+  let answerLate: (value: unknown) => void = () => undefined
+  mockModeGet.mockReturnValue(new Promise((resolve) => {
+    answerLate = resolve
+  }))
+  mockPut.mockResolvedValue({ ...MODE_RESPONSE, mode: 'external', mode_chosen: true })
+
+  render(<AiProviderSettingsPage />)
+  await screen.findByText('No AI provider configured')
+  fireEvent.click(screen.getByRole('radio', { name: /AI Agent Inbox/ }))
+  await waitFor(() => expect(mockPut).toHaveBeenCalled())
+  await act(async () => {
+    answerLate({ ...MODE_RESPONSE, mode: 'api', mode_chosen: false })
+  })
+
+  expect(screen.getByRole('radio', { name: /AI Agent Inbox/ })).toBeChecked()
+  expect(screen.queryByText(/the default applies/)).not.toBeInTheDocument()
 })

@@ -204,7 +204,7 @@ final class PhrGenAiEnqueueCommandTest extends TestCase
     {
         $actor = User::factory()->create([
             'user_role' => 'user',
-            'genai_execution_mode' => $executionMode,
+            'genai_execution_mode' => $executionMode, 'genai_execution_mode_chosen_at' => now(),
         ]);
         $owner = User::factory()->create(['user_role' => 'user']);
         $patient = PhrPatient::query()->create([
