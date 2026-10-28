@@ -1,6 +1,6 @@
 import { Check, Pencil, Plus, RefreshCw, ShieldCheck, Trash2 } from 'lucide-react'
 import type { FormEvent, ReactElement } from 'react'
-import { useCallback, useEffect, useId, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -90,6 +90,8 @@ export default function AiProviderSettingsPage(): ReactElement {
   const [executionMode, setExecutionMode] = useState<'api' | 'external'>(genAiExecutionMode)
   const [executionModeBusy, setExecutionModeBusy] = useState(false)
   const [modeChosen, setModeChosen] = useState<boolean | null>(null)
+  // Set once the person changes the mode: the initial read must not overwrite it.
+  const modeChangedRef = useRef(false)
   const formHeadingId = useId()
   const sessionTokenId = useId()
 
@@ -114,7 +116,7 @@ export default function AiProviderSettingsPage(): ReactElement {
     let cancelled = false
     fetchWrapper.get('/api/user/ai-execution-mode').then((raw: unknown) => {
       const response = AiExecutionModeResponseSchema.parse(raw)
-      if (cancelled) return
+      if (cancelled || modeChangedRef.current) return
       setExecutionMode(response.mode)
       setModeChosen(response.mode_chosen ?? true)
     }).catch(() => {
@@ -306,6 +308,7 @@ export default function AiProviderSettingsPage(): ReactElement {
     // saved key does not move someone who wants the inbox.
     if (mode === executionMode && modeChosen !== false) return
 
+    modeChangedRef.current = true
     setExecutionModeBusy(true)
     setNotice(null)
     setLoadError(null)

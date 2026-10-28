@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import type { AiConfiguration } from './aiPrefs'
 import AiProviderSettingsPage from './AiProviderSettingsPage'
@@ -238,4 +238,24 @@ it('records choosing the mode the default already gives, and says when the defau
 
   await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/api/user/ai-execution-mode', { mode: 'external' }))
   await waitFor(() => expect(screen.queryByText(/the default applies/)).not.toBeInTheDocument())
+})
+
+it('keeps a mode just chosen when the initial read of the mode answers late', async () => {
+  mockGet.mockResolvedValue([])
+  let answerLate: (value: unknown) => void = () => undefined
+  mockModeGet.mockReturnValue(new Promise((resolve) => {
+    answerLate = resolve
+  }))
+  mockPut.mockResolvedValue({ ...MODE_RESPONSE, mode: 'external', mode_chosen: true })
+
+  render(<AiProviderSettingsPage />)
+  await screen.findByText('No AI provider configured')
+  fireEvent.click(screen.getByRole('radio', { name: /AI Agent Inbox/ }))
+  await waitFor(() => expect(mockPut).toHaveBeenCalled())
+  await act(async () => {
+    answerLate({ ...MODE_RESPONSE, mode: 'api', mode_chosen: false })
+  })
+
+  expect(screen.getByRole('radio', { name: /AI Agent Inbox/ })).toBeChecked()
+  expect(screen.queryByText(/the default applies/)).not.toBeInTheDocument()
 })
