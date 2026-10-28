@@ -466,6 +466,7 @@ Route::middleware(['web', 'auth'])
         Route::get('/patients/{patient}/ehi/uploads/{upload}', [PhrEhiImportController::class, 'showUpload'])->whereNumber(['patient', 'upload'])->name('patients.ehi.uploads.show');
         Route::post('/patients/{patient}/ehi/uploads/{upload}/chunks', [PhrEhiImportController::class, 'appendChunk'])->whereNumber(['patient', 'upload'])->middleware('throttle:120,1')->name('patients.ehi.uploads.chunks.store');
         Route::post('/patients/{patient}/ehi/uploads/{upload}/intake', [PhrEhiImportController::class, 'queueIntake'])->whereNumber(['patient', 'upload'])->middleware('throttle:10,1')->name('patients.ehi.uploads.intake');
+        Route::get('/patients/{patient}/ehi/pending', [PhrEhiImportController::class, 'pending'])->whereNumber('patient')->name('patients.ehi.pending');
         Route::get('/patients/{patient}/ehi/packages', [PhrEhiImportController::class, 'packages'])->whereNumber('patient')->name('patients.ehi.packages.index');
         Route::get('/patients/{patient}/ehi/packages/{package}', [PhrEhiImportController::class, 'showPackage'])->whereNumber(['patient', 'package'])->name('patients.ehi.packages.show');
         Route::get('/patients/{patient}/ehi/packages/{package}/binding', [PhrEhiImportController::class, 'bindingSuggestions'])->whereNumber(['patient', 'package'])->name('patients.ehi.packages.binding.show');

@@ -100,6 +100,33 @@ final class PhrEhiImportController extends Controller
         return $this->privateJson(['upload' => $this->presenter->upload($queued)], 202);
     }
 
+    /**
+     * Reviewable pending proposals across the patient's packages, by mapping, so
+     * a record page can say what is waiting without loading every package. Only
+     * proposals of a completed preview count: others cannot be reviewed.
+     */
+    public function pending(Request $request, int $patient): JsonResponse
+    {
+        $patientModel = $this->access->accessiblePatient($patient, $this->actor($request));
+        $byMapping = [];
+        PhrEhiProposal::query()
+            ->where('patient_id', $patientModel->id)
+            ->where('status', PhrEhiProposal::STATUS_PENDING)
+            ->tap(static fn ($query) => PhrEhiProposal::constrainToCompletedPreview($query->getQuery()))
+            ->selectRaw('mapping, package_id, count(*) as aggregate')
+            ->groupBy('mapping', 'package_id')
+            ->orderBy('mapping')
+            ->orderByDesc('package_id')
+            ->get()
+            ->each(function (PhrEhiProposal $row) use (&$byMapping): void {
+                $byMapping[$row->mapping] ??= ['count' => 0, 'package_ids' => []];
+                $byMapping[$row->mapping]['count'] += (int) $row->getAttribute('aggregate');
+                $byMapping[$row->mapping]['package_ids'][] = (int) $row->package_id;
+            });
+
+        return $this->privateJson(['pending' => (object) $byMapping]);
+    }
+
     public function packages(Request $request, int $patient): JsonResponse
     {
         $patientModel = $this->access->accessiblePatient($patient, $this->actor($request));

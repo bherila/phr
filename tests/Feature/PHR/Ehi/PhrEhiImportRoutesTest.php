@@ -250,6 +250,28 @@ class PhrEhiImportRoutesTest extends TestCase
         self::assertSame(PhrEhiPackage::CLINICAL_PROJECTED, $package->refresh()->clinical_status);
     }
 
+    public function test_pending_proposals_are_summarized_by_mapping_for_record_pages(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $viewer = $this->grantee($patient, PhrPatientUserAccess::LEVEL_VIEWER);
+        $url = $this->base($patient).'/pending';
+        $this->actingAs($owner)->getJson($url)->assertOk()->assertExactJson(['pending' => []]);
+
+        $package = $this->previewedPackage($owner, $patient);
+        $this->actingAs($viewer)->getJson($url)->assertOk()
+            ->assertJsonPath('pending.immunization.count', 6)
+            ->assertJsonPath('pending.immunization.package_ids', [$package->id])
+            ->assertJsonPath('pending.document.count', 3);
+
+        $this->review($owner, $patient, $this->pendingProposal($package, 'immunization', PhrEhiProposal::KIND_CREATE), PhrEhiProposal::DECISION_ACCEPT)->assertOk();
+        $this->actingAs($owner)->getJson($url)->assertOk()->assertJsonPath('pending.immunization.count', 5);
+
+        // A preview that started and did not complete is not reviewable, so not counted.
+        $package->forceFill(['preview_generation_started' => (int) $package->preview_generation_completed + 1])->save();
+        $this->actingAs($owner)->getJson($url)->assertOk()->assertExactJson(['pending' => []]);
+        $this->actingAs($this->createUser())->getJson($url)->assertNotFound();
+    }
+
     public function test_a_stale_preview_digest_is_refused(): void
     {
         [$owner, $patient] = $this->ownerAndPatient();
