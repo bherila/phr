@@ -203,6 +203,9 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
   const [aiImports, setAiImports] = useState<AiImport[]>([])
   const [aiBusy, setAiBusy] = useState(false)
   const [aiError, setAiError] = useState<string | null>(null)
+  // The document a file was already kept as, so a retry after a failed send
+  // sends it again instead of storing a second copy.
+  const [kept, setKept] = useState<{ file: File, documentId: number } | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const executionMode = genAiExecutionMode()
   const { startUpload } = useDicomUploads()
@@ -307,7 +310,8 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
     setAiBusy(true)
     setAiError(null)
     try {
-      const documentId = await keepAsDocument(selectedPatientId, file)
+      const documentId = kept?.file === file ? kept.documentId : await keepAsDocument(selectedPatientId, file)
+      setKept({ file, documentId })
       if (sendToAi) {
         await sendDocumentToAi(selectedPatientId, documentId)
       }

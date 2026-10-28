@@ -262,6 +262,27 @@ describe('ImportsPage', () => {
     expect(mockPost).toHaveBeenCalledWith(`/api/phr/patients/${PATIENT_ID}/documents/77/process`, {})
   })
 
+  it('sends the kept document again after a failed send, without storing a second copy', async () => {
+    let sends = 0
+    mockPost.mockImplementation((url: string) => {
+      if (url.endsWith('/documents')) return Promise.resolve({ document: { id: 77 } })
+      sends += 1
+      return sends === 1 ? Promise.reject('Too many requests.') : Promise.resolve({ job_id: 5, status: 'pending', outcome: 'created' })
+    })
+    renderImports(PATIENT_ID)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Choose file' })).toBeEnabled())
+
+    chooseImportFile(new File(['%PDF-1.7'], 'scan.pdf', { type: 'application/pdf' }))
+    fireEvent.click(screen.getByLabelText('This file belongs to Primary'))
+    fireEvent.click(screen.getByRole('button', { name: 'Keep and process with AI' }))
+    expect(await screen.findByText('Too many requests.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Keep and process with AI' }))
+
+    expect(await screen.findByText(/Sent scan.pdf to server-side AI/)).toBeInTheDocument()
+    expect(mockPost.mock.calls.filter(([url]) => String(url).endsWith('/documents'))).toHaveLength(1)
+    expect(mockPost.mock.calls.filter(([url]) => String(url).endsWith('/process'))).toHaveLength(2)
+  })
+
   it('lists AI imports by where they stand and opens their review', async () => {
     const aiImport = (overrides: Record<string, unknown>) => ({
       id: 5, document_id: 77, job_type: 'phr_lab_result', status: 'pending', retry_count: 0, can_retry: false,
