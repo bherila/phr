@@ -61,7 +61,7 @@ class PhrCcdaImporter
     private function importRows(PhrPatient $patient, int $actorUserId, string $title, array $rows): PhrImportResult
     {
         if (str_contains($title, 'vital')) {
-            return $this->structuredImporter->importPayload($patient, $actorUserId, 'phr_vital', array_map(
+            return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_vital', array_map(
                 fn (array $row): array => [
                     'date' => $row[0] ?? null,
                     'name' => $row[1] ?? null,
@@ -74,7 +74,7 @@ class PhrCcdaImporter
         }
 
         if (str_contains($title, 'result') || str_contains($title, 'lab')) {
-            return $this->structuredImporter->importPayload($patient, $actorUserId, 'phr_lab_result', array_map(
+            return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_lab_result', array_map(
                 fn (array $row): array => [
                     'observed_at' => $row[0] ?? null,
                     'test_name' => $row[1] ?? null,
@@ -90,7 +90,7 @@ class PhrCcdaImporter
         }
 
         if (str_contains($title, 'medication')) {
-            return $this->structuredImporter->importPayload($patient, $actorUserId, 'phr_medication', array_map(
+            return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_medication', array_map(
                 fn (array $row): array => [
                     'name' => $row[0] ?? null,
                     'dose' => $row[1] ?? null,
@@ -103,7 +103,7 @@ class PhrCcdaImporter
         }
 
         if (str_contains($title, 'problem') || str_contains($title, 'condition')) {
-            return $this->structuredImporter->importPayload($patient, $actorUserId, 'phr_problem_list', array_map(
+            return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_problem_list', array_map(
                 fn (array $row): array => [
                     'name' => $row[0] ?? null,
                     'icd10_code' => $row[1] ?? null,
@@ -116,7 +116,7 @@ class PhrCcdaImporter
         }
 
         if (str_contains($title, 'procedure')) {
-            return $this->structuredImporter->importPayload($patient, $actorUserId, 'phr_procedure', array_map(
+            return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_procedure', array_map(
                 fn (array $row): array => [
                     'name' => $row[0] ?? null,
                     'performed_on' => $row[1] ?? null,
@@ -128,7 +128,7 @@ class PhrCcdaImporter
         }
 
         if (str_contains($title, 'immunization')) {
-            return $this->structuredImporter->importPayload($patient, $actorUserId, 'phr_immunization', array_map(
+            return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_immunization', array_map(
                 fn (array $row): array => [
                     'vaccine_name' => $row[0] ?? null,
                     'administered_on' => $row[1] ?? null,
@@ -140,7 +140,7 @@ class PhrCcdaImporter
         }
 
         if (str_contains($title, 'allerg')) {
-            return $this->structuredImporter->importPayload($patient, $actorUserId, 'phr_allergy', array_map(
+            return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_allergy', array_map(
                 fn (array $row): array => [
                     'substance' => $row[0] ?? null,
                     'reaction' => $row[1] ?? null,
@@ -152,7 +152,7 @@ class PhrCcdaImporter
         }
 
         if (str_contains($title, 'encounter') || str_contains($title, 'visit')) {
-            return $this->structuredImporter->importPayload($patient, $actorUserId, 'phr_office_visit', array_map(
+            return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_office_visit', array_map(
                 fn (array $row): array => [
                     'visit_date' => $row[0] ?? null,
                     'visit_type' => $row[1] ?? null,

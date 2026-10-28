@@ -13,6 +13,8 @@ class PhrImportResult
         public int $documents = 0,
         public int $skipped = 0,
         public array $warnings = [],
+        /** Rows already in PHR exactly as the source has them: nothing was written. */
+        public int $unchanged = 0,
     ) {}
 
     public function addCreated(int $count = 1): void
@@ -28,6 +30,11 @@ class PhrImportResult
     public function addDocument(int $count = 1): void
     {
         $this->documents += $count;
+    }
+
+    public function addUnchanged(int $count = 1): void
+    {
+        $this->unchanged += $count;
     }
 
     public function addSkipped(int $count = 1): void
@@ -46,11 +53,12 @@ class PhrImportResult
         $this->updated += $other->updated;
         $this->documents += $other->documents;
         $this->skipped += $other->skipped;
+        $this->unchanged += $other->unchanged;
         $this->warnings = [...$this->warnings, ...$other->warnings];
     }
 
     /**
-     * @return array{created: int, updated: int, documents: int, skipped: int, warnings: array<int, string>}
+     * @return array{created: int, updated: int, documents: int, skipped: int, unchanged: int, warnings: array<int, string>}
      */
     public function toArray(): array
     {
@@ -59,6 +67,7 @@ class PhrImportResult
             'updated' => $this->updated,
             'documents' => $this->documents,
             'skipped' => $this->skipped,
+            'unchanged' => $this->unchanged,
             'warnings' => $this->warnings,
         ];
     }

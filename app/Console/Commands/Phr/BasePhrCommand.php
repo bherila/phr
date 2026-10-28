@@ -47,7 +47,7 @@ abstract class BasePhrCommand extends Command
 
     protected function lineImportResult(PhrImportResult $result): void
     {
-        $this->info("Created: {$result->created}; Updated: {$result->updated}; Documents: {$result->documents}; Skipped: {$result->skipped}");
+        $this->info("Created: {$result->created}; Updated: {$result->updated}; Unchanged: {$result->unchanged}; Documents: {$result->documents}; Skipped: {$result->skipped}");
         foreach ($result->warnings as $warning) {
             $this->warn($warning);
         }

@@ -9,11 +9,16 @@ class PhrImportModelUpserter
     /**
      * @template TModel of Model
      *
+     * An existing row (matched by import source and external id) is written only
+     * when the attributes change it; `wasChanged()` on the returned model says
+     * whether they did. With `$reviewOnChange`, a change also sets that review
+     * status, so a person reviews what the source changed.
+     *
      * @param  class-string<TModel>  $modelClass
      * @param  array<string, mixed>  $attributes
      * @return TModel
      */
-    public function upsert(string $modelClass, array $attributes): Model
+    public function upsert(string $modelClass, array $attributes, ?string $reviewOnChange = null): Model
     {
         $queryAttributes = null;
         if (! empty($attributes['import_source']) && ! empty($attributes['external_id'])) {
@@ -30,7 +35,11 @@ class PhrImportModelUpserter
 
         $existing = $modelClass::query()->where($queryAttributes)->first();
         if ($existing !== null) {
-            $existing->update($attributes);
+            $existing->fill(array_diff_key($attributes, ['review_status' => true]));
+            if ($reviewOnChange !== null && $existing->isDirty()) {
+                $existing->setAttribute('review_status', $reviewOnChange);
+            }
+            $existing->save();
             $existing->wasRecentlyCreated = false;
 
             return $existing;
