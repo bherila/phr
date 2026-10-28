@@ -5,17 +5,19 @@ import { useCallback, useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
-import { errorMessage } from '@/phr/shared'
+import { formatBytes } from '@/lib/utils'
 
 import {
   bindEhiPackage,
   describeEhiError,
+  ehiFailureText,
   type EhiPackage,
   type EhiSourceSuggestion,
   type EhiUpload,
   getEhiBindingSuggestions,
   getEhiPackage,
   getEhiUpload,
+  pendingProposalCount,
   queueEhiIntake,
   queueEhiPreview,
 } from './ehiApi'
@@ -29,16 +31,6 @@ const DEFAULT_SOURCE_LABEL = 'Epic EHI export'
 
 /** `action`: waiting on the person, not on the server. */
 type StageState = 'waiting' | 'active' | 'action' | 'done' | 'failed'
-
-function reasonText(caught: unknown): string {
-  return typeof caught === 'string' && /^[a-z_]+$/.test(caught) ? describeEhiError(caught) : errorMessage(caught)
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`
-  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`
-  return `${Math.max(1, Math.round(bytes / 1024))} KB`
-}
 
 const count = new Intl.NumberFormat('en-US')
 
@@ -156,7 +148,7 @@ function BindingPanel({ patientId, pkg, canBind, onBound }: BindingPanelProps): 
       const likely = loaded.find((suggestion) => suggestion.dictionary_matches)
       if (likely) setChoice(likely.id)
     }).catch((caught: unknown) => {
-      if (!cancelled) setError(reasonText(caught))
+      if (!cancelled) setError(ehiFailureText(caught))
     })
 
     return () => {
@@ -170,7 +162,7 @@ function BindingPanel({ patientId, pkg, canBind, onBound }: BindingPanelProps): 
     try {
       onBound(await bindEhiPackage(patientId, pkg.id, choice === 'new' ? { new_source_label: label.trim() } : { source_id: choice }))
     } catch (caught) {
-      setError(reasonText(caught))
+      setError(ehiFailureText(caught))
     } finally {
       setBusy(false)
     }
@@ -254,7 +246,7 @@ export function EhiImportFlow({ patientId, canBind, job, uploadId, packageId, on
       }
       setError(null)
     } catch (caught) {
-      setError(reasonText(caught))
+      setError(ehiFailureText(caught))
     }
   }, [patientId, effectiveUploadId, effectivePackageId, transferring])
 
@@ -288,7 +280,7 @@ export function EhiImportFlow({ patientId, canBind, job, uploadId, packageId, on
       await action()
       await refresh()
     } catch (caught) {
-      setError(reasonText(caught))
+      setError(ehiFailureText(caught))
     } finally {
       setBusy(false)
     }
@@ -313,7 +305,7 @@ export function EhiImportFlow({ patientId, canBind, job, uploadId, packageId, on
   const stage2: StageState = !preserved ? 'waiting' : previewComplete ? 'done' : previewFailed || pkg?.failure_category ? 'failed' : awaitingPerson ? 'action' : 'active'
   const stage3: StageState = previewComplete ? 'action' : 'waiting'
 
-  const pendingTotal = pkg ? Object.values(pkg.proposals.pending).reduce((sum, kinds) => sum + Object.values(kinds).reduce((inner, value) => inner + value, 0), 0) : 0
+  const pendingTotal = pkg ? pendingProposalCount(pkg) : 0
   const uploadedBytes = job?.bytesSent ?? upload?.uploaded_bytes ?? 0
   const totalBytes = job?.fileSizeBytes ?? upload?.file_size_bytes ?? 0
 

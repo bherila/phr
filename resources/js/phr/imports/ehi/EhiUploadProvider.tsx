@@ -1,9 +1,7 @@
 import type { ReactElement, ReactNode } from 'react'
 import { createContext, use, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { errorMessage } from '@/phr/shared'
-
-import { appendEhiChunk, describeEhiError, getEhiUpload, queueEhiIntake, startEhiUpload } from './ehiApi'
+import { appendEhiChunk, ehiFailureText, getEhiUpload, queueEhiIntake, startEhiUpload } from './ehiApi'
 
 export type EhiUploadPhase = 'uploading' | 'queued' | 'failed' | 'cancelled'
 
@@ -41,11 +39,6 @@ let nextJobId = 0
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds))
-}
-
-/** The fixed reason code a refusal carries, when it carries one. */
-function reasonOf(caught: unknown): string | null {
-  return typeof caught === 'string' && /^[a-z_]+$/.test(caught) ? caught : null
 }
 
 export interface EhiUploadProviderProps {
@@ -117,8 +110,7 @@ export function EhiUploadProvider({ children, retryDelayMs = 1000 }: EhiUploadPr
       if (signal.aborted) {
         return
       }
-      const reason = reasonOf(caught)
-      update(jobId, { phase: 'failed', error: reason ? describeEhiError(reason) : errorMessage(caught) })
+      update(jobId, { phase: 'failed', error: ehiFailureText(caught) })
     } finally {
       controllersRef.current.delete(jobId)
     }

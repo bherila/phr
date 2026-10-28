@@ -3,11 +3,12 @@ import type { DragEvent, ReactElement } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { formatBytes } from '@/lib/utils'
 import { usePhrPatients } from '@/phr/patients/usePhrPatients'
 import { errorMessage, readPatientIdFromQuery } from '@/phr/shared'
 import { useDicomUploads } from '@/phr/uploads'
 
-import { describeEhiError, EHI_PACKAGE_QUERY, type EhiPackage, type EhiUpload, listEhiPackages, listEhiUploads } from './ehi/ehiApi'
+import { describeEhiError, EHI_PACKAGE_QUERY, type EhiPackage, type EhiUpload, listEhiPackages, listEhiUploads, pendingProposalCount } from './ehi/ehiApi'
 import { EHI_POLL_MS, EhiImportFlow } from './ehi/EhiImportFlow'
 import { EhiReview } from './ehi/EhiReview'
 import { useEhiUploads } from './ehi/EhiUploadProvider'
@@ -37,20 +38,10 @@ function isZip(file: File): boolean {
   return /\.zip$/i.test(file.name) || /zip/i.test(file.type)
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(1)} GB`
-  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(1)} MB`
-  return `${Math.max(1, Math.round(bytes / 1024))} KB`
-}
-
 function formatReceived(value: string | null): string {
   if (!value) return ''
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(date)
-}
-
-function pendingCount(pkg: EhiPackage): number {
-  return Object.values(pkg.proposals.pending).reduce((sum, kinds) => sum + Object.values(kinds).reduce((inner, value) => inner + value, 0), 0)
 }
 
 /** Where a package stands, in a few words, and whether its review can open. */
@@ -61,7 +52,7 @@ function packageStatus(pkg: EhiPackage): { status: string, reviewable: boolean }
   if (pkg.binding_status !== 'bound') return { status: 'Confirm its source', reviewable: false }
   if (pkg.preview_run?.status === 'queued' || pkg.preview_run?.status === 'running') return { status: 'Preparing review', reviewable: false }
   if (pkg.preview.state !== 'complete') return { status: pkg.preview_run?.status === 'failed' ? 'Stopped' : 'Ready to prepare', reviewable: false }
-  const pending = pendingCount(pkg)
+  const pending = pendingProposalCount(pkg)
 
   return { status: pending > 0 ? `${pending} to review` : 'Reviewed', reviewable: true }
 }

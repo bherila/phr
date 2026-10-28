@@ -8,7 +8,7 @@ import { fetchWrapper } from '@/fetchWrapper'
 import { errorMessage } from '@/phr/shared'
 import { PhrDocumentResponseSchema, PhrImmunizationResponseSchema } from '@/phr/types'
 
-import { describeEhiError, type EhiDecision, type EhiProposal, listAllEhiProposals, reviewEhiProposal } from './ehiApi'
+import { type EhiDecision, ehiFailureText, type EhiProposal, listAllEhiProposals, reviewEhiProposal } from './ehiApi'
 import { decisionActions, formatSourceDate, proposalView, retainReason, REVIEW_GROUPS, reviewGroupOf, STATUS_LABELS } from './ehiProposalView'
 
 export interface EhiReviewProps {
@@ -17,10 +17,6 @@ export interface EhiReviewProps {
   /** The source label the package was bound to, for the heading. */
   sourceLabel?: string | null
   onBack: () => void
-}
-
-function reasonText(caught: unknown): string {
-  return typeof caught === 'string' && /^[a-z_]+$/.test(caught) ? describeEhiError(caught) : errorMessage(caught)
 }
 
 /** One existing record a possible duplicate may be the same as. */
@@ -184,7 +180,7 @@ export function EhiReview({ patientId, packageId, sourceLabel, onBack }: EhiRevi
 
       return true
     } catch (caught) {
-      setErrors((previous) => ({ ...previous, [proposal.id]: reasonText(caught) }))
+      setErrors((previous) => ({ ...previous, [proposal.id]: ehiFailureText(caught) }))
 
       return false
     } finally {

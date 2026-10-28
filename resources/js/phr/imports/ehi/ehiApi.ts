@@ -279,6 +279,26 @@ const ERROR_TEXT: Record<string, string> = {
   unexpected: 'Something went wrong. Try again.',
 }
 
+/** Proposals still to decide in a package, over every mapping and kind. */
+export function pendingProposalCount(pkg: EhiPackage): number {
+  return Object.values(pkg.proposals.pending).reduce((sum, kinds) => sum + Object.values(kinds).reduce((inner, value) => inner + value, 0), 0)
+}
+
+/** What a rejected request means: a sentence for a fixed reason code, else its message. */
+export function ehiFailureText(caught: unknown): string {
+  if (typeof caught === 'string' && /^[a-z_]+$/.test(caught)) {
+    return describeEhiError(caught)
+  }
+  if (typeof caught === 'string') {
+    return caught
+  }
+  if (caught && typeof caught === 'object' && 'message' in caught) {
+    return String((caught as { message: unknown }).message)
+  }
+
+  return 'Request failed.'
+}
+
 /** A sentence for a fixed reason code, or the text as given when it is not one. */
 export function describeEhiError(reason: string | null | undefined): string {
   if (!reason) {
