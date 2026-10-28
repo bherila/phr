@@ -88,9 +88,15 @@ export function EhiUploadProvider({ children, retryDelayMs = 1000 }: EhiUploadPr
             throw caught
           }
           await delay(retryDelayMs * attempts)
-          // The server is the authority on what it kept: continue from there.
-          offset = (await getEhiUpload(patientId, opened.id)).uploaded_bytes
-          update(jobId, { bytesSent: offset })
+          // The server is the authority on what it kept: continue from there. If
+          // asking fails too, retry from the last known offset; a stale offset is
+          // refused by the server and spends an attempt like any other failure.
+          try {
+            offset = (await getEhiUpload(patientId, opened.id)).uploaded_bytes
+            update(jobId, { bytesSent: offset })
+          } catch {
+            // Keep the offset; the attempt limit still bounds the retries.
+          }
         }
       }
       await queueEhiIntake(patientId, opened.id)

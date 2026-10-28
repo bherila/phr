@@ -102,6 +102,32 @@ describe('EhiUploadProvider', () => {
     expect(mockGet).toHaveBeenCalledWith(`${base}/5`)
   })
 
+  it('keeps retrying when asking the server where it stands fails too', async () => {
+    let chunkFailed = false
+    mockPost.mockImplementation((url: string, body: unknown) => {
+      if (url === base) return Promise.resolve({ upload: makeEhiUpload() })
+      if (url.endsWith('/chunks')) {
+        const form = body as FormData
+        const offset = Number(form.get('offset'))
+        if (offset === 4 && !chunkFailed) {
+          chunkFailed = true
+          return Promise.reject('Network error')
+        }
+        return Promise.resolve({ upload: makeEhiUpload({ uploaded_bytes: offset + (form.get('chunk') as Blob).size }) })
+      }
+      return Promise.resolve({ upload: makeEhiUpload({ status: 'queued' }) })
+    })
+    mockGet.mockRejectedValueOnce('Network error')
+    render(<EhiUploadProvider retryDelayMs={0}><Harness /></EhiUploadProvider>)
+
+    act(() => {
+      holder.api!.start(EHI_PATIENT_ID, file())
+    })
+
+    expect(await screen.findByText('queued 10/10')).toBeInTheDocument()
+    expect(chunkOffsets()).toEqual(['0', '4', '4', '8'])
+  })
+
   it('reports a refusal in words and stops', async () => {
     mockPost.mockRejectedValue('patient_archived')
     render(<EhiUploadProvider retryDelayMs={0}><Harness /></EhiUploadProvider>)
