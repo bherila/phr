@@ -4,6 +4,7 @@ namespace App\Console\Commands\Phr;
 
 use App\Models\PhrEhiPackage;
 use App\Models\PhrPatient;
+use App\Services\PHR\Import\Ehi\EhiMaskedKey;
 use App\Services\PHR\Import\Ehi\EhiPackageSummary;
 use Illuminate\Database\Eloquent\Collection;
 
@@ -59,7 +60,7 @@ abstract class BaseEhiCommand extends BasePhrCommand
             $this->line("failure: {$package->failure_category}");
         }
         $this->line("intakes: {$package->intake_count}");
-        $this->line('source patient key: '.self::maskKey($package->detected_source_patient_key));
+        $this->line('source patient key: '.EhiMaskedKey::mask($package->detected_source_patient_key));
         $this->line("members: {$summary->members} (".$this->counts($summary->membersByKind).')');
         $this->line("tables: {$summary->tables} (".$this->counts($summary->tablesByState).')');
         $this->line("rows: source {$summary->sourceRows}, malformed {$summary->malformedRows}, ".$this->counts($summary->dispositions));
@@ -67,23 +68,6 @@ abstract class BaseEhiCommand extends BasePhrCommand
         if ($summary->unreconciledTables > 0) {
             $this->warn("unreconciled tables: {$summary->unreconciledTables}");
         }
-    }
-
-    /**
-     * At most the last four characters, and never more than half of the key, so
-     * a short key is not printed whole.
-     */
-    protected static function maskKey(?string $key): string
-    {
-        if ($key === null || $key === '') {
-            return '(none)';
-        }
-        $length = mb_strlen($key);
-        $shown = min(4, intdiv($length, 2));
-
-        $tail = $shown > 0 ? (string) preg_replace('/[^\x20-\x7E]/', '?', mb_substr($key, -$shown)) : '';
-
-        return str_repeat('*', max(4, $length - $shown)).$tail;
     }
 
     /** @param  array<string, int>  $counts */

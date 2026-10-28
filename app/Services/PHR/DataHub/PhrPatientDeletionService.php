@@ -233,6 +233,8 @@ final class PhrPatientDeletionService
             ->orderBy('id')->each(fn ($row) => $collect('phr_dicom', (string) $row->r2_key, (int) $row->file_size_bytes));
         DB::table('phr_ehi_blobs')->where('patient_id', $patientId)
             ->orderBy('id')->each(fn ($row) => $collect((string) $row->storage_disk, (string) $row->storage_path, (int) $row->byte_size));
+        DB::table('phr_ehi_uploads')->where('patient_id', $patientId)->whereNotNull('storage_path')
+            ->orderBy('id')->each(fn ($row) => $collect((string) $row->storage_disk, (string) $row->storage_path, null));
         DB::table('phr_exports')->where('patient_id', $patientId)->whereNotNull('storage_path')
             ->orderBy('id')->each(fn ($row) => $collect((string) $row->storage_disk, (string) $row->storage_path, is_numeric($row->file_size_bytes) ? (int) $row->file_size_bytes : null));
         DB::table('phr_native_backups')->where('patient_id', $patientId)->whereNotNull('storage_path')
@@ -258,7 +260,9 @@ final class PhrPatientDeletionService
             return true;
         }
         if (DB::table('phr_ehi_blobs')
-            ->where('patient_id', '<>', $patientId)->where('storage_disk', $disk)->where('storage_path', $key)->exists()) {
+            ->where('patient_id', '<>', $patientId)->where('storage_disk', $disk)->where('storage_path', $key)->exists()
+            || DB::table('phr_ehi_uploads')->where('patient_id', '<>', $patientId)
+                ->where('storage_disk', $disk)->where('storage_path', $key)->exists()) {
             return true;
         }
         if (DB::table('phr_exports')

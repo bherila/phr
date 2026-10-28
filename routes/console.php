@@ -14,6 +14,7 @@ Schedule::command('phr:uptime:run-task', ['phr:dicom:gc'])->hourly()->withoutOve
 Schedule::command('phr:uptime:run-task', ['phr:exports:purge'])->daily()->withoutOverlapping(30);
 Schedule::command('phr:uptime:run-task', ['phr:native-backups:purge'])->daily()->withoutOverlapping(30);
 Schedule::command('phr:uptime:run-task', ['phr:native-restores:purge'])->daily()->withoutOverlapping(30);
+Schedule::command('phr:uptime:run-task', ['phr:ehi-uploads:purge'])->daily()->withoutOverlapping(30);
 Schedule::command('phr:uptime:run-task', ['phr:data-hub:prune-audits'])->daily()->withoutOverlapping(30);
 Schedule::command('phr:uptime:run-task', ['phr:agent-api:prune-audits'])->daily()->withoutOverlapping(30);
 Schedule::command('phr:uptime:run-task', ['phr:agent-api:prune-oauth-credentials'])->daily()->withoutOverlapping(30);

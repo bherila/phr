@@ -101,6 +101,15 @@ final class PhrStorageKey
         return sprintf('patients/%d/ehi/%s', self::patientId($patientId), $normalized);
     }
 
+    /**
+     * A browser-uploaded EHI ZIP while it is staged for intake. Transient: intake
+     * preserves each member under ehiBlob(), and the archive itself is deleted.
+     */
+    public static function ehiUpload(int $patientId, string $uploadUuid): string
+    {
+        return sprintf('patients/%d/ehi-uploads/%s/package.zip', self::patientId($patientId), self::uuid($uploadUuid));
+    }
+
     public static function nativeRestoreSource(string $restoreUuid): string
     {
         return sprintf('phr/native-restores/%s/phr-native-v1.zip', self::uuid($restoreUuid));
