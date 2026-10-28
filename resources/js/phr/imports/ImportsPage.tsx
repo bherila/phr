@@ -3,7 +3,6 @@ import type { DragEvent, ReactElement } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { genAiExecutionMode } from '@/lib/appShell'
 import { phrSectionUrl } from '@/lib/phrRouteBuilder'
 import { formatBytes } from '@/lib/utils'
 import { usePhrPatients } from '@/phr/patients/usePhrPatients'
@@ -12,6 +11,7 @@ import { useDicomUploads } from '@/phr/uploads'
 
 import { AiImportReview } from './ai/AiImportReview'
 import { type AiImport, aiImportStatus, canKeepAsDocument, DOCUMENT_MAX_BYTES, keepAsDocument, listAiImports, retryAiImport, sendDocumentToAi } from './ai/aiImportsApi'
+import { useExecutionMode } from './ai/useExecutionMode'
 import { describeEhiError, EHI_PACKAGE_QUERY, ehiFailureText, type EhiPackage, type EhiUpload, importStructuredFile, listEhiPackages, listEhiUploads, pendingProposalCount, STRUCTURED_MAX_BYTES, type StructuredImport } from './ehi/ehiApi'
 import { EHI_POLL_MS, EhiImportFlow } from './ehi/EhiImportFlow'
 import { EhiReview } from './ehi/EhiReview'
@@ -207,7 +207,7 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
   // sends it again instead of storing a second copy.
   const [kept, setKept] = useState<{ file: File, documentId: number } | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const executionMode = genAiExecutionMode()
+  const executionMode = useExecutionMode()
   const { startUpload } = useDicomUploads()
 
   // A deep link opens its review once. Dropping it from the URL keeps a remount or a

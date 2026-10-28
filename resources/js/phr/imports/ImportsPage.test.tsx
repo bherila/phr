@@ -262,6 +262,24 @@ describe('ImportsPage', () => {
     expect(mockPost).toHaveBeenCalledWith(`/api/phr/patients/${PATIENT_ID}/documents/77/process`, {})
   })
 
+  it('names where AI work goes from the server, not the mode the page loaded with', async () => {
+    // The shell loaded with the inbox; the mode has since changed to server-side AI.
+    const shell = document.createElement('script')
+    shell.id = 'app-initial-data'
+    shell.type = 'application/json'
+    shell.textContent = JSON.stringify({ currentUser: { genai_execution_mode: 'external' } })
+    document.body.appendChild(shell)
+    afterTestCleanup.push(() => shell.remove())
+    routeGets({ '/api/user/ai-execution-mode': { mode: 'api', mode_chosen: true, mcp_url: 'https://phr.example.test/api/v1/mcp', rest_base_url: 'https://phr.example.test/api/v1/genai', required_scopes: [] } })
+    renderImports(PATIENT_ID)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Choose file' })).toBeEnabled())
+
+    chooseImportFile(new File(['%PDF-1.7'], 'scan.pdf', { type: 'application/pdf' }))
+
+    expect(await screen.findByRole('button', { name: 'Keep and process with AI' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Keep and send to AI Agent Inbox' })).not.toBeInTheDocument()
+  })
+
   it('sends the kept document again after a failed send, without storing a second copy', async () => {
     let sends = 0
     mockPost.mockImplementation((url: string) => {
