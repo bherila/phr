@@ -478,7 +478,7 @@ final class ExternalGenAiStatusCoherenceTest extends TestCase
     {
         $user = User::factory()->create([
             'user_role' => 'user',
-            'genai_execution_mode' => GenAiImportJob::EXECUTION_EXTERNAL,
+            'genai_execution_mode' => GenAiImportJob::EXECUTION_EXTERNAL, 'genai_execution_mode_chosen_at' => now(),
         ]);
         $mailbox = McpMailbox::query()->create([
             'owner_type' => User::class,
@@ -543,7 +543,7 @@ final class ExternalGenAiStatusCoherenceTest extends TestCase
     {
         $user = User::factory()->create([
             'user_role' => 'user',
-            'genai_execution_mode' => $executionMode,
+            'genai_execution_mode' => $executionMode, 'genai_execution_mode_chosen_at' => now(),
         ]);
         $patient = PhrPatient::query()->create([
             'owner_user_id' => $user->id,

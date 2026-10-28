@@ -34,6 +34,9 @@ final readonly class UserAiExecutionModeController
     {
         return response()->json([
             'mode' => $user->genAiExecutionMode(),
+            // False while the mode follows the default: the AI Agent Inbox unless a
+            // usable provider key is saved.
+            'mode_chosen' => $user->chosenGenAiExecutionMode() !== null,
             'mcp_url' => url('/api/v1/mcp'),
             'rest_base_url' => url('/api/v1/genai'),
             'required_scopes' => [

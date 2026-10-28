@@ -316,7 +316,7 @@ final class ExternalGenAiProcessingTest extends TestCase
     public function test_api_result_is_rejected_when_execution_mode_switches_before_locked_apply(): void
     {
         [$user, , , $job] = $this->externalJob();
-        $user->forceFill(['genai_execution_mode' => GenAiImportJob::EXECUTION_API])->save();
+        $user->forceFill(['genai_execution_mode' => GenAiImportJob::EXECUTION_API, 'genai_execution_mode_chosen_at' => now()])->save();
         $job->forceFill([
             'execution_mode' => GenAiImportJob::EXECUTION_API,
             'status' => 'processing',
@@ -405,7 +405,7 @@ final class ExternalGenAiProcessingTest extends TestCase
     {
         $user = User::factory()->create([
             'user_role' => 'user',
-            'genai_execution_mode' => GenAiImportJob::EXECUTION_EXTERNAL,
+            'genai_execution_mode' => GenAiImportJob::EXECUTION_EXTERNAL, 'genai_execution_mode_chosen_at' => now(),
         ]);
         $patientOwner = $owner ? $user : User::factory()->create(['user_role' => 'user']);
         $patient = PhrPatient::query()->create([

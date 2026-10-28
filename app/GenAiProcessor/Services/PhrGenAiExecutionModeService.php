@@ -23,7 +23,11 @@ final readonly class PhrGenAiExecutionModeService
 
         [$jobIds, $requestIds] = DB::transaction(function () use ($user, $mode): array {
             $lockedUser = User::query()->lockForUpdate()->findOrFail($user->id);
-            if ($lockedUser->genAiExecutionMode() === $mode) {
+            // An explicit choice is stored even when it equals the default, so it
+            // stays the user's choice when the default later changes (a key saved).
+            $effectiveChange = $lockedUser->genAiExecutionMode() !== $mode;
+            $lockedUser->forceFill(['genai_execution_mode' => $mode, 'genai_execution_mode_chosen_at' => now()])->save();
+            if (! $effectiveChange) {
                 return [[], []];
             }
             $jobs = GenAiImportJob::query()
@@ -42,7 +46,6 @@ final readonly class PhrGenAiExecutionModeService
                     'error_message' => null,
                 ])->save();
             }
-            $lockedUser->forceFill(['genai_execution_mode' => $mode])->save();
 
             return [$jobs->modelKeys(), $requestIds];
         });
