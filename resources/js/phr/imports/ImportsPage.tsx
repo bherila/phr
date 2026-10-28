@@ -8,7 +8,7 @@ import { errorMessage, readPatientIdFromQuery } from '@/phr/shared'
 import { useDicomUploads } from '@/phr/uploads'
 
 import { describeEhiError, EHI_PACKAGE_QUERY, type EhiPackage, type EhiUpload, listEhiPackages, listEhiUploads } from './ehi/ehiApi'
-import { EhiImportFlow } from './ehi/EhiImportFlow'
+import { EHI_POLL_MS, EhiImportFlow } from './ehi/EhiImportFlow'
 import { EhiReview } from './ehi/EhiReview'
 import { useEhiUploads } from './ehi/EhiUploadProvider'
 
@@ -203,6 +203,22 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
   useEffect(() => {
     void reloadRecent()
   }, [reloadRecent])
+
+  // Keep Recent imports current while the home view shows work in progress: a
+  // transfer this tab is running changed phase, or the server is still storing,
+  // reading or preparing one.
+  const jobPhases = ehiUploads.jobs.filter((job) => job.patientId === selectedPatientId).map((job) => `${job.id}:${job.phase}`).join(',')
+  useEffect(() => {
+    if (jobPhases !== '') void reloadRecent()
+  }, [jobPhases, reloadRecent])
+  const serverWorking = uploads.some((upload) => upload.status === 'queued' || upload.status === 'processing')
+    || packages.some((pkg) => pkg.intake_in_progress || pkg.preview_run?.status === 'queued' || pkg.preview_run?.status === 'running')
+  useEffect(() => {
+    if (view.kind !== 'home' || !serverWorking) return undefined
+    const timer = setInterval(() => void reloadRecent(), EHI_POLL_MS)
+
+    return () => clearInterval(timer)
+  }, [view.kind, serverWorking, reloadRecent])
 
   function choosePatient(next: number): void {
     setPreferredPatientId(next)

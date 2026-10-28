@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ReactElement } from 'react'
 
 import { makeEhiPackage, makeEhiProposal, makeEhiUpload } from '@/phr/imports/ehi/__tests__/ehiFixtures'
@@ -184,6 +184,33 @@ describe('ImportsPage', () => {
     } finally {
       restoreXhr()
       MockUploadXMLHttpRequest.instances.forEach((instance) => instance.abort())
+    }
+  })
+
+  it('keeps Recent imports current while an import is still being stored', async () => {
+    jest.useFakeTimers()
+    try {
+      let call = 0
+      mockGet.mockImplementation((url: string) => {
+        if (url === '/api/phr/patients') return Promise.resolve({ patients: [makePatient()] })
+        if (url.endsWith('/ehi/packages')) return Promise.resolve({ packages: [] })
+        if (url.endsWith('/ehi/uploads')) {
+          call += 1
+          return Promise.resolve({ uploads: [makeEhiUpload({ patient_id: PATIENT_ID, status: call === 1 ? 'processing' : 'rejected', failure_reason: call === 1 ? null : 'not_ehi' })] })
+        }
+        return Promise.reject(new Error(`unexpected GET ${url}`))
+      })
+      renderImports(PATIENT_ID)
+      expect(await screen.findByText('Storing and checking')).toBeInTheDocument()
+
+      await act(async () => {
+        jest.advanceTimersByTime(2000)
+      })
+
+      expect(await screen.findByText('Not imported')).toBeInTheDocument()
+      expect(screen.getByText('This ZIP is not an Epic EHI Tables export.')).toBeInTheDocument()
+    } finally {
+      jest.useRealTimers()
     }
   })
 
