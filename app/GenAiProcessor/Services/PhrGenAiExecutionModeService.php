@@ -15,24 +15,49 @@ final readonly class PhrGenAiExecutionModeService
 {
     public function __construct(private McpQueueService $queue) {}
 
+    /** The user's explicit choice: recorded, so the default never moves them again. */
     public function update(User $user, string $mode): User
+    {
+        return $this->apply($user, $mode, true);
+    }
+
+    /**
+     * The default follows a saved key (#235): a user who never chose moves to
+     * server-side AI once they have a usable key, and their queued work with them.
+     * Call it after a key is stored or activated. Losing a key moves no one.
+     */
+    public function adoptDefault(User $user): User
+    {
+        if ($user->chosenGenAiExecutionMode() !== null || ! $user->hasUsableAiProvider()) {
+            return $user;
+        }
+
+        return $this->apply($user, GenAiImportJob::EXECUTION_API, false);
+    }
+
+    private function apply(User $user, string $mode, bool $chosen): User
     {
         if (! in_array($mode, GenAiImportJob::VALID_EXECUTION_MODES, true)) {
             throw new \InvalidArgumentException('Unsupported GenAI execution mode.');
         }
 
-        [$jobIds, $requestIds] = DB::transaction(function () use ($user, $mode): array {
+        [$jobIds, $requestIds] = DB::transaction(function () use ($user, $mode, $chosen): array {
             $lockedUser = User::query()->lockForUpdate()->findOrFail($user->id);
-            // An explicit choice is stored even when it equals the default, so it
-            // stays the user's choice when the default later changes (a key saved).
-            $effectiveChange = $lockedUser->genAiExecutionMode() !== $mode;
-            $lockedUser->forceFill(['genai_execution_mode' => $mode, 'genai_execution_mode_chosen_at' => now()])->save();
-            if (! $effectiveChange) {
+            if (! $chosen && $lockedUser->chosenGenAiExecutionMode() !== null) {
+                // Chose meanwhile: a choice outranks the default.
                 return [[], []];
             }
+            $lockedUser->forceFill([
+                'genai_execution_mode' => $mode,
+                ...($chosen ? ['genai_execution_mode_chosen_at' => now()] : []),
+            ])->save();
+            // Every queued job not already in this mode moves, whether or not the
+            // user-level mode changed: a job left in the other mode would have its
+            // completion refused.
             $jobs = GenAiImportJob::query()
                 ->where('user_id', $lockedUser->id)
                 ->whereIn('status', ['pending', 'processing', 'queued_tomorrow'])
+                ->where('execution_mode', '!=', $mode)
                 ->lockForUpdate()
                 ->get();
             $requestIds = $jobs->pluck('mcp_request_id')->filter()->map(static fn (mixed $id): string => (string) $id)->all();

@@ -73,6 +73,11 @@ class User extends Authenticatable implements OAuthenticatable
      * bearer token is a full-account credential and must only ever be written
      * through issueMcpToken()/revokeMcpToken(), never through mass assignment.
      */
+    /** New users start on the AI Agent Inbox (#235). */
+    protected $attributes = [
+        'genai_execution_mode' => GenAiImportJob::EXECUTION_EXTERNAL,
+    ];
+
     protected $fillable = [
         'name',
         'email',
@@ -138,13 +143,19 @@ class User extends Authenticatable implements OAuthenticatable
     }
 
     /**
-     * Where this user's AI extraction runs: the mode they chose, or by default the
-     * AI Agent Inbox (`external`) unless they have saved a usable provider key.
+     * Where this user's AI extraction runs. Always the stored mode, never derived
+     * on read: a key expiring or being marked invalid must not move queued work.
+     * New users start on the AI Agent Inbox; the default moves to server-side AI
+     * only when a user who never chose saves a usable key
+     * (PhrGenAiExecutionModeService::adoptDefault), which also moves their jobs.
      */
     public function genAiExecutionMode(): string
     {
-        return $this->chosenGenAiExecutionMode()
-            ?? ($this->hasUsableAiProvider() ? GenAiImportJob::EXECUTION_API : GenAiImportJob::EXECUTION_EXTERNAL);
+        $mode = $this->attributes['genai_execution_mode'] ?? null;
+
+        return is_string($mode) && in_array($mode, GenAiImportJob::VALID_EXECUTION_MODES, true)
+            ? $mode
+            : GenAiImportJob::EXECUTION_EXTERNAL;
     }
 
     /** The mode the user explicitly chose, or null to follow the default. */
