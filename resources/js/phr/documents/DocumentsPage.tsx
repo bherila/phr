@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
+import { genAiExecutionMode } from '@/lib/appShell'
 import { formatBytes } from '@/lib/utils'
 import { isBrowserPreviewableImage } from '@/phr/documents/browserImagePreview'
 import { EhiPendingBanner } from '@/phr/imports/ehi/EhiPendingBanner'
@@ -436,7 +437,7 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
                 {canManage && (
                   <Button type="button" variant="outline" size="sm" onClick={() => void processWithGenAi(selectedDocument)} disabled={processingId === selectedDocument.id}>
                     {processingId === selectedDocument.id ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-                    Process with GenAI
+                    {genAiExecutionMode() === 'external' ? 'Send to AI Agent Inbox' : 'Process with AI'}
                   </Button>
                 )}
               </div>

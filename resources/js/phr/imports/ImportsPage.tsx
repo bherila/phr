@@ -3,11 +3,15 @@ import type { DragEvent, ReactElement } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { genAiExecutionMode } from '@/lib/appShell'
+import { phrSectionUrl } from '@/lib/phrRouteBuilder'
 import { formatBytes } from '@/lib/utils'
 import { usePhrPatients } from '@/phr/patients/usePhrPatients'
 import { errorMessage, readPatientIdFromQuery } from '@/phr/shared'
 import { useDicomUploads } from '@/phr/uploads'
 
+import { AiImportReview } from './ai/AiImportReview'
+import { type AiImport, aiImportStatus, canKeepAsDocument, DOCUMENT_MAX_BYTES, keepAsDocument, listAiImports, retryAiImport, sendDocumentToAi } from './ai/aiImportsApi'
 import { describeEhiError, EHI_PACKAGE_QUERY, ehiFailureText, type EhiPackage, type EhiUpload, importStructuredFile, listEhiPackages, listEhiUploads, pendingProposalCount, STRUCTURED_MAX_BYTES, type StructuredImport } from './ehi/ehiApi'
 import { EHI_POLL_MS, EhiImportFlow } from './ehi/EhiImportFlow'
 import { EhiReview } from './ehi/EhiReview'
@@ -31,10 +35,14 @@ type View =
   | { kind: 'home' }
   | { kind: 'check', file: File }
   | { kind: 'summary', fileName: string, imported: StructuredImport }
+  | { kind: 'ai-review', patientId: number, importId: number }
   | { kind: 'flow', jobId?: string, uploadId?: number, packageId?: number }
   // The review keeps the patient it was opened for: a deep link may name a patient the
   // viewer can read but not manage, who is never the "Import into" selection.
   | { kind: 'review', patientId: number, packageId: number, sourceLabel: string | null }
+
+/** How often to check on AI imports still with an agent or server-side AI. */
+const AI_POLL_MS = 15_000
 
 type FileKind = 'export' | 'structured' | 'other'
 
@@ -78,8 +86,16 @@ interface RecentRow {
   kind: string
   status: string
   received: string
+  /** For newest-first ordering across EHI, MyChart and AI imports. */
+  receivedAt: number
   upload?: EhiUpload
   pkg?: EhiPackage
+  ai?: AiImport
+}
+
+function timeOf(value: string | null): number {
+  const parsed = value ? Date.parse(value) : Number.NaN
+  return Number.isNaN(parsed) ? 0 : parsed
 }
 
 function uploadStatus(upload: EhiUpload): string {
@@ -106,7 +122,7 @@ function uploadLabels(upload: EhiUpload, pkg: EhiPackage | undefined): { title: 
 }
 
 /** Uploads first, each with the package it produced, then packages no browser upload produced. */
-function recentRows(uploads: EhiUpload[], packages: EhiPackage[]): RecentRow[] {
+function recentRows(uploads: EhiUpload[], packages: EhiPackage[], aiImports: AiImport[]): RecentRow[] {
   const byId = new Map(packages.map((pkg) => [pkg.id, pkg]))
   const covered = new Set<number>()
   const rows: RecentRow[] = []
@@ -121,17 +137,29 @@ function recentRows(uploads: EhiUpload[], packages: EhiPackage[]): RecentRow[] {
       ...uploadLabels(upload, pkg),
       status: pkg ? packageStatus(pkg).status : uploadStatus(upload),
       received: formatReceived(upload.created_at),
+      receivedAt: timeOf(upload.created_at),
       upload,
       ...(pkg ? { pkg } : {}),
     })
   }
   for (const pkg of packages) {
     if (!covered.has(pkg.id)) {
-      rows.push({ key: `package-${pkg.id}`, title: pkg.source?.label ?? 'Epic EHI export', kind: 'Epic EHI Tables', status: packageStatus(pkg).status, received: formatReceived(pkg.created_at), pkg })
+      rows.push({ key: `package-${pkg.id}`, title: pkg.source?.label ?? 'Epic EHI export', kind: 'Epic EHI Tables', status: packageStatus(pkg).status, received: formatReceived(pkg.created_at), receivedAt: timeOf(pkg.created_at), pkg })
     }
   }
+  for (const ai of aiImports) {
+    rows.push({
+      key: `ai-${ai.id}`,
+      title: ai.document_title ?? ai.document_filename ?? 'Document',
+      kind: ai.execution_mode === 'external' ? 'AI · AI Agent Inbox' : 'AI · server-side',
+      status: aiImportStatus(ai).status,
+      received: formatReceived(ai.created_at),
+      receivedAt: timeOf(ai.created_at),
+      ai,
+    })
+  }
 
-  return rows
+  return rows.sort((left, right) => right.receivedAt - left.receivedAt)
 }
 
 function readDeepLink(): number | undefined {
@@ -172,6 +200,11 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
   const [uploads, setUploads] = useState<EhiUpload[]>([])
   const [packages, setPackages] = useState<EhiPackage[]>([])
   const [recentError, setRecentError] = useState<string | null>(null)
+  const [aiImports, setAiImports] = useState<AiImport[]>([])
+  const [aiBusy, setAiBusy] = useState(false)
+  const [aiError, setAiError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const executionMode = genAiExecutionMode()
   const { startUpload } = useDicomUploads()
 
   // A deep link opens its review once. Dropping it from the URL keeps a remount or a
@@ -207,9 +240,10 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
   const reloadRecent = useCallback(async (): Promise<void> => {
     if (selectedPatientId === undefined || !canUpload) return
     try {
-      const [loadedUploads, loadedPackages] = await Promise.all([listEhiUploads(selectedPatientId), listEhiPackages(selectedPatientId)])
+      const [loadedUploads, loadedPackages, loadedAi] = await Promise.all([listEhiUploads(selectedPatientId), listEhiPackages(selectedPatientId), listAiImports(selectedPatientId)])
       setUploads(loadedUploads)
       setPackages(loadedPackages)
+      setAiImports(loadedAi)
       setRecentError(null)
     } catch (caught) {
       setRecentError(errorMessage(caught))
@@ -227,6 +261,14 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
   useEffect(() => {
     if (jobPhases !== '') void reloadRecent()
   }, [jobPhases, reloadRecent])
+  // Work with an agent can take hours: check back now and then, not every few seconds.
+  const aiWorking = aiImports.some((ai) => ['pending', 'processing', 'queued_tomorrow'].includes(ai.status))
+  useEffect(() => {
+    if (view.kind !== 'home' || !aiWorking) return undefined
+    const timer = setInterval(() => void reloadRecent(), AI_POLL_MS)
+
+    return () => clearInterval(timer)
+  }, [view.kind, aiWorking, reloadRecent])
   const serverWorking = uploads.some((upload) => upload.status === 'queued' || upload.status === 'processing')
     || packages.some((pkg) => pkg.intake_in_progress || pkg.preview_run?.status === 'queued' || pkg.preview_run?.status === 'running')
   useEffect(() => {
@@ -241,6 +283,8 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
     setView({ kind: 'home' })
     setUploads([])
     setPackages([])
+    setAiImports([])
+    setNotice(null)
   }
 
   function chooseFile(file: File | undefined): void {
@@ -255,6 +299,40 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
     event.preventDefault()
     setDragging(false)
     chooseFile(event.dataTransfer.files[0])
+  }
+
+  /** Keep a file as a document and, optionally, send it to AI: the Documents tab's two requests. */
+  async function keepFile(file: File, sendToAi: boolean): Promise<void> {
+    if (selectedPatientId === undefined) return
+    setAiBusy(true)
+    setAiError(null)
+    try {
+      const documentId = await keepAsDocument(selectedPatientId, file)
+      if (sendToAi) {
+        await sendDocumentToAi(selectedPatientId, documentId)
+      }
+      setNotice(!sendToAi
+        ? `Kept ${file.name} as a document. It is in the Documents tab.`
+        : executionMode === 'external'
+          ? `Sent ${file.name} to the AI Agent Inbox. Ask the assistant you have connected to PHR to check the inbox; what it proposes appears here for your review.`
+          : `Sent ${file.name} to server-side AI. What it proposes appears here for your review.`)
+      setView({ kind: 'home' })
+      void reloadRecent()
+    } catch (caught) {
+      setAiError(ehiFailureText(caught))
+    } finally {
+      setAiBusy(false)
+    }
+  }
+
+  async function retryAi(ai: AiImport): Promise<void> {
+    if (selectedPatientId === undefined) return
+    try {
+      await retryAiImport(selectedPatientId, ai.id)
+      void reloadRecent()
+    } catch (caught) {
+      setRecentError(ehiFailureText(caught))
+    }
   }
 
   async function importStructured(file: File): Promise<void> {
@@ -306,7 +384,7 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
 
   const activeJobs = ehiUploads.jobs.filter((job) => job.patientId === selectedPatientId && job.phase === 'uploading')
   const flowJob = view.kind === 'flow' && view.jobId !== undefined ? ehiUploads.jobs.find((job) => job.id === view.jobId) : undefined
-  const rows = recentRows(uploads, packages)
+  const rows = recentRows(uploads, packages, aiImports)
 
   return (
     <div className="p-6">
@@ -376,6 +454,12 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
 
       {view.kind === 'home' && (
         <div className="mt-6 flex max-w-3xl flex-col gap-4">
+          {notice && (
+            <div role="status" className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-primary/30 bg-primary/5 px-3 py-2 text-sm text-foreground">
+              <span>{notice}</span>
+              <Button type="button" variant="ghost" size="sm" onClick={() => setNotice(null)}>Dismiss</Button>
+            </div>
+          )}
           <section aria-labelledby="imports-add" className="rounded-lg border border-border bg-card p-4">
             <h2 id="imports-add" className="text-lg font-medium text-card-foreground">Add records</h2>
             <div
@@ -390,7 +474,7 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
               <UploadCloud className="size-8 text-primary" aria-hidden="true" />
               <p className="font-medium text-foreground">Drop a file here</p>
               <p className="max-w-md text-sm text-muted-foreground">
-                A C-CDA or FHIR file, or a MyChart or Epic EHI export ZIP. PHR checks what it is and shows you before anything is imported.
+                A C-CDA or FHIR file, a MyChart or Epic EHI export ZIP, or a PDF or photo for AI. PHR checks what it is and shows you before anything is imported.
               </p>
               <Button type="button" disabled={!canUpload} onClick={() => fileInputRef.current?.click()}>Choose file</Button>
             </div>
@@ -426,7 +510,7 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
           <section aria-labelledby="imports-recent" className="rounded-lg border border-border bg-card p-4">
             <h2 id="imports-recent" className="text-lg font-medium text-card-foreground">Recent imports</h2>
             {recentError && <p role="alert" className="mt-2 text-sm text-destructive">{recentError}</p>}
-            {rows.length === 0 && !recentError && <p className="mt-2 text-sm text-muted-foreground">No EHI exports imported for {patientName || 'this patient'} yet.</p>}
+            {rows.length === 0 && !recentError && <p className="mt-2 text-sm text-muted-foreground">Nothing imported for {patientName || 'this patient'} yet.</p>}
             {rows.length > 0 && (
               <div className="mt-2 overflow-x-auto">
                 <table className="w-full min-w-[520px] text-left text-sm">
@@ -436,6 +520,7 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
                   <tbody>
                     {rows.map((row) => {
                       const reviewable = row.pkg ? packageStatus(row.pkg).reviewable : false
+                      const ai = row.ai ? aiImportStatus(row.ai) : null
                       return (
                         <tr key={row.key} className="border-t border-border">
                           <td className="py-2 pr-4"><span className="font-medium text-foreground">{row.title}</span><span className="block text-xs text-muted-foreground">{row.kind}</span></td>
@@ -447,7 +532,13 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
                           </td>
                           <td className="py-2 pr-4 text-muted-foreground">{row.received}</td>
                           <td className="py-2 text-right">
-                            {reviewable && row.pkg ? (
+                            {row.ai && ai ? (
+                              ai.reviewable ? (
+                                <Button type="button" size="sm" variant="outline" onClick={() => setView({ kind: 'ai-review', patientId: selectedPatientId!, importId: row.ai!.id })}>Review</Button>
+                              ) : ai.retryable ? (
+                                <Button type="button" size="sm" variant="ghost" onClick={() => void retryAi(row.ai!)}>Try again</Button>
+                              ) : null
+                            ) : reviewable && row.pkg ? (
                               <Button type="button" size="sm" variant="outline" onClick={() => setView({ kind: 'review', patientId: row.pkg!.patient_id, packageId: row.pkg!.id, sourceLabel: row.pkg!.source?.label ?? null })}>Review</Button>
                             ) : (
                               <Button
@@ -532,20 +623,52 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
             </>
           )}
           {fileKind(view.file) === 'other' && (
-            <>
-              <div>
-                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Not imported</p>
-                <h2 id="imports-check" className="mt-1 text-lg font-semibold text-card-foreground">PHR can’t import this file here yet</h2>
-                <p className="text-sm text-muted-foreground">{view.file.name} · {formatBytes(view.file.size)}</p>
-              </div>
-              <p className="text-sm text-foreground">
-                This page imports C-CDA and FHIR files and MyChart or Epic EHI export ZIPs. PDFs and photos go through the Documents tab for now.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" onClick={() => fileInputRef.current?.click()}>Choose another file</Button>
-                <Button type="button" variant="outline" onClick={() => setView({ kind: 'home' })}>Back</Button>
-              </div>
-            </>
+            canKeepAsDocument(view.file) ? (
+              <>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Document or photo</p>
+                  <h2 id="imports-check" className="mt-1 text-lg font-semibold text-card-foreground">Extract records with AI</h2>
+                  <p className="text-sm text-muted-foreground">{view.file.name} · {formatBytes(view.file.size)}</p>
+                </div>
+                <p className="text-sm text-foreground">
+                  PHR’s own parsers can’t read this file, but AI can.{' '}
+                  {executionMode === 'external'
+                    ? <>Your settings send AI work to the <strong className="font-semibold">AI Agent Inbox</strong>: the assistant you have connected to PHR picks it up the next time you ask it to check the inbox. Nothing is sent to an AI provider by PHR.</>
+                    : <>Your settings send AI work to <strong className="font-semibold">server-side AI</strong>, using the provider key you saved.</>}
+                  {' '}What it proposes comes back here for your review; nothing is added until you accept it.
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  The file is kept as a document either way. <a className="font-medium text-primary underline-offset-4 hover:underline" href={phrSectionUrl('config')}>Change AI settings</a>
+                </p>
+                <label className="flex items-center gap-2 text-sm font-medium">
+                  <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />
+                  This file belongs to {patientName}
+                </label>
+                {aiError && <p role="alert" className="text-sm text-destructive">{aiError}</p>}
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" disabled={!confirmed || !canUpload || aiBusy} onClick={() => void keepFile(view.file, true)}>
+                    {executionMode === 'external' ? 'Keep and send to AI Agent Inbox' : 'Keep and process with AI'}
+                  </Button>
+                  <Button type="button" variant="outline" disabled={!confirmed || !canUpload || aiBusy} onClick={() => void keepFile(view.file, false)}>Keep as a document only</Button>
+                  <Button type="button" variant="ghost" disabled={aiBusy} onClick={() => setView({ kind: 'home' })}>Cancel</Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Not imported</p>
+                  <h2 id="imports-check" className="mt-1 text-lg font-semibold text-card-foreground">PHR can’t import this file</h2>
+                  <p className="text-sm text-muted-foreground">{view.file.name} · {formatBytes(view.file.size)}</p>
+                </div>
+                <p className="text-sm text-foreground">
+                  PHR imports C-CDA and FHIR files, MyChart and Epic EHI export ZIPs, and PDFs, images and text files up to {formatBytes(DOCUMENT_MAX_BYTES)} for AI.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" onClick={() => fileInputRef.current?.click()}>Choose another file</Button>
+                  <Button type="button" variant="outline" onClick={() => setView({ kind: 'home' })}>Back</Button>
+                </div>
+              </>
+            )
           )}
         </section>
       )}
@@ -586,6 +709,19 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
             onChanged={reloadRecent}
           />
         </section>
+      )}
+
+      {view.kind === 'ai-review' && (
+        <div className="mt-6 max-w-3xl">
+          <AiImportReview
+            patientId={view.patientId}
+            importId={view.importId}
+            onBack={() => {
+              setView({ kind: 'home' })
+              void reloadRecent()
+            }}
+          />
+        </div>
       )}
 
       {view.kind === 'review' && (

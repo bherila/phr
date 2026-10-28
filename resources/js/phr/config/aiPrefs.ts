@@ -47,6 +47,8 @@ export const AiExecutionModeResponseSchema = z.object({
   mcp_url: z.string().url(),
   rest_base_url: z.string().url(),
   required_scopes: z.array(z.string()),
+  /** False while the mode follows the default: the AI Agent Inbox unless a usable key is saved. */
+  mode_chosen: z.boolean().optional(),
 })
 
 export const AI_PROVIDER_LABELS: Record<AiProvider, string> = {

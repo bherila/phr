@@ -30,6 +30,10 @@ jest.mock('@/phr/imports/ehi/ehiApi', () => ({
   listEhiUploads: () => Promise.resolve([]),
   listEhiPackages: () => Promise.resolve([]),
 }))
+jest.mock('@/phr/imports/ai/aiImportsApi', () => ({
+  ...jest.requireActual('@/phr/imports/ai/aiImportsApi'),
+  listAiImports: () => Promise.resolve([]),
+}))
 
 function patient(overrides: Partial<PhrPatient> = {}): PhrPatient {
   return {

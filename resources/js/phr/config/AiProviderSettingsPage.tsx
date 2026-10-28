@@ -89,6 +89,7 @@ export default function AiProviderSettingsPage(): ReactElement {
   const [notice, setNotice] = useState<string | null>(null)
   const [executionMode, setExecutionMode] = useState<'api' | 'external'>(genAiExecutionMode)
   const [executionModeBusy, setExecutionModeBusy] = useState(false)
+  const [modeChosen, setModeChosen] = useState<boolean | null>(null)
   const formHeadingId = useId()
   const sessionTokenId = useId()
 
@@ -108,6 +109,22 @@ export default function AiProviderSettingsPage(): ReactElement {
   useEffect(() => {
     void loadConfigurations()
   }, [loadConfigurations])
+
+  useEffect(() => {
+    let cancelled = false
+    fetchWrapper.get('/api/user/ai-execution-mode').then((raw: unknown) => {
+      const response = AiExecutionModeResponseSchema.parse(raw)
+      if (cancelled) return
+      setExecutionMode(response.mode)
+      setModeChosen(response.mode_chosen ?? true)
+    }).catch(() => {
+      // The page still works from the mode the shell rendered with.
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   function startCreate(): void {
     setEditingId(null)
@@ -285,7 +302,9 @@ export default function AiProviderSettingsPage(): ReactElement {
   }
 
   async function changeExecutionMode(mode: 'api' | 'external'): Promise<void> {
-    if (mode === executionMode) return
+    // Picking the mode already in effect still records it as chosen, so a later
+    // saved key does not move someone who wants the inbox.
+    if (mode === executionMode && modeChosen !== false) return
 
     setExecutionModeBusy(true)
     setNotice(null)
@@ -294,9 +313,10 @@ export default function AiProviderSettingsPage(): ReactElement {
       const raw: unknown = await fetchWrapper.put('/api/user/ai-execution-mode', { mode })
       const response = AiExecutionModeResponseSchema.parse(raw)
       setExecutionMode(response.mode)
+      setModeChosen(response.mode_chosen ?? true)
       setNotice(response.mode === 'external'
-        ? 'Pending imports will wait for your connected subscription client.'
-        : 'Pending imports will use your active API configuration.')
+        ? 'Documents you send to AI will wait in your AI Agent Inbox for your connected assistant.'
+        : 'Documents you send to AI will be processed by server-side AI with your active configuration.')
     } catch (caught) {
       setLoadError(errorMessage(caught))
     } finally {
@@ -325,10 +345,18 @@ export default function AiProviderSettingsPage(): ReactElement {
         </div>
 
         <section className="mt-6 rounded-lg border border-border bg-card p-4 shadow-sm" aria-labelledby="execution-mode-heading">
-          <h2 id="execution-mode-heading" className="text-lg font-semibold text-card-foreground">Document processing mode</h2>
+          <h2 id="execution-mode-heading" className="text-lg font-semibold text-card-foreground">Where AI work goes</h2>
           <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-            Choose API credentials hosted by PHR, or process queued documents with your own Codex, Claude Code, or other REST-capable subscription client. External processing never falls back to a hosted API key.
+            Documents you send to AI are processed either in your AI Agent Inbox, by the assistant you connect to PHR (Codex, Claude Code, or another MCP or REST client), or by server-side AI with a provider key you save below. The inbox never falls back to a server-side key.
           </p>
+          {modeChosen === false && (
+            <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+              <span>You have not chosen, so the default applies: the AI Agent Inbox, unless you save a usable provider key.</span>
+              <Button type="button" variant="outline" size="sm" disabled={executionModeBusy} onClick={() => void changeExecutionMode(executionMode)}>
+                {executionMode === 'external' ? 'Always use the AI Agent Inbox' : 'Always use server-side AI'}
+              </Button>
+            </p>
+          )}
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <label className="flex cursor-pointer gap-3 rounded-md border border-border p-3">
               <input
@@ -339,7 +367,7 @@ export default function AiProviderSettingsPage(): ReactElement {
                 disabled={executionModeBusy}
                 onChange={() => void changeExecutionMode('api')}
               />
-              <span><span className="block font-medium text-foreground">PHR API credentials</span><span className="text-sm text-muted-foreground">Use the active provider configuration below.</span></span>
+              <span><span className="block font-medium text-foreground">Server-side AI</span><span className="text-sm text-muted-foreground">PHR sends documents to the active provider configuration below.</span></span>
             </label>
             <label className="flex cursor-pointer gap-3 rounded-md border border-border p-3">
               <input
@@ -350,7 +378,7 @@ export default function AiProviderSettingsPage(): ReactElement {
                 disabled={executionModeBusy}
                 onChange={() => void changeExecutionMode('external')}
               />
-              <span><span className="block font-medium text-foreground">My subscription client</span><span className="text-sm text-muted-foreground">Keep work queued until your OAuth-connected client drains it over MCP or REST.</span></span>
+              <span><span className="block font-medium text-foreground">AI Agent Inbox</span><span className="text-sm text-muted-foreground">Documents wait in your inbox until your connected assistant processes them over MCP or REST.</span></span>
             </label>
           </div>
           {executionMode === 'external' ? (
