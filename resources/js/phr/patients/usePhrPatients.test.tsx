@@ -23,6 +23,13 @@ jest.mock('@/fetchWrapper', () => ({
   },
 }))
 jest.mock('@/phr/uploads', () => ({ useDicomUploads: () => ({ startUpload: jest.fn() }) }))
+jest.mock('@/phr/imports/ehi/EhiUploadProvider', () => ({ useEhiUploads: () => ({ jobs: [], start: jest.fn(), cancel: jest.fn(), dismiss: jest.fn() }) }))
+// The imports page also lists recent EHI imports; keep those off the patient-list GET counted here.
+jest.mock('@/phr/imports/ehi/ehiApi', () => ({
+  ...jest.requireActual('@/phr/imports/ehi/ehiApi'),
+  listEhiUploads: () => Promise.resolve([]),
+  listEhiPackages: () => Promise.resolve([]),
+}))
 
 function patient(overrides: Partial<PhrPatient> = {}): PhrPatient {
   return {
@@ -142,15 +149,15 @@ it('does not resurrect a deleted patient from an older in-flight GET', async () 
   let finish!: (value: unknown) => void
   mockGet.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
   render(<PhrPatientsProvider><Consumer /><ImportsPage patientId={42} /></PhrPatientsProvider>)
-  expect(screen.getByRole('button', { name: 'Upload DICOM folder' })).toBeEnabled()
+  expect(screen.getByRole('button', { name: 'Choose DICOM folder' })).toBeEnabled()
   fireEvent.click(screen.getByRole('button', { name: 'Reload list' }))
   await waitFor(() => expect(mockGet).toHaveBeenCalledTimes(1))
   fireEvent.click(screen.getByRole('button', { name: 'Remove list' }))
-  expect(screen.getByRole('button', { name: 'Upload DICOM folder' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Choose DICOM folder' })).toBeDisabled()
   expect(screen.getByLabelText('Import into')).toHaveValue('')
   await act(async () => { finish({ patients: [patient()] }) })
   expect(snapshot().patients).toEqual([])
-  expect(screen.getByRole('button', { name: 'Upload DICOM folder' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Choose DICOM folder' })).toBeDisabled()
 })
 
 it('preserves loaded patients after a failed reload and permits a retry', async () => {

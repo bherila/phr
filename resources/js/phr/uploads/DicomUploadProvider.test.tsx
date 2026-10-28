@@ -3,6 +3,7 @@ import '@testing-library/jest-dom'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ReactElement } from 'react'
 
+import { EhiUploadProvider } from '@/phr/imports/ehi/EhiUploadProvider'
 import ImportsPage from '@/phr/imports/ImportsPage'
 
 import {
@@ -56,7 +57,9 @@ function makePatient(overrides: Record<string, unknown> = {}) {
 function Harness({ budget }: { budget?: ConcurrencyBudget }): ReactElement {
   return (
     <DicomUploadProvider {...(budget ? { budget } : {})}>
-      <ImportsPage patientId={PATIENT_ID} />
+      <EhiUploadProvider>
+        <ImportsPage patientId={PATIENT_ID} />
+      </EhiUploadProvider>
       <DicomUploadTray />
     </DicomUploadProvider>
   )
@@ -65,12 +68,12 @@ function Harness({ budget }: { budget?: ConcurrencyBudget }): ReactElement {
 async function renderImports(budget?: ConcurrencyBudget) {
   const result = render(<Harness {...(budget ? { budget } : {})} />)
   // The trigger enables once the patient list lands, which is when an upload can start.
-  await waitFor(() => expect(screen.getByRole('button', { name: /upload dicom folder/i })).toBeEnabled())
+  await waitFor(() => expect(screen.getByRole('button', { name: /choose dicom folder/i })).toBeEnabled())
   return result
 }
 
 function fileInput(container: HTMLElement): HTMLInputElement {
-  const input = container.querySelector('input[type="file"]')
+  const input = container.querySelector('input[type="file"][aria-label="DICOM folder"]')
   if (!(input instanceof HTMLInputElement)) {
     throw new Error('Expected the DICOM folder input to render.')
   }
