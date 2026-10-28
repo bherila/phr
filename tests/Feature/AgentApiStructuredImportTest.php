@@ -16,6 +16,7 @@ use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Models\User;
 use App\Services\PHR\Import\Ehi\EhiUploadService;
+use App\Services\PHR\Import\PhrStructuredDocumentImporter;
 use App\Support\AgentApi\AgentApiResponseSchemaCatalog;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\PHR\PhrReviewStatus;
@@ -140,6 +141,21 @@ final class AgentApiStructuredImportTest extends TestCase
             ->assertJsonPath('outcome', 'unchanged')
             ->assertJsonPath('data.id', $job->id);
         $this->assertSame(0, PhrImmunization::query()->count(), 'not imported a second time beside the AI proposals');
+    }
+
+    public function test_a_structured_document_too_large_to_import_directly_is_refused_not_sent_to_ai(): void
+    {
+        $owner = $this->user('large-owner@example.test');
+        $patient = $this->patient($owner, 'Synthetic Large Patient');
+        $document = $this->storedDocument($patient, $owner, 'huge-summary.xml', 'application/xml', PhrCcdaSyntheticDocument::xml());
+        // The recorded size is what decides; the stored bytes stay small for the test.
+        $document->forceFill(['byte_size' => PhrStructuredDocumentImporter::MAX_DIRECT_BYTES + 1])->save();
+        Passport::actingAs($owner, [AgentApiScopes::IMPORTS_WRITE], 'api', $this->client('Synthetic Large Client'));
+
+        $this->postJson("/api/v1/patients/{$patient->id}/imports", ['document_id' => $document->id])->assertStatus(422);
+
+        $this->assertDatabaseCount('genai_import_jobs', 0);
+        $this->assertSame(0, PhrImmunization::query()->count());
     }
 
     public function test_a_structured_document_naming_two_people_is_refused_not_sent_to_ai(): void

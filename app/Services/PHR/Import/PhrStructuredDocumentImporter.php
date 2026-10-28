@@ -67,6 +67,12 @@ final class PhrStructuredDocumentImporter
             return null;
         }
         if ((int) $document->byte_size > self::MAX_DIRECT_BYTES) {
+            // Too large to read whole. One that announces itself as C-CDA or FHIR
+            // is refused, never sent to AI; anything else goes to AI as before.
+            if (preg_match('/<(?:\w+:)?ClinicalDocument\b|"resourceType"\s*:\s*"Bundle"/', $opening) === 1) {
+                throw new UnprocessableEntityHttpException('The document is a C-CDA or FHIR file larger than PHR imports directly (50 MB); nothing was imported.');
+            }
+
             return null;
         }
         try {
