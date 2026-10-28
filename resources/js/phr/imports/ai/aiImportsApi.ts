@@ -98,10 +98,12 @@ export async function sendDocumentToAi(patientId: number, documentId: number): P
 /** Where an AI import stands, in a few words. */
 export function aiImportStatus(job: AiImport): { status: string, reviewable: boolean, retryable: boolean } {
   if (job.status === 'failed') return { status: 'Stopped', reviewable: false, retryable: job.can_retry }
-  if (job.status === 'parsed' || job.result_count > 0) {
-    return job.pending_result_count > 0
-      ? { status: `${job.pending_result_count} to review`, reviewable: true, retryable: false }
-      : { status: 'Reviewed', reviewable: job.result_count > 0, retryable: false }
+  // Finished: parsed or imported, or results already in.
+  if (job.status === 'parsed' || job.status === 'imported' || job.result_count > 0) {
+    if (job.pending_result_count > 0) return { status: `${job.pending_result_count} to review`, reviewable: true, retryable: false }
+    return job.result_count > 0
+      ? { status: 'Reviewed', reviewable: true, retryable: false }
+      : { status: 'Nothing proposed', reviewable: false, retryable: false }
   }
   return { status: job.execution_mode === 'external' ? 'With your agent' : 'With server-side AI', reviewable: false, retryable: false }
 }
