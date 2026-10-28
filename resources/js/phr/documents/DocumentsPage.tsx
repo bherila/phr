@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
 import { formatBytes } from '@/lib/utils'
 import { isBrowserPreviewableImage } from '@/phr/documents/browserImagePreview'
+import { EhiPendingBanner } from '@/phr/imports/ehi/EhiPendingBanner'
 import type { PhrListPageProps } from '@/phr/miller'
 import { errorMessage } from '@/phr/shared'
 import {
@@ -293,6 +294,8 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
           </Button>
         </div>
       </div>
+
+      <EhiPendingBanner patientId={patientId} mapping="document" />
 
       {error && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
