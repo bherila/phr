@@ -48,7 +48,7 @@ final class PhrStructuredImportController extends Controller
         }
 
         $contents = PhrStructuredFormat::normalize((string) file_get_contents($validated['file']->getRealPath()));
-        $format = PhrStructuredFormat::detect($contents);
+        [$format, $bundle] = PhrStructuredFormat::read($contents);
         if ($format === null) {
             return $this->privateJson(['error' => 'unsupported_format'], 422);
         }
@@ -57,7 +57,7 @@ final class PhrStructuredImportController extends Controller
             // leave the entries before it written, unsummarized.
             $result = DB::transaction(fn () => $format === PhrStructuredFormat::CCDA
                 ? $this->ccda->importXml($contents, $patientModel, $actor)
-                : $this->fhir->importBundle((array) PhrStructuredFormat::fhirBundle($contents), $patientModel, $actor));
+                : $this->fhir->importBundle((array) $bundle, $patientModel, $actor));
         } catch (Throwable $failure) {
             if (! $failure instanceof InvalidArgumentException) {
                 Log::warning('Structured file import failed.', ['exception' => $failure::class]);

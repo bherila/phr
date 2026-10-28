@@ -64,14 +64,14 @@ class PhrMyChartZipImporter
                 // Routed by what the member is, as recognizes() decided, never by its
                 // extension; JSON or XML that is neither format is not clinical content.
                 $contents = PhrStructuredFormat::normalize($contents);
-                $format = PhrStructuredFormat::detect($contents);
+                [$format, $bundle] = PhrStructuredFormat::read($contents);
                 if ($format === null) {
                     continue;
                 }
 
                 try {
                     $result->merge($format === PhrStructuredFormat::FHIR
-                        ? $this->fhirImporter->importBundle((array) PhrStructuredFormat::fhirBundle($contents), $patient, $actorUserId)
+                        ? $this->fhirImporter->importBundle((array) $bundle, $patient, $actorUserId)
                         : $this->ccdaImporter->importXml($contents, $patient, $actorUserId));
                 } catch (\Throwable $exception) {
                     // Fixed text only: an exception message can carry a server path,

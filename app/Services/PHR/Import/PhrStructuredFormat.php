@@ -53,6 +53,24 @@ final class PhrStructuredFormat
     }
 
     /**
+     * Recognize and, for FHIR, decode in one pass: a large bundle is decoded once,
+     * not once to recognize it and again to import it. The text must already be
+     * normalized.
+     *
+     * @return array{0: self::FHIR|self::CCDA|null, 1: array<string, mixed>|null} the format, and the decoded bundle for FHIR
+     */
+    public static function read(string $normalized): array
+    {
+        if ($normalized !== '' && $normalized[0] === '{') {
+            $bundle = self::fhirBundle($normalized);
+
+            return [$bundle !== null ? self::FHIR : null, $bundle];
+        }
+
+        return [self::detect($normalized), null];
+    }
+
+    /**
      * The decoded bundle, when the text is a FHIR Bundle.
      *
      * @return array<string, mixed>|null
