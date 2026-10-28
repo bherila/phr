@@ -364,7 +364,7 @@ class PhrEhiImportRoutesTest extends TestCase
         self::assertNull($shown['package_id']);
         self::assertSame(1, $shown['import_result']['created']);
         self::assertSame(1, $shown['import_result']['skipped']);
-        self::assertCount(1, $shown['import_result']['warnings']);
+        self::assertSame(['Skipped Records/broken.json: it could not be imported.'], $shown['import_result']['warnings'], 'fixed text, never an exception message');
         self::assertSame(PhrReviewStatus::PENDING, PhrCondition::query()->where('patient_id', $patient->id)->sole()->review_status);
         self::assertSame(0, PhrEhiPackage::query()->count());
         self::assertFalse(Storage::disk((string) config('phr.ehi_disk'))->exists($staged), 'the archive is not kept once imported');

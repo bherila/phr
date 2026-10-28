@@ -5,6 +5,7 @@ namespace App\Services\PHR\Import;
 use App\Models\PhrPatient;
 use App\Services\PHR\Import\Ehi\EhiExportNotSupportedHere;
 use App\Services\PHR\Import\Ehi\EhiPackageDetector;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use ZipArchive;
 
@@ -73,7 +74,10 @@ class PhrMyChartZipImporter
                         ? $this->fhirImporter->importBundle((array) PhrStructuredFormat::fhirBundle($contents), $patient, $actorUserId)
                         : $this->ccdaImporter->importXml($contents, $patient, $actorUserId));
                 } catch (\Throwable $exception) {
-                    $result->warn("Skipped {$name}: ".$exception->getMessage());
+                    // Fixed text only: an exception message can carry a server path,
+                    // SQL with record values, or other detail that is not for display.
+                    Log::warning('MyChart ZIP member could not be imported.', ['exception' => $exception::class]);
+                    $result->warn("Skipped {$name}: it could not be imported.");
                     $result->addSkipped();
                 }
             }
