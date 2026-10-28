@@ -85,6 +85,11 @@ class PhrStorageMap
             // row protects the object that every member with those bytes shares.
             ->from('phr_ehi_blobs', 'storage_path')
 
+            // A browser-uploaded EHI ZIP staged for intake, on the same disk. The
+            // row protects it until intake finishes or the upload expires, when
+            // the archive is deleted and the column nulled.
+            ->from('phr_ehi_uploads', 'storage_path')
+
             // Patient deletion commits the database graph first, then retries exact
             // artifact cleanup. Durable work rows protect those keys in between.
             ->from('phr_patient_deletion_artifacts', 'storage_key')

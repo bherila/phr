@@ -301,6 +301,10 @@ final class PhrNativeBackupCatalog
                 'patient_column' => 'patient_id',
                 'because' => 'Operational rollout and rollback ledger; restored blobs are written directly to canonical keys.',
             ],
+            'phr_ehi_uploads' => [
+                'patient_column' => 'patient_id',
+                'because' => 'Transient browser staging of an EHI ZIP; the package intake produced from it is backed up with its preserved members.',
+            ],
         ];
     }
 

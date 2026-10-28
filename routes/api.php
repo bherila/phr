@@ -39,6 +39,7 @@ use App\Http\Controllers\PHR\PatientAccessController as PHRPatientAccessControll
 use App\Http\Controllers\PHR\PatientController as PHRPatientController;
 use App\Http\Controllers\PHR\PhrDataHubController;
 use App\Http\Controllers\PHR\PhrDocumentController;
+use App\Http\Controllers\PHR\PhrEhiImportController;
 use App\Http\Controllers\PHR\PhrExportController;
 use App\Http\Controllers\PHR\PhrGenAiImportController;
 use App\Http\Controllers\PHR\PhrNativeBackupController;
@@ -458,6 +459,20 @@ Route::middleware(['web', 'auth'])
         Route::patch('/patients/{patient}/documents/{document}', [PhrDocumentController::class, 'update'])->whereNumber(['patient', 'document'])->name('patients.documents.update');
         Route::delete('/patients/{patient}/documents/{document}', [PhrDocumentController::class, 'destroy'])->whereNumber(['patient', 'document'])->name('patients.documents.destroy');
         Route::post('/patients/{patient}/documents/{document}/process', [PhrDocumentController::class, 'process'])->whereNumber(['patient', 'document'])->name('patients.documents.process');
+        // Epic EHI Tables import from the browser (#235): chunked ZIP upload, queued
+        // intake, binding, preview, and per-proposal review over the CLI's services.
+        Route::get('/patients/{patient}/ehi/uploads', [PhrEhiImportController::class, 'uploads'])->whereNumber('patient')->name('patients.ehi.uploads.index');
+        Route::post('/patients/{patient}/ehi/uploads', [PhrEhiImportController::class, 'startUpload'])->whereNumber('patient')->middleware('throttle:10,1')->name('patients.ehi.uploads.store');
+        Route::get('/patients/{patient}/ehi/uploads/{upload}', [PhrEhiImportController::class, 'showUpload'])->whereNumber(['patient', 'upload'])->name('patients.ehi.uploads.show');
+        Route::post('/patients/{patient}/ehi/uploads/{upload}/chunks', [PhrEhiImportController::class, 'appendChunk'])->whereNumber(['patient', 'upload'])->middleware('throttle:120,1')->name('patients.ehi.uploads.chunks.store');
+        Route::post('/patients/{patient}/ehi/uploads/{upload}/intake', [PhrEhiImportController::class, 'queueIntake'])->whereNumber(['patient', 'upload'])->middleware('throttle:10,1')->name('patients.ehi.uploads.intake');
+        Route::get('/patients/{patient}/ehi/packages', [PhrEhiImportController::class, 'packages'])->whereNumber('patient')->name('patients.ehi.packages.index');
+        Route::get('/patients/{patient}/ehi/packages/{package}', [PhrEhiImportController::class, 'showPackage'])->whereNumber(['patient', 'package'])->name('patients.ehi.packages.show');
+        Route::get('/patients/{patient}/ehi/packages/{package}/binding', [PhrEhiImportController::class, 'bindingSuggestions'])->whereNumber(['patient', 'package'])->name('patients.ehi.packages.binding.show');
+        Route::post('/patients/{patient}/ehi/packages/{package}/binding', [PhrEhiImportController::class, 'bind'])->whereNumber(['patient', 'package'])->name('patients.ehi.packages.binding.store');
+        Route::post('/patients/{patient}/ehi/packages/{package}/preview', [PhrEhiImportController::class, 'preview'])->whereNumber(['patient', 'package'])->middleware('throttle:10,1')->name('patients.ehi.packages.preview');
+        Route::get('/patients/{patient}/ehi/packages/{package}/proposals', [PhrEhiImportController::class, 'proposals'])->whereNumber(['patient', 'package'])->name('patients.ehi.packages.proposals.index');
+        Route::post('/patients/{patient}/ehi/proposals/{proposal}/review', [PhrEhiImportController::class, 'review'])->whereNumber(['patient', 'proposal'])->name('patients.ehi.proposals.review');
         Route::get('/patients/{patient}/exports', [PhrExportController::class, 'index'])->whereNumber('patient')->name('patients.exports.index');
         Route::post('/patients/{patient}/exports', [PhrExportController::class, 'store'])->whereNumber('patient')->name('patients.exports.store');
         Route::get('/patients/{patient}/native-backups', [PhrNativeBackupController::class, 'index'])->whereNumber('patient')->name('patients.native-backups.index');

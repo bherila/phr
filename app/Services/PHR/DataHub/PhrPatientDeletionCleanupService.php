@@ -113,7 +113,8 @@ final class PhrPatientDeletionCleanupService
     {
         if (DB::table('phr_documents')
             ->where('storage_disk', $disk)->where('storage_path', $key)->exists()
-            || DB::table('phr_ehi_blobs')->where('storage_disk', $disk)->where('storage_path', $key)->exists()) {
+            || DB::table('phr_ehi_blobs')->where('storage_disk', $disk)->where('storage_path', $key)->exists()
+            || DB::table('phr_ehi_uploads')->where('storage_disk', $disk)->where('storage_path', $key)->exists()) {
             return true;
         }
         if ($disk === 'phr_dicom') {
