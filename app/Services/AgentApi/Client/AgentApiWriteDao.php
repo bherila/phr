@@ -133,7 +133,7 @@ final readonly class AgentApiWriteDao
             'POST',
             "patients/{$patientId}/imports",
             json: ['document_id' => $documentId],
-        ), 'import_job');
+        ), 'import_job', 'structured_import');
     }
 
     public function importRetry(int $patientId, int $importId): AgentImportPayload

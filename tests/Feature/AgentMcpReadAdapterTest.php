@@ -12,6 +12,7 @@ use App\Models\PhrDicomSeries;
 use App\Models\PhrDicomStudy;
 use App\Models\PhrDocument;
 use App\Models\PhrHealthLog;
+use App\Models\PhrImmunization;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
@@ -33,6 +34,7 @@ use Laravel\Passport\Client;
 use Laravel\Passport\Passport;
 use Symfony\Component\HttpFoundation\Response;
 use Tests\Concerns\ConfiguresPassportKeys;
+use Tests\Support\PhrCcdaSyntheticDocument;
 use Tests\TestCase;
 
 final class AgentMcpReadAdapterTest extends TestCase
@@ -835,6 +837,37 @@ final class AgentMcpReadAdapterTest extends TestCase
             'synthetic MCP document',
             json_encode(AgentApiAudit::query()->get()->toArray(), JSON_THROW_ON_ERROR),
         );
+    }
+
+    public function test_mcp_imports_create_returns_a_structured_import_for_a_ccda_document(): void
+    {
+        Storage::fake(PhrDocument::STORAGE_DISK);
+        Queue::fake();
+        $actor = $this->user('mcp-ccda-writer@example.test');
+        $patient = $this->patient($actor, 'Synthetic MCP C-CDA Patient');
+        $xml = PhrCcdaSyntheticDocument::xml();
+        $path = "patients/{$patient->id}/documents/synthetic/summary.xml";
+        Storage::disk(PhrDocument::STORAGE_DISK)->put($path, $xml);
+        $document = PhrDocument::query()->create([
+            'patient_id' => $patient->id, 'user_id' => $actor->id, 'uploaded_by_user_id' => $actor->id,
+            'title' => 'Synthetic MCP C-CDA', 'document_type' => 'other', 'original_filename' => 'summary.xml',
+            'storage_disk' => PhrDocument::STORAGE_DISK, 'storage_path' => $path, 'mime_type' => 'application/xml',
+            'byte_size' => strlen($xml), 'file_hash' => hash('sha256', $xml), 'source' => 'manual_upload',
+        ]);
+        $client = Client::query()->create([
+            'name' => 'Synthetic MCP C-CDA Writer', 'secret' => null, 'provider' => 'users',
+            'redirect_uris' => ['https://client.example.test/callback'], 'grant_types' => ['authorization_code', 'refresh_token'], 'revoked' => false,
+        ]);
+        Passport::actingAs($actor, [AgentApiScopes::MCP_USE, AgentApiScopes::IMPORTS_WRITE], 'api', $client);
+
+        $created = $this->callTool($this->initializeSession(), 2, 'imports.create', ['patient_id' => $patient->id, 'document_id' => $document->id]);
+
+        $this->assertFalse($created['result']['isError'] ?? true, json_encode($created, JSON_THROW_ON_ERROR));
+        $this->assertSame('structured_import', $created['result']['structuredContent']['resource_type'] ?? null);
+        $this->assertSame('imported', $created['result']['structuredContent']['outcome'] ?? null);
+        $this->assertGreaterThan(0, $created['result']['structuredContent']['data']['import']['created'] ?? 0);
+        $this->assertGreaterThan(0, PhrImmunization::query()->where('patient_id', $patient->id)->count());
+        Queue::assertNotPushed(ParseImportJob::class);
     }
 
     public function test_mcp_import_tools_use_the_typed_rest_workflow(): void
