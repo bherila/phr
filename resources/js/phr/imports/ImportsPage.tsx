@@ -358,7 +358,7 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
                     <span>{job.fileName} · {Math.floor((job.bytesSent / Math.max(1, job.fileSizeBytes)) * 100)}%</span>
                     <span className="flex gap-2">
                       <Button type="button" size="sm" variant="outline" onClick={() => setView({ kind: 'flow', jobId: job.id })}>Open</Button>
-                      <Button type="button" size="sm" variant="ghost" onClick={() => ehiUploads.cancel(job.id)}>Cancel</Button>
+                      {job.cancellable && <Button type="button" size="sm" variant="ghost" onClick={() => ehiUploads.cancel(job.id)}>Cancel</Button>}
                     </span>
                   </li>
                 ))}
@@ -468,7 +468,7 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
               {flowJob && <p className="text-sm text-muted-foreground">{flowJob.fileName} · {formatBytes(flowJob.fileSizeBytes)}</p>}
             </div>
             <span className="flex gap-2">
-              {flowJob?.phase === 'uploading' && <Button type="button" size="sm" variant="ghost" onClick={() => ehiUploads.cancel(flowJob.id)}>Cancel upload</Button>}
+              {flowJob?.phase === 'uploading' && flowJob.cancellable && <Button type="button" size="sm" variant="ghost" onClick={() => ehiUploads.cancel(flowJob.id)}>Cancel upload</Button>}
               <Button type="button" size="sm" variant="outline" onClick={() => setView({ kind: 'home' })}>All imports</Button>
             </span>
           </div>

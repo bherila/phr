@@ -17,6 +17,11 @@ export interface EhiUploadJob {
   /** Bytes the server has acknowledged. */
   bytesSent: number
   phase: EhiUploadPhase
+  /**
+   * False once every byte is acknowledged: intake is then being queued, and a
+   * cancel could no longer stop the import it claims to.
+   */
+  cancellable: boolean
   error: string | null
 }
 
@@ -58,6 +63,8 @@ export interface EhiUploadProviderProps {
 export function EhiUploadProvider({ children, retryDelayMs = 1000 }: EhiUploadProviderProps): ReactElement {
   const [jobs, setJobs] = useState<EhiUploadJob[]>([])
   const controllersRef = useRef(new Map<string, AbortController>())
+  /** Jobs past the point where cancelling could stop them. */
+  const committedRef = useRef(new Set<string>())
 
   const update = useCallback((jobId: string, patch: Partial<EhiUploadJob>): void => {
     setJobs((previous) => previous.map((job) => (job.id === jobId ? { ...job, ...patch } : job)))
@@ -99,6 +106,11 @@ export function EhiUploadProvider({ children, retryDelayMs = 1000 }: EhiUploadPr
           }
         }
       }
+      if (signal.aborted) {
+        return
+      }
+      committedRef.current.add(jobId)
+      update(jobId, { cancellable: false })
       await queueEhiIntake(patientId, opened.id)
       update(jobId, { phase: 'queued' })
     } catch (caught) {
@@ -125,6 +137,7 @@ export function EhiUploadProvider({ children, retryDelayMs = 1000 }: EhiUploadPr
       uploadId: null,
       bytesSent: 0,
       phase: 'uploading',
+      cancellable: true,
       error: null,
     }])
     void run(jobId, patientId, file, controller.signal)
@@ -133,12 +146,17 @@ export function EhiUploadProvider({ children, retryDelayMs = 1000 }: EhiUploadPr
   }, [run])
 
   const cancel = useCallback((jobId: string): void => {
+    if (committedRef.current.has(jobId)) {
+      return
+    }
     controllersRef.current.get(jobId)?.abort()
-    update(jobId, { phase: 'cancelled', error: null })
+    update(jobId, { phase: 'cancelled', cancellable: false, error: null })
   }, [update])
 
   const dismiss = useCallback((jobId: string): void => {
-    controllersRef.current.get(jobId)?.abort()
+    if (!committedRef.current.has(jobId)) {
+      controllersRef.current.get(jobId)?.abort()
+    }
     setJobs((previous) => previous.filter((job) => job.id !== jobId))
   }, [])
 

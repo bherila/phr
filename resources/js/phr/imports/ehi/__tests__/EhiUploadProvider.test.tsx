@@ -29,7 +29,7 @@ function Harness(): ReactElement {
   })
   return (
     <ul>
-      {uploads.jobs.map((job) => <li key={job.id}>{`${job.phase} ${job.bytesSent}/${job.fileSizeBytes}${job.error ? ` ${job.error}` : ''}`}</li>)}
+      {uploads.jobs.map((job) => <li key={job.id}>{`${job.phase} ${job.bytesSent}/${job.fileSizeBytes}${job.cancellable ? '' : ' committed'}${job.error ? ` ${job.error}` : ''}`}</li>)}
     </ul>
   )
 }
@@ -68,7 +68,7 @@ describe('EhiUploadProvider', () => {
       holder.api!.start(EHI_PATIENT_ID, file())
     })
 
-    expect(await screen.findByText('queued 10/10')).toBeInTheDocument()
+    expect(await screen.findByText('queued 10/10 committed')).toBeInTheDocument()
     expect(mockPost).toHaveBeenNthCalledWith(1, base, { file_size_bytes: 10 })
     expect(chunkOffsets()).toEqual(['0', '4', '8'])
     expect(mockPost).toHaveBeenLastCalledWith(`${base}/5/intake`, {})
@@ -97,7 +97,7 @@ describe('EhiUploadProvider', () => {
       holder.api!.start(EHI_PATIENT_ID, file())
     })
 
-    expect(await screen.findByText('queued 10/10')).toBeInTheDocument()
+    expect(await screen.findByText('queued 10/10 committed')).toBeInTheDocument()
     expect(chunkOffsets()).toEqual(['0', '4', '8'])
     expect(mockGet).toHaveBeenCalledWith(`${base}/5`)
   })
@@ -124,7 +124,7 @@ describe('EhiUploadProvider', () => {
       holder.api!.start(EHI_PATIENT_ID, file())
     })
 
-    expect(await screen.findByText('queued 10/10')).toBeInTheDocument()
+    expect(await screen.findByText('queued 10/10 committed')).toBeInTheDocument()
     expect(chunkOffsets()).toEqual(['0', '4', '4', '8'])
   })
 
@@ -137,6 +137,32 @@ describe('EhiUploadProvider', () => {
     })
 
     expect(await screen.findByText(/failed 0\/10 This patient is archived/)).toBeInTheDocument()
+  })
+
+  it('stops offering a cancel once every byte is acknowledged and intake is being queued', async () => {
+    let releaseIntake: (() => void) | null = null
+    mockPost.mockImplementation((url: string, body: unknown) => {
+      if (url === base) return Promise.resolve({ upload: makeEhiUpload({ chunk_size_bytes: 16 }) })
+      if (url.endsWith('/chunks')) return Promise.resolve({ upload: makeEhiUpload({ uploaded_bytes: ((body as FormData).get('chunk') as Blob).size }) })
+      return new Promise((resolve) => {
+        releaseIntake = () => resolve({ upload: makeEhiUpload({ status: 'queued', uploaded_bytes: 10 }) })
+      })
+    })
+    render(<EhiUploadProvider retryDelayMs={0}><Harness /></EhiUploadProvider>)
+
+    let jobId = ''
+    act(() => {
+      jobId = holder.api!.start(EHI_PATIENT_ID, file())
+    })
+    await waitFor(() => expect(releaseIntake).not.toBeNull())
+    act(() => holder.api!.cancel(jobId))
+
+    // The import cannot be stopped any more, so the job does not claim it was.
+    expect(screen.getByText('uploading 10/10 committed')).toBeInTheDocument()
+    await act(async () => {
+      releaseIntake!()
+    })
+    expect(screen.getByText('queued 10/10 committed')).toBeInTheDocument()
   })
 
   it('stops sending when cancelled and never queues intake', async () => {
