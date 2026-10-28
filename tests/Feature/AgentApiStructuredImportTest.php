@@ -117,6 +117,7 @@ final class AgentApiStructuredImportTest extends TestCase
         ])->assertOk()
             ->assertJsonPath('outcome', 'accepted')
             ->assertJsonPath('import.created', 1)
+            ->assertJsonPath('import.unchanged', 0)
             ->assertJsonPath('data.id', $accepted->id)
             ->assertJsonPath('data.status', 'imported')
             ->assertJsonCount(2, 'data');

@@ -182,7 +182,7 @@ final class AgentMcpOutputSchemaTest extends TestCase
             'import' => $counts,
             'data' => ['id' => 9, 'status' => 'skipped'],
         ];
-        $counts = ['created' => 0, 'updated' => 0, 'skipped' => 1, 'documents' => 0];
+        $counts = ['created' => 0, 'updated' => 0, 'unchanged' => 0, 'skipped' => 1, 'documents' => 0];
 
         $this->assertSame([], $validator->validateAgainstJsonSchema($envelope($counts), $schema));
         $this->assertNotSame([], $validator->validateAgainstJsonSchema(

@@ -905,7 +905,7 @@
             "description": "Accept or reject one proposed record through the versioned REST workflow.",
             "inputSchema": "sha256:a41c2badfb4158f1abaa47142f532b8a5892f14d4792fee2f2f2862ecff9a755",
             "name": "imports.review",
-            "outputSchema": "sha256:08c0c45d1fa13f1b554d13bff4106232f549bf8cdad4ce40abacfa3809b55c97",
+            "outputSchema": "sha256:9e3d0513975a632c025381e072a26ab8603bb25c93d9ec1e4cf57904870e97f3",
             "title": "Review import proposal"
         },
         "lab_results.update": {
