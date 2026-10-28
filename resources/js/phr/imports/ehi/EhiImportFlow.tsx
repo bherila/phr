@@ -27,7 +27,8 @@ export const EHI_POLL_MS = 2000
 
 const DEFAULT_SOURCE_LABEL = 'Epic EHI export'
 
-type StageState = 'waiting' | 'active' | 'done' | 'failed'
+/** `action`: waiting on the person, not on the server. */
+type StageState = 'waiting' | 'active' | 'action' | 'done' | 'failed'
 
 function reasonText(caught: unknown): string {
   return typeof caught === 'string' && /^[a-z_]+$/.test(caught) ? describeEhiError(caught) : errorMessage(caught)
@@ -53,10 +54,10 @@ function Stage({ number, title, state, children }: { number: number, title: stri
     ? 'bg-primary text-primary-foreground'
     : state === 'failed'
       ? 'bg-destructive text-white'
-      : state === 'active'
+      : state === 'active' || state === 'action'
         ? 'border-2 border-primary text-primary'
         : 'border border-border text-muted-foreground'
-  const statusWord = { waiting: 'not started', active: 'in progress', done: 'done', failed: 'stopped' }[state]
+  const statusWord = { waiting: 'not started', active: 'in progress', action: 'needs you', done: 'done', failed: 'stopped' }[state]
 
   return (
     <li className="flex gap-3 border-t border-border py-3 first:border-t-0">
@@ -69,27 +70,45 @@ function Stage({ number, title, state, children }: { number: number, title: stri
   )
 }
 
+/**
+ * Where every source row went, in display order. The summary reconciles each table
+ * (source rows = unreadable + every disposition), so these always add up to the total.
+ */
+const DISPOSITIONS: { key: string, label: string, note: string }[] = [
+  { key: 'pending_review', label: 'Waiting for your review', note: 'Became proposals' },
+  { key: 'projected', label: 'Added to records', note: 'Accepted proposals, with this export as their source' },
+  { key: 'corroborating', label: 'Matched records already in PHR', note: 'Added as evidence; the records did not change' },
+  { key: 'retained', label: 'Kept as evidence', note: 'Not imported: deleted in the source, or not linked to this patient' },
+  { key: 'quarantined', label: 'Set aside', note: 'Missing the identifier needed to track them' },
+  { key: 'retained_unmapped', label: 'Kept, not mapped yet', note: 'Stored with the export; later versions of PHR may read them' },
+  { key: 'out_of_scope', label: 'Outside PHR’s scope', note: 'Billing and administrative tables, stored but not read' },
+]
+
 function AccountingTable({ pkg }: { pkg: EhiPackage }): ReactElement {
   const accounting = pkg.accounting
   const withRows = accounting.tables_by_state['parsed'] ?? 0
   const empty = (accounting.tables_by_state['header_only'] ?? 0) + (accounting.tables_by_state['empty'] ?? 0)
   const proposals = pkg.preview_run?.status === 'completed' ? pkg.preview_run.counts : null
-  const rows: { label: string, note: string, value: number }[] = [
-    { label: 'Files kept', note: 'Each stored and checked against its digest', value: accounting.members },
-    { label: 'Tables read', note: `${count.format(withRows)} with rows, ${count.format(empty)} empty`, value: accounting.tables },
-    { label: 'Kept, not mapped yet', note: 'Stored with the export; later versions of PHR may read them', value: accounting.dispositions['retained_unmapped'] ?? 0 },
-    { label: 'Outside PHR’s scope', note: 'Billing and administrative tables, stored but not read', value: accounting.dispositions['out_of_scope'] ?? 0 },
-  ]
+  const known = new Set(DISPOSITIONS.map((disposition) => disposition.key))
+  const rows = DISPOSITIONS
+    .map((disposition) => ({ ...disposition, value: accounting.dispositions[disposition.key] ?? 0 }))
+    .filter((row) => row.value > 0)
+  for (const [key, value] of Object.entries(accounting.dispositions)) {
+    if (!known.has(key) && value > 0) rows.push({ key, label: key.replaceAll('_', ' '), note: '', value })
+  }
   if (accounting.malformed_rows > 0) {
-    rows.push({ label: 'Rows that could not be read', note: 'Kept with the export', value: accounting.malformed_rows })
+    rows.push({ key: 'malformed', label: 'Could not be read', note: 'Kept with the export', value: accounting.malformed_rows })
   }
 
   return (
     <div className="flex flex-col gap-3">
+      <p className="text-sm text-muted-foreground">
+        {count.format(accounting.members)} files kept · {count.format(accounting.tables)} tables read ({count.format(withRows)} with rows, {count.format(empty)} empty)
+      </p>
       <dl className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 text-sm">
         {rows.map((row) => (
-          <div key={row.label} className="contents">
-            <dt className="border-t border-border py-2"><span className="text-foreground">{row.label}</span><span className="block text-xs text-muted-foreground">{row.note}</span></dt>
+          <div key={row.key} className="contents">
+            <dt className="border-t border-border py-2"><span className="text-foreground">{row.label}</span>{row.note && <span className="block text-xs text-muted-foreground">{row.note}</span>}</dt>
             <dd className="border-t border-border py-2 text-right tabular-nums">{count.format(row.value)}</dd>
           </div>
         ))}
@@ -286,8 +305,9 @@ export function EhiImportFlow({ patientId, canBind, job, uploadId, packageId, on
   const bound = pkg?.binding_status === 'bound'
   const previewFailed = pkg?.preview_run?.status === 'failed'
   const previewComplete = pkg?.preview.state === 'complete' && !previewRunning
-  const stage2: StageState = !preserved ? 'waiting' : previewComplete ? 'done' : previewFailed || pkg?.failure_category ? 'failed' : 'active'
-  const stage3: StageState = previewComplete ? 'active' : 'waiting'
+  const awaitingPerson = accounted && (!bound || (!previewRunning && !previewFailed && pkg.preview.state !== 'complete'))
+  const stage2: StageState = !preserved ? 'waiting' : previewComplete ? 'done' : previewFailed || pkg?.failure_category ? 'failed' : awaitingPerson ? 'action' : 'active'
+  const stage3: StageState = previewComplete ? 'action' : 'waiting'
 
   const pendingTotal = pkg ? Object.values(pkg.proposals.pending).reduce((sum, kinds) => sum + Object.values(kinds).reduce((inner, value) => inner + value, 0), 0) : 0
   const uploadedBytes = job?.bytesSent ?? upload?.uploaded_bytes ?? 0

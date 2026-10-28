@@ -238,6 +238,10 @@ describe('ImportsPage', () => {
 
     fireEvent.click(await screen.findByRole('button', { name: 'View' }))
     expect(await screen.findByText('Every row accounted for')).toBeInTheDocument()
+    // Each source row lands in exactly one disposition, so the listed rows add up to the total.
+    expect(screen.getByText('Kept, not mapped yet').closest('dt')?.nextElementSibling).toHaveTextContent('100')
+    expect(screen.getByText('Outside PHR’s scope').closest('dt')?.nextElementSibling).toHaveTextContent('40')
+    expect(screen.getByText('Every row accounted for').nextElementSibling).toHaveTextContent('140')
     expect(screen.getByText('****1234')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('New source name'), { target: { value: 'Synthetic Clinic' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm source' }))
