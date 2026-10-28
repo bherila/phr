@@ -34,14 +34,43 @@ function display(value: unknown): string | null {
   return null
 }
 
-export function aiResultView(result: AiImportResult): { title: string, fields: { label: string, value: string }[] } {
-  const titleField = TITLE_FIELDS.find((field) => display(result.data[field]) !== null)
-  const fields = Object.entries(result.data)
-    .filter(([field]) => field !== titleField && !HIDDEN_FIELDS.has(field))
-    .map(([field, value]) => ({ label: fieldLabel(field), value: display(value) }))
-    .filter((field): field is { label: string, value: string } => field.value !== null)
+interface RecordView {
+  title: string
+  fields: { key: string, label: string, value: string }[]
+}
 
-  return { title: titleField ? String(display(result.data[titleField])) : `Proposal ${result.result_index + 1}`, fields }
+export interface AiResultView extends RecordView {
+  /**
+   * Records nested in the proposal, such as a document's labs and medications.
+   * Accepting the proposal imports every one, so every one is shown.
+   */
+  groups: { key: string, label: string, records: RecordView[] }[]
+}
+
+function recordView(data: Record<string, unknown>, fallback: string): RecordView {
+  const titleField = TITLE_FIELDS.find((field) => display(data[field]) !== null)
+  const fields = Object.entries(data)
+    .filter(([field]) => field !== titleField && !HIDDEN_FIELDS.has(field))
+    .map(([field, value]) => ({ key: field, label: fieldLabel(field), value: display(value) }))
+    .filter((field): field is { key: string, label: string, value: string } => field.value !== null)
+
+  return { title: titleField ? String(display(data[titleField])) : fallback, fields }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+export function aiResultView(result: AiImportResult): AiResultView {
+  const groups = Object.entries(result.data)
+    .filter(([field, value]) => !HIDDEN_FIELDS.has(field) && Array.isArray(value) && value.some(isRecord))
+    .map(([field, value]) => ({
+      key: field,
+      label: fieldLabel(field),
+      records: (value as unknown[]).filter(isRecord).map((record, index) => recordView(record, `${fieldLabel(field)} ${index + 1}`)),
+    }))
+
+  return { ...recordView(result.data, `Proposal ${result.result_index + 1}`), groups }
 }
 
 const STATUS_LABELS: Record<string, string> = { imported: 'Accepted', skipped: 'Rejected' }
@@ -156,13 +185,28 @@ export function AiImportReview({ patientId, importId, onBack }: AiImportReviewPr
                   {view.fields.length > 0 && (
                     <dl className="grid grid-cols-[minmax(8rem,auto)_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
                       {view.fields.map((field) => (
-                        <div key={field.label} className="contents">
+                        <div key={field.key} className="contents">
                           <dt className="text-muted-foreground">{field.label}</dt>
                           <dd>{field.value}</dd>
                         </div>
                       ))}
                     </dl>
                   )}
+                  {view.groups.map((group) => (
+                    <div key={group.key} className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
+                      <p className="font-medium text-foreground">{group.label} ({group.records.length}) — accepting adds each of these</p>
+                      <ul className="mt-1 flex flex-col gap-1">
+                        {group.records.map((record, index) => (
+                          // Nested records have no id of their own; their order is stable.
+                          // eslint-disable-next-line @eslint-react/no-array-index-key
+                          <li key={index}>
+                            <span className="text-foreground">{record.title}</span>
+                            {record.fields.length > 0 && <span className="text-muted-foreground"> · {record.fields.map((field) => `${field.label}: ${field.value}`).join(' · ')}</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
                   {errors[result.id] && <p role="alert" className="text-sm text-destructive">{errors[result.id]}</p>}
                   {!decided && (
                     <div className="flex flex-wrap gap-2">

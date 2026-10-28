@@ -38,7 +38,22 @@ describe('aiResultView', () => {
   it('titles a proposal by its naming field and hides provenance', () => {
     const view = aiResultView({ id: 1, status: 'pending_review', result_index: 0, data: { analyte: 'Synthetic sodium', value: '140', collected_at: '2026-01-15', external_id: 'x', raw_text: 'raw' } })
     expect(view.title).toBe('Synthetic sodium')
-    expect(view.fields).toEqual([{ label: 'value', value: '140' }, { label: 'collected at', value: 'Jan 15, 2026' }])
+    expect(view.fields).toEqual([{ key: 'value', label: 'value', value: '140' }, { key: 'collected_at', label: 'collected at', value: 'Jan 15, 2026' }])
+  })
+
+  it('shows every record nested in a document proposal, since accepting adds them all', () => {
+    const view = aiResultView({ id: 2, status: 'pending_review', result_index: 0, data: {
+      title: 'Synthetic visit note',
+      lab_results: [{ analyte: 'Synthetic sodium', value: '140' }, { analyte: 'Synthetic potassium', value: '4.1' }],
+      medications: [{ name: 'Synthetic lisinopril', dose: '10 mg' }],
+      tags: ['visit'],
+    } })
+    expect(view.title).toBe('Synthetic visit note')
+    expect(view.groups.map((group) => [group.label, group.records.map((record) => record.title)])).toEqual([
+      ['lab results', ['Synthetic sodium', 'Synthetic potassium']],
+      ['medications', ['Synthetic lisinopril']],
+    ])
+    expect(view.groups[1]!.records[0]!.fields).toEqual([{ key: 'dose', label: 'dose', value: '10 mg' }])
   })
 })
 
