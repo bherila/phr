@@ -125,15 +125,7 @@ final class EhiUploadService
 
             $path = PhrStorageKey::ehiUpload((int) $locked->id, (string) Str::uuid());
             try {
-                $source = Storage::disk(PhrDocument::STORAGE_DISK)->readStream((string) $document->storage_path);
-                if (! is_resource($source)) {
-                    throw new EhiUploadRefused(EhiUploadRefused::STORAGE_FAILED, 'the document could not be read');
-                }
-                try {
-                    $written = Storage::disk($diskName)->writeStream($path, $source);
-                } finally {
-                    fclose($source);
-                }
+                $written = $this->linkOrCopy($document, $diskName, $path);
                 if (! $written || Storage::disk($diskName)->size($path) !== $size) {
                     throw new EhiUploadRefused(EhiUploadRefused::STORAGE_FAILED, 'the staged copy does not match the document');
                 }
@@ -165,6 +157,31 @@ final class EhiUploadService
         }
 
         return [$upload->refresh(), $queue];
+    }
+
+    /**
+     * Put a document's bytes at a staging key. Documents are immutable, so on the
+     * same local disk a hard link stages a multi-gigabyte export at once, without
+     * copying it while the patient lock is held; removing the staging key later
+     * leaves the document intact. Elsewhere the bytes are streamed across.
+     */
+    private function linkOrCopy(PhrDocument $document, string $diskName, string $path): bool
+    {
+        $from = Storage::disk(PhrDocument::STORAGE_DISK);
+        $to = Storage::disk($diskName);
+        if ($diskName === PhrDocument::STORAGE_DISK && $to->makeDirectory(dirname($path))
+            && @link($from->path((string) $document->storage_path), $to->path($path))) {
+            return true;
+        }
+        $source = $from->readStream((string) $document->storage_path);
+        if (! is_resource($source)) {
+            throw new EhiUploadRefused(EhiUploadRefused::STORAGE_FAILED, 'the document could not be read');
+        }
+        try {
+            return $to->writeStream($path, $source);
+        } finally {
+            fclose($source);
+        }
     }
 
     /**

@@ -192,6 +192,12 @@ final class AgentApiStructuredImportTest extends TestCase
         $this->assertConformsToImportCreate($queued->json());
         $uploadId = (int) $queued->json('data.upload.id');
         Queue::assertPushed(IntakeEhiUploadJob::class, 1);
+        // Staged by a hard link, not a copy made while the patient lock is held.
+        $disk = Storage::disk(PhrDocument::STORAGE_DISK);
+        $this->assertSame(
+            fileinode($disk->path((string) $document->storage_path)),
+            fileinode($disk->path((string) PhrEhiUpload::query()->findOrFail($uploadId)->storage_path)),
+        );
 
         $this->postJson($url, ['document_id' => $document->id])->assertOk()
             ->assertJsonPath('outcome', 'unchanged')
