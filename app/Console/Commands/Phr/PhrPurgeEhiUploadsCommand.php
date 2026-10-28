@@ -3,6 +3,7 @@
 namespace App\Console\Commands\Phr;
 
 use App\Models\PhrEhiUpload;
+use App\Services\PHR\Import\Ehi\EhiUploadRefused;
 use App\Services\PHR\Import\Ehi\EhiUploadService;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
@@ -37,17 +38,15 @@ final class PhrPurgeEhiUploadsCommand extends BasePhrCommand
             ->chunkById(100, function ($expired) use (&$purged, &$failed, $uploads): void {
                 foreach ($expired as $upload) {
                     try {
-                        if (! $uploads->discardArchive($upload)) {
+                        if (! $this->expire($upload)) {
+                            // Changed since it was read (an intake job claimed
+                            // it): not this run's to delete.
+                            continue;
+                        }
+                        if (! $uploads->discardArchive($upload->refresh())) {
                             $failed++;
 
                             continue;
-                        }
-                        if (! in_array($upload->status, PhrEhiUpload::TERMINAL_STATUSES, true)) {
-                            $upload->update([
-                                'status' => PhrEhiUpload::STATUS_FAILED,
-                                'failure_reason' => 'upload_expired',
-                                'completed_at' => $upload->completed_at ?? now(),
-                            ]);
                         }
                         $purged++;
                     } catch (Throwable) {
@@ -59,5 +58,31 @@ final class PhrPurgeEhiUploadsCommand extends BasePhrCommand
         $this->info("EHI upload purge: purged={$purged} failed={$failed}.");
 
         return $failed === 0 ? self::SUCCESS : self::FAILURE;
+    }
+
+    /**
+     * Mark an unfinished upload expired, only if it is still in the state it was
+     * read in and still expired, so a job that claimed it in between keeps it.
+     * A finished upload cannot change, and needs no transition.
+     */
+    private function expire(PhrEhiUpload $upload): bool
+    {
+        if (in_array($upload->status, PhrEhiUpload::TERMINAL_STATUSES, true)) {
+            return true;
+        }
+        $query = PhrEhiUpload::query()
+            ->whereKey($upload->id)
+            ->where('status', $upload->status)
+            ->where('expires_at', '<=', now());
+        if ($upload->status === PhrEhiUpload::STATUS_PROCESSING) {
+            $query->where('updated_at', '<=', now()->subHours(self::PROCESSING_GRACE_HOURS));
+        }
+
+        return $query->update([
+            'status' => PhrEhiUpload::STATUS_FAILED,
+            'failure_reason' => EhiUploadRefused::EXPIRED,
+            'completed_at' => $upload->completed_at ?? now(),
+            'updated_at' => now(),
+        ]) === 1;
     }
 }

@@ -21,8 +21,10 @@ use App\Services\PHR\Import\Ehi\EhiUploadService;
 use App\Services\PHR\Import\Ehi\Mapping\EhiDocumentMapping;
 use App\Services\PHR\Import\Ehi\Mapping\EhiImmunizationMapping;
 use Illuminate\Database\DeadlockException;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
@@ -378,6 +380,31 @@ class PhrEhiImportRoutesTest extends TestCase
             self::assertStringContainsString('Deadlock found', $deadlock->getMessage());
         }
         self::assertSame([], Storage::disk((string) config('phr.ehi_disk'))->allFiles(), 'the attempt left no archive behind');
+    }
+
+    public function test_the_purge_leaves_an_upload_an_intake_job_claimed_after_it_was_read(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $upload = $this->uploadZip($owner, $patient, $this->zip(EhiClinicalPackage::standard()->build()));
+        $upload->update(['expires_at' => now()->subMinute()]);
+        $staged = (string) $upload->storage_path;
+
+        // The intake job claims the upload right after the purge selects it.
+        $claimed = false;
+        DB::listen(function (QueryExecuted $query) use (&$claimed, $upload): void {
+            if (! $claimed && str_starts_with(strtolower($query->sql), 'select') && str_contains($query->sql, 'phr_ehi_uploads')) {
+                $claimed = true;
+                DB::table('phr_ehi_uploads')->where('id', $upload->id)->update(['status' => PhrEhiUpload::STATUS_PROCESSING, 'updated_at' => now()]);
+            }
+        });
+
+        $this->artisan('phr:ehi-uploads:purge')->assertSuccessful();
+
+        self::assertTrue($claimed);
+        $upload->refresh();
+        self::assertSame(PhrEhiUpload::STATUS_PROCESSING, $upload->status);
+        self::assertSame($staged, $upload->storage_path);
+        self::assertTrue(Storage::disk((string) config('phr.ehi_disk'))->exists($staged), 'the running intake keeps its archive');
     }
 
     public function test_patient_deletion_removes_a_staged_archive(): void
