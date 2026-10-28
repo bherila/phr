@@ -390,7 +390,8 @@ class PhrEhiImportRoutesTest extends TestCase
     {
         $bytes = (string) file_get_contents($zip);
         $id = $this->actingAs($actor)->postJson($this->base($patient).'/uploads', ['file_size_bytes' => strlen($bytes)])
-            ->assertCreated()->assertJsonPath('upload.status', PhrEhiUpload::STATUS_UPLOADING)->json('upload.id');
+            ->assertCreated()->assertJsonPath('upload.status', PhrEhiUpload::STATUS_UPLOADING)
+            ->assertJsonPath('upload.transport', 'chunks')->json('upload.id');
         $size = (int) ceil(strlen($bytes) / $chunks);
         for ($offset = 0; $offset < strlen($bytes); $offset += $size) {
             $this->chunk($actor, $patient, $id, substr($bytes, $offset, $size), $offset)->assertOk();

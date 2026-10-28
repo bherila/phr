@@ -19,6 +19,13 @@ final class EhiImportPresenter
     /** Projection table outcomes recorded in the package checkpoint. */
     private const array TABLE_OUTCOMES = ['projected', 'mismatched', 'absent'];
 
+    /**
+     * How the client sends the archive's bytes. Only `chunks` (sequential POSTs
+     * to the chunks route) exists today; a client reads this rather than assuming
+     * it, so a signed object-storage transport can be added without changing it.
+     */
+    public const string TRANSPORT_CHUNKS = 'chunks';
+
     /** @return array<string, mixed> */
     public function upload(PhrEhiUpload $upload): array
     {
@@ -29,6 +36,7 @@ final class EhiImportPresenter
             'patient_id' => $upload->patient_id,
             'status' => $upload->status,
             'failure_reason' => $upload->failure_reason,
+            'transport' => self::TRANSPORT_CHUNKS,
             'file_size_bytes' => $upload->file_size_bytes,
             'uploaded_bytes' => $upload->uploaded_bytes,
             'chunk_size_bytes' => (int) config('phr.ehi_upload_chunk_bytes'),
