@@ -5,7 +5,6 @@ namespace App\Services\PHR\Import;
 use App\Models\PhrPatient;
 use App\Services\PHR\Import\Ehi\EhiExportNotSupportedHere;
 use App\Services\PHR\Import\Ehi\EhiPackageDetector;
-use DOMDocument;
 use InvalidArgumentException;
 use ZipArchive;
 
@@ -86,6 +85,23 @@ class PhrMyChartZipImporter
         return $result;
     }
 
+    /**
+     * Whether the ZIP holds a FHIR Bundle or C-CDA document to import, decided
+     * without importing anything. False for an unreadable ZIP.
+     */
+    public function recognizes(string $path): bool
+    {
+        $zip = new ZipArchive;
+        if (! is_file($path) || $zip->open($path) !== true) {
+            return false;
+        }
+        try {
+            return $this->hasClinicalMember($zip);
+        } finally {
+            $zip->close();
+        }
+    }
+
     /** Recognize content without calling importers, which can write clinical rows. */
     private function hasClinicalMember(ZipArchive $zip): bool
     {
@@ -98,30 +114,9 @@ class PhrMyChartZipImporter
             if ($contents === false || trim($contents) === '') {
                 continue;
             }
-            if ($extension === 'json') {
-                $bundle = json_decode($contents, true);
-                if (is_array($bundle) && ($bundle['resourceType'] ?? null) === 'Bundle'
-                    && (! isset($bundle['entry']) || is_array($bundle['entry']))) {
-                    return true;
-                }
-                unset($bundle);
-
-                continue;
-            }
-
-            $document = new DOMDocument;
-            $previous = libxml_use_internal_errors(true);
-            try {
-                $loaded = $document->loadXML($contents, LIBXML_NONET);
-            } finally {
-                libxml_clear_errors();
-                libxml_use_internal_errors($previous);
-            }
-            if ($loaded && $document->documentElement?->localName === 'ClinicalDocument'
-                && $document->documentElement->namespaceURI === 'urn:hl7-org:v3') {
+            if (PhrStructuredFormat::detect($contents) !== null) {
                 return true;
             }
-            unset($document);
         }
 
         return false;

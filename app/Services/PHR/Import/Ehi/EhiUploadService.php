@@ -7,6 +7,7 @@ use App\Models\PhrEhiUpload;
 use App\Models\PhrPatient;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
+use App\Services\PHR\Import\PhrMyChartZipImporter;
 use App\Support\Storage\PhrStorageKey;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -26,13 +27,20 @@ use Throwable;
  * missing patient. Intake preserves each member as its own blob, so the archive is
  * deleted once intake completes or refuses the package. A failed intake keeps it
  * until expiry so intake can be queued again, and a retry resumes.
+ *
+ * A ZIP intake refuses as not EHI is tried as a MyChart record ZIP, so one upload
+ * path serves both kinds of export.
  */
 final class EhiUploadService
 {
+    /** Skipped-file warnings kept on a MyChart upload's result. */
+    private const int MAX_WARNINGS = 20;
+
     public function __construct(
         private readonly PhrPatientAccessService $access,
         private readonly PhrPatientArtifactWriteGuard $writeGuard,
         private readonly EhiIntakeService $intake,
+        private readonly PhrMyChartZipImporter $myChart,
     ) {}
 
     /**
@@ -219,9 +227,12 @@ final class EhiUploadService
             $source = new EhiZipSource(Storage::disk($upload->storage_disk)->path($upload->storage_path));
             $result = $this->intake->intake($source, $patient, $upload->actor_user_id);
         } catch (EhiPackageRejected $rejected) {
-            $this->finish($upload, PhrEhiUpload::STATUS_REJECTED, $rejected->reason);
+            if ($rejected->reason !== EhiPackageRejected::NOT_EHI) {
+                $this->finish($upload, PhrEhiUpload::STATUS_REJECTED, $rejected->reason);
 
-            return;
+                return;
+            }
+            $result = null;
         } catch (EhiIntakeFailed $failed) {
             $this->finish($upload, PhrEhiUpload::STATUS_FAILED, $failed->reason);
 
@@ -240,9 +251,58 @@ final class EhiUploadService
             $source?->close();
         }
 
+        if ($result === null) {
+            // Not an EHI Tables export; the source is closed, so read it again as MyChart.
+            $this->importMyChart($upload, $patient);
+
+            return;
+        }
+
         $this->finish($upload, PhrEhiUpload::STATUS_COMPLETED, null, [
+            'format' => PhrEhiUpload::FORMAT_EHI,
             'package_id' => $result->package->id,
             'result_json' => ['replayed' => $result->replayed, 'resumed' => $result->resumed, 'repaired' => $result->repaired],
+        ]);
+    }
+
+    /**
+     * A ZIP that is not an EHI Tables export may be a MyChart record ZIP: its FHIR
+     * and C-CDA files are imported directly by the importer `phr:import:mychart-zip`
+     * uses, landing pending review. A ZIP with neither is refused.
+     */
+    private function importMyChart(PhrEhiUpload $upload, PhrPatient $patient): void
+    {
+        $path = Storage::disk($upload->storage_disk)->path((string) $upload->storage_path);
+        if (! $this->myChart->recognizes($path)) {
+            $this->finish($upload, PhrEhiUpload::STATUS_REJECTED, EhiUploadRefused::UNRECOGNIZED_EXPORT);
+
+            return;
+        }
+        try {
+            $this->access->ensureCanWrite($patient, (int) $upload->actor_user_id);
+            $result = $this->myChart->importFile($path, $patient, (int) $upload->actor_user_id);
+        } catch (AuthorizationException|ModelNotFoundException) {
+            $this->finish($upload, PhrEhiUpload::STATUS_FAILED, EhiIntakeService::FAILURE_ACCESS_REVOKED);
+
+            return;
+        } catch (Throwable $failure) {
+            Log::warning('MyChart upload import failed unexpectedly.', ['upload_id' => $upload->id, 'exception' => $failure::class]);
+            $this->finish($upload, PhrEhiUpload::STATUS_FAILED, EhiIntakeService::FAILURE_UNEXPECTED);
+
+            return;
+        }
+
+        $this->finish($upload, PhrEhiUpload::STATUS_COMPLETED, null, [
+            'format' => PhrEhiUpload::FORMAT_MYCHART,
+            'result_json' => [
+                'created' => $result->created,
+                'updated' => $result->updated,
+                'unchanged' => $result->unchanged,
+                'skipped' => $result->skipped,
+                // Each names a file in the person's own ZIP and why it was skipped.
+                'warnings' => array_slice($result->warnings, 0, self::MAX_WARNINGS),
+                'warnings_omitted' => max(0, count($result->warnings) - self::MAX_WARNINGS),
+            ],
         ]);
     }
 

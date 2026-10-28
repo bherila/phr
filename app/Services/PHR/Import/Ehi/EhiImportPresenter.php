@@ -37,6 +37,7 @@ final class EhiImportPresenter
             'patient_id' => $upload->patient_id,
             'status' => $upload->status,
             'failure_reason' => $upload->failure_reason,
+            'format' => $upload->format,
             'transport' => self::TRANSPORT_CHUNKS,
             'file_size_bytes' => $upload->file_size_bytes,
             'uploaded_bytes' => $upload->uploaded_bytes,
@@ -45,6 +46,15 @@ final class EhiImportPresenter
             'replayed' => isset($result['replayed']) ? (bool) $result['replayed'] : null,
             'resumed' => isset($result['resumed']) ? (bool) $result['resumed'] : null,
             'repaired' => isset($result['repaired']) ? (int) $result['repaired'] : null,
+            // What a MyChart ZIP's direct import wrote; null for an EHI export.
+            'import_result' => $upload->format === PhrEhiUpload::FORMAT_MYCHART ? [
+                'created' => (int) ($result['created'] ?? 0),
+                'updated' => (int) ($result['updated'] ?? 0),
+                'unchanged' => (int) ($result['unchanged'] ?? 0),
+                'skipped' => (int) ($result['skipped'] ?? 0),
+                'warnings' => array_values(array_map('strval', (array) ($result['warnings'] ?? []))),
+                'warnings_omitted' => (int) ($result['warnings_omitted'] ?? 0),
+            ] : null,
             'expires_at' => $upload->expires_at->toIso8601String(),
             'completed_at' => $upload->completed_at?->toIso8601String(),
             'created_at' => $upload->created_at?->toIso8601String(),
