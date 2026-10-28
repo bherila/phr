@@ -8,6 +8,7 @@ use App\Services\PHR\Import\Ehi\EhiUploadRefused;
 use App\Services\PHR\Import\Ehi\EhiUploadService;
 use App\Services\PHR\Import\PhrCcdaImporter;
 use App\Services\PHR\Import\PhrFhirImporter;
+use App\Services\PHR\Import\PhrSourcePatients;
 use App\Services\PHR\Import\PhrStructuredFormat;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -51,6 +52,11 @@ final class PhrStructuredImportController extends Controller
         [$format, $bundle] = PhrStructuredFormat::read($contents);
         if ($format === null) {
             return $this->privateJson(['error' => 'unsupported_format'], 422);
+        }
+        $patients = new PhrSourcePatients;
+        $format === PhrStructuredFormat::FHIR ? $patients->addFhirBundle((array) $bundle) : $patients->addCcda($contents);
+        if ($patients->multiple()) {
+            return $this->privateJson(['error' => 'multiple_patients'], 422);
         }
         try {
             // All of the file or none of it: an entry that fails partway must not

@@ -488,7 +488,7 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
                 <li>An EHI export: every file is stored and checked, every table is read, and PHR proposes records for you to decide on. Nothing is added until you do.</li>
                 <li>A MyChart ZIP: its records are added directly and marked for your review on their own pages.</li>
               </ul>
-              <p className="text-sm text-muted-foreground">A ZIP that is neither, or that holds more than one patient, is refused and nothing is imported.</p>
+              <p className="text-sm text-muted-foreground">A ZIP that is neither, or that holds records for more than one person, is refused and nothing is imported.</p>
               <label className="flex items-center gap-2 text-sm font-medium">
                 <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />
                 This file belongs to {patientName}
@@ -514,6 +514,7 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
                     <li>PHR checks that it is a C-CDA document or a FHIR bundle, and refuses anything else.</li>
                     <li>Its records are added directly and marked for your review on their own pages, such as Immunizations.</li>
                     <li>Records already in PHR exactly as the file has them are left as they are, with your earlier review.</li>
+                    <li>A file that holds records for more than one person is refused, and nothing is imported.</li>
                   </ul>
                   <label className="flex items-center gap-2 text-sm font-medium">
                     <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />

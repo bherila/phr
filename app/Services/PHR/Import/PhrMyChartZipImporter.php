@@ -42,6 +42,11 @@ class PhrMyChartZipImporter
             if (EhiPackageDetector::detectZipPaths($names) && ($this->hasHeadedKnownTable($zip, $names) || ! $this->hasClinicalMember($zip))) {
                 throw new EhiExportNotSupportedHere;
             }
+            // Decided over every member before anything is written: a ZIP that also
+            // holds a dependent's records must not import any of them.
+            if ($this->namesMoreThanOnePerson($zip)) {
+                throw new PhrMultiplePatientsInSource;
+            }
 
             for ($index = 0; $index < $zip->numFiles; $index++) {
                 $name = (string) $zip->getNameIndex($index);
@@ -123,6 +128,30 @@ class PhrMyChartZipImporter
         }
 
         return false;
+    }
+
+    private function namesMoreThanOnePerson(ZipArchive $zip): bool
+    {
+        $patients = new PhrSourcePatients;
+        for ($index = 0; $index < $zip->numFiles; $index++) {
+            $extension = strtolower(pathinfo((string) $zip->getNameIndex($index), PATHINFO_EXTENSION));
+            if (! in_array($extension, ['json', 'xml'], true)) {
+                continue;
+            }
+            $contents = $zip->getFromIndex($index);
+            if ($contents === false) {
+                continue;
+            }
+            $contents = PhrStructuredFormat::normalize($contents);
+            [$format, $bundle] = PhrStructuredFormat::read($contents);
+            match ($format) {
+                PhrStructuredFormat::FHIR => $patients->addFhirBundle((array) $bundle),
+                PhrStructuredFormat::CCDA => $patients->addCcda($contents),
+                default => null,
+            };
+        }
+
+        return $patients->multiple();
     }
 
     /** @param  list<string>  $names */

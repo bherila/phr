@@ -7,6 +7,7 @@ use App\Models\PhrEhiUpload;
 use App\Models\PhrPatient;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
+use App\Services\PHR\Import\PhrMultiplePatientsInSource;
 use App\Services\PHR\Import\PhrMyChartZipImporter;
 use App\Support\Storage\PhrStorageKey;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -281,6 +282,10 @@ final class EhiUploadService
         try {
             $this->access->ensureCanWrite($patient, (int) $upload->actor_user_id);
             $result = $this->myChart->importFile($path, $patient, (int) $upload->actor_user_id);
+        } catch (PhrMultiplePatientsInSource) {
+            $this->finish($upload, PhrEhiUpload::STATUS_REJECTED, EhiPackageRejected::MULTIPLE_PATIENTS);
+
+            return;
         } catch (AuthorizationException|ModelNotFoundException) {
             $this->finish($upload, PhrEhiUpload::STATUS_FAILED, EhiIntakeService::FAILURE_ACCESS_REVOKED);
 

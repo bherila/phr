@@ -84,6 +84,19 @@ class PhrStructuredImportRoutesTest extends TestCase
         self::assertSame(0, PhrCondition::query()->count(), 'the entry before the failure was rolled back');
     }
 
+    public function test_a_file_naming_more_than_one_person_is_refused_and_nothing_is_written(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $bundle = (string) json_encode(['resourceType' => 'Bundle', 'type' => 'collection', 'entry' => [
+            ['resource' => ['resourceType' => 'Patient', 'id' => 'holder', 'birthDate' => '1984-03-09']],
+            ['resource' => ['resourceType' => 'Patient', 'id' => 'dependent', 'birthDate' => '2015-07-01']],
+            ['resource' => ['resourceType' => 'Condition', 'id' => 'condition-1', 'code' => ['text' => 'Synthetic condition']]],
+        ]]);
+
+        $this->send($owner, $patient, 'family.json', $bundle)->assertStatus(422)->assertExactJson(['error' => 'multiple_patients']);
+        self::assertSame(0, PhrCondition::query()->count());
+    }
+
     public function test_manage_access_is_required_and_archived_patients_are_refused(): void
     {
         [$owner, $patient] = $this->ownerAndPatient();

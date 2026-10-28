@@ -35,6 +35,7 @@ use Symfony\Component\HttpFoundation\Response;
 use Tests\Support\EhiClinicalPackage;
 use Tests\Support\EhiIntakeFixtures;
 use Tests\Support\EhiSyntheticPackage;
+use Tests\Support\PhrCcdaSyntheticDocument;
 use Tests\TestCase;
 use ZipArchive;
 
@@ -368,6 +369,51 @@ class PhrEhiImportRoutesTest extends TestCase
         self::assertSame(PhrReviewStatus::PENDING, PhrCondition::query()->where('patient_id', $patient->id)->sole()->review_status);
         self::assertSame(0, PhrEhiPackage::query()->count());
         self::assertFalse(Storage::disk((string) config('phr.ehi_disk'))->exists($staged), 'the archive is not kept once imported');
+    }
+
+    public function test_a_mychart_zip_holding_another_persons_records_imports_none_of_them(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $bundle = static fn (string $id, string $birthDate, string $condition): string => (string) json_encode(['resourceType' => 'Bundle', 'type' => 'collection', 'entry' => [
+            ['resource' => ['resourceType' => 'Patient', 'id' => $id, 'birthDate' => $birthDate]],
+            ['resource' => ['resourceType' => 'Condition', 'id' => $id.'-condition', 'code' => ['text' => $condition]]],
+        ]]);
+        $path = $this->ehiRoot.'/family.zip';
+        $zip = new ZipArchive;
+        self::assertTrue($zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE));
+        // The synthetic C-CDA's patient was born 2000-01-01: the account holder.
+        $zip->addFromString('Holder/summary.xml', PhrCcdaSyntheticDocument::xml());
+        $zip->addFromString('Holder/bundle.json', $bundle('holder', '2000-01-01', 'Holder condition'));
+        $zip->addFromString('Dependent/bundle.json', $bundle('dependent', '2015-07-01', 'Dependent condition'));
+        $zip->close();
+        $upload = $this->uploadZip($owner, $patient, $path);
+
+        $this->runIntake($upload);
+
+        self::assertSame(PhrEhiUpload::STATUS_REJECTED, $upload->refresh()->status);
+        self::assertSame('multiple_patients', $upload->failure_reason);
+        self::assertSame(0, PhrCondition::query()->count(), 'not even the account holder\'s records');
+        self::assertSame(0, PhrImmunization::query()->count());
+    }
+
+    public function test_a_mychart_zip_whose_ccda_and_fhir_describe_one_person_is_imported(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $path = $this->ehiRoot.'/one-person.zip';
+        $zip = new ZipArchive;
+        self::assertTrue($zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE));
+        $zip->addFromString('Clinic A/summary.xml', PhrCcdaSyntheticDocument::xml());
+        $zip->addFromString('Clinic B/bundle.json', (string) json_encode(['resourceType' => 'Bundle', 'type' => 'collection', 'entry' => [
+            ['resource' => ['resourceType' => 'Patient', 'id' => 'mrn-at-clinic-b', 'birthDate' => '2000-01-01']],
+            ['resource' => ['resourceType' => 'Condition', 'id' => 'condition-b', 'code' => ['text' => 'Synthetic clinic B condition']]],
+        ]]));
+        $zip->close();
+        $upload = $this->uploadZip($owner, $patient, $path);
+
+        $this->runIntake($upload);
+
+        self::assertSame(PhrEhiUpload::STATUS_COMPLETED, $upload->refresh()->status);
+        self::assertSame(1, PhrCondition::query()->where('patient_id', $patient->id)->where('name', 'Synthetic clinic B condition')->count());
     }
 
     public function test_a_zip_that_is_neither_export_is_refused(): void

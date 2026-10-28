@@ -286,7 +286,7 @@ const ERROR_TEXT: Record<string, string> = {
   not_ehi: 'This ZIP is not an Epic EHI Tables export.',
   unrecognized_export: 'This ZIP is neither an Epic EHI Tables export nor a MyChart record ZIP, so nothing was imported.',
   unsupported_format: 'This file is not a C-CDA document or a FHIR bundle, so nothing was imported.',
-  multiple_patients: 'This export holds records for more than one patient, so it was not imported.',
+  multiple_patients: 'This holds records for more than one person (different birth dates), so nothing was imported.',
   no_patient: 'This export does not say which patient it belongs to, so it was not imported.',
   encrypted: 'This ZIP is encrypted. Export it again without a password.',
   unreadable: 'This file could not be read. Check that it is complete and not damaged.',
