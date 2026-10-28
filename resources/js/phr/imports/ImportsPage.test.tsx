@@ -284,5 +284,8 @@ describe('ImportsPage', () => {
 
     expect(await screen.findByRole('heading', { name: 'Review EHI export' })).toBeInTheDocument()
     expect(await screen.findByRole('button', { name: 'Accept: Synthetic Vaccine A' })).toBeInTheDocument()
+    // Opened once: a remount or reload goes back to the Imports home.
+    expect(window.location.search).toBe(`?patient_id=${PATIENT_ID}`)
+    expect(window.location.hash).toBe('#/imports')
   })
 })

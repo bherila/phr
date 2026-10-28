@@ -157,6 +157,16 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
   const [packages, setPackages] = useState<EhiPackage[]>([])
   const [recentError, setRecentError] = useState<string | null>(null)
   const { startUpload } = useDicomUploads()
+
+  // A deep link opens its review once. Dropping it from the URL keeps a remount or a
+  // reload on the Imports home instead of reopening that review every time.
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    if (url.searchParams.has(EHI_PACKAGE_QUERY)) {
+      url.searchParams.delete(EHI_PACKAGE_QUERY)
+      window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
+    }
+  }, [])
   const ehiUploads = useEhiUploads()
 
   const manageablePatients = useMemo(
