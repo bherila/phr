@@ -240,6 +240,9 @@ final class AgentMcpServerFactory
         if ($hasImportReview) {
             $details[] = 'Keep interpreted source data distinct from evidence, inspect staged proposals and existing records, and obtain explicit user approval before imports.review.';
         }
+        if (isset($available['imports.create'])) {
+            $details[] = 'imports.create reads a C-CDA, FHIR, or MyChart or EHI export document with PHR\'s own parsers, not AI: its records land pending review, and an EHI export is reviewed by the patient\'s owner in PHR. Only other documents are queued for AI extraction.';
+        }
         if (isset($available['documents.download_access.create'])) {
             $details[] = 'Request document download access only when file contents are explicitly needed.';
         }

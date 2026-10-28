@@ -1,0 +1,89 @@
+<?php
+
+namespace App\Services\PHR\Import;
+
+use App\Models\PhrDocument;
+use App\Models\PhrPatient;
+use App\Services\PHR\Import\Ehi\EhiUploadRefused;
+use App\Services\PHR\Import\Ehi\EhiUploadService;
+use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpKernel\Exception\HttpException;
+use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
+
+/**
+ * Imports a stored document with PHR's own parsers when it is a format they
+ * read, so an agent's imports.create gets the same non-AI import the browser
+ * does: a C-CDA or FHIR file is imported directly (pending review) by the same
+ * PhrStructuredFileImporter as the browser route, and a ZIP is staged as an
+ * upload whose intake reads it as an EHI Tables or MyChart export. Anything
+ * else returns null, and the caller queues AI extraction.
+ */
+final class PhrStructuredDocumentImporter
+{
+    /** Read whole into memory to recognize it: the same bound as a browser's single file. */
+    public const int MAX_DIRECT_BYTES = 50 * 1024 * 1024;
+
+    private const string ZIP_SIGNATURE = "PK\x03\x04";
+
+    public function __construct(
+        private readonly PhrStructuredFileImporter $files,
+        private readonly EhiUploadService $uploads,
+    ) {}
+
+    public function import(PhrPatient $patient, int $actorUserId, PhrDocument $document): ?PhrStructuredDocumentImport
+    {
+        if ($document->storage_disk !== PhrDocument::STORAGE_DISK || $document->storage_path === null) {
+            return null;
+        }
+        $disk = Storage::disk(PhrDocument::STORAGE_DISK);
+        if (! $disk->exists($document->storage_path)) {
+            return null;
+        }
+
+        if ($this->startsWith($document, self::ZIP_SIGNATURE)) {
+            try {
+                [$upload, $queued] = $this->uploads->stageDocument($patient, $actorUserId, $document);
+            } catch (EhiUploadRefused $refused) {
+                throw new HttpException($refused->status(), match ($refused->reason) {
+                    EhiUploadRefused::PATIENT_ARCHIVED => 'The patient is archived; nothing new is imported into it.',
+                    EhiUploadRefused::TOO_LARGE => 'The document is larger than an export PHR can import.',
+                    default => 'The document could not be staged for import; try again.',
+                });
+            }
+
+            return PhrStructuredDocumentImport::staged($upload, $queued);
+        }
+
+        if ((int) $document->byte_size > self::MAX_DIRECT_BYTES) {
+            return null;
+        }
+        try {
+            [$format, $result] = $this->files->import($patient, $actorUserId, (string) $disk->get($document->storage_path));
+        } catch (PhrStructuredImportRefused $refused) {
+            if ($refused->reason === PhrStructuredImportRefused::UNSUPPORTED_FORMAT) {
+                // Not a format PHR's parsers read: the caller queues AI extraction.
+                return null;
+            }
+            // Recognized, so no AI: a structured file is parsed deterministically or refused.
+            throw new UnprocessableEntityHttpException(match ($refused->reason) {
+                PhrStructuredImportRefused::MULTIPLE_PATIENTS => 'The document holds records for more than one person (different birth dates); nothing was imported.',
+                default => 'The document was recognized as C-CDA or FHIR but could not be imported; nothing was imported.',
+            });
+        }
+
+        return PhrStructuredDocumentImport::imported($format, $result);
+    }
+
+    private function startsWith(PhrDocument $document, string $signature): bool
+    {
+        $stream = Storage::disk(PhrDocument::STORAGE_DISK)->readStream((string) $document->storage_path);
+        if (! is_resource($stream)) {
+            return false;
+        }
+        try {
+            return fread($stream, strlen($signature)) === $signature;
+        } finally {
+            fclose($stream);
+        }
+    }
+}

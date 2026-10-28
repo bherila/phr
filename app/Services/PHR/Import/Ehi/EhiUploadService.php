@@ -3,6 +3,7 @@
 namespace App\Services\PHR\Import\Ehi;
 
 use App\Jobs\PHR\IntakeEhiUploadJob;
+use App\Models\PhrDocument;
 use App\Models\PhrEhiUpload;
 use App\Models\PhrPatient;
 use App\Services\PHR\Access\PhrPatientAccessService;
@@ -84,6 +85,81 @@ final class EhiUploadService
                 throw $failure;
             }
         });
+    }
+
+    /**
+     * Stage a stored ZIP document as an upload and queue its intake: the path an
+     * agent's imports.create takes for an EHI or MyChart export. One upload per
+     * document: a repeat returns it, and queues intake again only after a failure.
+     *
+     * @return array{0: PhrEhiUpload, 1: bool} the upload, and whether intake was queued now
+     *
+     * @throws EhiUploadRefused
+     * @throws AuthorizationException
+     */
+    public function stageDocument(PhrPatient $patient, int $actorUserId, PhrDocument $document): array
+    {
+        $this->ensureWritable($patient, $actorUserId);
+        $size = (int) $document->byte_size;
+        if ($size < 1 || $size > EhiLimits::fromConfig()->maxContainerBytes()) {
+            throw new EhiUploadRefused(EhiUploadRefused::TOO_LARGE, 'the document is outside the EHI package limits');
+        }
+
+        $diskName = (string) config('phr.ehi_disk');
+        [$upload, $queue] = $this->writeGuard->run((int) $patient->id, function (PhrPatient $locked) use ($actorUserId, $document, $size, $diskName): array {
+            $this->ensureWritable($locked, $actorUserId);
+            $existing = PhrEhiUpload::query()->where('patient_id', $locked->id)->where('source_document_id', $document->id)->latest('id')->lockForUpdate()->first();
+            if ($existing !== null) {
+                $retry = $existing->status === PhrEhiUpload::STATUS_FAILED && $existing->storage_path !== null && $existing->expires_at->isFuture();
+                if ($retry) {
+                    $existing->update(['actor_user_id' => $actorUserId, 'status' => PhrEhiUpload::STATUS_QUEUED, 'failure_reason' => null, 'completed_at' => null]);
+                }
+
+                return [$existing, $retry];
+            }
+
+            $path = PhrStorageKey::ehiUpload((int) $locked->id, (string) Str::uuid());
+            try {
+                $source = Storage::disk(PhrDocument::STORAGE_DISK)->readStream((string) $document->storage_path);
+                if (! is_resource($source)) {
+                    throw new EhiUploadRefused(EhiUploadRefused::STORAGE_FAILED, 'the document could not be read');
+                }
+                try {
+                    $written = Storage::disk($diskName)->writeStream($path, $source);
+                } finally {
+                    fclose($source);
+                }
+                if (! $written || Storage::disk($diskName)->size($path) !== $size) {
+                    throw new EhiUploadRefused(EhiUploadRefused::STORAGE_FAILED, 'the staged copy does not match the document');
+                }
+
+                return [PhrEhiUpload::query()->create([
+                    'patient_id' => $locked->id,
+                    'actor_user_id' => $actorUserId,
+                    'source_document_id' => $document->id,
+                    'storage_disk' => $diskName,
+                    'storage_path' => $path,
+                    'file_size_bytes' => $size,
+                    'uploaded_bytes' => $size,
+                    'status' => PhrEhiUpload::STATUS_QUEUED,
+                    'expires_at' => now()->addHours((int) config('phr.ehi_upload_retention_hours')),
+                ]), true];
+            } catch (Throwable $failure) {
+                $this->deleteQuietly($diskName, $path);
+
+                throw $failure;
+            }
+        });
+
+        if ($queue) {
+            try {
+                IntakeEhiUploadJob::dispatch($upload->id);
+            } catch (Throwable) {
+                $this->markFailed($upload->id, 'queue_failed');
+            }
+        }
+
+        return [$upload->refresh(), $queue];
     }
 
     /**

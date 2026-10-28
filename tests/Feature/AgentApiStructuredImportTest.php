@@ -5,20 +5,30 @@ namespace Tests\Feature;
 use App\GenAiProcessor\Jobs\ParseImportJob;
 use App\GenAiProcessor\Models\GenAiImportJob;
 use App\GenAiProcessor\Models\GenAiImportResult;
+use App\Jobs\PHR\IntakeEhiUploadJob;
 use App\Models\AgentApiAudit;
+use App\Models\PhrCondition;
 use App\Models\PhrDocument;
+use App\Models\PhrEhiUpload;
+use App\Models\PhrImmunization;
 use App\Models\PhrLabResult;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Models\User;
+use App\Services\PHR\Import\Ehi\EhiUploadService;
+use App\Support\AgentApi\AgentApiResponseSchemaCatalog;
 use App\Support\AgentApi\AgentApiScopes;
+use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Passport\Client;
 use Laravel\Passport\Passport;
+use Mcp\Capability\Discovery\SchemaValidator;
 use Tests\Concerns\ConfiguresPassportKeys;
+use Tests\Support\PhrCcdaSyntheticDocument;
 use Tests\TestCase;
+use ZipArchive;
 
 final class AgentApiStructuredImportTest extends TestCase
 {
@@ -89,6 +99,102 @@ final class AgentApiStructuredImportTest extends TestCase
         $audit = json_encode(AgentApiAudit::query()->get()->toArray(), JSON_THROW_ON_ERROR);
         $this->assertStringNotContainsString('synthetic-source.pdf', $audit);
         $this->assertStringNotContainsString($job->s3_path, $audit);
+    }
+
+    public function test_a_ccda_document_is_imported_by_phrs_parser_not_queued_for_ai(): void
+    {
+        $owner = $this->user('ccda-owner@example.test');
+        $patient = $this->patient($owner, 'Synthetic C-CDA Patient');
+        $document = $this->storedDocument($patient, $owner, 'visit-summary.xml', 'application/xml', PhrCcdaSyntheticDocument::xml());
+        Passport::actingAs($owner, [AgentApiScopes::IMPORTS_WRITE], 'api', $this->client('Synthetic C-CDA Client'));
+
+        $first = $this->postJson("/api/v1/patients/{$patient->id}/imports", ['document_id' => $document->id])->assertOk()
+            ->assertJsonPath('resource_type', 'structured_import')
+            ->assertJsonPath('outcome', 'imported')
+            ->assertJsonPath('data.document_id', $document->id)
+            ->assertJsonPath('data.format', 'ccda')
+            ->assertJsonPath('data.upload', null);
+        $this->assertConformsToImportCreate($first->json());
+        $created = (int) $first->json('data.import.created');
+        $this->assertGreaterThan(0, $created);
+        $this->assertSame(0, PhrImmunization::query()->where('patient_id', $patient->id)->where('review_status', '!=', PhrReviewStatus::PENDING)->count());
+        $this->assertDatabaseCount('genai_import_jobs', 0);
+        Queue::assertNotPushed(ParseImportJob::class);
+
+        // A repeat is idempotent: nothing the document holds changed.
+        $this->postJson("/api/v1/patients/{$patient->id}/imports", ['document_id' => $document->id])->assertOk()
+            ->assertJsonPath('data.import.created', 0)
+            ->assertJsonPath('data.import.unchanged', $created);
+    }
+
+    public function test_a_structured_document_naming_two_people_is_refused_not_sent_to_ai(): void
+    {
+        $owner = $this->user('family-owner@example.test');
+        $patient = $this->patient($owner, 'Synthetic Family Patient');
+        $document = $this->storedDocument($patient, $owner, 'family.json', 'application/json', (string) json_encode(['resourceType' => 'Bundle', 'entry' => [
+            ['resource' => ['resourceType' => 'Patient', 'id' => 'holder', 'birthDate' => '1984-03-09']],
+            ['resource' => ['resourceType' => 'Patient', 'id' => 'dependent', 'birthDate' => '2015-07-01']],
+            ['resource' => ['resourceType' => 'Condition', 'id' => 'c-1', 'code' => ['text' => 'Synthetic condition']]],
+        ]]));
+        Passport::actingAs($owner, [AgentApiScopes::IMPORTS_WRITE], 'api', $this->client('Synthetic Family Client'));
+
+        $this->postJson("/api/v1/patients/{$patient->id}/imports", ['document_id' => $document->id])->assertStatus(422);
+
+        $this->assertSame(0, PhrCondition::query()->count());
+        $this->assertDatabaseCount('genai_import_jobs', 0);
+    }
+
+    public function test_a_zip_document_is_staged_once_for_intake_and_reports_what_it_became(): void
+    {
+        $owner = $this->user('zip-owner@example.test');
+        $patient = $this->patient($owner, 'Synthetic ZIP Patient');
+        $zipPath = tempnam(sys_get_temp_dir(), 'phr-agent-zip-');
+        $zip = new ZipArchive;
+        $this->assertTrue($zip->open($zipPath, ZipArchive::OVERWRITE));
+        $zip->addFromString('Records/bundle.json', (string) json_encode(['resourceType' => 'Bundle', 'entry' => [
+            ['resource' => ['resourceType' => 'Condition', 'id' => 'zip-condition', 'code' => ['text' => 'Synthetic ZIP condition']]],
+        ]]));
+        $zip->close();
+        $document = $this->storedDocument($patient, $owner, 'mychart.zip', 'application/zip', (string) file_get_contents($zipPath));
+        @unlink($zipPath);
+        Passport::actingAs($owner, [AgentApiScopes::IMPORTS_WRITE], 'api', $this->client('Synthetic ZIP Client'));
+        $url = "/api/v1/patients/{$patient->id}/imports";
+
+        $queued = $this->postJson($url, ['document_id' => $document->id])->assertAccepted()
+            ->assertJsonPath('resource_type', 'structured_import')
+            ->assertJsonPath('outcome', 'queued')
+            ->assertJsonPath('data.format', 'zip')
+            ->assertJsonPath('data.import', null)
+            ->assertJsonPath('data.upload.status', PhrEhiUpload::STATUS_QUEUED);
+        $this->assertConformsToImportCreate($queued->json());
+        $uploadId = (int) $queued->json('data.upload.id');
+        Queue::assertPushed(IntakeEhiUploadJob::class, 1);
+
+        $this->postJson($url, ['document_id' => $document->id])->assertOk()
+            ->assertJsonPath('outcome', 'unchanged')
+            ->assertJsonPath('data.upload.id', $uploadId);
+        Queue::assertPushed(IntakeEhiUploadJob::class, 1);
+        $this->assertSame(1, PhrEhiUpload::query()->where('source_document_id', $document->id)->count());
+
+        (new IntakeEhiUploadJob($uploadId))->handle(app(EhiUploadService::class));
+        $done = $this->postJson($url, ['document_id' => $document->id])->assertOk()
+            ->assertJsonPath('data.upload.status', PhrEhiUpload::STATUS_COMPLETED)
+            ->assertJsonPath('data.upload.format', PhrEhiUpload::FORMAT_MYCHART);
+        $this->assertConformsToImportCreate($done->json());
+        $this->assertSame(PhrReviewStatus::PENDING, PhrCondition::query()->where('patient_id', $patient->id)->sole()->review_status);
+        $this->assertDatabaseCount('genai_import_jobs', 0);
+    }
+
+    public function test_a_zip_document_for_an_archived_patient_is_refused(): void
+    {
+        $owner = $this->user('archived-owner@example.test');
+        $patient = $this->patient($owner, 'Synthetic Archived Patient');
+        $document = $this->storedDocument($patient, $owner, 'export.zip', 'application/zip', "PK\x03\x04synthetic");
+        $patient->update(['archived_at' => now()]);
+        Passport::actingAs($owner, [AgentApiScopes::IMPORTS_WRITE], 'api', $this->client('Synthetic Archived Client'));
+
+        $this->postJson("/api/v1/patients/{$patient->id}/imports", ['document_id' => $document->id])->assertConflict();
+        $this->assertSame(0, PhrEhiUpload::query()->count());
     }
 
     public function test_import_review_is_atomic_idempotent_scope_separated_and_cross_job_safe(): void
@@ -389,6 +495,33 @@ final class AgentApiStructuredImportTest extends TestCase
             'file_hash' => hash('sha256', $contents),
             'source' => 'manual_upload',
         ]);
+    }
+
+    private function storedDocument(PhrPatient $patient, User $owner, string $filename, string $mimeType, string $contents): PhrDocument
+    {
+        $path = "patients/{$patient->id}/documents/synthetic/{$filename}";
+        Storage::disk(PhrDocument::STORAGE_DISK)->put($path, $contents);
+
+        return PhrDocument::query()->create([
+            'patient_id' => $patient->id,
+            'user_id' => $owner->id,
+            'uploaded_by_user_id' => $owner->id,
+            'title' => 'Synthetic structured document',
+            'document_type' => 'other',
+            'original_filename' => $filename,
+            'storage_disk' => PhrDocument::STORAGE_DISK,
+            'storage_path' => $path,
+            'mime_type' => $mimeType,
+            'byte_size' => strlen($contents),
+            'file_hash' => hash('sha256', $contents),
+            'source' => 'manual_upload',
+        ]);
+    }
+
+    /** @param array<string, mixed> $payload */
+    private function assertConformsToImportCreate(array $payload): void
+    {
+        $this->assertSame([], (new SchemaValidator)->validateAgainstJsonSchema($payload, AgentApiResponseSchemaCatalog::forOperation('imports.create')));
     }
 
     /** @param array<string, mixed> $attributes */
