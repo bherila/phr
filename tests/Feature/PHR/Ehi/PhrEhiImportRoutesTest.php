@@ -445,8 +445,16 @@ class PhrEhiImportRoutesTest extends TestCase
         $current = $make(PhrEhiUpload::STATUS_UPLOADING, expired: false);
         $finished = $make(PhrEhiUpload::STATUS_COMPLETED, expired: false);
 
+        $failedIntake = $make(PhrEhiUpload::STATUS_FAILED, expired: true);
+        $failedIntake->update(['failure_reason' => 'lease_lost']);
+
         $this->artisan('phr:ehi-uploads:purge')->assertSuccessful();
 
+        $failedPath = (string) $failedIntake->storage_path;
+        $failedIntake->refresh();
+        self::assertNull($failedIntake->storage_path);
+        self::assertFalse($disk->exists($failedPath));
+        self::assertSame('lease_lost', $failedIntake->failure_reason, 'why intake failed outlives its archive');
         foreach ([$abandoned, $dead] as $upload) {
             $path = (string) $upload->storage_path;
             $upload->refresh();

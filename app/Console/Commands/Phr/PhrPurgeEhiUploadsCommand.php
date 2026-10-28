@@ -63,7 +63,8 @@ final class PhrPurgeEhiUploadsCommand extends BasePhrCommand
     /**
      * Mark an unfinished upload expired, only if it is still in the state it was
      * read in and still expired, so a job that claimed it in between keeps it.
-     * A finished upload cannot change, and needs no transition.
+     * A finished upload cannot change, and needs no transition. An upload that
+     * already failed keeps its own failure reason: that is why it never finished.
      */
     private function expire(PhrEhiUpload $upload): bool
     {
@@ -78,11 +79,10 @@ final class PhrPurgeEhiUploadsCommand extends BasePhrCommand
             $query->where('updated_at', '<=', now()->subHours(self::PROCESSING_GRACE_HOURS));
         }
 
-        return $query->update([
-            'status' => PhrEhiUpload::STATUS_FAILED,
-            'failure_reason' => EhiUploadRefused::EXPIRED,
-            'completed_at' => $upload->completed_at ?? now(),
-            'updated_at' => now(),
-        ]) === 1;
+        $updates = $upload->status === PhrEhiUpload::STATUS_FAILED
+            ? ['updated_at' => now()]
+            : ['status' => PhrEhiUpload::STATUS_FAILED, 'failure_reason' => EhiUploadRefused::EXPIRED, 'completed_at' => now(), 'updated_at' => now()];
+
+        return $query->update($updates) === 1;
     }
 }
