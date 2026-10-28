@@ -89,8 +89,9 @@ final class EhiUploadService
 
     /**
      * Stage a stored ZIP document as an upload and queue its intake: the path an
-     * agent's imports.create takes for an EHI or MyChart export. One upload per
-     * document: a repeat returns it, and queues intake again only after a failure.
+     * agent's imports.create takes for an EHI or MyChart export. A repeat returns
+     * the document's upload; after a failure it queues intake again, or stages a
+     * fresh copy when the failed upload's copy is gone.
      *
      * @return array{0: PhrEhiUpload, 1: bool} the upload, and whether intake was queued now
      *
@@ -109,13 +110,17 @@ final class EhiUploadService
         [$upload, $queue] = $this->writeGuard->run((int) $patient->id, function (PhrPatient $locked) use ($actorUserId, $document, $size, $diskName): array {
             $this->ensureWritable($locked, $actorUserId);
             $existing = PhrEhiUpload::query()->where('patient_id', $locked->id)->where('source_document_id', $document->id)->latest('id')->lockForUpdate()->first();
-            if ($existing !== null) {
-                $retry = $existing->status === PhrEhiUpload::STATUS_FAILED && $existing->storage_path !== null && $existing->expires_at->isFuture();
-                if ($retry) {
-                    $existing->update(['actor_user_id' => $actorUserId, 'status' => PhrEhiUpload::STATUS_QUEUED, 'failure_reason' => null, 'completed_at' => null]);
-                }
+            if ($existing !== null && $existing->status !== PhrEhiUpload::STATUS_FAILED) {
+                return [$existing, false];
+            }
+            // A failed upload is queued again only while its staged copy still
+            // exists; otherwise (purged, expired, or the copy lost) a fresh copy
+            // is staged below, so a retry neither sticks nor fails the same way.
+            if ($existing !== null && $existing->storage_path !== null && $existing->expires_at->isFuture()
+                && Storage::disk($existing->storage_disk)->exists($existing->storage_path)) {
+                $existing->update(['actor_user_id' => $actorUserId, 'status' => PhrEhiUpload::STATUS_QUEUED, 'failure_reason' => null, 'completed_at' => null]);
 
-                return [$existing, $retry];
+                return [$existing, true];
             }
 
             $path = PhrStorageKey::ehiUpload((int) $locked->id, (string) Str::uuid());

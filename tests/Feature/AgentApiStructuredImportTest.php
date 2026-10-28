@@ -208,6 +208,30 @@ final class AgentApiStructuredImportTest extends TestCase
         $this->assertDatabaseCount('genai_import_jobs', 0);
     }
 
+    public function test_a_failed_zip_upload_is_staged_afresh_when_its_copy_is_gone(): void
+    {
+        $owner = $this->user('retry-owner@example.test');
+        $patient = $this->patient($owner, 'Synthetic Retry Patient');
+        $document = $this->storedDocument($patient, $owner, 'mychart.zip', 'application/zip', $this->myChartZip());
+        Passport::actingAs($owner, [AgentApiScopes::IMPORTS_WRITE], 'api', $this->client('Synthetic Retry Client'));
+        $url = "/api/v1/patients/{$patient->id}/imports";
+        $first = (int) $this->postJson($url, ['document_id' => $document->id])->assertAccepted()->json('data.upload.id');
+
+        // Purged after it failed: no copy left to queue again.
+        PhrEhiUpload::query()->whereKey($first)->update(['status' => PhrEhiUpload::STATUS_FAILED, 'failure_reason' => 'upload_expired', 'storage_path' => null]);
+        $second = (int) $this->postJson($url, ['document_id' => $document->id])->assertAccepted()
+            ->assertJsonPath('outcome', 'queued')->json('data.upload.id');
+        $this->assertNotSame($first, $second);
+
+        // Failed while its copy vanished from storage: staged afresh, not re-queued to fail again.
+        $staged = (string) PhrEhiUpload::query()->findOrFail($second)->storage_path;
+        Storage::disk((string) config('phr.ehi_disk'))->delete($staged);
+        PhrEhiUpload::query()->whereKey($second)->update(['status' => PhrEhiUpload::STATUS_FAILED, 'failure_reason' => 'upload_expired']);
+        $third = (int) $this->postJson($url, ['document_id' => $document->id])->assertAccepted()->json('data.upload.id');
+        $this->assertNotContains($third, [$first, $second]);
+        Queue::assertPushed(IntakeEhiUploadJob::class, 3);
+    }
+
     public function test_a_zip_that_is_not_an_export_still_goes_to_ai(): void
     {
         $owner = $this->user('docx-owner@example.test');
