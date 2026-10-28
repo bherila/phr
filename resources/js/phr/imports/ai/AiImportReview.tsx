@@ -27,9 +27,13 @@ const JOB_TYPES: Record<string, string> = {
   phr_office_visit: 'Office visits',
 }
 
+const WHOLE_DATE = /^\d{4}-\d{2}(-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?)?$/
+
 function display(value: unknown): string | null {
   if (value === null || value === undefined || value === '') return null
-  if (typeof value === 'string') return /^\d{4}-\d{2}(-\d{2})?([T ]|$)/.test(value) ? formatSourceDate(value) : value.length > 160 ? `${value.slice(0, 157)}…` : value
+  // Shown as a date only when the whole value is one, so text that begins with a
+  // date keeps the rest of what it says.
+  if (typeof value === 'string') return WHOLE_DATE.test(value) ? formatSourceDate(value) : value.length > 160 ? `${value.slice(0, 157)}…` : value
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
   return null
 }

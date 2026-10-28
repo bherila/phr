@@ -41,6 +41,18 @@ describe('aiResultView', () => {
     expect(view.fields).toEqual([{ key: 'value', label: 'value', value: '140' }, { key: 'collected_at', label: 'collected at', value: 'Jan 15, 2026' }])
   })
 
+  it('formats only whole dates, keeping text that merely begins with one', () => {
+    const view = aiResultView({ id: 3, status: 'pending_review', result_index: 0, data: {
+      name: 'Synthetic follow-up',
+      note: '2023-10-01 follow-up for an abnormal synthetic result',
+      seen_at: '2023-10-01T09:30:00Z',
+    } })
+    expect(view.fields).toEqual([
+      { key: 'note', label: 'note', value: '2023-10-01 follow-up for an abnormal synthetic result' },
+      { key: 'seen_at', label: 'seen at', value: 'Oct 1, 2023' },
+    ])
+  })
+
   it('shows every record nested in a document proposal, since accepting adds them all', () => {
     const view = aiResultView({ id: 2, status: 'pending_review', result_index: 0, data: {
       title: 'Synthetic visit note',
