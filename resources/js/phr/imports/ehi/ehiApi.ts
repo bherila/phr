@@ -134,6 +134,10 @@ export type EhiPending = z.infer<typeof EhiPendingSchema>['pending']
 /** Query parameter a record page's banner links with, to open one package's review. */
 export const EHI_PACKAGE_QUERY = 'ehi_package'
 
+export function ehiImportsUrl(patientId: number): string {
+  return `/phr/imports?patient_id=${patientId}#/imports`
+}
+
 export function ehiReviewUrl(patientId: number, packageId: number): string {
   return `/phr/imports?patient_id=${patientId}&${EHI_PACKAGE_QUERY}=${packageId}#/imports`
 }
