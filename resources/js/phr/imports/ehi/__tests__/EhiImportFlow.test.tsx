@@ -34,6 +34,20 @@ describe('EhiImportFlow', () => {
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith(`${uploadUrl}/intake`, {}))
   })
 
+  it('shows what a MyChart ZIP added, with no review stage', async () => {
+    mockGet.mockResolvedValue({ upload: makeEhiUpload({
+      status: 'completed', format: 'mychart', uploaded_bytes: 10, file_size_bytes: 10,
+      import_result: { created: 4, updated: 0, unchanged: 1, skipped: 0, warnings: [], warnings_omitted: 0 },
+    }) })
+
+    render(<EhiImportFlow patientId={EHI_PATIENT_ID} canBind uploadId={5} onReview={jest.fn()} />)
+
+    expect(await screen.findByText('A MyChart record ZIP: its records were added directly.')).toBeInTheDocument()
+    expect(screen.getByText('Added as new records').closest('dt')?.nextElementSibling).toHaveTextContent('4')
+    expect(screen.queryByText('Review')).not.toBeInTheDocument()
+    expect(screen.queryByText('Read and account for every row')).not.toBeInTheDocument()
+  })
+
   it('says an upload that stopped partway has to be chosen again', async () => {
     mockGet.mockResolvedValue({ upload: makeEhiUpload({ uploaded_bytes: 4, file_size_bytes: 10 }) })
 

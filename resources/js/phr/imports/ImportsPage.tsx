@@ -8,10 +8,11 @@ import { usePhrPatients } from '@/phr/patients/usePhrPatients'
 import { errorMessage, readPatientIdFromQuery } from '@/phr/shared'
 import { useDicomUploads } from '@/phr/uploads'
 
-import { describeEhiError, EHI_PACKAGE_QUERY, type EhiPackage, type EhiUpload, listEhiPackages, listEhiUploads, pendingProposalCount } from './ehi/ehiApi'
+import { describeEhiError, EHI_PACKAGE_QUERY, ehiFailureText, type EhiPackage, type EhiUpload, importStructuredFile, listEhiPackages, listEhiUploads, pendingProposalCount, STRUCTURED_MAX_BYTES, type StructuredImport } from './ehi/ehiApi'
 import { EHI_POLL_MS, EhiImportFlow } from './ehi/EhiImportFlow'
 import { EhiReview } from './ehi/EhiReview'
 import { useEhiUploads } from './ehi/EhiUploadProvider'
+import { ImportSummary } from './ImportSummary'
 
 const SELECT_CLASS = 'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm'
 
@@ -29,13 +30,27 @@ const directoryInputAttributes: DirectoryInputAttributes = {
 type View =
   | { kind: 'home' }
   | { kind: 'check', file: File }
+  | { kind: 'summary', fileName: string, imported: StructuredImport }
   | { kind: 'flow', jobId?: string, uploadId?: number, packageId?: number }
   // The review keeps the patient it was opened for: a deep link may name a patient the
   // viewer can read but not manage, who is never the "Import into" selection.
   | { kind: 'review', patientId: number, packageId: number, sourceLabel: string | null }
 
-function isZip(file: File): boolean {
-  return /\.zip$/i.test(file.name) || /zip/i.test(file.type)
+type FileKind = 'export' | 'structured' | 'other'
+
+/**
+ * A first guess from the name and type, only to choose the right check step: the
+ * server decides what a file really is from its content, and refuses a wrong guess.
+ */
+function fileKind(file: File): FileKind {
+  if (/\.zip$/i.test(file.name) || /zip/i.test(file.type)) return 'export'
+  if (/\.(xml|json|ccd|ccda|cda)$/i.test(file.name) || /(xml|json)/i.test(file.type)) return 'structured'
+  return 'other'
+}
+
+const STRUCTURED_TITLES: Record<StructuredImport['format'], string> = {
+  ccda: 'C-CDA clinical summary',
+  fhir: 'FHIR bundle',
 }
 
 function formatReceived(value: string | null): string {
@@ -60,6 +75,7 @@ function packageStatus(pkg: EhiPackage): { status: string, reviewable: boolean }
 interface RecentRow {
   key: string
   title: string
+  kind: string
   status: string
   received: string
   upload?: EhiUpload
@@ -78,8 +94,15 @@ function uploadStatus(upload: EhiUpload): string {
     case 'failed':
       return 'Stopped'
     default:
-      return 'Imported'
+      return upload.import_result ? `Imported · ${upload.import_result.created} added` : 'Imported'
   }
+}
+
+/** The row's title and kind line, by what intake found the ZIP to be. */
+function uploadLabels(upload: EhiUpload, pkg: EhiPackage | undefined): { title: string, kind: string } {
+  if (upload.format === 'mychart') return { title: 'MyChart record', kind: 'MyChart ZIP' }
+  if (upload.format === 'ehi' || pkg) return { title: pkg?.source?.label ?? 'Epic EHI export', kind: 'Epic EHI Tables' }
+  return { title: 'Export ZIP', kind: 'Not read yet' }
 }
 
 /** Uploads first, each with the package it produced, then packages no browser upload produced. */
@@ -95,7 +118,7 @@ function recentRows(uploads: EhiUpload[], packages: EhiPackage[]): RecentRow[] {
     }
     rows.push({
       key: `upload-${upload.id}`,
-      title: pkg?.source?.label ?? 'Epic EHI export',
+      ...uploadLabels(upload, pkg),
       status: pkg ? packageStatus(pkg).status : uploadStatus(upload),
       received: formatReceived(upload.created_at),
       upload,
@@ -104,7 +127,7 @@ function recentRows(uploads: EhiUpload[], packages: EhiPackage[]): RecentRow[] {
   }
   for (const pkg of packages) {
     if (!covered.has(pkg.id)) {
-      rows.push({ key: `package-${pkg.id}`, title: pkg.source?.label ?? 'Epic EHI export', status: packageStatus(pkg).status, received: formatReceived(pkg.created_at), pkg })
+      rows.push({ key: `package-${pkg.id}`, title: pkg.source?.label ?? 'Epic EHI export', kind: 'Epic EHI Tables', status: packageStatus(pkg).status, received: formatReceived(pkg.created_at), pkg })
     }
   }
 
@@ -144,6 +167,8 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
   })
   const [dragging, setDragging] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
+  const [structuredBusy, setStructuredBusy] = useState(false)
+  const [structuredError, setStructuredError] = useState<string | null>(null)
   const [uploads, setUploads] = useState<EhiUpload[]>([])
   const [packages, setPackages] = useState<EhiPackage[]>([])
   const [recentError, setRecentError] = useState<string | null>(null)
@@ -222,6 +247,7 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
     if (!file) return
     setError(null)
     setConfirmed(false)
+    setStructuredError(null)
     setView({ kind: 'check', file })
   }
 
@@ -229,6 +255,20 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
     event.preventDefault()
     setDragging(false)
     chooseFile(event.dataTransfer.files[0])
+  }
+
+  async function importStructured(file: File): Promise<void> {
+    if (selectedPatientId === undefined) return
+    setStructuredBusy(true)
+    setStructuredError(null)
+    try {
+      const imported = await importStructuredFile(selectedPatientId, file)
+      setView({ kind: 'summary', fileName: file.name, imported })
+    } catch (caught) {
+      setStructuredError(ehiFailureText(caught))
+    } finally {
+      setStructuredBusy(false)
+    }
   }
 
   function startEhiImport(file: File): void {
@@ -277,7 +317,7 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
             Imports
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            Bring outside records into PHR. Every file is kept as evidence, and nothing in the record changes until you review it.
+            Bring outside records into PHR. Nothing you import counts as reviewed until you review it.
           </p>
         </div>
         <label className="grid gap-1 text-sm font-medium sm:w-60" htmlFor="import-patient">
@@ -350,7 +390,7 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
               <UploadCloud className="size-8 text-primary" aria-hidden="true" />
               <p className="font-medium text-foreground">Drop a file here</p>
               <p className="max-w-md text-sm text-muted-foreground">
-                An Epic EHI Tables export ZIP. PHR checks what it is and shows you before anything is imported.
+                A C-CDA or FHIR file, or a MyChart or Epic EHI export ZIP. PHR checks what it is and shows you before anything is imported.
               </p>
               <Button type="button" disabled={!canUpload} onClick={() => fileInputRef.current?.click()}>Choose file</Button>
             </div>
@@ -398,7 +438,7 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
                       const reviewable = row.pkg ? packageStatus(row.pkg).reviewable : false
                       return (
                         <tr key={row.key} className="border-t border-border">
-                          <td className="py-2 pr-4"><span className="font-medium text-foreground">{row.title}</span><span className="block text-xs text-muted-foreground">Epic EHI Tables</span></td>
+                          <td className="py-2 pr-4"><span className="font-medium text-foreground">{row.title}</span><span className="block text-xs text-muted-foreground">{row.kind}</span></td>
                           <td className="py-2 pr-4">
                             {row.status}
                             {row.upload && (row.upload.status === 'rejected' || row.upload.status === 'failed') && (
@@ -433,22 +473,22 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
 
       {view.kind === 'check' && (
         <section aria-labelledby="imports-check" className="mt-6 flex max-w-3xl flex-col gap-4 rounded-lg border border-border bg-card p-5">
-          {isZip(view.file) ? (
+          {fileKind(view.file) === 'export' && (
             <>
               <div>
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Check before importing</p>
                 <h2 id="imports-check" className="mt-1 flex items-center gap-2 text-lg font-semibold text-card-foreground">
                   <FileArchive className="size-5 text-primary" aria-hidden="true" />
-                  Epic EHI Tables export
+                  MyChart or Epic EHI export
                 </h2>
                 <p className="text-sm text-muted-foreground">{view.file.name} · ZIP · {formatBytes(view.file.size)}</p>
               </div>
               <ul className="list-disc space-y-1 pl-5 text-sm text-foreground">
-                <li>Every file inside it is stored and checked.</li>
-                <li>PHR reads every table and proposes records. Nothing is added or changed yet.</li>
-                <li>You decide on each proposal. Likely matches to existing records are shown beside them.</li>
+                <li>PHR works out whether it is an Epic EHI Tables export or a MyChart record ZIP.</li>
+                <li>An EHI export: every file is stored and checked, every table is read, and PHR proposes records for you to decide on. Nothing is added until you do.</li>
+                <li>A MyChart ZIP: its records are added directly and marked for your review on their own pages.</li>
               </ul>
-              <p className="text-sm text-muted-foreground">If the ZIP turns out not to be an EHI Tables export, or holds more than one patient, PHR refuses it and nothing is imported.</p>
+              <p className="text-sm text-muted-foreground">A ZIP that is neither, or that holds more than one patient, is refused and nothing is imported.</p>
               <label className="flex items-center gap-2 text-sm font-medium">
                 <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />
                 This file belongs to {patientName}
@@ -458,7 +498,39 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
                 <Button type="button" variant="outline" onClick={() => setView({ kind: 'home' })}>Cancel</Button>
               </div>
             </>
-          ) : (
+          )}
+          {fileKind(view.file) === 'structured' && (
+            <>
+              <div>
+                <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Check before importing</p>
+                <h2 id="imports-check" className="mt-1 text-lg font-semibold text-card-foreground">Clinical summary or FHIR bundle</h2>
+                <p className="text-sm text-muted-foreground">{view.file.name} · {formatBytes(view.file.size)}</p>
+              </div>
+              {view.file.size > STRUCTURED_MAX_BYTES ? (
+                <p role="alert" className="text-sm text-destructive">This file is larger than {formatBytes(STRUCTURED_MAX_BYTES)}, the most PHR imports in one file. If it came in a ZIP, import the ZIP instead.</p>
+              ) : (
+                <>
+                  <ul className="list-disc space-y-1 pl-5 text-sm text-foreground">
+                    <li>PHR checks that it is a C-CDA document or a FHIR bundle, and refuses anything else.</li>
+                    <li>Its records are added directly and marked for your review on their own pages, such as Immunizations.</li>
+                    <li>Records already in PHR exactly as the file has them are left as they are, with your earlier review.</li>
+                  </ul>
+                  <label className="flex items-center gap-2 text-sm font-medium">
+                    <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)} />
+                    This file belongs to {patientName}
+                  </label>
+                  {structuredError && <p role="alert" className="text-sm text-destructive">{structuredError}</p>}
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" disabled={!confirmed || !canUpload || structuredBusy} onClick={() => void importStructured(view.file)}>
+                      {structuredBusy ? 'Importing…' : 'Import'}
+                    </Button>
+                    <Button type="button" variant="outline" disabled={structuredBusy} onClick={() => setView({ kind: 'home' })}>Cancel</Button>
+                  </div>
+                </>
+              )}
+            </>
+          )}
+          {fileKind(view.file) === 'other' && (
             <>
               <div>
                 <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Not imported</p>
@@ -466,7 +538,7 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
                 <p className="text-sm text-muted-foreground">{view.file.name} · {formatBytes(view.file.size)}</p>
               </div>
               <p className="text-sm text-foreground">
-                This page imports Epic EHI Tables exports. C-CDA, FHIR and MyChart files, PDFs and photos still go through the Documents tab for now.
+                This page imports C-CDA and FHIR files and MyChart or Epic EHI export ZIPs. PDFs and photos go through the Documents tab for now.
               </p>
               <div className="flex flex-wrap gap-2">
                 <Button type="button" onClick={() => fileInputRef.current?.click()}>Choose another file</Button>
@@ -477,11 +549,25 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
         </section>
       )}
 
+      {view.kind === 'summary' && (
+        <section aria-labelledby="imports-summary" className="mt-6 flex max-w-3xl flex-col gap-4 rounded-lg border border-border bg-card p-5">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Imported</p>
+            <h2 id="imports-summary" className="mt-1 text-lg font-semibold text-card-foreground">{STRUCTURED_TITLES[view.imported.format]}</h2>
+            <p className="text-sm text-muted-foreground">{view.fileName}</p>
+          </div>
+          <ImportSummary result={view.imported.result} />
+          <div>
+            <Button type="button" onClick={() => setView({ kind: 'home' })}>Done</Button>
+          </div>
+        </section>
+      )}
+
       {view.kind === 'flow' && selectedPatientId !== undefined && (
         <section aria-labelledby="imports-flow" className="mt-6 flex max-w-3xl flex-col gap-3 rounded-lg border border-border bg-card p-5">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <div>
-              <h2 id="imports-flow" className="text-lg font-semibold text-card-foreground">Importing Epic EHI export</h2>
+              <h2 id="imports-flow" className="text-lg font-semibold text-card-foreground">Import</h2>
               {flowJob && <p className="text-sm text-muted-foreground">{flowJob.fileName} · {formatBytes(flowJob.fileSizeBytes)}</p>}
             </div>
             <span className="flex gap-2">

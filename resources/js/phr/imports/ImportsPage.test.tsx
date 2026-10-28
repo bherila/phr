@@ -218,10 +218,10 @@ describe('ImportsPage', () => {
     renderImports(PATIENT_ID)
     await waitFor(() => expect(screen.getByRole('button', { name: 'Choose file' })).toBeEnabled())
 
-    chooseImportFile(new File(['<ClinicalDocument/>'], 'summary.xml', { type: 'text/xml' }))
+    chooseImportFile(new File(['%PDF-1.7'], 'scan.pdf', { type: 'application/pdf' }))
 
     expect(screen.getByRole('heading', { name: 'PHR can’t import this file here yet' })).toBeInTheDocument()
-    expect(screen.getByText(/still go through the Documents tab/)).toBeInTheDocument()
+    expect(screen.getByText(/PDFs and photos go through the Documents tab/)).toBeInTheDocument()
     expect(mockPost).not.toHaveBeenCalled()
   })
 
@@ -238,7 +238,7 @@ describe('ImportsPage', () => {
 
     chooseImportFile(new File(['PK\u0003\u0004xx'], 'ehi-export.zip', { type: 'application/zip' }))
 
-    expect(screen.getByRole('heading', { name: 'Epic EHI Tables export' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'MyChart or Epic EHI export' })).toBeInTheDocument()
     const start = screen.getByRole('button', { name: 'Start import' })
     expect(start).toBeDisabled()
     fireEvent.click(screen.getByLabelText('This file belongs to Primary'))
@@ -247,6 +247,41 @@ describe('ImportsPage', () => {
     expect(await screen.findByText('Storing and checking every file in the export…')).toBeInTheDocument()
     expect(mockPost).toHaveBeenCalledWith(base, { file_size_bytes: 6 })
     expect(mockPost).toHaveBeenCalledWith(`${base}/5/intake`, {})
+  })
+
+  it('imports one C-CDA or FHIR file directly and summarizes what it wrote', async () => {
+    mockPost.mockResolvedValue({ format: 'ccda', result: { created: 9, updated: 2, unchanged: 3, skipped: 1, documents: 0, warnings: ['Skipped entry 4: no date'] } })
+    renderImports(PATIENT_ID)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Choose file' })).toBeEnabled())
+
+    chooseImportFile(new File(['<ClinicalDocument xmlns="urn:hl7-org:v3"/>'], 'visit-summary.xml', { type: 'text/xml' }))
+
+    expect(screen.getByRole('heading', { name: 'Clinical summary or FHIR bundle' })).toBeInTheDocument()
+    const importButton = screen.getByRole('button', { name: 'Import' })
+    expect(importButton).toBeDisabled()
+    fireEvent.click(screen.getByLabelText('This file belongs to Primary'))
+    fireEvent.click(importButton)
+
+    expect(await screen.findByRole('heading', { name: 'C-CDA clinical summary' })).toBeInTheDocument()
+    const [url, body] = mockPost.mock.calls[0] as [string, FormData]
+    expect(url).toBe(`/api/phr/patients/${PATIENT_ID}/imports/structured`)
+    expect((body.get('file') as File).name).toBe('visit-summary.xml')
+    expect(screen.getByText('Added as new records').closest('dt')?.nextElementSibling).toHaveTextContent('9')
+    expect(screen.getByText('Already in PHR').closest('dt')?.nextElementSibling).toHaveTextContent('3')
+    expect(screen.getByText('Entries read').nextElementSibling).toHaveTextContent('15')
+    expect(screen.getByText('Skipped entry 4: no date')).toBeInTheDocument()
+  })
+
+  it('says why a single file was refused, in words', async () => {
+    mockPost.mockRejectedValue('unsupported_format')
+    renderImports(PATIENT_ID)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Choose file' })).toBeEnabled())
+
+    chooseImportFile(new File(['{"resourceType":"Patient"}'], 'patient.json', { type: 'application/json' }))
+    fireEvent.click(screen.getByLabelText('This file belongs to Primary'))
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }))
+
+    expect(await screen.findByText('This file is not a C-CDA document or a FHIR bundle, so nothing was imported.')).toBeInTheDocument()
   })
 
   it('asks the owner where an accounted export came from, then prepares its review', async () => {

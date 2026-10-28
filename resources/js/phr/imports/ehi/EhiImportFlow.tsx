@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
 import { formatBytes } from '@/lib/utils'
 
+import { ImportSummary } from '../ImportSummary'
 import {
   bindEhiPackage,
   describeEhiError,
@@ -294,7 +295,8 @@ export function EhiImportFlow({ patientId, canBind, job, uploadId, packageId, on
   // the transfer stopped, or every byte arrived and only queueing intake failed.
   const stranded = !transferring && upload?.status === 'uploading'
   const allBytesArrived = stranded && upload.uploaded_bytes === upload.file_size_bytes
-  const stage1: StageState = preserved ? 'done' : allBytesArrived ? 'action' : rejected || uploadFailed || stranded || job?.phase === 'cancelled' ? 'failed' : 'active'
+  const myChart = upload?.format === 'mychart' && upload.status === 'completed' ? upload.import_result : null
+  const stage1: StageState = preserved || myChart ? 'done' : allBytesArrived ? 'action' : rejected || uploadFailed || stranded || job?.phase === 'cancelled' ? 'failed' : 'active'
 
   // ---- stage 2: read and account, confirm the source, prepare proposals
   const accounted = pkg !== null && pkg.accounting_status === 'accounted'
@@ -341,6 +343,7 @@ export function EhiImportFlow({ patientId, canBind, job, uploadId, packageId, on
               <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void act(() => queueEhiIntake(patientId, upload.id))}>Try again</Button>
             </span>
           )}
+          {myChart && <span className="text-sm text-muted-foreground">Uploaded and read.</span>}
           {preserved && (
             <span className="text-sm text-muted-foreground">
               {count.format(pkg.accounting.members)} files kept, each checked.
@@ -349,45 +352,54 @@ export function EhiImportFlow({ patientId, canBind, job, uploadId, packageId, on
           )}
         </Stage>
 
-        <Stage number={2} title="Read and account for every row" state={stage2}>
-          {preserved && !accounted && <span className="text-sm text-muted-foreground">Reading tables…</span>}
-          {accounted && <AccountingTable pkg={pkg} />}
-          {accounted && !bound && (
-            <BindingPanel
-              patientId={patientId}
-              pkg={pkg}
-              canBind={canBind}
-              onBound={(boundPackage) => {
-                setPkg(boundPackage)
-                void act(() => queueEhiPreview(patientId, boundPackage.id))
-              }}
-            />
-          )}
-          {bound && previewRunning && <span className="text-sm text-muted-foreground">Preparing proposals from {pkg.source?.label ?? 'this export'}…</span>}
-          {bound && previewFailed && (
-            <span className="flex flex-wrap items-center gap-2 text-sm text-destructive">
-              {describeEhiError(pkg.preview_run?.failure_reason)}
-              <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void act(() => queueEhiPreview(patientId, pkg.id))}>Try again</Button>
-            </span>
-          )}
-          {bound && !previewRunning && !previewFailed && pkg.preview.state !== 'complete' && (
-            <span className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-              {pkg.preview.state === 'incomplete' ? 'Preparing proposals stopped partway.' : 'Ready to prepare proposals.'}
-              <Button type="button" size="sm" disabled={busy} onClick={() => void act(() => queueEhiPreview(patientId, pkg.id))}>
-                {pkg.preview.state === 'incomplete' ? 'Continue' : 'Prepare review'}
-              </Button>
-            </span>
-          )}
-        </Stage>
+        {myChart ? (
+          <Stage number={2} title="Add the records" state="done">
+            <span className="text-sm text-muted-foreground">A MyChart record ZIP: its records were added directly.</span>
+            <ImportSummary result={myChart} />
+          </Stage>
+        ) : (
+          <>
+          <Stage number={2} title="Read and account for every row" state={stage2}>
+            {preserved && !accounted && <span className="text-sm text-muted-foreground">Reading tables…</span>}
+            {accounted && <AccountingTable pkg={pkg} />}
+            {accounted && !bound && (
+              <BindingPanel
+                patientId={patientId}
+                pkg={pkg}
+                canBind={canBind}
+                onBound={(boundPackage) => {
+                  setPkg(boundPackage)
+                  void act(() => queueEhiPreview(patientId, boundPackage.id))
+                }}
+              />
+            )}
+            {bound && previewRunning && <span className="text-sm text-muted-foreground">Preparing proposals from {pkg.source?.label ?? 'this export'}…</span>}
+            {bound && previewFailed && (
+              <span className="flex flex-wrap items-center gap-2 text-sm text-destructive">
+                {describeEhiError(pkg.preview_run?.failure_reason)}
+                <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void act(() => queueEhiPreview(patientId, pkg.id))}>Try again</Button>
+              </span>
+            )}
+            {bound && !previewRunning && !previewFailed && pkg.preview.state !== 'complete' && (
+              <span className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                {pkg.preview.state === 'incomplete' ? 'Preparing proposals stopped partway.' : 'Ready to prepare proposals.'}
+                <Button type="button" size="sm" disabled={busy} onClick={() => void act(() => queueEhiPreview(patientId, pkg.id))}>
+                  {pkg.preview.state === 'incomplete' ? 'Continue' : 'Prepare review'}
+                </Button>
+              </span>
+            )}
+          </Stage>
 
-        <Stage number={3} title="Review" state={stage3}>
-          {previewComplete && pkg !== null && (
-            <span className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-              {pendingTotal > 0 ? `${count.format(pendingTotal)} proposals to decide. Nothing is added to the record until you do.` : 'Nothing left to decide.'}
-              <Button type="button" size="sm" onClick={() => onReview(pkg)}>{pendingTotal > 0 ? `Review ${count.format(pendingTotal)} proposals` : 'View decisions'}</Button>
-            </span>
-          )}
-        </Stage>
+          <Stage number={3} title="Review" state={stage3}>
+            {previewComplete && pkg !== null && (
+              <span className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+                {pendingTotal > 0 ? `${count.format(pendingTotal)} proposals to decide. Nothing is added to the record until you do.` : 'Nothing left to decide.'}
+                <Button type="button" size="sm" onClick={() => onReview(pkg)}>{pendingTotal > 0 ? `Review ${count.format(pendingTotal)} proposals` : 'View decisions'}</Button>
+              </span>
+            )}
+          </Stage>
+          </>
+        )}
       </ol>
     </div>
   )
