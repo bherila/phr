@@ -71,6 +71,19 @@ class PhrStructuredImportRoutesTest extends TestCase
         self::assertSame(0, PhrCondition::query()->count());
     }
 
+    public function test_an_entry_that_fails_partway_leaves_nothing_from_the_file_written(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $bundle = (string) json_encode(['resourceType' => 'Bundle', 'type' => 'collection', 'entry' => [
+            ['resource' => ['resourceType' => 'Condition', 'id' => 'condition-1', 'code' => ['text' => 'Synthetic condition']]],
+            // Recognized, but its category is not a list, so importing it throws.
+            ['resource' => ['resourceType' => 'Observation', 'id' => 'lab-1', 'category' => 'laboratory', 'code' => ['text' => 'Synthetic']]],
+        ]]);
+
+        $this->send($owner, $patient, 'bundle.json', $bundle)->assertStatus(422)->assertExactJson(['error' => 'unreadable']);
+        self::assertSame(0, PhrCondition::query()->count(), 'the entry before the failure was rolled back');
+    }
+
     public function test_manage_access_is_required_and_archived_patients_are_refused(): void
     {
         [$owner, $patient] = $this->ownerAndPatient();

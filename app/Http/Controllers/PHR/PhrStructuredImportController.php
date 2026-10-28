@@ -11,7 +11,10 @@ use App\Services\PHR\Import\PhrFhirImporter;
 use App\Services\PHR\Import\PhrStructuredFormat;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
+use Throwable;
 
 /**
  * Imports one C-CDA or FHIR file from the browser (issue #235, PR 3). The format
@@ -46,17 +49,21 @@ final class PhrStructuredImportController extends Controller
 
         $contents = PhrStructuredFormat::normalize((string) file_get_contents($validated['file']->getRealPath()));
         $format = PhrStructuredFormat::detect($contents);
-        try {
-            $result = match ($format) {
-                PhrStructuredFormat::CCDA => $this->ccda->importXml($contents, $patientModel, $actor),
-                PhrStructuredFormat::FHIR => $this->fhir->importBundle((array) PhrStructuredFormat::fhirBundle($contents), $patientModel, $actor),
-                default => null,
-            };
-        } catch (InvalidArgumentException) {
-            return $this->privateJson(['error' => 'unreadable'], 422);
-        }
-        if ($result === null) {
+        if ($format === null) {
             return $this->privateJson(['error' => 'unsupported_format'], 422);
+        }
+        try {
+            // All of the file or none of it: an entry that fails partway must not
+            // leave the entries before it written, unsummarized.
+            $result = DB::transaction(fn () => $format === PhrStructuredFormat::CCDA
+                ? $this->ccda->importXml($contents, $patientModel, $actor)
+                : $this->fhir->importBundle((array) PhrStructuredFormat::fhirBundle($contents), $patientModel, $actor));
+        } catch (Throwable $failure) {
+            if (! $failure instanceof InvalidArgumentException) {
+                Log::warning('Structured file import failed.', ['exception' => $failure::class]);
+            }
+
+            return $this->privateJson(['error' => 'unreadable'], 422);
         }
 
         return $this->privateJson(['format' => $format, 'result' => $result->toArray()]);
