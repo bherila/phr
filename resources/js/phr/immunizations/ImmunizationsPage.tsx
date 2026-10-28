@@ -9,6 +9,7 @@ import { useClinicalCrud } from '@/phr/clinical/crud'
 import { ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { codeChip, reviewStatusBadge } from '@/phr/clinical/ui'
 import { doseAmountLabel, seriesPositionLabel } from '@/phr/immunizations/immunizationDose'
+import { EhiPendingBanner } from '@/phr/imports/ehi/EhiPendingBanner'
 import type { PhrListPageProps } from '@/phr/miller'
 import { numericPayload, zodErrorMessage } from '@/phr/shared'
 import {
@@ -227,6 +228,8 @@ export default function ImmunizationsPage({ patientId, onDrill }: PhrListPagePro
           <ShowRejectedToggle showRejected={crud.showRejected} onChange={crud.setShowRejected} disabled={crud.busy} />
         </div>
       </div>
+
+      <EhiPendingBanner patientId={patientId} mapping="immunization" className="mb-4" />
 
       {crud.error && (
         <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">

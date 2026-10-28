@@ -1,3 +1,8 @@
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+
 import { expect, type Page, test } from '@playwright/test'
 
 const ownerCredentials = {
@@ -35,6 +40,13 @@ async function ownerPatientId(page: Page, patientName: string): Promise<number> 
   const patient = payload.patients.find((candidate) => candidate.display_name === patientName)
   expect(patient).toBeDefined()
   return patient!.id
+}
+
+/** The synthetic clinical EHI package the PHPUnit suites use, as a ZIP on disk. */
+function syntheticEhiZip(): string {
+  const zipPath = path.join(mkdtempSync(path.join(tmpdir(), 'phr-e2e-ehi-')), 'synthetic-ehi-export.zip')
+  execFileSync('php', ['-r', 'require "vendor/autoload.php"; \\Tests\\Support\\EhiClinicalPackage::standard()->build()->writeZip($argv[1]);', zipPath], { stdio: 'inherit' })
+  return zipPath
 }
 
 interface ConnectedApp {
@@ -318,5 +330,41 @@ test.describe.serial('PHR browser journeys', () => {
       expect.objectContaining({ name: 'Synthetic Outsider Only App' }),
     ]))
     expect(outsiderApps.some((app) => app.name === 'Synthetic Other Connected App')).toBeFalsy()
+  })
+
+  test('imports an EHI export from the Imports page, reviews a proposal, and flags the rest on the record page', async ({ page }, testInfo) => {
+    await signIn(page, ownerCredentials)
+    const patientName = patientNameForAttempt(testInfo.retry)
+    const patientId = await ownerPatientId(page, patientName)
+    await page.goto(`/phr/imports?patient_id=${patientId}#/imports`)
+    await expect(page.getByLabel('Import into')).toHaveValue(String(patientId))
+
+    await page.getByLabel('File to import').setInputFiles(syntheticEhiZip())
+    await expect(page.getByRole('heading', { name: 'Epic EHI Tables export' })).toBeVisible()
+    const start = page.getByRole('button', { name: 'Start import' })
+    await expect(start).toBeDisabled()
+    await page.getByLabel(`This file belongs to ${patientName}`).check()
+    await start.click()
+
+    // Intake runs from the queue (synchronously here); the page reads its result back.
+    await expect(page.getByText('Every row accounted for')).toBeVisible()
+    await page.getByRole('button', { name: 'Confirm source' }).click()
+    const review = page.getByRole('button', { name: /^Review \d+ proposals$/ })
+    await expect(review).toBeVisible()
+    await review.click()
+
+    await expect(page.getByRole('heading', { name: 'Review Epic EHI export' })).toBeVisible()
+    const newRecords = page.getByRole('region', { name: 'New records' })
+    const accept = newRecords.getByRole('button', { name: /^Accept: / }).first()
+    const title = (await accept.getAttribute('aria-label'))!.replace(/^Accept: /, '')
+    await accept.click()
+    await expect(newRecords.getByRole('listitem', { name: title }).getByText('Accepted')).toBeVisible()
+
+    await page.goto(`/phr/patient/${patientId}#/immunizations`)
+    const banner = page.getByRole('status').filter({ hasText: 'from an EHI export' })
+    await expect(banner).toContainText(/\d+ immunizations from an EHI export are waiting for review\./)
+    await expect(page.getByRole('cell', { name: title }).or(page.getByText(title)).first()).toBeVisible()
+    await banner.getByRole('link', { name: 'Review with the import' }).click()
+    await expect(page.getByRole('heading', { name: 'Review EHI export' })).toBeVisible()
   })
 })
