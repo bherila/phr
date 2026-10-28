@@ -32,6 +32,9 @@ final class EhiUploadRefused extends RuntimeException
 
     public const string STORAGE_FAILED = 'storage_failed';
 
+    /** A ZIP that is neither an EHI Tables export nor a MyChart record ZIP. */
+    public const string UNRECOGNIZED_EXPORT = 'unrecognized_export';
+
     public function __construct(public readonly string $reason, string $detail)
     {
         parent::__construct($detail);

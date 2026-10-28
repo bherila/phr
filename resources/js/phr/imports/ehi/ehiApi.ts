@@ -18,11 +18,24 @@ const countMap = z.preprocess(emptyArrayAsObject, z.record(z.string(), z.number(
 const nestedCountMap = z.preprocess(emptyArrayAsObject, z.record(z.string(), countMap))
 const looseRecord = z.preprocess(emptyArrayAsObject, z.record(z.string(), z.unknown()))
 
+/** What a direct (unstaged) import wrote: C-CDA, FHIR, or a MyChart ZIP's files. */
+export const ImportResultSchema = z.object({
+  created: z.number(),
+  updated: z.number(),
+  unchanged: z.number(),
+  skipped: z.number(),
+  warnings: z.array(z.string()),
+  warnings_omitted: z.number().optional(),
+})
+export type ImportResult = z.infer<typeof ImportResultSchema>
+
 export const EhiUploadSchema = z.object({
   id: z.number(),
   patient_id: z.number(),
   status: z.enum(['uploading', 'queued', 'processing', 'completed', 'rejected', 'failed']),
   failure_reason: z.string().nullable(),
+  /** Decided by intake: an EHI Tables export, or a MyChart record ZIP imported directly. */
+  format: z.enum(['ehi', 'mychart']).nullable(),
   transport: z.string(),
   file_size_bytes: z.number(),
   uploaded_bytes: z.number(),
@@ -31,6 +44,7 @@ export const EhiUploadSchema = z.object({
   replayed: z.boolean().nullable(),
   resumed: z.boolean().nullable(),
   repaired: z.number().nullable(),
+  import_result: ImportResultSchema.nullable(),
   expires_at: z.string(),
   completed_at: z.string().nullable(),
   created_at: z.string().nullable(),
@@ -235,6 +249,25 @@ export async function reviewEhiProposal(patientId: number, proposal: EhiProposal
   }).parse(data)
 }
 
+/** Largest single C-CDA or FHIR file the direct route accepts. */
+export const STRUCTURED_MAX_BYTES = 50 * 1024 * 1024
+
+export interface StructuredImport {
+  format: 'ccda' | 'fhir'
+  result: ImportResult
+}
+
+/** Import one C-CDA or FHIR file; the server recognizes which from its content. */
+export async function importStructuredFile(patientId: number, file: File): Promise<StructuredImport> {
+  const form = new FormData()
+  form.append('file', file, file.name)
+  const data: unknown = await fetchWrapper.post(`/api/phr/patients/${patientId}/imports/structured`, form)
+  return z.object({
+    format: z.enum(['ccda', 'fhir']),
+    result: ImportResultSchema.extend({ documents: z.number() }),
+  }).parse(data)
+}
+
 export async function getEhiPending(patientId: number): Promise<EhiPending> {
   const data: unknown = await fetchWrapper.get(`${base(patientId)}/pending`)
   return EhiPendingSchema.parse(data).pending
@@ -251,10 +284,12 @@ const ERROR_TEXT: Record<string, string> = {
   storage_failed: 'The file could not be stored. Try again in a moment.',
   queue_failed: 'The import could not be started. Try again.',
   not_ehi: 'This ZIP is not an Epic EHI Tables export.',
-  multiple_patients: 'This export holds records for more than one patient, so it was not imported.',
+  unrecognized_export: 'This ZIP is neither an Epic EHI Tables export nor a MyChart record ZIP, so nothing was imported.',
+  unsupported_format: 'This file is not a C-CDA document or a FHIR bundle, so nothing was imported.',
+  multiple_patients: 'This holds records for more than one person (different birth dates), so nothing was imported.',
   no_patient: 'This export does not say which patient it belongs to, so it was not imported.',
   encrypted: 'This ZIP is encrypted. Export it again without a password.',
-  unreadable: 'This file could not be read as a ZIP.',
+  unreadable: 'This file could not be read. Check that it is complete and not damaged.',
   too_many_members: 'This export has more files than PHR can import at once.',
   member_too_large: 'A file inside this export is larger than PHR can import.',
   expansion_ratio: 'This ZIP expands to far more than its size, so it was not imported.',

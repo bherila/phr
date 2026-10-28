@@ -42,6 +42,13 @@ async function ownerPatientId(page: Page, patientName: string): Promise<number> 
   return patient!.id
 }
 
+/** The synthetic C-CDA document the PHPUnit suites use, as a file on disk. */
+function syntheticCcda(): string {
+  const xmlPath = path.join(mkdtempSync(path.join(tmpdir(), 'phr-e2e-ccda-')), 'synthetic-visit-summary.xml')
+  execFileSync('php', ['-r', 'require "vendor/autoload.php"; file_put_contents($argv[1], \\Tests\\Support\\PhrCcdaSyntheticDocument::xml());', xmlPath], { stdio: 'inherit' })
+  return xmlPath
+}
+
 /** The synthetic clinical EHI package the PHPUnit suites use, as a ZIP on disk. */
 function syntheticEhiZip(): string {
   const zipPath = path.join(mkdtempSync(path.join(tmpdir(), 'phr-e2e-ehi-')), 'synthetic-ehi-export.zip')
@@ -340,7 +347,7 @@ test.describe.serial('PHR browser journeys', () => {
     await expect(page.getByLabel('Import into')).toHaveValue(String(patientId))
 
     await page.getByLabel('File to import').setInputFiles(syntheticEhiZip())
-    await expect(page.getByRole('heading', { name: 'Epic EHI Tables export' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'MyChart or Epic EHI export' })).toBeVisible()
     const start = page.getByRole('button', { name: 'Start import' })
     await expect(start).toBeDisabled()
     await page.getByLabel(`This file belongs to ${patientName}`).check()
@@ -366,5 +373,26 @@ test.describe.serial('PHR browser journeys', () => {
     await expect(page.getByRole('cell', { name: title }).or(page.getByText(title)).first()).toBeVisible()
     await banner.getByRole('link', { name: 'Review with the import' }).click()
     await expect(page.getByRole('heading', { name: 'Review EHI export' })).toBeVisible()
+  })
+
+  test('imports a C-CDA file from the Imports page and leaves its records pending review', async ({ page }, testInfo) => {
+    await signIn(page, ownerCredentials)
+    const patientName = patientNameForAttempt(testInfo.retry)
+    const patientId = await ownerPatientId(page, patientName)
+    await page.goto(`/phr/imports?patient_id=${patientId}#/imports`)
+    await expect(page.getByLabel('Import into')).toHaveValue(String(patientId))
+
+    await page.getByLabel('File to import').setInputFiles(syntheticCcda())
+    await expect(page.getByRole('heading', { name: 'Clinical summary or FHIR bundle' })).toBeVisible()
+    await page.getByLabel(`This file belongs to ${patientName}`).check()
+    await page.getByRole('button', { name: 'Import', exact: true }).click()
+
+    await expect(page.getByRole('heading', { name: 'C-CDA clinical summary' })).toBeVisible()
+    const added = page.getByText('Added as new records').locator('xpath=ancestor::dt[1]/following-sibling::dd[1]')
+    await expect(added).not.toHaveText('0')
+
+    // Written directly, but not reviewed: each record offers confirm and reject.
+    await page.goto(`/phr/patient/${patientId}#/immunizations`)
+    await expect(page.getByRole('button', { name: /^Reject / }).first()).toBeVisible()
   })
 })

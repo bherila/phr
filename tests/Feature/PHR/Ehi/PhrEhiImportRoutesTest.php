@@ -4,6 +4,7 @@ namespace Tests\Feature\PHR\Ehi;
 
 use App\Jobs\PHR\IntakeEhiUploadJob;
 use App\Jobs\PHR\PreviewEhiPackageJob;
+use App\Models\PhrCondition;
 use App\Models\PhrEhiBlob;
 use App\Models\PhrEhiPackage;
 use App\Models\PhrEhiPackageMember;
@@ -20,6 +21,7 @@ use App\Services\PHR\Import\Ehi\EhiPreviewQueue;
 use App\Services\PHR\Import\Ehi\EhiUploadService;
 use App\Services\PHR\Import\Ehi\Mapping\EhiDocumentMapping;
 use App\Services\PHR\Import\Ehi\Mapping\EhiImmunizationMapping;
+use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\DeadlockException;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\QueryException;
@@ -33,7 +35,9 @@ use Symfony\Component\HttpFoundation\Response;
 use Tests\Support\EhiClinicalPackage;
 use Tests\Support\EhiIntakeFixtures;
 use Tests\Support\EhiSyntheticPackage;
+use Tests\Support\PhrCcdaSyntheticDocument;
 use Tests\TestCase;
+use ZipArchive;
 
 /**
  * The browser EHI import routes (#235, PR 1): chunked upload, queued intake,
@@ -74,6 +78,8 @@ class PhrEhiImportRoutesTest extends TestCase
         $shown = $this->actingAs($owner)->getJson($this->base($patient)."/uploads/{$upload->id}")->assertOk()
             ->assertHeader('Cache-Control', 'max-age=0, no-store, private')->json('upload');
         self::assertSame(PhrEhiUpload::STATUS_COMPLETED, $shown['status']);
+        self::assertSame(PhrEhiUpload::FORMAT_EHI, $shown['format']);
+        self::assertNull($shown['import_result']);
         self::assertFalse($shown['replayed']);
         $package = PhrEhiPackage::query()->sole();
         self::assertSame($package->id, $shown['package_id']);
@@ -333,6 +339,101 @@ class PhrEhiImportRoutesTest extends TestCase
         self::assertFalse(Storage::disk((string) config('phr.ehi_disk'))->exists($staged), 'a refused archive is not kept');
         $this->actingAs($owner)->postJson($this->base($patient)."/uploads/{$upload->id}/intake")
             ->assertStatus(409)->assertExactJson(['error' => 'not_queueable']);
+    }
+
+    public function test_a_mychart_zip_is_imported_directly_pending_review(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $path = $this->ehiRoot.'/mychart.zip';
+        $zip = new ZipArchive;
+        self::assertTrue($zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE));
+        $zip->addFromString('Records/bundle.json', (string) json_encode(['resourceType' => 'Bundle', 'type' => 'collection', 'entry' => [
+            ['resource' => ['resourceType' => 'Condition', 'id' => 'condition-1', 'code' => ['text' => 'Synthetic condition']]],
+        ]]));
+        // A bundle PHR recognizes, whose one entry cannot be imported.
+        $zip->addFromString('Records/broken.json', '{"resourceType":"Bundle","entry":[{"resource":{"resourceType":"Observation","id":"x","category":"laboratory","code":{"text":"Synthetic"}}}]}');
+        $zip->addFromString('README.txt', 'Synthetic readme');
+        $zip->close();
+        $upload = $this->uploadZip($owner, $patient, $path);
+        $staged = (string) $upload->storage_path;
+
+        $this->runIntake($upload);
+
+        $shown = $this->actingAs($owner)->getJson($this->base($patient)."/uploads/{$upload->id}")->assertOk()->json('upload');
+        self::assertSame(PhrEhiUpload::STATUS_COMPLETED, $shown['status']);
+        self::assertSame(PhrEhiUpload::FORMAT_MYCHART, $shown['format']);
+        self::assertNull($shown['package_id']);
+        self::assertSame(1, $shown['import_result']['created']);
+        self::assertSame(1, $shown['import_result']['skipped']);
+        self::assertSame(['Skipped Records/broken.json: it could not be imported.'], $shown['import_result']['warnings'], 'fixed text, never an exception message');
+        self::assertSame(PhrReviewStatus::PENDING, PhrCondition::query()->where('patient_id', $patient->id)->sole()->review_status);
+        self::assertSame(0, PhrEhiPackage::query()->count());
+        self::assertFalse(Storage::disk((string) config('phr.ehi_disk'))->exists($staged), 'the archive is not kept once imported');
+    }
+
+    public function test_a_mychart_zip_holding_another_persons_records_imports_none_of_them(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $bundle = static fn (string $id, string $birthDate, string $condition): string => (string) json_encode(['resourceType' => 'Bundle', 'type' => 'collection', 'entry' => [
+            ['resource' => ['resourceType' => 'Patient', 'id' => $id, 'birthDate' => $birthDate]],
+            ['resource' => ['resourceType' => 'Condition', 'id' => $id.'-condition', 'code' => ['text' => $condition]]],
+        ]]);
+        $path = $this->ehiRoot.'/family.zip';
+        $zip = new ZipArchive;
+        self::assertTrue($zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE));
+        // The synthetic C-CDA's patient was born 2000-01-01: the account holder.
+        $zip->addFromString('Holder/summary.xml', PhrCcdaSyntheticDocument::xml());
+        $zip->addFromString('Holder/bundle.json', $bundle('holder', '2000-01-01', 'Holder condition'));
+        $zip->addFromString('Dependent/bundle.json', $bundle('dependent', '2015-07-01', 'Dependent condition'));
+        $zip->close();
+        $upload = $this->uploadZip($owner, $patient, $path);
+
+        $this->runIntake($upload);
+
+        self::assertSame(PhrEhiUpload::STATUS_REJECTED, $upload->refresh()->status);
+        self::assertSame('multiple_patients', $upload->failure_reason);
+        self::assertSame(0, PhrCondition::query()->count(), 'not even the account holder\'s records');
+        self::assertSame(0, PhrImmunization::query()->count());
+    }
+
+    public function test_a_mychart_zip_whose_ccda_and_fhir_describe_one_person_is_imported(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $path = $this->ehiRoot.'/one-person.zip';
+        $zip = new ZipArchive;
+        self::assertTrue($zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE));
+        $zip->addFromString('Clinic A/summary.xml', PhrCcdaSyntheticDocument::xml());
+        $zip->addFromString('Clinic B/bundle.json', (string) json_encode(['resourceType' => 'Bundle', 'type' => 'collection', 'entry' => [
+            ['resource' => ['resourceType' => 'Patient', 'id' => 'mrn-at-clinic-b', 'birthDate' => '2000-01-01']],
+            ['resource' => ['resourceType' => 'Condition', 'id' => 'condition-b', 'code' => ['text' => 'Synthetic clinic B condition']]],
+        ]]));
+        $zip->close();
+        $upload = $this->uploadZip($owner, $patient, $path);
+
+        $this->runIntake($upload);
+
+        self::assertSame(PhrEhiUpload::STATUS_COMPLETED, $upload->refresh()->status);
+        self::assertSame(1, PhrCondition::query()->where('patient_id', $patient->id)->where('name', 'Synthetic clinic B condition')->count());
+    }
+
+    public function test_a_zip_that_is_neither_export_is_refused(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $path = $this->ehiRoot.'/photos.zip';
+        $zip = new ZipArchive;
+        self::assertTrue($zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE));
+        $zip->addFromString('notes/readme.txt', 'Synthetic notes');
+        $zip->addFromString('data/settings.json', '{"theme":"dark"}');
+        $zip->close();
+        $upload = $this->uploadZip($owner, $patient, $path);
+
+        $this->runIntake($upload);
+
+        self::assertSame(PhrEhiUpload::STATUS_REJECTED, $upload->refresh()->status);
+        self::assertSame('unrecognized_export', $upload->failure_reason);
+        self::assertNull($upload->format);
+        $this->assertNoEhiRows();
+        self::assertSame(0, PhrCondition::query()->count());
     }
 
     public function test_an_identical_reupload_creates_no_duplicates(): void

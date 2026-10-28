@@ -3,7 +3,7 @@ import { makeEhiPackage } from './ehiFixtures'
 
 describe('ehiApi helpers', () => {
   it('turns a fixed reason code into a sentence and passes other failures through', () => {
-    expect(ehiFailureText('multiple_patients')).toBe('This export holds records for more than one patient, so it was not imported.')
+    expect(ehiFailureText('multiple_patients')).toBe('This holds records for more than one person (different birth dates), so nothing was imported.')
     expect(ehiFailureText('Server is busy, try later.')).toBe('Server is busy, try later.')
     expect(ehiFailureText(new Error('Network down'))).toBe('Network down')
     expect(ehiFailureText(undefined)).toBe('Request failed.')

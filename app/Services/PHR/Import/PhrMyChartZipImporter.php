@@ -5,7 +5,7 @@ namespace App\Services\PHR\Import;
 use App\Models\PhrPatient;
 use App\Services\PHR\Import\Ehi\EhiExportNotSupportedHere;
 use App\Services\PHR\Import\Ehi\EhiPackageDetector;
-use DOMDocument;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use ZipArchive;
 
@@ -42,6 +42,11 @@ class PhrMyChartZipImporter
             if (EhiPackageDetector::detectZipPaths($names) && ($this->hasHeadedKnownTable($zip, $names) || ! $this->hasClinicalMember($zip))) {
                 throw new EhiExportNotSupportedHere;
             }
+            // Decided over every member before anything is written: a ZIP that also
+            // holds a dependent's records must not import any of them.
+            if ($this->namesMoreThanOnePerson($zip)) {
+                throw new PhrMultiplePatientsInSource;
+            }
 
             for ($index = 0; $index < $zip->numFiles; $index++) {
                 $name = (string) $zip->getNameIndex($index);
@@ -61,22 +66,24 @@ class PhrMyChartZipImporter
                     continue;
                 }
 
-                $temp = tempnam(sys_get_temp_dir(), 'phr-import-');
-                if ($temp === false) {
-                    throw new InvalidArgumentException('Unable to create temporary file for ZIP entry.');
+                // Routed by what the member is, as recognizes() decided, never by its
+                // extension; JSON or XML that is neither format is not clinical content.
+                $contents = PhrStructuredFormat::normalize($contents);
+                [$format, $bundle] = PhrStructuredFormat::read($contents);
+                if ($format === null) {
+                    continue;
                 }
 
-                file_put_contents($temp, $contents);
-
                 try {
-                    $result->merge(str_ends_with($lower, '.json')
-                        ? $this->fhirImporter->importFile($temp, $patient, $actorUserId)
-                        : $this->ccdaImporter->importFile($temp, $patient, $actorUserId));
+                    $result->merge($format === PhrStructuredFormat::FHIR
+                        ? $this->fhirImporter->importBundle((array) $bundle, $patient, $actorUserId)
+                        : $this->ccdaImporter->importXml($contents, $patient, $actorUserId));
                 } catch (\Throwable $exception) {
-                    $result->warn("Skipped {$name}: ".$exception->getMessage());
+                    // Fixed text only: an exception message can carry a server path,
+                    // SQL with record values, or other detail that is not for display.
+                    Log::warning('MyChart ZIP member could not be imported.', ['exception' => $exception::class]);
+                    $result->warn("Skipped {$name}: it could not be imported.");
                     $result->addSkipped();
-                } finally {
-                    @unlink($temp);
                 }
             }
         } finally {
@@ -84,6 +91,23 @@ class PhrMyChartZipImporter
         }
 
         return $result;
+    }
+
+    /**
+     * Whether the ZIP holds a FHIR Bundle or C-CDA document to import, decided
+     * without importing anything. False for an unreadable ZIP.
+     */
+    public function recognizes(string $path): bool
+    {
+        $zip = new ZipArchive;
+        if (! is_file($path) || $zip->open($path) !== true) {
+            return false;
+        }
+        try {
+            return $this->hasClinicalMember($zip);
+        } finally {
+            $zip->close();
+        }
     }
 
     /** Recognize content without calling importers, which can write clinical rows. */
@@ -98,33 +122,36 @@ class PhrMyChartZipImporter
             if ($contents === false || trim($contents) === '') {
                 continue;
             }
-            if ($extension === 'json') {
-                $bundle = json_decode($contents, true);
-                if (is_array($bundle) && ($bundle['resourceType'] ?? null) === 'Bundle'
-                    && (! isset($bundle['entry']) || is_array($bundle['entry']))) {
-                    return true;
-                }
-                unset($bundle);
-
-                continue;
-            }
-
-            $document = new DOMDocument;
-            $previous = libxml_use_internal_errors(true);
-            try {
-                $loaded = $document->loadXML($contents, LIBXML_NONET);
-            } finally {
-                libxml_clear_errors();
-                libxml_use_internal_errors($previous);
-            }
-            if ($loaded && $document->documentElement?->localName === 'ClinicalDocument'
-                && $document->documentElement->namespaceURI === 'urn:hl7-org:v3') {
+            if (PhrStructuredFormat::detect($contents) !== null) {
                 return true;
             }
-            unset($document);
         }
 
         return false;
+    }
+
+    private function namesMoreThanOnePerson(ZipArchive $zip): bool
+    {
+        $patients = new PhrSourcePatients;
+        for ($index = 0; $index < $zip->numFiles; $index++) {
+            $extension = strtolower(pathinfo((string) $zip->getNameIndex($index), PATHINFO_EXTENSION));
+            if (! in_array($extension, ['json', 'xml'], true)) {
+                continue;
+            }
+            $contents = $zip->getFromIndex($index);
+            if ($contents === false) {
+                continue;
+            }
+            $contents = PhrStructuredFormat::normalize($contents);
+            [$format, $bundle] = PhrStructuredFormat::read($contents);
+            match ($format) {
+                PhrStructuredFormat::FHIR => $patients->addFhirBundle((array) $bundle),
+                PhrStructuredFormat::CCDA => $patients->addCcda($contents),
+                default => null,
+            };
+        }
+
+        return $patients->multiple();
     }
 
     /** @param  list<string>  $names */

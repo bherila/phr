@@ -20,8 +20,9 @@ use Illuminate\Support\Carbon;
  * @property int $file_size_bytes
  * @property int $uploaded_bytes
  * @property string $status
+ * @property string|null $format
  * @property string|null $failure_reason
- * @property array{replayed?: bool, resumed?: bool, repaired?: int}|null $result_json
+ * @property array<string, mixed>|null $result_json
  * @property Carbon $expires_at
  * @property Carbon|null $completed_at
  * @property Carbon|null $created_at
@@ -51,6 +52,12 @@ class PhrEhiUpload extends Model
 
     public const array TERMINAL_STATUSES = [self::STATUS_COMPLETED, self::STATUS_REJECTED];
 
+    /** An Epic EHI Tables export: preserved, accounted, then previewed for review. */
+    public const string FORMAT_EHI = 'ehi';
+
+    /** A MyChart record ZIP: its FHIR and C-CDA files were imported directly, pending review. */
+    public const string FORMAT_MYCHART = 'mychart';
+
     protected $table = 'phr_ehi_uploads';
 
     protected $fillable = [
@@ -62,6 +69,7 @@ class PhrEhiUpload extends Model
         'file_size_bytes',
         'uploaded_bytes',
         'status',
+        'format',
         'failure_reason',
         'result_json',
         'expires_at',

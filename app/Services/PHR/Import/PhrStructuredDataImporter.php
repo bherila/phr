@@ -5,6 +5,7 @@ namespace App\Services\PHR\Import;
 use App\GenAiProcessor\Models\GenAiImportJob;
 use App\Models\PhrDocument;
 use App\Models\PhrPatient;
+use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -47,7 +48,7 @@ class PhrStructuredDataImporter
 
     /**
      * @param  array<array-key, mixed>  $payload
-     * @param  array{import_source?: string, source?: string, external_id?: string|null, genai_job_id?: int|null, source_document_id?: int|null}  $options
+     * @param  array{import_source?: string, source?: string, external_id?: string|null, genai_job_id?: int|null, source_document_id?: int|null, review_status?: string}  $options
      */
     public function importPayload(PhrPatient $patient, int $actorUserId, string $jobType, array $payload, array $options = []): PhrImportResult
     {
@@ -58,7 +59,12 @@ class PhrStructuredDataImporter
         return DB::transaction(function () use ($patient, $actorUserId, $jobType, $payload, $options): PhrImportResult {
             if ($jobType === 'phr_document') {
                 $document = $this->documentImporter->createOrUpdateDocument($patient, $actorUserId, $payload, $options);
-                $result = new PhrImportResult(documents: 1, created: $document->wasRecentlyCreated ? 1 : 0, updated: $document->wasRecentlyCreated ? 0 : 1);
+                $result = new PhrImportResult(
+                    documents: 1,
+                    created: $document->wasRecentlyCreated ? 1 : 0,
+                    updated: ! $document->wasRecentlyCreated && $document->wasChanged() ? 1 : 0,
+                    unchanged: ! $document->wasRecentlyCreated && ! $document->wasChanged() ? 1 : 0,
+                );
                 $result->merge($this->importDocumentBundle($patient, $actorUserId, $document, $payload, $options));
 
                 return $result;
@@ -69,8 +75,21 @@ class PhrStructuredDataImporter
     }
 
     /**
+     * Records read straight from a file nobody has reviewed (C-CDA, FHIR, MyChart):
+     * new rows, and existing rows the file changes, wait for a person's review.
+     * A row the file leaves as it is keeps the review it has.
+     *
      * @param  array<array-key, mixed>  $payload
      * @param  array{import_source?: string, source?: string, external_id?: string|null, genai_job_id?: int|null, source_document_id?: int|null}  $options
+     */
+    public function importUnreviewed(PhrPatient $patient, int $actorUserId, string $jobType, array $payload, array $options = []): PhrImportResult
+    {
+        return $this->importPayload($patient, $actorUserId, $jobType, $payload, [...$options, 'review_status' => PhrReviewStatus::PENDING]);
+    }
+
+    /**
+     * @param  array<array-key, mixed>  $payload
+     * @param  array{import_source?: string, source?: string, external_id?: string|null, genai_job_id?: int|null, source_document_id?: int|null, review_status?: string}  $options
      */
     public function importDocumentBundle(PhrPatient $patient, int $actorUserId, PhrDocument $document, array $payload, array $options = []): PhrImportResult
     {
@@ -126,7 +145,7 @@ class PhrStructuredDataImporter
 
     /**
      * @param  array<array-key, mixed>  $payload
-     * @param  array{import_source?: string, source?: string, external_id?: string|null, genai_job_id?: int|null, source_document_id?: int|null}  $options
+     * @param  array{import_source?: string, source?: string, external_id?: string|null, genai_job_id?: int|null, source_document_id?: int|null, review_status?: string}  $options
      */
     private function importRecords(PhrPatient $patient, int $actorUserId, string $jobType, array $payload, array $options): PhrImportResult
     {
@@ -145,8 +164,16 @@ class PhrStructuredDataImporter
                 continue;
             }
 
-            $model = $this->upserter->upsert($this->attributeMapper->modelClassFor($jobType), $attributes);
-            $model->wasRecentlyCreated ? $result->addCreated() : $result->addUpdated();
+            $review = $options['review_status'] ?? null;
+            if ($review !== null) {
+                $attributes['review_status'] = $review;
+            }
+            $model = $this->upserter->upsert($this->attributeMapper->modelClassFor($jobType), $attributes, $review);
+            match (true) {
+                $model->wasRecentlyCreated => $result->addCreated(),
+                $model->wasChanged() => $result->addUpdated(),
+                default => $result->addUnchanged(),
+            };
         }
 
         return $result;

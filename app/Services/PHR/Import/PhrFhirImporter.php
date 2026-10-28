@@ -58,7 +58,7 @@ class PhrFhirImporter
 
         return match ($resourceType) {
             'Observation' => $this->importObservation($resource, $patient, $actorUserId, $externalId),
-            'Condition' => $this->structuredImporter->importPayload($patient, $actorUserId, 'phr_problem_list', [[
+            'Condition' => $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_problem_list', [[
                 'external_id' => $externalId,
                 'name' => $this->codeableText($resource['code'] ?? null),
                 'icd10_code' => $this->codeForSystem($resource['code'] ?? null, 'icd-10'),
@@ -69,7 +69,7 @@ class PhrFhirImporter
                 'verification_status' => $this->codeableText($resource['verificationStatus'] ?? null),
                 'raw_text' => json_encode($resource),
             ]], ['import_source' => 'fhir']),
-            'MedicationStatement' => $this->structuredImporter->importPayload($patient, $actorUserId, 'phr_medication', [[
+            'MedicationStatement' => $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_medication', [[
                 'external_id' => $externalId,
                 'name' => $this->codeableText($resource['medicationCodeableConcept'] ?? null),
                 'status' => $resource['status'] ?? null,
@@ -78,7 +78,7 @@ class PhrFhirImporter
                 'dose' => data_get($resource, 'dosage.0.text'),
                 'raw_text' => json_encode($resource),
             ]], ['import_source' => 'fhir']),
-            'Procedure' => $this->structuredImporter->importPayload($patient, $actorUserId, 'phr_procedure', [[
+            'Procedure' => $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_procedure', [[
                 'external_id' => $externalId,
                 'name' => $this->codeableText($resource['code'] ?? null),
                 'cpt_code' => $this->codeForSystem($resource['code'] ?? null, 'cpt'),
@@ -88,7 +88,7 @@ class PhrFhirImporter
                 'status' => $resource['status'] ?? 'completed',
                 'raw_text' => json_encode($resource),
             ]], ['import_source' => 'fhir']),
-            'Immunization' => $this->structuredImporter->importPayload($patient, $actorUserId, 'phr_immunization', [[
+            'Immunization' => $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_immunization', [[
                 'external_id' => $externalId,
                 'vaccine_name' => $this->codeableText($resource['vaccineCode'] ?? null),
                 'cvx_code' => $this->codeForSystem($resource['vaccineCode'] ?? null, 'cvx'),
@@ -97,7 +97,7 @@ class PhrFhirImporter
                 'lot_number' => $resource['lotNumber'] ?? null,
                 'raw_text' => json_encode($resource),
             ]], ['import_source' => 'fhir']),
-            'AllergyIntolerance' => $this->structuredImporter->importPayload($patient, $actorUserId, 'phr_allergy', [[
+            'AllergyIntolerance' => $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_allergy', [[
                 'external_id' => $externalId,
                 'substance' => $this->codeableText($resource['code'] ?? null),
                 'category' => is_array($resource['category'] ?? null) ? implode(',', $resource['category']) : ($resource['category'] ?? null),
@@ -107,7 +107,7 @@ class PhrFhirImporter
                 'reaction' => $this->codeableText(data_get($resource, 'reaction.0.manifestation.0')),
                 'raw_text' => json_encode($resource),
             ]], ['import_source' => 'fhir']),
-            'Encounter', 'ClinicalImpression' => $this->structuredImporter->importPayload($patient, $actorUserId, 'phr_office_visit', [[
+            'Encounter', 'ClinicalImpression' => $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_office_visit', [[
                 'external_id' => $externalId,
                 'visit_date' => data_get($resource, 'period.start') ?? $resource['date'] ?? null,
                 'visit_started_at' => data_get($resource, 'period.start'),
@@ -118,7 +118,7 @@ class PhrFhirImporter
                 'assessment' => data_get($resource, 'summary.text'),
                 'raw_text' => json_encode($resource),
             ]], ['import_source' => 'fhir']),
-            'DocumentReference' => $this->structuredImporter->importPayload($patient, $actorUserId, 'phr_document', [
+            'DocumentReference' => $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_document', [
                 'external_id' => $externalId,
                 'title' => $resource['description'] ?? data_get($resource, 'content.0.attachment.title'),
                 'document_type' => $this->codeableText($resource['type'] ?? null) ?? 'document_reference',
@@ -142,7 +142,7 @@ class PhrFhirImporter
             : ($resource['valueString'] ?? $resource['valueCodeableConcept']['text'] ?? null);
 
         if ($this->hasCategory($resource, 'vital-signs')) {
-            return $this->structuredImporter->importPayload($patient, $actorUserId, 'phr_vital', [[
+            return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_vital', [[
                 'external_id' => $externalId,
                 'vital_name' => $this->codeableText($resource['code'] ?? null),
                 'observed_at' => $resource['effectiveDateTime'] ?? null,
@@ -154,7 +154,7 @@ class PhrFhirImporter
             ]], ['import_source' => 'fhir']);
         }
 
-        return $this->structuredImporter->importPayload($patient, $actorUserId, 'phr_lab_result', [[
+        return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_lab_result', [[
             'external_id' => $externalId,
             'test_name' => data_get($resource, 'code.text'),
             'analyte' => $this->codeableText($resource['code'] ?? null),

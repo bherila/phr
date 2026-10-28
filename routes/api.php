@@ -46,6 +46,7 @@ use App\Http\Controllers\PHR\PhrNativeBackupController;
 use App\Http\Controllers\PHR\PhrNativeRestoreController;
 use App\Http\Controllers\PHR\PhrPatientDeletionController;
 use App\Http\Controllers\PHR\PhrPatientSearchController;
+use App\Http\Controllers\PHR\PhrStructuredImportController;
 use App\Http\Controllers\PHR\ProcedureController as PHRProcedureController;
 use App\Http\Controllers\PHR\RespiratoryEventController as PHRRespiratoryEventController;
 use App\Http\Controllers\PHR\SinusEnrollmentController as PHRSinusEnrollmentController;
@@ -461,6 +462,7 @@ Route::middleware(['web', 'auth'])
         Route::post('/patients/{patient}/documents/{document}/process', [PhrDocumentController::class, 'process'])->whereNumber(['patient', 'document'])->name('patients.documents.process');
         // Epic EHI Tables import from the browser (#235): chunked ZIP upload, queued
         // intake, binding, preview, and per-proposal review over the CLI's services.
+        Route::post('/patients/{patient}/imports/structured', [PhrStructuredImportController::class, 'store'])->whereNumber('patient')->middleware('throttle:20,1')->name('patients.imports.structured.store');
         Route::get('/patients/{patient}/ehi/uploads', [PhrEhiImportController::class, 'uploads'])->whereNumber('patient')->name('patients.ehi.uploads.index');
         Route::post('/patients/{patient}/ehi/uploads', [PhrEhiImportController::class, 'startUpload'])->whereNumber('patient')->middleware('throttle:10,1')->name('patients.ehi.uploads.store');
         Route::get('/patients/{patient}/ehi/uploads/{upload}', [PhrEhiImportController::class, 'showUpload'])->whereNumber(['patient', 'upload'])->name('patients.ehi.uploads.show');

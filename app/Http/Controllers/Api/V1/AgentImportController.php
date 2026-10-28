@@ -162,6 +162,7 @@ final class AgentImportController extends Controller
         return [
             'created' => (int) $counts['created'],
             'updated' => (int) $counts['updated'],
+            'unchanged' => (int) $counts['unchanged'],
             'skipped' => (int) $counts['skipped'],
             'documents' => (int) $counts['documents'],
         ];

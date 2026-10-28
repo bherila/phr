@@ -136,7 +136,10 @@ class PhrGenAiImportTest extends TestCase
             ->assertOk()
             ->assertJsonPath('import.documents', 1)
             ->assertJsonPath('import.created', 0)
-            ->assertJsonPath('import.updated', 5);
+            // The document row is rewritten for the new job; its nested records are
+            // already in PHR exactly as the bundle has them, so nothing is written.
+            ->assertJsonPath('import.updated', 1)
+            ->assertJsonPath('import.unchanged', 4);
 
         $this->assertSame(1, PhrCondition::query()->where('patient_id', $patient->id)->count());
         $this->assertSame(1, PhrMedication::query()->where('patient_id', $patient->id)->count());

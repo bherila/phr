@@ -7966,6 +7966,7 @@
                 "required": [
                     "created",
                     "updated",
+                    "unchanged",
                     "skipped",
                     "documents"
                 ],
@@ -7974,6 +7975,9 @@
                         "type": "integer"
                     },
                     "updated": {
+                        "type": "integer"
+                    },
+                    "unchanged": {
                         "type": "integer"
                     },
                     "skipped": {
