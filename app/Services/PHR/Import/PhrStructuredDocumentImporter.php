@@ -27,6 +27,8 @@ final class PhrStructuredDocumentImporter
 
     private const string ZIP_SIGNATURE = "PK\x03\x04";
 
+    private const int PREFIX_BYTES = 4096;
+
     public function __construct(
         private readonly PhrStructuredFileImporter $files,
         private readonly EhiUploadService $uploads,
@@ -43,7 +45,8 @@ final class PhrStructuredDocumentImporter
             return null;
         }
 
-        if ($this->startsWith($document, self::ZIP_SIGNATURE) && $this->isExport($disk->path($document->storage_path))) {
+        $prefix = $this->prefix($document);
+        if (str_starts_with($prefix, self::ZIP_SIGNATURE) && $this->isExport($disk->path($document->storage_path))) {
             try {
                 [$upload, $queued] = $this->uploads->stageDocument($patient, $actorUserId, $document);
             } catch (EhiUploadRefused $refused) {
@@ -57,6 +60,12 @@ final class PhrStructuredDocumentImporter
             return PhrStructuredDocumentImport::staged($upload, $queued);
         }
 
+        // Only text that opens like JSON or XML can be C-CDA or FHIR: a PDF or an
+        // image goes to AI without being read whole.
+        $opening = PhrStructuredFormat::normalize($prefix);
+        if ($opening === '' || ! in_array($opening[0], ['{', '<'], true)) {
+            return null;
+        }
         if ((int) $document->byte_size > self::MAX_DIRECT_BYTES) {
             return null;
         }
@@ -100,14 +109,15 @@ final class PhrStructuredDocumentImporter
         return EhiPackageDetector::detectZipPaths($names) || $this->myChart->recognizes($path);
     }
 
-    private function startsWith(PhrDocument $document, string $signature): bool
+    /** The document's first bytes: enough to tell a ZIP, JSON or XML from anything else. */
+    private function prefix(PhrDocument $document): string
     {
         $stream = Storage::disk(PhrDocument::STORAGE_DISK)->readStream((string) $document->storage_path);
         if (! is_resource($stream)) {
-            return false;
+            return '';
         }
         try {
-            return fread($stream, strlen($signature)) === $signature;
+            return (string) fread($stream, self::PREFIX_BYTES);
         } finally {
             fclose($stream);
         }
