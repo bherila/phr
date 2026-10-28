@@ -262,6 +262,19 @@ describe('ImportsPage', () => {
     expect(screen.queryByRole('button', { name: 'Confirm source' })).not.toBeInTheDocument()
   })
 
+  it('opens a linked review for the linked patient, even one the viewer cannot import into', async () => {
+    window.history.replaceState({}, '', '/phr/imports?patient_id=55&ehi_package=9#/imports')
+    routeGets({
+      patients: [makePatient({ id: 55, display_name: 'Read only', can_manage: false, access_level: 'viewer' }), makePatient()],
+      '/api/phr/patients/55/ehi/packages/9/proposals?limit=500&after_id=0': { proposals: [makeEhiProposal()], next_after_id: null },
+    })
+    render(<DicomUploadProvider><EhiUploadProvider><ImportsPage /></EhiUploadProvider></DicomUploadProvider>)
+
+    expect(await screen.findByRole('button', { name: 'Accept: Synthetic Vaccine A' })).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText('Import into')).toHaveValue(String(PATIENT_ID)))
+    expect(mockGet).not.toHaveBeenCalledWith(`/api/phr/patients/${PATIENT_ID}/ehi/packages/9/proposals?limit=500&after_id=0`)
+  })
+
   it('opens a package’s review straight from a record page’s link', async () => {
     window.history.replaceState({}, '', `/phr/imports?patient_id=${PATIENT_ID}&ehi_package=9#/imports`)
     routeGets({

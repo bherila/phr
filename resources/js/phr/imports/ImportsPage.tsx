@@ -29,7 +29,9 @@ type View =
   | { kind: 'home' }
   | { kind: 'check', file: File }
   | { kind: 'flow', jobId?: string, uploadId?: number, packageId?: number }
-  | { kind: 'review', packageId: number, sourceLabel: string | null }
+  // The review keeps the patient it was opened for: a deep link may name a patient the
+  // viewer can read but not manage, who is never the "Import into" selection.
+  | { kind: 'review', patientId: number, packageId: number, sourceLabel: string | null }
 
 function isZip(file: File): boolean {
   return /\.zip$/i.test(file.name) || /zip/i.test(file.type)
@@ -144,7 +146,10 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
   const [error, setError] = useState<string | null>(null)
   const [view, setView] = useState<View>(() => {
     const deepLinked = readDeepLink()
-    return deepLinked !== undefined ? { kind: 'review', packageId: deepLinked, sourceLabel: null } : { kind: 'home' }
+    const linkedPatientId = patientId ?? readPatientIdFromQuery() ?? undefined
+    return deepLinked !== undefined && linkedPatientId !== undefined
+      ? { kind: 'review', patientId: linkedPatientId, packageId: deepLinked, sourceLabel: null }
+      : { kind: 'home' }
   })
   const [dragging, setDragging] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
@@ -386,7 +391,7 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
                           <td className="py-2 pr-4 text-muted-foreground">{row.received}</td>
                           <td className="py-2 text-right">
                             {reviewable && row.pkg ? (
-                              <Button type="button" size="sm" variant="outline" onClick={() => setView({ kind: 'review', packageId: row.pkg!.id, sourceLabel: row.pkg!.source?.label ?? null })}>Review</Button>
+                              <Button type="button" size="sm" variant="outline" onClick={() => setView({ kind: 'review', patientId: row.pkg!.patient_id, packageId: row.pkg!.id, sourceLabel: row.pkg!.source?.label ?? null })}>Review</Button>
                             ) : (
                               <Button
                                 type="button"
@@ -473,16 +478,16 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
             {...(flowJob ? { job: flowJob } : {})}
             {...(view.uploadId !== undefined ? { uploadId: view.uploadId } : {})}
             {...(view.packageId !== undefined ? { packageId: view.packageId } : {})}
-            onReview={(pkg) => setView({ kind: 'review', packageId: pkg.id, sourceLabel: pkg.source?.label ?? null })}
+            onReview={(pkg) => setView({ kind: 'review', patientId: pkg.patient_id, packageId: pkg.id, sourceLabel: pkg.source?.label ?? null })}
             onChanged={reloadRecent}
           />
         </section>
       )}
 
-      {view.kind === 'review' && selectedPatientId !== undefined && (
+      {view.kind === 'review' && (
         <div className="mt-6 max-w-3xl">
           <EhiReview
-            patientId={selectedPatientId}
+            patientId={view.patientId}
             packageId={view.packageId}
             sourceLabel={view.sourceLabel}
             onBack={() => {
