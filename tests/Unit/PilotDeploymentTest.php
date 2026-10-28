@@ -5,7 +5,6 @@ namespace Tests\Unit;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Process\Process;
-use Symfony\Component\Yaml\Yaml;
 
 class PilotDeploymentTest extends TestCase
 {
@@ -246,14 +245,14 @@ JS;
     public function test_each_pilot_workflow_is_manual_only_and_uses_separate_native_target_settings(): void
     {
         foreach (['pilot-deploy.yml' => 'pilot'] as $file => $environment) {
-            $workflow = Yaml::parseFile($this->root.'/.github/workflows/'.$file);
-            $on = $workflow[true] ?? $workflow['on'];
-            $this->assertSame(['workflow_dispatch'], array_keys($on));
-            $this->assertFalse($on['workflow_dispatch']['inputs']['deploy']['default']);
-            $this->assertSame($environment, $workflow['jobs']['deploy']['environment']);
-            $this->assertSame('ubuntu-24.04-arm', $workflow['jobs']['deploy']['runs-on']);
-            $this->assertLessThanOrEqual(30, $workflow['jobs']['deploy']['timeout-minutes']);
             $text = file_get_contents($this->root.'/.github/workflows/'.$file);
+            $this->assertSame(1, preg_match('/^on:\R((?:[ \t].*(?:\R|$)|\R)+)/m', $text, $trigger));
+            preg_match_all('/^  ([a-z_]+):/m', $trigger[1], $events);
+            $this->assertSame(['workflow_dispatch'], $events[1]);
+            $this->assertStringContainsString('        default: false', $trigger[1]);
+            $this->assertMatchesRegularExpression('/^    environment: '.preg_quote($environment, '/').'$/m', $text);
+            $this->assertMatchesRegularExpression('/^    runs-on: ubuntu-24\.04-arm$/m', $text);
+            $this->assertMatchesRegularExpression('/^    timeout-minutes: (?:[1-9]|[12][0-9]|30)$/m', $text);
             $this->assertStringNotContainsString('secrets.SSH_', $text);
             $this->assertStringNotContainsString('environment: prod', $text);
             $this->assertStringContainsString('set-php-handler: false', $text);
@@ -264,16 +263,14 @@ JS;
 
     public function test_pilot_keeps_the_shared_ohif_publication_contract_on_its_own_transport(): void
     {
-        $workflow = Yaml::parseFile($this->root.'/.github/workflows/pilot-deploy.yml');
-        $this->assertSame('pilot-bootstrap', $workflow['jobs']['deploy']['env']['OHIF_SSH_TARGET']);
-        $this->assertSame('ci.yml', $workflow['jobs']['deploy']['env']['PILOT_CI_WORKFLOW']);
-        $this->assertSame('Run Tests', $workflow['jobs']['deploy']['env']['PILOT_CI_GATE']);
-        $steps = $workflow['jobs']['deploy']['steps'];
-        $staging = array_values(array_filter($steps, fn (array $step): bool => ($step['name'] ?? '') === 'Stage managed OHIF assets for the first installation'))[0];
-        $this->assertStringContainsString("steps.prepare.outputs.bootstrap == 'true'", $staging['if']);
-        $release = array_values(array_filter($steps, fn (array $step): bool => str_starts_with($step['uses'] ?? '', 'bherila/shared-cpanel-deployment@')))[0];
-        $this->assertStringContainsString('public/ohif', $release['with']['persistent-paths']);
-        $this->assertSame('.github/scripts/provision-phr-candidate-secrets.sh', $release['with']['pre-migrate-script']);
+        $text = file_get_contents($this->root.'/.github/workflows/pilot-deploy.yml');
+        $this->assertMatchesRegularExpression('/^      OHIF_SSH_TARGET: pilot-bootstrap$/m', $text);
+        $this->assertMatchesRegularExpression('/^      PILOT_CI_WORKFLOW: ci\.yml$/m', $text);
+        $this->assertMatchesRegularExpression('/^      PILOT_CI_GATE: Run Tests$/m', $text);
+        $this->assertSame(1, preg_match('/^      - name: Stage managed OHIF assets for the first installation\R(.*?)(?=^      - |\z)/ms', $text, $staging));
+        $this->assertStringContainsString("steps.prepare.outputs.bootstrap == 'true'", $staging[1]);
+        $this->assertMatchesRegularExpression('/^          persistent-paths: \|\R            storage\R            public\/ohif$/m', $text);
+        $this->assertMatchesRegularExpression('/^          pre-migrate-script: \.github\/scripts\/provision-phr-candidate-secrets\.sh$/m', $text);
         $verify = file_get_contents($this->root.'/scripts/deploy/pilot/verify-live.sh');
         $this->assertStringContainsString('OHIF_LOCK_OWNER="$DEPLOY_RELEASE_ID"', $verify);
         $this->assertStringContainsString('verify-phr-ohif-artifact.sh', $verify);
