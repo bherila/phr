@@ -5,11 +5,11 @@
 set -euo pipefail
 [[ $# == 2 && $1 == phr-local-probe ]] || exit 2
 command_text=$2
-fetch_pattern='^bash -s -- phr\.bherila\.net /(_deploy-php-check-[a-f0-9]{32}\.php) ([1-9]|1[0-9]|20) '
+fetch_pattern='^(nohup )?bash -s -- phr\.bherila\.net /(_deploy-php-check-[a-f0-9]{32}\.php) ([1-9]|1[0-9]|20) '
 fetch_pattern+="'' php-runtime $"
 if [[ $command_text =~ $fetch_pattern ]]; then
-    name=${BASH_REMATCH[1]}
-    fetch_limit=${BASH_REMATCH[2]}
+    name=${BASH_REMATCH[2]}
+    fetch_limit=${BASH_REMATCH[3]}
 else
     fetch_limit=''
     name=${command_text##*/}
