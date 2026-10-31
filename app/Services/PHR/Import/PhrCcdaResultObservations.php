@@ -78,7 +78,7 @@ final class PhrCcdaResultObservations
             'unit' => $unit,
             ...$this->referenceRange($observation),
             // The observation's own interpretation; the range carries its own "N".
-            'abnormal_flag' => $this->attribute($this->child($observation, 'interpretationCode'), 'code'),
+            'abnormal_flag' => $this->interpretation($this->child($observation, 'interpretationCode')),
             'external_id' => 'ccda-lab-'.sha1(implode('|', $this->identity($observation, $analyte, $observedAt, $value, $unit))),
         ];
     }
@@ -104,8 +104,8 @@ final class PhrCcdaResultObservations
         // is never appended. A source whose text is only a unit keeps that text;
         // nothing structured marks it as a unit rather than a qualitative range.
         $text = $this->edText($this->child($range, 'text'));
-        if ($text === null && $type === 'ST' && $value !== null) {
-            $text = $this->plainText($value);
+        if ($text === null && $type === 'ST') {
+            $text = $this->edText($value);
         }
         if ($text === null) {
             $text = $this->boundsText($low, $lowInclusive, $high, $highInclusive);
@@ -186,9 +186,9 @@ final class PhrCcdaResultObservations
         return match ($this->type($value)) {
             'PQ' => $this->quantity($value),
             'IVL_PQ', 'IVL_REAL', 'IVL_INT' => $this->interval($value),
-            'ST', 'ED' => [$this->plainText($value), null],
+            'ST', 'ED' => [$this->edText($value), null],
             'CD', 'CE', 'CO', 'CV' => [$this->codeName($value), null],
-            default => [ValueCoercion::string($this->attribute($value, 'value')) ?? $this->plainText($value), null],
+            default => [ValueCoercion::string($this->attribute($value, 'value')) ?? $this->edText($value), null],
         };
     }
 
@@ -239,8 +239,22 @@ final class PhrCcdaResultObservations
     }
 
     /**
-     * Text of an ED-typed element (`text`, `originalText`): its reference into
-     * the narrative when it has one, otherwise its own text.
+     * The interpretation's code ("H"), or its text when it has only that.
+     */
+    private function interpretation(?DOMElement $code): ?string
+    {
+        if ($code === null) {
+            return null;
+        }
+
+        return $this->attribute($code, 'code') ?? $this->edText($this->child($code, 'originalText'));
+    }
+
+    /**
+     * Text of an element that may hold its text by reference (ED and ST values,
+     * `text`, `originalText`): the narrative it points at when it has a
+     * reference, otherwise its own text. Every text read in this class goes
+     * through here, so a reference-only element never reads as empty.
      */
     private function edText(?DOMElement $element): ?string
     {

@@ -17,6 +17,8 @@
     lab-ivl-no-text     IVL_PQ with no <text>: an exclusive upper bound only
     lab-text-reference  <text> that points into the narrative by reference
     lab-interval-value  a result that is itself an interval ("<30")
+    lab-ed-reference    an ED value, the range text and the interpretation that
+                        each hold only a reference into the narrative
 
   The narrative table mirrors that vendor's column order (Component, Value,
   Ref Range, Test Method, Analysis Time), which is not the order the
@@ -55,6 +57,7 @@
               <tbody>
                 <tr><td>Synthetic screen</td><td>NEG</td><td>NEG</td><td/><td>01/02/2026 3:04 AM PST</td></tr>
                 <tr><td>Synthetic antibody</td><td>Nonreactive</td><td><content ID="range7">Nonreactive</content></td><td/><td>01/02/2026 3:04 AM PST</td></tr>
+                <tr><td>Synthetic culture</td><td><content ID="result9">Growth of normal flora</content></td><td><content ID="range9">No pathogens</content></td><td><content ID="flag9">Abnormal</content></td><td>01/02/2026 3:04 AM PST</td></tr>
               </tbody>
             </table>
           </text>
@@ -233,6 +236,23 @@
                         <high value="150" inclusive="false" unit="mg/g"/>
                       </value>
                       <interpretationCode code="N" codeSystem="2.16.840.1.113883.5.83"/>
+                    </observationRange>
+                  </referenceRange>
+                </observation>
+              </component>
+              <component>
+                <observation classCode="OBS" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.2"/>
+                  <id root="2.25.2001" extension="lab-ed-reference"/>
+                  <code code="SYN-9" codeSystem="2.25.9" displayName="Synthetic culture"/>
+                  <statusCode code="completed"/>
+                  <effectiveTime value="20260102030405-0800"/>
+                  <value xsi:type="ED"><reference value="#result9"/></value>
+                  <interpretationCode nullFlavor="OTH"><originalText><reference value="#flag9"/></originalText></interpretationCode>
+                  <referenceRange>
+                    <observationRange>
+                      <text><reference value="#range9"/></text>
+                      <value xsi:type="ST"><reference value="#range9"/></value>
                     </observationRange>
                   </referenceRange>
                 </observation>

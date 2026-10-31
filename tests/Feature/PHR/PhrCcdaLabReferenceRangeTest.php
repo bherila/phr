@@ -32,6 +32,7 @@ final class PhrCcdaLabReferenceRangeTest extends TestCase
         // <text> by reference resolves to the narrative it points at.
         'lab-text-reference' => ['Nonreactive', null, null, null],
         'lab-interval-value' => ['<150 mg/g', null, '150', 'mg/g'],
+        'lab-ed-reference' => ['No pathogens', null, null, null],
     ];
 
     public function test_a_reference_range_is_stored_once_for_every_shape_that_doubled(): void
@@ -71,6 +72,8 @@ final class PhrCcdaLabReferenceRangeTest extends TestCase
         $this->assertSame(['5.4', 'PERCENT'], [$rows['lab-ivl-translation']->value, $rows['lab-ivl-translation']->unit]);
         $this->assertSame(['<30', 'mg/g'], [$rows['lab-interval-value']->value, $rows['lab-interval-value']->unit]);
         $this->assertSame(['8', null], [$rows['lab-unit-only']->value, $rows['lab-unit-only']->unit]);
+        // Value, range text and interpretation that are only narrative references.
+        $this->assertSame(['Growth of normal flora', 'Abnormal'], [$rows['lab-ed-reference']->value, $rows['lab-ed-reference']->abnormal_flag]);
         $this->assertSame('2026-01-02 03:04:05', $rows['lab-ivl-ucum']->result_datetime?->format('Y-m-d H:i:s'));
     }
 
@@ -128,6 +131,7 @@ final class PhrCcdaLabReferenceRangeTest extends TestCase
             'Synthetic lipid' => 'lab-ivl-no-text',
             'Synthetic antibody' => 'lab-text-reference',
             'Synthetic ratio' => 'lab-interval-value',
+            'Synthetic culture' => 'lab-ed-reference',
             default => 'unexpected: '.$row->analyte,
         };
     }
