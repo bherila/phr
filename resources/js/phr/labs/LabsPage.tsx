@@ -2,6 +2,7 @@ import { FlaskConical, Plus } from 'lucide-react'
 import type { ComponentProps, FormEvent } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
@@ -11,7 +12,8 @@ import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { formatLabReferenceRange, formatLabValue } from '@/phr/labs/formatLabResult'
 import { reviewStateChanged } from '@/phr/review/reviewSummary'
 import { errorMessage, numericPayload } from '@/phr/shared'
-import type { PhrListPageProps } from '@/phr/shell/phrPages'
+import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
+import { openRecordId } from '@/phr/shell/phrRoutes'
 import {
   type PhrLabResult,
   type PhrLabResultFormData,
@@ -112,69 +114,94 @@ function groupLabResults(results: PhrLabResult[]): LabResultGroup[] {
 }
 
 interface LabResultsTableProps {
+  label: string
   results: PhrLabResult[]
   showPanelColumn: boolean
   onDrill: PhrListPageProps['onDrill']
+  openRowId: string | null
   canManage: boolean
   reviewingId: number | null
   onReview: (result: PhrLabResult, decision: PhrReviewDecision) => void
 }
 
-function LabResultsTable({ results, showPanelColumn, onDrill, canManage, reviewingId, onReview }: LabResultsTableProps) {
+const HEAD = 'px-3 py-2 font-medium text-muted-foreground'
+
+function LabResultsTable({ label, results, showPanelColumn, onDrill, openRowId, canManage, reviewingId, onReview }: LabResultsTableProps) {
+  const columns: RecordColumn<PhrLabResult>[] = [
+    {
+      id: 'analyte',
+      header: 'Analyte',
+      headerClassName: `${HEAD} text-left`,
+      className: 'px-3 py-2 font-medium text-foreground',
+      cell: (result) => (
+        <>
+          <div>{result.analyte ?? '—'}</div>
+          <div className="mt-1">{reviewStatusBadge(result.review_status)}</div>
+        </>
+      ),
+    },
+    ...(showPanelColumn ? [{
+      id: 'panel',
+      header: 'Panel',
+      headerClassName: `${HEAD} text-left`,
+      className: 'px-3 py-2 text-muted-foreground',
+      cell: (result: PhrLabResult) => result.test_name ?? '—',
+    }] : []),
+    {
+      id: 'value',
+      header: 'Value',
+      headerClassName: `${HEAD} text-right`,
+      className: (result) => `px-3 py-2 text-right ${flagClass(result.abnormal_flag)}`,
+      cell: (result) => (
+        <>
+          {formatLabValue(result) ?? '—'}
+          {result.unit && <span className="ml-1 text-xs text-muted-foreground">{result.unit}</span>}
+        </>
+      ),
+    },
+    { id: 'range', header: 'Range', headerClassName: `${HEAD} text-left`, className: 'px-3 py-2 text-muted-foreground', cell: (result) => formatLabReferenceRange(result) ?? '—' },
+    {
+      id: 'flag',
+      header: 'Flag',
+      headerClassName: `${HEAD} text-center`,
+      className: (result) => `px-3 py-2 text-center font-semibold ${flagClass(result.abnormal_flag)}`,
+      cell: (result) => (result.abnormal_flag && result.abnormal_flag !== 'N' ? result.abnormal_flag : ''),
+    },
+    {
+      id: 'date',
+      header: 'Date',
+      headerClassName: `${HEAD} text-left`,
+      className: 'px-3 py-2 text-muted-foreground',
+      cell: (result) => (result.result_datetime ?? result.collection_datetime ?? '').slice(0, 10) || '—',
+    },
+    {
+      id: 'review',
+      header: 'Review',
+      headerClassName: `${HEAD} text-right`,
+      className: 'px-3 py-2 text-right',
+      cell: (result) => canManage && (
+        <ReviewActions
+          status={result.review_status}
+          label={result.analyte ?? result.test_name ?? 'lab result'}
+          busy={reviewingId === result.id}
+          onReview={(decision) => onReview(result, decision)}
+        />
+      ),
+    },
+  ]
+
   return (
-    <table className="w-full text-sm">
-      <thead>
-        <tr className="border-b border-border bg-muted/40">
-          <th className="px-3 py-2 text-left font-medium text-muted-foreground">Analyte</th>
-          {showPanelColumn && (
-            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Panel</th>
-          )}
-          <th className="px-3 py-2 text-right font-medium text-muted-foreground">Value</th>
-          <th className="px-3 py-2 text-left font-medium text-muted-foreground">Range</th>
-          <th className="px-3 py-2 text-center font-medium text-muted-foreground">Flag</th>
-          <th className="px-3 py-2 text-left font-medium text-muted-foreground">Date</th>
-          <th className="px-3 py-2 text-right font-medium text-muted-foreground">Review</th>
-        </tr>
-      </thead>
-      <tbody>
-        {results.map((result) => (
-          <tr
-            key={result.id}
-            className={`border-b border-border last:border-0 hover:bg-muted/20 ${onDrill ? 'cursor-pointer' : ''}`}
-            onClick={() => onDrill?.({ id: 'lab-panel-detail', instance: String(result.id) })}
-          >
-            <td className="px-3 py-2 font-medium text-foreground">
-              <div>{result.analyte ?? '—'}</div>
-              <div className="mt-1">{reviewStatusBadge(result.review_status)}</div>
-            </td>
-            {showPanelColumn && (
-              <td className="px-3 py-2 text-muted-foreground">{result.test_name ?? '—'}</td>
-            )}
-            <td className={`px-3 py-2 text-right ${flagClass(result.abnormal_flag)}`}>
-              {formatLabValue(result) ?? '—'}
-              {result.unit && <span className="ml-1 text-xs text-muted-foreground">{result.unit}</span>}
-            </td>
-            <td className="px-3 py-2 text-muted-foreground">{formatLabReferenceRange(result) ?? '—'}</td>
-            <td className={`px-3 py-2 text-center font-semibold ${flagClass(result.abnormal_flag)}`}>
-              {result.abnormal_flag && result.abnormal_flag !== 'N' ? result.abnormal_flag : ''}
-            </td>
-            <td className="px-3 py-2 text-muted-foreground">
-              {(result.result_datetime ?? result.collection_datetime ?? '').slice(0, 10) || '—'}
-            </td>
-            <td className="px-3 py-2 text-right" onClick={(event) => event.stopPropagation()}>
-              {canManage && (
-                <ReviewActions
-                  status={result.review_status}
-                  label={result.analyte ?? result.test_name ?? 'lab result'}
-                  busy={reviewingId === result.id}
-                  onReview={(decision) => onReview(result, decision)}
-                />
-              )}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <RecordTable
+      label={label}
+      rows={results}
+      rowId={(result) => String(result.id)}
+      columns={columns}
+      openRowId={openRowId}
+      onOpen={drillOpener(onDrill, (result: PhrLabResult) => ({ id: 'lab-panel-detail', instance: String(result.id) }))}
+      tableClassName="w-full text-sm"
+      headClassName="border-b border-border bg-muted/40"
+      rowClassName={() => 'border-b border-border last:border-0 hover:bg-muted/20'}
+    />
   )
 }
 
@@ -252,7 +279,7 @@ function AddLabForm({ patientId, onAdded }: AddLabFormProps) {
   )
 }
 
-export default function LabsPage({ patientId, onDrill }: PhrListPageProps) {
+export default function LabsPage({ patientId, onDrill, openRecord }: PhrListPageProps) {
   const [results, setResults] = useState<PhrLabResult[]>([])
   const [canManage, setCanManage] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -368,6 +395,7 @@ export default function LabsPage({ patientId, onDrill }: PhrListPageProps) {
       <div className="mb-4 flex flex-wrap gap-3">
         <Input
           placeholder="Search analyte or panel…"
+          aria-label="Search analyte or panel"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="max-w-xs"
@@ -420,16 +448,16 @@ export default function LabsPage({ patientId, onDrill }: PhrListPageProps) {
                   {group.results.length} result{group.results.length === 1 ? '' : 's'}
                 </span>
               </div>
-              <div className="overflow-x-auto">
-                <LabResultsTable
-                  results={group.results}
-                  showPanelColumn={group.showPanelColumn}
-                  onDrill={onDrill}
-                  canManage={canManage}
-                  reviewingId={reviewingId}
-                  onReview={(result, decision) => void reviewResult(result, decision)}
-                />
-              </div>
+              <LabResultsTable
+                label={group.title}
+                results={group.results}
+                showPanelColumn={group.showPanelColumn}
+                onDrill={onDrill}
+                openRowId={openRecordId(openRecord, 'lab-panel-detail')}
+                canManage={canManage}
+                reviewingId={reviewingId}
+                onReview={(result, decision) => void reviewResult(result, decision)}
+              />
             </section>
           ))}
         </div>

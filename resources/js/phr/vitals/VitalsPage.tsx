@@ -2,6 +2,7 @@ import { HeartPulse, Plus } from 'lucide-react'
 import type { ComponentProps, FormEvent } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
@@ -10,7 +11,8 @@ import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { reviewStateChanged } from '@/phr/review/reviewSummary'
 import { errorMessage, numericPayload } from '@/phr/shared'
-import type { PhrListPageProps } from '@/phr/shell/phrPages'
+import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
+import { openRecordId } from '@/phr/shell/phrRoutes'
 import {
   type PhrVital,
   type PhrVitalFormData,
@@ -143,7 +145,7 @@ function displayValue(v: PhrVital): string {
   return '—'
 }
 
-export default function VitalsPage({ patientId, onDrill }: PhrListPageProps) {
+export default function VitalsPage({ patientId, onDrill, openRecord }: PhrListPageProps) {
   const [vitals, setVitals] = useState<PhrVital[]>([])
   const [canManage, setCanManage] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -212,6 +214,66 @@ export default function VitalsPage({ patientId, onDrill }: PhrListPageProps) {
     [vitals],
   )
 
+  const head = 'px-3 py-2 font-medium text-muted-foreground'
+  const columns: RecordColumn<PhrVital>[] = [
+    {
+      id: 'vital',
+      header: 'Vital',
+      headerClassName: `${head} text-left`,
+      className: 'px-3 py-2 font-medium text-foreground',
+      cell: (v) => (
+        <>
+          <div>{v.vital_name ?? '—'}</div>
+          <div className="mt-1">{reviewStatusBadge(v.review_status)}</div>
+        </>
+      ),
+    },
+    { id: 'value', header: 'Value', headerClassName: `${head} text-right`, className: 'px-3 py-2 text-right font-semibold text-foreground', cell: displayValue },
+    { id: 'unit', header: 'Unit', headerClassName: `${head} text-left`, className: 'px-3 py-2 text-muted-foreground', cell: (v) => v.unit ?? (v.secondary_unit ?? '—') },
+    { id: 'site', header: 'Body Site', headerClassName: `${head} text-left`, className: 'px-3 py-2 text-muted-foreground', cell: (v) => v.body_site ?? '—' },
+    { id: 'date', header: 'Date', headerClassName: `${head} text-left`, className: 'px-3 py-2 text-muted-foreground', cell: (v) => vitalDate(v) || '—' },
+    {
+      id: 'trend',
+      header: 'Trend',
+      headerClassName: `${head} text-left`,
+      className: 'px-3 py-2',
+      cell: (v) => {
+        const candidates = metricCandidates(v)
+        return (
+          <div className="flex flex-wrap gap-1">
+            {candidates.length === 0 && <span className="text-muted-foreground">—</span>}
+            {candidates.map((candidate) => (
+              <Button
+                key={`${v.id}-${candidate.key}`}
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => onDrill?.({ id: 'vitals-trend', instance: candidate.key })}
+              >
+                {candidate.label} trend
+              </Button>
+            ))}
+          </div>
+        )
+      },
+    },
+    {
+      id: 'review',
+      header: 'Review',
+      headerClassName: `${head} text-right`,
+      className: 'px-3 py-2 text-right',
+      cell: (v) => canManage && (
+        <ReviewActions
+          status={v.review_status}
+          label={v.vital_name ?? 'vital'}
+          busy={reviewingId === v.id}
+          onReview={(decision) => void reviewVital(v, decision)}
+        />
+      ),
+    },
+  ]
+
   return (
     <div>
       <div className="mb-6 flex items-center justify-between gap-4">
@@ -246,6 +308,7 @@ export default function VitalsPage({ patientId, onDrill }: PhrListPageProps) {
       <div className="mb-4 flex flex-wrap gap-3">
         <Input
           placeholder="Filter by vital name…"
+          aria-label="Filter by vital name"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="max-w-xs"
@@ -269,73 +332,18 @@ export default function VitalsPage({ patientId, onDrill }: PhrListPageProps) {
       )}
 
       {filtered.length > 0 && (
-        <div className="overflow-x-auto rounded-lg border border-border">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-muted/40">
-                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Vital</th>
-                <th className="px-3 py-2 text-right font-medium text-muted-foreground">Value</th>
-                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Unit</th>
-                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Body Site</th>
-                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Date</th>
-                <th className="px-3 py-2 text-left font-medium text-muted-foreground">Trend</th>
-                <th className="px-3 py-2 text-right font-medium text-muted-foreground">Review</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((v) => {
-                const candidates = metricCandidates(v)
-
-                return (
-                  <tr
-                    key={v.id}
-                    className="cursor-pointer border-b border-border last:border-0 hover:bg-muted/20"
-                    onClick={() => onDrill?.({ id: 'vitals-reading-detail', instance: String(v.id) })}
-                  >
-                    <td className="px-3 py-2 font-medium text-foreground">
-                      <div>{v.vital_name ?? '—'}</div>
-                      <div className="mt-1">{reviewStatusBadge(v.review_status)}</div>
-                    </td>
-                    <td className="px-3 py-2 text-right font-semibold text-foreground">{displayValue(v)}</td>
-                    <td className="px-3 py-2 text-muted-foreground">{v.unit ?? (v.secondary_unit ?? '—')}</td>
-                    <td className="px-3 py-2 text-muted-foreground">{v.body_site ?? '—'}</td>
-                    <td className="px-3 py-2 text-muted-foreground">{vitalDate(v) || '—'}</td>
-                    <td className="px-3 py-2">
-                      <div className="flex flex-wrap gap-1">
-                        {candidates.length === 0 && <span className="text-muted-foreground">—</span>}
-                        {candidates.map((candidate) => (
-                          <Button
-                            key={`${v.id}-${candidate.key}`}
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2 text-xs"
-                            onClick={(event) => {
-                              event.stopPropagation()
-                              onDrill?.({ id: 'vitals-trend', instance: candidate.key })
-                            }}
-                          >
-                            {candidate.label} trend
-                          </Button>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 text-right" onClick={(event) => event.stopPropagation()}>
-                      {canManage && (
-                        <ReviewActions
-                          status={v.review_status}
-                          label={v.vital_name ?? 'vital'}
-                          busy={reviewingId === v.id}
-                          onReview={(decision) => void reviewVital(v, decision)}
-                        />
-                      )}
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
+        <RecordTable
+          label="Vitals"
+          rows={filtered}
+          rowId={(v) => String(v.id)}
+          columns={columns}
+          openRowId={openRecordId(openRecord, 'vitals-reading-detail')}
+          onOpen={drillOpener(onDrill, (v: PhrVital) => ({ id: 'vitals-reading-detail', instance: String(v.id) }))}
+          className="rounded-lg border border-border"
+          tableClassName="w-full text-sm"
+          headClassName="border-b border-border bg-muted/40"
+          rowClassName={() => 'border-b border-border last:border-0 hover:bg-muted/20'}
+        />
       )}
     </div>
   )

@@ -2,12 +2,14 @@ import { AlertTriangle, ChevronDown, ChevronRight, Info, Plus } from 'lucide-rea
 import type { FormEvent } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 
+import { type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
 import { Button } from '@/components/ui/button'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { ShowRejectedToggle } from '@/phr/clinical/review'
 import { classBadge, codeChip, labelize, reviewStatusBadge } from '@/phr/clinical/ui'
 import { zodErrorMessage } from '@/phr/shared'
-import type { PhrListPageProps } from '@/phr/shell/phrPages'
+import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
+import { openRecordId } from '@/phr/shell/phrRoutes'
 import {
   PhrAllergiesResponseSchema,
   type PhrAllergy,
@@ -47,6 +49,7 @@ interface AllergiesTableProps {
   allergies: PhrAllergy[]
   emptyMessage: string
   onDrill?: PhrListPageProps['onDrill']
+  openRowId: string | null
 }
 
 function sortAllergies(allergies: PhrAllergy[]): PhrAllergy[] {
@@ -127,91 +130,89 @@ function AllergiesTable({
   allergies,
   emptyMessage,
   onDrill,
+  openRowId,
 }: AllergiesTableProps) {
+  const columns: RecordColumn<PhrAllergy>[] = [
+    {
+      id: 'allergy',
+      header: 'Allergy',
+      headerClassName: 'px-4 py-3 font-medium',
+      className: 'px-4 py-3',
+      cell: (allergy) => (
+        <>
+          <div className="font-medium text-card-foreground">{allergy.substance}</div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {allergy.category && (
+              <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                {allergy.category}
+              </span>
+            )}
+            {codeChip('RxNorm', allergy.rxnorm_code)}
+            {codeChip('SNOMED', allergy.snomed_code)}
+          </div>
+          {allergy.notes && <p className="mt-2 text-xs text-muted-foreground">{allergy.notes}</p>}
+        </>
+      ),
+    },
+    {
+      id: 'reaction',
+      header: 'Reaction',
+      headerClassName: 'px-4 py-3 font-medium',
+      className: 'px-4 py-3 text-muted-foreground',
+      cell: (allergy) => (
+        <>
+          <div>{allergy.reaction ?? 'Reaction not recorded'}</div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {classBadge(allergy.criticality, CRITICALITY_CLASS)}
+            {allergy.severity && (
+              <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${allergy.severity === 'severe' ? 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300' : 'bg-muted text-muted-foreground'}`}>
+                {allergy.severity}
+              </span>
+            )}
+          </div>
+        </>
+      ),
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      headerClassName: 'px-4 py-3 font-medium',
+      className: 'px-4 py-3',
+      cell: (allergy) => (
+        <div className="flex flex-col items-start gap-1.5">
+          {classBadge(allergy.clinical_status, STATUS_CLASS)}
+          {reviewStatusBadge(allergy.review_status)}
+          <span className="text-xs text-muted-foreground">{labelize(allergy.verification_status)}</span>
+        </div>
+      ),
+    },
+  ]
+
   return (
     <section className="rounded-lg border border-border bg-card">
       <div className="border-b border-border px-4 py-3">
         <h2 className="font-semibold text-card-foreground">{title}</h2>
         <p className="text-sm text-muted-foreground">{description}</p>
       </div>
-      {allergies.length === 0 ? (
-        <div className="px-4 py-8 text-sm text-muted-foreground">{emptyMessage}</div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-border text-sm">
-            <thead>
-              <tr className="text-left text-muted-foreground">
-                <th className="px-4 py-3 font-medium">Allergy</th>
-                <th className="px-4 py-3 font-medium">Reaction</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {allergies.map((allergy) => {
-                const rowClass = isHighRisk(allergy) ? 'bg-destructive/5' : ''
-
-                return (
-                  <tr
-                    key={allergy.id}
-                    className={`align-top ${rowClass} ${onDrill ? 'cursor-pointer hover:bg-muted/30' : ''}`}
-                    onClick={() => onDrill?.({ id: 'allergy-detail', instance: String(allergy.id) })}
-                  >
-                    <td className="px-4 py-3">
-                      {onDrill ? (
-                        <button
-                          type="button"
-                          className="rounded-sm text-left font-medium text-card-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            onDrill({ id: 'allergy-detail', instance: String(allergy.id) })
-                          }}
-                        >
-                          {allergy.substance}
-                        </button>
-                      ) : (
-                        <div className="font-medium text-card-foreground">{allergy.substance}</div>
-                      )}
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {allergy.category && (
-                          <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                            {allergy.category}
-                          </span>
-                        )}
-                        {codeChip('RxNorm', allergy.rxnorm_code)}
-                        {codeChip('SNOMED', allergy.snomed_code)}
-                      </div>
-                      {allergy.notes && <p className="mt-2 text-xs text-muted-foreground">{allergy.notes}</p>}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      <div>{allergy.reaction ?? 'Reaction not recorded'}</div>
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {classBadge(allergy.criticality, CRITICALITY_CLASS)}
-                        {allergy.severity && (
-                          <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${allergy.severity === 'severe' ? 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300' : 'bg-muted text-muted-foreground'}`}>
-                            {allergy.severity}
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-col items-start gap-1.5">
-                        {classBadge(allergy.clinical_status, STATUS_CLASS)}
-                        {reviewStatusBadge(allergy.review_status)}
-                        <span className="text-xs text-muted-foreground">{labelize(allergy.verification_status)}</span>
-                      </div>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <RecordTable
+        label={title}
+        rows={allergies}
+        rowId={(allergy) => String(allergy.id)}
+        columns={columns}
+        openRowId={openRowId}
+        onOpen={drillOpener(onDrill, (allergy: PhrAllergy) => ({ id: 'allergy-detail', instance: String(allergy.id) }))}
+        empty={<div className="px-4 py-8 text-sm text-muted-foreground">{emptyMessage}</div>}
+        tableClassName="min-w-full divide-y divide-border text-sm"
+        headClassName="text-left text-muted-foreground"
+        bodyClassName="divide-y divide-border"
+        rowClassName={(allergy) => `align-top hover:bg-muted/30 ${isHighRisk(allergy) ? 'bg-destructive/5' : ''}`}
+      />
     </section>
   )
 }
 
-export default function AllergiesPage({ patientId, onDrill }: PhrListPageProps) {
+export default function AllergiesPage({ patientId, onDrill, openRecord }: PhrListPageProps) {
+  const openRowId = openRecordId(openRecord, 'allergy-detail')
   const [historicalOpen, setHistoricalOpen] = useState(false)
   const endpoint = `/api/phr/patients/${patientId}/allergies`
   const crud = useClinicalCrud<PhrAllergy, PhrAllergyFormData>({
@@ -316,6 +317,7 @@ export default function AllergiesPage({ patientId, onDrill }: PhrListPageProps) 
             allergies={activeAllergies}
             emptyMessage="No active allergies recorded."
             onDrill={onDrill}
+            openRowId={openRowId}
           />
 
           <section className="rounded-lg border border-border bg-card">
@@ -342,6 +344,7 @@ export default function AllergiesPage({ patientId, onDrill }: PhrListPageProps) 
                   allergies={historicalAllergies}
                   emptyMessage="No historical allergies recorded."
                   onDrill={onDrill}
+                  openRowId={openRowId}
                 />
               </div>
             )}

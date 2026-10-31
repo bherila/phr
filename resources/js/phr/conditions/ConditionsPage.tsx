@@ -10,7 +10,7 @@ import { useClinicalCrud } from '@/phr/clinical/crud'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { classBadge, codeChip, labelize, reviewStatusBadge } from '@/phr/clinical/ui'
 import { compactPayload, zodErrorMessage } from '@/phr/shared'
-import type { PhrListPageProps } from '@/phr/shell/phrPages'
+import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
 import { openRecordId } from '@/phr/shell/phrRoutes'
 import {
   type PhrCondition,
@@ -409,7 +409,7 @@ function ConditionsTable({
         rowId={(condition) => String(condition.id)}
         columns={columns}
         openRowId={openRowId}
-        onOpen={onDrill ? (condition, options) => onDrill({ id: 'condition-detail', instance: String(condition.id) }, options) : undefined}
+        onOpen={drillOpener(onDrill, (condition: PhrCondition) => ({ id: 'condition-detail', instance: String(condition.id) }))}
         empty={<div className="px-4 py-8 text-sm text-muted-foreground">{emptyMessage}</div>}
         tableClassName="min-w-full divide-y divide-border text-sm"
         headClassName="text-left text-muted-foreground"

@@ -36,6 +36,21 @@ export interface PhrListPageProps {
   openRecord?: PhrDetailRef | undefined
 }
 
+/**
+ * A record list's `onOpen` for a page: opens the row's target through `onDrill`, replacing the
+ * history entry only when the open panel follows the active row.
+ */
+export function drillOpener<Row>(
+  onDrill: PhrListPageProps['onDrill'],
+  target: (row: Row) => PhrNavTarget,
+): ((row: Row, options: { replace: boolean }) => void) | undefined {
+  if (!onDrill) return undefined
+  return (row, { replace }) => {
+    if (replace) onDrill(target(row), { replace })
+    else onDrill(target(row))
+  }
+}
+
 export interface PhrDetailPageProps {
   patientId: number
   recordId: string
