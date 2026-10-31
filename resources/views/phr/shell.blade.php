@@ -2,6 +2,9 @@
 
 @section('title', $title . ' | ' . config('app.name', 'Ben Herila'))
 
+{{-- The shell is exactly one viewport tall, so a site footer would add a page scroll. --}}
+@section('hide_footer', '1')
+
 @section('content')
   {{-- Single React shell for every PHR section and patient path. The client reads the
        view from the URL path; all navigation within PHR is client-side. --}}
