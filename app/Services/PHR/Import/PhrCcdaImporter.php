@@ -7,12 +7,18 @@ use DOMDocument;
 use DOMElement;
 use DOMNode;
 use DOMXPath;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use InvalidArgumentException;
 
 class PhrCcdaImporter
 {
-    public function __construct(private PhrStructuredDataImporter $structuredImporter) {}
+    private const string IMPORT_SOURCE = 'ccda';
+
+    public function __construct(
+        private PhrStructuredDataImporter $structuredImporter,
+        private PhrCcdaLegacyLabRows $legacyLabRows,
+    ) {}
 
     public function importFile(string $path, PhrPatient $patient, int $actorUserId): PhrImportResult
     {
@@ -47,9 +53,15 @@ class PhrCcdaImporter
             if ($this->isResultsSection($title)) {
                 // Structured Result Observations, when present, are the record;
                 // the narrative table is only their rendering.
-                $observations = (new PhrCcdaResultObservations($xpath))->records($section);
+                $observations = (new PhrCcdaResultObservations($xpath))->observations($section);
                 if ($observations !== []) {
-                    $result->merge($this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_lab_result', $observations, ['import_source' => 'ccda']));
+                    $result->merge(DB::transaction(function () use ($patient, $actorUserId, $observations): PhrImportResult {
+                        // Rows an earlier import made of these results under other
+                        // ids are moved to theirs first, so they update in place.
+                        $this->legacyLabRows->adopt($patient, self::IMPORT_SOURCE, $observations);
+
+                        return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_lab_result', array_column($observations, 'record'), ['import_source' => self::IMPORT_SOURCE]);
+                    }));
 
                     continue;
                 }
@@ -81,7 +93,7 @@ class PhrCcdaImporter
                     'external_id' => 'ccda-vital-'.sha1(implode('|', $row)),
                 ],
                 $rows
-            ), ['import_source' => 'ccda']);
+            ), ['import_source' => self::IMPORT_SOURCE]);
         }
 
         if ($this->isResultsSection($title)) {
@@ -94,10 +106,10 @@ class PhrCcdaImporter
                     'unit' => $row[3] ?? null,
                     'reference_range_text' => $row[4] ?? null,
                     'abnormal_flag' => $row[5] ?? null,
-                    'external_id' => 'ccda-lab-'.sha1(implode('|', $row)),
+                    'external_id' => PhrCcdaNarrativeRow::labExternalId($row),
                 ],
                 $rows
-            ), ['import_source' => 'ccda']);
+            ), ['import_source' => self::IMPORT_SOURCE]);
         }
 
         if (str_contains($title, 'medication')) {
@@ -110,7 +122,7 @@ class PhrCcdaImporter
                     'external_id' => 'ccda-med-'.sha1(implode('|', $row)),
                 ],
                 $rows
-            ), ['import_source' => 'ccda']);
+            ), ['import_source' => self::IMPORT_SOURCE]);
         }
 
         if (str_contains($title, 'problem') || str_contains($title, 'condition')) {
@@ -123,7 +135,7 @@ class PhrCcdaImporter
                     'external_id' => 'ccda-condition-'.sha1(implode('|', $row)),
                 ],
                 $rows
-            ), ['import_source' => 'ccda']);
+            ), ['import_source' => self::IMPORT_SOURCE]);
         }
 
         if (str_contains($title, 'procedure')) {
@@ -135,7 +147,7 @@ class PhrCcdaImporter
                     'external_id' => 'ccda-procedure-'.sha1(implode('|', $row)),
                 ],
                 $rows
-            ), ['import_source' => 'ccda']);
+            ), ['import_source' => self::IMPORT_SOURCE]);
         }
 
         if (str_contains($title, 'immunization')) {
@@ -147,7 +159,7 @@ class PhrCcdaImporter
                     'external_id' => 'ccda-immunization-'.sha1(implode('|', $row)),
                 ],
                 $rows
-            ), ['import_source' => 'ccda']);
+            ), ['import_source' => self::IMPORT_SOURCE]);
         }
 
         if (str_contains($title, 'allerg')) {
@@ -159,7 +171,7 @@ class PhrCcdaImporter
                     'external_id' => 'ccda-allergy-'.sha1(implode('|', $row)),
                 ],
                 $rows
-            ), ['import_source' => 'ccda']);
+            ), ['import_source' => self::IMPORT_SOURCE]);
         }
 
         if (str_contains($title, 'encounter') || str_contains($title, 'visit')) {
@@ -173,7 +185,7 @@ class PhrCcdaImporter
                     'external_id' => 'ccda-visit-'.sha1(implode('|', $row)),
                 ],
                 $rows
-            ), ['import_source' => 'ccda']);
+            ), ['import_source' => self::IMPORT_SOURCE]);
         }
 
         return new PhrImportResult(skipped: count($rows));
@@ -204,30 +216,12 @@ class PhrCcdaImporter
                 continue;
             }
 
-            $cells = [];
-            foreach ($xpath->query('./*[local-name()="td" or local-name()="th"]', $tr) ?: [] as $cell) {
-                $cells[] = preg_replace('/\s+/', ' ', trim($cell->textContent)) ?: '';
-            }
-
-            if ($cells !== [] && $this->hasNonHeaderData($cells)) {
+            $cells = PhrCcdaNarrativeRow::cells($xpath, $tr);
+            if (PhrCcdaNarrativeRow::isData($cells)) {
                 $rows[] = $cells;
             }
         }
 
         return $rows;
-    }
-
-    /**
-     * Best-effort header-row skip. CCDA narrative tables vary by vendor and have no
-     * stable scope/role markers, so this matches a small set of common English labels;
-     * localized exports or non-standard headers will fall through and import as data.
-     *
-     * @param  array<int, string>  $cells
-     */
-    private function hasNonHeaderData(array $cells): bool
-    {
-        $first = strtolower($cells[0] ?? '');
-
-        return ! in_array($first, ['date', 'name', 'test', 'vaccine', 'medication', 'substance'], true);
     }
 }

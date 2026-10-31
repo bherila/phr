@@ -22,7 +22,9 @@
 
   The narrative table mirrors that vendor's column order (Component, Value,
   Ref Range, Test Method, Analysis Time), which is not the order the
-  narrative-table reader assumes.
+  narrative-table reader assumes. As in that export, each observation's <text>
+  references the Component cell of its own row, which is how a row imported
+  through the narrative table is matched to its observation.
 -->
 <ClinicalDocument xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <realmCode code="US"/>
@@ -55,9 +57,15 @@
                 <tr><th>Component</th><th>Value</th><th>Ref Range</th><th>Test Method</th><th>Analysis Time</th></tr>
               </thead>
               <tbody>
-                <tr><td>Synthetic screen</td><td>NEG</td><td>NEG</td><td/><td>01/02/2026 3:04 AM PST</td></tr>
-                <tr><td>Synthetic antibody</td><td>Nonreactive</td><td><content ID="range7">Nonreactive</content></td><td/><td>01/02/2026 3:04 AM PST</td></tr>
-                <tr><td>Synthetic culture</td><td><content ID="result9">Growth of normal flora</content></td><td><content ID="range9">No pathogens</content></td><td><content ID="flag9">Abnormal</content></td><td>01/02/2026 3:04 AM PST</td></tr>
+                <tr><td ID="cmp-lab-st-neg">Synthetic screen</td><td>NEG</td><td>NEG</td><td/><td>01/02/2026 3:04 AM PST</td></tr>
+                <tr><td ID="cmp-lab-st-detected">Synthetic organism</td><td>Not Detected</td><td>Not Detected</td><td/><td>01/02/2026 3:04 AM PST</td></tr>
+                <tr><td ID="cmp-lab-unit-only">Synthetic hormone</td><td>8</td><td>mIU/mL</td><td/><td>01/02/2026 3:04 AM PST</td></tr>
+                <tr><td ID="cmp-lab-ivl-ucum">Synthetic protein</td><td>14.1 g/dL</td><td>13.6 - 17.5 g/dL</td><td/><td>01/02/2026 3:04 AM PST</td></tr>
+                <tr><td ID="cmp-lab-ivl-translation">Synthetic fraction</td><td>5.4 PERCENT</td><td>4.3 - 5.6 PERCENT</td><td/><td>01/02/2026 3:04 AM PST</td></tr>
+                <tr><td ID="cmp-lab-ivl-no-text">Synthetic lipid</td><td>144 mg/dL</td><td>&lt;200 mg/dL</td><td/><td>01/02/2026 3:04 AM PST</td></tr>
+                <tr><td ID="cmp-lab-text-reference">Synthetic antibody</td><td>Nonreactive</td><td><content ID="range7">Nonreactive</content></td><td/><td>01/02/2026 3:04 AM PST</td></tr>
+                <tr><td ID="cmp-lab-interval-value">Synthetic ratio</td><td>&lt;30 mg/g</td><td>&lt;150 mg/g</td><td/><td>01/02/2026 3:04 AM PST</td></tr>
+                <tr><td ID="cmp-lab-ed-reference">Synthetic culture</td><td><content ID="result9">Growth of normal flora</content></td><td><content ID="range9">No pathogens</content></td><td><content ID="flag9">Abnormal</content></td><td>01/02/2026 3:04 AM PST</td></tr>
               </tbody>
             </table>
           </text>
@@ -74,6 +82,7 @@
                   <templateId root="2.16.840.1.113883.10.20.22.4.2"/>
                   <id root="2.25.2001" extension="lab-st-neg"/>
                   <code code="SYN-1" codeSystem="2.25.9" displayName="Synthetic screen"/>
+                  <text><reference value="#cmp-lab-st-neg"/></text>
                   <statusCode code="completed"/>
                   <effectiveTime value="20260102030405-0800"/>
                   <value xsi:type="ST">NEG</value>
@@ -93,6 +102,7 @@
                   <templateId root="2.16.840.1.113883.10.20.22.4.2"/>
                   <id root="2.25.2001" extension="lab-st-detected"/>
                   <code code="SYN-2" codeSystem="2.25.9" displayName="Synthetic organism"/>
+                  <text><reference value="#cmp-lab-st-detected"/></text>
                   <statusCode code="completed"/>
                   <effectiveTime value="20260102030405-0800"/>
                   <value xsi:type="ST">Not Detected</value>
@@ -111,6 +121,7 @@
                   <templateId root="2.16.840.1.113883.10.20.22.4.2"/>
                   <id root="2.25.2001" extension="lab-unit-only"/>
                   <code code="SYN-3" codeSystem="2.25.9" displayName="Synthetic hormone"/>
+                  <text><reference value="#cmp-lab-unit-only"/></text>
                   <statusCode code="completed"/>
                   <effectiveTime value="20260102030405-0800"/>
                   <value xsi:type="REAL" value="8"/>
@@ -129,6 +140,7 @@
                   <templateId root="2.16.840.1.113883.10.20.22.4.2"/>
                   <id root="2.25.2001" extension="lab-ivl-ucum"/>
                   <code code="SYN-4" codeSystem="2.25.9" displayName="Synthetic protein"/>
+                  <text><reference value="#cmp-lab-ivl-ucum"/></text>
                   <statusCode code="completed"/>
                   <effectiveTime value="20260102030405-0800"/>
                   <value xsi:type="PQ" value="14.1" unit="g/dL"/>
@@ -150,6 +162,7 @@
                   <templateId root="2.16.840.1.113883.10.20.22.4.2"/>
                   <id root="2.25.2001" extension="lab-ivl-translation"/>
                   <code code="SYN-5" codeSystem="2.25.9" displayName="Synthetic fraction"/>
+                  <text><reference value="#cmp-lab-ivl-translation"/></text>
                   <statusCode code="completed"/>
                   <effectiveTime value="20260102030405-0800"/>
                   <value xsi:type="PQ" nullFlavor="OTH">
@@ -183,6 +196,7 @@
                   <templateId root="2.16.840.1.113883.10.20.22.4.2"/>
                   <id root="2.25.2001" extension="lab-ivl-no-text"/>
                   <code code="SYN-6" codeSystem="2.25.9" displayName="Synthetic lipid"/>
+                  <text><reference value="#cmp-lab-ivl-no-text"/></text>
                   <statusCode code="completed"/>
                   <effectiveTime value="20260102030405-0800"/>
                   <value xsi:type="PQ" value="144" unit="mg/dL"/>
@@ -204,6 +218,7 @@
                   <templateId root="2.16.840.1.113883.10.20.22.4.2"/>
                   <id root="2.25.2001" extension="lab-text-reference"/>
                   <code code="SYN-7" codeSystem="2.25.9" displayName="Synthetic antibody"/>
+                  <text><reference value="#cmp-lab-text-reference"/></text>
                   <statusCode code="completed"/>
                   <effectiveTime value="20260102030405-0800"/>
                   <value xsi:type="ST">Nonreactive</value>
@@ -222,6 +237,7 @@
                   <templateId root="2.16.840.1.113883.10.20.22.4.2"/>
                   <id root="2.25.2001" extension="lab-interval-value"/>
                   <code code="SYN-8" codeSystem="2.25.9" displayName="Synthetic ratio"/>
+                  <text><reference value="#cmp-lab-interval-value"/></text>
                   <statusCode code="completed"/>
                   <effectiveTime value="20260102030405-0800"/>
                   <value xsi:type="IVL_PQ">
@@ -245,6 +261,7 @@
                   <templateId root="2.16.840.1.113883.10.20.22.4.2"/>
                   <id root="2.25.2001" extension="lab-ed-reference"/>
                   <code code="SYN-9" codeSystem="2.25.9" displayName="Synthetic culture"/>
+                  <text><reference value="#cmp-lab-ed-reference"/></text>
                   <statusCode code="completed"/>
                   <effectiveTime value="20260102030405-0800"/>
                   <value xsi:type="ED"><reference value="#result9"/></value>

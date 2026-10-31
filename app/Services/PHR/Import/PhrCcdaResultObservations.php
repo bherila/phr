@@ -39,7 +39,20 @@ final class PhrCcdaResultObservations
      */
     public function records(DOMElement $section): array
     {
-        $records = [];
+        return array_column($this->observations($section), 'record');
+    }
+
+    /**
+     * Each Result Observation's lab record, with the ids an earlier import may
+     * have given the same result: `narrative_id`, the narrative-table reader's
+     * id for the table row the observation references, and `source_id`, the
+     * observation's own `root|extension`.
+     *
+     * @return list<array{record: array<string, string|null>, narrative_id: string|null, source_id: string|null}>
+     */
+    public function observations(DOMElement $section): array
+    {
+        $observations = [];
         $query = './/*[local-name()="entry"]//*[local-name()="observation"][*[local-name()="templateId"][@root="'.self::RESULT_OBSERVATION.'"]]';
         foreach ($this->xpath->query($query, $section) ?: [] as $observation) {
             if (! $observation instanceof DOMElement) {
@@ -48,11 +61,51 @@ final class PhrCcdaResultObservations
 
             $record = $this->record($observation);
             if ($record !== null) {
-                $records[] = $record;
+                $observations[] = [
+                    'record' => $record,
+                    'narrative_id' => $this->narrativeId($observation),
+                    'source_id' => $this->sourceId($observation),
+                ];
             }
         }
 
-        return $records;
+        return $observations;
+    }
+
+    /**
+     * The narrative-table reader's id for the row this observation's text or
+     * code references, or null when it references none.
+     */
+    private function narrativeId(DOMElement $observation): ?string
+    {
+        $code = $this->child($observation, 'code');
+        foreach ([$this->child($observation, 'text'), $code === null ? null : $this->child($code, 'originalText')] as $element) {
+            $reference = $element === null ? null : $this->attribute($this->child($element, 'reference'), 'value');
+            $target = $reference !== null && str_starts_with($reference, '#') ? $this->narrativeElement(substr($reference, 1)) : null;
+            if ($target === null) {
+                continue;
+            }
+
+            $row = $target->localName === 'tr' ? $target : $this->first('ancestor::*[local-name()="tr"][1]', $target);
+            // The rows that reader takes: those directly in a table or its tbody.
+            if ($row === null || ! in_array($row->parentNode?->localName, ['tbody', 'table'], true)) {
+                continue;
+            }
+
+            $cells = PhrCcdaNarrativeRow::cells($this->xpath, $row);
+
+            return PhrCcdaNarrativeRow::isData($cells) ? PhrCcdaNarrativeRow::labExternalId($cells) : null;
+        }
+
+        return null;
+    }
+
+    private function sourceId(DOMElement $observation): ?string
+    {
+        $id = $this->child($observation, 'id');
+        $root = $this->attribute($id, 'root');
+
+        return $root === null ? null : $root.'|'.($this->attribute($id, 'extension') ?? '');
     }
 
     /**
