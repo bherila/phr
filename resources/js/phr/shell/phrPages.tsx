@@ -20,12 +20,6 @@ import { Button } from '@/components/ui/button'
 
 import type { PhrDetailId, PhrNavTarget, PhrPageId } from './phrRoutes'
 
-/** One count shown beside a sidebar item, when a page can supply it without an extra request. */
-export interface KeyAmount {
-  label: string
-  value: number
-}
-
 export interface PhrListPageProps {
   patientId: number
   onDrill?: (target: PhrNavTarget) => void
@@ -42,8 +36,6 @@ export interface PhrPageMeta {
   keywords: string[]
   icon: LucideIcon
   component: ComponentType<PhrListPageProps>
-  /** A count for the sidebar. Only for data the shell already holds; never fetch for it. */
-  keyAmounts?: (patientId: number) => KeyAmount[] | null
 }
 
 export interface PhrDetailMeta {

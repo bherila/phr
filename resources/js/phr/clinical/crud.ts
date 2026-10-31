@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { fetchWrapper } from '@/fetchWrapper'
 import type { PhrReviewDecision } from '@/phr/clinical/review'
+import { refreshReviewSummary } from '@/phr/review/reviewSummary'
 import { errorMessage } from '@/phr/shared'
 
 export interface ClinicalRecordBase {
@@ -156,6 +157,8 @@ export function useClinicalCrud<TRecord extends ClinicalRecordBase, TForm>({
     try {
       const raw: unknown = await fetchWrapper.patch(`${endpoint}/${recordId}`, payload)
       const updatedRecord = parseItemRef.current(raw)
+      const patientId = /\/patients\/(\d+)\//.exec(endpoint)?.[1]
+      if (patientId) void refreshReviewSummary(Number(patientId))
       replaceRecord(updatedRecord)
       return updatedRecord
     } catch (caught) {

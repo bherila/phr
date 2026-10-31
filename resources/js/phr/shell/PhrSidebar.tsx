@@ -12,6 +12,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { usePhrPatients } from '@/phr/patients/usePhrPatients'
+import { type ReviewSummary, useReviewSummary } from '@/phr/review/reviewSummary'
 
 import { PHR_NAV_GROUPS, PHR_PAGES } from './phrPages'
 import { patientPageUrl, type PhrPageId } from './phrRoutes'
@@ -36,6 +37,7 @@ interface PhrSidebarProps {
 }
 
 export function PhrSidebar({ patientId, page, rail, onRailChange, className }: PhrSidebarProps): ReactElement {
+  const summary = useReviewSummary(patientId)?.summary ?? null
   return (
     <aside
       aria-label="Patient record"
@@ -59,7 +61,7 @@ export function PhrSidebar({ patientId, page, rail, onRailChange, className }: P
               </span>
             )}
             {group.pages.map((id) => (
-              <SidebarItem key={id} patientId={patientId} page={id} current={id === page} rail={rail} />
+              <SidebarItem key={id} patientId={patientId} page={id} current={id === page} rail={rail} summary={summary} />
             ))}
           </div>
         ))}
@@ -92,17 +94,31 @@ function RailToggle({ rail, onRailChange }: { rail: boolean, onRailChange: (rail
   )
 }
 
-function SidebarItem({ patientId, page, current, rail }: { patientId: number, page: PhrPageId, current: boolean, rail: boolean }): ReactElement {
+/**
+ * What the item shows beside its label: how many records the section holds and a dot when
+ * some of them wait for review, from the one summary request the sidebar shares.
+ */
+export function sidebarAmounts(page: PhrPageId, summary: ReviewSummary | null): { count: number | null, pending: number } {
+  if (summary === null) return { count: null, pending: 0 }
+  const section = summary.sections[page]
+  return { count: section && section.records > 0 ? section.records : null, pending: section?.pending ?? 0 }
+}
+
+function SidebarItem({ patientId, page, current, rail, summary }: { patientId: number, page: PhrPageId, current: boolean, rail: boolean, summary: ReviewSummary | null }): ReactElement {
   const meta = PHR_PAGES[page]
   const Icon = meta.icon
-  const count = meta.keyAmounts?.(patientId)?.[0]?.value
+  const { count, pending } = sidebarAmounts(page, summary)
+  const described = [count !== null ? `${count} ${count === 1 ? 'record' : 'records'}` : null, pending > 0 ? `${pending} waiting for review` : null].filter(Boolean).join(', ')
+  const name = described === '' ? meta.label : `${meta.label}, ${described}`
   const link = (
     <a
       href={patientPageUrl(patientId, page)}
       aria-current={current ? 'page' : undefined}
-      {...(rail ? { 'aria-label': meta.label } : {})}
+      // The visible label first, then what the count and dot say (they are hidden from
+      // assistive technology), so the name still matches what is on screen.
+      {...(rail || described !== '' ? { 'aria-label': name } : {})}
       className={cn(
-        'flex min-h-9 items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        'relative flex min-h-9 items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
         rail && 'w-10 justify-center px-0',
         current
           ? 'bg-accent font-semibold text-accent-foreground'
@@ -110,11 +126,13 @@ function SidebarItem({ patientId, page, current, rail }: { patientId: number, pa
       )}
     >
       <Icon className="size-4 shrink-0" aria-hidden="true" />
+      {rail && pending > 0 && <span aria-hidden="true" data-pending-dot="" className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-warning" />}
       {!rail && (
         <>
           <span className="flex-1 truncate">{meta.label}</span>
-          {count !== undefined && (
-            <span className={cn('text-xs font-medium', current ? 'text-accent-foreground' : 'text-muted-foreground')}>{count}</span>
+          {pending > 0 && <span aria-hidden="true" data-pending-dot="" className="size-[7px] shrink-0 rounded-full bg-warning" />}
+          {count !== null && (
+            <span aria-hidden="true" className={cn('text-xs font-medium tabular-nums', current ? 'text-accent-foreground' : 'text-muted-foreground')}>{count}</span>
           )}
         </>
       )}
@@ -124,7 +142,7 @@ function SidebarItem({ patientId, page, current, rail }: { patientId: number, pa
   return (
     <Tooltip>
       <TooltipTrigger asChild>{link}</TooltipTrigger>
-      <TooltipContent side="right">{meta.label}</TooltipContent>
+      <TooltipContent side="right">{name}</TooltipContent>
     </Tooltip>
   )
 }

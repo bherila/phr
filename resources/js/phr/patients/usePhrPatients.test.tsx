@@ -30,6 +30,11 @@ jest.mock('@/phr/imports/ehi/ehiApi', () => ({
   listEhiUploads: () => Promise.resolve([]),
   listEhiPackages: () => Promise.resolve([]),
 }))
+// The sidebar's review counts are their own request; keep it off the patient-list GET too.
+jest.mock('@/phr/review/reviewSummary', () => ({
+  ...jest.requireActual('@/phr/review/reviewSummary'),
+  useReviewSummary: () => null,
+}))
 jest.mock('@/phr/imports/ai/aiImportsApi', () => ({
   ...jest.requireActual('@/phr/imports/ai/aiImportsApi'),
   listAiImports: () => Promise.resolve([]),

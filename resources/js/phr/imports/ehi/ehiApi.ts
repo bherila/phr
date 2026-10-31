@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { fetchWrapper } from '@/fetchWrapper'
+import { refreshReviewSummary } from '@/phr/review/reviewSummary'
 
 /**
  * Client for the session EHI import routes (`/api/phr/patients/{id}/ehi/...`). Every
@@ -237,12 +238,13 @@ export interface EhiReviewResult {
   record: { table: string, id: number } | null
 }
 
-export async function reviewEhiProposal(patientId: number, proposal: EhiProposal, decision: EhiDecision, linkId?: number): Promise<EhiReviewResult> {
+export async function reviewEhiProposal(patientId: number, proposal: Pick<EhiProposal, 'id' | 'preview_digest'>, decision: EhiDecision, linkId?: number): Promise<EhiReviewResult> {
   const data: unknown = await fetchWrapper.post(`${base(patientId)}/proposals/${proposal.id}/review`, {
     decision,
     preview_digest: proposal.preview_digest,
     ...(linkId !== undefined ? { link_id: linkId } : {}),
   })
+  void refreshReviewSummary(patientId)
   return z.object({
     proposal: EhiProposalSchema,
     record: z.object({ table: z.string(), id: z.number() }).nullable(),

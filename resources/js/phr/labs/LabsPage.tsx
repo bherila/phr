@@ -8,6 +8,7 @@ import { fetchWrapper } from '@/fetchWrapper'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { formatLabReferenceRange, formatLabValue } from '@/phr/labs/formatLabResult'
+import { refreshReviewSummary } from '@/phr/review/reviewSummary'
 import { errorMessage, numericPayload } from '@/phr/shared'
 import type { PhrListPageProps } from '@/phr/shell/phrPages'
 import {
@@ -292,6 +293,7 @@ export default function LabsPage({ patientId, onDrill }: PhrListPageProps) {
         { review_status: decision },
       )
       const updated = PhrLabResultResponseSchema.parse(raw).lab_result
+      void refreshReviewSummary(patientId)
       if (decision === 'rejected' && !showRejected) {
         setResults((prev) => prev.filter((r) => r.id !== updated.id))
       } else {
