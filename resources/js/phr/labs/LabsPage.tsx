@@ -9,7 +9,7 @@ import { fetchWrapper } from '@/fetchWrapper'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
-import { formatLabReferenceRange, formatLabValue } from '@/phr/labs/formatLabResult'
+import { formatLabReferenceRange, formatLabValue, isNumericLabValue } from '@/phr/labs/formatLabResult'
 import { reviewStateChanged } from '@/phr/review/reviewSummary'
 import { errorMessage, numericPayload } from '@/phr/shared'
 import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
@@ -131,27 +131,24 @@ function LabResultsTable({ label, results, showPanelColumn, onDrill, openRowId, 
     {
       id: 'analyte',
       header: 'Analyte',
-      headerClassName: `${HEAD} text-left`,
+      headerClassName: HEAD,
       className: 'px-3 py-2 font-medium text-foreground',
-      cell: (result) => (
-        <>
-          <div>{result.analyte ?? '—'}</div>
-          <div className="mt-1">{reviewStatusBadge(result.review_status)}</div>
-        </>
-      ),
+      cell: (result) => result.analyte ?? '—',
     },
     ...(showPanelColumn ? [{
       id: 'panel',
       header: 'Panel',
-      headerClassName: `${HEAD} text-left`,
+      headerClassName: HEAD,
       className: 'px-3 py-2 text-muted-foreground',
       cell: (result: PhrLabResult) => result.test_name ?? '—',
     }] : []),
     {
       id: 'value',
       header: 'Value',
-      headerClassName: `${HEAD} text-right`,
-      className: (result) => `px-3 py-2 text-right ${flagClass(result.abnormal_flag)}`,
+      headerClassName: HEAD,
+      fit: true,
+      numeric: isNumericLabValue,
+      className: (result) => `px-3 py-2 ${flagClass(result.abnormal_flag)}`,
       cell: (result) => (
         <>
           {formatLabValue(result) ?? '—'}
@@ -159,33 +156,41 @@ function LabResultsTable({ label, results, showPanelColumn, onDrill, openRowId, 
         </>
       ),
     },
-    { id: 'range', header: 'Range', headerClassName: `${HEAD} text-left`, className: 'px-3 py-2 text-muted-foreground', cell: (result) => formatLabReferenceRange(result) ?? '—' },
+    { id: 'range', header: 'Range', fit: true, headerClassName: HEAD, className: 'px-3 py-2 text-muted-foreground', cell: (result) => formatLabReferenceRange(result) ?? '—' },
     {
       id: 'flag',
       header: 'Flag',
       headerClassName: `${HEAD} text-center`,
+      fit: true,
       className: (result) => `px-3 py-2 text-center font-semibold ${flagClass(result.abnormal_flag)}`,
       cell: (result) => (result.abnormal_flag && result.abnormal_flag !== 'N' ? result.abnormal_flag : ''),
     },
     {
       id: 'date',
       header: 'Date',
-      headerClassName: `${HEAD} text-left`,
+      fit: true,
+      headerClassName: HEAD,
       className: 'px-3 py-2 text-muted-foreground',
       cell: (result) => (result.result_datetime ?? result.collection_datetime ?? '').slice(0, 10) || '—',
     },
     {
       id: 'review',
       header: 'Review',
-      headerClassName: `${HEAD} text-right`,
-      className: 'px-3 py-2 text-right',
-      cell: (result) => canManage && (
-        <ReviewActions
-          status={result.review_status}
-          label={result.analyte ?? result.test_name ?? 'lab result'}
-          busy={reviewingId === result.id}
-          onReview={(decision) => onReview(result, decision)}
-        />
+      fit: true,
+      headerClassName: HEAD,
+      className: 'px-3 py-2',
+      cell: (result) => (
+        <div className="flex items-center gap-2">
+          {reviewStatusBadge(result.review_status)}
+          {canManage && (
+            <ReviewActions
+              status={result.review_status}
+              label={result.analyte ?? result.test_name ?? 'lab result'}
+              busy={reviewingId === result.id}
+              onReview={(decision) => onReview(result, decision)}
+            />
+          )}
+        </div>
       ),
     },
   ]

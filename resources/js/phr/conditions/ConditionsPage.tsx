@@ -315,6 +315,7 @@ function ConditionsTable({
     {
       id: 'dates',
       header: 'Dates',
+      fit: true,
       headerClassName: 'px-4 py-3 font-medium',
       className: 'px-4 py-3 text-muted-foreground',
       cell: (condition) => (
@@ -327,10 +328,11 @@ function ConditionsTable({
     {
       id: 'status',
       header: 'Status',
+      fit: true,
       headerClassName: 'px-4 py-3 font-medium',
       className: 'px-4 py-3',
       cell: (condition) => (
-        <div className="flex flex-col items-start gap-1.5">
+        <div className="flex items-center gap-2">
           {classBadge(condition.clinical_status, STATUS_CLASS)}
           {reviewStatusBadge(condition.review_status)}
           <span className="text-xs text-muted-foreground">{labelize(condition.verification_status)}</span>
@@ -342,6 +344,7 @@ function ConditionsTable({
     columns.push({
       id: 'actions',
       header: 'Actions',
+      fit: true,
       headerClassName: 'px-4 py-3 font-medium text-right',
       className: 'px-4 py-3',
       cell: (condition) => {

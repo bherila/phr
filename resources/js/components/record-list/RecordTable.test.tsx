@@ -3,6 +3,7 @@ import { type ReactElement, useState } from 'react'
 
 import { RecordList } from './RecordList'
 import { type RecordColumn, RecordTable } from './RecordTable'
+import { StatusDot } from './StatusDot'
 import type { RecordOpenOptions } from './useRecordNavigation'
 
 interface Item {
@@ -311,6 +312,43 @@ describe('RecordTable keyboard model', () => {
     rerender(<RecordTable label="Things" rows={[]} rowId={(item: Item) => item.id} columns={COLUMNS} empty={<p>Nothing yet.</p>} />)
     expect(screen.getByText('Nothing yet.')).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  })
+})
+
+describe('RecordTable column sizing', () => {
+  interface Result { id: string, analyte: string, value: string }
+  const results: Result[] = [{ id: '1', analyte: 'Glucose', value: '112' }, { id: '2', analyte: 'Influenza A RNA', value: 'Not Detected' }]
+
+  it('fits short columns to their content and right-aligns only numeric values', () => {
+    render(
+      <RecordTable
+        label="Results"
+        rows={results}
+        rowId={(result) => result.id}
+        columns={[
+          { id: 'analyte', header: 'Analyte', cell: (result) => result.analyte },
+          { id: 'value', header: 'Value', fit: true, numeric: (result) => /^\d/.test(result.value), cell: (result) => result.value },
+          { id: 'status', header: 'Status', fit: true, cell: () => <StatusDot tone="success" label="confirmed" /> },
+        ]}
+      />,
+    )
+
+    const [analyteHead, valueHead, statusHead] = screen.getAllByRole('columnheader')
+    expect(analyteHead).not.toHaveClass('w-[1%]')
+    expect(valueHead).toHaveClass('w-[1%]', 'whitespace-nowrap', 'text-left')
+    expect(statusHead).toHaveClass('w-[1%]', 'whitespace-nowrap')
+    expect(screen.getByText('Glucose').closest('td')).toHaveClass('text-left')
+    expect(screen.getByText('112').closest('td')).toHaveClass('w-[1%]', 'whitespace-nowrap', 'text-right', 'tabular-nums')
+    expect(screen.getByText('Not Detected').closest('td')).toHaveClass('text-left')
+    expect(screen.getByText('Not Detected').closest('td')).not.toHaveClass('text-right')
+  })
+
+  it('shows a status as a dot and a label on one line', () => {
+    render(<StatusDot tone="warning" label="pending review" />)
+    const status = screen.getByText('pending review')
+    expect(status).toHaveClass('whitespace-nowrap', 'text-foreground')
+    expect(status).toHaveAttribute('data-tone', 'warning')
+    expect(status.querySelector('[aria-hidden="true"]')).toHaveClass('bg-warning', 'rounded-full')
   })
 })
 

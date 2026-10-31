@@ -10,7 +10,22 @@ export interface RecordColumn<Row> {
   cell: (row: Row) => ReactNode
   className?: string | ((row: Row) => string) | undefined
   headerClassName?: string | undefined
+  /**
+   * Size the column to its content and keep it on one line (values, units, dates, flags,
+   * statuses, actions). Columns without it share the remaining width: the primary name column.
+   */
+  fit?: boolean | undefined
+  /**
+   * Right-align with tabular figures. Only for numbers: text values stay left-aligned, so a
+   * function can decide per row (a lab value is a number or a word).
+   */
+  numeric?: boolean | ((row: Row) => boolean) | undefined
 }
+
+/** Sizes a column to its content on one line. */
+export const RECORD_FIT_CLASS = 'w-[1%] whitespace-nowrap'
+/** Right-aligned tabular figures, for numeric values only. */
+export const RECORD_NUMERIC_CLASS = 'text-right tabular-nums'
 
 export interface RecordSelectionColumn<Row> {
   /** Names the checkbox: "Select {label}". */
@@ -41,8 +56,18 @@ export interface RecordTableProps<Row> extends RecordNavigationOptions<Row> {
 
 export const RECORD_ROW_CLASS = 'outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring data-[open]:bg-accent/60'
 
-function cellClass<Row>(className: RecordColumn<Row>['className'], row: Row): string | undefined {
-  return typeof className === 'function' ? className(row) : className
+function cellClass<Row>(column: RecordColumn<Row>, row: Row): string {
+  const numeric = typeof column.numeric === 'function' ? column.numeric(row) : column.numeric === true
+  return cn(
+    'text-left',
+    typeof column.className === 'function' ? column.className(row) : column.className,
+    column.fit && RECORD_FIT_CLASS,
+    numeric && RECORD_NUMERIC_CLASS,
+  )
+}
+
+function headerClass<Row>(column: RecordColumn<Row>): string {
+  return cn('text-left', column.headerClassName, column.fit && RECORD_FIT_CLASS, column.numeric === true && 'text-right')
 }
 
 export const DEFAULT_LOADING = <p role="status" aria-live="polite" className="text-sm text-muted-foreground">Loading…</p>
@@ -68,7 +93,7 @@ export function RecordTable<Row>(props: RecordTableProps<Row>): ReactElement | n
           <tr className={headClassName}>
             {selectable && <th className="w-10 px-3 py-2 font-medium">{selectionColumn.header ?? <span className="sr-only">Selected</span>}</th>}
             {columns.map((column) => (
-              <th key={column.id} className={column.headerClassName}>{column.header}</th>
+              <th key={column.id} className={headerClass(column)}>{column.header}</th>
             ))}
           </tr>
         </thead>
@@ -95,7 +120,7 @@ export function RecordTable<Row>(props: RecordTableProps<Row>): ReactElement | n
                     </td>
                   )}
                   {columns.map((column) => (
-                    <td key={column.id} className={cellClass(column.className, row)}>{column.cell(row)}</td>
+                    <td key={column.id} className={cellClass(column, row)}>{column.cell(row)}</td>
                   ))}
                 </tr>
                 {renderAfterRow?.(row, colSpan)}

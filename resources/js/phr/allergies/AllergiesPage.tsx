@@ -176,10 +176,11 @@ function AllergiesTable({
     {
       id: 'status',
       header: 'Status',
+      fit: true,
       headerClassName: 'px-4 py-3 font-medium',
       className: 'px-4 py-3',
       cell: (allergy) => (
-        <div className="flex flex-col items-start gap-1.5">
+        <div className="flex items-center gap-2">
           {classBadge(allergy.clinical_status, STATUS_CLASS)}
           {reviewStatusBadge(allergy.review_status)}
           <span className="text-xs text-muted-foreground">{labelize(allergy.verification_status)}</span>

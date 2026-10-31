@@ -225,8 +225,10 @@ export default function ImmunizationsPage({ patientId, onDrill, openRecord }: Ph
       className: 'px-4 py-3',
       cell: (immunization) => (
         <>
-          <div className="font-medium text-card-foreground">{immunization.vaccine_name}</div>
-          <div className="mt-1">{reviewStatusBadge(immunization.review_status)}</div>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="font-medium text-card-foreground">{immunization.vaccine_name}</span>
+            {reviewStatusBadge(immunization.review_status)}
+          </div>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {codeChip('CVX', immunization.cvx_code)}
             {immunization.manufacturer && (
@@ -244,10 +246,11 @@ export default function ImmunizationsPage({ patientId, onDrill, openRecord }: Ph
         </>
       ),
     },
-    { id: 'administered', header: 'Administered', headerClassName: 'px-4 py-3 font-medium', className: 'px-4 py-3 text-muted-foreground', cell: (immunization) => immunization.administered_on ?? 'Not recorded' },
+    { id: 'administered', header: 'Administered', fit: true, headerClassName: 'px-4 py-3 font-medium', className: 'px-4 py-3 text-muted-foreground', cell: (immunization) => immunization.administered_on ?? 'Not recorded' },
     {
       id: 'dose',
       header: 'Dose',
+      fit: true,
       headerClassName: 'px-4 py-3 font-medium',
       className: 'px-4 py-3 text-muted-foreground',
       cell: (immunization) => (
@@ -274,6 +277,7 @@ export default function ImmunizationsPage({ patientId, onDrill, openRecord }: Ph
     columns.push({
       id: 'actions',
       header: 'Actions',
+      fit: true,
       headerClassName: 'px-4 py-3 font-medium text-right',
       className: 'px-4 py-3',
       cell: (immunization) => (

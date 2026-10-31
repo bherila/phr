@@ -219,23 +219,19 @@ export default function VitalsPage({ patientId, onDrill, openRecord }: PhrListPa
     {
       id: 'vital',
       header: 'Vital',
-      headerClassName: `${head} text-left`,
+      headerClassName: head,
       className: 'px-3 py-2 font-medium text-foreground',
-      cell: (v) => (
-        <>
-          <div>{v.vital_name ?? '—'}</div>
-          <div className="mt-1">{reviewStatusBadge(v.review_status)}</div>
-        </>
-      ),
+      cell: (v) => v.vital_name ?? '—',
     },
-    { id: 'value', header: 'Value', headerClassName: `${head} text-right`, className: 'px-3 py-2 text-right font-semibold text-foreground', cell: displayValue },
-    { id: 'unit', header: 'Unit', headerClassName: `${head} text-left`, className: 'px-3 py-2 text-muted-foreground', cell: (v) => v.unit ?? (v.secondary_unit ?? '—') },
-    { id: 'site', header: 'Body Site', headerClassName: `${head} text-left`, className: 'px-3 py-2 text-muted-foreground', cell: (v) => v.body_site ?? '—' },
-    { id: 'date', header: 'Date', headerClassName: `${head} text-left`, className: 'px-3 py-2 text-muted-foreground', cell: (v) => vitalDate(v) || '—' },
+    { id: 'value', header: 'Value', fit: true, numeric: true, headerClassName: head, className: 'px-3 py-2 font-semibold text-foreground', cell: displayValue },
+    { id: 'unit', header: 'Unit', fit: true, headerClassName: head, className: 'px-3 py-2 text-muted-foreground', cell: (v) => v.unit ?? (v.secondary_unit ?? '—') },
+    { id: 'site', header: 'Body Site', fit: true, headerClassName: head, className: 'px-3 py-2 text-muted-foreground', cell: (v) => v.body_site ?? '—' },
+    { id: 'date', header: 'Date', fit: true, headerClassName: head, className: 'px-3 py-2 text-muted-foreground', cell: (v) => vitalDate(v) || '—' },
     {
       id: 'trend',
       header: 'Trend',
-      headerClassName: `${head} text-left`,
+      fit: true,
+      headerClassName: head,
       className: 'px-3 py-2',
       cell: (v) => {
         const candidates = metricCandidates(v)
@@ -261,15 +257,21 @@ export default function VitalsPage({ patientId, onDrill, openRecord }: PhrListPa
     {
       id: 'review',
       header: 'Review',
-      headerClassName: `${head} text-right`,
-      className: 'px-3 py-2 text-right',
-      cell: (v) => canManage && (
-        <ReviewActions
-          status={v.review_status}
-          label={v.vital_name ?? 'vital'}
-          busy={reviewingId === v.id}
-          onReview={(decision) => void reviewVital(v, decision)}
-        />
+      fit: true,
+      headerClassName: head,
+      className: 'px-3 py-2',
+      cell: (v) => (
+        <div className="flex items-center gap-2">
+          {reviewStatusBadge(v.review_status)}
+          {canManage && (
+            <ReviewActions
+              status={v.review_status}
+              label={v.vital_name ?? 'vital'}
+              busy={reviewingId === v.id}
+              onReview={(decision) => void reviewVital(v, decision)}
+            />
+          )}
+        </div>
       ),
     },
   ]

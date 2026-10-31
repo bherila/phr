@@ -334,11 +334,12 @@ function MedicationTable({
         </>
       ),
     },
-    { id: 'details', header: 'Details', headerClassName: 'px-4 py-3 font-medium', className: 'px-4 py-3 text-muted-foreground', cell: (medication) => medicationDetails(medication) || '—' },
-    { id: 'prescriber', header: 'Prescriber', headerClassName: 'px-4 py-3 font-medium', className: 'px-4 py-3 text-muted-foreground', cell: (medication) => medication.prescriber_name ?? '—' },
+    { id: 'details', header: 'Details', fit: true, headerClassName: 'px-4 py-3 font-medium', className: 'px-4 py-3 text-muted-foreground', cell: (medication) => medicationDetails(medication) || '—' },
+    { id: 'prescriber', header: 'Prescriber', fit: true, headerClassName: 'px-4 py-3 font-medium', className: 'px-4 py-3 text-muted-foreground', cell: (medication) => medication.prescriber_name ?? '—' },
     {
       id: 'status',
       header: 'Status',
+      fit: true,
       headerClassName: 'px-4 py-3 font-medium',
       className: 'px-4 py-3',
       cell: (medication) => {
@@ -360,6 +361,7 @@ function MedicationTable({
     columns.push({
       id: 'actions',
       header: 'Actions',
+      fit: true,
       headerClassName: 'px-4 py-3 font-medium text-right',
       className: 'px-4 py-3',
       cell: (medication) => {
