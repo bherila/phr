@@ -3,7 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { fetchWrapper } from '@/fetchWrapper'
 import type { PhrReviewDecision } from '@/phr/clinical/review'
-import { refreshReviewSummary } from '@/phr/review/reviewSummary'
+import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
+import { reviewStateChanged } from '@/phr/review/reviewSummary'
 import { errorMessage } from '@/phr/shared'
 
 export interface ClinicalRecordBase {
@@ -135,12 +136,19 @@ export function useClinicalCrud<TRecord extends ClinicalRecordBase, TForm>({
     ))))
   }
 
+  /** A record added or deleted changes the section's count, and maybe what waits. */
+  function countsChanged(): void {
+    const patientId = Number(/^\/api\/phr\/patients\/(\d+)\//.exec(endpoint)?.[1])
+    if (patientId > 0) void reviewStateChanged(patientId)
+  }
+
   async function addRecord(form: TForm): Promise<TRecord | null> {
     setMutatingKey('add')
     setError(null)
     try {
       const raw: unknown = await fetchWrapper.post(endpoint, payloadFromFormRef.current(form))
       const addedRecord = parseItemRef.current(raw)
+      countsChanged()
       setRecords((current) => applySort([addedRecord, ...current]))
       return addedRecord
     } catch (caught) {
@@ -157,8 +165,6 @@ export function useClinicalCrud<TRecord extends ClinicalRecordBase, TForm>({
     try {
       const raw: unknown = await fetchWrapper.patch(`${endpoint}/${recordId}`, payload)
       const updatedRecord = parseItemRef.current(raw)
-      const patientId = /\/patients\/(\d+)\//.exec(endpoint)?.[1]
-      if (patientId) void refreshReviewSummary(Number(patientId))
       replaceRecord(updatedRecord)
       return updatedRecord
     } catch (caught) {
@@ -177,7 +183,7 @@ export function useClinicalCrud<TRecord extends ClinicalRecordBase, TForm>({
     setMutatingKey(`review:${recordId}`)
     setError(null)
     try {
-      const raw: unknown = await fetchWrapper.patch(`${endpoint}/${recordId}/review`, { review_status: decision })
+      const raw: unknown = await recordReviewDecision(`${endpoint}/${recordId}`, decision)
       const updatedRecord = parseItemRef.current(raw)
       // A record rejected while the rejected rows are hidden leaves the list.
       if (decision === 'rejected' && !showRejected) {
@@ -210,6 +216,7 @@ export function useClinicalCrud<TRecord extends ClinicalRecordBase, TForm>({
     setError(null)
     try {
       await fetchWrapper.delete(`${endpoint}/${recordId}`, {})
+      countsChanged()
       setRecords((current) => current.filter((record) => record.id !== recordId))
       setDeletingId(null)
       if (editingId === recordId) {

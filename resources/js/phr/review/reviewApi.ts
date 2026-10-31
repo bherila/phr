@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { fetchWrapper } from '@/fetchWrapper'
+import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { AiImportResultSchema, decideAiResult } from '@/phr/imports/ai/aiImportsApi'
 import { type EhiDecision, ehiFailureText, EhiProposalSchema, reviewEhiProposal } from '@/phr/imports/ehi/ehiApi'
 import { isPhrPageId, type PhrPageId } from '@/phr/shell/phrRoutes'
@@ -115,10 +116,7 @@ export type ReviewDecision = 'approve' | 'reject'
 export async function decideReviewItem(patientId: number, item: ReviewItem, decision: ReviewDecision): Promise<void> {
   switch (item.type) {
     case 'record':
-      await fetchWrapper.patch(`/api/phr/patients/${patientId}/${item.review_segment}/${item.id}/review`, {
-        review_status: decision === 'approve' ? 'confirmed' : 'rejected',
-        version: item.version,
-      })
+      await recordReviewDecision(`/api/phr/patients/${patientId}/${item.review_segment}/${item.id}`, decision === 'approve' ? 'confirmed' : 'rejected', item.version)
       return
     case 'ai_result':
       await decideAiResult(patientId, item.import_id, item.id, decision === 'approve' ? 'accept' : 'reject')

@@ -4,7 +4,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react'
 
 import { fetchWrapper } from '@/fetchWrapper'
 import { PhrPatientsProvider } from '@/phr/patients/usePhrPatients'
-import { refreshReviewSummary, resetReviewSummaries } from '@/phr/review/reviewSummary'
+import { resetReviewSummaries,reviewStateChanged } from '@/phr/review/reviewSummary'
 
 import { PhrSidebar } from './PhrSidebar'
 
@@ -63,7 +63,7 @@ describe('PhrSidebar review counts', () => {
 
     get.mockImplementation(() => Promise.resolve(summary({ pending: 0, records: 12 })))
     await act(async () => {
-      await refreshReviewSummary(2)
+      await reviewStateChanged(2)
     })
 
     await waitFor(() => expect(within(expanded!).getByRole('link', { name: 'Medications, 12 records' }).querySelector('[data-pending-dot]')).toBeNull())

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
-import { fetchWrapper } from '@/fetchWrapper'
 import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
+import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { administrationStatusLabel, doseAmountLabel, seriesPositionLabel } from '@/phr/immunizations/immunizationDose'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
@@ -68,10 +68,7 @@ export default function ImmunizationDetail({ patientId, recordId }: Immunization
     setReviewBusy(true)
     setError(null)
     try {
-      const raw: unknown = await fetchWrapper.patch(
-        `/api/phr/patients/${patientId}/immunizations/${recordId}/review`,
-        { review_status: decision },
-      )
+      const raw: unknown = await recordReviewDecision(`/api/phr/patients/${patientId}/immunizations/${recordId}`, decision)
       const updated = PhrImmunizationResponseSchema.parse(raw).immunization
       setImmunization(updated)
     } catch (caught) {

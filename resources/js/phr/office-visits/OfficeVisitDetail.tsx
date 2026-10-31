@@ -3,11 +3,10 @@ import type { ReactElement } from 'react'
 import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { fetchWrapper } from '@/fetchWrapper'
 import EncounterEobLinks from '@/phr/clinical/EncounterEobLinks'
 import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
+import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
-import { refreshReviewSummary } from '@/phr/review/reviewSummary'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import type { PhrNavTarget } from '@/phr/shell/phrRoutes'
@@ -104,12 +103,8 @@ export default function OfficeVisitDetail({ patientId, recordId, onDrill }: Offi
     setReviewBusy(true)
     setError(null)
     try {
-      const raw: unknown = await fetchWrapper.patch(
-        `/api/phr/patients/${patientId}/office-visits/${recordId}/review`,
-        { review_status: decision },
-      )
+      const raw: unknown = await recordReviewDecision(`/api/phr/patients/${patientId}/office-visits/${recordId}`, decision)
       const updated = PhrOfficeVisitResponseSchema.parse(raw).office_visit
-      void refreshReviewSummary(patientId)
       setVisit(updated)
     } catch (caught) {
       setError(errorMessage(caught))

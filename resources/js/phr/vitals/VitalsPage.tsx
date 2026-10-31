@@ -6,8 +6,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
+import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
-import { refreshReviewSummary } from '@/phr/review/reviewSummary'
 import { errorMessage, numericPayload } from '@/phr/shared'
 import type { PhrListPageProps } from '@/phr/shell/phrPages'
 import {
@@ -178,12 +178,8 @@ export default function VitalsPage({ patientId, onDrill }: PhrListPageProps) {
     setReviewingId(vital.id)
     setError(null)
     try {
-      const raw: unknown = await fetchWrapper.patch(
-        `/api/phr/patients/${patientId}/vitals/${vital.id}/review`,
-        { review_status: decision },
-      )
+      const raw: unknown = await recordReviewDecision(`/api/phr/patients/${patientId}/vitals/${vital.id}`, decision)
       const updated = PhrVitalResponseSchema.parse(raw).vital
-      void refreshReviewSummary(patientId)
       if (decision === 'rejected' && !showRejected) {
         setVitals((prev) => prev.filter((v) => v.id !== updated.id))
       } else {

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { fetchWrapper } from '@/fetchWrapper'
-import { refreshReviewSummary } from '@/phr/review/reviewSummary'
+import { reviewStateChanged } from '@/phr/review/reviewSummary'
 
 /**
  * AI imports: documents sent to AI, processed in the person's AI Agent Inbox (by
@@ -57,9 +57,12 @@ export async function getAiImport(patientId: number, importId: number): Promise<
 const ReviewSchema = z.object({ outcome: z.string(), result: z.object({ id: z.number(), status: z.string() }) })
 
 export async function decideAiResult(patientId: number, importId: number, resultId: number, decision: 'accept' | 'reject'): Promise<{ id: number, status: string }> {
-  const data: unknown = await fetchWrapper.post(`${base(patientId)}/${importId}/results/${resultId}/${decision}`, {})
-  void refreshReviewSummary(patientId)
-  return ReviewSchema.parse(data).result
+  try {
+    const data: unknown = await fetchWrapper.post(`${base(patientId)}/${importId}/results/${resultId}/${decision}`, {})
+    return ReviewSchema.parse(data).result
+  } finally {
+    void reviewStateChanged(patientId)
+  }
 }
 
 export async function retryAiImport(patientId: number, importId: number): Promise<AiImportDetail> {

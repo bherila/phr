@@ -24,7 +24,14 @@ export interface ReviewSummaryState {
 
 const ResponseSchema = z.object({ summary: ReviewSummarySchema, can_manage: z.boolean() })
 
-const entries = new Map<number, ReviewSummaryState | null>()
+/** Counts a view may reuse without asking again; older ones are fetched on the next view. */
+const FRESH_FOR_MS = 30_000
+
+const entries = new Map<number, { state: ReviewSummaryState, fetchedAt: number }>()
+/** Patients whose counts a decision or import may have changed since they were read. */
+const stale = new Set<number>()
+/** How many mounted views show each patient's counts. */
+const mounted = new Map<number, number>()
 const inFlight = new Map<number, Promise<void>>()
 const queued = new Map<number, Promise<void>>()
 const listeners = new Set<() => void>()
@@ -46,11 +53,11 @@ function load(patientId: number): Promise<void> {
   const request = (async () => {
     try {
       const parsed = ResponseSchema.parse(await fetchWrapper.get(`/api/phr/patients/${patientId}/review/summary`))
-      entries.set(patientId, { summary: parsed.summary, canManage: parsed.can_manage })
+      entries.set(patientId, { state: { summary: parsed.summary, canManage: parsed.can_manage }, fetchedAt: Date.now() })
+      stale.delete(patientId)
     } catch {
-      // Counts are a convenience: without them the sidebar shows none, and the
-      // next decision or patient view tries again.
-      entries.delete(patientId)
+      // Counts are a convenience: on failure the last ones (if any) stay, still marked
+      // stale, and the next view of the patient asks again.
     } finally {
       inFlight.delete(patientId)
       emit()
@@ -60,29 +67,41 @@ function load(patientId: number): Promise<void> {
   return request
 }
 
-/** The patient's review counts, fetched once and shared; null until they arrive. */
+function needsFetch(patientId: number): boolean {
+  const entry = entries.get(patientId)
+  return entry === undefined || stale.has(patientId) || Date.now() - entry.fetchedAt > FRESH_FOR_MS
+}
+
+/** The patient's review counts, shared by every view; null until they first arrive. */
 export function useReviewSummary(patientId: number): ReviewSummaryState | null {
-  const state = useSyncExternalStore(subscribe, () => entries.get(patientId) ?? null, () => null)
+  const state = useSyncExternalStore(subscribe, () => entries.get(patientId)?.state ?? null, () => null)
   useEffect(() => {
-    if (!entries.has(patientId)) void load(patientId)
+    mounted.set(patientId, (mounted.get(patientId) ?? 0) + 1)
+    if (needsFetch(patientId)) void load(patientId)
+    return () => {
+      mounted.set(patientId, (mounted.get(patientId) ?? 1) - 1)
+    }
   }, [patientId])
   return state
 }
 
 /** Store counts that arrived with another response, so they need no request of their own. */
 export function setReviewSummary(patientId: number, state: ReviewSummaryState): void {
-  entries.set(patientId, state)
+  entries.set(patientId, { state, fetchedAt: Date.now() })
+  stale.delete(patientId)
   emit()
 }
 
 /**
- * A decision was recorded for this patient: fetch the counts again. A request already
- * running may have read them before the decision, so the new one starts after it; any
- * number of decisions made meanwhile share that one request.
+ * The one call every path makes after it may have changed what waits for review for a
+ * patient (a decision, an import, a record added or deleted). The cached counts become
+ * stale, so whichever view shows them next fetches them; a view showing them now fetches
+ * them at once. A request already running may have read them before the change, so the
+ * new one starts after it, and any number of changes made meanwhile share that request.
  */
-export function refreshReviewSummary(patientId: number): Promise<void> {
-  // Nothing shows this patient's counts yet: whoever shows them first fetches them.
-  if (!entries.has(patientId) && !inFlight.has(patientId)) return Promise.resolve()
+export function reviewStateChanged(patientId: number): Promise<void> {
+  stale.add(patientId)
+  if ((mounted.get(patientId) ?? 0) === 0) return Promise.resolve()
   const waiting = queued.get(patientId)
   if (waiting) return waiting
   const next = (inFlight.get(patientId) ?? Promise.resolve()).then(() => {
@@ -96,6 +115,8 @@ export function refreshReviewSummary(patientId: number): Promise<void> {
 /** For tests: forget every patient's counts. */
 export function resetReviewSummaries(): void {
   entries.clear()
+  stale.clear()
+  mounted.clear()
   inFlight.clear()
   queued.clear()
   emit()

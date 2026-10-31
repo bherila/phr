@@ -5,6 +5,7 @@ import { useEffect, useId, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
 import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
+import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { errorMessage, fetchPhrDetail, zodErrorMessage } from '@/phr/shared'
 import type { PhrListPageProps } from '@/phr/shell/phrPages'
@@ -129,7 +130,7 @@ export default function AllergyDetail({ patientId, recordId, onDrill }: AllergyD
     setMutation('review')
     setError(null)
     try {
-      const raw: unknown = await fetchWrapper.patch(`${endpoint}/review`, { review_status: decision })
+      const raw: unknown = await recordReviewDecision(endpoint, decision)
       const updated = PhrAllergyResponseSchema.parse(raw).allergy
       setAllergy(updated)
       notifyAllergyChanged({ action: 'updated', allergy: updated, patientId })
