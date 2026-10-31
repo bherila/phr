@@ -8,7 +8,8 @@ use App\Support\PHR\PhrLabReferenceRangeText;
  * Keeps archives that hold a doubled lab reference range from bringing it back.
  *
  * A one-off load stored some `phr_lab_results.reference_range_text` values
- * twice ("NEGNEG"), and a data migration stored them once. An archive taken
+ * twice ("NEGNEG") or with the range unit repeated ("<165 IU/mLIU/mL"), and
+ * data migrations stored them once. An archive taken
  * before that migration still holds the doubled value. Restore writes rows with
  * raw inserts, so without this the doubled text would come straight back, and
  * the archived record would no longer hash like the row the migration produced
@@ -34,12 +35,13 @@ final class PhrNativeLabReferenceRangeCompatibility
             return $record;
         }
 
-        $single = PhrLabReferenceRangeText::undoubled($attributes['reference_range_text']);
-        if ($single === null) {
+        $stored = $attributes['reference_range_text'];
+        $repaired = PhrLabReferenceRangeText::repaired($stored, $attributes['range_unit'] ?? null);
+        if ($repaired === $stored) {
             return $record;
         }
 
-        $attributes['reference_range_text'] = $single;
+        $attributes['reference_range_text'] = $repaired;
         $normalized = (new PhrNativeRecordCodec)->record(
             (string) $record['nativeId'],
             $attributes,

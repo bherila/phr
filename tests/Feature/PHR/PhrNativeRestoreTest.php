@@ -832,9 +832,10 @@ final class PhrNativeRestoreTest extends TestCase
     {
         $owner = User::factory()->create(['user_role' => 'user']);
         $patient = $this->patientWithOwnerGrant((int) $owner->id);
-        foreach (['Synthetic screen' => 'NEG', 'Synthetic count' => '11', 'Synthetic protein' => '13.6 - 17.5'] as $analyte => $range) {
+        foreach (['Synthetic screen' => 'NEG', 'Synthetic count' => '11', 'Synthetic protein' => '13.6 - 17.5', 'Synthetic fraction' => '4.3 - 5.6 PERCENT'] as $analyte => $range) {
             $this->labWithRange($patient, (int) $owner->id, $analyte, $range);
         }
+        DB::table('phr_lab_results')->where('analyte', 'Synthetic fraction')->update(['range_unit' => 'PERCENT']);
 
         $archivePath = $this->archiveCopy($patient, (int) $owner->id);
         // An archive taken before the repair migration holds the doubled text
@@ -842,6 +843,9 @@ final class PhrNativeRestoreTest extends TestCase
         $this->mutateTableRecords($archivePath, 'phr_lab_results', static function (array $record): array {
             if ($record['attributes']['reference_range_text'] === 'NEG') {
                 $record['attributes']['reference_range_text'] = 'NEGNEG';
+            }
+            if ($record['attributes']['reference_range_text'] === '4.3 - 5.6 PERCENT') {
+                $record['attributes']['reference_range_text'] = '4.3 - 5.6 PERCENTPERCENTPERCENT';
             }
 
             return $record;
@@ -855,7 +859,7 @@ final class PhrNativeRestoreTest extends TestCase
         app(PhrNativeRestoreService::class)->apply($attempt->refresh(), (int) $owner->id);
 
         $this->assertSame(
-            ['Synthetic count' => '11', 'Synthetic protein' => '13.6 - 17.5', 'Synthetic screen' => 'NEG'],
+            ['Synthetic count' => '11', 'Synthetic fraction' => '4.3 - 5.6 PERCENT', 'Synthetic protein' => '13.6 - 17.5', 'Synthetic screen' => 'NEG'],
             DB::table('phr_lab_results')->orderBy('analyte')->pluck('reference_range_text', 'analyte')->all(),
         );
     }

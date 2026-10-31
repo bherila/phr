@@ -7,8 +7,10 @@ namespace App\Support\PHR;
  *
  * That load wrote the whole text content of each observationRange, which
  * concatenates its <text> with a <value xsi:type="ST"> repeating it
- * ("NEGNEG"). A data migration repaired the stored rows with this rule; native
- * backup restore applies it to archives taken before that migration.
+ * ("NEGNEG"), and an IVL_PQ in a non-UCUM unit repeats the unit in each
+ * bound's translation/originalText ("4.3 - 5.6 PERCENTPERCENTPERCENT"). Data
+ * migrations repaired the stored rows with these rules; native backup restore
+ * applies them to archives taken before those migrations.
  */
 final class PhrLabReferenceRangeText
 {
@@ -29,6 +31,35 @@ final class PhrLabReferenceRangeText
         $half = self::half($text);
 
         return $half === null || self::half($half) !== null ? null : $half;
+    }
+
+    /**
+     * The text with a repeated trailing range unit stored once
+     * ("<165 IU/mLIU/mL" -> "<165 IU/mL"), or null when it has none.
+     *
+     * Only the record's own range_unit counts, compared byte for byte, and
+     * never a numeric unit: with UCUM's unitless "1", "<11" is a range.
+     */
+    public static function withoutRepeatedUnit(mixed $text, mixed $unit): ?string
+    {
+        if (! is_string($text) || ! is_string($unit) || trim($unit) === '' || is_numeric($unit)) {
+            return null;
+        }
+
+        $repaired = $text;
+        while (str_ends_with($repaired, $unit.$unit)) {
+            $repaired = substr($repaired, 0, -strlen($unit));
+        }
+
+        return $repaired === $text ? null : $repaired;
+    }
+
+    /** Both repairs, in the order the migrations applied them. */
+    public static function repaired(mixed $text, mixed $unit): mixed
+    {
+        $text = self::undoubled($text) ?? $text;
+
+        return self::withoutRepeatedUnit($text, $unit) ?? $text;
     }
 
     private static function half(string $text): ?string
