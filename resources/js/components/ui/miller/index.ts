@@ -10,6 +10,7 @@ export type {
 } from './MillerDockHome'
 export { MillerDockClearButton, MillerDockSection, MillerDockTileGrid } from './MillerDockHome'
 export { MillerInstanceTabs } from './MillerInstanceTabs'
+export { MILLER_LOCATION_CHANGE_EVENT, pushMillerLocation, subscribeToMillerLocation } from './millerLocation'
 export type {
   KeyAmount,
   MillerColumnSize,

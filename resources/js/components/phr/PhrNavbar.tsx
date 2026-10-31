@@ -1,6 +1,6 @@
 'use client'
 
-import { ArrowLeft, Command, Database, Search, Settings, UserRound } from 'lucide-react'
+import { Command, Database, Search, Settings, UserRound } from 'lucide-react'
 import { type MouseEvent, type ReactNode, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -40,21 +40,16 @@ interface PhrNavbarProps {
   activeSection?: PhrSection
   children?: ReactNode
   className?: string
-  /** Where the navbar's "back" affordance exits PHR to. Defaults to the parent site. */
-  backUrl?: string
   onPatientChange?: (patientId: number) => void
   onSectionChange?: (section: PhrSection) => void
   onSearch?: () => void
 }
-
-const DEFAULT_BACK_URL = 'https://bherila.net'
 
 export default function PhrNavbar({
   patientId,
   activeSection,
   children,
   className,
-  backUrl = DEFAULT_BACK_URL,
   onPatientChange,
   onSectionChange,
   onSearch,
@@ -114,17 +109,6 @@ export default function PhrNavbar({
     <div className={cn('min-h-0', className)}>
       <div className="w-full border-b border-border/40 bg-background">
         <div className="flex h-12 items-center gap-2 px-4">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="secondary" size="icon" className="h-7 w-7 shrink-0" asChild>
-                <a href={backUrl} aria-label="Back to BWH">
-                  <ArrowLeft className="h-4 w-4" />
-                </a>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Back to BWH</TooltipContent>
-          </Tooltip>
-
           <span
             className="select-none text-xs font-bold uppercase tracking-widest text-foreground"
             aria-label="PHR section"

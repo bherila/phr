@@ -85,21 +85,7 @@ class PageController extends Controller
             'patientId' => $patientId,
             'canManage' => $canManage,
             'title' => $title,
-            'backUrl' => $this->backUrl(),
             'phrPatientList' => $this->patientList->bootstrapPayload((int) request()->user()?->id),
         ];
-    }
-
-    /**
-     * The navbar's "back" affordance exits PHR entirely rather than navigating within it, so it
-     * points at the parent site.
-     *
-     * This is deliberately not the OAuth provider base URL. The two coincided only while
-     * identity was served from the parent site; the identity provider now lives on its own
-     * subdomain and has nothing to navigate back to.
-     */
-    private function backUrl(): string
-    {
-        return (string) config('phr.parent_site_url');
     }
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 
+import { pushMillerLocation, subscribeToMillerLocation } from './millerLocation'
 import {
   type MillerColumnSpec,
   type MillerRoute,
@@ -26,21 +27,16 @@ function readCurrentHash(): string {
   return window.location.hash
 }
 
+/**
+ * Every column change pushes a history entry (closing the last column included, so Back
+ * reopens it) and announces it; the subscription below then derives the route state from
+ * the new hash, exactly as it does after Back / Forward.
+ */
 function writeRoute<Id extends string>(route: MillerRoute<Id>): void {
   if (typeof window === 'undefined') {
     return
   }
-  const next = serializeRoute(route)
-  const current = window.location.hash
-  if (next === current) {
-    return
-  }
-  if (next === '') {
-    history.replaceState(null, '', window.location.pathname + window.location.search)
-    window.dispatchEvent(new Event('hashchange'))
-  } else {
-    window.location.hash = next
-  }
+  pushMillerLocation(`${window.location.pathname}${window.location.search}${serializeRoute(route)}`)
 }
 
 export function useMillerRoute<Id extends string>(validIds: ReadonlySet<string>): UseMillerRouteResult<Id> {
@@ -50,46 +46,33 @@ export function useMillerRoute<Id extends string>(validIds: ReadonlySet<string>)
     if (typeof window === 'undefined') {
       return
     }
-    const handler = (): void => {
+    const sync = (): void => {
       const parsed = parseHash<Id>(window.location.hash, validIds)
       setRoute((prev) => (routesEqual(prev, parsed) ? prev : parsed))
     }
-    window.addEventListener('hashchange', handler)
-    handler()
-    return () => {
-      window.removeEventListener('hashchange', handler)
-    }
+    const unsubscribe = subscribeToMillerLocation(sync)
+    sync()
+    return unsubscribe
   }, [validIds])
 
+  // Mutations start from the location, not from React state: the location is the source of
+  // truth, and reading it keeps these side-effecting writes out of state updater functions.
+  const currentRoute = useCallback((): MillerRoute<Id> => parseHash<Id>(readCurrentHash(), validIds), [validIds])
+
   const pushColumn = useCallback((column: MillerColumnSpec<Id>): void => {
-    setRoute((prev) => {
-      const next = pushColumnPure(prev, column)
-      writeRoute(next)
-      return next
-    })
-  }, [])
+    writeRoute(pushColumnPure(currentRoute(), column))
+  }, [currentRoute])
 
   const replaceFrom = useCallback((depth: number, column: MillerColumnSpec<Id>): void => {
-    setRoute((prev) => {
-      const next = replaceFromPure(prev, depth, column)
-      writeRoute(next)
-      return next
-    })
-  }, [])
+    writeRoute(replaceFromPure(currentRoute(), depth, column))
+  }, [currentRoute])
 
   const truncateTo = useCallback((depth: number): void => {
-    setRoute((prev) => {
-      const next = truncateToPure(prev, depth)
-      writeRoute(next)
-      return next
-    })
-  }, [])
+    writeRoute(truncateToPure(currentRoute(), depth))
+  }, [currentRoute])
 
   const navigate = useCallback((next: MillerRoute<Id>): void => {
-    setRoute(() => {
-      writeRoute(next)
-      return next
-    })
+    writeRoute(next)
   }, [])
 
   return { route, pushColumn, replaceFrom, truncateTo, navigate }

@@ -2,7 +2,7 @@ import type { ReactElement } from 'react'
 import { Suspense, useCallback, useEffect, useState } from 'react'
 
 import PhrNavbar from '@/components/phr/PhrNavbar'
-import { useMillerApp } from '@/components/ui/miller'
+import { pushMillerLocation, subscribeToMillerLocation, useMillerApp } from '@/components/ui/miller'
 import type { PhrSection } from '@/lib/phrRouteBuilder'
 import { patientUrl, phrSectionUrl } from '@/lib/phrRouteBuilder'
 import { EhiUploadProvider } from '@/phr/imports/ehi/EhiUploadProvider'
@@ -42,35 +42,27 @@ function patientIdFromPath(): number | undefined {
 
 interface PhrMillerShellProps {
   initialPatientId?: number
-  backUrl?: string
 }
 
-export function PhrMillerShell({ initialPatientId, backUrl }: PhrMillerShellProps): ReactElement {
-  const [patientId, setPatientId] = useState<number | undefined>(initialPatientId)
+export function PhrMillerShell({ initialPatientId }: PhrMillerShellProps): ReactElement {
+  const [patientId, setPatientId] = useState<number | undefined>(() => initialPatientId ?? patientIdFromPath())
   const [paletteOpen, setPaletteOpen] = useState(false)
   usePhrCommandPaletteShortcut(paletteOpen, setPaletteOpen)
 
+  // The patient lives in the path (/phr/patient/{id}); like the column stack in the hash, it is
+  // derived from the location on every change, so Back and Forward restore both together.
+  // useMillerRoute subscribes to the same notifications, and React batches the two updates from
+  // one event into one render: the patient and its columns never disagree, even for a frame.
+  useEffect(() => subscribeToMillerLocation(() => setPatientId(patientIdFromPath())), [])
+
   const handlePatientChange = useCallback((nextPatientId: number, hash?: string): void => {
-    setPatientId(nextPatientId)
     if (typeof window === 'undefined') {
       return
     }
     // Default (e.g. the navbar patient picker) keeps the current module so switching patients
     // stays on the same view; callers pass an explicit hash to override ('' clears to the dock).
     const nextHash = hash ?? window.location.hash
-    window.history.pushState(null, '', `${patientUrl(nextPatientId)}${nextHash}`)
-    // pushState does not emit hashchange; nudge useMillerRoute to resync the column stack.
-    window.dispatchEvent(new Event('hashchange'))
-  }, [])
-
-  useEffect(() => {
-    const handlePopState = (): void => {
-      setPatientId(patientIdFromPath())
-    }
-    window.addEventListener('popstate', handlePopState)
-    return () => {
-      window.removeEventListener('popstate', handlePopState)
-    }
+    pushMillerLocation(`${patientUrl(nextPatientId)}${nextHash}`)
   }, [])
 
   const state: PhrShellState = { patientId, onPatientChange: handlePatientChange }
@@ -89,12 +81,7 @@ export function PhrMillerShell({ initialPatientId, backUrl }: PhrMillerShellProp
   const handleSectionChange = useCallback((section: PhrSection): void => {
     // Top-level sections are not patient-scoped: move to the section's own path and clear the
     // patient context so the URL is shareable without requiring access to the previous patient.
-    setPatientId(undefined)
-    if (typeof window === 'undefined') {
-      return
-    }
-    window.history.pushState(null, '', `${phrSectionUrl(section)}#/${SECTION_TO_MODULE[section]}`)
-    window.dispatchEvent(new Event('hashchange'))
+    pushMillerLocation(`${phrSectionUrl(section)}#/${SECTION_TO_MODULE[section]}`)
   }, [])
 
   // The upload providers sit above the column stack, not inside it: the shell is mounted once
@@ -107,7 +94,6 @@ export function PhrMillerShell({ initialPatientId, backUrl }: PhrMillerShellProp
           <PhrNavbar
             {...(patientId !== undefined ? { patientId } : {})}
             {...(activeSection ? { activeSection } : {})}
-            {...(backUrl ? { backUrl } : {})}
             className="flex h-full flex-col"
             onPatientChange={handlePatientChange}
             onSectionChange={handleSectionChange}
