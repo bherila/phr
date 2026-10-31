@@ -315,6 +315,7 @@ export default function VitalsPage({ patientId, onDrill, openRecord }: PhrListPa
         <Input
           placeholder="Filter by vital name…"
           aria-label="Filter by vital name"
+          data-record-list-filter=""
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="max-w-xs"

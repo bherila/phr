@@ -406,6 +406,7 @@ export default function LabsPage({ patientId, onDrill, openRecord }: PhrListPage
         <Input
           placeholder="Search analyte or panel…"
           aria-label="Search analyte or panel"
+          data-record-list-filter=""
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="max-w-xs"

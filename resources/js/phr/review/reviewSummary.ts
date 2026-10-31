@@ -1,6 +1,7 @@
 import { useEffect, useSyncExternalStore } from 'react'
 import { z } from 'zod'
 
+import { clearPhrPreload } from '@/fetchPreload'
 import { fetchWrapper } from '@/fetchWrapper'
 
 /**
@@ -101,6 +102,8 @@ export function setReviewSummary(patientId: number, state: ReviewSummaryState): 
  */
 export function reviewStateChanged(patientId: number): Promise<void> {
   stale.add(patientId)
+  // Counts (or lists) the page was loaded with may no longer hold: never serve them now.
+  clearPhrPreload()
   if ((mounted.get(patientId) ?? 0) === 0) return Promise.resolve()
   const waiting = queued.get(patientId)
   if (waiting) return waiting

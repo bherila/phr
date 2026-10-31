@@ -95,7 +95,8 @@ final class PhrPatientBootstrapTest extends TestCase
                 $profileReads[] = $event->sql;
             }
         });
-        $seed = $this->initialData($this->get('/phr/patients')->assertOk());
+        // Manage Patients carries no other preload, so every patient read here is the bootstrap's.
+        $seed = $this->initialData($this->get('/phr/patients/manage')->assertOk());
         $this->assertArrayNotHasKey('phr', $seed);
         $this->assertCount(1, $profileReads, 'Overflow must stop after the scalar-ID query.');
         $this->assertStringContainsString('limit 101', $profileReads[0]);

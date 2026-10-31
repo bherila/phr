@@ -14,6 +14,14 @@
   ></div>
 @endsection
 
+{{-- First-load responses (PhrPreloadBuilder), already encoded with HEX_TAG/AMP/APOS/QUOT so no
+     string can close the element. The client reads it once at boot and removes it. --}}
+@isset($phrPreload)
+  @push('data-head')
+    <script type="application/json" id="phr-preload">{!! $phrPreload !!}</script>
+  @endpush
+@endisset
+
 @push('scripts')
   @vite('resources/js/phr/pages.tsx')
 @endpush
