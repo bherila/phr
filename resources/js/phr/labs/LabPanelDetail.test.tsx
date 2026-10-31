@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 
 import LabPanelDetail from '@/phr/labs/LabPanelDetail'
 
@@ -57,9 +57,47 @@ describe('LabPanelDetail', () => {
       'href',
       '/api/phr/patients/42/documents/77/file',
     )
-    expect(screen.getByText('70–∞ mg/dL')).toBeInTheDocument()
-    expect(screen.getByText('H')).toBeInTheDocument()
-    expect(screen.getByText('↑')).toBeInTheDocument()
+    const table = within(screen.getByRole('table'))
+    expect(table.getByText('70–∞ mg/dL')).toBeInTheDocument()
+    expect(table.getByText('H')).toBeInTheDocument()
+    expect(table.getByText('↑')).toBeInTheDocument()
+  })
+
+  it('stacks each result on two lines below 520px of panel width and keeps the sized table above it', async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      text: async () => JSON.stringify({
+        panel: {
+          id: 5, panel_name: 'Synthetic Respiratory Panel', collection_datetime: null, ordering_provider: null, resulting_lab: null,
+          source: null, source_document_id: null, source_document_url: null,
+          rows: [
+            { id: 1, analyte: 'Influenza A RNA', value: 'Not Detected', value_numeric: null, unit: null, range_min: null, range_max: null, range_unit: null, reference_range_text: 'Not Detected', abnormal_flag: 'N', result_datetime: null, collection_datetime: null, trend: null },
+            { id: 2, analyte: 'Potassium', value: '3.3', value_numeric: '3.3', unit: 'mmol/L', range_min: '3.5', range_max: '5.1', range_unit: 'mmol/L', reference_range_text: null, abnormal_flag: 'L', result_datetime: null, collection_datetime: null, trend: 'down' },
+          ],
+        },
+      }),
+    } as Response)
+
+    const { container } = render(<LabPanelDetail patientId={42} recordId="5" />)
+    const stacked = await screen.findByRole('list', { name: 'Results' })
+
+    // The component is its own size container, so it adapts in a panel or on a page.
+    expect(container.firstElementChild).toHaveClass('@container')
+    expect(stacked).toHaveClass('@min-[520px]:hidden')
+    expect(container.querySelector('[data-layout="table"]')).toHaveClass('hidden', '@min-[520px]:block')
+    const [first, second] = within(stacked).getAllByRole('listitem')
+    const [firstLine, secondLine] = Array.from(second!.children)
+    expect(firstLine).toHaveTextContent('Potassium3.3mmol/L')
+    expect(secondLine).toHaveTextContent('3.5–5.1 mmol/L')
+    expect(secondLine).toHaveTextContent('L')
+    expect(within(first!).getByText('Not Detected', { selector: 'span.shrink-0' })).not.toHaveClass('tabular-nums')
+
+    const value = within(screen.getByRole('table')).getByText('3.3').closest('td')
+    expect(value).toHaveClass('w-[1%]', 'whitespace-nowrap', 'text-right', 'tabular-nums')
+    const [textValue] = within(screen.getByRole('table')).getAllByText('Not Detected', { selector: 'td' })
+    expect(textValue).not.toHaveClass('text-right')
   })
 
   it('renders shared not-found column on 404', async () => {
