@@ -128,7 +128,9 @@ final readonly class PhrReviewQueueService
     public function overview(array $patientIds): array
     {
         $tally = $this->tally($patientIds);
+        $aiPending = $this->pendingAiResultCounts($patientIds);
         $since = now()->subDays(30);
+        // The attention list shows the newest jobs only; the counts above cover them all.
         $jobs = GenAiImportJob::query()
             ->whereIn('context_json->patient_id', $patientIds)
             ->where(fn (Builder $query) => $query
@@ -142,14 +144,12 @@ final readonly class PhrReviewQueueService
             ->filter(static fn (GenAiImportJob $job): bool => $job->sourceDocument !== null
                 && (int) $job->sourceDocument->patient_id === (int) ($job->getContextArray()['patient_id'] ?? 0));
 
-        $aiPending = [];
         $attention = [];
         foreach ($jobs as $job) {
             $patientId = (int) $job->sourceDocument?->patient_id;
             $document = $job->sourceDocument->title ?? $job->sourceDocument->original_filename ?? null;
             $pending = (int) $job->getAttribute('pending_results_count');
             if ($pending > 0) {
-                $aiPending[$patientId] = ($aiPending[$patientId] ?? 0) + $pending;
                 $attention[] = ['kind' => 'ready', 'origin' => 'ai', 'patient_id' => $patientId, 'count' => $pending, 'name' => $document, 'date' => ($job->parsed_at ?? $job->updated_at)?->toIso8601String()];
             } elseif ($job->status === 'failed') {
                 $attention[] = ['kind' => 'failed', 'origin' => 'ai', 'patient_id' => $patientId, 'count' => 0, 'name' => $document, 'date' => $job->updated_at?->toIso8601String()];
@@ -181,6 +181,37 @@ final readonly class PhrReviewQueueService
             ], $patientIds),
             'attention' => array_slice($attention, 0, 20),
         ];
+    }
+
+    /**
+     * Pending AI import proposals per patient, over every eligible job, in one aggregate
+     * query. Eligible means what PhrImportJobDao::forPatient means (and the Review page
+     * lists): the job's context names the patient and its source document belongs to that
+     * patient, with no document of another patient on the job.
+     *
+     * @param  list<int>  $patientIds
+     * @return array<int, int>
+     */
+    private function pendingAiResultCounts(array $patientIds): array
+    {
+        if ($patientIds === []) {
+            return [];
+        }
+
+        return GenAiImportResult::query()->toBase()
+            ->join('genai_import_jobs', 'genai_import_jobs.id', '=', 'genai_import_results.job_id')
+            ->join('phr_documents', 'phr_documents.genai_job_id', '=', 'genai_import_jobs.id')
+            ->where('genai_import_results.status', 'pending_review')
+            ->whereIn('phr_documents.patient_id', $patientIds)
+            ->whereColumn('genai_import_jobs.context_json->patient_id', 'phr_documents.patient_id')
+            ->whereNotExists(static fn ($other) => $other->selectRaw('1')->from('phr_documents as other_documents')
+                ->whereColumn('other_documents.genai_job_id', 'genai_import_jobs.id')
+                ->whereColumn('other_documents.patient_id', '!=', 'phr_documents.patient_id'))
+            ->groupBy('phr_documents.patient_id')
+            ->selectRaw('phr_documents.patient_id as patient_id, count(distinct genai_import_results.id) as aggregate')
+            ->pluck('aggregate', 'patient_id')
+            ->mapWithKeys(static fn (mixed $count, mixed $patientId): array => [(int) $patientId => (int) $count])
+            ->all();
     }
 
     /**

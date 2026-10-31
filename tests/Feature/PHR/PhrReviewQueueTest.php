@@ -253,6 +253,34 @@ class PhrReviewQueueTest extends TestCase
         $this->getJson('/api/phr/patients/overview')->assertUnauthorized();
     }
 
+    public function test_a_patient_card_counts_every_pending_ai_proposal_however_many_newer_jobs_there_are(): void
+    {
+        [$owner, $busy] = $this->ownerAndPatient();
+        $quiet = $this->ehiPatient($owner);
+        PhrPatientUserAccess::query()->create(['patient_id' => $quiet->id, 'user_id' => $owner->id, 'access_level' => PhrPatientUserAccess::LEVEL_OWNER, 'granted_by_user_id' => $owner->id, 'granted_at' => now()]);
+        // An older AI import of the quiet patient with a proposal still waiting...
+        $older = $this->aiJob($this->document($quiet, $owner, 'old-letter.pdf'), $owner);
+        $this->aiResult($older, 0, ['name' => 'Synthetic amoxicillin']);
+        $this->record(PhrAllergy::class, $quiet, ['substance' => 'Synthetic pollen']);
+        // ...then more than a page of newer AI imports of the other patient, failed or done.
+        foreach (range(1, 105) as $i) {
+            $job = $this->aiJob($this->document($busy, $owner, "scan-{$i}.pdf"), $owner);
+            $job->forceFill(['status' => $i <= 101 ? 'failed' : 'imported'])->save();
+            $this->aiResult($job, 0, ['name' => "Synthetic {$i}"], 'imported');
+        }
+
+        $patients = collect($this->actingAs($owner)->getJson('/api/phr/patients/overview')->assertOk()->json('patients'))->keyBy('id');
+
+        self::assertSame(2, $patients[$quiet->id]['pending']);
+        // One number, two places: a card says what that patient's Review page says.
+        foreach ([$quiet, $busy] as $patient) {
+            self::assertSame(
+                $this->actingAs($owner)->getJson($this->url($patient).'/summary')->assertOk()->json('summary.total'),
+                $patients[$patient->id]['pending'],
+            );
+        }
+    }
+
     public function test_the_overview_query_count_does_not_grow_with_patients(): void
     {
         $owner = $this->createUser();
