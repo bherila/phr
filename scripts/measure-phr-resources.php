@@ -121,7 +121,7 @@ if ($prepare) {
         for ($offset = 0; $offset < $records - 2; $offset += 100) {
             $rows = [];
             for ($i = $offset; $i < min($offset + 100, $records - 2); $i++) {
-                $rows[] = ['patient_id' => $patient->id, 'user_id' => $owner->id, 'document_type' => 'other', 'title' => 'Synthetic Resource Document', 'extracted_text' => $text, 'byte_size' => 0, 'created_at' => now(), 'updated_at' => now()];
+                $rows[] = ['patient_id' => $patient->id, 'user_id' => $owner->id, 'document_type' => 'other', 'source' => 'manual_upload', 'title' => 'Synthetic Resource Document', 'extracted_text' => $text, 'byte_size' => 0, 'created_at' => now(), 'updated_at' => now()];
             }
             DB::table('phr_documents')->insert($rows);
         }

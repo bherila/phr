@@ -774,6 +774,60 @@ final class PhrNativeRestoreTest extends TestCase
         $this->assertSame(0, $plan['tables']['phr_lab_results']['skip'] ?? -1);
     }
 
+    public function test_an_archived_legacy_document_source_restores_as_an_allowed_source(): void
+    {
+        $owner = User::factory()->create(['user_role' => 'user']);
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        foreach (['Synthetic legacy upload', 'Synthetic legacy fhir'] as $title) {
+            $this->metadataOnlyDocument($patient, (int) $owner->id, $title);
+        }
+
+        $archivePath = $this->archiveCopy($patient, (int) $owner->id);
+        // An archive taken before the source rule holds the free-text values
+        // that rows then had. Refusing it would make the backup unrestorable.
+        $this->mutateTableRecords($archivePath, 'phr_documents', static function (array $record): array {
+            $record['attributes']['source'] = $record['attributes']['title'] === 'Synthetic legacy fhir'
+                ? 'fhir'
+                : 'outlook_email_attachment';
+
+            return $record;
+        });
+
+        DB::table('phr_patients')->where('id', $patient->id)->delete();
+
+        $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $attempt->status, (string) $attempt->failure_category);
+
+        app(PhrNativeRestoreService::class)->apply($attempt->refresh());
+
+        $this->assertSame(
+            ['Synthetic legacy fhir' => 'fhir_import', 'Synthetic legacy upload' => 'manual_upload'],
+            DB::table('phr_documents')->orderBy('title')->pluck('source', 'title')->all(),
+        );
+    }
+
+    public function test_an_archived_legacy_document_source_matches_its_migrated_row_instead_of_conflicting(): void
+    {
+        $owner = User::factory()->create(['user_role' => 'user']);
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        $this->metadataOnlyDocument($patient, (int) $owner->id, 'Synthetic migrated upload');
+
+        $archivePath = $this->archiveCopy($patient, (int) $owner->id);
+        $this->mutateTableRecords($archivePath, 'phr_documents', static function (array $record): array {
+            $record['attributes']['source'] = 'onedrive_manual_review';
+
+            return $record;
+        });
+
+        // The current row is what the data migration made of the archived one,
+        // so the archived record must read as unchanged, not as a conflict.
+        $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
+        $plan = $attempt->refresh()->plan_counts_json;
+        $this->assertIsArray($plan);
+        $this->assertSame(0, $plan['tables']['phr_documents']['block'] ?? -1);
+        $this->assertSame(1, $plan['tables']['phr_documents']['skip'] ?? 0);
+    }
+
     public function test_an_ehi_package_restores_with_its_bytes_at_the_new_content_address(): void
     {
         $owner = $this->createUser();
@@ -1164,6 +1218,19 @@ final class PhrNativeRestoreTest extends TestCase
         ]);
 
         return $patient;
+    }
+
+    private function metadataOnlyDocument(PhrPatient $patient, int $ownerId, string $title): void
+    {
+        PhrDocument::query()->create([
+            'patient_id' => $patient->id,
+            'user_id' => $ownerId,
+            'title' => $title,
+            'document_type' => 'other',
+            'storage_disk' => PhrDocument::STORAGE_DISK,
+            'byte_size' => 0,
+            'source' => 'manual_upload',
+        ]);
     }
 
     private function archiveCopy(PhrPatient $patient, int $ownerId): string

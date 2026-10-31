@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\GenAiProcessor\Models\GenAiImportJob;
+use App\Support\PHR\PhrDocumentSource;
 use App\Traits\HasPublicId;
 use App\Traits\SerializesDatesAsLocal;
 use Illuminate\Database\Eloquent\Collection;
@@ -76,6 +77,11 @@ class PhrDocument extends Model
         'care-correspondence',
     ];
 
+    /**
+     * Every allowed value of `source`, enforced on save; see PhrDocumentSource.
+     *
+     * @var list<string>
+     */
     public const array SOURCES = [
         'manual_upload',
         'agent_upload',
@@ -122,6 +128,15 @@ class PhrDocument extends Model
 
     protected static function booted(): void
     {
+        // The browser parses `source` against SOURCES, so one stray value blanks
+        // the document viewer. A row is checked when it is created or its source
+        // changes; an untouched legacy value never turns a metadata edit into an
+        // error (the data migration repairs those rows).
+        static::saving(static function (self $document): void {
+            if (! $document->exists || $document->isDirty('source')) {
+                PhrDocumentSource::assertValid($document->source);
+            }
+        });
         static::saved(static function (self $document): void {
             if ($document->wasChanged(['file_hash', 'patient_id', 'deleted_at'])) {
                 $document->eobs()->touch();

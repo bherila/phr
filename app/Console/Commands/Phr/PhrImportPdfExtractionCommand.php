@@ -31,7 +31,9 @@ class PhrImportPdfExtractionCommand extends BasePhrCommand
         if (is_string($file) && trim($file) !== '') {
             $document = $importer->storeLocalDocument($patient, $actorId, $file, [
                 ...$payload,
-                'source' => 'cli_pdf',
+                // A file stored from the command line is a manual upload; the
+                // retired `cli_pdf` label is not a document source.
+                'source' => 'manual_upload',
                 'document_type' => $type === 'phr_document' ? ($payload['source_document']['document_type'] ?? $payload['document_type'] ?? 'other') : 'other',
                 'summary' => $payload['summary'] ?? null,
                 'extracted_text' => $payload['extracted_text'] ?? $payload['text'] ?? null,

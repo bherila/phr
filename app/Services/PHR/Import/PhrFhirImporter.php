@@ -125,7 +125,7 @@ class PhrFhirImporter
                 'original_filename' => data_get($resource, 'content.0.attachment.title'),
                 'mime_type' => data_get($resource, 'content.0.attachment.contentType'),
                 'summary' => $resource['description'] ?? null,
-                'source' => 'fhir',
+                'source' => 'fhir_import',
             ], ['import_source' => 'fhir']),
             default => new PhrImportResult(skipped: 1),
         };

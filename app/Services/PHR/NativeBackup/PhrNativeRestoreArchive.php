@@ -60,7 +60,10 @@ final class PhrNativeRestoreArchive
                 if (! is_array($decoded)) {
                     throw new NativeRestoreException('invalid_archive');
                 }
-                yield PhrNativeLifecycleCompatibility::normalize($table, $decoded);
+                yield PhrNativeDocumentSourceCompatibility::normalize(
+                    $table,
+                    PhrNativeLifecycleCompatibility::normalize($table, $decoded),
+                );
             }
             if (! feof($stream)) {
                 throw new NativeRestoreException('invalid_archive');

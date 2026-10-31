@@ -235,7 +235,7 @@ class PhrNativeResourceLimitsTest extends TestCase
 
     private function document(PhrPatient $patient, string $text = 'synthetic'): PhrDocument
     {
-        return PhrDocument::create(['patient_id' => $patient->id, 'user_id' => $patient->owner_user_id, 'title' => 'Synthetic Resource Document', 'document_type' => 'other', 'extracted_text' => $text, 'byte_size' => 0]);
+        return PhrDocument::create(['patient_id' => $patient->id, 'user_id' => $patient->owner_user_id, 'title' => 'Synthetic Resource Document', 'document_type' => 'other', 'source' => 'manual_upload', 'extracted_text' => $text, 'byte_size' => 0]);
     }
 
     private function assertBackupRefused(PhrPatient $patient, string $reason): void

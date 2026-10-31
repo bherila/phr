@@ -43,6 +43,7 @@ final class AgentApiClinicalWriteTest extends TestCase
             'user_id' => $actor->id,
             'uploaded_by_user_id' => $actor->id,
             'document_type' => 'other',
+            'source' => 'manual_upload',
             'storage_disk' => PhrDocument::STORAGE_DISK,
             'byte_size' => 0,
         ]);
@@ -141,6 +142,7 @@ final class AgentApiClinicalWriteTest extends TestCase
             'user_id' => $actor->id,
             'uploaded_by_user_id' => $actor->id,
             'document_type' => 'other',
+            'source' => 'manual_upload',
             'storage_disk' => PhrDocument::STORAGE_DISK,
             'byte_size' => 0,
         ]);
@@ -332,6 +334,7 @@ final class AgentApiClinicalWriteTest extends TestCase
             'user_id' => $other->id,
             'uploaded_by_user_id' => $other->id,
             'document_type' => 'other',
+            'source' => 'manual_upload',
             'storage_disk' => PhrDocument::STORAGE_DISK,
             'byte_size' => 0,
         ]);
