@@ -39,7 +39,7 @@ final class PhrCcdaResultObservations
      */
     public function records(DOMElement $section): array
     {
-        return array_column($this->observations($section), 'record');
+        return array_values(array_filter(array_column($this->observations($section), 'record')));
     }
 
     /**
@@ -48,7 +48,11 @@ final class PhrCcdaResultObservations
      * id for the table row the observation references, and `source_id`, the
      * observation's own `root|extension`.
      *
-     * @return list<array{record: array<string, string|null>, narrative_id: string|null, source_id: string|null}>
+     * `record` is null for an observation nothing names, not even a code. Its
+     * `narrative_cells`, the table row it references, let the importer read it
+     * as the narrative-table reader would rather than drop it.
+     *
+     * @return list<array{record: array<string, string|null>|null, narrative_id: string|null, source_id: string|null, narrative_cells: list<string>|null}>
      */
     public function observations(DOMElement $section): array
     {
@@ -59,24 +63,26 @@ final class PhrCcdaResultObservations
                 continue;
             }
 
-            $record = $this->record($observation);
-            if ($record !== null) {
-                $observations[] = [
-                    'record' => $record,
-                    'narrative_id' => $this->narrativeId($observation),
-                    'source_id' => $this->sourceId($observation),
-                ];
-            }
+            $cells = $this->narrativeCells($observation);
+            $observations[] = [
+                'record' => $this->record($observation),
+                'narrative_id' => $cells === null ? null : PhrCcdaNarrativeRow::labExternalId($cells),
+                'source_id' => $this->sourceId($observation),
+                'narrative_cells' => $cells,
+            ];
         }
 
         return $observations;
     }
 
     /**
-     * The narrative-table reader's id for the row this observation's text or
-     * code references, or null when it references none.
+     * The cells of the narrative-table row this observation's text or code
+     * references, as the narrative-table reader takes them, or null when it
+     * references none that reader would import.
+     *
+     * @return list<string>|null
      */
-    private function narrativeId(DOMElement $observation): ?string
+    private function narrativeCells(DOMElement $observation): ?array
     {
         $code = $this->child($observation, 'code');
         foreach ([$this->child($observation, 'text'), $code === null ? null : $this->child($code, 'originalText')] as $element) {
@@ -94,7 +100,7 @@ final class PhrCcdaResultObservations
 
             $cells = PhrCcdaNarrativeRow::cells($this->xpath, $row);
 
-            return PhrCcdaNarrativeRow::isData($cells) ? PhrCcdaNarrativeRow::labExternalId($cells) : null;
+            return PhrCcdaNarrativeRow::isData($cells) ? $cells : null;
         }
 
         return null;
@@ -113,7 +119,12 @@ final class PhrCcdaResultObservations
      */
     private function record(DOMElement $observation): ?array
     {
-        $analyte = $this->codeName($this->child($observation, 'code'));
+        // Named by its code's display name or original text, else by the
+        // narrative its own <text> points at, else by the code itself.
+        $code = $this->child($observation, 'code');
+        $analyte = $this->codeName($code)
+            ?? $this->edText($this->child($observation, 'text'))
+            ?? $this->codeLabel($code);
         if ($analyte === null) {
             return null;
         }
@@ -239,7 +250,7 @@ final class PhrCcdaResultObservations
             'PQ' => $this->quantity($value),
             'IVL_PQ', 'IVL_REAL', 'IVL_INT' => $this->interval($value),
             'ST', 'ED' => [$this->edText($value), null],
-            'CD', 'CE', 'CO', 'CV' => [$this->codeName($value), null],
+            'CD', 'CE', 'CO', 'CV' => [$this->codeName($value) ?? $this->codeLabel($value), null],
             default => [ValueCoercion::string($this->attribute($value, 'value')) ?? $this->edText($value), null],
         };
     }
@@ -288,6 +299,22 @@ final class PhrCcdaResultObservations
         return $this->attribute($code, 'displayName')
             ?? $this->edText($this->child($code, 'originalText'))
             ?? $this->attribute($this->child($code, 'translation'), 'displayName');
+    }
+
+    /**
+     * A code that has nothing else to name it: `codeSystemName|code`, or the
+     * code alone.
+     */
+    private function codeLabel(?DOMElement $code): ?string
+    {
+        $value = $this->attribute($code, 'code');
+        if ($value === null) {
+            return null;
+        }
+
+        $system = $this->attribute($code, 'codeSystemName');
+
+        return $system === null ? $value : "{$system}|{$value}";
     }
 
     /**

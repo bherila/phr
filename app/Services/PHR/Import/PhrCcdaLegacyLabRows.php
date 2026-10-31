@@ -43,7 +43,7 @@ final class PhrCcdaLegacyLabRows
     private const string LOAD_SEPARATOR = ':lab:';
 
     /**
-     * @param  list<array{record: array<string, string|null>, narrative_id: string|null, source_id: string|null}>  $observations
+     * @param  list<array{record: array<string, string|null>|null, narrative_id: string|null, source_id: string|null, narrative_cells: list<string>|null}>  $observations
      */
     public function adopt(PhrPatient $patient, string $importSource, array $observations): void
     {

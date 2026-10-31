@@ -54,13 +54,22 @@ class PhrCcdaImporter
                 // Structured Result Observations, when present, are the record;
                 // the narrative table is only their rendering.
                 $observations = (new PhrCcdaResultObservations($xpath))->observations($section);
-                if ($observations !== []) {
-                    $result->merge(DB::transaction(function () use ($patient, $actorUserId, $observations): PhrImportResult {
+                $readable = array_values(array_filter($observations, static fn (array $observation): bool => $observation['record'] !== null));
+                if ($readable !== []) {
+                    // Never fewer results than the narrative table: an observation
+                    // nothing names is read from its own table row instead.
+                    $unnamedRows = array_values(array_filter(array_map(static fn (array $observation): ?array => $observation['record'] === null ? $observation['narrative_cells'] : null, $observations)));
+                    $result->merge(DB::transaction(function () use ($patient, $actorUserId, $readable, $unnamedRows): PhrImportResult {
                         // Rows an earlier import made of these results under other
                         // ids are moved to theirs first, so they update in place.
-                        $this->legacyLabRows->adopt($patient, self::IMPORT_SOURCE, $observations);
+                        $this->legacyLabRows->adopt($patient, self::IMPORT_SOURCE, $readable);
 
-                        return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_lab_result', array_column($observations, 'record'), ['import_source' => self::IMPORT_SOURCE]);
+                        $imported = $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_lab_result', array_column($readable, 'record'), ['import_source' => self::IMPORT_SOURCE]);
+                        if ($unnamedRows !== []) {
+                            $imported->merge($this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_lab_result', array_map($this->narrativeLabRecord(...), $unnamedRows), ['import_source' => self::IMPORT_SOURCE]));
+                        }
+
+                        return $imported;
                     }));
 
                     continue;
@@ -97,19 +106,7 @@ class PhrCcdaImporter
         }
 
         if ($this->isResultsSection($title)) {
-            return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_lab_result', array_map(
-                fn (array $row): array => [
-                    'observed_at' => $row[0] ?? null,
-                    'test_name' => $row[1] ?? null,
-                    'analyte' => $row[1] ?? null,
-                    'value' => $row[2] ?? null,
-                    'unit' => $row[3] ?? null,
-                    'reference_range_text' => $row[4] ?? null,
-                    'abnormal_flag' => $row[5] ?? null,
-                    'external_id' => PhrCcdaNarrativeRow::labExternalId($row),
-                ],
-                $rows
-            ), ['import_source' => self::IMPORT_SOURCE]);
+            return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_lab_result', array_map($this->narrativeLabRecord(...), $rows), ['import_source' => self::IMPORT_SOURCE]);
         }
 
         if (str_contains($title, 'medication')) {
@@ -189,6 +186,26 @@ class PhrCcdaImporter
         }
 
         return new PhrImportResult(skipped: count($rows));
+    }
+
+    /**
+     * A lab row read from a narrative table row, by position.
+     *
+     * @param  array<int, string>  $row
+     * @return array<string, string|null>
+     */
+    private function narrativeLabRecord(array $row): array
+    {
+        return [
+            'observed_at' => $row[0] ?? null,
+            'test_name' => $row[1] ?? null,
+            'analyte' => $row[1] ?? null,
+            'value' => $row[2] ?? null,
+            'unit' => $row[3] ?? null,
+            'reference_range_text' => $row[4] ?? null,
+            'abnormal_flag' => $row[5] ?? null,
+            'external_id' => PhrCcdaNarrativeRow::labExternalId($row),
+        ];
     }
 
     /** Vital signs are matched first, so a "vital signs results" title stays a vitals section. */
