@@ -828,6 +828,65 @@ final class PhrNativeRestoreTest extends TestCase
         $this->assertSame(1, $plan['tables']['phr_documents']['skip'] ?? 0);
     }
 
+    public function test_an_archived_doubled_lab_reference_range_restores_once(): void
+    {
+        $owner = User::factory()->create(['user_role' => 'user']);
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        foreach (['Synthetic screen' => 'NEG', 'Synthetic count' => '11', 'Synthetic protein' => '13.6 - 17.5', 'Synthetic fraction' => '4.3 - 5.6 PERCENT'] as $analyte => $range) {
+            $this->labWithRange($patient, (int) $owner->id, $analyte, $range);
+        }
+        DB::table('phr_lab_results')->where('analyte', 'Synthetic fraction')->update(['range_unit' => 'PERCENT']);
+
+        $archivePath = $this->archiveCopy($patient, (int) $owner->id);
+        // An archive taken before the repair migration holds the doubled text
+        // the one-off load wrote.
+        $this->mutateTableRecords($archivePath, 'phr_lab_results', static function (array $record): array {
+            if ($record['attributes']['reference_range_text'] === 'NEG') {
+                $record['attributes']['reference_range_text'] = 'NEGNEG';
+            }
+            if ($record['attributes']['reference_range_text'] === '4.3 - 5.6 PERCENT') {
+                $record['attributes']['reference_range_text'] = '4.3 - 5.6 PERCENTPERCENTPERCENT';
+            }
+
+            return $record;
+        });
+
+        DB::table('phr_patients')->where('id', $patient->id)->delete();
+
+        $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $attempt->status, (string) $attempt->failure_category);
+
+        app(PhrNativeRestoreService::class)->apply($attempt->refresh(), (int) $owner->id);
+
+        $this->assertSame(
+            ['Synthetic count' => '11', 'Synthetic fraction' => '4.3 - 5.6 PERCENT', 'Synthetic protein' => '13.6 - 17.5', 'Synthetic screen' => 'NEG'],
+            DB::table('phr_lab_results')->orderBy('analyte')->pluck('reference_range_text', 'analyte')->all(),
+        );
+    }
+
+    public function test_an_archived_doubled_lab_reference_range_matches_its_repaired_row_instead_of_conflicting(): void
+    {
+        $owner = User::factory()->create(['user_role' => 'user']);
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        $this->labWithRange($patient, (int) $owner->id, 'Synthetic organism', 'Not Detected');
+
+        $archivePath = $this->archiveCopy($patient, (int) $owner->id);
+        $this->mutateTableRecords($archivePath, 'phr_lab_results', static function (array $record): array {
+            $record['attributes']['reference_range_text'] = 'Not DetectedNot Detected';
+
+            return $record;
+        });
+
+        // The current row is what the repair migration made of the archived
+        // one, updated_at included, so the archived record must read as
+        // unchanged, not as a conflict.
+        $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
+        $plan = $attempt->refresh()->plan_counts_json;
+        $this->assertIsArray($plan);
+        $this->assertSame(0, $plan['tables']['phr_lab_results']['block'] ?? -1);
+        $this->assertSame(1, $plan['tables']['phr_lab_results']['skip'] ?? 0);
+    }
+
     public function test_an_ehi_package_restores_with_its_bytes_at_the_new_content_address(): void
     {
         $owner = $this->createUser();
@@ -1230,6 +1289,21 @@ final class PhrNativeRestoreTest extends TestCase
             'storage_disk' => PhrDocument::STORAGE_DISK,
             'byte_size' => 0,
             'source' => 'manual_upload',
+        ]);
+    }
+
+    private function labWithRange(PhrPatient $patient, int $ownerId, string $analyte, string $range): void
+    {
+        DB::table('phr_lab_results')->insert([
+            'patient_id' => $patient->id,
+            'user_id' => $ownerId,
+            'test_name' => 'Synthetic panel',
+            'analyte' => $analyte,
+            'value' => '1',
+            'reference_range_text' => $range,
+            'review_status' => PhrReviewStatus::CONFIRMED,
+            'created_at' => now(),
+            'updated_at' => now(),
         ]);
     }
 
