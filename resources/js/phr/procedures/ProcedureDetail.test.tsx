@@ -47,6 +47,6 @@ describe('ProcedureDetail', () => {
     render(<ProcedureDetail patientId={42} recordId="27" />)
 
     expect(await screen.findByRole('heading', { name: 'Synthetic procedure' })).toBeInTheDocument()
-    expect(screen.getByText('pending review')).toBeInTheDocument()
+    expect(screen.getByText('Pending review')).toBeInTheDocument()
   })
 })

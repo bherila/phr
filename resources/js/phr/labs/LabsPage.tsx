@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
-import { reviewStatusBadge } from '@/phr/clinical/ui'
+import { reviewStatusBadge, reviewStatusNeedsAttention } from '@/phr/clinical/ui'
 import { formatLabReferenceRange, formatLabValue, isNumericLabValue } from '@/phr/labs/formatLabResult'
 import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { reviewStateChanged } from '@/phr/review/reviewSummary'
@@ -179,6 +179,7 @@ function LabResultsTable({ label, loading = false, results, showPanelColumn, onD
     {
       id: 'review',
       header: 'Review',
+      showWhenAnyRow: (result) => reviewStatusNeedsAttention(result.review_status),
       fit: true,
       headerClassName: HEAD,
       className: 'px-3 py-2',

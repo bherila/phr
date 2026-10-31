@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
-import { reviewStatusBadge } from '@/phr/clinical/ui'
+import { reviewStatusBadge, reviewStatusNeedsAttention } from '@/phr/clinical/ui'
 import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { reviewStateChanged } from '@/phr/review/reviewSummary'
 import { errorMessage, numericPayload } from '@/phr/shared'
@@ -261,6 +261,7 @@ export default function VitalsPage({ patientId, onDrill, openRecord }: PhrListPa
     {
       id: 'review',
       header: 'Review',
+      showWhenAnyRow: (v) => reviewStatusNeedsAttention(v.review_status),
       fit: true,
       headerClassName: head,
       className: 'px-3 py-2',

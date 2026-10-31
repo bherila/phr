@@ -68,7 +68,7 @@ describe('OfficeVisitDetail', () => {
     render(<OfficeVisitDetail patientId={42} recordId="18" onDrill={onDrill} />)
 
     expect(await screen.findByRole('heading', { name: 'Related services' })).toBeInTheDocument()
-    expect(screen.getByText('pending review')).toBeInTheDocument()
+    expect(screen.getByText('Pending review')).toBeInTheDocument()
     expect(screen.getByText('Example imaging service')).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Related imaging studies' })).toBeInTheDocument()
 

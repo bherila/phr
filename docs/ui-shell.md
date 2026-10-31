@@ -29,8 +29,12 @@ is part of why it went.
 
 Status colors should carry meaning through a dot next to text in the foreground color, not
 through colored text: light-mode `--warning` is only 3.3:1 against white. The review status
-(pending review, confirmed, rejected) is shown that way everywhere, through the shared
-`StatusDot`. **(shipped)** Other status badges (clinical status, criticality) still use tinted
+is shown that way through the shared `StatusDot`, and only when it needs attention: a warning
+dot and "Pending review", or a muted dot and "Rejected" (visible only when rejected rows are
+shown). Approved records show nothing, so rows do not repeat "Confirmed". A table's Review
+column (`showWhenAnyRow` on the column) appears only while some visible row is pending or
+rejected, and approved rows leave their cell empty. Each row's approve and reject actions are
+unchanged. **(shipped)** Other status badges (clinical status, criticality) still use tinted
 text; they move to the dot as each page is revisited. **(planned)**
 
 ## Layout
