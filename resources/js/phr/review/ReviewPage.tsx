@@ -1,4 +1,4 @@
-import { type ReactElement, useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, type ReactElement, useCallback, useEffect, useMemo, useState } from 'react'
 
 import {
   AlertDialog,
@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { aiResultView } from '@/phr/imports/ai/AiImportReview'
+import { AiResultDetails, type AiResultView,aiResultView } from '@/phr/imports/ai/AiImportReview'
 import { ehiFailureText, ehiImportsUrl,ehiReviewUrl } from '@/phr/imports/ehi/ehiApi'
 import { formatSourceDate, proposalView, retainReason } from '@/phr/imports/ehi/ehiProposalView'
 import { PHR_PAGES, type PhrListPageProps } from '@/phr/shell/phrPages'
@@ -43,6 +43,11 @@ export interface ReviewRow {
   action: { label: 'Open' | 'Compare', href: string } | null
   /** Possible duplicates start unchecked: approving one adds it as a separate record. */
   checkedByDefault: boolean
+  /**
+   * An AI proposal is never part of a batch: accepting it imports every value it holds, so
+   * it is approved on its own, from the view that shows all of them.
+   */
+  ai: { view: AiResultView, documentHref: string | null } | null
 }
 
 function joined(parts: (string | null | undefined)[]): string | null {
@@ -60,6 +65,7 @@ export function reviewRow(item: ReviewItem, group: ReviewGroup, patientId: numbe
       changeDetail: item.change === 'new' ? 'Not in the record yet' : 'Changed by its source since it was added',
       action: { label: 'Open', href: patientPageUrl(patientId, section, item.id) },
       checkedByDefault: true,
+      ai: null,
     }
   }
   if (item.type === 'ai_result') {
@@ -69,8 +75,9 @@ export function reviewRow(item: ReviewItem, group: ReviewGroup, patientId: numbe
       detail: joined(view.groups.length > 0 ? view.groups.map((nested) => `${nested.records.length} ${nested.label}`) : view.fields.slice(0, 2).map((field) => field.value)),
       change: 'new',
       changeDetail: 'Added to the record when you approve it',
-      action: group.document_id !== null ? { label: 'Open', href: patientPageUrl(patientId, 'documents', group.document_id) } : null,
-      checkedByDefault: true,
+      action: null,
+      checkedByDefault: false,
+      ai: { view, documentHref: group.document_id !== null ? patientPageUrl(patientId, 'documents', group.document_id) : null },
     }
   }
   const proposal = item.proposal
@@ -88,6 +95,7 @@ export function reviewRow(item: ReviewItem, group: ReviewGroup, patientId: numbe
     change, changeDetail,
     action: { label: change === 'new' || change === 'kept' ? 'Open' : 'Compare', href: ehiReviewUrl(patientId, item.package_id) },
     checkedByDefault: change !== 'duplicate',
+    ai: null,
   }
 }
 
@@ -184,6 +192,14 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
   const [status, setStatus] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirming, setConfirming] = useState<PendingBatch | null>(null)
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
+  const toggleExpanded = (key: string): void => {
+    setExpanded((previous) => {
+      const next = new Set(previous)
+      if (!next.delete(key)) next.add(key)
+      return next
+    })
+  }
 
   const load = useCallback(async (): Promise<void> => {
     setLoadError(null)
@@ -285,9 +301,10 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
       )}
 
       {groups.map((group) => {
-        const selected = group.rows.filter(isChecked)
+        const batchable = group.rows.filter((row) => row.ai === null)
+        const selected = batchable.filter(isChecked)
         const headingId = `review-group-${group.key.replaceAll(/[^a-z0-9]+/gi, '-')}`
-        const allChecked = selected.length === group.rows.length
+        const allChecked = batchable.length > 0 && selected.length === batchable.length
         return (
           <section key={group.key} aria-labelledby={headingId} className="overflow-hidden rounded-xl border border-border bg-card">
             <div className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-4 md:px-5">
@@ -303,29 +320,35 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
               {group.aiRead && (
                 <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                   <span aria-hidden="true" className="size-[7px] rounded-full bg-info" />
-                  AI-read: check against the document
+                  <span>AI-read: check against the document</span>
+                  <span className="sr-only">.</span>
+                  <span>Open each one and approve it on its own.</span>
                 </span>
               )}
               <Button type="button" variant="outline" disabled={!canManage || busy} onClick={() => setConfirming({ group, decision: 'reject', rows: group.rows })}>
                 Reject all
               </Button>
-              <Button type="button" disabled={!canManage || busy || selected.length === 0} onClick={() => setConfirming({ group, decision: 'approve', rows: selected })}>
-                Approve {selected.length} selected
-              </Button>
+              {batchable.length > 0 && (
+                <Button type="button" disabled={!canManage || busy || selected.length === 0} onClick={() => setConfirming({ group, decision: 'approve', rows: selected })}>
+                  Approve {selected.length} selected
+                </Button>
+              )}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[760px] border-collapse text-sm">
                 <thead>
                   <tr className="text-left text-xs font-semibold text-muted-foreground">
                     <th scope="col" className="w-11 py-2.5 pr-0 pl-4 md:pl-5">
-                      <input
-                        type="checkbox"
-                        aria-label={`Select all in ${group.title}`}
-                        checked={allChecked}
-                        disabled={!canManage || busy}
-                        onChange={(event) => setRowChecked(group.rows.map((row) => row.item.key), event.target.checked)}
-                        className="size-4 accent-primary"
-                      />
+                      {batchable.length > 0 ? (
+                        <input
+                          type="checkbox"
+                          aria-label={`Select all in ${group.title}`}
+                          checked={allChecked}
+                          disabled={!canManage || busy}
+                          onChange={(event) => setRowChecked(batchable.map((row) => row.item.key), event.target.checked)}
+                          className="size-4 accent-primary"
+                        />
+                      ) : <span className="sr-only">Select</span>}
                     </th>
                     <th scope="col" className="px-3 py-2.5">Proposed</th>
                     <th scope="col" className="px-3 py-2.5">{bySection ? 'Source' : 'Section'}</th>
@@ -337,17 +360,22 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
                   {group.rows.map((row) => {
                     const change = CHANGE[row.change]
                     const failure = failures[row.item.key]
+                    const open = expanded.has(row.item.key)
+                    const detailsId = `review-details-${row.item.key.replaceAll(/[^a-z0-9]+/gi, '-')}`
                     return (
-                      <tr key={row.item.key} className="border-t border-border align-top">
+                      <Fragment key={row.item.key}>
+                      <tr className="border-t border-border align-top">
                         <td className="py-3 pr-0 pl-4 md:pl-5">
-                          <input
-                            type="checkbox"
-                            aria-label={`Select ${row.title}`}
-                            checked={isChecked(row)}
-                            disabled={!canManage || busy}
-                            onChange={(event) => setRowChecked([row.item.key], event.target.checked)}
-                            className="size-4 accent-primary"
-                          />
+                          {row.ai === null && (
+                            <input
+                              type="checkbox"
+                              aria-label={`Select ${row.title}`}
+                              checked={isChecked(row)}
+                              disabled={!canManage || busy}
+                              onChange={(event) => setRowChecked([row.item.key], event.target.checked)}
+                              className="size-4 accent-primary"
+                            />
+                          )}
                         </td>
                         <td className="px-3 py-3">
                           <span className="block font-semibold text-foreground">{row.title}</span>
@@ -368,8 +396,31 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
                               <a href={row.action.href} aria-label={`${row.action.label} ${row.title}`}>{row.action.label}</a>
                             </Button>
                           )}
+                          {row.ai && (
+                            <Button type="button" size="sm" variant="outline" aria-expanded={open} aria-controls={detailsId} aria-label={`Review ${row.title}`} onClick={() => toggleExpanded(row.item.key)}>
+                              {open ? 'Hide' : 'Review'}
+                            </Button>
+                          )}
                         </td>
                       </tr>
+                      {row.ai && open && (
+                        <tr id={detailsId} className="bg-muted/20">
+                          <td colSpan={5} className="px-4 pt-1 pb-4 md:px-5">
+                            <div className="flex flex-col gap-2 pl-8">
+                              <p className="text-sm text-muted-foreground">
+                                Approving adds everything below to the record. Check it against the document first.
+                                {row.ai.documentHref && <> <a href={row.ai.documentHref} className="font-medium text-primary hover:underline">Open the document</a></>}
+                              </p>
+                              <AiResultDetails view={row.ai.view} />
+                              <div className="flex flex-wrap gap-2">
+                                <Button type="button" size="sm" disabled={!canManage || busy} aria-label={`Approve ${row.title}`} onClick={() => void run({ group, decision: 'approve', rows: [row] })}>Approve</Button>
+                                <Button type="button" size="sm" variant="outline" disabled={!canManage || busy} aria-label={`Reject ${row.title}`} onClick={() => void run({ group, decision: 'reject', rows: [row] })}>Reject</Button>
+                              </div>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     )
                   })}
                 </tbody>

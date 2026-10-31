@@ -182,11 +182,21 @@ route's own authorization and conflict checks.
 - **Group header.** The origin and its name (file, document or source label), the date,
   how it was read ("parsed by PHR, no AI", or where the AI ran), a chip per section with its
   count, **Reject all** and **Approve N selected**.
-- **AI marker.** AI-read groups carry "AI-read: check against the document".
+- **AI proposals are approved one at a time, after they are read.** Accepting an AI
+  proposal imports every value it holds (a document's proposal can carry many nested
+  records), so the rule is that none is approved before all of its values have been shown.
+  An AI row has no checkbox and no Approve of its own; **Review** expands it to the same
+  rendering the Imports page's AI review uses (every field and every nested record), and its
+  Approve and Reject live there. "Approve N selected" never includes an AI proposal; a group
+  of AI proposals has no such button. Reject all may still include them, since rejecting adds
+  nothing. AI-read groups carry "AI-read: check against the document. Open each one and
+  approve it on its own."
+
 - **Rows.** A plain table, one component (`resources/js/phr/review/ReviewPage.tsx`): a
   checkbox, what is proposed, its section, the change with a dot, and an action. **Open**
-  goes to the record (or, for an AI proposal, its document); **Compare** goes to the EHI
-  export's own review, which shows the record already in PHR.
+  goes to the record; **Compare** goes to the EHI export's own review, which shows the
+  record already in PHR; **Review** expands an AI proposal (above), with a link to its
+  document.
 - **Change kinds.**
   - **New**: not in the record yet. AI proposals read as New: accepting adds them.
   - **Updates existing**: an EHI proposal shows the changed fields ("Lot number L1 → L2").
@@ -196,8 +206,8 @@ route's own authorization and conflict checks.
     else guesses. These start unchecked, since approving one adds a separate record.
   - **Already in PHR** and **Evidence only**: EHI proposals that add the export as evidence
     of an existing record, or keep a row with the export without adding anything.
-- **Batches.** A batch asks for confirmation with its count, then decides each item in
-  turn. A refusal (a record changed since the page loaded, a proposal already decided) does
+- **Batches.** Batches are for records and parsed imports, not AI proposals. A batch asks
+  for confirmation with its count, then decides each item in turn. A refusal (a record changed since the page loaded, a proposal already decided) does
   not stop the rest; it is shown on its row, and the list reloads.
 - **Limits.** Up to 200 rows per section, AI import or EHI export; a group with more says
   so and links to the import's own review.

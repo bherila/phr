@@ -59,6 +59,15 @@ const export_ = group('ehi:9', 'ehi', 'EHI export', [
   { ...ehi(43, 'update', 'Synthetic vaccine C', { vaccine_name: 'Synthetic vaccine C', lot_number: 'L1' }) },
 ])
 
+// A document's AI proposal: accepting it imports every nested record.
+const letter = group('ai:6', 'ai', 'AI extraction', [{
+  type: 'ai_result', key: 'ai_result:32', id: 32, import_id: 6, job_type: 'phr_document',
+  result: { id: 32, status: 'pending_review', result_index: 0, data: {
+    title: 'Synthetic letter',
+    medications: [{ name: 'Synthetic amoxicillin', dose: '500 mg' }, { name: 'Synthetic ibuprofen', dose: '200 mg' }],
+  } },
+}], { name: 'letter.pdf', execution_mode: 'external', document_id: 78 })
+
 beforeEach(() => {
   resetReviewSummaries()
   mockGet.mockReset()
@@ -170,5 +179,46 @@ describe('ReviewPage', () => {
 
     expect(await screen.findByRole('heading', { name: 'Nothing waiting for review' })).toBeInTheDocument()
     expect(screen.queryByRole('table')).toBeNull()
+  })
+
+  it('approves an AI proposal only from its own view, after every value it adds is shown', async () => {
+    mockGet.mockResolvedValue(queue([letter]))
+    mockPost.mockResolvedValue({ outcome: 'accepted', result: { id: 32, status: 'imported' } })
+    render(<ReviewPage patientId={PATIENT} />)
+
+    const extracted = await screen.findByRole('region', { name: 'AI extraction · letter.pdf' })
+    expect(within(extracted).getByText('2 medications')).toBeInTheDocument()
+    // Not selectable for a batch, and nothing approves it before it is opened.
+    expect(within(extracted).queryByRole('checkbox')).toBeNull()
+    expect(within(extracted).queryByRole('button', { name: /^Approve/ })).toBeNull()
+    expect(within(extracted).queryByText('Synthetic amoxicillin')).toBeNull()
+
+    const open = within(extracted).getByRole('button', { name: 'Review Synthetic letter' })
+    expect(open).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(open)
+    expect(open).toHaveAttribute('aria-expanded', 'true')
+    expect(within(extracted).getByText('Synthetic amoxicillin')).toBeInTheDocument()
+    expect(within(extracted).getByText(/500 mg/)).toBeInTheDocument()
+    expect(within(extracted).getByText('Synthetic ibuprofen')).toBeInTheDocument()
+
+    fireEvent.click(within(extracted).getByRole('button', { name: 'Approve Synthetic letter' }))
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith(`/api/phr/patients/${PATIENT}/ai-imports/6/results/32/accept`, {}))
+  })
+
+  it('never includes an AI proposal in a batch approval', async () => {
+    mockGet.mockResolvedValue(queue([ccda, ai]))
+    mockPatch.mockResolvedValue({})
+    render(<ReviewPage patientId={PATIENT} />)
+    await screen.findByRole('region', { name: 'AI extraction' })
+
+    // By section, the Medications group mixes a record and an AI proposal.
+    fireEvent.click(screen.getByRole('radio', { name: 'By section' }))
+    const medications = section('Medications')
+    fireEvent.click(within(medications).getByRole('button', { name: 'Approve 1 selected' }))
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Approve 1' }))
+
+    await screen.findByText('Approved 1.')
+    expect(mockPatch).toHaveBeenCalledWith(`/api/phr/patients/${PATIENT}/medications/12/review`, { review_status: 'confirmed', version: VERSION })
+    expect(mockPost).not.toHaveBeenCalled()
   })
 })
