@@ -540,7 +540,7 @@ function PatientsColumn({ state, onDrill }: PhrRenderProps) {
     <PatientsPage
       // Selecting from the list opens that patient's dock home (hash ''), not the patients
       // column again; the badge shortcuts still pass an explicit target hash (e.g. '#/labs').
-      onPatientSelect={(patientId, hash) => state.onPatientChange?.(patientId, hash ?? '')}
+      onPatientSelect={(patientId, page) => state.onPatientChange?.(patientId, page ? `#/${page}` : '')}
       onManagePatients={() => onDrill({ id: 'patients-manage' })}
     />
   )

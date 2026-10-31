@@ -1,0 +1,179 @@
+import { ChevronsUpDown, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import type { ReactElement } from 'react'
+
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { cn } from '@/lib/utils'
+import { usePhrPatients } from '@/phr/patients/usePhrPatients'
+
+import { PHR_NAV_GROUPS, PHR_PAGES } from './phrPages'
+import { patientPageUrl, type PhrPageId } from './phrRoutes'
+
+export function patientDisplayName(name: string | null | undefined, patientId: number): string {
+  return name?.trim() ? name : `Patient ${patientId}`
+}
+
+function initials(name: string): string {
+  const letters = name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]!.toUpperCase())
+  return letters.join('') || '?'
+}
+
+interface PhrSidebarProps {
+  patientId: number
+  page: PhrPageId
+  /** Icon-only rail. Labels move to each item's accessible name and a tooltip. */
+  rail: boolean
+  /** Omitted inside the small-screen sheet, which has its own close control. */
+  onRailChange?: (rail: boolean) => void
+  className?: string
+}
+
+export function PhrSidebar({ patientId, page, rail, onRailChange, className }: PhrSidebarProps): ReactElement {
+  return (
+    <aside
+      aria-label="Patient record"
+      data-rail={rail ? 'true' : 'false'}
+      className={cn(
+        'flex shrink-0 flex-col gap-3 overflow-y-auto border-r border-border bg-card p-3',
+        rail ? 'w-16 items-center' : 'w-62',
+        className,
+      )}
+    >
+      {onRailChange && (
+        <RailToggle rail={rail} onRailChange={onRailChange} />
+      )}
+      <PatientSwitcher patientId={patientId} page={page} rail={rail} />
+      <nav aria-label="Record sections" className="flex w-full flex-col gap-3">
+        {PHR_NAV_GROUPS.map((group) => (
+          <div key={group.title} className="flex flex-col gap-0.5" role="group" aria-label={group.title}>
+            {!rail && (
+              <span className="px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground" aria-hidden="true">
+                {group.title}
+              </span>
+            )}
+            {group.pages.map((id) => (
+              <SidebarItem key={id} patientId={patientId} page={id} current={id === page} rail={rail} />
+            ))}
+          </div>
+        ))}
+      </nav>
+    </aside>
+  )
+}
+
+function RailToggle({ rail, onRailChange }: { rail: boolean, onRailChange: (rail: boolean) => void }): ReactElement {
+  const label = rail ? 'Expand sidebar' : 'Collapse sidebar'
+  const Icon = rail ? PanelLeftOpen : PanelLeftClose
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          aria-expanded={!rail}
+          onClick={() => onRailChange(!rail)}
+          className={cn(
+            'flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            !rail && 'self-end',
+          )}
+        >
+          <Icon className="size-4" aria-hidden="true" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+function SidebarItem({ patientId, page, current, rail }: { patientId: number, page: PhrPageId, current: boolean, rail: boolean }): ReactElement {
+  const meta = PHR_PAGES[page]
+  const Icon = meta.icon
+  const count = meta.keyAmounts?.(patientId)?.[0]?.value
+  const link = (
+    <a
+      href={patientPageUrl(patientId, page)}
+      aria-current={current ? 'page' : undefined}
+      {...(rail ? { 'aria-label': meta.label } : {})}
+      className={cn(
+        'flex min-h-9 items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        rail && 'w-10 justify-center px-0',
+        current
+          ? 'bg-accent font-semibold text-accent-foreground'
+          : 'text-foreground hover:bg-muted',
+      )}
+    >
+      <Icon className="size-4 shrink-0" aria-hidden="true" />
+      {!rail && (
+        <>
+          <span className="flex-1 truncate">{meta.label}</span>
+          {count !== undefined && (
+            <span className={cn('text-xs font-medium', current ? 'text-accent-foreground' : 'text-muted-foreground')}>{count}</span>
+          )}
+        </>
+      )}
+    </a>
+  )
+  if (!rail) return link
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{link}</TooltipTrigger>
+      <TooltipContent side="right">{meta.label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+function PatientSwitcher({ patientId, page, rail }: { patientId: number, page: PhrPageId, rail: boolean }): ReactElement {
+  const { patients } = usePhrPatients()
+  const name = patientDisplayName(patients.find((patient) => patient.id === patientId)?.display_name, patientId)
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={`Switch patient: ${name}`}
+          className={cn(
+            'flex min-h-12 w-full items-center gap-2.5 rounded-lg border border-border bg-background px-2 py-1.5 text-left text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            rail && 'w-10 justify-center border-0 bg-transparent px-0',
+          )}
+        >
+          <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-accent text-xs font-bold text-accent-foreground" aria-hidden="true">
+            {initials(name)}
+          </span>
+          {!rail && (
+            <>
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate text-sm font-semibold">{name}</span>
+                <span className="text-xs text-muted-foreground">Switch patient</span>
+              </span>
+              <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            </>
+          )}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" side={rail ? 'right' : 'bottom'} className="w-64">
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Patients</DropdownMenuLabel>
+          {patients.map((patient) => (
+          <DropdownMenuItem key={patient.id} asChild>
+            {/* Switching keeps the page you are on, without the previous patient's record. */}
+            <a
+              href={patientPageUrl(patient.id, page)}
+              aria-current={patient.id === patientId ? 'true' : undefined}
+              className={cn(patient.id === patientId && 'font-semibold')}
+            >
+              {patientDisplayName(patient.display_name, patient.id)}
+            </a>
+          </DropdownMenuItem>
+          ))}
+        </DropdownMenuGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}

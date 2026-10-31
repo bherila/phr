@@ -85,7 +85,7 @@ beforeEach(() => {
   mockPost.mockReset()
   routeGets()
   mockPost.mockResolvedValue({ upload: makeDicomUpload('pending') })
-  window.history.replaceState({}, '', '/phr/imports#/imports')
+  window.history.replaceState({}, '', '/phr/imports')
 })
 
 describe('ImportsPage', () => {
@@ -428,7 +428,7 @@ describe('ImportsPage', () => {
   })
 
   it('opens a linked review for the linked patient, even one the viewer cannot import into', async () => {
-    window.history.replaceState({}, '', '/phr/imports?patient_id=55&ehi_package=9#/imports')
+    window.history.replaceState({}, '', '/phr/imports?patient_id=55&ehi_package=9')
     routeGets({
       patients: [makePatient({ id: 55, display_name: 'Read only', can_manage: false, access_level: 'viewer' }), makePatient()],
       '/api/phr/patients/55/ehi/packages/9/proposals?limit=500&after_id=0': { proposals: [makeEhiProposal()], next_after_id: null },
@@ -441,7 +441,7 @@ describe('ImportsPage', () => {
   })
 
   it('opens a package’s review straight from a record page’s link', async () => {
-    window.history.replaceState({}, '', `/phr/imports?patient_id=${PATIENT_ID}&ehi_package=9#/imports`)
+    window.history.replaceState({}, '', `/phr/imports?patient_id=${PATIENT_ID}&ehi_package=9`)
     routeGets({
       [`/api/phr/patients/${PATIENT_ID}/ehi/packages/9/proposals?limit=500&after_id=0`]: { proposals: [makeEhiProposal()], next_after_id: null },
     })
@@ -451,6 +451,6 @@ describe('ImportsPage', () => {
     expect(await screen.findByRole('button', { name: 'Accept: Synthetic Vaccine A' })).toBeInTheDocument()
     // Opened once: a remount or reload goes back to the Imports home.
     expect(window.location.search).toBe(`?patient_id=${PATIENT_ID}`)
-    expect(window.location.hash).toBe('#/imports')
+    expect(window.location.hash).toBe('')
   })
 })

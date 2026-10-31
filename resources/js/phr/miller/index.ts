@@ -9,7 +9,6 @@
  */
 
 export { PhrDockHomeView } from './PhrDockHomeView'
-export { PhrMillerShell } from './PhrMillerShell'
 export type {
   PhrListPageProps,
   PhrModuleCategory,

@@ -149,11 +149,11 @@ export type EhiPending = z.infer<typeof EhiPendingSchema>['pending']
 export const EHI_PACKAGE_QUERY = 'ehi_package'
 
 export function ehiImportsUrl(patientId: number): string {
-  return `/phr/imports?patient_id=${patientId}#/imports`
+  return `/phr/imports?patient_id=${patientId}`
 }
 
 export function ehiReviewUrl(patientId: number, packageId: number): string {
-  return `/phr/imports?patient_id=${patientId}&${EHI_PACKAGE_QUERY}=${packageId}#/imports`
+  return `/phr/imports?patient_id=${patientId}&${EHI_PACKAGE_QUERY}=${packageId}`
 }
 
 function base(patientId: number): string {

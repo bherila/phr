@@ -187,6 +187,17 @@ export function sectionPath(section: PhrSection): string {
   return SECTION_PATHS[section]
 }
 
+/**
+ * Whether the server answers `pathname` with this shell, so the client can navigate to it in
+ * place. Other PHR pages under a patient (EOBs, the 3D explorer) are separate documents.
+ */
+export function isPhrShellPath(pathname: string): boolean {
+  if (parsePhrLocation(pathname) === null) return false
+  const match = pathname.match(/^\/phr\/patient\/\d+\/([^/]+)(\/.*)?$/)
+  if (!match) return true
+  return isPhrPageId(match[1]) && !/\/explore-3d\/?$/.test(match[2] ?? '')
+}
+
 /** Parse a location into a view, or null when the path is not a PHR shell route. */
 export function parsePhrLocation(pathname: string, search = ''): PhrView | null {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname

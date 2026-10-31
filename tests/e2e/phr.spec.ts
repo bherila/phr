@@ -111,14 +111,18 @@ test.describe.serial('PHR browser journeys', () => {
 
     await page.goto('/phr/patients')
     await page.getByRole('link', { name: new RegExp(patientName) }).click()
-    await page.getByRole('button', { name: 'Summary', exact: true }).click()
+    // A patient opens on their Summary, with the record sections in the sidebar.
+    const sidebar = page.getByRole('complementary', { name: 'Patient record' })
+    await expect(sidebar.getByRole('link', { name: 'Summary', exact: true })).toHaveAttribute('aria-current', 'page')
     await expect(page.getByRole('heading', { name: patientName })).toBeVisible()
   })
 
   test('uploads and views a synthetic document', async ({ page }, testInfo) => {
     await signIn(page, ownerCredentials)
     const patientId = await ownerPatientId(page, patientNameForAttempt(testInfo.retry))
+    // A bookmark from the old column shell still lands on the page it named.
     await page.goto(`/phr/patient/${patientId}#/documents`)
+    await expect(page).toHaveURL(new RegExp(`/phr/patient/${patientId}/documents$`))
     await expect(page.getByRole('heading', { name: 'Documents' })).toBeVisible()
 
     const uploadForm = page.getByRole('heading', { name: 'Upload' }).locator('..')
@@ -133,19 +137,21 @@ test.describe.serial('PHR browser journeys', () => {
     const documentCard = page.getByRole('button', { name: /Synthetic Visit Note/ })
     await expect(documentCard).toBeVisible()
     await documentCard.click()
-    // Selecting a document intentionally leaves its title visible in the library
-    // pane while opening a second, detail-column heading. Assert the opened column
-    // instead of relying on a globally unique title.
+    // The viewer opens full-width as its own page under the sidebar.
+    await expect(page).toHaveURL(new RegExp(`/phr/patient/${patientId}/documents/\\d+$`))
     await expect(page.getByRole('heading', { name: 'Synthetic Visit Note' }).last()).toBeVisible()
     await expect(page.getByRole('link', { name: 'Download' })).toBeVisible()
     await expect(page.getByTitle('Document viewer').last()).toBeVisible()
+    await page.goBack()
+    await expect(page).toHaveURL(new RegExp(`/phr/patient/${patientId}/documents$`))
+    await expect(documentCard).toBeVisible()
   })
 
   test('generates an export synchronously and exposes a working download', async ({ page }, testInfo) => {
     const patientName = patientNameForAttempt(testInfo.retry)
     await signIn(page, ownerCredentials)
     const patientId = await ownerPatientId(page, patientName)
-    await page.goto(`/phr/patient/${patientId}#/summary`)
+    await page.goto(`/phr/patient/${patientId}`)
     await expect(page.getByRole('heading', { name: patientName })).toBeVisible()
 
     await page.getByRole('button', { name: 'Generate' }).click()
@@ -202,7 +208,7 @@ test.describe.serial('PHR browser journeys', () => {
     await expect(page.getByRole('link', { name: /Synthetic Bootstrap Patient/ })).toBeVisible()
     expect(patientRequests).toHaveLength(0)
     await page.getByRole('link', { name: /Synthetic Bootstrap Patient/ }).click()
-    await expect(page.getByRole('combobox', { name: 'Selected patient: Synthetic Bootstrap Patient' })).toHaveValue('Synthetic Bootstrap Patient')
+    await expect(page.getByRole('button', { name: 'Switch patient: Synthetic Bootstrap Patient' })).toBeVisible()
 
     await page.getByRole('link', { name: 'Manage Patients', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Manage Patients', exact: true })).toBeVisible()
@@ -213,7 +219,7 @@ test.describe.serial('PHR browser journeys', () => {
 
     await page.getByRole('link', { name: 'Patients', exact: true }).click()
     await page.getByRole('link', { name: new RegExp(patientName) }).click()
-    await expect(page.getByRole('combobox', { name: `Selected patient: ${patientName}` })).toHaveValue(patientName)
+    await expect(page.getByRole('button', { name: `Switch patient: ${patientName}` })).toBeVisible()
     const patientId = new URL(page.url()).pathname.match(/\/phr\/patient\/(\d+)/)?.[1]
     expect(patientId).toBeDefined()
 
@@ -229,8 +235,8 @@ test.describe.serial('PHR browser journeys', () => {
     await expect(page.getByRole('link', { name: new RegExp(renamed) })).toBeVisible()
     await expect(page.getByText(patientName, { exact: true })).toHaveCount(0)
     await page.getByRole('link', { name: new RegExp(renamed) }).click()
-    await expect(page.getByRole('combobox', { name: `Selected patient: ${renamed}` })).toHaveValue(renamed)
-    await expect(page).toHaveURL(new RegExp(`/phr/patient/${patientId}(?:#|$)`))
+    await expect(page.getByRole('button', { name: `Switch patient: ${renamed}` })).toBeVisible()
+    await expect(page).toHaveURL(new RegExp(`/phr/patient/${patientId}$`))
 
     await page.getByRole('link', { name: 'Imports', exact: true }).click()
     const importPatient = page.getByRole('combobox', { name: 'Import into', exact: true })
@@ -343,7 +349,7 @@ test.describe.serial('PHR browser journeys', () => {
     await signIn(page, ownerCredentials)
     const patientName = patientNameForAttempt(testInfo.retry)
     const patientId = await ownerPatientId(page, patientName)
-    await page.goto(`/phr/imports?patient_id=${patientId}#/imports`)
+    await page.goto(`/phr/imports?patient_id=${patientId}`)
     await expect(page.getByLabel('Import into')).toHaveValue(String(patientId))
 
     await page.getByLabel('File to import').setInputFiles(syntheticEhiZip())
@@ -367,7 +373,7 @@ test.describe.serial('PHR browser journeys', () => {
     await accept.click()
     await expect(newRecords.getByRole('listitem', { name: title }).getByText('Accepted')).toBeVisible()
 
-    await page.goto(`/phr/patient/${patientId}#/immunizations`)
+    await page.goto(`/phr/patient/${patientId}/immunizations`)
     const banner = page.getByRole('status').filter({ hasText: 'from an EHI export' })
     await expect(banner).toContainText(/\d+ immunizations from an EHI export are waiting for review\./)
     await expect(page.getByRole('cell', { name: title }).or(page.getByText(title)).first()).toBeVisible()
@@ -379,7 +385,7 @@ test.describe.serial('PHR browser journeys', () => {
     await signIn(page, ownerCredentials)
     const patientName = patientNameForAttempt(testInfo.retry)
     const patientId = await ownerPatientId(page, patientName)
-    await page.goto(`/phr/imports?patient_id=${patientId}#/imports`)
+    await page.goto(`/phr/imports?patient_id=${patientId}`)
     await expect(page.getByLabel('Import into')).toHaveValue(String(patientId))
 
     await page.getByLabel('File to import').setInputFiles(syntheticCcda())
@@ -392,7 +398,7 @@ test.describe.serial('PHR browser journeys', () => {
     await expect(added).not.toHaveText('0')
 
     // Written directly, but not reviewed: each record offers confirm and reject.
-    await page.goto(`/phr/patient/${patientId}#/immunizations`)
+    await page.goto(`/phr/patient/${patientId}/immunizations`)
     await expect(page.getByRole('button', { name: /^Reject / }).first()).toBeVisible()
   })
 
@@ -400,7 +406,7 @@ test.describe.serial('PHR browser journeys', () => {
     await signIn(page, ownerCredentials)
     const patientName = patientNameForAttempt(testInfo.retry)
     const patientId = await ownerPatientId(page, patientName)
-    await page.goto(`/phr/imports?patient_id=${patientId}#/imports`)
+    await page.goto(`/phr/imports?patient_id=${patientId}`)
     await expect(page.getByLabel('Import into')).toHaveValue(String(patientId))
 
     await page.getByLabel('File to import').setInputFiles({
@@ -418,7 +424,7 @@ test.describe.serial('PHR browser journeys', () => {
     await expect(row).toContainText('AI · AI Agent Inbox')
     await expect(row).toContainText('With your agent')
 
-    await page.goto('/phr/config#/config')
+    await page.goto('/phr/config')
     await expect(page.getByText(/the default applies: the AI Agent Inbox/)).toBeVisible()
   })
 })

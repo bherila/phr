@@ -1,4 +1,5 @@
 import {
+  isPhrShellPath,
   legacyHashUrl,
   parsePhrLocation,
   PHR_DETAIL_ROUTES,
@@ -144,5 +145,16 @@ describe('legacyHashUrl', () => {
     expect(legacyHashUrl('/phr/patient/12', '', '')).toBeNull()
     expect(legacyHashUrl('/phr/patient/12', '', '#section-2')).toBeNull()
     expect(legacyHashUrl('/ohif/viewer', '', '#/labs')).toBeNull()
+  })
+})
+
+describe('isPhrShellPath', () => {
+  it('accepts shell routes and rejects the separate patient documents', () => {
+    expect(isPhrShellPath('/phr/patients')).toBe(true)
+    expect(isPhrShellPath('/phr/patient/12')).toBe(true)
+    expect(isPhrShellPath('/phr/patient/12/labs/5')).toBe(true)
+    expect(isPhrShellPath('/phr/patient/12/eobs/3')).toBe(false)
+    expect(isPhrShellPath('/phr/patient/12/imaging/series/4/explore-3d')).toBe(false)
+    expect(isPhrShellPath('/phr/documents/3/download')).toBe(false)
   })
 })
