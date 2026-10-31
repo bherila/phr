@@ -116,23 +116,20 @@ describe('PhrNavbar', () => {
     expect(onSectionChange).toHaveBeenCalledWith('imports')
   })
 
-  it('the back control defaults to the parent site when no backUrl is supplied', async () => {
+  it('has no back control and links only within PHR', async () => {
     const PhrNavbar = (await import('@/components/phr/PhrNavbar')).default
 
     await act(async () => {
-      render(<PhrNavbar activeSection="patients" />)
+      render(<PhrNavbar activeSection="patients" patientId={1} />)
     })
 
-    expect(screen.getByRole('link', { name: 'Back to BWH' })).toHaveAttribute('href', 'https://bherila.net')
-  })
-
-  it('the back control uses the configured backUrl when supplied', async () => {
-    const PhrNavbar = (await import('@/components/phr/PhrNavbar')).default
-
-    await act(async () => {
-      render(<PhrNavbar activeSection="patients" backUrl="https://staging.bherila.net" />)
-    })
-
-    expect(screen.getByRole('link', { name: 'Back to BWH' })).toHaveAttribute('href', 'https://staging.bherila.net')
+    // Browser Back navigates within PHR; the bar must not offer a way out to another site.
+    expect(screen.queryByRole('link', { name: /back/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /back/i })).not.toBeInTheDocument()
+    const hrefs = screen.getAllByRole('link').map((link) => link.getAttribute('href') ?? '')
+    expect(hrefs.length).toBeGreaterThan(0)
+    for (const href of hrefs) {
+      expect(href).toMatch(/^\/phr(\/|$)/)
+    }
   })
 })

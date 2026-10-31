@@ -55,36 +55,14 @@ class PhrNavigationTest extends TestCase
         $response->assertRedirect('/phr/patients');
     }
 
-    public function test_shell_exposes_the_parent_site_as_the_back_url(): void
+    public function test_shell_carries_no_link_out_of_phr(): void
     {
         $this->withoutVite();
         $response = $this->actingAs($this->createUser())->get('/phr/patients');
 
         $response->assertOk();
-        $response->assertSee('data-back-url="https://bherila.net"', false);
-    }
-
-    public function test_shell_reads_the_back_url_from_the_parent_site_config(): void
-    {
-        $this->withoutVite();
-        config(['phr.parent_site_url' => 'https://staging.bherila.net']);
-
-        $response = $this->actingAs($this->createUser())->get('/phr/patients');
-
-        $response->assertOk();
-        $response->assertSee('data-back-url="https://staging.bherila.net"', false);
-    }
-
-    public function test_shell_back_url_does_not_follow_the_identity_provider(): void
-    {
-        $this->withoutVite();
-        config(['bherila-auth.oauth_client.base_url' => 'https://id.bherila.net']);
-
-        $response = $this->actingAs($this->createUser())->get('/phr/patients');
-
-        $response->assertOk();
-        $response->assertSee('data-back-url="https://bherila.net"', false);
-        $response->assertDontSee('data-back-url="https://id.bherila.net"', false);
+        $response->assertDontSee('data-back-url', false);
+        $this->assertNull(config('phr.parent_site_url'));
     }
 
     public function test_section_routes_render_the_shared_shell(): void

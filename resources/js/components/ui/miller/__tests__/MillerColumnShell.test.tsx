@@ -36,6 +36,30 @@ function expectColumnClass(id: string, expectedClass: string): void {
 }
 
 describe('MillerColumnShell', () => {
+  it('lets the last column grow into free width on desktop and keeps earlier columns fixed', () => {
+    render(
+      <Harness
+        columns={[
+          { ...COLUMN, key: 'first', id: 'first', size: 'wide' },
+          { ...COLUMN, key: 'last', id: 'last', size: 'wide' },
+        ]}
+      />,
+    )
+
+    const first = document.querySelector<HTMLElement>('section[data-column-id="first"]')!
+    const last = document.querySelector<HTMLElement>('section[data-column-id="last"]')!
+    // The size stays the basis (and the minimum: columns never shrink), so a crowded stack
+    // still scrolls horizontally; only space that would otherwise sit empty is taken.
+    expect(last.className).toContain('md:grow')
+    expect(last.className).toContain('md:w-[760px]')
+    expect(last.className).toContain('shrink-0')
+    expect(first.className).not.toContain('grow')
+    // Mobile shows only the last column, full width.
+    expect(last.className).toContain('w-full')
+    expect(last.className).not.toContain('hidden')
+    expect(first.className).toContain('hidden md:flex')
+  })
+
   it('maps column size values to responsive width classes', () => {
     render(
       <Harness

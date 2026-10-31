@@ -141,7 +141,10 @@ export function MillerColumnShell({
               className={cn(
                 'relative flex shrink-0 flex-col border-r border-border bg-card motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-right-4 motion-safe:duration-200',
                 getMillerColumnSizeClass(column),
-                isLast ? '' : 'hidden md:flex',
+                // The size is the column's basis and floor (columns never shrink, so a deep
+                // stack scrolls horizontally). The last column also takes any width left over
+                // on desktop instead of leaving it empty beside a cramped table.
+                isLast ? 'md:grow' : 'hidden md:flex',
               )}
               data-column-id={column.id}
               data-depth={depth}
