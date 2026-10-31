@@ -1,7 +1,7 @@
 <?php
 
-use App\Http\Middleware\ThrottleTwoFactorVerify;
 use App\Auth\OAuthAccounts;
+use App\Http\Middleware\ThrottleTwoFactorVerify;
 use App\Models\User;
 use App\Support\AgentApi\AgentApiScopes;
 use BWH\Auth\OAuth\Server\AgentOAuthServer;
