@@ -12,8 +12,8 @@ the central registration point and the shortcuts dialog must list exactly the ke
 ## Lists and tables
 
 **(shipped)** Every list of records behaves the same way: the tables on Labs, Vitals,
-Medications, Conditions, Immunizations and Allergies, and the lists on Visits, Procedures,
-Documents (list view), Imaging and Access. The behavior lives in the shared record table and
+Medications, Conditions, Immunizations, Allergies and Review, and the lists on Visits,
+Procedures, Documents (list view), Imaging and Access. The behavior lives in the shared record table and
 list (`resources/js/components/record-list`), not in each page.
 
 | Key | Action |

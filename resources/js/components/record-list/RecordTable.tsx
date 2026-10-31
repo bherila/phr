@@ -33,6 +33,8 @@ export interface RecordSelectionColumn<Row> {
   /** Names the checkbox: "Select {label}". */
   label: (row: Row) => string
   header?: ReactNode | undefined
+  /** Classes for the checkbox column's header and cells (padding). */
+  className?: string | undefined
 }
 
 export interface RecordTableProps<Row> extends RecordNavigationOptions<Row> {
@@ -107,7 +109,7 @@ export function RecordTable<Row>(props: RecordTableProps<Row>): ReactElement | n
       <table aria-label={label} className={tableClassName} {...navigation.containerProps}>
         <thead>
           <tr className={headClassName}>
-            {selectable && <th className="w-10 px-3 py-2 font-medium">{selectionColumn.header ?? <span className="sr-only">Selected</span>}</th>}
+            {selectable && <th scope="col" className={cn('w-10 px-3 py-2 font-medium', selectionColumn.className)}>{selectionColumn.header ?? <span className="sr-only">Selected</span>}</th>}
             {columns.map((column) => (
               <th key={column.id} className={headerClass(column)}>{column.header}</th>
             ))}
@@ -116,7 +118,7 @@ export function RecordTable<Row>(props: RecordTableProps<Row>): ReactElement | n
         <tbody className={bodyClassName}>
           {loading && Array.from({ length: skeletonRows }, (_, index) => (
             <tr key={index} aria-hidden="true" data-skeleton-row="" className={rowClass(null)}>
-              {selectable && <td className="w-10 px-3 py-2" />}
+              {selectable && <td className={cn('w-10 px-3 py-2', selectionColumn.className)} />}
               {columns.map((column) => (
                 <td key={column.id} className={cn('text-left', column.className, column.fit && RECORD_FIT_CLASS)}>
                   <SkeletonBlock className={column.fit ? 'w-14' : 'w-3/4 max-w-64'} />
@@ -135,14 +137,17 @@ export function RecordTable<Row>(props: RecordTableProps<Row>): ReactElement | n
                   className={cn(RECORD_ROW_CLASS, onOpen && 'cursor-pointer', rowClass(row))}
                 >
                   {selectable && (
-                    <td className="w-10 px-3 py-2 align-top">
-                      <input
-                        type="checkbox"
-                        className="size-4"
-                        aria-label={`Select ${selectionColumn.label(row)}`}
-                        checked={selection.isSelected(id)}
-                        onChange={() => selection.onToggle(id)}
-                      />
+                    <td className={cn('w-10 px-3 py-2 align-top', selectionColumn.className)}>
+                      {selection.isSelectable?.(id) !== false && (
+                        <input
+                          type="checkbox"
+                          className="size-4 accent-primary"
+                          aria-label={`Select ${selectionColumn.label(row)}`}
+                          checked={selection.isSelected(id)}
+                          disabled={selection.disabled === true}
+                          onChange={() => selection.onToggle(id)}
+                        />
+                      )}
                     </td>
                   )}
                   {columns.map((column) => (

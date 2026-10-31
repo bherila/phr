@@ -227,11 +227,12 @@ route's own authorization and conflict checks.
   nothing. AI-read groups carry "AI-read: check against the document. Open each one and
   approve it on its own."
 
-- **Rows.** A plain table, one component (`resources/js/phr/review/ReviewPage.tsx`): a
-  checkbox, what is proposed, its section, the change with a dot, and an action. **Open**
+- **Rows.** Each group is the shared record table (`resources/js/phr/review/ReviewPage.tsx`):
+  a checkbox, what is proposed, its section, the change with a dot, and an action. **Open**
   goes to the record; **Compare** goes to the EHI export's own review, which shows the
   record already in PHR; **Review** expands an AI proposal (above), with a link to its
-  document.
+  document. The list keyboard model applies: Space checks a row (never an AI proposal, which
+  has no checkbox), and Enter does what the row's action does.
 - **Change kinds.**
   - **New**: not in the record yet. AI proposals read as New: accepting adds them.
   - **Updates existing**: an EHI proposal shows the changed fields ("Lot number L1 → L2").

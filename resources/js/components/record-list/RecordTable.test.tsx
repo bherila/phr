@@ -304,6 +304,44 @@ describe('RecordTable keyboard model', () => {
     expect(screen.getByRole('checkbox', { name: 'Select Alpha' })).not.toBeChecked()
   })
 
+  it('leaves rows that cannot be selected without a checkbox, and ignores Space on them or while selection is disabled', () => {
+    const onToggle = jest.fn()
+    const { rerender } = render(
+      <RecordTable
+        label="Things"
+        rows={ITEMS}
+        rowId={(item) => item.id}
+        columns={COLUMNS}
+        selection={{ isSelected: () => false, onToggle, isSelectable: (id) => id !== 'b' }}
+        selectionColumn={{ label: (item) => item.name, header: <input type="checkbox" aria-label="Select all" /> }}
+      />,
+    )
+    expect(screen.getByRole('checkbox', { name: 'Select all' })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: 'Select Alpha' })).toBeInTheDocument()
+    expect(screen.queryByRole('checkbox', { name: 'Select Beta' })).not.toBeInTheDocument()
+
+    act(() => rowNamed('Beta').focus())
+    key(rowNamed('Beta'), ' ')
+    expect(onToggle).not.toHaveBeenCalled()
+    key(rowNamed('Beta'), 'ArrowUp')
+    key(rowNamed('Alpha'), ' ')
+    expect(onToggle).toHaveBeenCalledWith('a')
+
+    rerender(
+      <RecordTable
+        label="Things"
+        rows={ITEMS}
+        rowId={(item) => item.id}
+        columns={COLUMNS}
+        selection={{ isSelected: () => false, onToggle, isSelectable: (id) => id !== 'b', disabled: true }}
+        selectionColumn={{ label: (item) => item.name }}
+      />,
+    )
+    expect(screen.getByRole('checkbox', { name: 'Select Alpha' })).toBeDisabled()
+    key(rowNamed('Alpha'), ' ')
+    expect(onToggle).toHaveBeenCalledTimes(1)
+  })
+
   it('renders skeleton rows in the real columns while loading, with aria-busy and one live message', () => {
     const fitColumns: RecordColumn<Item>[] = [COLUMNS[0]!, { ...COLUMNS[1]!, fit: true, className: 'px-3 py-2' }]
     const { rerender, container } = render(<RecordTable label="Things" rows={[]} rowId={(item: Item) => item.id} columns={fitColumns} loading />)

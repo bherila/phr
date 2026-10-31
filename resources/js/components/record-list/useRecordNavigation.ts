@@ -16,6 +16,14 @@ export interface RecordOpenOptions {
 export interface RecordSelection {
   isSelected: (id: string) => boolean
   onToggle: (id: string) => void
+  /** Rows this returns false for get no checkbox and ignore Space. All rows by default. */
+  isSelectable?: ((id: string) => boolean) | undefined
+  /** Checkboxes show but cannot change (read-only access, a batch in progress). */
+  disabled?: boolean | undefined
+}
+
+export function canToggle(selection: RecordSelection | undefined, id: string): boolean {
+  return selection !== undefined && selection.disabled !== true && selection.isSelectable?.(id) !== false
 }
 
 export interface RecordNavigationOptions<Row> {
@@ -220,9 +228,10 @@ export function useRecordNavigation<Row>({
       cancelFollow()
       latestRef.current.onOpen(row, { replace: false })
     } else if (onRow && bindingMatches(RECORD_LIST_KEYS.toggle, native)) {
-      if (!latestRef.current.selection) return
+      const { selection: current } = latestRef.current
+      if (!current) return
       event.preventDefault()
-      latestRef.current.selection.onToggle(id)
+      if (canToggle(current, id)) current.onToggle(id)
     }
   }
 
