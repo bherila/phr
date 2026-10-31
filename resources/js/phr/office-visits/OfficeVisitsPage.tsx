@@ -2,6 +2,7 @@ import { CalendarDays, Plus, ShieldPlus, Stethoscope, Syringe } from 'lucide-rea
 import type { FormEvent } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { RecordList } from '@/components/record-list/RecordList'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
@@ -9,7 +10,7 @@ import { ShowRejectedToggle } from '@/phr/clinical/review'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { reviewStateChanged } from '@/phr/review/reviewSummary'
 import { compactPayload, errorMessage } from '@/phr/shared'
-import type { PhrListPageProps } from '@/phr/shell/phrPages'
+import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
 import type { PhrModuleId } from '@/phr/shell/phrRoutes'
 import {
   type PhrImmunization,
@@ -210,7 +211,7 @@ function AddForm({ patientId, onAdded }: AddFormProps) {
   )
 }
 
-export default function OfficeVisitsPage({ patientId, onDrill }: PhrListPageProps) {
+export default function OfficeVisitsPage({ patientId, onDrill, openRecord }: PhrListPageProps) {
   const [visits, setVisits] = useState<PhrOfficeVisit[]>([])
   const [procedures, setProcedures] = useState<PhrProcedure[]>([])
   const [immunizations, setImmunizations] = useState<PhrImmunization[]>([])
@@ -306,18 +307,21 @@ export default function OfficeVisitsPage({ patientId, onDrill }: PhrListPageProp
               No matching visit records.
             </div>
           )}
-          <ol className="relative space-y-4 border-l border-border pl-5">
-            {filteredEvents.map((event, index) => {
-              const interval = daysSincePrevious(event, filteredEvents[index + 1])
+          <RecordList
+            label="Visit timeline"
+            as="ol"
+            className="relative space-y-4 border-l border-border pl-5"
+            itemClassName="relative"
+            rows={filteredEvents}
+            rowId={(event) => event.key}
+            openRowId={filteredEvents.find((event) => event.drillId === openRecord?.module && String(event.recordId) === openRecord.id)?.key ?? null}
+            onOpen={drillOpener(onDrill, (event: EncounterEvent) => ({ id: event.drillId, instance: String(event.recordId) }))}
+            renderItem={(event) => {
+              const interval = daysSincePrevious(event, filteredEvents[filteredEvents.indexOf(event) + 1])
               return (
-                <li key={event.key} className="relative">
+                <>
                   <span className="absolute -left-[1.65rem] top-4 size-3 rounded-full border-2 border-background bg-primary" />
-                  <button
-                    type="button"
-                    className="w-full rounded-lg border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-muted/30 disabled:cursor-default"
-                    disabled={!onDrill}
-                    onClick={() => onDrill?.({ id: event.drillId, instance: String(event.recordId) })}
-                  >
+                  <div className="w-full rounded-lg border border-border bg-card px-4 py-3 text-left transition-colors hover:bg-muted/30 in-data-[open]:bg-accent/60">
                     <div className="grid gap-2 md:grid-cols-[190px_minmax(0,1fr)_auto] md:items-start">
                       <div>
                         <p className="text-sm font-medium text-muted-foreground">{event.displayDate}</p>
@@ -335,11 +339,11 @@ export default function OfficeVisitsPage({ patientId, onDrill }: PhrListPageProp
                         {event.reviewStatus && reviewStatusBadge(event.reviewStatus)}
                       </div>
                     </div>
-                  </button>
-                </li>
+                  </div>
+                </>
               )
-            })}
-          </ol>
+            }}
+          />
         </>
       )}
     </div>

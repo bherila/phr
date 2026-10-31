@@ -2,6 +2,7 @@ import { Info, Pencil, Plus, Scissors, Trash2 } from 'lucide-react'
 import type { FormEvent } from 'react'
 import { useState } from 'react'
 
+import { RecordList } from '@/components/record-list/RecordList'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -9,7 +10,8 @@ import { useClinicalCrud } from '@/phr/clinical/crud'
 import { ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { classBadge, codeChip, reviewStatusBadge } from '@/phr/clinical/ui'
 import { compactPayload, zodErrorMessage } from '@/phr/shared'
-import type { PhrListPageProps } from '@/phr/shell/phrPages'
+import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
+import { openRecordId } from '@/phr/shell/phrRoutes'
 import {
   type PhrProcedure,
   type PhrProcedureFormData,
@@ -212,7 +214,7 @@ function AddForm({ busy, onSubmit }: AddFormProps) {
   )
 }
 
-export default function ProceduresPage({ patientId, onDrill }: PhrListPageProps) {
+export default function ProceduresPage({ patientId, onDrill, openRecord }: PhrListPageProps) {
   const endpoint = `/api/phr/patients/${patientId}/procedures`
   const crud = useClinicalCrud<PhrProcedure, PhrProcedureFormData>({
     endpoint,
@@ -292,20 +294,25 @@ export default function ProceduresPage({ patientId, onDrill }: PhrListPageProps)
       )}
 
       {!crud.busy && crud.records.length > 0 && (
-        <ol className="relative space-y-4 border-l border-border pl-5">
-          {crud.records.map((procedure) => {
+        <RecordList
+          label="Procedures"
+          as="ol"
+          className="relative space-y-4 border-l border-border pl-5"
+          itemClassName="relative"
+          rows={crud.records}
+          rowId={(procedure) => String(procedure.id)}
+          openRowId={openRecordId(openRecord, 'procedure-detail')}
+          onOpen={drillOpener(onDrill, (procedure: PhrProcedure) => ({ id: 'procedure-detail', instance: String(procedure.id) }))}
+          renderItem={(procedure) => {
             const isEditing = crud.editingId === procedure.id
             const isDeleting = crud.deletingId === procedure.id
             const isSaving = crud.isMutating(`save:${procedure.id}`)
             const isDeletingBusy = crud.isMutating(`delete:${procedure.id}`)
 
             return (
-              <li key={procedure.id} className="relative">
+              <>
                 <span className="absolute -left-[1.65rem] top-4 size-3 rounded-full border-2 border-background bg-primary" />
-                <div
-                  className={`rounded-lg border border-border bg-card ${onDrill ? 'cursor-pointer transition-colors hover:bg-muted/30' : ''}`}
-                  onClick={() => onDrill?.({ id: 'procedure-detail', instance: String(procedure.id) })}
-                >
+                <div className="rounded-lg border border-border bg-card transition-colors hover:bg-muted/30 in-data-[open]:bg-accent/60">
                   <div className="grid gap-3 px-4 py-3 md:grid-cols-[150px_minmax(0,1fr)_auto] md:items-start">
                     <div className="text-sm font-medium text-muted-foreground">{displayProcedureDate(procedure)}</div>
                     <div className="min-w-0">
@@ -332,7 +339,7 @@ export default function ProceduresPage({ patientId, onDrill }: PhrListPageProps)
                       )}
                     </div>
                     {crud.canManage && (
-                       <div className="flex justify-end gap-2" onClick={(event) => event.stopPropagation()}>
+                      <div className="flex justify-end gap-2">
                         <ReviewActions
                           status={procedure.review_status}
                           label={procedure.name}
@@ -344,7 +351,8 @@ export default function ProceduresPage({ patientId, onDrill }: PhrListPageProps)
                           type="button"
                           size="icon-sm"
                           variant="ghost"
-                          title="Edit procedure"
+                          title={`Edit ${procedure.name}`}
+                          aria-label={`Edit ${procedure.name}`}
                           disabled={isSaving || isDeletingBusy}
                           onClick={() => crud.startEdit(procedure)}
                         >
@@ -355,7 +363,8 @@ export default function ProceduresPage({ patientId, onDrill }: PhrListPageProps)
                           size="icon-sm"
                           variant="ghost"
                           className="text-destructive hover:text-destructive"
-                          title="Delete procedure"
+                          title={`Delete ${procedure.name}`}
+                          aria-label={`Delete ${procedure.name}`}
                           disabled={isSaving || isDeletingBusy}
                           onClick={() => crud.startDelete(procedure.id)}
                         >
@@ -397,10 +406,10 @@ export default function ProceduresPage({ patientId, onDrill }: PhrListPageProps)
                     </div>
                   )}
                 </div>
-              </li>
+              </>
             )
-          })}
-        </ol>
+          }}
+        />
       )}
     </div>
   )

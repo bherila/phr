@@ -2,11 +2,13 @@ import { Plus, Share2, Shield } from 'lucide-react'
 import type { FormEvent } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 
+import { RecordList } from '@/components/record-list/RecordList'
 import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
 import { usePhrPatientListActions } from '@/phr/patients/usePhrPatients'
 import { errorMessage } from '@/phr/shared'
-import type { PhrListPageProps } from '@/phr/shell/phrPages'
+import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
+import { openRecordId } from '@/phr/shell/phrRoutes'
 import { type PhrAccessGrant, type PhrPatient, PhrPatientResponseSchema } from '@/phr/types'
 
 const LEVEL_LABEL: Record<string, string> = {
@@ -21,7 +23,7 @@ const LEVEL_CLASS: Record<string, string> = {
   viewer: 'bg-muted text-muted-foreground',
 }
 
-export default function AccessPage({ patientId, onDrill }: PhrListPageProps) {
+export default function AccessPage({ patientId, onDrill, openRecord }: PhrListPageProps) {
   const patientList = usePhrPatientListActions()
   const [patient, setPatient] = useState<PhrPatient | null>(null)
   const [busy, setBusy] = useState(false)
@@ -88,6 +90,8 @@ export default function AccessPage({ patientId, onDrill }: PhrListPageProps) {
   const grants = patient?.access_grants ?? []
   const ownerGrant = grants.find((g) => g.access_level === 'owner')
   const sharedGrants = grants.filter((g) => g.access_level !== 'owner')
+  const openRowId = openRecordId(openRecord, 'access-grant-detail')
+  const openGrant = drillOpener(onDrill, (grant: PhrAccessGrant) => ({ id: 'access-grant-detail', instance: String(grant.id) }))
 
   return (
     <div>
@@ -109,21 +113,27 @@ export default function AccessPage({ patientId, onDrill }: PhrListPageProps) {
 
       {!busy && patient && (
         <>
-          {ownerGrant && (
-            <div
-              className={`mb-4 flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 ${onDrill ? 'cursor-pointer transition-colors hover:bg-muted/30' : ''}`}
-              onClick={() => onDrill?.({ id: 'access-grant-detail', instance: String(ownerGrant.id) })}
-            >
-              <Shield className="size-4 shrink-0 text-primary" />
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-foreground">{ownerGrant.user_name ?? ownerGrant.user_email}</p>
-                <p className="text-xs text-muted-foreground">{ownerGrant.user_email}</p>
-              </div>
-              <span className={`ml-auto shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${LEVEL_CLASS.owner}`}>
-                Owner
-              </span>
-            </div>
-          )}
+          <RecordList
+            label="Owner"
+            className="mb-4"
+            rows={ownerGrant ? [ownerGrant] : []}
+            rowId={(grant) => String(grant.id)}
+            openRowId={openRowId}
+            onOpen={openGrant}
+            itemClassName={`flex items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 ${onDrill ? 'transition-colors hover:bg-muted/30' : ''}`}
+            renderItem={(owner) => (
+              <>
+                <Shield className="size-4 shrink-0 text-primary" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-foreground">{owner.user_name ?? owner.user_email}</p>
+                  <p className="text-xs text-muted-foreground">{owner.user_email}</p>
+                </div>
+                <span className={`ml-auto shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${LEVEL_CLASS.owner}`}>
+                  Owner
+                </span>
+              </>
+            )}
+          />
 
           {patient.can_share && (
             <div className="mb-6 rounded-lg border border-border bg-card p-4">
@@ -170,13 +180,16 @@ export default function AccessPage({ patientId, onDrill }: PhrListPageProps) {
               Not shared with anyone else.
             </div>
           ) : (
-            <div className="flex flex-col gap-2">
-              {sharedGrants.map((access) => (
-                <div
-                  key={access.id}
-                  className={`flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3 ${onDrill ? 'cursor-pointer transition-colors hover:bg-muted/30' : ''}`}
-                  onClick={() => onDrill?.({ id: 'access-grant-detail', instance: String(access.id) })}
-                >
+            <RecordList
+              label="Shared with"
+              className="flex flex-col gap-2"
+              rows={sharedGrants}
+              rowId={(access) => String(access.id)}
+              openRowId={openRowId}
+              onOpen={openGrant}
+              itemClassName={`flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-3 ${onDrill ? 'transition-colors hover:bg-muted/30' : ''}`}
+              renderItem={(access) => (
+                <>
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-foreground">
                       {access.user_name ?? access.user_email}
@@ -186,7 +199,7 @@ export default function AccessPage({ patientId, onDrill }: PhrListPageProps) {
                       {access.granted_at && ` · granted ${access.granted_at.slice(0, 10)}`}
                     </p>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2" onClick={(event) => event.stopPropagation()}>
+                  <div className="flex shrink-0 items-center gap-2">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${LEVEL_CLASS[access.access_level] ?? LEVEL_CLASS.viewer}`}>
                       {LEVEL_LABEL[access.access_level] ?? access.access_level}
                     </span>
@@ -196,15 +209,16 @@ export default function AccessPage({ patientId, onDrill }: PhrListPageProps) {
                         variant="outline"
                         size="sm"
                         disabled={formBusy}
+                        aria-label={`Remove ${access.user_name ?? access.user_email}`}
                         onClick={() => void handleRevoke(access)}
                       >
                         Remove
                       </Button>
                     )}
                   </div>
-                </div>
-              ))}
-            </div>
+                </>
+              )}
+            />
           )}
         </>
       )}

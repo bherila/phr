@@ -13,6 +13,7 @@ import {
 import type { ChangeEvent, FormEvent, ReactNode } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
+import { RecordList } from '@/components/record-list/RecordList'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
@@ -398,14 +399,15 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
                 <span>Source</span>
                 <span>Observed</span>
               </div>
-              <div className="divide-y divide-border">
-                {documents.map((document) => (
-                  <button
-                    key={document.id}
-                    type="button"
-                    className={`grid w-full gap-2 px-3 py-3 text-left hover:bg-muted/30 lg:grid-cols-[minmax(0,1fr)_140px_140px_110px] lg:items-center ${document.id === selectedDocument?.id ? 'bg-accent/50' : 'bg-background'}`}
-                    onClick={() => selectDocument(document)}
-                  >
+              <RecordList
+                label="Documents"
+                className="divide-y divide-border"
+                rows={documents}
+                rowId={(document) => String(document.id)}
+                onOpen={(document) => selectDocument(document)}
+                itemClassName={(document) => `grid w-full gap-2 rounded-none px-3 py-3 text-left hover:bg-muted/30 lg:grid-cols-[minmax(0,1fr)_140px_140px_110px] lg:items-center ${document.id === selectedDocument?.id ? 'bg-accent/50' : 'bg-background'}`}
+                renderItem={(document) => (
+                  <>
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-medium text-foreground">{displayTitle(document)}</span>
                       {document.summary && <span className="mt-1 block line-clamp-1 text-sm text-muted-foreground">{document.summary}</span>}
@@ -413,9 +415,9 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
                     <span className="text-sm text-muted-foreground">{DOCUMENT_TYPE_LABELS[document.document_type]}</span>
                     <span className="text-sm text-muted-foreground">{documentSourceLabel(document.source)}</span>
                     <span className="text-sm text-muted-foreground">{formatDate(document.observed_at)}</span>
-                  </button>
-                ))}
-              </div>
+                  </>
+                )}
+              />
             </div>
           )}
         </main>
