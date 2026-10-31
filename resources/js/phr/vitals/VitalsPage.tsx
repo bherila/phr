@@ -8,6 +8,7 @@ import { fetchWrapper } from '@/fetchWrapper'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
+import { reviewStateChanged } from '@/phr/review/reviewSummary'
 import { errorMessage, numericPayload } from '@/phr/shared'
 import type { PhrListPageProps } from '@/phr/shell/phrPages'
 import {
@@ -72,6 +73,7 @@ function AddVitalForm({ patientId, onAdded }: AddVitalFormProps) {
         numericPayload(parsed.data, ['value_numeric', 'value_numeric_secondary']),
       )
       onAdded(PhrVitalResponseSchema.parse(raw).vital)
+      void reviewStateChanged(patientId)
       setForm(emptyForm)
       setOpen(false)
     } catch (err) {

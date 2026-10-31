@@ -67,6 +67,8 @@ export async function decideAiResult(patientId: number, importId: number, result
 
 export async function retryAiImport(patientId: number, importId: number): Promise<AiImportDetail> {
   const data: unknown = await fetchWrapper.post(`${base(patientId)}/${importId}/retry`, {})
+  // A retry clears the import's unreviewed proposals.
+  void reviewStateChanged(patientId)
   return z.object({ import: AiImportDetailSchema }).parse(data).import
 }
 
@@ -91,6 +93,7 @@ export async function keepAsDocument(patientId: number, file: File): Promise<num
   form.append('document_type', 'other')
   form.append('title', file.name)
   const data: unknown = await fetchWrapper.post(`/api/phr/patients/${patientId}/documents`, form)
+  void reviewStateChanged(patientId)
   return z.object({ document: z.object({ id: z.number() }) }).parse(data).document.id
 }
 

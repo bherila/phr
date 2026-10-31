@@ -8,8 +8,9 @@ import { act, renderHook, waitFor } from '@testing-library/react'
 
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
-import { decideAiResult } from '@/phr/imports/ai/aiImportsApi'
-import { importStructuredFile, reviewEhiProposal } from '@/phr/imports/ehi/ehiApi'
+import { createHealthLog, deleteHealthLog } from '@/phr/health-log/healthLogApi'
+import { decideAiResult, keepAsDocument, retryAiImport } from '@/phr/imports/ai/aiImportsApi'
+import { importStructuredFile, queueEhiPreview, reviewEhiProposal } from '@/phr/imports/ehi/ehiApi'
 
 import { decideReviewItem } from './reviewApi'
 import { resetReviewSummaries, setReviewSummary, useReviewSummary } from './reviewSummary'
@@ -95,6 +96,11 @@ const PATHS: [string, () => Promise<unknown>][] = [
   ['an AI import reject', () => decideAiResult(PATIENT, 5, 31, 'reject')],
   ['an EHI proposal review', () => reviewEhiProposal(PATIENT, { id: 41, preview_digest: 'd' }, 'reject')],
   ['a C-CDA or FHIR file import', () => importStructuredFile(PATIENT, new File(['<x/>'], 'summary.xml'))],
+  ['an AI import retry, which clears its proposals', () => retryAiImport(PATIENT, 5).catch(() => {})],
+  ['keeping a file as a document', () => keepAsDocument(PATIENT, new File(['%PDF'], 'letter.pdf')).catch(() => {})],
+  ['a new EHI preview, which replaces its proposals', () => queueEhiPreview(PATIENT, 9).catch(() => {})],
+  ['a health log created', () => createHealthLog(PATIENT, { name: 'Synthetic' }).catch(() => {})],
+  ['a health log deleted', () => deleteHealthLog(PATIENT, 3)],
   ['a Review page decision', () => decideReviewItem(PATIENT, {
     type: 'record', key: 'record:labs:3', id: 3, section: 'labs', review_segment: 'lab-results', title: 'Sodium',
     detail: null, change: 'new', version: 'a'.repeat(64), updated_at: null,
@@ -163,6 +169,35 @@ function sources(directory: string): string[] {
 describe('review decision paths', () => {
   const root = path.join(process.cwd(), 'resources/js/phr')
   const relative = (file: string): string => path.relative(root, file)
+
+  /**
+   * Modules that write without marking review counts stale, each with why its writes cannot
+   * change a patient's record counts or what waits for review. Anything else that writes
+   * must call reviewStateChanged itself (crud.ts and reviewDecision.ts do, for their callers).
+   */
+  const NO_COUNT_CHANGE: Record<string, string> = {
+    'access/AccessPage.tsx': 'grants and revokes sharing; no record or review state changes',
+    'clinical/EncounterEobLinks.tsx': 'links a visit or procedure to a claim; no section count or review state changes',
+    'config/AiProviderSettingsPage.tsx': 'account AI settings, not patient records',
+    'config/ConnectedDevicesPanel.tsx': 'account devices, not patient records',
+    'config/connectedApps.ts': 'account app consents, not patient records',
+    'data-hub/DataHubPage.tsx': 'exports and backups read the record; a deleted patient leaves the list; a native restore creates a new patient, which has nothing cached',
+    'documents/DocumentViewer.tsx': 'sends a document to AI; proposals arrive later, and an AI import is counted when its results are read',
+    'imaging/explore3d/pipeline/useVolumePipeline.ts': 'stores a derived volume cache for a series; no study is added',
+    'patients/PatientForm.tsx': 'creates a patient, which has nothing cached',
+    'patients-manage/PatientsManagePage.tsx': 'creates a patient or edits its profile fields; neither is counted',
+    'summary/SummaryPage.tsx': 'requests an export, which only reads the record',
+    'uploads/dicomUpload.ts': 'sends the files of an unfinished upload or cancels it; the study is added, and counted, at finalize in DicomUploadProvider',
+  }
+
+  it('mark the counts stale wherever a module writes, unless its writes cannot change them', () => {
+    const write = /fetchWrapper\.(post|put|patch|delete|postRaw|putRaw|deleteRaw)\(|\.open\(\s*'(POST|PUT|PATCH|DELETE)'|method:\s*['"](POST|PUT|PATCH|DELETE)['"]/i
+    const writers = sources(root).filter((file) => write.test(readFileSync(file, 'utf8'))).map(relative)
+    const missing = writers.filter((file) => !(file in NO_COUNT_CHANGE) && !readFileSync(path.join(root, file), 'utf8').includes('reviewStateChanged('))
+    expect(missing).toEqual([])
+    // The allowlist names only modules that still write, so it cannot hide a removed one's successor.
+    expect(Object.keys(NO_COUNT_CHANGE).filter((file) => !writers.includes(file))).toEqual([])
+  })
 
   it('send every clinical review decision through the one helper', () => {
     // A request body that sets a review decision (schemas that only read the field are fine).

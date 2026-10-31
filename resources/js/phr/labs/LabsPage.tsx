@@ -9,6 +9,7 @@ import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr
 import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { formatLabReferenceRange, formatLabValue } from '@/phr/labs/formatLabResult'
+import { reviewStateChanged } from '@/phr/review/reviewSummary'
 import { errorMessage, numericPayload } from '@/phr/shared'
 import type { PhrListPageProps } from '@/phr/shell/phrPages'
 import {
@@ -203,6 +204,7 @@ function AddLabForm({ patientId, onAdded }: AddLabFormProps) {
         numericPayload(parsed.data, ['value_numeric', 'range_min', 'range_max']),
       )
       onAdded(PhrLabResultResponseSchema.parse(raw).lab_result)
+      void reviewStateChanged(patientId)
       setForm(emptyForm)
       setOpen(false)
     } catch (err) {

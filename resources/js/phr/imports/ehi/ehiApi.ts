@@ -213,6 +213,8 @@ export async function bindEhiPackage(patientId: number, packageId: number, choic
 
 export async function queueEhiPreview(patientId: number, packageId: number): Promise<EhiPackage> {
   const data: unknown = await fetchWrapper.post(`${base(patientId)}/packages/${packageId}/preview`, {})
+  // A new preview replaces the export's proposals.
+  void reviewStateChanged(patientId)
   return z.object({ package: EhiPackageSchema }).parse(data).package
 }
 
