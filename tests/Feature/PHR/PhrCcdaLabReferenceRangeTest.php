@@ -4,6 +4,7 @@ namespace Tests\Feature\PHR;
 
 use App\Models\PhrLabResult;
 use App\Models\PhrPatient;
+use App\Services\PHR\Export\PhrCcdaExporter;
 use App\Services\PHR\Import\PhrCcdaImporter;
 use Tests\Support\PhrCcdaSyntheticDocument;
 use Tests\TestCase;
@@ -99,6 +100,31 @@ final class PhrCcdaLabReferenceRangeTest extends TestCase
 
         $lab = PhrLabResult::query()->where('patient_id', $patient->id)->sole();
         $this->assertSame(['Synthetic analyte', '0 - 2'], [$lab->analyte, $lab->reference_range_text]);
+    }
+
+    public function test_an_exported_range_keeps_its_reference_unit_through_a_narrative_reimport(): void
+    {
+        $patient = $this->patient();
+        $lab = new PhrLabResult([
+            'analyte' => 'Synthetic exported analyte',
+            'value' => '5.4',
+            'unit' => 'mg/dL',
+            'range_min' => '3.5',
+            'range_max' => '5.1',
+            'range_unit' => 'g/dL',
+        ]);
+        $lab->id = 1;
+        $xml = (new PhrCcdaExporter)->documentXml([
+            'patient' => $patient,
+            'lab_results' => collect([$lab]),
+            ...array_fill_keys(['vitals', 'conditions', 'medications', 'procedures', 'immunizations', 'allergies', 'office_visits', 'portal_messages', 'negative_assertions', 'dicom_studies', 'documents'], collect()),
+        ]);
+
+        // PHR's export has no Result Organizer, so this reads its narrative table.
+        app(PhrCcdaImporter::class)->importXml($xml, $patient, $patient->owner_user_id);
+
+        $row = PhrLabResult::query()->where('patient_id', $patient->id)->sole();
+        $this->assertSame(['5.4', 'mg/dL', '3.5 - 5.1 g/dL'], [$row->value, $row->unit, $row->reference_range_text]);
     }
 
     private function fixture(): string

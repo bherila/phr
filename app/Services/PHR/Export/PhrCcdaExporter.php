@@ -86,7 +86,7 @@ class PhrCcdaExporter
             $lab->analyte ?? $lab->test_name,
             $lab->value ?? $lab->value_numeric,
             $lab->unit,
-            $lab->reference_range_text ?? $this->rangeFromBounds($lab->range_min, $lab->range_max),
+            $lab->reference_range_text ?? $this->rangeFromBounds($lab->range_min, $lab->range_max, $lab->range_unit),
             $lab->abnormal_flag,
         ])->all());
         $this->section($xml, 'Vital Signs', ['Date', 'Name', 'Value', 'Unit'], $data['vitals']->map(fn ($vital): array => [
@@ -175,20 +175,25 @@ class PhrCcdaExporter
     }
 
     /**
-     * A reference range without text, from its bounds: "13.6 - 17.5", or one
-     * side alone as "<200" or ">40", the way the browser shows it.
+     * A reference range without text, from its bounds and their unit:
+     * "13.6 - 17.5 g/dL", or one side alone as "<200 mg/dL" or ">40 mg/dL", the
+     * way the browser shows it. The unit is the range's own: the table's Unit
+     * column is the result's, which may differ, and a reader of the narrative
+     * has no other place to find it.
      */
-    private function rangeFromBounds(mixed $min, mixed $max): string
+    private function rangeFromBounds(mixed $min, mixed $max, mixed $unit): string
     {
         $low = $this->boundNumber($min);
         $high = $this->boundNumber($max);
-
-        return match (true) {
+        $range = match (true) {
             $low !== null && $high !== null => "{$low} - {$high}",
             $high !== null => "<{$high}",
             $low !== null => ">{$low}",
             default => '',
         };
+        $unit = is_string($unit) ? trim($unit) : '';
+
+        return $range === '' || $unit === '' ? $range : "{$range} {$unit}";
     }
 
     /** A stored decimal without its padding ("200.0000000000" -> "200"). */
