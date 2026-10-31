@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\ThrottleTwoFactorVerify;
+use App\Auth\OAuthAccounts;
 use App\Models\User;
 use App\Support\AgentApi\AgentApiScopes;
 use BWH\Auth\OAuth\Server\AgentOAuthServer;
@@ -149,6 +150,12 @@ return [
         'receipt_connection' => env('PHR_DELEGATED_ACCESS_RECEIPT_CONNECTION', env('PHR_DELEGATED_ACCESS_NONCE_CONNECTION')),
         'path' => '/application-access',
         'per_minute' => 120,
+    ],
+
+    // Account rules for sign-in through the identity provider: a new account is a plain
+    // `user` with no patient access. See App\Auth\OAuthAccounts.
+    'oauth_login' => [
+        'accounts' => OAuthAccounts::class,
     ],
 
     'migrations' => [
