@@ -1,5 +1,7 @@
 import type { ZodError, ZodType } from 'zod'
 
+import { fetchWrapper } from '@/fetchWrapper'
+
 export interface ApiError {
   message?: string
 }
@@ -22,11 +24,8 @@ export function errorMessage(caught: unknown): string {
 }
 
 export async function fetchPhrDetail<T>(url: string, schema: ZodType<T>): Promise<DetailFetchResult<T>> {
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-    credentials: 'include',
-  })
+  // getRaw sends the same request, and answers a detail the page preloaded without one.
+  const response = await fetchWrapper.getRaw(url)
 
   if (response.status === 404) {
     return { data: null, notFound: true }
