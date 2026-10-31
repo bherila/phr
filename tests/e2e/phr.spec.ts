@@ -427,4 +427,33 @@ test.describe.serial('PHR browser journeys', () => {
     await page.goto('/phr/config')
     await expect(page.getByText(/the default applies: the AI Agent Inbox/)).toBeVisible()
   })
+
+  test('approves one item from the Review page and the sidebar count drops', async ({ page }, testInfo) => {
+    await signIn(page, ownerCredentials)
+    const patientName = patientNameForAttempt(testInfo.retry)
+    const patientId = await ownerPatientId(page, patientName)
+    // Import the synthetic C-CDA file so records wait for review whatever ran before.
+    await page.goto(`/phr/imports?patient_id=${patientId}`)
+    await page.getByLabel('File to import').setInputFiles(syntheticCcda())
+    await page.getByLabel(`This file belongs to ${patientName}`).check()
+    await page.getByRole('button', { name: 'Import', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'C-CDA clinical summary' })).toBeVisible()
+
+    await page.goto(`/phr/patient/${patientId}/review`)
+    await expect(page.getByRole('heading', { name: 'Waiting for review' })).toBeVisible()
+    const sidebar = page.getByRole('complementary', { name: 'Patient record' })
+    const review = sidebar.getByRole('link', { name: /^Review, \d+ waiting for review$/ })
+    await expect(review).toHaveAttribute('aria-current', 'page')
+    const before = Number(/(\d+) waiting/.exec((await review.getAttribute('aria-label')) ?? '')?.[1])
+    expect(before).toBeGreaterThan(0)
+
+    const imported = page.getByRole('region', { name: /^C-CDA import/ })
+    await imported.getByRole('checkbox', { name: /^Select all in / }).uncheck()
+    await imported.getByRole('checkbox', { name: /^Select (?!all in )/ }).first().check()
+    await imported.getByRole('button', { name: 'Approve 1 selected' }).click()
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Approve 1', exact: true }).click()
+
+    await expect(page.getByText('Approved 1.', { exact: true })).toBeVisible()
+    await expect(sidebar.getByRole('link', { name: before - 1 > 0 ? `Review, ${before - 1} waiting for review` : 'Review', exact: true })).toBeVisible()
+  })
 })

@@ -21,6 +21,7 @@ import { isBrowserPreviewableImage } from '@/phr/documents/browserImagePreview'
 import { DOCUMENT_SOURCE_LABELS, documentSourceLabel } from '@/phr/documents/documentSource'
 import { useExecutionMode } from '@/phr/imports/ai/useExecutionMode'
 import { EhiPendingBanner } from '@/phr/imports/ehi/EhiPendingBanner'
+import { reviewStateChanged } from '@/phr/review/reviewSummary'
 import { errorMessage } from '@/phr/shared'
 import type { PhrListPageProps } from '@/phr/shell/phrPages'
 import {
@@ -186,6 +187,7 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
       const raw = await fetchWrapper.post(`/api/phr/patients/${patientId}/documents`, formData)
       const response = PhrDocumentSchema.parse((raw as { document: unknown }).document)
       setDocuments((current) => [response, ...current])
+      void reviewStateChanged(patientId)
       setSelectedId(response.id)
       setUploadForm(emptyUploadForm)
       setUploadFile(null)
@@ -246,6 +248,7 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
     setError(null)
     try {
       await fetchWrapper.delete(`/api/phr/patients/${patientId}/documents/${document.id}`, {})
+      void reviewStateChanged(patientId)
       setDocuments((current) => current.filter((candidate) => candidate.id !== document.id))
     } catch (caught) {
       setError(errorMessage(caught))

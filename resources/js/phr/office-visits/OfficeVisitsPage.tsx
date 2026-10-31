@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
 import { ShowRejectedToggle } from '@/phr/clinical/review'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
+import { reviewStateChanged } from '@/phr/review/reviewSummary'
 import { compactPayload, errorMessage } from '@/phr/shared'
 import type { PhrListPageProps } from '@/phr/shell/phrPages'
 import type { PhrModuleId } from '@/phr/shell/phrRoutes'
@@ -169,6 +170,7 @@ function AddForm({ patientId, onAdded }: AddFormProps) {
       )
       const visit = (raw as { office_visit: PhrOfficeVisit }).office_visit
       onAdded(visit)
+      void reviewStateChanged(patientId)
       setVisitDate('')
       setVisitType('')
       setProviderName('')

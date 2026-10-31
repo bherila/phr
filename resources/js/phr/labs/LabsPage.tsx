@@ -6,8 +6,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
+import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { formatLabReferenceRange, formatLabValue } from '@/phr/labs/formatLabResult'
+import { reviewStateChanged } from '@/phr/review/reviewSummary'
 import { errorMessage, numericPayload } from '@/phr/shared'
 import type { PhrListPageProps } from '@/phr/shell/phrPages'
 import {
@@ -202,6 +204,7 @@ function AddLabForm({ patientId, onAdded }: AddLabFormProps) {
         numericPayload(parsed.data, ['value_numeric', 'range_min', 'range_max']),
       )
       onAdded(PhrLabResultResponseSchema.parse(raw).lab_result)
+      void reviewStateChanged(patientId)
       setForm(emptyForm)
       setOpen(false)
     } catch (err) {
@@ -287,10 +290,7 @@ export default function LabsPage({ patientId, onDrill }: PhrListPageProps) {
     setReviewingId(result.id)
     setError(null)
     try {
-      const raw: unknown = await fetchWrapper.patch(
-        `/api/phr/patients/${patientId}/lab-results/${result.id}/review`,
-        { review_status: decision },
-      )
+      const raw: unknown = await recordReviewDecision(`/api/phr/patients/${patientId}/lab-results/${result.id}`, decision)
       const updated = PhrLabResultResponseSchema.parse(raw).lab_result
       if (decision === 'rejected' && !showRejected) {
         setResults((prev) => prev.filter((r) => r.id !== updated.id))

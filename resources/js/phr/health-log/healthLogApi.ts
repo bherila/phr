@@ -1,4 +1,5 @@
 import { fetchWrapper } from '@/fetchWrapper'
+import { reviewStateChanged } from '@/phr/review/reviewSummary'
 
 import {
   type HealthLog,
@@ -39,6 +40,8 @@ export async function listHealthLogs(patientId: number): Promise<HealthLogListRe
 
 export async function createHealthLog(patientId: number, payload: Record<string, unknown>): Promise<HealthLog> {
   const raw: unknown = await fetchWrapper.post(healthLogsEndpoint(patientId), payload)
+  // The Health Log's count is its logs; entries and edits do not change it.
+  void reviewStateChanged(patientId)
   return HealthLogResponseSchema.parse(raw).health_log
 }
 
@@ -53,6 +56,7 @@ export async function updateHealthLog(
 
 export async function deleteHealthLog(patientId: number, healthLogId: number): Promise<void> {
   await fetchWrapper.delete(healthLogEndpoint(patientId, healthLogId), {})
+  void reviewStateChanged(patientId)
 }
 
 export async function listHealthLogEntries(patientId: number, healthLogId: number): Promise<HealthLogEntryListResult> {

@@ -77,6 +77,43 @@ export function aiResultView(result: AiImportResult): AiResultView {
   return { ...recordView(result.data, `Proposal ${result.result_index + 1}`), groups }
 }
 
+/**
+ * Every value an AI proposal would add: its own fields and each nested record (a
+ * document's labs, medications and so on). Accepting the proposal imports all of them,
+ * so a reviewer sees all of them before accepting it, here and on the Review page.
+ */
+export function AiResultDetails({ view }: { view: AiResultView }): ReactElement {
+  return (
+    <>
+      {view.fields.length > 0 && (
+        <dl className="grid grid-cols-[minmax(8rem,auto)_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
+          {view.fields.map((field) => (
+            <div key={field.key} className="contents">
+              <dt className="text-muted-foreground">{field.label}</dt>
+              <dd>{field.value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {view.groups.map((group) => (
+        <div key={group.key} className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
+          <p className="font-medium text-foreground">{group.label} ({group.records.length}) — accepting adds each of these</p>
+          <ul className="mt-1 flex flex-col gap-1">
+            {group.records.map((record, index) => (
+              // Nested records have no id of their own; their order is stable.
+              // eslint-disable-next-line @eslint-react/no-array-index-key
+              <li key={index}>
+                <span className="text-foreground">{record.title}</span>
+                {record.fields.length > 0 && <span className="text-muted-foreground"> · {record.fields.map((field) => `${field.label}: ${field.value}`).join(' · ')}</span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </>
+  )
+}
+
 const STATUS_LABELS: Record<string, string> = { imported: 'Accepted', skipped: 'Rejected' }
 
 export interface AiImportReviewProps {
@@ -186,31 +223,7 @@ export function AiImportReview({ patientId, importId, onBack }: AiImportReviewPr
                     <span id={titleId} className="font-medium text-foreground">{view.title}</span>
                     {decided && <Badge variant="secondary">{STATUS_LABELS[result.status] ?? result.status}</Badge>}
                   </div>
-                  {view.fields.length > 0 && (
-                    <dl className="grid grid-cols-[minmax(8rem,auto)_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
-                      {view.fields.map((field) => (
-                        <div key={field.key} className="contents">
-                          <dt className="text-muted-foreground">{field.label}</dt>
-                          <dd>{field.value}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                  )}
-                  {view.groups.map((group) => (
-                    <div key={group.key} className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
-                      <p className="font-medium text-foreground">{group.label} ({group.records.length}) — accepting adds each of these</p>
-                      <ul className="mt-1 flex flex-col gap-1">
-                        {group.records.map((record, index) => (
-                          // Nested records have no id of their own; their order is stable.
-                          // eslint-disable-next-line @eslint-react/no-array-index-key
-                          <li key={index}>
-                            <span className="text-foreground">{record.title}</span>
-                            {record.fields.length > 0 && <span className="text-muted-foreground"> · {record.fields.map((field) => `${field.label}: ${field.value}`).join(' · ')}</span>}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
+                  <AiResultDetails view={view} />
                   {errors[result.id] && <p role="alert" className="text-sm text-destructive">{errors[result.id]}</p>}
                   {!decided && (
                     <div className="flex flex-wrap gap-2">

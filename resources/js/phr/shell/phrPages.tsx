@@ -2,6 +2,7 @@ import {
   Activity,
   Ban,
   CalendarDays,
+  ClipboardCheck,
   FileText,
   FlaskConical,
   HeartPulse,
@@ -20,12 +21,6 @@ import { Button } from '@/components/ui/button'
 
 import type { PhrDetailId, PhrNavTarget, PhrPageId } from './phrRoutes'
 
-/** One count shown beside a sidebar item, when a page can supply it without an extra request. */
-export interface KeyAmount {
-  label: string
-  value: number
-}
-
 export interface PhrListPageProps {
   patientId: number
   onDrill?: (target: PhrNavTarget) => void
@@ -42,8 +37,6 @@ export interface PhrPageMeta {
   keywords: string[]
   icon: LucideIcon
   component: ComponentType<PhrListPageProps>
-  /** A count for the sidebar. Only for data the shell already holds; never fetch for it. */
-  keyAmounts?: (patientId: number) => KeyAmount[] | null
 }
 
 export interface PhrDetailMeta {
@@ -53,6 +46,7 @@ export interface PhrDetailMeta {
 }
 
 export const PHR_PAGES: Record<PhrPageId, PhrPageMeta> = {
+  review: { label: 'Review', icon: ClipboardCheck, keywords: ['review', 'pending', 'approve', 'proposed', 'waiting'], component: lazy(() => import('@/phr/review/ReviewPage')) },
   summary: { label: 'Summary', icon: TextAlignStart, keywords: ['summary', 'overview', 'health'], component: lazy(() => import('@/phr/summary/SummaryPage')) },
   'health-log': { label: 'Health Log', icon: Activity, keywords: ['health log', 'journal', 'meal', 'snack', 'symptom', 'congestion'], component: lazy(() => import('@/phr/health-log/HealthLogPage')) },
   labs: { label: 'Labs', icon: FlaskConical, keywords: ['labs', 'laboratory', 'results', 'bloodwork'], component: lazy(() => import('@/phr/labs/LabsPage')) },
@@ -90,7 +84,7 @@ export interface PhrNavGroup {
 
 /** The patient sidebar, top to bottom. Every page appears exactly once. */
 export const PHR_NAV_GROUPS: PhrNavGroup[] = [
-  { title: 'Overview', pages: ['summary', 'health-log'] },
+  { title: 'Overview', pages: ['review', 'summary', 'health-log'] },
   { title: 'Clinical', pages: ['labs', 'vitals', 'office-visits', 'medications', 'conditions', 'procedures', 'immunizations', 'allergies'] },
   { title: 'Records', pages: ['documents', 'imaging'] },
   { title: 'Sharing', pages: ['access'] },
