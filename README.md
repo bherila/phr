@@ -512,6 +512,8 @@ use synthetic data.
 - [Delegated access operations](docs/delegated-access.md)
 - [Patient authorization capability matrix and call-site inventory](docs/patient-authorization-inventory.md)
 - [Native backup format](docs/phr-native-v1.md)
+- [Interface shell: layout, sidebar, URLs](docs/ui-shell.md)
+- [Keyboard navigation](docs/keyboard-navigation.md)
 
 Production ordering, supersession records, OHIF publication proof, and intentional
 rollback procedures are described in [.github/deployment-policy.md](.github/deployment-policy.md).
