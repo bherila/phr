@@ -34,17 +34,7 @@ class OfficeVisitController extends Controller
 
     public function show(Request $request, int $patient, int $visit): JsonResponse
     {
-        $userId = (int) $request->user()?->id;
-        $resolvedPatient = $this->accessService->accessiblePatient($patient, $userId);
-        $resolvedVisit = PhrOfficeVisit::query()
-            ->where('patient_id', $resolvedPatient->id)
-            ->with(['eobs.lines', 'imagingStudies'])
-            ->findOrFail($visit);
-
-        return response()->json([
-            'office_visit' => (new OfficeVisitResource($resolvedVisit))->resolve(),
-            'can_manage' => $this->accessService->canWrite($resolvedPatient, $userId),
-        ]);
+        return $this->showClinicalResource($request, $patient, $visit);
     }
 
     public function update(StoreOfficeVisitRequest $request, int $patient, int $visit): JsonResponse
@@ -124,6 +114,15 @@ class OfficeVisitController extends Controller
     protected function resourceKey(): string
     {
         return 'office_visit';
+    }
+
+    /**
+     * @param  Builder<PhrOfficeVisit>  $query
+     * @return Builder<PhrOfficeVisit>
+     */
+    protected function showQuery(Builder $query): Builder
+    {
+        return $query->with(['eobs.lines', 'imagingStudies']);
     }
 
     /**

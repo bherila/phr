@@ -42,6 +42,22 @@ async function ownerPatientId(page: Page, patientName: string): Promise<number> 
   return patient!.id
 }
 
+/**
+ * Adds a condition with the page's own form, waits for the create request to
+ * answer, and returns the new record's ID.
+ */
+async function addConditionThroughUi(page: Page, patientId: number, name: string): Promise<number> {
+  const created = page.waitForResponse((response) => response.request().method() === 'POST'
+    && new URL(response.url()).pathname === `/api/phr/patients/${patientId}/conditions`)
+  await page.getByRole('button', { name: 'Add Condition' }).click()
+  await page.getByLabel('Name *').fill(name)
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  const response = await created
+  expect(response.status()).toBe(201)
+  const payload = await response.json() as { condition: { id: number } }
+  return payload.condition.id
+}
+
 /** The synthetic C-CDA document the PHPUnit suites use, as a file on disk. */
 function syntheticCcda(): string {
   const xmlPath = path.join(mkdtempSync(path.join(tmpdir(), 'phr-e2e-ccda-')), 'synthetic-visit-summary.xml')
@@ -121,17 +137,12 @@ test.describe.serial('PHR browser journeys', () => {
     await signIn(page, ownerCredentials)
     const patientId = await ownerPatientId(page, patientNameForAttempt(testInfo.retry))
     await page.goto(`/phr/patient/${patientId}/conditions`)
-    const csrf = await page.locator('meta[name="csrf-token"]').getAttribute('content')
-    for (const name of ['Synthetic keyboard condition A', 'Synthetic keyboard condition B']) {
-      const created = await page.request.post(`/api/phr/patients/${patientId}/conditions`, {
-        data: { name, clinical_status: 'active', verification_status: 'confirmed' },
-        headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': csrf ?? '' },
-      })
-      expect(created.status()).toBe(201)
-    }
-    await page.reload()
-
     const table = page.getByRole('table', { name: 'Active Problems' })
+    for (const name of ['Synthetic keyboard condition A', 'Synthetic keyboard condition B']) {
+      await addConditionThroughUi(page, patientId, name)
+      await expect(table.getByText(name, { exact: true })).toBeVisible()
+    }
+
     const rows = table.locator('tbody tr[data-record-row]')
     await rows.first().focus()
     await page.keyboard.press('ArrowDown')
@@ -213,6 +224,34 @@ test.describe.serial('PHR browser journeys', () => {
 
     const shift = await page.evaluate(() => (window as unknown as { layoutShift: number }).layoutShift)
     expect(shift).toBeLessThan(0.02)
+  })
+
+  test('adds a condition from the Conditions page and lists it with no error', async ({ page }, testInfo) => {
+    await signIn(page, ownerCredentials)
+    const patientId = await ownerPatientId(page, 'Synthetic Chart Patient')
+    await page.goto(`/phr/patient/${patientId}/conditions`)
+    const table = page.getByRole('table', { name: 'Active Problems' })
+    await expect(table.getByText('Essential (primary) hypertension')).toBeVisible()
+    const name = `Synthetic condition added in the browser ${testInfo.retry}`
+
+    const conditionId = await addConditionThroughUi(page, patientId, name)
+    try {
+      // Issue 253: the create succeeded but its response was rejected, so the
+      // page showed an error and left the new condition out of the list.
+      await expect(table.getByText(name, { exact: true })).toBeVisible()
+      await expect(page.getByRole('alert')).toHaveCount(0)
+      await expect(page.getByLabel('Name *')).toHaveCount(0)
+      await page.reload()
+      await expect(table.getByText(name, { exact: true })).toBeVisible()
+    } finally {
+      // The chart fixture is shared with the layout journeys, which a retry
+      // runs again: leave it as seeded.
+      const csrf = await page.locator('meta[name="csrf-token"]').getAttribute('content')
+      const deleted = await page.request.delete(`/api/phr/patients/${patientId}/conditions/${conditionId}`, {
+        headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': csrf ?? '' },
+      })
+      expect(deleted.status()).toBe(204)
+    }
   })
 
   test('uploads and views a synthetic document', async ({ page }, testInfo) => {
