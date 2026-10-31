@@ -81,6 +81,25 @@ describe('DocumentViewer', () => {
     expect(screen.queryByTestId('pdf-viewer')).not.toBeInTheDocument()
   })
   it.each([
+    ['a legacy free-text source', 'onedrive_manual_review', 'onedrive_manual_review'],
+    ['a source added after this build', 'some_future_import', 'some_future_import'],
+    ['a known source', 'ehi_tables', 'EHI Tables Import'],
+    ['no source', null, 'Unknown'],
+  ])('still renders the document for %s', async (_case, source, label) => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      text: async () => JSON.stringify({ document: makeDocument({ source }) }),
+    })
+
+    render(<DocumentViewer patientId={42} recordId="10" />)
+
+    expect(await screen.findByTestId('pdf-viewer')).toBeInTheDocument()
+    expect(screen.getByText(new RegExp(`Source: ${label}$`))).toBeInTheDocument()
+  })
+
+  it.each([
     ['image/tiff', 'scan.tif'],
     ['image/heic', 'photo.heic'],
     ['image/heif', 'photo.heif'],

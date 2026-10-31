@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import PdfViewer from '@/components/phr/PdfViewer'
 import { Button } from '@/components/ui/button'
 import { isBrowserPreviewableImage } from '@/phr/documents/browserImagePreview'
+import { documentSourceLabel } from '@/phr/documents/documentSource'
 import { PhrNotFoundColumn } from '@/phr/miller/PhrNotFoundColumn'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { type PhrDocument, PhrDocumentResponseSchema } from '@/phr/types'
@@ -11,16 +12,6 @@ import { type PhrDocument, PhrDocumentResponseSchema } from '@/phr/types'
 interface DocumentViewerProps {
   patientId: number
   recordId: string
-}
-
-const SOURCE_LABELS: Record<NonNullable<PhrDocument['source']>, string> = {
-  manual_upload: 'Manual Upload',
-  agent_upload: 'Agent Upload',
-  genai_import: 'GenAI Import',
-  fhir_import: 'FHIR Import',
-  ccda_import: 'CCDA Import',
-  mychart_zip: 'MyChart ZIP',
-  ehi_tables: 'EHI Tables Import',
 }
 
 export default function DocumentViewer({ patientId, recordId }: DocumentViewerProps) {
@@ -84,7 +75,7 @@ export default function DocumentViewer({ patientId, recordId }: DocumentViewerPr
       <div className="grid gap-1">
         <h2 className="text-lg font-semibold text-card-foreground">{displayTitle(document)}</h2>
         <p className="text-xs text-muted-foreground">
-          Kind: {formatLabel(document.document_type)} · Uploaded: {formatDate(document.created_at)} · Source: {document.source ? SOURCE_LABELS[document.source] : 'Unknown'}
+          Kind: {formatLabel(document.document_type)} · Uploaded: {formatDate(document.created_at)} · Source: {documentSourceLabel(document.source)}
         </p>
       </div>
 

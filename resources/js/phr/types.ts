@@ -388,7 +388,12 @@ export const PhrAccessGrantDetailResponseSchema = z.object({
 })
 
 export const PhrDocumentTypeSchema = z.enum(['lab_report', 'office_visit_note', 'clinical_questionnaire', 'patient_symptom_log', 'discharge_summary', 'imaging_report', 'prescription', 'medical_necessity_letter', 'prior_authorization', 'insurance', 'consent', 'care_correspondence', 'other'])
+// The sources the server writes today, for filters and labels. A document's own
+// `source` is parsed as any string: one value this build does not know must not
+// make the whole document (or the documents list) unreadable.
 export const PhrDocumentSourceSchema = z.enum(['manual_upload', 'agent_upload', 'genai_import', 'fhir_import', 'ccda_import', 'mychart_zip', 'ehi_tables'])
+
+export type PhrDocumentSource = z.infer<typeof PhrDocumentSourceSchema>
 
 export const PhrDocumentSchema = z.object({
   id: z.number(),
@@ -404,7 +409,7 @@ export const PhrDocumentSchema = z.object({
   byte_size: z.number(),
   file_hash: nullableString,
   summary: nullableString,
-  source: PhrDocumentSourceSchema.nullable(),
+  source: z.string().nullable(),
   tags: z.array(z.string()),
   imported_at: nullableString,
   created_at: nullableString,

@@ -74,6 +74,36 @@ describe('DocumentsPage', () => {
     expect((await screen.findAllByText('Agent Upload')).length).toBeGreaterThan(0)
   })
 
+  it('lists a document whose source has no label, showing the stored value', async () => {
+    mockGet.mockResolvedValue({
+      documents: [makeDocument({ source: 'outlook_email_attachment' })],
+      can_manage: true,
+    })
+
+    render(<DocumentsPage patientId={42} />)
+
+    expect((await screen.findAllByText('January Labs')).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/invalid option/i)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'List view' }))
+
+    expect(screen.getByText('outlook_email_attachment')).toBeInTheDocument()
+  })
+
+  it('offers only the known sources as filters', async () => {
+    mockGet.mockResolvedValue({
+      documents: [makeDocument({ source: 'outlook_email_attachment' })],
+      can_manage: true,
+    })
+
+    render(<DocumentsPage patientId={42} />)
+
+    await screen.findAllByText('January Labs')
+    const sourceFilter = screen.getAllByLabelText('Source')[0] as HTMLSelectElement
+    const values = Array.from(sourceFilter.options).map((option) => option.value)
+    expect(values).toEqual(['all', 'manual_upload', 'agent_upload', 'genai_import', 'fhir_import', 'ccda_import', 'mychart_zip', 'ehi_tables'])
+  })
+
   it('uses a container query for the internal pane layout', async () => {
     render(<DocumentsPage patientId={42} />)
 

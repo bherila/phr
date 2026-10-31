@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
 import { formatBytes } from '@/lib/utils'
 import { isBrowserPreviewableImage } from '@/phr/documents/browserImagePreview'
+import { DOCUMENT_SOURCE_LABELS, documentSourceLabel } from '@/phr/documents/documentSource'
 import { useExecutionMode } from '@/phr/imports/ai/useExecutionMode'
 import { EhiPendingBanner } from '@/phr/imports/ehi/EhiPendingBanner'
 import type { PhrListPageProps } from '@/phr/miller'
@@ -27,13 +28,14 @@ import {
   type PhrDocumentMetadataFormData,
   PhrDocumentMetadataFormSchema,
   PhrDocumentSchema,
+  type PhrDocumentSource,
   PhrDocumentSourceSchema,
   PhrDocumentsResponseSchema,
   PhrDocumentTypeSchema,
 } from '@/phr/types'
 
 type DocumentType = PhrDocument['document_type']
-type DocumentSource = NonNullable<PhrDocument['source']>
+type DocumentSource = PhrDocumentSource
 type ViewMode = 'grid' | 'list'
 
 const DOCUMENT_TYPE_OPTIONS: DocumentType[] = [...PhrDocumentTypeSchema.options]
@@ -62,16 +64,6 @@ const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
   consent: 'Consent',
   care_correspondence: 'Care Correspondence',
   other: 'Other',
-}
-
-const SOURCE_LABELS: Record<DocumentSource, string> = {
-  manual_upload: 'Manual Upload',
-  agent_upload: 'Agent Upload',
-  genai_import: 'GenAI Import',
-  fhir_import: 'FHIR Import',
-  ccda_import: 'CCDA Import',
-  mychart_zip: 'MyChart ZIP',
-  ehi_tables: 'EHI Tables Import',
 }
 
 interface UploadFormState {
@@ -329,7 +321,7 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
             >
               <option value="all">All Sources</option>
               {SOURCE_OPTIONS.map((source) => (
-                <option key={source} value={source}>{SOURCE_LABELS[source]}</option>
+                <option key={source} value={source}>{DOCUMENT_SOURCE_LABELS[source]}</option>
               ))}
             </LabeledSelect>
             <LabeledInput label="Tag" value={filters.tag} onChange={(value) => setFilters((current) => ({ ...current, tag: value }))} />
@@ -416,7 +408,7 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
                       {document.summary && <span className="mt-1 block line-clamp-1 text-sm text-muted-foreground">{document.summary}</span>}
                     </span>
                     <span className="text-sm text-muted-foreground">{DOCUMENT_TYPE_LABELS[document.document_type]}</span>
-                    <span className="text-sm text-muted-foreground">{document.source ? SOURCE_LABELS[document.source] : 'Unknown'}</span>
+                    <span className="text-sm text-muted-foreground">{documentSourceLabel(document.source)}</span>
                     <span className="text-sm text-muted-foreground">{formatDate(document.observed_at)}</span>
                   </button>
                 ))}
