@@ -63,7 +63,7 @@ explicit `--actor` and go through the same three methods.
 | Create allergy | `POST .../allergies` | W | — | existing-protected |
 | Update allergy | `PATCH .../allergies/{allergy}` | W | — | existing-protected |
 | Delete allergy (soft) | `DELETE .../allergies/{allergy}` | W | — | existing-protected |
-| Review allergy | `PATCH .../allergies/{allergy}/review` | W | — | existing-protected |
+| Review allergy | `PATCH .../allergies/{allergy}/review` | W | — | existing-protected; an optional `version` makes the decision conditional on the record being unchanged (409 otherwise, disclosing nothing) |
 | List patients | `GET api/phr/patients` | R (query) | — | existing-protected |
 | Create patient | `POST api/phr/patients` | — (creates own) | — | existing-protected |
 | Show patient | `GET api/phr/patients/{patient}` | R | — | existing-protected |
@@ -73,6 +73,8 @@ explicit `--actor` and go through the same three methods.
 | Grant access | `POST api/phr/patients/{patient}/access` | **O** | — | existing-protected, throttled 10/min |
 | Revoke access | `DELETE api/phr/patients/{patient}/access/{access}` | **O** | — | existing-protected |
 | Patient search | `GET api/phr/patients/{patient}/search` | R | — | existing-protected |
+| Review queue counts | `GET api/phr/patients/{patient}/review/summary` | R | — (session) | existing-protected; counts per section, plus `can_manage` (W) |
+| Review queue items | `GET api/phr/patients/{patient}/review` | R | — (session) | existing-protected; read-only, every query scoped to the resolved patient; decisions go to each item's own route (record review, AI import accept/reject, EHI proposal review), which require W |
 | Export request | `POST api/phr/patients/{patient}/exports` | **O** | — | existing-protected |
 | Native backup | `POST api/phr/patients/{patient}/native-backups` | **O** | — | existing-protected |
 | Patient page shell | `GET /phr/patient/{patient}` | R | — | existing-protected |
@@ -226,6 +228,10 @@ Write permission does not include the power to accept clinical content.
   surface: owner, reader, writable manager, owner-labelled grant versus actual ownership,
   revoked and absent grants, wrong patient/child pair with two accessible patients,
   absent context, review restrictions, and mass assignment of scope fields.
+- `tests/Feature/PHR/PhrReviewQueueTest.php` — the review queue: owner, manager and
+  viewer read it (only writers get `can_manage`), no grant and a revoked grant are 404,
+  another patient's rows never appear, decisions go through the owning routes, and the
+  query count does not grow with the number of pending items.
 - `tests/Feature/PHR/PhrAllergyAgentAuthorizationCharacterizationTest.php` — token
   surface: scopes restrict rather than expand, no grant, revocation, write-only receipts,
   the review lifecycle an agent may not assert, per-patient external-id namespacing, and
