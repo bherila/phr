@@ -44,6 +44,17 @@ class PhrCcdaImporter
             }
 
             $title = strtolower($this->sectionTitle($xpath, $section));
+            if ($this->isResultsSection($title)) {
+                // Structured Result Observations, when present, are the record;
+                // the narrative table is only their rendering.
+                $observations = (new PhrCcdaResultObservations($xpath))->records($section);
+                if ($observations !== []) {
+                    $result->merge($this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_lab_result', $observations, ['import_source' => 'ccda']));
+
+                    continue;
+                }
+            }
+
             $rows = $this->tableRows($xpath, $section);
             if ($rows === []) {
                 continue;
@@ -73,7 +84,7 @@ class PhrCcdaImporter
             ), ['import_source' => 'ccda']);
         }
 
-        if (str_contains($title, 'result') || str_contains($title, 'lab')) {
+        if ($this->isResultsSection($title)) {
             return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_lab_result', array_map(
                 fn (array $row): array => [
                     'observed_at' => $row[0] ?? null,
@@ -166,6 +177,12 @@ class PhrCcdaImporter
         }
 
         return new PhrImportResult(skipped: count($rows));
+    }
+
+    /** Vital signs are matched first, so a "vital signs results" title stays a vitals section. */
+    private function isResultsSection(string $title): bool
+    {
+        return ! str_contains($title, 'vital') && (str_contains($title, 'result') || str_contains($title, 'lab'));
     }
 
     private function sectionTitle(DOMXPath $xpath, DOMElement $section): string

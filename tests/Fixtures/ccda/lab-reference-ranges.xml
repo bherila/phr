@@ -1,0 +1,246 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Synthetic C-CDA Results section. No patient data.
+
+  The structured entries reproduce the referenceRange shapes one vendor's
+  export uses, which a reader that takes observationRange's whole text content
+  stores doubled ("NEGNEG", "mIU/mLmIU/mL", "4.3 - 5.6 PERCENTPERCENTPERCENT"):
+
+    lab-st-neg          <text>NEG</text> plus <value xsi:type="ST">NEG</value>
+    lab-st-detected     the same shape with a two-word string
+    lab-unit-only       the same shape where the string is only the unit, on a
+                        REAL result that names no unit of its own
+    lab-ivl-ucum        a normal IVL_PQ with <text> and UCUM low/high
+    lab-ivl-translation IVL_PQ whose bounds are nullFlavor PQs carrying the
+                        number in translation/@value and a non-UCUM unit in
+                        translation/originalText, once per bound
+    lab-ivl-no-text     IVL_PQ with no <text>: an exclusive upper bound only
+    lab-text-reference  <text> that points into the narrative by reference
+    lab-interval-value  a result that is itself an interval ("<30")
+
+  The narrative table mirrors that vendor's column order (Component, Value,
+  Ref Range, Test Method, Analysis Time), which is not the order the
+  narrative-table reader assumes.
+-->
+<ClinicalDocument xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <realmCode code="US"/>
+  <typeId root="2.16.840.1.113883.1.3" extension="POCD_HD000040"/>
+  <templateId root="2.16.840.1.113883.10.20.22.1.1"/>
+  <templateId root="2.16.840.1.113883.10.20.22.1.2"/>
+  <id root="2.25.1001"/>
+  <code code="34133-9" codeSystem="2.16.840.1.113883.6.1" displayName="Summarization of Episode Note"/>
+  <title>Synthetic Health Summary</title>
+  <effectiveTime value="20260102030405-0800"/>
+  <confidentialityCode code="N" codeSystem="2.16.840.1.113883.5.25"/>
+  <recordTarget>
+    <patientRole>
+      <id root="2.25.1002" extension="synthetic"/>
+      <patient>
+        <name><given>Synthetic</given><family>Patient</family></name>
+      </patient>
+    </patientRole>
+  </recordTarget>
+  <component>
+    <structuredBody>
+      <component>
+        <section>
+          <templateId root="2.16.840.1.113883.10.20.22.2.3.1"/>
+          <code code="30954-2" codeSystem="2.16.840.1.113883.6.1"/>
+          <title>Results</title>
+          <text>
+            <table>
+              <thead>
+                <tr><th>Component</th><th>Value</th><th>Ref Range</th><th>Test Method</th><th>Analysis Time</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Synthetic screen</td><td>NEG</td><td>NEG</td><td/><td>01/02/2026 3:04 AM PST</td></tr>
+                <tr><td>Synthetic antibody</td><td>Nonreactive</td><td><content ID="range7">Nonreactive</content></td><td/><td>01/02/2026 3:04 AM PST</td></tr>
+              </tbody>
+            </table>
+          </text>
+          <entry typeCode="DRIV">
+            <organizer classCode="BATTERY" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.1"/>
+              <id root="2.25.2000"/>
+              <code code="SYN-PANEL" codeSystem="2.25.9" displayName="Synthetic panel"/>
+              <statusCode code="completed"/>
+              <effectiveTime value="20260102030405-0800"/>
+
+              <component>
+                <observation classCode="OBS" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.2"/>
+                  <id root="2.25.2001" extension="lab-st-neg"/>
+                  <code code="SYN-1" codeSystem="2.25.9" displayName="Synthetic screen"/>
+                  <statusCode code="completed"/>
+                  <effectiveTime value="20260102030405-0800"/>
+                  <value xsi:type="ST">NEG</value>
+                  <interpretationCode code="N" codeSystem="2.16.840.1.113883.5.83"/>
+                  <referenceRange>
+                    <observationRange>
+                      <text>NEG</text>
+                      <value xsi:type="ST">NEG</value>
+                      <interpretationCode code="N" codeSystem="2.16.840.1.113883.5.83"/>
+                    </observationRange>
+                  </referenceRange>
+                </observation>
+              </component>
+
+              <component>
+                <observation classCode="OBS" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.2"/>
+                  <id root="2.25.2001" extension="lab-st-detected"/>
+                  <code code="SYN-2" codeSystem="2.25.9" displayName="Synthetic organism"/>
+                  <statusCode code="completed"/>
+                  <effectiveTime value="20260102030405-0800"/>
+                  <value xsi:type="ST">Not Detected</value>
+                  <referenceRange>
+                    <observationRange>
+                      <text>Not Detected</text>
+                      <value xsi:type="ST">Not Detected</value>
+                      <interpretationCode code="N" codeSystem="2.16.840.1.113883.5.83"/>
+                    </observationRange>
+                  </referenceRange>
+                </observation>
+              </component>
+
+              <component>
+                <observation classCode="OBS" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.2"/>
+                  <id root="2.25.2001" extension="lab-unit-only"/>
+                  <code code="SYN-3" codeSystem="2.25.9" displayName="Synthetic hormone"/>
+                  <statusCode code="completed"/>
+                  <effectiveTime value="20260102030405-0800"/>
+                  <value xsi:type="REAL" value="8"/>
+                  <referenceRange>
+                    <observationRange>
+                      <text>mIU/mL</text>
+                      <value xsi:type="ST">mIU/mL</value>
+                      <interpretationCode code="N" codeSystem="2.16.840.1.113883.5.83"/>
+                    </observationRange>
+                  </referenceRange>
+                </observation>
+              </component>
+
+              <component>
+                <observation classCode="OBS" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.2"/>
+                  <id root="2.25.2001" extension="lab-ivl-ucum"/>
+                  <code code="SYN-4" codeSystem="2.25.9" displayName="Synthetic protein"/>
+                  <statusCode code="completed"/>
+                  <effectiveTime value="20260102030405-0800"/>
+                  <value xsi:type="PQ" value="14.1" unit="g/dL"/>
+                  <referenceRange>
+                    <observationRange>
+                      <text>13.6 - 17.5</text>
+                      <value xsi:type="IVL_PQ">
+                        <low value="13.6" unit="g/dL"/>
+                        <high value="17.5" unit="g/dL"/>
+                      </value>
+                      <interpretationCode code="N" codeSystem="2.16.840.1.113883.5.83"/>
+                    </observationRange>
+                  </referenceRange>
+                </observation>
+              </component>
+
+              <component>
+                <observation classCode="OBS" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.2"/>
+                  <id root="2.25.2001" extension="lab-ivl-translation"/>
+                  <code code="SYN-5" codeSystem="2.25.9" displayName="Synthetic fraction"/>
+                  <statusCode code="completed"/>
+                  <effectiveTime value="20260102030405-0800"/>
+                  <value xsi:type="PQ" nullFlavor="OTH">
+                    <translation nullFlavor="OTH" value="5.4">
+                      <originalText>PERCENT</originalText>
+                    </translation>
+                  </value>
+                  <referenceRange>
+                    <observationRange>
+                      <text>4.3 - 5.6 PERCENT</text>
+                      <value xsi:type="IVL_PQ">
+                        <low nullFlavor="OTH">
+                          <translation nullFlavor="OTH" value="4.3">
+                            <originalText>PERCENT</originalText>
+                          </translation>
+                        </low>
+                        <high nullFlavor="OTH">
+                          <translation nullFlavor="OTH" value="5.6">
+                            <originalText>PERCENT</originalText>
+                          </translation>
+                        </high>
+                      </value>
+                      <interpretationCode code="N" codeSystem="2.16.840.1.113883.5.83"/>
+                    </observationRange>
+                  </referenceRange>
+                </observation>
+              </component>
+
+              <component>
+                <observation classCode="OBS" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.2"/>
+                  <id root="2.25.2001" extension="lab-ivl-no-text"/>
+                  <code code="SYN-6" codeSystem="2.25.9" displayName="Synthetic lipid"/>
+                  <statusCode code="completed"/>
+                  <effectiveTime value="20260102030405-0800"/>
+                  <value xsi:type="PQ" value="144" unit="mg/dL"/>
+                  <interpretationCode code="N" codeSystem="2.16.840.1.113883.5.83"/>
+                  <referenceRange>
+                    <observationRange>
+                      <value xsi:type="IVL_PQ">
+                        <low nullFlavor="NINF" inclusive="false" unit="mg/dL"/>
+                        <high value="200" inclusive="false" unit="mg/dL"/>
+                      </value>
+                      <interpretationCode code="N" codeSystem="2.16.840.1.113883.5.83"/>
+                    </observationRange>
+                  </referenceRange>
+                </observation>
+              </component>
+
+              <component>
+                <observation classCode="OBS" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.2"/>
+                  <id root="2.25.2001" extension="lab-text-reference"/>
+                  <code code="SYN-7" codeSystem="2.25.9" displayName="Synthetic antibody"/>
+                  <statusCode code="completed"/>
+                  <effectiveTime value="20260102030405-0800"/>
+                  <value xsi:type="ST">Nonreactive</value>
+                  <interpretationCode code="A" codeSystem="2.16.840.1.113883.5.83"/>
+                  <referenceRange>
+                    <observationRange>
+                      <text><reference value="#range7"/></text>
+                      <value xsi:type="ST">Nonreactive</value>
+                      <interpretationCode code="N" codeSystem="2.16.840.1.113883.5.83"/>
+                    </observationRange>
+                  </referenceRange>
+                </observation>
+              </component>
+              <component>
+                <observation classCode="OBS" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.2"/>
+                  <id root="2.25.2001" extension="lab-interval-value"/>
+                  <code code="SYN-8" codeSystem="2.25.9" displayName="Synthetic ratio"/>
+                  <statusCode code="completed"/>
+                  <effectiveTime value="20260102030405-0800"/>
+                  <value xsi:type="IVL_PQ">
+                    <low nullFlavor="NINF" inclusive="false" unit="mg/g"/>
+                    <high value="30" inclusive="false" unit="mg/g"/>
+                  </value>
+                  <referenceRange>
+                    <observationRange>
+                      <text>&lt;150 mg/g</text>
+                      <value xsi:type="IVL_PQ">
+                        <low nullFlavor="NINF" inclusive="false" unit="mg/g"/>
+                        <high value="150" inclusive="false" unit="mg/g"/>
+                      </value>
+                      <interpretationCode code="N" codeSystem="2.16.840.1.113883.5.83"/>
+                    </observationRange>
+                  </referenceRange>
+                </observation>
+              </component>
+            </organizer>
+          </entry>
+        </section>
+      </component>
+    </structuredBody>
+  </component>
+</ClinicalDocument>
