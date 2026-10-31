@@ -33,17 +33,7 @@ class ProcedureController extends Controller
 
     public function show(Request $request, int $patient, int $procedure): JsonResponse
     {
-        $userId = (int) $request->user()?->id;
-        $resolvedPatient = $this->accessService->accessiblePatient($patient, $userId);
-        $resolvedProcedure = PhrProcedure::query()
-            ->where('patient_id', $resolvedPatient->id)
-            ->with('eobs.lines')
-            ->findOrFail($procedure);
-
-        return response()->json([
-            'procedure' => (new ProcedureResource($resolvedProcedure))->resolve(),
-            'can_manage' => $this->accessService->canWrite($resolvedPatient, $userId),
-        ]);
+        return $this->showClinicalResource($request, $patient, $procedure);
     }
 
     public function update(StoreProcedureRequest $request, int $patient, int $procedure): JsonResponse
@@ -87,6 +77,15 @@ class ProcedureController extends Controller
     protected function resourceKey(): string
     {
         return 'procedure';
+    }
+
+    /**
+     * @param  Builder<PhrProcedure>  $query
+     * @return Builder<PhrProcedure>
+     */
+    protected function showQuery(Builder $query): Builder
+    {
+        return $query->with('eobs.lines');
     }
 
     /**
