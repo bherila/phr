@@ -28,8 +28,10 @@ Every text pairing must meet 4.5:1. The old light-mode gold did not (3.7:1 on wh
 is part of why it went.
 
 Status colors should carry meaning through a dot next to text in the foreground color, not
-through colored text: light-mode `--warning` is only 3.3:1 against white. **(planned)** Existing
-status badges still use tinted text; they move to the dot as each page is revisited.
+through colored text: light-mode `--warning` is only 3.3:1 against white. The review status
+(pending review, confirmed, rejected) is shown that way everywhere, through the shared
+`StatusDot`. **(shipped)** Other status badges (clinical status, criticality) still use tinted
+text; they move to the dot as each page is revisited. **(planned)**
 
 ## Layout
 
@@ -76,12 +78,45 @@ At most three panes. Nothing stacks beyond them. **(shipped)**
   Section pages (Imports, Data Hub, Config, Manage Patients, Patients) have no patient
   sidebar. **(shipped)**
 - **Page.** A breadcrumb (`Patient / Group / Section [/ Item]`), then the page's own title and
-  actions, and the content at full width. Tables get the room they need, and wide tables
-  scroll inside their own box rather than squeezing their columns. **(shipped)**
-- **Detail panel.** Selecting a row opens its detail in a panel to the right of the list:
-  380px from the `lg` breakpoint, 420px from `xl`. Selecting another row swaps the panel's
-  contents. The panel has a close link (and Esc closes it). Below `lg` the detail opens as its
-  own page instead, with the breadcrumb and the close link back to the list. **(shipped)**
+  actions, and the content. Page content (breadcrumb, header, toolbar, list) stops at 1280px
+  (`max-w-[80rem]`), aligned to the start beside the sidebar rather than centered, so wide
+  screens do not stretch it. Full-width viewers (document, imaging study, vitals trend, the 3D
+  explorer) are exempt. Wide tables scroll inside their own box rather than squeezing their
+  columns. **(shipped)**
+- **Detail panel.** Selecting a row opens its detail in a panel to the right of the list, from
+  the `lg` breakpoint, `clamp(400px, 32vw, 640px)` wide. When it opens, the list gives up width
+  first; list and panel together may exceed 1280px, up to the window. Selecting another row
+  swaps the panel's contents, and the row whose record is open is highlighted. While the panel
+  is open, moving the active row with the keyboard shows that record (debounced, with
+  `replaceState`). The panel has a close link, and Esc closes it and puts focus back on the
+  row. Below `lg` the detail opens as its own page instead, with the breadcrumb and the close
+  link back to the list. **(shipped)**
+  - The panel is a size container. Content with a multi-column table adapts to the width it
+    gets: the Lab Panel's results stack below 520px (name and value on the first line, range,
+    flag and trend on the second) and are a table above it. **(shipped)**
+- **Record lists.** Every section's table or list is the shared record table or its list form
+  (`resources/js/components/record-list`), with the keyboard model in
+  [keyboard navigation](keyboard-navigation.md). **(shipped)** Its column rules:
+  - Short columns (value, unit, flag, date, status, review, actions) are `fit` columns: they
+    size to their content and stay on one line (`width: 1%; white-space: nowrap`). The name
+    column takes the rest.
+  - Text is left-aligned. Only numeric values right-align, with tabular figures; a column can
+    decide per row, so a lab value of "Not Detected" sits next to its analyte while "112"
+    lines up with the other numbers.
+  - The review status sits on the row's line as a dot and a label (beside the review actions,
+    or after the name), not as a pill under the name.
+- **Loading.** Nothing moves when data arrives. **(shipped)**
+  - On the first load a record list renders skeleton rows in its real columns and row classes
+    (8, or the expected count), with `aria-busy="true"` on the region, one visually hidden live
+    message ("Loading conditions"), `aria-hidden` skeleton blocks, and no pulse when
+    `prefers-reduced-motion` is set.
+  - A refetch after a change or a filter keeps the current rows on screen.
+  - Detail panels show a skeleton of their heading, fact lines and result rows; a lazily
+    loaded page shows a skeleton with its own title. The top bar, sidebar and breadcrumb render
+    from the URL at once.
+  - Controls that depend on the person's access (the Add buttons) start from the patient list
+    the shell already holds, so they do not appear late and push the list down. A Playwright
+    check keeps the Conditions page's layout shift under 0.02 between skeleton and table.
 
 ### Sidebar sizing
 
