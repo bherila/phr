@@ -4,9 +4,15 @@ Everything in PHR can be done from the keyboard. This document is the contract: 
 what they do, and the rules every list and shortcut follows. Layout and URLs are in
 [the interface shell](ui-shell.md).
 
+Status markers: **(shipped)** is in the code; **(planned)** is designed but not built yet.
+Today ⌘K / Ctrl+K and Esc on the detail panel are shipped, and native Tab order works
+everywhere. The list behavior and the other global shortcuts below are planned as one piece of
+work, because they share the central registration point and the shortcuts dialog must list
+exactly the keys that exist.
+
 ## Lists and tables
 
-Every list of records (the Conditions table, the Labs list, the Review table) behaves the
+**(planned)** Every list of records (the Conditions table, the Labs list, the Review table) behaves the
 same way. The behavior lives in the shared list and detail-panel components, not in each page.
 
 | Key | Action |
@@ -19,7 +25,7 @@ same way. The behavior lives in the shared list and detail-panel components, not
 | Shift+Tab | The same, in reverse |
 | Space | Check or uncheck the row, where the table has checkboxes |
 | `/` | Focus the list's filter or search field, if it has one |
-| Esc | Close the detail panel and put focus back on the row that opened it |
+| Esc | Close the detail panel **(shipped)** and put focus back on the row that opened it **(planned)** |
 
 ### The rules behind it
 
@@ -46,12 +52,12 @@ same way. The behavior lives in the shared list and detail-panel components, not
 
 | Key | Action |
 |---|---|
-| ⌘K / Ctrl+K | Search this patient |
-| G, then a letter | Go to a section (below) |
-| `[` | Collapse or expand the sidebar (counts as the manual sizing choice) |
-| `?` | Show the keyboard shortcuts dialog |
+| ⌘K / Ctrl+K | Search this patient; outside a patient's record, jump to a section or a patient **(shipped)** |
+| G, then a letter | Go to a section (below) **(planned)** |
+| `[` | Collapse or expand the sidebar (counts as the manual sizing choice) **(planned)** |
+| `?` | Show the keyboard shortcuts dialog **(planned)** |
 
-### Go to (after G)
+### Go to (after G) (planned)
 
 | Letter | Section |
 |---|---|
@@ -72,17 +78,18 @@ same way. The behavior lives in the shared list and detail-panel components, not
 ## Rules for every shortcut
 
 - **Shortcuts pause while you type.** None fire while focus is in an input, textarea, select or
-  contenteditable element, or while a dialog is open (except Esc).
+  contenteditable element, or while a dialog is open (except Esc). **(shipped** for ⌘K and Esc**)**
 - **No single key changes the record.** Approving, rejecting, resolving, editing and deleting
   always take a deliberate action: a focused button and Enter or Space, never a bare letter.
 - **One registration point.** Shortcuts register through one central hook, never a separate
-  global `keydown` listener per component.
+  global `keydown` listener per component. **(planned)** Today ⌘K and the panel's Esc each have
+  their own listener; the planned hook replaces both.
 - **The shortcuts dialog is a real dialog** with a focus trap. It lists exactly the keys in
   this document. When a shortcut changes, change this document and the dialog together.
 
 ## Tests
 
-The list behavior is covered by tests that drive the real keys:
+**(planned)** The list behavior is covered by tests that drive the real keys:
 
 - arrow movement, Home and End
 - Enter opens the record; Esc returns focus to its row
