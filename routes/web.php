@@ -61,6 +61,13 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/phr/patient/{patient}/imaging/series/{series}/explore-3d', [PHRPageController::class, 'explore3d'])
         ->whereNumber(['patient', 'series'])
         ->name('phr.imaging.explore-3d');
+    // Deep links into the patient shell (/phr/patient/{id}/{page}[/…]); the client routes the
+    // rest. Registered after the more specific patient routes above so those still win.
+    Route::get('/phr/patient/{patient}/{page}/{rest?}', [PHRPageController::class, 'patient'])
+        ->whereNumber('patient')
+        ->whereIn('page', PHRPageController::PATIENT_PAGES)
+        ->where('rest', '.*')
+        ->name('phr.patient.page');
 
     /*
      * Static OHIF Viewer bundle (public/ohif/, uploaded out of band — see
