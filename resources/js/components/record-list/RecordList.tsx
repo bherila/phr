@@ -10,12 +10,12 @@ export interface RecordListProps<Row> extends RecordNavigationOptions<Row> {
   label: string
   renderItem: (row: Row) => ReactNode
   /** `ol` for a timeline or anything ordered. */
-  as?: 'ul' | 'ol'
-  loading?: boolean
-  loadingContent?: ReactNode
-  empty?: ReactNode
-  className?: string
-  itemClassName?: string | ((row: Row) => string)
+  as?: 'ul' | 'ol' | undefined
+  loading?: boolean | undefined
+  loadingContent?: ReactNode | undefined
+  empty?: ReactNode | undefined
+  className?: string | undefined
+  itemClassName?: string | ((row: Row) => string) | undefined
 }
 
 /**

@@ -22,16 +22,16 @@ export interface RecordNavigationOptions<Row> {
   rows: readonly Row[]
   rowId: (row: Row) => string
   /** Open a row: Enter, or a click outside its buttons and links. */
-  onOpen?: (row: Row, options: RecordOpenOptions) => void
+  onOpen?: ((row: Row, options: RecordOpenOptions) => void) | undefined
   /**
    * The id of the record the detail panel shows, or null when it is closed. While it is open,
    * moving the active row opens that row too (debounced, with `replace`). When it closes, focus
    * returns to the row that was open.
    */
-  openRowId?: string | null
+  openRowId?: string | null | undefined
   /** How long the active row must settle before the open panel follows it. */
-  followDelayMs?: number
-  selection?: RecordSelection
+  followDelayMs?: number | undefined
+  selection?: RecordSelection | undefined
 }
 
 export interface RecordRowProps {

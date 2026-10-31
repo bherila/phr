@@ -19,11 +19,21 @@ import { type ComponentType, lazy, type ReactElement, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 
-import type { PhrDetailId, PhrNavTarget, PhrPageId } from './phrRoutes'
+import type { PhrDetailId, PhrDetailRef, PhrNavTarget, PhrPageId } from './phrRoutes'
+
+export interface PhrDrillOptions {
+  /**
+   * Replace the current history entry instead of pushing one: the detail panel following the
+   * active row, so Back does not replay every arrow press.
+   */
+  replace?: boolean
+}
 
 export interface PhrListPageProps {
   patientId: number
-  onDrill?: (target: PhrNavTarget) => void
+  onDrill?: (target: PhrNavTarget, options?: PhrDrillOptions) => void
+  /** The record open beside the list (a visit, when its linked study replaced it in the panel). */
+  openRecord?: PhrDetailRef | undefined
 }
 
 export interface PhrDetailPageProps {

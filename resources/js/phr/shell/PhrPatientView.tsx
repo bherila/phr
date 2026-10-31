@@ -3,8 +3,8 @@ import { type ReactElement, type ReactNode, Suspense, useEffect } from 'react'
 
 import { cn } from '@/lib/utils'
 
-import { pushPhrLocation } from './phrLocation'
-import { navGroupOf, PHR_DETAILS, PHR_PAGES } from './phrPages'
+import { pushPhrLocation, replacePhrLocation } from './phrLocation'
+import { navGroupOf, PHR_DETAILS, PHR_PAGES, type PhrDrillOptions } from './phrPages'
 import { detailPresentation, type PhrNavTarget, type PhrView, phrViewUrl, resolveNavTarget } from './phrRoutes'
 import { navigateToView } from './usePhrView'
 
@@ -71,7 +71,11 @@ export function PhrPatientView({ view, patientName }: PhrPatientViewProps): Reac
   const crumbs = pageCrumbs(view, patientName)
   const closeUrl = phrViewUrl(listView(view))
 
-  const fromList = (target: PhrNavTarget): void => navigateToView(resolveNavTarget(view, target, 'list'))
+  const fromList = (target: PhrNavTarget, options?: PhrDrillOptions): void => {
+    const next = resolveNavTarget(view, target, 'list')
+    if (options?.replace) replacePhrLocation(phrViewUrl(next))
+    else navigateToView(next)
+  }
   const fromDetail = (target: PhrNavTarget): void => navigateToView(resolveNavTarget(view, target, 'detail'))
 
   useEscapeToClose(presentation === 'panel' ? closeUrl : null)
@@ -100,7 +104,7 @@ export function PhrPatientView({ view, patientName }: PhrPatientViewProps): Reac
         <div className="flex flex-col gap-4 px-4 py-6 md:px-8">
           <Breadcrumb crumbs={crumbs} />
           <Suspense fallback={LOADING}>
-            <ListPage key={`${view.patientId}-${view.page}`} patientId={view.patientId} onDrill={fromList} />
+            <ListPage key={`${view.patientId}-${view.page}`} patientId={view.patientId} onDrill={fromList} openRecord={view.parent ?? view.detail} />
           </Suspense>
         </div>
       </div>

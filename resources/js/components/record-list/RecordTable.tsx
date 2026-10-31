@@ -8,14 +8,14 @@ export interface RecordColumn<Row> {
   id: string
   header: ReactNode
   cell: (row: Row) => ReactNode
-  className?: string | ((row: Row) => string)
-  headerClassName?: string
+  className?: string | ((row: Row) => string) | undefined
+  headerClassName?: string | undefined
 }
 
 export interface RecordSelectionColumn<Row> {
   /** Names the checkbox: "Select {label}". */
   label: (row: Row) => string
-  header?: ReactNode
+  header?: ReactNode | undefined
 }
 
 export interface RecordTableProps<Row> extends RecordNavigationOptions<Row> {
@@ -23,20 +23,20 @@ export interface RecordTableProps<Row> extends RecordNavigationOptions<Row> {
   label: string
   columns: readonly RecordColumn<Row>[]
   /** Shown instead of the table while loading. Nothing by default. */
-  loading?: boolean
-  loadingContent?: ReactNode
+  loading?: boolean | undefined
+  loadingContent?: ReactNode | undefined
   /** Shown instead of the table when there are no rows. */
-  empty?: ReactNode
+  empty?: ReactNode | undefined
   /** Extra full-width rows under a row (an inline edit form, a delete confirmation). */
-  renderAfterRow?: (row: Row, colSpan: number) => ReactNode
-  rowClassName?: (row: Row) => string
+  renderAfterRow?: ((row: Row, colSpan: number) => ReactNode) | undefined
+  rowClassName?: ((row: Row) => string) | undefined
   /** The scroll box around the table: wide tables scroll inside it, not the page. */
-  className?: string
-  tableClassName?: string
-  headClassName?: string
-  bodyClassName?: string
+  className?: string | undefined
+  tableClassName?: string | undefined
+  headClassName?: string | undefined
+  bodyClassName?: string | undefined
   /** Adds a checkbox column. Requires `selection`; Space on a row toggles it. */
-  selectionColumn?: RecordSelectionColumn<Row>
+  selectionColumn?: RecordSelectionColumn<Row> | undefined
 }
 
 export const RECORD_ROW_CLASS = 'outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring data-[open]:bg-accent/60'
