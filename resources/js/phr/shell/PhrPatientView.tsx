@@ -1,10 +1,10 @@
 import { ArrowLeft, X } from 'lucide-react'
-import { type ReactElement, type ReactNode, Suspense, useEffect } from 'react'
+import { type ReactElement, type ReactNode, Suspense } from 'react'
 
 import { DetailSkeleton, PageSkeleton } from '@/components/record-list/Skeleton'
 import { cn } from '@/lib/utils'
 
-import { pushPhrLocation, replacePhrLocation } from './phrLocation'
+import { replacePhrLocation } from './phrLocation'
 import { navGroupOf, PHR_DETAILS, PHR_PAGES, type PhrDrillOptions } from './phrPages'
 import { detailPresentation, type PhrNavTarget, type PhrView, phrViewUrl, resolveNavTarget } from './phrRoutes'
 import { navigateToView } from './usePhrView'
@@ -99,8 +99,6 @@ export function PhrPatientView({ view, patientName }: PhrPatientViewProps): Reac
   }
   const fromDetail = (target: PhrNavTarget): void => navigateToView(resolveNavTarget(view, target, 'detail'))
 
-  useEscapeToClose(presentation === 'panel' ? closeUrl : null)
-
   if (view.detail && presentation === 'page') {
     const detail = PHR_DETAILS[view.detail.module]
     const Detail = detail.component
@@ -177,24 +175,3 @@ function DetailPanel({ view, closeUrl, crumbs, children }: { view: PatientView, 
     </aside>
   )
 }
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
-}
-
-/** Escape closes the detail panel, unless focus is in a field or a dialog is open. */
-function useEscapeToClose(closeUrl: string | null): void {
-  useEffect(() => {
-    if (closeUrl === null) return
-    const handler = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape' || event.defaultPrevented || isEditableTarget(event.target)) return
-      if (document.querySelector('[role="dialog"][data-open], [role="alertdialog"][data-open]')) return
-      event.preventDefault()
-      pushPhrLocation(closeUrl)
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [closeUrl])
-}
-

@@ -22,3 +22,17 @@ export const RECORD_LIST_KEYS = {
   toggle: listKey('list-toggle', [['Space']], 'Check or uncheck the row, where the list has checkboxes'),
   back: listKey('list-back', [['Escape']], 'From a row’s button, go back to its row'),
 } as const satisfies Record<string, ShortcutBinding>
+
+/** `/` is global: it focuses the page's list filter from anywhere outside a field. */
+export const FOCUS_FILTER_KEYS: ShortcutBinding['keys'] = [['/']]
+
+export const RECORD_LIST_FILTER_ATTRIBUTE = 'data-record-list-filter'
+
+/** Focus the filter or search field of the list on this page. Returns whether there was one. */
+export function focusRecordListFilter(root: ParentNode = document): boolean {
+  const field = root.querySelector<HTMLElement>(`[${RECORD_LIST_FILTER_ATTRIBUTE}]`)
+  if (!field) return false
+  field.focus()
+  if (field instanceof HTMLInputElement) field.select()
+  return true
+}
