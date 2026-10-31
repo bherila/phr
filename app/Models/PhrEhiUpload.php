@@ -15,6 +15,7 @@ use Illuminate\Support\Carbon;
  * @property int $patient_id
  * @property int|null $actor_user_id
  * @property int|null $package_id
+ * @property int|null $source_document_id
  * @property string $storage_disk
  * @property string|null $storage_path
  * @property int $file_size_bytes
@@ -64,6 +65,7 @@ class PhrEhiUpload extends Model
         'patient_id',
         'actor_user_id',
         'package_id',
+        'source_document_id',
         'storage_disk',
         'storage_path',
         'file_size_bytes',
@@ -82,6 +84,7 @@ class PhrEhiUpload extends Model
             'patient_id' => 'integer',
             'actor_user_id' => 'integer',
             'package_id' => 'integer',
+            'source_document_id' => 'integer',
             'file_size_bytes' => 'integer',
             'uploaded_bytes' => 'integer',
             'result_json' => 'array',

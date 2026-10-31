@@ -738,7 +738,7 @@ final class GenAiDiagnosticLoggingResilienceTest extends TestCase
     {
         $user ??= User::factory()->create([
             'user_role' => 'user',
-            'genai_execution_mode' => $executionMode,
+            'genai_execution_mode' => $executionMode, 'genai_execution_mode_chosen_at' => now(),
         ]);
         $patient = PhrPatient::query()->create([
             'owner_user_id' => $user->id,

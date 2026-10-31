@@ -6,16 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\Import\Ehi\EhiUploadRefused;
 use App\Services\PHR\Import\Ehi\EhiUploadService;
-use App\Services\PHR\Import\PhrCcdaImporter;
-use App\Services\PHR\Import\PhrFhirImporter;
-use App\Services\PHR\Import\PhrSourcePatients;
-use App\Services\PHR\Import\PhrStructuredFormat;
+use App\Services\PHR\Import\PhrStructuredFileImporter;
+use App\Services\PHR\Import\PhrStructuredImportRefused;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use InvalidArgumentException;
-use Throwable;
 
 /**
  * Imports one C-CDA or FHIR file from the browser (issue #235, PR 3). The format
@@ -33,8 +27,7 @@ final class PhrStructuredImportController extends Controller
     public function __construct(
         private readonly PhrPatientAccessService $access,
         private readonly EhiUploadService $uploads,
-        private readonly PhrCcdaImporter $ccda,
-        private readonly PhrFhirImporter $fhir,
+        private readonly PhrStructuredFileImporter $files,
     ) {}
 
     public function store(Request $request, int $patient): JsonResponse
@@ -48,28 +41,10 @@ final class PhrStructuredImportController extends Controller
             return $this->privateJson(['error' => $refused->reason], $refused->status());
         }
 
-        $contents = PhrStructuredFormat::normalize((string) file_get_contents($validated['file']->getRealPath()));
-        [$format, $bundle] = PhrStructuredFormat::read($contents);
-        if ($format === null) {
-            return $this->privateJson(['error' => 'unsupported_format'], 422);
-        }
-        $patients = new PhrSourcePatients;
-        $format === PhrStructuredFormat::FHIR ? $patients->addFhirBundle((array) $bundle) : $patients->addCcda($contents);
-        if ($patients->multiple()) {
-            return $this->privateJson(['error' => 'multiple_patients'], 422);
-        }
         try {
-            // All of the file or none of it: an entry that fails partway must not
-            // leave the entries before it written, unsummarized.
-            $result = DB::transaction(fn () => $format === PhrStructuredFormat::CCDA
-                ? $this->ccda->importXml($contents, $patientModel, $actor)
-                : $this->fhir->importBundle((array) $bundle, $patientModel, $actor));
-        } catch (Throwable $failure) {
-            if (! $failure instanceof InvalidArgumentException) {
-                Log::warning('Structured file import failed.', ['exception' => $failure::class]);
-            }
-
-            return $this->privateJson(['error' => 'unreadable'], 422);
+            [$format, $result] = $this->files->import($patientModel, $actor, (string) file_get_contents($validated['file']->getRealPath()));
+        } catch (PhrStructuredImportRefused $refused) {
+            return $this->privateJson(['error' => $refused->reason], 422);
         }
 
         return $this->privateJson(['format' => $format, 'result' => $result->toArray()]);

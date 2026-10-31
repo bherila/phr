@@ -24,14 +24,15 @@ final readonly class AgentImportPayload
         )->toArray(), 'import_job', true);
     }
 
-    public static function mutation(AgentApiTransportResponse $response, string $resourceType): self
+    /** One of `$resourceTypes`: imports.create answers an import job or a structured import. */
+    public static function mutation(AgentApiTransportResponse $response, string ...$resourceTypes): self
     {
         $payload = AgentApiPayload::from(
             $response,
             ['resource_type', 'patient_id', 'outcome', 'data'],
         )->toArray();
 
-        return self::validate($payload, $resourceType, true);
+        return self::validate($payload, $resourceTypes, true);
     }
 
     /** @return array<string, mixed> */
@@ -40,10 +41,13 @@ final readonly class AgentImportPayload
         return $this->value;
     }
 
-    /** @param array<string, mixed> $payload */
-    private static function validate(array $payload, string $resourceType, bool $requiresObjectData): self
+    /**
+     * @param  array<string, mixed>  $payload
+     * @param  string|list<string>  $resourceType
+     */
+    private static function validate(array $payload, string|array $resourceType, bool $requiresObjectData): self
     {
-        if (($payload['resource_type'] ?? null) !== $resourceType
+        if (! in_array($payload['resource_type'] ?? null, (array) $resourceType, true)
             || ! is_int($payload['patient_id'] ?? null)
             || ! is_array($payload['data'] ?? null)
             || ($requiresObjectData && array_is_list($payload['data']))) {

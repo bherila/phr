@@ -18,6 +18,7 @@ import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
 import { formatBytes } from '@/lib/utils'
 import { isBrowserPreviewableImage } from '@/phr/documents/browserImagePreview'
+import { useExecutionMode } from '@/phr/imports/ai/useExecutionMode'
 import { EhiPendingBanner } from '@/phr/imports/ehi/EhiPendingBanner'
 import type { PhrListPageProps } from '@/phr/miller'
 import { errorMessage } from '@/phr/shared'
@@ -106,6 +107,7 @@ const emptyFilters: FilterState = {
 }
 
 export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) {
+  const executionMode = useExecutionMode()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [documents, setDocuments] = useState<PhrDocument[]>([])
   const [selectedId, setSelectedId] = useState<number | null>(null)
@@ -436,7 +438,7 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
                 {canManage && (
                   <Button type="button" variant="outline" size="sm" onClick={() => void processWithGenAi(selectedDocument)} disabled={processingId === selectedDocument.id}>
                     {processingId === selectedDocument.id ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-                    Process with GenAI
+                    {executionMode === 'external' ? 'Send to AI Agent Inbox' : 'Process with AI'}
                   </Button>
                 )}
               </div>

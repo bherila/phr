@@ -2705,7 +2705,7 @@
         "/patients/{patient}/imports": {
             "post": {
                 "operationId": "imports.create",
-                "summary": "Idempotently enqueue structured extraction for a stored document",
+                "summary": "Idempotently import a stored document: with PHR's own parsers when it is C-CDA, FHIR, or a MyChart or EHI export ZIP, otherwise by queuing AI extraction",
                 "security": [
                     {
                         "oauth2": [
@@ -2733,21 +2733,21 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "The document already has an import job",
+                        "description": "Imported directly, or the document's existing import returned",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ImportJobMutationResponse"
+                                    "$ref": "#/components/schemas/ImportCreateResponse"
                                 }
                             }
                         }
                     },
                     "202": {
-                        "description": "Import job accepted",
+                        "description": "Import job or staged upload accepted",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ImportJobMutationResponse"
+                                    "$ref": "#/components/schemas/ImportCreateResponse"
                                 }
                             }
                         }
@@ -8002,6 +8002,50 @@
                 },
                 "additionalProperties": false
             },
+            "ImportCreateResponse": {
+                "description": "An import job queued for AI extraction (resource_type import_job), or a document PHR's own parsers read (resource_type structured_import): a C-CDA or FHIR file imported directly, pending review, or a MyChart or EHI export ZIP staged for intake.",
+                "type": "object",
+                "required": [
+                    "resource_type",
+                    "patient_id",
+                    "outcome",
+                    "data"
+                ],
+                "properties": {
+                    "resource_type": {
+                        "type": "string",
+                        "enum": [
+                            "import_job",
+                            "structured_import"
+                        ]
+                    },
+                    "patient_id": {
+                        "type": "integer"
+                    },
+                    "outcome": {
+                        "type": "string",
+                        "enum": [
+                            "created",
+                            "unchanged",
+                            "retried",
+                            "imported",
+                            "queued"
+                        ],
+                        "description": "import_job: created, unchanged or retried. structured_import: imported (written directly), queued (a ZIP staged for intake), or unchanged (a ZIP staged by an earlier call, as it stands now)."
+                    },
+                    "data": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/ImportJobMutationReceipt"
+                            },
+                            {
+                                "$ref": "#/components/schemas/StructuredImportReceipt"
+                            }
+                        ]
+                    }
+                },
+                "additionalProperties": false
+            },
             "ImportJobDetail": {
                 "type": "object",
                 "required": [
@@ -9997,6 +10041,103 @@
                     "hawk",
                     "snort_suck"
                 ]
+            },
+            "StructuredImportReceipt": {
+                "type": "object",
+                "required": [
+                    "document_id",
+                    "format",
+                    "import",
+                    "upload"
+                ],
+                "properties": {
+                    "document_id": {
+                        "type": "integer"
+                    },
+                    "format": {
+                        "type": "string",
+                        "enum": [
+                            "ccda",
+                            "fhir",
+                            "zip"
+                        ],
+                        "description": "zip: intake decides between an Epic EHI Tables export and a MyChart record ZIP."
+                    },
+                    "import": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/ImportCounts"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "What a C-CDA or FHIR document wrote. Records land pending review."
+                    },
+                    "upload": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/StructuredImportUpload"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "A ZIP document's staged upload. Call imports.create again for its current state; an EHI export's source is confirmed and its proposals reviewed by the patient's owner in PHR's Imports page."
+                    }
+                },
+                "additionalProperties": false
+            },
+            "StructuredImportUpload": {
+                "type": "object",
+                "required": [
+                    "id",
+                    "status",
+                    "format",
+                    "failure_reason",
+                    "package_id"
+                ],
+                "properties": {
+                    "id": {
+                        "type": "integer"
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "uploading",
+                            "queued",
+                            "processing",
+                            "completed",
+                            "rejected",
+                            "failed"
+                        ]
+                    },
+                    "format": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "enum": [
+                            "ehi",
+                            "mychart",
+                            null
+                        ]
+                    },
+                    "failure_reason": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "description": "A fixed refusal or failure code."
+                    },
+                    "package_id": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ]
+                    }
+                },
+                "additionalProperties": false
             },
             "VitalUpsertData": {
                 "type": "object",

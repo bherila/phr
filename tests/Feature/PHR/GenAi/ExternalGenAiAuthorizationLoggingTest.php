@@ -271,7 +271,7 @@ final class ExternalGenAiAuthorizationLoggingTest extends TestCase
     {
         $user = User::factory()->create([
             'user_role' => 'user',
-            'genai_execution_mode' => GenAiImportJob::EXECUTION_EXTERNAL,
+            'genai_execution_mode' => GenAiImportJob::EXECUTION_EXTERNAL, 'genai_execution_mode_chosen_at' => now(),
         ]);
         $patientOwner = $owner ? $user : User::factory()->create(['user_role' => 'user']);
         $patient = PhrPatient::query()->create([

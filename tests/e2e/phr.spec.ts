@@ -395,4 +395,30 @@ test.describe.serial('PHR browser journeys', () => {
     await page.goto(`/phr/patient/${patientId}#/immunizations`)
     await expect(page.getByRole('button', { name: /^Reject / }).first()).toBeVisible()
   })
+
+  test('sends a PDF to the AI Agent Inbox from the Imports page by default', async ({ page }, testInfo) => {
+    await signIn(page, ownerCredentials)
+    const patientName = patientNameForAttempt(testInfo.retry)
+    const patientId = await ownerPatientId(page, patientName)
+    await page.goto(`/phr/imports?patient_id=${patientId}#/imports`)
+    await expect(page.getByLabel('Import into')).toHaveValue(String(patientId))
+
+    await page.getByLabel('File to import').setInputFiles({
+      name: 'synthetic-letter.pdf',
+      mimeType: 'application/pdf',
+      buffer: Buffer.from('%PDF-1.4 synthetic letter for AI. No personal data.'),
+    })
+    // No provider key is saved, so AI work goes to the inbox by default.
+    await expect(page.getByRole('heading', { name: 'Extract records with AI' })).toBeVisible()
+    await page.getByLabel(`This file belongs to ${patientName}`).check()
+    await page.getByRole('button', { name: 'Keep and send to AI Agent Inbox' }).click()
+
+    await expect(page.getByText(/Sent synthetic-letter\.pdf to the AI Agent Inbox/)).toBeVisible()
+    const row = page.getByRole('row').filter({ hasText: 'synthetic-letter.pdf' })
+    await expect(row).toContainText('AI · AI Agent Inbox')
+    await expect(row).toContainText('With your agent')
+
+    await page.goto('/phr/config#/config')
+    await expect(page.getByText(/the default applies: the AI Agent Inbox/)).toBeVisible()
+  })
 })

@@ -3,6 +3,7 @@
 namespace App\Services\PHR\Import\Ehi;
 
 use App\Jobs\PHR\IntakeEhiUploadJob;
+use App\Models\PhrDocument;
 use App\Models\PhrEhiUpload;
 use App\Models\PhrPatient;
 use App\Services\PHR\Access\PhrPatientAccessService;
@@ -84,6 +85,103 @@ final class EhiUploadService
                 throw $failure;
             }
         });
+    }
+
+    /**
+     * Stage a stored ZIP document as an upload and queue its intake: the path an
+     * agent's imports.create takes for an EHI or MyChart export. A repeat returns
+     * the document's upload; after a failure it queues intake again, or stages a
+     * fresh copy when the failed upload's copy is gone.
+     *
+     * @return array{0: PhrEhiUpload, 1: bool} the upload, and whether intake was queued now
+     *
+     * @throws EhiUploadRefused
+     * @throws AuthorizationException
+     */
+    public function stageDocument(PhrPatient $patient, int $actorUserId, PhrDocument $document): array
+    {
+        $this->ensureWritable($patient, $actorUserId);
+        $size = (int) $document->byte_size;
+        if ($size < 1 || $size > EhiLimits::fromConfig()->maxContainerBytes()) {
+            throw new EhiUploadRefused(EhiUploadRefused::TOO_LARGE, 'the document is outside the EHI package limits');
+        }
+
+        $diskName = (string) config('phr.ehi_disk');
+        [$upload, $queue] = $this->writeGuard->run((int) $patient->id, function (PhrPatient $locked) use ($actorUserId, $document, $size, $diskName): array {
+            $this->ensureWritable($locked, $actorUserId);
+            $existing = PhrEhiUpload::query()->where('patient_id', $locked->id)->where('source_document_id', $document->id)->latest('id')->lockForUpdate()->first();
+            if ($existing !== null && $existing->status !== PhrEhiUpload::STATUS_FAILED) {
+                return [$existing, false];
+            }
+            // A failed upload is queued again only while its staged copy still
+            // exists; otherwise (purged, expired, or the copy lost) a fresh copy
+            // is staged below, so a retry neither sticks nor fails the same way.
+            if ($existing !== null && $existing->storage_path !== null && $existing->expires_at->isFuture()
+                && Storage::disk($existing->storage_disk)->exists($existing->storage_path)) {
+                $existing->update(['actor_user_id' => $actorUserId, 'status' => PhrEhiUpload::STATUS_QUEUED, 'failure_reason' => null, 'completed_at' => null]);
+
+                return [$existing, true];
+            }
+
+            $path = PhrStorageKey::ehiUpload((int) $locked->id, (string) Str::uuid());
+            try {
+                $written = $this->linkOrCopy($document, $diskName, $path);
+                if (! $written || Storage::disk($diskName)->size($path) !== $size) {
+                    throw new EhiUploadRefused(EhiUploadRefused::STORAGE_FAILED, 'the staged copy does not match the document');
+                }
+
+                return [PhrEhiUpload::query()->create([
+                    'patient_id' => $locked->id,
+                    'actor_user_id' => $actorUserId,
+                    'source_document_id' => $document->id,
+                    'storage_disk' => $diskName,
+                    'storage_path' => $path,
+                    'file_size_bytes' => $size,
+                    'uploaded_bytes' => $size,
+                    'status' => PhrEhiUpload::STATUS_QUEUED,
+                    'expires_at' => now()->addHours((int) config('phr.ehi_upload_retention_hours')),
+                ]), true];
+            } catch (Throwable $failure) {
+                $this->deleteQuietly($diskName, $path);
+
+                throw $failure;
+            }
+        });
+
+        if ($queue) {
+            try {
+                IntakeEhiUploadJob::dispatch($upload->id);
+            } catch (Throwable) {
+                $this->markFailed($upload->id, 'queue_failed');
+            }
+        }
+
+        return [$upload->refresh(), $queue];
+    }
+
+    /**
+     * Put a document's bytes at a staging key. Documents are immutable, so on the
+     * same local disk a hard link stages a multi-gigabyte export at once, without
+     * copying it while the patient lock is held; removing the staging key later
+     * leaves the document intact. Elsewhere the bytes are streamed across.
+     */
+    private function linkOrCopy(PhrDocument $document, string $diskName, string $path): bool
+    {
+        $from = Storage::disk(PhrDocument::STORAGE_DISK);
+        $to = Storage::disk($diskName);
+        if ($diskName === PhrDocument::STORAGE_DISK && $to->makeDirectory(dirname($path))
+            && @link($from->path((string) $document->storage_path), $to->path($path))) {
+            return true;
+        }
+        $source = $from->readStream((string) $document->storage_path);
+        if (! is_resource($source)) {
+            throw new EhiUploadRefused(EhiUploadRefused::STORAGE_FAILED, 'the document could not be read');
+        }
+        try {
+            return $to->writeStream($path, $source);
+        } finally {
+            fclose($source);
+        }
     }
 
     /**

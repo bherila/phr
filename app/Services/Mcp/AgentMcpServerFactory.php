@@ -240,6 +240,9 @@ final class AgentMcpServerFactory
         if ($hasImportReview) {
             $details[] = 'Keep interpreted source data distinct from evidence, inspect staged proposals and existing records, and obtain explicit user approval before imports.review.';
         }
+        if (isset($available['imports.create'])) {
+            $details[] = 'imports.create reads a C-CDA, FHIR, or MyChart or EHI export document with PHR\'s own parsers, not AI: its records land pending review, and an EHI export is reviewed by the patient\'s owner in PHR. Only other documents are queued for AI extraction, in the person\'s AI Agent Inbox or with server-side AI, as they have chosen.';
+        }
         if (isset($available['documents.download_access.create'])) {
             $details[] = 'Request document download access only when file contents are explicitly needed.';
         }
@@ -260,6 +263,9 @@ final class AgentMcpServerFactory
         $hasGenAiStatus = isset($available['genai_queue_status']);
         $hasGenAiWork = isset($available['claim_genai_request']);
         if ($hasGenAiWork) {
+            // In PHR this queue is the person's AI Agent Inbox: the documents they
+            // send to AI from PHR wait in it for their own agent to process.
+            $details[] = 'In PHR this queue is the AI Agent Inbox: documents the person sends to AI from PHR wait here for you to process.';
             $details[] = $this->genAiCatalog->instructions();
         } elseif ($hasGenAiStatus) {
             $details[] = 'You may inspect the private external GenAI queue status, but this connection was not granted permission to claim or complete work.';

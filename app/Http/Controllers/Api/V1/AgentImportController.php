@@ -8,13 +8,16 @@ use App\GenAiProcessor\Models\GenAiImportResult;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AgentApi\ReviewAgentImportRequest;
 use App\Http\Requests\AgentApi\StoreAgentImportRequest;
+use App\Models\PhrDocument;
 use App\Models\PhrPatient;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\Import\PhrDocumentProcessingService;
 use App\Services\PHR\Import\PhrImportJobDao;
+use App\Services\PHR\Import\PhrImportJobPresenter;
 use App\Services\PHR\Import\PhrImportResult;
-use App\Services\PHR\Import\PhrImportRetryPolicy;
 use App\Services\PHR\Import\PhrImportReviewService;
+use App\Services\PHR\Import\PhrStructuredDocumentImport;
+use App\Services\PHR\Import\PhrStructuredDocumentImporter;
 use App\Support\AgentApi\AgentApiCursor;
 use App\Support\AgentApi\AgentApiScopes;
 use Illuminate\Database\Eloquent\Builder;
@@ -29,7 +32,8 @@ final class AgentImportController extends Controller
         private PhrImportJobDao $jobs,
         private PhrDocumentProcessingService $processing,
         private PhrImportReviewService $reviews,
-        private PhrImportRetryPolicy $retryPolicy,
+        private PhrStructuredDocumentImporter $structured,
+        private PhrImportJobPresenter $presenter,
     ) {}
 
     public function index(Request $request, int $patient): JsonResponse
@@ -60,7 +64,7 @@ final class AgentImportController extends Controller
         return response()->json([
             'resource_type' => 'import_job',
             'patient_id' => $resolved->id,
-            'data' => $page->getCollection()->map(fn (GenAiImportJob $job): array => $this->jobPayload($job))->values(),
+            'data' => $page->getCollection()->map(fn (GenAiImportJob $job): array => $this->presenter->job($job))->values(),
             'pagination' => [
                 'limit' => $limit,
                 'has_more' => $page->hasMorePages(),
@@ -85,15 +89,32 @@ final class AgentImportController extends Controller
             'resource_type' => 'import_job',
             'patient_id' => $resolved->id,
             'data' => [
-                ...$this->jobPayload($job),
-                'results' => $job->results->map(fn (GenAiImportResult $result): array => $this->resultPayload($result))->values(),
+                ...$this->presenter->job($job),
+                'results' => $job->results->map(fn (GenAiImportResult $result): array => $this->presenter->result($result))->values(),
             ],
         ]);
     }
 
+    /**
+     * A document PHR's own parsers read (C-CDA, FHIR, or a MyChart or EHI export
+     * ZIP) is imported by them, as in the browser; anything else is queued for AI
+     * extraction. Either way one call per document, and a repeat returns it.
+     */
     public function store(StoreAgentImportRequest $request, int $patient): JsonResponse
     {
         $resolved = $this->writablePatient($request, $patient);
+        $actor = (int) $request->user('api')?->id;
+        $document = PhrDocument::query()->where('patient_id', $resolved->id)->findOrFail((int) $request->validated('document_id'));
+        // A document already sent to AI keeps that import: one import per
+        // document, and its proposals are not doubled by a direct import.
+        $structured = $document->genai_job_id === null ? $this->structured->import($resolved, $actor, $document) : null;
+        if ($structured !== null) {
+            return response()->json(
+                $this->structuredPayload($resolved, $document, $structured),
+                $structured->outcome === PhrStructuredDocumentImport::QUEUED ? 202 : 200,
+            );
+        }
+
         $result = $this->processing->create(
             $resolved,
             (int) $request->user('api')?->id,
@@ -136,8 +157,8 @@ final class AgentImportController extends Controller
             'outcome' => $review->outcome,
             'import' => $this->importCounts($review->import),
             'data' => $request->user('api')?->tokenCan(AgentApiScopes::IMPORTS_READ)
-                ? $this->resultPayload($review->result)
-                : $this->resultReceipt($review->result),
+                ? $this->presenter->result($review->result)
+                : $this->presenter->resultReceipt($review->result),
         ];
 
         return response()->json($payload);
@@ -182,50 +203,27 @@ final class AgentImportController extends Controller
     }
 
     /** @return array<string, mixed> */
-    private function jobPayload(GenAiImportJob $job): array
+    private function structuredPayload(PhrPatient $patient, PhrDocument $document, PhrStructuredDocumentImport $structured): array
     {
-        return [
-            'id' => (int) $job->id,
-            'document_id' => $job->sourceDocument?->id,
-            'job_type' => $job->job_type,
-            'status' => $job->status,
-            'retry_count' => $job->retry_count,
-            'can_retry' => $this->retryPolicy->canRetry(
-                $job,
-                $job->sourceDocument,
-                (int) ($job->results_count ?? 0) !== (int) ($job->pending_results_count ?? 0),
-            ),
-            'result_count' => (int) ($job->results_count ?? 0),
-            'pending_result_count' => (int) ($job->pending_results_count ?? 0),
-            'processing_tier' => $job->processing_tier,
-            'scheduled_for' => $job->scheduled_for?->toDateString(),
-            'parsed_at' => $job->parsed_at?->toIso8601String(),
-            'failure_code' => $job->status === 'failed' ? 'processing_failed' : null,
-            'created_at' => $job->created_at?->toIso8601String(),
-            'updated_at' => $job->updated_at?->toIso8601String(),
-        ];
-    }
-
-    /** @return array<string, mixed> */
-    private function resultPayload(GenAiImportResult $result): array
-    {
-        $data = $result->getResultArray();
+        $upload = $structured->upload;
 
         return [
-            ...$this->resultReceipt($result),
-            'result_index' => $result->result_index,
-            'produced_by' => $result->produced_by,
-            'data' => $data === [] ? (object) [] : $data,
-            'imported_at' => $result->imported_at?->toIso8601String(),
-            'created_at' => $result->created_at?->toIso8601String(),
-            'updated_at' => $result->updated_at?->toIso8601String(),
+            'resource_type' => 'structured_import',
+            'patient_id' => $patient->id,
+            'outcome' => $structured->outcome,
+            'data' => [
+                'document_id' => (int) $document->id,
+                'format' => $structured->format,
+                'import' => $structured->result === null ? null : $this->importCounts($structured->result),
+                'upload' => $upload === null ? null : [
+                    'id' => (int) $upload->id,
+                    'status' => $upload->status,
+                    'format' => $upload->format,
+                    'failure_reason' => $upload->failure_reason,
+                    'package_id' => $upload->package_id,
+                ],
+            ],
         ];
-    }
-
-    /** @return array{id: int, status: string} */
-    private function resultReceipt(GenAiImportResult $result): array
-    {
-        return ['id' => (int) $result->id, 'status' => (string) $result->status];
     }
 
     /** @return array<string, mixed> */

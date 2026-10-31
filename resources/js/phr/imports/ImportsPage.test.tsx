@@ -46,6 +46,7 @@ interface Routes {
   patients?: unknown[]
   uploads?: unknown[]
   packages?: unknown[]
+  aiImports?: unknown[]
   [url: string]: unknown
 }
 
@@ -55,6 +56,7 @@ function routeGets(routes: Routes = {}): void {
     if (url === '/api/phr/patients') return Promise.resolve({ patients: routes.patients ?? [makePatient()] })
     if (url.endsWith('/ehi/uploads')) return Promise.resolve({ uploads: routes.uploads ?? [] })
     if (url.endsWith('/ehi/packages')) return Promise.resolve({ packages: routes.packages ?? [] })
+    if (url.endsWith('/ai-imports')) return Promise.resolve({ imports: routes.aiImports ?? [] })
     if (url in routes) return Promise.resolve(routes[url])
     return Promise.reject(new Error(`unexpected GET ${url}`))
   })
@@ -73,6 +75,11 @@ function chooseImportFile(file: File): void {
   fireEvent.change(screen.getByLabelText('File to import'), { target: { files: [file] } })
 }
 
+const afterTestCleanup: (() => void)[] = []
+afterEach(() => {
+  afterTestCleanup.splice(0).forEach((cleanup) => cleanup())
+})
+
 beforeEach(() => {
   mockGet.mockReset()
   mockPost.mockReset()
@@ -89,7 +96,7 @@ describe('ImportsPage', () => {
     expect(screen.getByText('Drop a file here')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByRole('button', { name: /choose dicom folder/i })).toBeEnabled())
     expect(screen.queryByText(/coming soon/i)).not.toBeInTheDocument()
-    expect(await screen.findByText(/No EHI exports imported/)).toBeInTheDocument()
+    expect(await screen.findByText(/Nothing imported for/)).toBeInTheDocument()
   })
 
   it('defaults the import target to the patient in context', async () => {
@@ -194,6 +201,7 @@ describe('ImportsPage', () => {
       mockGet.mockImplementation((url: string) => {
         if (url === '/api/phr/patients') return Promise.resolve({ patients: [makePatient()] })
         if (url.endsWith('/ehi/packages')) return Promise.resolve({ packages: [] })
+        if (url.endsWith('/ai-imports')) return Promise.resolve({ imports: [] })
         if (url.endsWith('/ehi/uploads')) {
           call += 1
           return Promise.resolve({ uploads: [makeEhiUpload({ patient_id: PATIENT_ID, status: call === 1 ? 'processing' : 'rejected', failure_reason: call === 1 ? null : 'not_ehi' })] })
@@ -214,15 +222,110 @@ describe('ImportsPage', () => {
     }
   })
 
-  it('refuses a file it cannot import here and says where it goes instead', async () => {
+  it('refuses a file it cannot keep, and says what it can import', async () => {
+    renderImports(PATIENT_ID)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Choose file' })).toBeEnabled())
+
+    chooseImportFile(new File(['binary'], 'archive.7z', { type: 'application/x-7z-compressed' }))
+
+    expect(screen.getByRole('heading', { name: 'PHR can’t import this file' })).toBeInTheDocument()
+    expect(screen.getByText(/PDFs, images and text files up to/)).toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
+  })
+
+  it('keeps a PDF as a document and sends it to the AI Agent Inbox with the Documents tab’s request', async () => {
+    // The shell says where this user's AI work goes: the inbox.
+    const shell = document.createElement('script')
+    shell.id = 'app-initial-data'
+    shell.type = 'application/json'
+    shell.textContent = JSON.stringify({ currentUser: { genai_execution_mode: 'external' } })
+    document.body.appendChild(shell)
+    afterTestCleanup.push(() => shell.remove())
+    mockPost.mockImplementation((url: string) => (url.endsWith('/documents')
+      ? Promise.resolve({ document: { id: 77 } })
+      : Promise.resolve({ job_id: 5, status: 'pending', outcome: 'created' })))
     renderImports(PATIENT_ID)
     await waitFor(() => expect(screen.getByRole('button', { name: 'Choose file' })).toBeEnabled())
 
     chooseImportFile(new File(['%PDF-1.7'], 'scan.pdf', { type: 'application/pdf' }))
 
-    expect(screen.getByRole('heading', { name: 'PHR can’t import this file here yet' })).toBeInTheDocument()
-    expect(screen.getByText(/PDFs and photos go through the Documents tab/)).toBeInTheDocument()
-    expect(mockPost).not.toHaveBeenCalled()
+    expect(screen.getByRole('heading', { name: 'Extract records with AI' })).toBeInTheDocument()
+    const send = screen.getByRole('button', { name: 'Keep and send to AI Agent Inbox' })
+    expect(send).toBeDisabled()
+    fireEvent.click(screen.getByLabelText('This file belongs to Primary'))
+    fireEvent.click(send)
+
+    expect(await screen.findByText(/Sent scan.pdf to the AI Agent Inbox/)).toBeInTheDocument()
+    const [uploadUrl, form] = mockPost.mock.calls[0] as [string, FormData]
+    expect(uploadUrl).toBe(`/api/phr/patients/${PATIENT_ID}/documents`)
+    expect(form.get('document_type')).toBe('other')
+    expect(mockPost).toHaveBeenCalledWith(`/api/phr/patients/${PATIENT_ID}/documents/77/process`, {})
+  })
+
+  it('names where AI work goes from the server, not the mode the page loaded with', async () => {
+    // The shell loaded with the inbox; the mode has since changed to server-side AI.
+    const shell = document.createElement('script')
+    shell.id = 'app-initial-data'
+    shell.type = 'application/json'
+    shell.textContent = JSON.stringify({ currentUser: { genai_execution_mode: 'external' } })
+    document.body.appendChild(shell)
+    afterTestCleanup.push(() => shell.remove())
+    routeGets({ '/api/user/ai-execution-mode': { mode: 'api', mode_chosen: true, mcp_url: 'https://phr.example.test/api/v1/mcp', rest_base_url: 'https://phr.example.test/api/v1/genai', required_scopes: [] } })
+    renderImports(PATIENT_ID)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Choose file' })).toBeEnabled())
+
+    chooseImportFile(new File(['%PDF-1.7'], 'scan.pdf', { type: 'application/pdf' }))
+
+    expect(await screen.findByRole('button', { name: 'Keep and process with AI' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Keep and send to AI Agent Inbox' })).not.toBeInTheDocument()
+  })
+
+  it('sends the kept document again after a failed send, without storing a second copy', async () => {
+    let sends = 0
+    mockPost.mockImplementation((url: string) => {
+      if (url.endsWith('/documents')) return Promise.resolve({ document: { id: 77 } })
+      sends += 1
+      return sends === 1 ? Promise.reject('Too many requests.') : Promise.resolve({ job_id: 5, status: 'pending', outcome: 'created' })
+    })
+    renderImports(PATIENT_ID)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Choose file' })).toBeEnabled())
+
+    chooseImportFile(new File(['%PDF-1.7'], 'scan.pdf', { type: 'application/pdf' }))
+    fireEvent.click(screen.getByLabelText('This file belongs to Primary'))
+    fireEvent.click(screen.getByRole('button', { name: 'Keep and process with AI' }))
+    expect(await screen.findByText('Too many requests.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Keep and process with AI' }))
+
+    expect(await screen.findByText(/Sent scan.pdf to server-side AI/)).toBeInTheDocument()
+    expect(mockPost.mock.calls.filter(([url]) => String(url).endsWith('/documents'))).toHaveLength(1)
+    expect(mockPost.mock.calls.filter(([url]) => String(url).endsWith('/process'))).toHaveLength(2)
+  })
+
+  it('lists AI imports by where they stand and opens their review', async () => {
+    const aiImport = (overrides: Record<string, unknown>) => ({
+      id: 5, document_id: 77, job_type: 'phr_lab_result', status: 'pending', retry_count: 0, can_retry: false,
+      result_count: 0, pending_result_count: 0, parsed_at: null, failure_code: null, created_at: '2026-10-28T10:00:00Z',
+      execution_mode: 'external', document_title: 'Synthetic letter', document_filename: 'letter.pdf', ...overrides,
+    })
+    routeGets({
+      aiImports: [
+        aiImport({}),
+        aiImport({ id: 6, status: 'parsed', result_count: 1, pending_result_count: 1, document_title: 'Synthetic labs', created_at: '2026-10-28T11:00:00Z' }),
+      ],
+      [`/api/phr/patients/${PATIENT_ID}/ai-imports/6`]: { import: {
+        ...aiImport({ id: 6, status: 'parsed', result_count: 1, pending_result_count: 1, document_title: 'Synthetic labs' }),
+        results: [{ id: 30, status: 'pending_review', result_index: 0, data: { analyte: 'Synthetic sodium', value: '140' } }],
+      } },
+    })
+    renderImports(PATIENT_ID)
+
+    expect(await screen.findByText('With your agent')).toBeInTheDocument()
+    expect(screen.getAllByText('AI · AI Agent Inbox')).toHaveLength(2)
+    expect(screen.getByText('1 to review')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }))
+
+    expect(await screen.findByRole('heading', { name: 'Review Synthetic labs' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Accept: Synthetic sodium' })).toBeInTheDocument()
   })
 
   it('checks a ZIP with the person before uploading it, then follows the import', async () => {
