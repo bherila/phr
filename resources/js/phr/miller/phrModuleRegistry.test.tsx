@@ -137,6 +137,40 @@ describe('phrModuleRegistry', () => {
     expect(phrModuleRegistry['document-viewer'].size).toBe('wide')
   })
 
+  // Every list module's page component, so the rule below covers modules added later too.
+  const LIST_MODULE_PAGE_FILES: Record<string, string> = {
+    summary: 'summary/SummaryPage.tsx',
+    'health-log': 'health-log/HealthLogPage.tsx',
+    labs: 'labs/LabsPage.tsx',
+    vitals: 'vitals/VitalsPage.tsx',
+    imaging: 'imaging/ImagingPage.tsx',
+    'office-visits': 'office-visits/OfficeVisitsPage.tsx',
+    medications: 'medications/MedicationsPage.tsx',
+    conditions: 'conditions/ConditionsPage.tsx',
+    procedures: 'procedures/ProceduresPage.tsx',
+    immunizations: 'immunizations/ImmunizationsPage.tsx',
+    allergies: 'allergies/AllergiesPage.tsx',
+    documents: 'documents/DocumentsPage.tsx',
+    access: 'access/AccessPage.tsx',
+  }
+
+  it('gives every list module that renders a table at least the wide column', () => {
+    // At the default 520px a multi-column record table wraps every cell and clips its row
+    // actions (the Conditions edit button), so table modules opt into the wide size.
+    // The frontend tsconfig carries no Node typings, so type the two calls this needs. Jest
+    // runs from the repository root (its rootDir), which the paths below are relative to.
+    const { readFileSync } = jest.requireActual<{ readFileSync: (path: string, encoding: 'utf8') => string }>('fs')
+    expect(Object.keys(LIST_MODULE_PAGE_FILES).sort()).toEqual(PHR_LIST_MODULES.map((module) => module.id).sort())
+    const tableModules = Object.entries(LIST_MODULE_PAGE_FILES)
+      .filter(([, file]) => /<table\b/.test(readFileSync(`resources/js/phr/${file}`, 'utf8')))
+      .map(([id]) => id as PhrModuleId)
+
+    expect(tableModules.sort()).toEqual(['allergies', 'conditions', 'immunizations', 'labs', 'medications', 'vitals'])
+    for (const id of tableModules) {
+      expect([id, phrModuleRegistry[id].size]).toEqual([id, expect.stringMatching(/^(wide|full)$/)])
+    }
+  })
+
   it('registers category and keyword metadata for every module', () => {
     const configuredModuleIds = new Set([...PHR_LIST_MODULES, ...PHR_DETAIL_MODULES].map((module) => module.id))
 

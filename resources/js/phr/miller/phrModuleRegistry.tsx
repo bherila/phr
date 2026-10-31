@@ -597,27 +597,34 @@ function ConfigColumn() {
   )
 }
 
+/**
+ * List modules that render a multi-column record table (with row actions) need the wide
+ * column: at the default width every cell wraps and the trailing action buttons are clipped.
+ * phrModuleRegistry.test.tsx fails if a list page gains a table without opting in here.
+ */
+const TABLE_LIST_SIZE: PhrColumnSize = 'wide'
+
 export const phrModuleRegistry: Record<PhrModuleId, PhrRegistryEntry> = {
   summary: makeListModule(SUMMARY_MODULE, SummaryPage),
   'health-log': makeListModule(HEALTH_LOG_MODULE, HealthLogPage, 'full'),
-  labs: makeListModule(LABS_MODULE, LabsPage, 'wide'),
+  labs: makeListModule(LABS_MODULE, LabsPage, TABLE_LIST_SIZE),
   'lab-panel-detail': makeDetailModule(LAB_PANEL_DETAIL_MODULE, LabPanelDetail),
-  vitals: makeListModule(VITALS_MODULE, VitalsPage, 'wide'),
+  vitals: makeListModule(VITALS_MODULE, VitalsPage, TABLE_LIST_SIZE),
   'vitals-reading-detail': makeDetailModule(VITALS_READING_DETAIL_MODULE, VitalsReadingDetail),
   'vitals-trend': makeDetailModule(VITALS_TREND_MODULE, VitalsTrend, 'wide'),
   imaging: makeListModule(IMAGING_MODULE, ImagingPage),
   'imaging-study-detail': makeDetailModule(IMAGING_STUDY_DETAIL_MODULE, ImagingStudyDetail),
   'office-visits': makeListModule(OFFICE_VISITS_MODULE, OfficeVisitsPage),
   'office-visit-detail': makeDetailModule(OFFICE_VISIT_DETAIL_MODULE, OfficeVisitDetail),
-  medications: makeListModule(MEDICATIONS_MODULE, MedicationsPage),
+  medications: makeListModule(MEDICATIONS_MODULE, MedicationsPage, TABLE_LIST_SIZE),
   'medication-detail': makeDetailModule(MEDICATION_DETAIL_MODULE, MedicationDetail),
-  conditions: makeListModule(CONDITIONS_MODULE, ConditionsPage),
+  conditions: makeListModule(CONDITIONS_MODULE, ConditionsPage, TABLE_LIST_SIZE),
   'condition-detail': makeDetailModule(CONDITION_DETAIL_MODULE, ConditionDetail),
   procedures: makeListModule(PROCEDURES_MODULE, ProceduresPage),
   'procedure-detail': makeDetailModule(PROCEDURE_DETAIL_MODULE, ProcedureDetail),
-  immunizations: makeListModule(IMMUNIZATIONS_MODULE, ImmunizationsPage),
+  immunizations: makeListModule(IMMUNIZATIONS_MODULE, ImmunizationsPage, TABLE_LIST_SIZE),
   'immunization-detail': makeDetailModule(IMMUNIZATION_DETAIL_MODULE, ImmunizationDetail),
-  allergies: makeListModule(ALLERGIES_MODULE, AllergiesPage),
+  allergies: makeListModule(ALLERGIES_MODULE, AllergiesPage, TABLE_LIST_SIZE),
   'allergy-detail': makeDetailModule(ALLERGY_DETAIL_MODULE, AllergyDetail),
   documents: makeListModule(DOCUMENTS_MODULE, DocumentsPage, 'full'),
   'document-viewer': makeDetailModule(DOCUMENT_VIEWER_MODULE, DocumentViewer, 'wide'),
