@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { formatLabReferenceRange, formatLabValue } from '@/phr/labs/formatLabResult'
-import { PhrNotFoundColumn } from '@/phr/miller'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
+import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import {
   type PhrLabPanel,
   PhrLabPanelDetailResponseSchema,
@@ -62,7 +62,7 @@ export default function LabPanelDetail({ patientId, recordId }: LabPanelDetailPr
   }, [load])
 
   if (notFound) {
-    return <PhrNotFoundColumn />
+    return <PhrRecordNotFound />
   }
 
   return (

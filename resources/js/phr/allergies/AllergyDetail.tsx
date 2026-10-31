@@ -6,9 +6,9 @@ import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
 import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
-import type { PhrListPageProps } from '@/phr/miller'
-import { PhrNotFoundColumn } from '@/phr/miller'
 import { errorMessage, fetchPhrDetail, zodErrorMessage } from '@/phr/shared'
+import type { PhrListPageProps } from '@/phr/shell/phrPages'
+import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import {
   type PhrAllergy,
   type PhrAllergyFormData,
@@ -160,7 +160,7 @@ export default function AllergyDetail({ patientId, recordId, onDrill }: AllergyD
   }
 
   if (notFound) {
-    return <PhrNotFoundColumn />
+    return <PhrRecordNotFound />
   }
 
   return (

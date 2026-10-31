@@ -3,8 +3,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 import { Button } from '@/components/ui/button'
-import { PhrNotFoundColumn } from '@/phr/miller'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
+import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import { type PhrVitalTrendPoint, PhrVitalTrendResponseSchema } from '@/phr/types'
 
 interface VitalsTrendProps {
@@ -96,7 +96,7 @@ export default function VitalsTrend({ patientId, recordId }: VitalsTrendProps) {
   }
 
   if (notFound) {
-    return <PhrNotFoundColumn />
+    return <PhrRecordNotFound />
   }
 
   if (error) {

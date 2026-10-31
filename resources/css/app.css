@@ -158,8 +158,8 @@
   --navbar: 0 0% 92%;
   --navbar-foreground: 0 0% 10%; /* #1a1a1a - high-contrast for light navbar */
 
-  --primary: 39 40% 45%;         /* Darker Gold for contrast */
-  --primary-foreground: 0 0% 98%;
+  --primary: 215 70% 45%;        /* #2265c3 - Blue; 5.7:1 on card */
+  --primary-foreground: 0 0% 98%; /* 5.4:1 on primary */
 
   --secondary: 0 0% 90%;         /* #e5e5e5 */
   --secondary-foreground: 0 0% 10%;
@@ -167,8 +167,8 @@
   --muted: 0 0% 92%;             
   --muted-foreground: 0 0% 40%;  /* #666666 */
 
-  --accent: 39 40% 92%;          /* Soft gold background */
-  --accent-foreground: 39 50% 30%;
+  --accent: 215 70% 95%;         /* #e9f1fb - Selected and active fill */
+  --accent-foreground: 215 65% 32%; /* #1d4987 - 7.8:1 on accent */
 
   --destructive: 0 65% 45%;      /* Darker Red */
   --destructive-foreground: 0 0% 98%;
@@ -184,7 +184,7 @@
 
   --border: 0 0% 85%;
   --input: 0 0% 85%;
-  --ring: 39 40% 45%;
+  --ring: 215 70% 45%;           /* Same as primary */
 
   --card: 0 0% 100%;
   --card-foreground: 0 0% 10%;
@@ -230,8 +230,8 @@
   --navbar: 0 0% 9%;             /* #171717 */
   --navbar-foreground: 0 0% 91%; /* #e8e8e8 - high-contrast for dark navbar */
 
-  --primary: 39 45% 61%;         /* #c8a96e - The signature Gold */
-  --primary-foreground: 0 0% 10%;
+  --primary: 213 80% 68%;        /* #6ca7ef - Blue; 7.4:1 on card */
+  --primary-foreground: 0 0% 6%; /* #0f0f0f - 7.7:1 on primary */
 
   --secondary: 0 0% 12%;         /* #1f1f1f */
   --secondary-foreground: 0 0% 91%;
@@ -239,8 +239,8 @@
   --muted: 0 0% 12%;
   --muted-foreground: 0 0% 53%;  /* #888888 */
 
-  --accent: 39 45% 15%;          /* Faint gold background for active states */
-  --accent-foreground: 39 45% 61%;
+  --accent: 215 50% 16%;         /* #14253d - Selected and active fill */
+  --accent-foreground: 213 80% 68%; /* #6ca7ef - 6.2:1 on accent */
 
   --destructive: 0 67% 62%;      /* #e05a5a - Red */
   --destructive-foreground: 0 0% 10%;
@@ -256,7 +256,7 @@
 
   --border: 0 0% 16%;            /* #2a2a2a */
   --input: 0 0% 16%;
-  --ring: 39 45% 61%;
+  --ring: 213 80% 68%;           /* Same as primary */
 
   --card: 0 0% 9%;               /* #171717 */
   --card-foreground: 0 0% 91%;

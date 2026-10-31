@@ -47,7 +47,8 @@ describe('PdfViewer', () => {
       promise: Promise.resolve(pdf),
     } as unknown as ReturnType<typeof pdfjsLib.getDocument>)
 
-    render(<PdfViewer url="/statement.pdf" />)
+    const onLoad = jest.fn()
+    render(<PdfViewer url="/statement.pdf" page={1} scale={1.5} onLoad={onLoad} />)
 
     expect(screen.getByTestId('spinner')).toBeInTheDocument()
 
@@ -60,6 +61,7 @@ describe('PdfViewer', () => {
     })
 
     expect(pdfjsLib.GlobalWorkerOptions.workerSrc).toBe('/build/assets/pdf.worker-test.mjs')
-    expect(screen.getByText('Page 1 of 1')).toBeInTheDocument()
+    expect(onLoad).toHaveBeenCalledWith(1)
+    expect(page.getViewport).toHaveBeenCalledWith({ scale: 1.5 })
   })
 })

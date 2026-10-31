@@ -3,9 +3,9 @@ import '@testing-library/jest-dom'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { StrictMode, useState } from 'react'
 
-import PhrNavbar from '@/components/phr/PhrNavbar'
 import ImportsPage from '@/phr/imports/ImportsPage'
 import PatientsManagePage from '@/phr/patients-manage/PatientsManagePage'
+import { PhrSidebar } from '@/phr/shell/PhrSidebar'
 import type { PhrPatient } from '@/phr/types'
 
 import PatientsPage from './PatientsPage'
@@ -105,13 +105,13 @@ it.each(['absent', 'invalid JSON', 'invalid DTO'])('deduplicates one fallback re
   }
   let finish!: (value: unknown) => void
   mockGet.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
-  render(<StrictMode><PhrPatientsProvider><Consumer /><Consumer id="other" /><PatientsPage /><ImportsPage /><PhrNavbar patientId={42} /></PhrPatientsProvider></StrictMode>)
+  render(<StrictMode><PhrPatientsProvider><Consumer /><Consumer id="other" /><PatientsPage /><ImportsPage /><PhrSidebar patientId={42} page="summary" rail={false} /></PhrPatientsProvider></StrictMode>)
   await waitFor(() => expect(mockGet).toHaveBeenCalledTimes(1))
   expect(snapshot().busy).toBe(true)
   await act(async () => { finish({ patients: [patient()] }) })
   expect(snapshot('list').patients).toEqual([patient()])
   expect(snapshot('other').patients).toEqual([patient()])
-  expect(screen.getByLabelText('Selected patient: Synthetic Profile')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: 'Switch patient: Synthetic Profile' })).toBeInTheDocument()
   expect(screen.getByLabelText('Import into')).toHaveValue('42')
   expect(mockGet).toHaveBeenCalledTimes(1)
 })
@@ -191,7 +191,7 @@ it('publishes successful create and edit responses to the navbar, patient cards 
   seed({ phr: { patient_list: { patients: [patient()] } } })
   mockPost.mockResolvedValueOnce({ patient: patient({ id: 99, display_name: 'Created profile', notes: 'Created full notes' }) })
   mockPatch.mockResolvedValueOnce({ patient: patient({ display_name: 'Edited profile', notes: 'Updated full notes' }) })
-  render(<PhrPatientsProvider><PhrNavbar patientId={42} /><div data-testid="cards"><PatientsPage /></div><ImportsPage /><div data-testid="manage"><PatientsManagePage /></div><Consumer /></PhrPatientsProvider>)
+  render(<PhrPatientsProvider><PhrSidebar patientId={42} page="summary" rail={false} /><div data-testid="cards"><PatientsPage /></div><ImportsPage /><div data-testid="manage"><PatientsManagePage /></div><Consumer /></PhrPatientsProvider>)
   const manage = within(screen.getByTestId('manage'))
   const createForm = manage.getByRole('button', { name: 'Add Profile' }).closest('form')!
   fireEvent.change(within(createForm).getByLabelText('Name *'), { target: { value: 'Created profile' } })
@@ -204,7 +204,7 @@ it('publishes successful create and edit responses to the navbar, patient cards 
   expect(within(editForm).getByLabelText('Notes')).toHaveValue('Full profile notes')
   fireEvent.change(within(editForm).getByLabelText('Name *'), { target: { value: 'Edited profile' } })
   fireEvent.submit(editForm)
-  await waitFor(() => expect(screen.getByLabelText('Selected patient: Edited profile')).toBeInTheDocument())
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Switch patient: Edited profile' })).toBeInTheDocument())
   expect(within(screen.getByTestId('cards')).getByText('Edited profile')).toBeInTheDocument()
   expect(screen.getByRole('option', { name: 'Edited profile' })).toBeInTheDocument()
   expect(snapshot().patients.find((item) => item.id === 42)?.notes).toBe('Updated full notes')

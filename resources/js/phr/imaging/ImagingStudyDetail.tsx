@@ -2,8 +2,8 @@ import { Box, ExternalLink, Film, Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import { PhrNotFoundColumn } from '@/phr/miller/PhrNotFoundColumn'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
+import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import {
   type PhrDicomStudy,
   PhrDicomStudyResponseSchema,
@@ -83,7 +83,7 @@ export default function ImagingStudyDetail({ patientId, recordId }: ImagingStudy
   }
 
   if (notFound) {
-    return <PhrNotFoundColumn />
+    return <PhrRecordNotFound />
   }
 
   if (error) {

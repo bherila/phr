@@ -6,8 +6,8 @@ import { Button } from '@/components/ui/button'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { ShowRejectedToggle } from '@/phr/clinical/review'
 import { classBadge, codeChip, labelize, reviewStatusBadge } from '@/phr/clinical/ui'
-import type { PhrListPageProps } from '@/phr/miller'
 import { zodErrorMessage } from '@/phr/shared'
+import type { PhrListPageProps } from '@/phr/shell/phrPages'
 import {
   PhrAllergiesResponseSchema,
   type PhrAllergy,

@@ -4,11 +4,12 @@ import { type MouseEvent } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { patientUrl } from '@/lib/phrRouteBuilder'
+import type { PhrPageId } from '@/phr/shell/phrRoutes'
 
 import { usePhrPatients } from './usePhrPatients'
 
 interface PatientsPageProps {
-  onPatientSelect?: (patientId: number, hash?: string) => void
+  onPatientSelect?: (patientId: number, page?: PhrPageId) => void
   onManagePatients?: () => void
 }
 
@@ -30,13 +31,13 @@ export default function PatientsPage({ onPatientSelect, onManagePatients }: Pati
     onManagePatients()
   }
 
-  function handlePatientClick(event: MouseEvent<HTMLAnchorElement>, patientId: number, hash?: string): void {
+  function handlePatientClick(event: MouseEvent<HTMLAnchorElement>, patientId: number, page?: PhrPageId): void {
     if (!onPatientSelect) {
       return
     }
 
     event.preventDefault()
-    onPatientSelect(patientId, hash)
+    onPatientSelect(patientId, page)
   }
 
   return (
@@ -117,7 +118,7 @@ export default function PatientsPage({ onPatientSelect, onManagePatients }: Pati
 
                     e.preventDefault()
                     e.stopPropagation()
-                    onPatientSelect(patient.id, `#/${tab}`)
+                    onPatientSelect(patient.id, tab)
                   }}
                 >
                   {tab.charAt(0).toUpperCase() + tab.slice(1)}

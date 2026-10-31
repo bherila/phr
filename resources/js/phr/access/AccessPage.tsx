@@ -4,9 +4,9 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
-import type { PhrListPageProps } from '@/phr/miller'
 import { usePhrPatientListActions } from '@/phr/patients/usePhrPatients'
 import { errorMessage } from '@/phr/shared'
+import type { PhrListPageProps } from '@/phr/shell/phrPages'
 import { type PhrAccessGrant, type PhrPatient, PhrPatientResponseSchema } from '@/phr/types'
 
 const LEVEL_LABEL: Record<string, string> = {

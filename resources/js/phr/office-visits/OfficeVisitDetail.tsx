@@ -3,20 +3,19 @@ import type { ReactElement } from 'react'
 import { useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import type { MillerDrillTarget } from '@/components/ui/miller'
 import { fetchWrapper } from '@/fetchWrapper'
 import EncounterEobLinks from '@/phr/clinical/EncounterEobLinks'
 import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
-import { PhrNotFoundColumn } from '@/phr/miller'
-import type { PhrModuleId } from '@/phr/miller/phrModuleRegistry'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
+import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
+import type { PhrNavTarget } from '@/phr/shell/phrRoutes'
 import { type PhrOfficeVisit, type PhrOfficeVisitRelatedService, PhrOfficeVisitResponseSchema } from '@/phr/types'
 
 interface OfficeVisitDetailProps {
   patientId: number
   recordId: string
-  onDrill?: (target: MillerDrillTarget<PhrModuleId>) => void
+  onDrill?: (target: PhrNavTarget) => void
 }
 
 function detailValue(value: string | null | undefined, fallback = 'Not recorded'): string {
@@ -118,7 +117,7 @@ export default function OfficeVisitDetail({ patientId, recordId, onDrill }: Offi
   }
 
   if (notFound) {
-    return <PhrNotFoundColumn />
+    return <PhrRecordNotFound />
   }
 
   return (

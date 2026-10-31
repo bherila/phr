@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
-import { PhrNotFoundColumn } from '@/phr/miller'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
+import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import { type PhrVital, PhrVitalReadingDetailResponseSchema } from '@/phr/types'
 
 interface VitalsReadingDetailProps {
@@ -52,7 +52,7 @@ export default function VitalsReadingDetail({ patientId, recordId }: VitalsReadi
   }
 
   if (notFound) {
-    return <PhrNotFoundColumn />
+    return <PhrRecordNotFound />
   }
 
   if (error) {
@@ -64,7 +64,7 @@ export default function VitalsReadingDetail({ patientId, recordId }: VitalsReadi
   }
 
   if (vital === null) {
-    return <PhrNotFoundColumn />
+    return <PhrRecordNotFound />
   }
 
   const measurements: Array<{ label: string; value: string }> = [

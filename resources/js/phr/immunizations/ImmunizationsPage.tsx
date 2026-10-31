@@ -10,8 +10,8 @@ import { ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { codeChip, reviewStatusBadge } from '@/phr/clinical/ui'
 import { doseAmountLabel, seriesPositionLabel } from '@/phr/immunizations/immunizationDose'
 import { EhiPendingBanner } from '@/phr/imports/ehi/EhiPendingBanner'
-import type { PhrListPageProps } from '@/phr/miller'
 import { numericPayload, zodErrorMessage } from '@/phr/shared'
+import type { PhrListPageProps } from '@/phr/shell/phrPages'
 import {
   type PhrImmunization,
   type PhrImmunizationFormData,

@@ -7,8 +7,9 @@ import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
 import { ShowRejectedToggle } from '@/phr/clinical/review'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
-import type { PhrListPageProps, PhrModuleId } from '@/phr/miller'
 import { compactPayload, errorMessage } from '@/phr/shared'
+import type { PhrListPageProps } from '@/phr/shell/phrPages'
+import type { PhrModuleId } from '@/phr/shell/phrRoutes'
 import {
   type PhrImmunization,
   PhrImmunizationsResponseSchema,

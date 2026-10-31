@@ -12,6 +12,26 @@ use Illuminate\View\View;
 
 class PageController extends Controller
 {
+    /**
+     * The patient record pages the shell routes to at /phr/patient/{id}/{page}. Mirrors
+     * PHR_PAGE_IDS in resources/js/phr/shell/phrRoutes.ts.
+     */
+    public const PATIENT_PAGES = [
+        'summary',
+        'health-log',
+        'labs',
+        'vitals',
+        'office-visits',
+        'medications',
+        'conditions',
+        'procedures',
+        'immunizations',
+        'allergies',
+        'documents',
+        'imaging',
+        'access',
+    ];
+
     public function __construct(
         private PhrPatientAccessService $accessService,
         private PhrPatientListService $patientList,

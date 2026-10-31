@@ -1,16 +1,9 @@
 'use client'
 
 import { Command, Database, Search, Settings, UserRound } from 'lucide-react'
-import { type MouseEvent, type ReactNode, useMemo, useRef, useState } from 'react'
+import { type MouseEvent, type ReactNode, useMemo, useRef } from 'react'
 
 import { Button } from '@/components/ui/button'
-import {
-  Combobox,
-  ComboboxContent,
-  ComboboxInput,
-  ComboboxItem,
-  ComboboxList,
-} from '@/components/ui/combobox'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,30 +26,47 @@ import type { PhrSection } from '@/lib/phrRouteBuilder'
 import { phrSectionUrl } from '@/lib/phrRouteBuilder'
 import { cn } from '@/lib/utils'
 import { usePhrPatients } from '@/phr/patients/usePhrPatients'
-import type { PhrPatient } from '@/phr/types'
 
 interface PhrNavbarProps {
-  patientId?: number
   activeSection?: PhrSection
-  children?: ReactNode
+  /**
+   * A patient's record is open. The Patients link is then marked as the current location
+   * (`aria-current="true"`) rather than the current page, which is the sidebar's.
+   */
+  inPatient?: boolean
+  /** Rendered before the wordmark, e.g. the button that opens the sidebar on small screens. */
+  leading?: ReactNode
   className?: string
-  onPatientChange?: (patientId: number) => void
+  searchLabel?: string
   onSectionChange?: (section: PhrSection) => void
   onSearch?: () => void
 }
 
+interface SectionLink {
+  section: PhrSection
+  label: string
+  /** Icon-only links carry the label as their accessible name and a tooltip. */
+  icon?: typeof Database
+}
+
+const SECTION_LINKS: SectionLink[] = [
+  { section: 'patients', label: 'Patients' },
+  { section: 'manage-patients', label: 'Manage Patients' },
+  { section: 'imports', label: 'Imports' },
+  { section: 'data-hub', label: 'Data Hub', icon: Database },
+  { section: 'config', label: 'Config', icon: Settings },
+]
+
 export default function PhrNavbar({
-  patientId,
   activeSection,
-  children,
+  inPatient = false,
+  leading,
   className,
-  onPatientChange,
+  searchLabel = 'Search…',
   onSectionChange,
   onSearch,
 }: PhrNavbarProps) {
   const { patients } = usePhrPatients()
-  const [searchValue, setSearchValue] = useState('')
-  const [isComboboxOpen, setIsComboboxOpen] = useState(false)
 
   // Read once per mount: both come from the server-rendered initial data, which does not
   // change while the page is open.
@@ -71,29 +81,25 @@ export default function PhrNavbar({
     ? ''
     : (document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '')
 
-  const currentPatient = useMemo<PhrPatient | null>(
-    () => patients.find((patient) => patient.id === patientId) ?? null,
-    [patientId, patients],
-  )
-
-  const filteredPatients = useMemo<PhrPatient[]>(() => {
-    if (!searchValue) {
-      return patients
-    }
-
-    const query = searchValue.toLowerCase()
-    return patients.filter((patient) => (patient.display_name ?? '').toLowerCase().includes(query))
-  }, [patients, searchValue])
-
   const canManageAnyPatient = useMemo<boolean>(
     () => patients.some((patient) => patient.can_manage),
     [patients],
   )
 
-  function handlePatientSelect(patient: PhrPatient): void {
-    setSearchValue('')
-    setIsComboboxOpen(false)
-    onPatientChange?.(patient.id)
+  const current = inPatient ? 'patients' : activeSection
+
+  function currentAttribute(section: PhrSection): 'page' | 'true' | undefined {
+    if (current !== section) return undefined
+    return inPatient ? 'true' : 'page'
+  }
+
+  function linkClass(section: PhrSection, iconOnly = false): string {
+    return cn(
+      navigationMenuTriggerStyle(),
+      iconOnly ? 'h-8 w-8 p-0' : 'h-8 px-3 text-sm',
+      'focus-visible:ring-2 focus-visible:ring-ring',
+      current === section ? 'bg-accent font-medium text-accent-foreground' : 'text-muted-foreground',
+    )
   }
 
   function handleSectionClick(section: PhrSection, event: MouseEvent<HTMLAnchorElement>): void {
@@ -106,9 +112,9 @@ export default function PhrNavbar({
   }
 
   return (
-    <div className={cn('min-h-0', className)}>
-      <div className="w-full border-b border-border/40 bg-background">
-        <div className="flex h-12 items-center gap-2 px-4">
+    <header className={cn('w-full shrink-0 border-b border-border bg-background', className)}>
+      <div className="flex min-h-12 flex-wrap items-center gap-2 px-3 py-1.5 md:px-4">
+          {leading}
           <span
             className="select-none text-xs font-bold uppercase tracking-widest text-foreground"
             aria-label="PHR section"
@@ -116,151 +122,44 @@ export default function PhrNavbar({
             PHR
           </span>
 
-          {patientId !== undefined && (
-            <>
-              <Combobox
-                onValueChange={(value) => {
-                  if (typeof value === 'number') {
-                    const selectedPatient = patients.find((patient) => patient.id === value)
-                    if (selectedPatient) {
-                      handlePatientSelect(selectedPatient)
-                    }
-                  }
-                }}
-                open={isComboboxOpen}
-                onOpenChange={setIsComboboxOpen}
-              >
-                <ComboboxInput
-                  placeholder="Search patients…"
-                  aria-label={`Selected patient: ${currentPatient?.display_name ?? patientId}`}
-                  className="h-8 min-w-[200px]"
-                  value={isComboboxOpen ? searchValue : (currentPatient?.display_name ?? String(patientId))}
-                  onChange={(event) => setSearchValue(event.target.value)}
-                  onFocus={() => {
-                    setIsComboboxOpen(true)
-                    setSearchValue('')
-                  }}
-                />
-                <ComboboxContent align="start" className="w-72">
-                  <ComboboxList>
-                    {filteredPatients.map((patient) => (
-                      <ComboboxItem
-                        key={patient.id}
-                        value={patient.id}
-                        className={cn(patient.id === patientId && 'bg-accent font-medium')}
-                      >
-                        {patient.display_name || `Patient ${patient.id}`}
-                      </ComboboxItem>
-                    ))}
-                    {filteredPatients.length === 0 && searchValue && (
-                      <div className="py-2 text-center text-sm text-muted-foreground">No patients found</div>
-                    )}
-                  </ComboboxList>
-                </ComboboxContent>
-              </Combobox>
-              {onSearch && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="ml-1 h-8 min-w-52 justify-start gap-2 text-muted-foreground"
-                  onClick={onSearch}
-                >
-                  <Search className="size-4" />
-                  <span className="flex-1 text-left">Search this patient…</span>
-                  <span className="flex items-center gap-0.5 text-xs"><Command className="size-3" />K</span>
-                </Button>
-              )}
-            </>
+          {onSearch && (
+            <Button
+              type="button"
+              variant="outline"
+              className="ml-1 h-8 min-w-0 flex-[0_1_320px] justify-start gap-2 text-muted-foreground"
+              onClick={onSearch}
+            >
+              <Search className="size-4" aria-hidden="true" />
+              <span className="flex-1 truncate text-left">{searchLabel}</span>
+              <span className="hidden items-center gap-0.5 text-xs sm:flex" aria-hidden="true"><Command className="size-3" />K</span>
+            </Button>
           )}
 
-          <NavigationMenu viewport={false} className="ml-auto">
-            <NavigationMenuList>
-              <NavigationMenuItem>
-                <NavigationMenuLink
-                  href={phrSectionUrl('patients')}
-                  onClick={(event) => handleSectionClick('patients', event)}
-                  aria-current={activeSection === 'patients' ? 'page' : undefined}
-                  className={cn(
-                    navigationMenuTriggerStyle(),
-                    'h-8 px-3 text-sm',
-                    activeSection === 'patients' ? 'bg-accent font-medium text-accent-foreground' : 'text-muted-foreground',
-                  )}
-                >
-                  Patients
-                </NavigationMenuLink>
-              </NavigationMenuItem>
-              {canManageAnyPatient && (
-                <NavigationMenuItem>
+          <NavigationMenu viewport={false} aria-label="Sections" className="ml-auto flex-none">
+            <NavigationMenuList className="flex-wrap justify-end">
+              {SECTION_LINKS.filter((link) => link.section !== 'manage-patients' || canManageAnyPatient).map((link) => {
+                const anchor = (
                   <NavigationMenuLink
-                    href={phrSectionUrl('manage-patients')}
-                    onClick={(event) => handleSectionClick('manage-patients', event)}
-                    aria-current={activeSection === 'manage-patients' ? 'page' : undefined}
-                    className={cn(
-                      navigationMenuTriggerStyle(),
-                      'h-8 px-3 text-sm',
-                      activeSection === 'manage-patients'
-                        ? 'bg-accent font-medium text-accent-foreground'
-                        : 'text-muted-foreground',
-                    )}
+                    href={phrSectionUrl(link.section)}
+                    onClick={(event) => handleSectionClick(link.section, event)}
+                    aria-current={currentAttribute(link.section)}
+                    {...(link.icon ? { 'aria-label': link.label } : {})}
+                    className={linkClass(link.section, link.icon !== undefined)}
                   >
-                    Manage Patients
+                    {link.icon ? <link.icon className="h-4 w-4" aria-hidden="true" /> : link.label}
                   </NavigationMenuLink>
-                </NavigationMenuItem>
-              )}
-              <NavigationMenuItem>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <NavigationMenuLink
-                      href={phrSectionUrl('data-hub')}
-                      onClick={(event) => handleSectionClick('data-hub', event)}
-                      aria-current={activeSection === 'data-hub' ? 'page' : undefined}
-                      aria-label="Data Hub"
-                      className={cn(
-                        navigationMenuTriggerStyle(),
-                        'h-8 w-8 p-0',
-                        activeSection === 'data-hub' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground',
-                      )}
-                    >
-                      <Database className="h-4 w-4" />
-                    </NavigationMenuLink>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">Data Hub</TooltipContent>
-                </Tooltip>
-              </NavigationMenuItem>
-              <NavigationMenuItem>
-                <NavigationMenuLink
-                  href={phrSectionUrl('imports')}
-                  onClick={(event) => handleSectionClick('imports', event)}
-                  aria-current={activeSection === 'imports' ? 'page' : undefined}
-                  className={cn(
-                    navigationMenuTriggerStyle(),
-                    'h-8 px-3 text-sm',
-                    activeSection === 'imports' ? 'bg-accent font-medium text-accent-foreground' : 'text-muted-foreground',
-                  )}
-                >
-                  Imports
-                </NavigationMenuLink>
-              </NavigationMenuItem>
-              <NavigationMenuItem>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <NavigationMenuLink
-                      href={phrSectionUrl('config')}
-                      onClick={(event) => handleSectionClick('config', event)}
-                      aria-current={activeSection === 'config' ? 'page' : undefined}
-                      aria-label="Config"
-                      className={cn(
-                        navigationMenuTriggerStyle(),
-                        'h-8 w-8 p-0',
-                        activeSection === 'config' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground',
-                      )}
-                    >
-                      <Settings className="h-4 w-4" />
-                    </NavigationMenuLink>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">Config</TooltipContent>
-                </Tooltip>
-              </NavigationMenuItem>
+                )
+                return (
+                  <NavigationMenuItem key={link.section}>
+                    {link.icon ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>{anchor}</TooltipTrigger>
+                        <TooltipContent side="bottom">{link.label}</TooltipContent>
+                      </Tooltip>
+                    ) : anchor}
+                  </NavigationMenuItem>
+                )
+              })}
             </NavigationMenuList>
           </NavigationMenu>
 
@@ -308,7 +207,6 @@ export default function PhrNavbar({
               </DropdownMenuContent>
             </DropdownMenu>
           )}
-        </div>
       </div>
 
       {signedInUser !== null && (
@@ -316,8 +214,6 @@ export default function PhrNavbar({
           <input type="hidden" name="_token" value={csrfToken} />
         </form>
       )}
-
-      {children}
-    </div>
+    </header>
   )
 }

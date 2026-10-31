@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 
 describe('PhrNavbar', () => {
   let fetchSpy: jest.SpiedFunction<typeof fetch>
@@ -73,34 +73,28 @@ describe('PhrNavbar', () => {
     expect(screen.getByRole('link', { name: 'Data Hub' })).toHaveAttribute('href', '/phr/data-hub')
   })
 
-  it('loads patient combobox when patientId is provided', async () => {
+  it('marks Patients as the current location, not the current page, inside a patient record', async () => {
     const PhrNavbar = (await import('@/components/phr/PhrNavbar')).default
 
     await act(async () => {
-      render(<PhrNavbar patientId={1} />)
+      render(<PhrNavbar inPatient />)
     })
 
-    await waitFor(() => {
-      expect(screen.getByRole('combobox')).toBeInTheDocument()
-    })
+    // The sidebar item for the open record page carries aria-current="page".
+    expect(screen.getByRole('link', { name: 'Patients' })).toHaveAttribute('aria-current', 'true')
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
   })
 
-  it('patient swap notifies the shell without assigning a new document URL', async () => {
+  it('opens search from the bar', async () => {
     const PhrNavbar = (await import('@/components/phr/PhrNavbar')).default
-    const onPatientChange = jest.fn()
+    const onSearch = jest.fn()
 
     await act(async () => {
-      render(<PhrNavbar patientId={1} onPatientChange={onPatientChange} />)
+      render(<PhrNavbar inPatient searchLabel="Search this patient…" onSearch={onSearch} />)
     })
 
-    await waitFor(() => {
-      expect(screen.getByRole('combobox')).toBeInTheDocument()
-    })
-
-    fireEvent.focus(screen.getByRole('combobox'))
-    fireEvent.click(await screen.findByText('Bob'))
-
-    expect(onPatientChange).toHaveBeenCalledWith(2)
+    fireEvent.click(screen.getByRole('button', { name: /Search this patient/ }))
+    expect(onSearch).toHaveBeenCalled()
   })
 
   it('section links can be handled by the client shell', async () => {
@@ -120,7 +114,7 @@ describe('PhrNavbar', () => {
     const PhrNavbar = (await import('@/components/phr/PhrNavbar')).default
 
     await act(async () => {
-      render(<PhrNavbar activeSection="patients" patientId={1} />)
+      render(<PhrNavbar inPatient />)
     })
 
     // Browser Back navigates within PHR; the bar must not offer a way out to another site.

@@ -21,8 +21,8 @@ import { isBrowserPreviewableImage } from '@/phr/documents/browserImagePreview'
 import { DOCUMENT_SOURCE_LABELS, documentSourceLabel } from '@/phr/documents/documentSource'
 import { useExecutionMode } from '@/phr/imports/ai/useExecutionMode'
 import { EhiPendingBanner } from '@/phr/imports/ehi/EhiPendingBanner'
-import type { PhrListPageProps } from '@/phr/miller'
 import { errorMessage } from '@/phr/shared'
+import type { PhrListPageProps } from '@/phr/shell/phrPages'
 import {
   type PhrDocument,
   type PhrDocumentMetadataFormData,
