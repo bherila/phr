@@ -1,14 +1,21 @@
 import '@testing-library/jest-dom'
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import DocumentViewer from '@/phr/documents/DocumentViewer'
 import type { PhrDocument } from '@/phr/types'
 
-jest.mock('@/components/phr/PdfViewer', () => ({
-  __esModule: true,
-  default: ({ url }: { url: string }) => <div data-testid="pdf-viewer">pdf:{url}</div>,
-}))
+let mockPdfPages = 1
+jest.mock('@/components/phr/PdfViewer', () => {
+  const { useEffect } = jest.requireActual<typeof import('react')>('react')
+  return {
+    __esModule: true,
+    default: function MockPdfViewer({ url, page, onLoad }: { url: string, page: number, onLoad?: (numPages: number) => void }) {
+      useEffect(() => { onLoad?.(mockPdfPages) }, [onLoad])
+      return <div data-testid="pdf-viewer">pdf:{url} page:{page}</div>
+    },
+  }
+})
 
 const mockFetch = jest.fn()
 
@@ -38,7 +45,17 @@ function makeDocument(overrides: Partial<PhrDocument> = {}): PhrDocument {
   }
 }
 
+function respondWith(document: PhrDocument): void {
+  mockFetch.mockResolvedValue({
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    text: async () => JSON.stringify({ document }),
+  })
+}
+
 beforeEach(() => {
+  mockPdfPages = 1
   mockFetch.mockReset()
   globalThis.fetch = mockFetch as unknown as typeof fetch
 })
@@ -96,7 +113,9 @@ describe('DocumentViewer', () => {
     render(<DocumentViewer patientId={42} recordId="10" />)
 
     expect(await screen.findByTestId('pdf-viewer')).toBeInTheDocument()
-    expect(screen.getByText(new RegExp(`Source: ${label}$`))).toBeInTheDocument()
+    // The toolbar's facts line names the source between the type and the added date.
+    const toolbar = screen.getByRole('toolbar', { name: 'Document' })
+    expect(within(toolbar).getByText(new RegExp(`^Lab Report · ${label} · Added `))).toBeInTheDocument()
   })
 
   it.each([
@@ -121,5 +140,49 @@ describe('DocumentViewer', () => {
     expect(await screen.findByText('Inline preview is unavailable for this file type.')).toBeInTheDocument()
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: /download/i })).toHaveAttribute('href', '/api/phr/patients/42/documents/10/file')
+  })
+
+  it('puts title, page and zoom controls and actions in one toolbar row for a multi-page PDF', async () => {
+    mockPdfPages = 4
+    respondWith(makeDocument())
+    render(<DocumentViewer patientId={42} recordId="10" />)
+
+    const toolbar = await screen.findByRole('toolbar', { name: 'Document' })
+    expect(within(toolbar).getByRole('heading', { name: 'January Labs' })).toBeInTheDocument()
+    expect(within(toolbar).getByText(/Lab Report · Manual Upload · Added 2026-01-15 · PDF · 4 pages/)).toBeInTheDocument()
+    expect(within(toolbar).getByText('Page 1 of 4')).toBeInTheDocument()
+    expect(within(toolbar).getByText('150%')).toBeInTheDocument()
+    expect(within(toolbar).getByRole('link', { name: 'Open in new tab' })).toHaveAttribute('target', '_blank')
+    expect(within(toolbar).getByRole('link', { name: /Download/ })).toHaveAttribute('href', '/api/phr/patients/42/documents/10/file')
+
+    fireEvent.click(within(toolbar).getByRole('button', { name: 'Next page' }))
+    expect(within(toolbar).getByText('Page 2 of 4')).toBeInTheDocument()
+    expect(screen.getByTestId('pdf-viewer')).toHaveTextContent('page:2')
+    fireEvent.click(within(toolbar).getByRole('button', { name: 'Zoom in' }))
+    expect(within(toolbar).getByText('188%')).toBeInTheDocument()
+  })
+
+  it('shows zoom but no page controls for images, and neither for HTML', async () => {
+    respondWith(makeDocument({ mime_type: 'image/png', original_filename: 'scan.png' }))
+    const { unmount } = render(<DocumentViewer patientId={42} recordId="10" />)
+    const toolbar = await screen.findByRole('toolbar', { name: 'Document' })
+    expect(within(toolbar).getByRole('button', { name: 'Zoom in' })).toBeInTheDocument()
+    expect(within(toolbar).queryByRole('button', { name: 'Next page' })).not.toBeInTheDocument()
+    unmount()
+
+    respondWith(makeDocument({ mime_type: 'text/html', original_filename: 'note.html' }))
+    render(<DocumentViewer patientId={42} recordId="10" />)
+    const htmlToolbar = await screen.findByRole('toolbar', { name: 'Document' })
+    expect(within(htmlToolbar).queryByRole('button', { name: 'Zoom in' })).not.toBeInTheDocument()
+    expect(within(htmlToolbar).queryByRole('button', { name: 'Next page' })).not.toBeInTheDocument()
+    expect(screen.getByTitle('Document viewer')).toBeInTheDocument()
+  })
+
+  it('lists the records that came from the document beside the preview', async () => {
+    respondWith(makeDocument({ linked_rows: [{ type: 'lab_result', id: 3, label: 'Synthetic CBC', href: '/phr/patient/42/labs' }] }))
+    render(<DocumentViewer patientId={42} recordId="10" />)
+
+    const aside = await screen.findByRole('complementary', { name: 'About this document' })
+    expect(within(aside).getByRole('link', { name: 'Synthetic CBC' })).toHaveAttribute('href', '/phr/patient/42/labs')
   })
 })
