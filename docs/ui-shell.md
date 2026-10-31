@@ -188,6 +188,45 @@ Each old column is replayed as the navigation it stood for, so
 `#/office-visits/office-visit-detail:4/imaging-study-detail:3` lands on
 `/phr/patient/{id}/office-visits/4/imaging/3`.
 
+## Initial data preload
+
+The shell page carries the first responses of the view it opens on, so that view renders without
+waiting for its own round trips. **(shipped)**
+
+- **What.** `<script type="application/json" id="phr-preload">` holds a map from each GET URL the
+  page sends on first load, written exactly as the browser writes it, to the JSON body that URL
+  returns for the signed-in person. On a patient view that is the current page's list request
+  (with its default query), the open record's detail, and the Health Log's first log entries.
+  Every patient view also gets the sidebar's review counts (`/review/summary`), and Review gets
+  its queue. Summary and Imaging also get the patient record they fetch. Patients gets the
+  selection cards' overview, Data Hub its inventory, deletions and restores, and Config its
+  default AI Providers tab. Nothing is preloaded for
+  sections not on screen, nor for the list under a full-width detail (document viewer, imaging
+  study, vitals trend). The patient list already ships in `app-initial-data` on every shell page,
+  and Imports picks its patient in the browser, so neither is in the map.
+- **One serialization path.** `PhrPreloadBuilder` matches each URL against the application's
+  routes and runs that route's own controller action, with the page request's user and session,
+  and keeps only a 200 JSON response. The action's own authorization (the patient access check,
+  the record's patient scope, owner-only exports) decides what is inlined, and tests check every
+  entry byte for byte against the API response for an owner, a manager and a viewer. Only routes
+  on an explicit allow-list are dispatched, and only when every middleware they declare is one
+  the page request already passed (the `web` group and `auth`) or throttling. `PhrPreloadPlan`
+  lists the URLs and mirrors `phrRoutes.ts`. If the two drift, a view just loads from the network
+  again, and the Playwright spec (`tests/e2e/phr-preload.spec.ts`) fails.
+- **Single use.** At boot the client reads the element once into memory and removes it.
+  `fetchWrapper.get` and `getRaw` (and so `fetchPhrDetail`) look a URL up by same-origin path plus
+  sorted query string. A hit is removed and answered as a 200 JSON `Response`, which callers
+  cannot tell from a fetched one; a miss goes to the network. Every unused entry is dropped on an
+  in-app navigation, Back or Forward, any `fetchWrapper` write, `reviewStateChanged`, a restore
+  from the back/forward cache (`pageshow` with `persisted`), or 30 seconds after boot. A refetch, or a later visit,
+  therefore always reaches the network.
+- **Security.**
+  - The map is encoded with `JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT`, so no
+    value can close the element (`</script>`) or open a comment (`<!--`).
+  - Shell responses are `Cache-Control: private, no-store, max-age=0` with `Pragma: no-cache`.
+  - Someone without access to the patient gets the same 404 page as before, with no preload.
+  - An entry that would take the map past 256 KB is left out and loads from the network.
+
 ## Phone
 
 - The sidebar becomes a menu button in the top bar that opens a sheet with the patient
