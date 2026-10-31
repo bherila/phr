@@ -117,6 +117,40 @@ test.describe.serial('PHR browser journeys', () => {
     await expect(page.getByRole('heading', { name: patientName })).toBeVisible()
   })
 
+  test('moves through the Conditions table from the keyboard and returns focus from the panel', async ({ page }, testInfo) => {
+    await signIn(page, ownerCredentials)
+    const patientId = await ownerPatientId(page, patientNameForAttempt(testInfo.retry))
+    await page.goto(`/phr/patient/${patientId}/conditions`)
+    const csrf = await page.locator('meta[name="csrf-token"]').getAttribute('content')
+    for (const name of ['Synthetic keyboard condition A', 'Synthetic keyboard condition B']) {
+      const created = await page.request.post(`/api/phr/patients/${patientId}/conditions`, {
+        data: { name, clinical_status: 'active', verification_status: 'confirmed' },
+        headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': csrf ?? '' },
+      })
+      expect(created.status()).toBe(201)
+    }
+    await page.reload()
+
+    const table = page.getByRole('table', { name: 'Active Problems' })
+    const rows = table.locator('tbody tr[data-record-row]')
+    await rows.first().focus()
+    await page.keyboard.press('ArrowDown')
+    const second = rows.nth(1)
+    await expect(second).toBeFocused()
+    await expect(second).toHaveAttribute('aria-selected', 'true')
+    const recordId = await second.getAttribute('data-record-row')
+
+    await page.keyboard.press('Enter')
+    await expect(page).toHaveURL(new RegExp(`/phr/patient/${patientId}/conditions/${recordId}$`))
+    await expect(page.getByRole('complementary', { name: 'Condition detail' })).toBeVisible()
+    await expect(second).toBeFocused()
+
+    await page.keyboard.press('Escape')
+    await expect(page).toHaveURL(new RegExp(`/phr/patient/${patientId}/conditions$`))
+    await expect(page.getByRole('complementary', { name: 'Condition detail' })).toHaveCount(0)
+    await expect(second).toBeFocused()
+  })
+
   test('uploads and views a synthetic document', async ({ page }, testInfo) => {
     await signIn(page, ownerCredentials)
     const patientId = await ownerPatientId(page, patientNameForAttempt(testInfo.retry))
