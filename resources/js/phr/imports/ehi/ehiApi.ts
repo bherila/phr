@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { fetchWrapper } from '@/fetchWrapper'
+import { reviewStateChanged } from '@/phr/review/reviewSummary'
 
 /**
  * Client for the session EHI import routes (`/api/phr/patients/{id}/ehi/...`). Every
@@ -212,6 +213,8 @@ export async function bindEhiPackage(patientId: number, packageId: number, choic
 
 export async function queueEhiPreview(patientId: number, packageId: number): Promise<EhiPackage> {
   const data: unknown = await fetchWrapper.post(`${base(patientId)}/packages/${packageId}/preview`, {})
+  // A new preview replaces the export's proposals.
+  void reviewStateChanged(patientId)
   return z.object({ package: EhiPackageSchema }).parse(data).package
 }
 
@@ -237,12 +240,17 @@ export interface EhiReviewResult {
   record: { table: string, id: number } | null
 }
 
-export async function reviewEhiProposal(patientId: number, proposal: EhiProposal, decision: EhiDecision, linkId?: number): Promise<EhiReviewResult> {
-  const data: unknown = await fetchWrapper.post(`${base(patientId)}/proposals/${proposal.id}/review`, {
-    decision,
-    preview_digest: proposal.preview_digest,
-    ...(linkId !== undefined ? { link_id: linkId } : {}),
-  })
+export async function reviewEhiProposal(patientId: number, proposal: Pick<EhiProposal, 'id' | 'preview_digest'>, decision: EhiDecision, linkId?: number): Promise<EhiReviewResult> {
+  let data: unknown
+  try {
+    data = await fetchWrapper.post(`${base(patientId)}/proposals/${proposal.id}/review`, {
+      decision,
+      preview_digest: proposal.preview_digest,
+      ...(linkId !== undefined ? { link_id: linkId } : {}),
+    })
+  } finally {
+    void reviewStateChanged(patientId)
+  }
   return z.object({
     proposal: EhiProposalSchema,
     record: z.object({ table: z.string(), id: z.number() }).nullable(),
@@ -262,6 +270,8 @@ export async function importStructuredFile(patientId: number, file: File): Promi
   const form = new FormData()
   form.append('file', file, file.name)
   const data: unknown = await fetchWrapper.post(`/api/phr/patients/${patientId}/imports/structured`, form)
+  // Its records land pending review.
+  void reviewStateChanged(patientId)
   return z.object({
     format: z.enum(['ccda', 'fhir']),
     result: ImportResultSchema.extend({ documents: z.number() }),

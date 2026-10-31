@@ -10,6 +10,7 @@ use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 use Laravel\Passport\ClientRepository;
 use Laravel\Passport\Token;
+use Tests\Support\PhrSyntheticChartFixture;
 
 /**
  * Synthetic accounts for the isolated Playwright database.
@@ -49,6 +50,9 @@ class PlaywrightSeeder extends Seeder
             'display_name' => 'Synthetic Bootstrap Patient',
             'relationship' => 'self',
         ]);
+
+        // Realistic-looking synthetic labs and conditions for layout checks and screenshots.
+        PhrSyntheticChartFixture::seed(2);
 
         $this->createConnectedApps();
     }

@@ -43,10 +43,10 @@ describe('AllergiesPage', () => {
     const onDrill = jest.fn()
     render(<AllergiesPage patientId={42} onDrill={onDrill} />)
 
-    const detailButton = await screen.findByRole('button', { name: 'Synthetic allergen' })
-    detailButton.focus()
-    expect(detailButton).toHaveFocus()
-    fireEvent.click(detailButton)
+    const row = (await screen.findByText('Synthetic allergen')).closest('tr')!
+    expect(row).toHaveAttribute('tabindex', '0')
+    row.focus()
+    fireEvent.keyDown(row, { key: 'Enter' })
 
     expect(onDrill).toHaveBeenCalledWith({ id: 'allergy-detail', instance: '17' })
     expect(onDrill).toHaveBeenCalledTimes(1)

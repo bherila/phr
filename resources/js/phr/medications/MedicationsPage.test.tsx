@@ -134,7 +134,7 @@ describe('MedicationsPage', () => {
     expect(onDrill).toHaveBeenCalledWith({ id: 'medication-detail', instance: '1' })
 
     onDrill.mockClear()
-    fireEvent.click(screen.getByTitle('Edit medication'))
+    fireEvent.click(screen.getByTitle('Edit Metformin'))
     expect(onDrill).not.toHaveBeenCalled()
   })
 })

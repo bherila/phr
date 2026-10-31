@@ -1,15 +1,18 @@
 import { Activity, CheckCircle2, ChevronDown, ChevronRight, Pencil, Plus, Trash2 } from 'lucide-react'
 import type { FormEvent } from 'react'
-import { Fragment, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
+import { type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { classBadge, codeChip, labelize, reviewStatusBadge } from '@/phr/clinical/ui'
+import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { compactPayload, zodErrorMessage } from '@/phr/shared'
-import type { PhrListPageProps } from '@/phr/shell/phrPages'
+import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
+import { openRecordId } from '@/phr/shell/phrRoutes'
 import {
   type PhrCondition,
   type PhrConditionFormData,
@@ -77,6 +80,7 @@ interface AddFormProps {
 }
 
 interface ConditionsTableProps {
+  loading?: boolean
   title: string
   description: string
   conditions: PhrCondition[]
@@ -96,6 +100,7 @@ interface ConditionsTableProps {
   onReview: (conditionId: number, decision: PhrReviewDecision) => void
   isMutating: (key: string) => boolean
   onDrill?: PhrListPageProps['onDrill']
+  openRowId: string | null
 }
 
 function conditionFormFromRecord(condition: PhrCondition): PhrConditionFormData {
@@ -263,6 +268,7 @@ function AddForm({ busy, onSubmit }: AddFormProps) {
 }
 
 function ConditionsTable({
+  loading = false,
   title,
   description,
   conditions,
@@ -282,163 +288,196 @@ function ConditionsTable({
   onReview,
   isMutating,
   onDrill,
+  openRowId,
 }: ConditionsTableProps) {
+  const busyFor = (condition: PhrCondition): boolean => (
+    isMutating(`resolve:${condition.id}`) || isMutating(`save:${condition.id}`) || isMutating(`delete:${condition.id}`)
+  )
+  const columns: RecordColumn<PhrCondition>[] = [
+    {
+      id: 'condition',
+      header: 'Condition',
+      headerClassName: 'px-4 py-3 font-medium',
+      className: 'px-4 py-3',
+      cell: (condition) => (
+        <>
+          <div className="font-medium text-card-foreground">{condition.name}</div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {codeChip('ICD-10', condition.icd10_code)}
+            {codeChip('SNOMED', condition.snomed_code)}
+            {condition.severity && (
+              <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                {condition.severity}
+              </span>
+            )}
+          </div>
+          {condition.notes && <p className="mt-2 text-xs text-muted-foreground">{condition.notes}</p>}
+        </>
+      ),
+    },
+    {
+      id: 'dates',
+      header: 'Dates',
+      fit: true,
+      headerClassName: 'px-4 py-3 font-medium',
+      className: 'px-4 py-3 text-muted-foreground',
+      cell: (condition) => (
+        <>
+          <div>{condition.onset_date ? `Onset ${condition.onset_date}` : 'No onset date'}</div>
+          {condition.abated_date && <div>Abated {condition.abated_date}</div>}
+        </>
+      ),
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      fit: true,
+      headerClassName: 'px-4 py-3 font-medium',
+      className: 'px-4 py-3',
+      cell: (condition) => (
+        <div className="flex items-center gap-2">
+          {classBadge(condition.clinical_status, STATUS_CLASS)}
+          {reviewStatusBadge(condition.review_status)}
+          <span className="text-xs text-muted-foreground">{labelize(condition.verification_status)}</span>
+        </div>
+      ),
+    },
+  ]
+  if (canManage) {
+    columns.push({
+      id: 'actions',
+      header: 'Actions',
+      fit: true,
+      headerClassName: 'px-4 py-3 font-medium text-right',
+      className: 'px-4 py-3',
+      cell: (condition) => {
+        const isResolving = isMutating(`resolve:${condition.id}`)
+        return (
+          <div className="flex justify-end gap-2">
+            {condition.clinical_status !== 'resolved' && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                aria-label={`${isResolving ? 'Resolving' : 'Resolve'} ${condition.name}`}
+                disabled={busyFor(condition)}
+                onClick={() => void onMarkResolved(condition)}
+              >
+                <CheckCircle2 className="size-4" />
+                {isResolving ? 'Resolving...' : 'Resolve'}
+              </Button>
+            )}
+            <ReviewActions
+              status={condition.review_status}
+              label={condition.name}
+              busy={isMutating(`review:${condition.id}`)}
+              disabled={busyFor(condition)}
+              onReview={(decision) => onReview(condition.id, decision)}
+            />
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              title={`Edit ${condition.name}`}
+              aria-label={`Edit ${condition.name}`}
+              disabled={busyFor(condition)}
+              onClick={() => onStartEdit(condition)}
+            >
+              <Pencil className="size-4" />
+            </Button>
+            <Button
+              type="button"
+              size="icon-sm"
+              variant="ghost"
+              className="text-destructive hover:text-destructive"
+              title={`Delete ${condition.name}`}
+              aria-label={`Delete ${condition.name}`}
+              disabled={busyFor(condition)}
+              onClick={() => onStartDelete(condition.id)}
+            >
+              <Trash2 className="size-4" />
+            </Button>
+          </div>
+        )
+      },
+    })
+  }
+
   return (
     <section className="rounded-lg border border-border bg-card">
       <div className="border-b border-border px-4 py-3">
         <h2 className="font-semibold text-card-foreground">{title}</h2>
         <p className="text-sm text-muted-foreground">{description}</p>
       </div>
-      {conditions.length === 0 ? (
-        <div className="px-4 py-8 text-sm text-muted-foreground">{emptyMessage}</div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-border text-sm">
-            <thead>
-              <tr className="text-left text-muted-foreground">
-                <th className="px-4 py-3 font-medium">Condition</th>
-                <th className="px-4 py-3 font-medium">Dates</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                {canManage && <th className="px-4 py-3 font-medium text-right">Actions</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {conditions.map((condition) => {
-                const isEditing = editingId === condition.id
-                const isDeleting = deletingId === condition.id
-                const isSaving = isMutating(`save:${condition.id}`)
-                const isDeletingBusy = isMutating(`delete:${condition.id}`)
-                const isResolving = isMutating(`resolve:${condition.id}`)
-                const isResolved = condition.clinical_status === 'resolved'
-
-                return (
-                  <Fragment key={condition.id}>
-                    <tr
-                      className={`align-top ${onDrill ? 'cursor-pointer hover:bg-muted/30' : ''}`}
-                      onClick={() => onDrill?.({ id: 'condition-detail', instance: String(condition.id) })}
+      <RecordTable
+        label={title}
+        loading={loading}
+        loadingLabel="Loading conditions"
+        rows={conditions}
+        rowId={(condition) => String(condition.id)}
+        columns={columns}
+        openRowId={openRowId}
+        onOpen={drillOpener(onDrill, (condition: PhrCondition) => ({ id: 'condition-detail', instance: String(condition.id) }))}
+        empty={<div className="px-4 py-8 text-sm text-muted-foreground">{emptyMessage}</div>}
+        tableClassName="min-w-full divide-y divide-border text-sm"
+        headClassName="text-left text-muted-foreground"
+        bodyClassName="divide-y divide-border"
+        rowClassName="align-top hover:bg-muted/30"
+        renderAfterRow={(condition, colSpan) => {
+          const isSaving = isMutating(`save:${condition.id}`)
+          const isDeletingBusy = isMutating(`delete:${condition.id}`)
+          return (
+            <>
+              {editingId === condition.id && (
+                <tr>
+                  <td colSpan={colSpan} className="bg-muted/20 px-4 py-4">
+                    <form
+                      className="space-y-3"
+                      onSubmit={(event) => {
+                        event.preventDefault()
+                        void onSaveEdit(condition.id)
+                      }}
                     >
-                      <td className="px-4 py-3">
-                        <div className="font-medium text-card-foreground">{condition.name}</div>
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {codeChip('ICD-10', condition.icd10_code)}
-                          {codeChip('SNOMED', condition.snomed_code)}
-                          {condition.severity && (
-                            <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                              {condition.severity}
-                            </span>
-                          )}
-                        </div>
-                        {condition.notes && <p className="mt-2 text-xs text-muted-foreground">{condition.notes}</p>}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">
-                        <div>{condition.onset_date ? `Onset ${condition.onset_date}` : 'No onset date'}</div>
-                        {condition.abated_date && <div>Abated {condition.abated_date}</div>}
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-col items-start gap-1.5">
-                          {classBadge(condition.clinical_status, STATUS_CLASS)}
-                          {reviewStatusBadge(condition.review_status)}
-                          <span className="text-xs text-muted-foreground">{labelize(condition.verification_status)}</span>
-                        </div>
-                      </td>
-                      {canManage && (
-                        <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
-                          <div className="flex justify-end gap-2">
-                            {!isResolved && (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                disabled={isResolving || isSaving || isDeletingBusy}
-                                onClick={() => void onMarkResolved(condition)}
-                              >
-                                <CheckCircle2 className="size-4" />
-                                {isResolving ? 'Resolving...' : 'Resolve'}
-                              </Button>
-                            )}
-                            <ReviewActions
-                              status={condition.review_status}
-                              label={condition.name}
-                              busy={isMutating(`review:${condition.id}`)}
-                              disabled={isResolving || isSaving || isDeletingBusy}
-                              onReview={(decision) => onReview(condition.id, decision)}
-                            />
-                            <Button
-                              type="button"
-                              size="icon-sm"
-                              variant="ghost"
-                              title="Edit condition"
-                              disabled={isResolving || isSaving || isDeletingBusy}
-                              onClick={() => onStartEdit(condition)}
-                            >
-                              <Pencil className="size-4" />
-                            </Button>
-                            <Button
-                              type="button"
-                              size="icon-sm"
-                              variant="ghost"
-                              className="text-destructive hover:text-destructive"
-                              title="Delete condition"
-                              disabled={isResolving || isSaving || isDeletingBusy}
-                              onClick={() => onStartDelete(condition.id)}
-                            >
-                              <Trash2 className="size-4" />
-                            </Button>
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                    {isEditing && (
-                      <tr>
-                        <td colSpan={canManage ? 4 : 3} className="bg-muted/20 px-4 py-4">
-                          <form
-                            className="space-y-3"
-                            onSubmit={(event) => {
-                              event.preventDefault()
-                              void onSaveEdit(condition.id)
-                            }}
-                          >
-                            <ConditionFormFields form={editForm} onChange={setEditForm} />
-                            <div className="flex gap-2">
-                              <Button type="submit" size="sm" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save'}</Button>
-                              <Button type="button" variant="outline" size="sm" disabled={isSaving} onClick={onCancelEdit}>Cancel</Button>
-                            </div>
-                          </form>
-                        </td>
-                      </tr>
-                    )}
-                    {isDeleting && (
-                      <tr>
-                        <td colSpan={canManage ? 4 : 3} className="bg-destructive/5 px-4 py-4">
-                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                            <p className="text-sm text-foreground">
-                              Delete <strong>{condition.name}</strong>? This cannot be undone.
-                            </p>
-                            <div className="flex gap-2">
-                              <Button variant="destructive" size="sm" disabled={isDeletingBusy} onClick={() => void onConfirmDelete(condition.id)}>
-                                {isDeletingBusy ? 'Deleting...' : 'Delete'}
-                              </Button>
-                              <Button type="button" variant="outline" size="sm" disabled={isDeletingBusy} onClick={onCancelDelete}>Cancel</Button>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                      <ConditionFormFields form={editForm} onChange={setEditForm} />
+                      <div className="flex gap-2">
+                        <Button type="submit" size="sm" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save'}</Button>
+                        <Button type="button" variant="outline" size="sm" disabled={isSaving} onClick={onCancelEdit}>Cancel</Button>
+                      </div>
+                    </form>
+                  </td>
+                </tr>
+              )}
+              {deletingId === condition.id && (
+                <tr>
+                  <td colSpan={colSpan} className="bg-destructive/5 px-4 py-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-sm text-foreground">
+                        Delete <strong>{condition.name}</strong>? This cannot be undone.
+                      </p>
+                      <div className="flex gap-2">
+                        <Button variant="destructive" size="sm" disabled={isDeletingBusy} onClick={() => void onConfirmDelete(condition.id)}>
+                          {isDeletingBusy ? 'Deleting...' : 'Delete'}
+                        </Button>
+                        <Button type="button" variant="outline" size="sm" disabled={isDeletingBusy} onClick={onCancelDelete}>Cancel</Button>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </>
+          )
+        }}
+      />
     </section>
   )
 }
 
-export default function ConditionsPage({ patientId, onDrill }: PhrListPageProps) {
+export default function ConditionsPage({ patientId, onDrill, openRecord }: PhrListPageProps) {
+  const openRowId = openRecordId(openRecord, 'condition-detail')
   const [historicalOpen, setHistoricalOpen] = useState(false)
   const endpoint = `/api/phr/patients/${patientId}/conditions`
 
+  const knownCanManage = useKnownPatientCanManage(patientId)
   const crud = useClinicalCrud<PhrCondition, PhrConditionFormData>({
     endpoint,
     emptyForm: EMPTY_FORM,
@@ -449,8 +488,11 @@ export default function ConditionsPage({ patientId, onDrill }: PhrListPageProps)
       return { records: parsed.conditions, canManage: parsed.can_manage }
     },
     payloadFromForm: conditionPayload,
+    initialCanManage: knownCanManage,
     sortRecords: sortConditions,
   })
+  // Skeleton rows on the first load only; a refetch keeps the current rows on screen.
+  const firstLoad = crud.busy && crud.records.length === 0
 
   const activeConditions = useMemo(
     () => crud.records.filter((condition) => ['active', 'recurrence', 'relapse'].includes(condition.clinical_status)),
@@ -525,17 +567,16 @@ export default function ConditionsPage({ patientId, onDrill }: PhrListPageProps)
         </div>
       )}
 
-      {crud.busy && <p className="text-sm text-muted-foreground">Loading...</p>}
-
       {!crud.busy && crud.records.length === 0 && (
         <div className="rounded-lg border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
           No conditions recorded.
         </div>
       )}
 
-      {!crud.busy && crud.records.length > 0 && (
+      {(firstLoad || crud.records.length > 0) && (
         <div className="space-y-4">
           <ConditionsTable
+            loading={firstLoad}
             title="Active Problems"
             description="Active, recurrent, or relapsing conditions."
             conditions={activeConditions}
@@ -555,50 +596,54 @@ export default function ConditionsPage({ patientId, onDrill }: PhrListPageProps)
             onReview={(conditionId, decision) => void crud.reviewRecord(conditionId, decision)}
             isMutating={crud.isMutating}
             onDrill={onDrill}
+            openRowId={openRowId}
           />
 
-          <section className="rounded-lg border border-border bg-card">
-            <button
-              type="button"
-              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
-              onClick={() => setHistoricalOpen((current) => !current)}
-              aria-expanded={historicalOpen}
-            >
-              <div>
-                <h2 className="font-semibold text-card-foreground">Resolved and Inactive</h2>
-                <p className="text-sm text-muted-foreground">Historical problem-list entries retained for context.</p>
-              </div>
-              <span className="flex items-center gap-2 text-sm text-muted-foreground">
-                {historicalConditions.length}
-                {historicalOpen ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-              </span>
-            </button>
-            {historicalOpen && (
-              <div className="border-t border-border">
-                <ConditionsTable
-                  title="Historical Conditions"
-                  description="Resolved, inactive, or remission conditions."
-                  conditions={historicalConditions}
-                  emptyMessage="No historical conditions recorded."
-                  canManage={crud.canManage}
-                  editingId={crud.editingId}
-                  deletingId={crud.deletingId}
-                  editForm={crud.editForm}
-                  setEditForm={crud.setEditForm}
-                  onStartEdit={crud.startEdit}
-                  onCancelEdit={crud.cancelEdit}
-                  onSaveEdit={saveCondition}
-                  onStartDelete={crud.startDelete}
-                  onCancelDelete={crud.cancelDelete}
-                  onConfirmDelete={async (conditionId) => { await crud.deleteRecord(conditionId) }}
-                   onMarkResolved={markResolved}
-                   onReview={(conditionId, decision) => void crud.reviewRecord(conditionId, decision)}
-                   isMutating={crud.isMutating}
-                   onDrill={onDrill}
-                 />
-              </div>
-            )}
-          </section>
+          {!firstLoad && (
+            <section className="rounded-lg border border-border bg-card">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                onClick={() => setHistoricalOpen((current) => !current)}
+                aria-expanded={historicalOpen}
+              >
+                <div>
+                  <h2 className="font-semibold text-card-foreground">Resolved and Inactive</h2>
+                  <p className="text-sm text-muted-foreground">Historical problem-list entries retained for context.</p>
+                </div>
+                <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                  {historicalConditions.length}
+                  {historicalOpen ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+                </span>
+              </button>
+              {historicalOpen && (
+                <div className="border-t border-border">
+                  <ConditionsTable
+                    title="Historical Conditions"
+                    description="Resolved, inactive, or remission conditions."
+                    conditions={historicalConditions}
+                    emptyMessage="No historical conditions recorded."
+                    canManage={crud.canManage}
+                    editingId={crud.editingId}
+                    deletingId={crud.deletingId}
+                    editForm={crud.editForm}
+                    setEditForm={crud.setEditForm}
+                    onStartEdit={crud.startEdit}
+                    onCancelEdit={crud.cancelEdit}
+                    onSaveEdit={saveCondition}
+                    onStartDelete={crud.startDelete}
+                    onCancelDelete={crud.cancelDelete}
+                    onConfirmDelete={async (conditionId) => { await crud.deleteRecord(conditionId) }}
+                    onMarkResolved={markResolved}
+                    onReview={(conditionId, decision) => void crud.reviewRecord(conditionId, decision)}
+                    isMutating={crud.isMutating}
+                    onDrill={onDrill}
+                    openRowId={openRowId}
+                  />
+                </div>
+              )}
+            </section>
+          )}
         </div>
       )}
     </div>

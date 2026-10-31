@@ -67,6 +67,20 @@ class PhrNavigationTest extends TestCase
         }
     }
 
+    /**
+     * The server answers /phr/patient/{id}/{page} only for the pages it lists, so a page the
+     * client routes to but the server does not know would 404 on a reload or a shared link.
+     */
+    public function test_the_server_lists_exactly_the_pages_the_client_routes_to(): void
+    {
+        $source = (string) file_get_contents(resource_path('js/phr/shell/phrRoutes.ts'));
+        self::assertSame(1, preg_match('/PHR_PAGE_IDS: readonly PhrPageId\[\] = \[([^\]]*)\]/', $source, $list));
+        preg_match_all("/'([^']+)'/", $list[1], $ids);
+
+        self::assertSame($ids[1], PageController::PATIENT_PAGES);
+        self::assertContains('review', PageController::PATIENT_PAGES);
+    }
+
     public function test_patient_deep_links_enforce_patient_access(): void
     {
         $patientId = $this->createPatient($this->createUser());

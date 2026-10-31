@@ -2,6 +2,7 @@ import type { ReactElement, ReactNode } from 'react'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 
 import { fetchWrapper } from '@/fetchWrapper'
+import { reviewStateChanged } from '@/phr/review/reviewSummary'
 import { errorMessage } from '@/phr/shared'
 import { PhrDicomUploadFinalizeResponseSchema, PhrDicomUploadResponseSchema } from '@/phr/types'
 
@@ -176,6 +177,8 @@ export function DicomUploadProvider({ children, budget = globalUploadBudget }: D
           `/api/phr/patients/${patientId}/dicom/uploads/${upload.id}/finalize`,
           {},
         ))
+        // A finalized upload adds its study to Imaging.
+        void reviewStateChanged(patientId)
         if (finalizeResponse.duplicate_upload === true) {
           updateJob(jobId, (job) => ({ ...job, phase: 'duplicate', error: null, currentFileName: '' }))
           setCompletions((previous) => ({ ...previous, [patientId]: (previous[patientId] ?? 0) + 1 }))

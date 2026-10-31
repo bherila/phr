@@ -28,8 +28,10 @@ Every text pairing must meet 4.5:1. The old light-mode gold did not (3.7:1 on wh
 is part of why it went.
 
 Status colors should carry meaning through a dot next to text in the foreground color, not
-through colored text: light-mode `--warning` is only 3.3:1 against white. **(planned)** Existing
-status badges still use tinted text; they move to the dot as each page is revisited.
+through colored text: light-mode `--warning` is only 3.3:1 against white. The review status
+(pending review, confirmed, rejected) is shown that way everywhere, through the shared
+`StatusDot`. **(shipped)** Other status badges (clinical status, criticality) still use tinted
+text; they move to the dot as each page is revisited. **(planned)**
 
 ## Layout
 
@@ -51,24 +53,70 @@ At most three panes. Nothing stacks beyond them. **(shipped)**
   sidebar item carries `aria-current="page"`. **(shipped)**
 - **Sidebar.** Shown only in a patient's context. It holds the patient switcher, which keeps
   the page you are on when you switch, then: **(shipped)**
-  - **Overview:** Review (planned), Summary, Health Log
+  - **Overview:** Review, Summary, Health Log
   - **Clinical:** Labs, Vitals, Visits, Medications, Conditions, Procedures, Immunizations, Allergies
   - **Records:** Documents, Imaging
   - **Sharing:** Access
 
   Each item is a real link with an icon and a label. The current item uses `--accent` with
-  `--accent-foreground` and `aria-current="page"`. **(shipped)** An optional count, and a
-  warning dot when the section has items waiting for review, appear only where the shell
-  already holds that data; no section supplies it yet, and no request is made just for a
-  count or a dot. **(planned)** Section pages (Imports, Data Hub, Config, Manage Patients,
-  Patients) have no patient sidebar. **(shipped)**
+  `--accent-foreground` and `aria-current="page"`. **(shipped)**
+
+  Counts and dots come from one request per patient, `GET /api/phr/patients/{id}/review/summary`,
+  shared by the sidebar and its small-screen sheet. **(shipped)**
+  - Review shows how many items wait in all: pending records, AI import proposals and
+    reviewable EHI export proposals.
+  - A section shows how many records it lists (standing, not rejected), and a `--warning`
+    dot when some wait for review: its own records in `pending_review`, plus EHI proposals
+    whose records land there (Immunizations, Documents). AI proposals are not records of any
+    section yet, so they count only toward Review.
+  - The count and the dot are hidden from assistive technology and said in the item's name
+    instead, after its visible label ("Medications, 12 records, 2 waiting for review").
+  - Every decision path (a section's review buttons, the Review page, the Imports page's AI
+    and EHI reviews) fetches the summary again, so the counts follow without a reload. The
+    Review page's own listing carries the summary, so opening it costs no second request.
+
+  Section pages (Imports, Data Hub, Config, Manage Patients, Patients) have no patient
+  sidebar. **(shipped)**
 - **Page.** A breadcrumb (`Patient / Group / Section [/ Item]`), then the page's own title and
-  actions, and the content at full width. Tables get the room they need, and wide tables
-  scroll inside their own box rather than squeezing their columns. **(shipped)**
-- **Detail panel.** Selecting a row opens its detail in a panel to the right of the list:
-  380px from the `lg` breakpoint, 420px from `xl`. Selecting another row swaps the panel's
-  contents. The panel has a close link (and Esc closes it). Below `lg` the detail opens as its
-  own page instead, with the breadcrumb and the close link back to the list. **(shipped)**
+  actions, and the content. Page content (breadcrumb, header, toolbar, list) stops at 1280px
+  (`max-w-[80rem]`), aligned to the start beside the sidebar rather than centered, so wide
+  screens do not stretch it. Full-width viewers (document, imaging study, vitals trend, the 3D
+  explorer) are exempt. Wide tables scroll inside their own box rather than squeezing their
+  columns. **(shipped)**
+- **Detail panel.** Selecting a row opens its detail in a panel to the right of the list, from
+  the `lg` breakpoint, `clamp(400px, 32vw, 640px)` wide. When it opens, the list gives up width
+  first; list and panel together may exceed 1280px, up to the window. Selecting another row
+  swaps the panel's contents, and the row whose record is open is highlighted. While the panel
+  is open, moving the active row with the keyboard shows that record (debounced, with
+  `replaceState`). The panel has a close link, and Esc closes it and puts focus back on the
+  row. Below `lg` the detail opens as its own page instead, with the breadcrumb and the close
+  link back to the list. **(shipped)**
+  - The panel is a size container. Content with a multi-column table adapts to the width it
+    gets: the Lab Panel's results stack below 520px (name and value on the first line, range,
+    flag and trend on the second) and are a table above it. **(shipped)**
+- **Record lists.** Every section's table or list is the shared record table or its list form
+  (`resources/js/components/record-list`), with the keyboard model in
+  [keyboard navigation](keyboard-navigation.md). **(shipped)** Its column rules:
+  - Short columns (value, unit, flag, date, status, review, actions) are `fit` columns: they
+    size to their content and stay on one line (`width: 1%; white-space: nowrap`). The name
+    column takes the rest.
+  - Text is left-aligned. Only numeric values right-align, with tabular figures; a column can
+    decide per row, so a lab value of "Not Detected" sits next to its analyte while "112"
+    lines up with the other numbers.
+  - The review status sits on the row's line as a dot and a label (beside the review actions,
+    or after the name), not as a pill under the name.
+- **Loading.** Nothing moves when data arrives. **(shipped)**
+  - On the first load a record list renders skeleton rows in its real columns and row classes
+    (8, or the expected count), with `aria-busy="true"` on the region, one visually hidden live
+    message ("Loading conditions"), `aria-hidden` skeleton blocks, and no pulse when
+    `prefers-reduced-motion` is set.
+  - A refetch after a change or a filter keeps the current rows on screen.
+  - Detail panels show a skeleton of their heading, fact lines and result rows; a lazily
+    loaded page shows a skeleton with its own title. The top bar, sidebar and breadcrumb render
+    from the URL at once.
+  - Controls that depend on the person's access (the Add buttons) start from the patient list
+    the shell already holds, so they do not appear late and push the list down. A Playwright
+    check keeps the Conditions page's layout shift under 0.02 between skeleton and table.
 
 ### Sidebar sizing
 
@@ -120,7 +168,7 @@ Every view has a real path, so browser Back and Forward, reloads and shared link
 |---|---|
 | `/phr/patients`, `/phr/patients/manage`, `/phr/imports`, `/phr/data-hub`, `/phr/config` | Top-level sections. Their query string is part of the view, e.g. `/phr/imports?patient_id={id}` preselects a patient |
 | `/phr/patient/{patientId}` | The patient's Summary |
-| `/phr/patient/{patientId}/{section}` | A record section. The segment is the section's id: `summary`, `health-log`, `labs`, `vitals`, `office-visits` (Visits), `medications`, `conditions`, `procedures`, `immunizations`, `allergies`, `documents`, `imaging`, `access` |
+| `/phr/patient/{patientId}/{section}` | A record section. The segment is the section's id: `review`, `summary`, `health-log`, `labs`, `vitals`, `office-visits` (Visits), `medications`, `conditions`, `procedures`, `immunizations`, `allergies`, `documents`, `imaging`, `access` |
 | `/phr/patient/{patientId}/{section}/{recordId}` | That section with one of its own records open |
 | `/phr/patient/{patientId}/{section}/{kind}/{recordId}` | A record the section shows although it is another type: `office-visits/procedure/{id}`, `office-visits/immunization/{id}`, `vitals/trend/{metric}` |
 | `/phr/patient/{patientId}/office-visits/{visitId}/imaging/{studyId}` | A visit's linked imaging study, in place of the visit |
@@ -151,21 +199,79 @@ Each old column is replayed as the navigation it stood for, so
 - Approve and Reject sit in a full-width bar on a record's page. **(planned)**
 - Every tap target is at least 44px. **(planned)**
 
+## Review
+
+`/phr/patient/{id}/review` lists everything waiting for the patient's review on one page.
+**(shipped)** It reads `GET /api/phr/patients/{id}/review` and decides nothing itself: each
+approve or reject goes to the route that already owns that kind of proposal, with that
+route's own authorization and conflict checks.
+
+| Origin | Approve / reject | Conflict check |
+|---|---|---|
+| Clinical records in `pending_review` (C-CDA, FHIR and MyChart imports; connected apps) | The section's `PATCH …/{record}/review` with `confirmed` / `rejected` | The record's opaque version as listed; a changed record is a 409 |
+| AI import proposals | The Imports page's `…/ai-imports/{import}/results/{result}/accept` and `/reject` (`PhrImportReviewService`, as the agent API's `imports.review`) | A proposal already decided is a 409 |
+| EHI export proposals | `…/ehi/proposals/{proposal}/review` (`EhiProposalService`) | The proposal's preview digest, the source revisions and the target record |
+
+- **Groups.** By source: records by import source and source document, one group per AI
+  import, one per EHI export. A switch groups the same rows by section instead.
+- **Group header.** The origin and its name (file, document or source label), the date,
+  how it was read ("parsed by PHR, no AI", or where the AI ran), a chip per section with its
+  count, **Reject all** and **Approve N selected**.
+- **AI proposals are approved one at a time, after they are read.** Accepting an AI
+  proposal imports every value it holds (a document's proposal can carry many nested
+  records), so the rule is that none is approved before all of its values have been shown.
+  An AI row has no checkbox and no Approve of its own; **Review** expands it to the same
+  rendering the Imports page's AI review uses (every field and every nested record), and its
+  Approve and Reject live there. "Approve N selected" never includes an AI proposal; a group
+  of AI proposals has no such button. Reject all may still include them, since rejecting adds
+  nothing. AI-read groups carry "AI-read: check against the document. Open each one and
+  approve it on its own."
+
+- **Rows.** Each group is the shared record table (`resources/js/phr/review/ReviewPage.tsx`):
+  a checkbox, what is proposed, its section, the change with a dot, and an action. **Open**
+  goes to the record; **Compare** goes to the EHI export's own review, which shows the
+  record already in PHR; **Review** expands an AI proposal (above), with a link to its
+  document. The list keyboard model applies: Space checks a row (never an AI proposal, which
+  has no checkbox), and Enter does what the row's action does.
+- **Change kinds.**
+  - **New**: not in the record yet. AI proposals read as New: accepting adds them.
+  - **Updates existing**: an EHI proposal shows the changed fields ("Lot number L1 → L2").
+    A clinical record whose source changed it after it was added (which reopened its review)
+    has no field-level difference to show, because PHR does not keep its earlier values.
+  - **Possible duplicate**: only from the EHI export's own duplicate detection; nothing
+    else guesses. These start unchecked, since approving one adds a separate record.
+  - **Already in PHR** and **Evidence only**: EHI proposals that add the export as evidence
+    of an existing record, or keep a row with the export without adding anything.
+- **Batches.** Batches are for records and parsed imports, not AI proposals. A batch asks
+  for confirmation with its count, then decides each item in turn. A refusal (a record changed since the page loaded, a proposal already decided) does
+  not stop the rest; it is shown on its row, and the list reloads.
+- **Limits.** Up to 200 rows per section, AI import or EHI export; a group with more says
+  so and links to the import's own review.
+- **View only.** A reader without write access sees the page with every checkbox and
+  button disabled.
+- **Empty.** "Nothing waiting for review".
+- No single-key approve shortcut exists, by design.
+
+## Patient selection
+
+`/phr/patients` shows a card per patient the signed-in person can open. **(shipped)**
+
+- **Card.** Initials, name, your relationship ("You" for your own profile, "You manage this
+  record" for one you own for someone else, "Shared with you" for one shared with you, which
+  is also marked "View only" when you cannot edit it), its record count, its last update,
+  and "N waiting for review".
+- **Needs your attention.** Below the cards, across patients: records ready to review, EHI
+  exports and finished AI extractions with proposals to review, and AI extractions and EHI
+  uploads that failed in the last 30 days. Ready items come first and link to the patient's
+  Review page; failures link to the Imports page.
+- **Data.** Names and access come from the shared patient list. The counts are one request,
+  `GET /api/phr/patients/overview`, built from existing import and AI-job state with a fixed
+  number of queries however many patients there are (up to 100).
+
 ## Planned screens
 
 These are designed (see the design canvas) but not built:
 
-- **Patient selection** (planned). A card per patient showing your relationship to them
-  ("You", "You manage this record", "Shared with you", the last marked view only), a record
-  count, the last update, and how many items wait for review. A "Needs your attention" list
-  below collects ready imports, finished AI extractions and failed imports across patients.
-- **Review** (planned). One page for every proposed change for the patient, grouped by where it
-  came from (an import or an AI extraction), with a switch to group by section instead.
-  - Each proposal is labeled **New**, **Updates existing** (with the change spelled out, e.g.
-    "Dose 5 mg → 10 mg"), or **Possible duplicate**.
-  - Batch approve applies to the checked items. Possible duplicates start unchecked.
-  - AI-read items are flagged to be checked against their document.
-  - This page needs an endpoint that returns pending items across all sections.
 - **Document viewer provenance** (planned). Each record in the viewer's side column shows its
   review status, and a provenance section lists the document's source, who added it, the
   original file, and the file hash.

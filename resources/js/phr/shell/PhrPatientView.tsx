@@ -1,16 +1,37 @@
 import { ArrowLeft, X } from 'lucide-react'
 import { type ReactElement, type ReactNode, Suspense, useEffect } from 'react'
 
+import { DetailSkeleton, PageSkeleton } from '@/components/record-list/Skeleton'
 import { cn } from '@/lib/utils'
 
-import { pushPhrLocation } from './phrLocation'
-import { navGroupOf, PHR_DETAILS, PHR_PAGES } from './phrPages'
+import { pushPhrLocation, replacePhrLocation } from './phrLocation'
+import { navGroupOf, PHR_DETAILS, PHR_PAGES, type PhrDrillOptions } from './phrPages'
 import { detailPresentation, type PhrNavTarget, type PhrView, phrViewUrl, resolveNavTarget } from './phrRoutes'
 import { navigateToView } from './usePhrView'
 
 type PatientView = Extract<PhrView, { kind: 'patient' }>
 
-const LOADING = <div role="status" aria-live="polite" className="p-6 text-sm text-muted-foreground">Loading…</div>
+/** List pages stop growing here, aligned to the sidebar; full-width viewers are exempt. */
+export const PAGE_CONTENT_MAX_WIDTH = 'max-w-[80rem]'
+
+/**
+ * The detail panel scales with the window, so its tables have room on wide screens; the list
+ * beside it gives up width first.
+ */
+export const DETAIL_PANEL_WIDTH = 'lg:w-[clamp(400px,32vw,640px)]'
+
+/** The page's own header shape while its code loads, so the real header lands in place. */
+function pageFallback(label: string): ReactElement {
+  const title = (
+    <h1 className="flex items-center gap-2 text-2xl font-semibold text-foreground">
+      <span aria-hidden="true" className="size-6 rounded bg-muted" />
+      {label}
+    </h1>
+  )
+  return <PageSkeleton title={title} label={`Loading ${label.toLowerCase()}`} />
+}
+
+const DETAIL_LOADING = <DetailSkeleton />
 
 interface Crumb {
   label: string
@@ -71,7 +92,11 @@ export function PhrPatientView({ view, patientName }: PhrPatientViewProps): Reac
   const crumbs = pageCrumbs(view, patientName)
   const closeUrl = phrViewUrl(listView(view))
 
-  const fromList = (target: PhrNavTarget): void => navigateToView(resolveNavTarget(view, target, 'list'))
+  const fromList = (target: PhrNavTarget, options?: PhrDrillOptions): void => {
+    const next = resolveNavTarget(view, target, 'list')
+    if (options?.replace) replacePhrLocation(phrViewUrl(next))
+    else navigateToView(next)
+  }
   const fromDetail = (target: PhrNavTarget): void => navigateToView(resolveNavTarget(view, target, 'detail'))
 
   useEscapeToClose(presentation === 'panel' ? closeUrl : null)
@@ -83,7 +108,7 @@ export function PhrPatientView({ view, patientName }: PhrPatientViewProps): Reac
       <div className="h-full overflow-y-auto">
         <div className="flex flex-col gap-4 px-4 py-6 md:px-8">
           <Breadcrumb crumbs={[...crumbs, { label: detail.label }]} />
-          <Suspense fallback={LOADING}>
+          <Suspense fallback={DETAIL_LOADING}>
             <Detail key={phrViewUrl(view)} patientId={view.patientId} recordId={view.detail.id} onDrill={fromDetail} />
           </Suspense>
         </div>
@@ -97,16 +122,16 @@ export function PhrPatientView({ view, patientName }: PhrPatientViewProps): Reac
         className={cn('min-w-0 flex-1 overflow-y-auto', view.detail && 'hidden lg:block')}
         data-pane="list"
       >
-        <div className="flex flex-col gap-4 px-4 py-6 md:px-8">
+        <div className={cn('flex flex-col gap-4 px-4 py-6 md:px-8', PAGE_CONTENT_MAX_WIDTH)} data-testid="page-content">
           <Breadcrumb crumbs={crumbs} />
-          <Suspense fallback={LOADING}>
-            <ListPage key={`${view.patientId}-${view.page}`} patientId={view.patientId} onDrill={fromList} />
+          <Suspense fallback={pageFallback(page.label)}>
+            <ListPage key={`${view.patientId}-${view.page}`} patientId={view.patientId} onDrill={fromList} openRecord={view.parent ?? view.detail} />
           </Suspense>
         </div>
       </div>
       {view.detail && (
         <DetailPanel view={view} closeUrl={closeUrl} crumbs={crumbs}>
-          <Suspense fallback={LOADING}>
+          <Suspense fallback={DETAIL_LOADING}>
             {(() => {
               const Detail = PHR_DETAILS[view.detail.module].component
               return <Detail key={phrViewUrl(view)} patientId={view.patientId} recordId={view.detail.id} onDrill={fromDetail} />
@@ -126,7 +151,7 @@ function DetailPanel({ view, closeUrl, crumbs, children }: { view: PatientView, 
     <aside
       aria-label={`${detail.label} detail`}
       data-pane="detail"
-      className="flex w-full min-w-0 flex-col overflow-y-auto border-border bg-card lg:w-[380px] lg:shrink-0 lg:border-l xl:w-[420px]"
+      className={cn('@container flex w-full min-w-0 flex-col overflow-y-auto border-border bg-card lg:shrink-0 lg:border-l', DETAIL_PANEL_WIDTH)}
     >
       <div className="flex flex-col gap-2 border-b border-border px-4 py-3">
         <Breadcrumb crumbs={[...crumbs, { label: detail.label }]} className="lg:hidden" />

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 
-import { fetchWrapper } from '@/fetchWrapper'
+import { DetailSkeleton } from '@/components/record-list/Skeleton'
 import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
+import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { administrationStatusLabel, doseAmountLabel, seriesPositionLabel } from '@/phr/immunizations/immunizationDose'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
@@ -68,10 +69,7 @@ export default function ImmunizationDetail({ patientId, recordId }: Immunization
     setReviewBusy(true)
     setError(null)
     try {
-      const raw: unknown = await fetchWrapper.patch(
-        `/api/phr/patients/${patientId}/immunizations/${recordId}/review`,
-        { review_status: decision },
-      )
+      const raw: unknown = await recordReviewDecision(`/api/phr/patients/${patientId}/immunizations/${recordId}`, decision)
       const updated = PhrImmunizationResponseSchema.parse(raw).immunization
       setImmunization(updated)
     } catch (caught) {
@@ -92,7 +90,7 @@ export default function ImmunizationDetail({ patientId, recordId }: Immunization
           {error}
         </div>
       )}
-      {busy && <p className="text-sm text-muted-foreground">Loading...</p>}
+      {busy && !immunization && <DetailSkeleton label="Loading immunization" facts={4} rows={0} />}
       {immunization && (
         <section className="rounded-lg border border-border bg-card p-4">
           <div className="flex flex-wrap items-center gap-2">
