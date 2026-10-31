@@ -43,16 +43,19 @@ async function ownerPatientId(page: Page, patientName: string): Promise<number> 
 }
 
 /**
- * Adds a condition with the page's own form, and waits for the create
- * request to answer.
+ * Adds a condition with the page's own form, waits for the create request to
+ * answer, and returns the new record's ID.
  */
-async function addConditionThroughUi(page: Page, patientId: number, name: string): Promise<void> {
+async function addConditionThroughUi(page: Page, patientId: number, name: string): Promise<number> {
   const created = page.waitForResponse((response) => response.request().method() === 'POST'
     && new URL(response.url()).pathname === `/api/phr/patients/${patientId}/conditions`)
   await page.getByRole('button', { name: 'Add Condition' }).click()
   await page.getByLabel('Name *').fill(name)
   await page.getByRole('button', { name: 'Add', exact: true }).click()
-  expect((await created).status()).toBe(201)
+  const response = await created
+  expect(response.status()).toBe(201)
+  const payload = await response.json() as { condition: { id: number } }
+  return payload.condition.id
 }
 
 /** The synthetic C-CDA document the PHPUnit suites use, as a file on disk. */
@@ -231,15 +234,24 @@ test.describe.serial('PHR browser journeys', () => {
     await expect(table.getByText('Essential (primary) hypertension')).toBeVisible()
     const name = `Synthetic condition added in the browser ${testInfo.retry}`
 
-    await addConditionThroughUi(page, patientId, name)
-
-    // Issue 253: the create succeeded but its response was rejected, so the
-    // page showed an error and left the new condition out of the list.
-    await expect(table.getByText(name, { exact: true })).toBeVisible()
-    await expect(page.getByRole('alert')).toHaveCount(0)
-    await expect(page.getByLabel('Name *')).toHaveCount(0)
-    await page.reload()
-    await expect(table.getByText(name, { exact: true })).toBeVisible()
+    const conditionId = await addConditionThroughUi(page, patientId, name)
+    try {
+      // Issue 253: the create succeeded but its response was rejected, so the
+      // page showed an error and left the new condition out of the list.
+      await expect(table.getByText(name, { exact: true })).toBeVisible()
+      await expect(page.getByRole('alert')).toHaveCount(0)
+      await expect(page.getByLabel('Name *')).toHaveCount(0)
+      await page.reload()
+      await expect(table.getByText(name, { exact: true })).toBeVisible()
+    } finally {
+      // The chart fixture is shared with the layout journeys, which a retry
+      // runs again: leave it as seeded.
+      const csrf = await page.locator('meta[name="csrf-token"]').getAttribute('content')
+      const deleted = await page.request.delete(`/api/phr/patients/${patientId}/conditions/${conditionId}`, {
+        headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': csrf ?? '' },
+      })
+      expect(deleted.status()).toBe(204)
+    }
   })
 
   test('uploads and views a synthetic document', async ({ page }, testInfo) => {
