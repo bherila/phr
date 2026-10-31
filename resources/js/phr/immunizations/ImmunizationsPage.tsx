@@ -192,6 +192,8 @@ export default function ImmunizationsPage({ patientId, onDrill, openRecord }: Ph
     payloadFromForm: immunizationPayload,
     sortRecords: sortImmunizations,
   })
+  // Skeleton rows on the first load only; a refetch keeps the current rows on screen.
+  const firstLoad = crud.busy && crud.records.length === 0
 
   async function addImmunization(form: PhrImmunizationFormData): Promise<boolean> {
     const parsed = PhrImmunizationFormSchema.safeParse(form)
@@ -349,17 +351,16 @@ export default function ImmunizationsPage({ patientId, onDrill, openRecord }: Ph
         </div>
       )}
 
-      {crud.busy && <p className="text-sm text-muted-foreground">Loading...</p>}
-
       {!crud.busy && crud.records.length === 0 && (
         <div className="rounded-lg border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
           No immunizations recorded.
         </div>
       )}
 
-      {!crud.busy && crud.records.length > 0 && (
+      {(firstLoad || crud.records.length > 0) && (
         <section className="rounded-lg border border-border bg-card">
           <RecordTable
+            loading={firstLoad}
             label="Immunizations"
             rows={crud.records}
             rowId={(immunization) => String(immunization.id)}
@@ -369,7 +370,7 @@ export default function ImmunizationsPage({ patientId, onDrill, openRecord }: Ph
             tableClassName="min-w-full divide-y divide-border text-sm"
             headClassName="text-left text-muted-foreground"
             bodyClassName="divide-y divide-border"
-            rowClassName={() => 'align-top hover:bg-muted/30'}
+            rowClassName="align-top hover:bg-muted/30"
             renderAfterRow={(immunization, colSpan) => {
               const isSaving = crud.isMutating(`save:${immunization.id}`)
               const isDeletingBusy = crud.isMutating(`delete:${immunization.id}`)

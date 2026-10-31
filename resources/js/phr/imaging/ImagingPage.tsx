@@ -2,6 +2,7 @@ import { Download, ExternalLink, Images, RefreshCcw, UploadCloud } from 'lucide-
 import { useCallback, useEffect, useState } from 'react'
 
 import { RecordList } from '@/components/record-list/RecordList'
+import { SkeletonBlock } from '@/components/record-list/Skeleton'
 import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
 import { cn, formatBytes } from '@/lib/utils'
@@ -70,17 +71,18 @@ export default function ImagingPage({ patientId, onDrill, openRecord }: PhrListP
         </div>
       )}
 
-      {busy && studies.length === 0 && <p className="text-sm text-muted-foreground">Loading…</p>}
-
       {!busy && studies.length === 0 && (
         <div className="rounded-lg border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
           No imaging studies.
         </div>
       )}
 
-      {studies.length > 0 && (
+      {(studies.length > 0 || (busy && studies.length === 0)) && (
         <RecordList
           label="Imaging studies"
+          loading={busy && studies.length === 0}
+          skeletonRows={3}
+          skeletonItem={<div className="min-w-0 flex-1"><SkeletonBlock className="w-1/2" /><SkeletonBlock className="mt-1 w-2/3 text-xs" /></div>}
           className="flex flex-col gap-3"
           rows={studies}
           rowId={(study) => String(study.id)}

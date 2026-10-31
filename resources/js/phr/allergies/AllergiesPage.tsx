@@ -44,6 +44,7 @@ interface AddFormProps {
 }
 
 interface AllergiesTableProps {
+  loading?: boolean
   title: string
   description: string
   allergies: PhrAllergy[]
@@ -125,6 +126,7 @@ function AddForm({ busy, onSubmit }: AddFormProps) {
 }
 
 function AllergiesTable({
+  loading = false,
   title,
   description,
   allergies,
@@ -197,6 +199,8 @@ function AllergiesTable({
       </div>
       <RecordTable
         label={title}
+        loading={loading}
+        loadingLabel="Loading allergies"
         rows={allergies}
         rowId={(allergy) => String(allergy.id)}
         columns={columns}
@@ -228,6 +232,8 @@ export default function AllergiesPage({ patientId, onDrill, openRecord }: PhrLis
     payloadFromForm: allergyPayload,
     sortRecords: sortAllergies,
   })
+  // Skeleton rows on the first load only; a refetch keeps the current rows on screen.
+  const firstLoad = crud.busy && crud.records.length === 0
   const { setRecords, showRejected } = crud
 
   useEffect(() => subscribeToAllergyChanges((change) => {
@@ -302,17 +308,16 @@ export default function AllergiesPage({ patientId, onDrill, openRecord }: PhrLis
         </div>
       )}
 
-      {crud.busy && <p className="text-sm text-muted-foreground">Loading...</p>}
-
       {!crud.busy && crud.records.length === 0 && (
         <div className="rounded-lg border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
           No allergies recorded.
         </div>
       )}
 
-      {!crud.busy && crud.records.length > 0 && (
+      {(firstLoad || crud.records.length > 0) && (
         <div className="space-y-4">
           <AllergiesTable
+            loading={firstLoad}
             title="Active Allergies"
             description="High criticality and severe reactions are highlighted."
             allergies={activeAllergies}
@@ -321,35 +326,37 @@ export default function AllergiesPage({ patientId, onDrill, openRecord }: PhrLis
             openRowId={openRowId}
           />
 
-          <section className="rounded-lg border border-border bg-card">
-            <button
-              type="button"
-              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
-              onClick={() => setHistoricalOpen((current) => !current)}
-              aria-expanded={historicalOpen}
-            >
-              <div>
-                <h2 className="font-semibold text-card-foreground">Resolved and Inactive</h2>
-                <p className="text-sm text-muted-foreground">Historical allergies retained for clinical context.</p>
-              </div>
-              <span className="flex items-center gap-2 text-sm text-muted-foreground">
-                {historicalAllergies.length}
-                {historicalOpen ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-              </span>
-            </button>
-            {historicalOpen && (
-              <div className="border-t border-border">
-                <AllergiesTable
-                  title="Historical Allergies"
-                  description="Resolved or inactive allergy records."
-                  allergies={historicalAllergies}
-                  emptyMessage="No historical allergies recorded."
-                  onDrill={onDrill}
-                  openRowId={openRowId}
-                />
-              </div>
-            )}
-          </section>
+          {!firstLoad && (
+            <section className="rounded-lg border border-border bg-card">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                onClick={() => setHistoricalOpen((current) => !current)}
+                aria-expanded={historicalOpen}
+              >
+                <div>
+                  <h2 className="font-semibold text-card-foreground">Resolved and Inactive</h2>
+                  <p className="text-sm text-muted-foreground">Historical allergies retained for clinical context.</p>
+                </div>
+                <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                  {historicalAllergies.length}
+                  {historicalOpen ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+                </span>
+              </button>
+              {historicalOpen && (
+                <div className="border-t border-border">
+                  <AllergiesTable
+                    title="Historical Allergies"
+                    description="Resolved or inactive allergy records."
+                    allergies={historicalAllergies}
+                    emptyMessage="No historical allergies recorded."
+                    onDrill={onDrill}
+                    openRowId={openRowId}
+                  />
+                </div>
+              )}
+            </section>
+          )}
         </div>
       )}
     </div>

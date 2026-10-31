@@ -79,6 +79,7 @@ interface AddFormProps {
 }
 
 interface ConditionsTableProps {
+  loading?: boolean
   title: string
   description: string
   conditions: PhrCondition[]
@@ -266,6 +267,7 @@ function AddForm({ busy, onSubmit }: AddFormProps) {
 }
 
 function ConditionsTable({
+  loading = false,
   title,
   description,
   conditions,
@@ -408,6 +410,8 @@ function ConditionsTable({
       </div>
       <RecordTable
         label={title}
+        loading={loading}
+        loadingLabel="Loading conditions"
         rows={conditions}
         rowId={(condition) => String(condition.id)}
         columns={columns}
@@ -417,7 +421,7 @@ function ConditionsTable({
         tableClassName="min-w-full divide-y divide-border text-sm"
         headClassName="text-left text-muted-foreground"
         bodyClassName="divide-y divide-border"
-        rowClassName={() => 'align-top hover:bg-muted/30'}
+        rowClassName="align-top hover:bg-muted/30"
         renderAfterRow={(condition, colSpan) => {
           const isSaving = isMutating(`save:${condition.id}`)
           const isDeletingBusy = isMutating(`delete:${condition.id}`)
@@ -484,6 +488,8 @@ export default function ConditionsPage({ patientId, onDrill, openRecord }: PhrLi
     payloadFromForm: conditionPayload,
     sortRecords: sortConditions,
   })
+  // Skeleton rows on the first load only; a refetch keeps the current rows on screen.
+  const firstLoad = crud.busy && crud.records.length === 0
 
   const activeConditions = useMemo(
     () => crud.records.filter((condition) => ['active', 'recurrence', 'relapse'].includes(condition.clinical_status)),
@@ -558,17 +564,16 @@ export default function ConditionsPage({ patientId, onDrill, openRecord }: PhrLi
         </div>
       )}
 
-      {crud.busy && <p className="text-sm text-muted-foreground">Loading...</p>}
-
       {!crud.busy && crud.records.length === 0 && (
         <div className="rounded-lg border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
           No conditions recorded.
         </div>
       )}
 
-      {!crud.busy && crud.records.length > 0 && (
+      {(firstLoad || crud.records.length > 0) && (
         <div className="space-y-4">
           <ConditionsTable
+            loading={firstLoad}
             title="Active Problems"
             description="Active, recurrent, or relapsing conditions."
             conditions={activeConditions}
@@ -591,49 +596,51 @@ export default function ConditionsPage({ patientId, onDrill, openRecord }: PhrLi
             openRowId={openRowId}
           />
 
-          <section className="rounded-lg border border-border bg-card">
-            <button
-              type="button"
-              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
-              onClick={() => setHistoricalOpen((current) => !current)}
-              aria-expanded={historicalOpen}
-            >
-              <div>
-                <h2 className="font-semibold text-card-foreground">Resolved and Inactive</h2>
-                <p className="text-sm text-muted-foreground">Historical problem-list entries retained for context.</p>
-              </div>
-              <span className="flex items-center gap-2 text-sm text-muted-foreground">
-                {historicalConditions.length}
-                {historicalOpen ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-              </span>
-            </button>
-            {historicalOpen && (
-              <div className="border-t border-border">
-                <ConditionsTable
-                  title="Historical Conditions"
-                  description="Resolved, inactive, or remission conditions."
-                  conditions={historicalConditions}
-                  emptyMessage="No historical conditions recorded."
-                  canManage={crud.canManage}
-                  editingId={crud.editingId}
-                  deletingId={crud.deletingId}
-                  editForm={crud.editForm}
-                  setEditForm={crud.setEditForm}
-                  onStartEdit={crud.startEdit}
-                  onCancelEdit={crud.cancelEdit}
-                  onSaveEdit={saveCondition}
-                  onStartDelete={crud.startDelete}
-                  onCancelDelete={crud.cancelDelete}
-                  onConfirmDelete={async (conditionId) => { await crud.deleteRecord(conditionId) }}
-                  onMarkResolved={markResolved}
-                  onReview={(conditionId, decision) => void crud.reviewRecord(conditionId, decision)}
-                  isMutating={crud.isMutating}
-                  onDrill={onDrill}
-                  openRowId={openRowId}
-                />
-              </div>
-            )}
-          </section>
+          {!firstLoad && (
+            <section className="rounded-lg border border-border bg-card">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                onClick={() => setHistoricalOpen((current) => !current)}
+                aria-expanded={historicalOpen}
+              >
+                <div>
+                  <h2 className="font-semibold text-card-foreground">Resolved and Inactive</h2>
+                  <p className="text-sm text-muted-foreground">Historical problem-list entries retained for context.</p>
+                </div>
+                <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                  {historicalConditions.length}
+                  {historicalOpen ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+                </span>
+              </button>
+              {historicalOpen && (
+                <div className="border-t border-border">
+                  <ConditionsTable
+                    title="Historical Conditions"
+                    description="Resolved, inactive, or remission conditions."
+                    conditions={historicalConditions}
+                    emptyMessage="No historical conditions recorded."
+                    canManage={crud.canManage}
+                    editingId={crud.editingId}
+                    deletingId={crud.deletingId}
+                    editForm={crud.editForm}
+                    setEditForm={crud.setEditForm}
+                    onStartEdit={crud.startEdit}
+                    onCancelEdit={crud.cancelEdit}
+                    onSaveEdit={saveCondition}
+                    onStartDelete={crud.startDelete}
+                    onCancelDelete={crud.cancelDelete}
+                    onConfirmDelete={async (conditionId) => { await crud.deleteRecord(conditionId) }}
+                    onMarkResolved={markResolved}
+                    onReview={(conditionId, decision) => void crud.reviewRecord(conditionId, decision)}
+                    isMutating={crud.isMutating}
+                    onDrill={onDrill}
+                    openRowId={openRowId}
+                  />
+                </div>
+              )}
+            </section>
+          )}
         </div>
       )}
     </div>

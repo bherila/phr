@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import { DetailSkeleton } from '@/components/record-list/Skeleton'
 import EncounterEobLinks from '@/phr/clinical/EncounterEobLinks'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
@@ -71,7 +72,7 @@ export default function ProcedureDetail({ patientId, recordId }: ProcedureDetail
           {error}
         </div>
       )}
-      {busy && <p className="text-sm text-muted-foreground">Loading...</p>}
+      {busy && !procedure && <DetailSkeleton label="Loading procedure" facts={4} rows={0} />}
       {procedure && (
         <>
           <section className="rounded-lg border border-border bg-card p-4">

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
+import { DetailSkeleton } from '@/components/record-list/Skeleton'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import { type PhrAccessGrant, PhrAccessGrantDetailResponseSchema, PhrPatientResponseSchema } from '@/phr/types'
@@ -87,7 +88,7 @@ export default function AccessGrantDetail({ patientId, recordId }: AccessGrantDe
           {error}
         </div>
       )}
-      {busy && <p className="text-sm text-muted-foreground">Loading...</p>}
+      {busy && !grant && <DetailSkeleton label="Loading access grant" facts={4} rows={0} />}
       {grant && (
         <section className="rounded-lg border border-border bg-card p-4">
           <h2 className="text-lg font-semibold text-card-foreground">{detailValue(grant.user_name, grant.user_email ?? 'Unknown user')}</h2>

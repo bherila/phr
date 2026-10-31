@@ -109,9 +109,21 @@ export default function AccessPage({ patientId, onDrill, openRecord }: PhrListPa
         </div>
       )}
 
-      {busy && <p className="text-sm text-muted-foreground">Loading…</p>}
+      {busy && !patient && (
+        <RecordList
+          label="Shared with"
+          loading
+          loadingLabel="Loading access"
+          skeletonRows={3}
+          rows={[]}
+          rowId={() => ''}
+          renderItem={() => null}
+          className="flex flex-col gap-2"
+          itemClassName="rounded-lg border border-border bg-card px-4 py-3"
+        />
+      )}
 
-      {!busy && patient && (
+      {patient && (
         <>
           <RecordList
             label="Owner"

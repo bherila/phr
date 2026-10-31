@@ -209,6 +209,8 @@ export default function VitalsPage({ patientId, onDrill, openRecord }: PhrListPa
     })
   }, [vitals, search, sortDir])
 
+  // Skeleton rows on the first load only; a refetch keeps the current rows on screen.
+  const firstLoad = busy && vitals.length === 0
   const vitalNames = useMemo(
     () => Array.from(new Set(vitals.map((v) => v.vital_name).filter(Boolean))).sort(),
     [vitals],
@@ -325,17 +327,16 @@ export default function VitalsPage({ patientId, onDrill, openRecord }: PhrListPa
         <ShowRejectedToggle showRejected={showRejected} onChange={setShowRejected} disabled={busy} />
       </div>
 
-      {busy && <p className="text-sm text-muted-foreground">Loading…</p>}
-
       {!busy && filtered.length === 0 && (
         <div className="rounded-lg border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
           {vitals.length === 0 ? 'No vitals recorded.' : 'No vitals match the current filter.'}
         </div>
       )}
 
-      {filtered.length > 0 && (
+      {(firstLoad || filtered.length > 0) && (
         <RecordTable
           label="Vitals"
+          loading={firstLoad}
           rows={filtered}
           rowId={(v) => String(v.id)}
           columns={columns}
@@ -344,7 +345,7 @@ export default function VitalsPage({ patientId, onDrill, openRecord }: PhrListPa
           className="rounded-lg border border-border"
           tableClassName="w-full text-sm"
           headClassName="border-b border-border bg-muted/40"
-          rowClassName={() => 'border-b border-border last:border-0 hover:bg-muted/20'}
+          rowClassName="border-b border-border last:border-0 hover:bg-muted/20"
         />
       )}
     </div>

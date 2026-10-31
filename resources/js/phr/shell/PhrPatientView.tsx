@@ -1,6 +1,7 @@
 import { ArrowLeft, X } from 'lucide-react'
 import { type ReactElement, type ReactNode, Suspense, useEffect } from 'react'
 
+import { DetailSkeleton, PageSkeleton } from '@/components/record-list/Skeleton'
 import { cn } from '@/lib/utils'
 
 import { pushPhrLocation, replacePhrLocation } from './phrLocation'
@@ -19,7 +20,18 @@ export const PAGE_CONTENT_MAX_WIDTH = 'max-w-[80rem]'
  */
 export const DETAIL_PANEL_WIDTH = 'lg:w-[clamp(400px,32vw,640px)]'
 
-const LOADING = <div role="status" aria-live="polite" className="p-6 text-sm text-muted-foreground">Loading…</div>
+/** The page's own header shape while its code loads, so the real header lands in place. */
+function pageFallback(label: string): ReactElement {
+  const title = (
+    <h1 className="flex items-center gap-2 text-2xl font-semibold text-foreground">
+      <span aria-hidden="true" className="size-6 rounded bg-muted" />
+      {label}
+    </h1>
+  )
+  return <PageSkeleton title={title} label={`Loading ${label.toLowerCase()}`} />
+}
+
+const DETAIL_LOADING = <DetailSkeleton />
 
 interface Crumb {
   label: string
@@ -96,7 +108,7 @@ export function PhrPatientView({ view, patientName }: PhrPatientViewProps): Reac
       <div className="h-full overflow-y-auto">
         <div className="flex flex-col gap-4 px-4 py-6 md:px-8">
           <Breadcrumb crumbs={[...crumbs, { label: detail.label }]} />
-          <Suspense fallback={LOADING}>
+          <Suspense fallback={DETAIL_LOADING}>
             <Detail key={phrViewUrl(view)} patientId={view.patientId} recordId={view.detail.id} onDrill={fromDetail} />
           </Suspense>
         </div>
@@ -112,14 +124,14 @@ export function PhrPatientView({ view, patientName }: PhrPatientViewProps): Reac
       >
         <div className={cn('flex flex-col gap-4 px-4 py-6 md:px-8', PAGE_CONTENT_MAX_WIDTH)} data-testid="page-content">
           <Breadcrumb crumbs={crumbs} />
-          <Suspense fallback={LOADING}>
+          <Suspense fallback={pageFallback(page.label)}>
             <ListPage key={`${view.patientId}-${view.page}`} patientId={view.patientId} onDrill={fromList} openRecord={view.parent ?? view.detail} />
           </Suspense>
         </div>
       </div>
       {view.detail && (
         <DetailPanel view={view} closeUrl={closeUrl} crumbs={crumbs}>
-          <Suspense fallback={LOADING}>
+          <Suspense fallback={DETAIL_LOADING}>
             {(() => {
               const Detail = PHR_DETAILS[view.detail.module].component
               return <Detail key={phrViewUrl(view)} patientId={view.patientId} recordId={view.detail.id} onDrill={fromDetail} />

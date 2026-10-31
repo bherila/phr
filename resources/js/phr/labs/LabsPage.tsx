@@ -3,6 +3,7 @@ import type { ComponentProps, FormEvent } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
+import { SkeletonBlock } from '@/components/record-list/Skeleton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
@@ -115,6 +116,7 @@ function groupLabResults(results: PhrLabResult[]): LabResultGroup[] {
 
 interface LabResultsTableProps {
   label: string
+  loading?: boolean
   results: PhrLabResult[]
   showPanelColumn: boolean
   onDrill: PhrListPageProps['onDrill']
@@ -126,7 +128,7 @@ interface LabResultsTableProps {
 
 const HEAD = 'px-3 py-2 font-medium text-muted-foreground'
 
-function LabResultsTable({ label, results, showPanelColumn, onDrill, openRowId, canManage, reviewingId, onReview }: LabResultsTableProps) {
+function LabResultsTable({ label, loading = false, results, showPanelColumn, onDrill, openRowId, canManage, reviewingId, onReview }: LabResultsTableProps) {
   const columns: RecordColumn<PhrLabResult>[] = [
     {
       id: 'analyte',
@@ -148,12 +150,12 @@ function LabResultsTable({ label, results, showPanelColumn, onDrill, openRowId, 
       headerClassName: HEAD,
       fit: true,
       numeric: isNumericLabValue,
-      className: (result) => `px-3 py-2 ${flagClass(result.abnormal_flag)}`,
+      className: 'px-3 py-2',
       cell: (result) => (
-        <>
+        <span className={flagClass(result.abnormal_flag)}>
           {formatLabValue(result) ?? '—'}
           {result.unit && <span className="ml-1 text-xs text-muted-foreground">{result.unit}</span>}
-        </>
+        </span>
       ),
     },
     { id: 'range', header: 'Range', fit: true, headerClassName: HEAD, className: 'px-3 py-2 text-muted-foreground', cell: (result) => formatLabReferenceRange(result) ?? '—' },
@@ -162,8 +164,8 @@ function LabResultsTable({ label, results, showPanelColumn, onDrill, openRowId, 
       header: 'Flag',
       headerClassName: `${HEAD} text-center`,
       fit: true,
-      className: (result) => `px-3 py-2 text-center font-semibold ${flagClass(result.abnormal_flag)}`,
-      cell: (result) => (result.abnormal_flag && result.abnormal_flag !== 'N' ? result.abnormal_flag : ''),
+      className: 'px-3 py-2 text-center font-semibold',
+      cell: (result) => <span className={flagClass(result.abnormal_flag)}>{result.abnormal_flag && result.abnormal_flag !== 'N' ? result.abnormal_flag : ''}</span>,
     },
     {
       id: 'date',
@@ -198,6 +200,7 @@ function LabResultsTable({ label, results, showPanelColumn, onDrill, openRowId, 
   return (
     <RecordTable
       label={label}
+      loading={loading}
       rows={results}
       rowId={(result) => String(result.id)}
       columns={columns}
@@ -205,7 +208,7 @@ function LabResultsTable({ label, results, showPanelColumn, onDrill, openRowId, 
       onOpen={drillOpener(onDrill, (result: PhrLabResult) => ({ id: 'lab-panel-detail', instance: String(result.id) }))}
       tableClassName="w-full text-sm"
       headClassName="border-b border-border bg-muted/40"
-      rowClassName={() => 'border-b border-border last:border-0 hover:bg-muted/20'}
+      rowClassName="border-b border-border last:border-0 hover:bg-muted/20"
     />
   )
 }
@@ -431,7 +434,22 @@ export default function LabsPage({ patientId, onDrill, openRecord }: PhrListPage
         </Button>
       </div>
 
-      {busy && <p className="text-sm text-muted-foreground">Loading…</p>}
+      {busy && results.length === 0 && (
+        <section aria-label="Lab results" className="overflow-hidden rounded-lg border border-border bg-card">
+          <div className="border-b border-border bg-muted/30 px-3 py-2"><SkeletonBlock className="w-48 text-sm" /></div>
+          <LabResultsTable
+            label="Lab results"
+            loading
+            results={[]}
+            showPanelColumn
+            onDrill={onDrill}
+            openRowId={null}
+            canManage={canManage}
+            reviewingId={null}
+            onReview={() => undefined}
+          />
+        </section>
+      )}
 
       {!busy && filtered.length === 0 && (
         <div className="rounded-lg border border-dashed border-border py-12 text-center text-sm text-muted-foreground">

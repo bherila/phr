@@ -304,12 +304,36 @@ describe('RecordTable keyboard model', () => {
     expect(screen.getByRole('checkbox', { name: 'Select Alpha' })).not.toBeChecked()
   })
 
-  it('renders its loading and empty states instead of the table', () => {
-    const { rerender } = render(<RecordTable label="Things" rows={ITEMS} rowId={(item) => item.id} columns={COLUMNS} loading />)
-    expect(screen.getByRole('status')).toHaveTextContent('Loading…')
-    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  it('renders skeleton rows in the real columns while loading, with aria-busy and one live message', () => {
+    const fitColumns: RecordColumn<Item>[] = [COLUMNS[0]!, { ...COLUMNS[1]!, fit: true, className: 'px-3 py-2' }]
+    const { rerender, container } = render(<RecordTable label="Things" rows={[]} rowId={(item: Item) => item.id} columns={fitColumns} loading />)
 
-    rerender(<RecordTable label="Things" rows={[]} rowId={(item: Item) => item.id} columns={COLUMNS} empty={<p>Nothing yet.</p>} />)
+    const region = container.firstElementChild as HTMLElement
+    expect(region).toHaveAttribute('aria-busy', 'true')
+    expect(within(region).getByRole('status')).toHaveTextContent('Loading things')
+    expect(screen.queryByText(/Loading…/)).not.toBeInTheDocument()
+    const skeletonRows = container.querySelectorAll('tbody tr[data-skeleton-row]')
+    expect(skeletonRows).toHaveLength(8)
+    for (const row of skeletonRows) expect(row).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.getAllByRole('columnheader').map((header) => header.textContent)).toEqual(['Name', 'Actions'])
+    const block = container.querySelector('[data-skeleton]')
+    expect(block).toHaveClass('animate-pulse', 'motion-reduce:animate-none', 'h-[1lh]')
+
+    rerender(<RecordTable label="Things" rows={[]} rowId={(item: Item) => item.id} columns={fitColumns} loading skeletonRows={3} />)
+    expect(container.querySelectorAll('tbody tr[data-skeleton-row]')).toHaveLength(3)
+    const skeletonCells = Array.from(container.querySelectorAll('tbody tr')[0]!.children).map((cell) => cell.className)
+
+    // Loaded with the same number of rows: same wrapper, same table, same cells, so nothing moves.
+    rerender(<RecordTable label="Things" rows={ITEMS} rowId={(item: Item) => item.id} columns={fitColumns} />)
+    expect(container.firstElementChild).toBe(region)
+    expect(region).not.toHaveAttribute('aria-busy')
+    expect(within(region).queryByRole('status')).not.toBeInTheDocument()
+    expect(container.querySelectorAll('tbody tr')).toHaveLength(3)
+    expect(Array.from(container.querySelectorAll('tbody tr')[0]!.children).map((cell) => cell.className)).toEqual(skeletonCells)
+  })
+
+  it('renders the empty state when there are no rows and it is not loading', () => {
+    render(<RecordTable label="Things" rows={[]} rowId={(item: Item) => item.id} columns={COLUMNS} empty={<p>Nothing yet.</p>} />)
     expect(screen.getByText('Nothing yet.')).toBeInTheDocument()
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
@@ -353,6 +377,22 @@ describe('RecordTable column sizing', () => {
 })
 
 describe('RecordList', () => {
+  it('renders skeleton items while loading, then the real items in the same list', () => {
+    const { rerender, container } = render(
+      <RecordList label="Timeline" rows={[]} rowId={(item: Item) => item.id} renderItem={(item) => item.name} loading skeletonRows={4} itemClassName="rounded-lg border" />,
+    )
+    expect(container.firstElementChild).toHaveAttribute('aria-busy', 'true')
+    expect(screen.getByRole('status')).toHaveTextContent('Loading timeline')
+    const list = screen.getByRole('list', { name: 'Timeline' })
+    expect(list.querySelectorAll('li[data-skeleton-row][aria-hidden="true"]')).toHaveLength(4)
+    expect(list.querySelector('li')).toHaveClass('rounded-lg', 'border')
+
+    rerender(<RecordList label="Timeline" rows={ITEMS} rowId={(item: Item) => item.id} renderItem={(item) => item.name} itemClassName="rounded-lg border" />)
+    expect(screen.getByRole('list', { name: 'Timeline' })).toBe(list)
+    expect(list.querySelectorAll('li[data-skeleton-row]')).toHaveLength(0)
+    expect(within(list).getAllByRole('listitem')).toHaveLength(3)
+  })
+
   it('shares the keyboard model and marks the active item with aria-current', () => {
     const onOpen = jest.fn()
     render(

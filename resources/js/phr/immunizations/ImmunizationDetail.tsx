@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import { DetailSkeleton } from '@/components/record-list/Skeleton'
 import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
 import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
@@ -89,7 +90,7 @@ export default function ImmunizationDetail({ patientId, recordId }: Immunization
           {error}
         </div>
       )}
-      {busy && <p className="text-sm text-muted-foreground">Loading...</p>}
+      {busy && !immunization && <DetailSkeleton label="Loading immunization" facts={4} rows={0} />}
       {immunization && (
         <section className="rounded-lg border border-border bg-card p-4">
           <div className="flex flex-wrap items-center gap-2">

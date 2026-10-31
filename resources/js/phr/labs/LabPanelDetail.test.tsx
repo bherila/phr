@@ -100,6 +100,17 @@ describe('LabPanelDetail', () => {
     expect(textValue).not.toHaveClass('text-right')
   })
 
+  it('shows a panel-shaped skeleton while the panel loads', () => {
+    mockFetch.mockReturnValue(new Promise(() => undefined))
+    render(<LabPanelDetail patientId={42} recordId="321" />)
+
+    const skeleton = screen.getByTestId('detail-skeleton')
+    expect(skeleton).toHaveAttribute('aria-busy', 'true')
+    expect(within(skeleton).getByRole('status')).toHaveTextContent('Loading lab panel')
+    expect(skeleton.querySelectorAll('[data-skeleton-row]')).toHaveLength(6)
+    expect(screen.queryByText(/Loading panel/)).not.toBeInTheDocument()
+  })
+
   it('renders shared not-found column on 404', async () => {
     mockFetch.mockResolvedValue({
       ok: false,

@@ -46,6 +46,7 @@ interface AddFormProps {
 }
 
 interface MedicationTableProps {
+  loading?: boolean
   title: string
   description: string
   medications: PhrMedication[]
@@ -295,6 +296,7 @@ function AddForm({ busy, onSubmit }: AddFormProps) {
 }
 
 function MedicationTable({
+  loading = false,
   title,
   description,
   medications,
@@ -421,6 +423,8 @@ function MedicationTable({
       </div>
       <RecordTable
         label={title}
+        loading={loading}
+        loadingLabel="Loading medications"
         rows={medications}
         rowId={(medication) => String(medication.id)}
         columns={columns}
@@ -430,7 +434,7 @@ function MedicationTable({
         tableClassName="min-w-full divide-y divide-border text-sm"
         headClassName="text-left text-muted-foreground"
         bodyClassName="divide-y divide-border"
-        rowClassName={() => 'align-top hover:bg-muted/30'}
+        rowClassName="align-top hover:bg-muted/30"
         renderAfterRow={(medication, colSpan) => {
           const isSaving = isMutating(`save:${medication.id}`)
           const isDeletingBusy = isMutating(`delete:${medication.id}`)
@@ -503,6 +507,8 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
     },
     payloadFromForm: medicationPayload,
   })
+  // Skeleton rows on the first load only; a refetch keeps the current rows on screen.
+  const firstLoad = crud.busy && crud.records.length === 0
 
   const filteredMedications = useMemo(() => {
     if (statusFilter === 'all') {
@@ -593,17 +599,16 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
         </div>
       )}
 
-      {crud.busy && <p className="text-sm text-muted-foreground">Loading…</p>}
-
       {!crud.busy && crud.records.length === 0 && (
         <div className="rounded-lg border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
           No medications recorded.
         </div>
       )}
 
-      {!crud.busy && crud.records.length > 0 && (
+      {(firstLoad || crud.records.length > 0) && (
         <div className="space-y-4">
           <MedicationTable
+            loading={firstLoad}
             title="Active Medications"
             description="Currently active medications for this patient."
             medications={activeMedications}
@@ -626,51 +631,53 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
             openRowId={openRowId}
           />
 
-          <section className="rounded-lg border border-border bg-card">
-            <button
-              type="button"
-              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
-              onClick={() => setHistoricalOpen((current) => !current)}
-              aria-expanded={historicalOpen}
-            >
-              <div>
-                <h2 className="font-semibold text-card-foreground">Historical Medications</h2>
-                <p className="text-sm text-muted-foreground">
-                  Completed, discontinued, or on-hold medications.
-                </p>
-              </div>
-              <span className="flex items-center gap-2 text-sm text-muted-foreground">
-                {historicalMedications.length}
-                {historicalOpen ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-              </span>
-            </button>
-            {historicalOpen && (
-              <div className="border-t border-border">
-                <MedicationTable
-                  title="Historical Medications"
-                  description="Previous medications retained for reference."
-                  medications={historicalMedications}
-                  emptyMessage="No historical medications match the current filter."
-                  canManage={crud.canManage}
-                  editingId={crud.editingId}
-                  deletingId={crud.deletingId}
-                  editForm={crud.editForm}
-                  setEditForm={crud.setEditForm}
-                  onStartEdit={crud.startEdit}
-                  onCancelEdit={crud.cancelEdit}
-                  onSaveEdit={saveEdit}
-                  onStartDelete={crud.startDelete}
-                  onCancelDelete={crud.cancelDelete}
-                  onConfirmDelete={async (id) => { await crud.deleteRecord(id) }}
-                  onEndNow={endNow}
-                  onReview={(medicationId, decision) => void crud.reviewRecord(medicationId, decision)}
-                  isMutating={crud.isMutating}
-                  onDrill={onDrill}
-                  openRowId={openRowId}
-                />
-              </div>
-            )}
-          </section>
+          {!firstLoad && (
+            <section className="rounded-lg border border-border bg-card">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                onClick={() => setHistoricalOpen((current) => !current)}
+                aria-expanded={historicalOpen}
+              >
+                <div>
+                  <h2 className="font-semibold text-card-foreground">Historical Medications</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Completed, discontinued, or on-hold medications.
+                  </p>
+                </div>
+                <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                  {historicalMedications.length}
+                  {historicalOpen ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+                </span>
+              </button>
+              {historicalOpen && (
+                <div className="border-t border-border">
+                  <MedicationTable
+                    title="Historical Medications"
+                    description="Previous medications retained for reference."
+                    medications={historicalMedications}
+                    emptyMessage="No historical medications match the current filter."
+                    canManage={crud.canManage}
+                    editingId={crud.editingId}
+                    deletingId={crud.deletingId}
+                    editForm={crud.editForm}
+                    setEditForm={crud.setEditForm}
+                    onStartEdit={crud.startEdit}
+                    onCancelEdit={crud.cancelEdit}
+                    onSaveEdit={saveEdit}
+                    onStartDelete={crud.startDelete}
+                    onCancelDelete={crud.cancelDelete}
+                    onConfirmDelete={async (id) => { await crud.deleteRecord(id) }}
+                    onEndNow={endNow}
+                    onReview={(medicationId, decision) => void crud.reviewRecord(medicationId, decision)}
+                    isMutating={crud.isMutating}
+                    onDrill={onDrill}
+                    openRowId={openRowId}
+                  />
+                </div>
+              )}
+            </section>
+          )}
         </div>
       )}
     </div>

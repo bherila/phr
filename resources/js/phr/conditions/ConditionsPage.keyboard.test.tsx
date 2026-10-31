@@ -24,6 +24,7 @@ jest.mock('@/phr/conditions/ConditionDetail', () => ({
   ),
 }))
 
+import ConditionsPage from '@/phr/conditions/ConditionsPage'
 import { PhrShell } from '@/phr/shell/PhrShell'
 
 function condition(id: number, name: string, onset: string) {
@@ -148,5 +149,33 @@ describe('Conditions keyboard navigation with the detail panel', () => {
 
     expect(window.location.pathname).toBe('/phr/patient/2/conditions')
     await waitFor(() => expect(row('Migraine')).toHaveFocus())
+  })
+})
+
+describe('Conditions loading', () => {
+  it('shows skeleton rows on the first load and keeps the rows on screen while it refetches', async () => {
+    let resolve: (value: unknown) => void = () => undefined
+    mockGet.mockReset()
+    mockGet.mockImplementation(() => new Promise((done) => { resolve = done }))
+    const payload = { conditions: [condition(11, 'Asthma', '2026-03-01'), condition(12, 'Eczema', '2026-02-01')], can_manage: true }
+
+    const { container } = render(<ConditionsPage patientId={2} />)
+    const table = await screen.findByRole('table', { name: 'Active Problems' })
+    const region = table.parentElement!
+    expect(region).toHaveAttribute('aria-busy', 'true')
+    expect(within(region).getByRole('status')).toHaveTextContent('Loading conditions')
+    expect(table.querySelectorAll('tr[data-skeleton-row]')).toHaveLength(8)
+    expect(screen.queryByText(/Loading\.\.\./)).not.toBeInTheDocument()
+
+    await act(async () => { resolve(payload) })
+    expect(await screen.findByText('Asthma')).toBeInTheDocument()
+    expect(region).not.toHaveAttribute('aria-busy')
+
+    // A refetch (here, showing rejected records) leaves the current rows in place.
+    fireEvent.click(screen.getByRole('button', { name: 'Show rejected' }))
+    expect(mockGet).toHaveBeenCalledTimes(2)
+    expect(screen.getByText('Asthma')).toBeInTheDocument()
+    expect(container.querySelector('[data-skeleton-row]')).toBeNull()
+    await act(async () => { resolve(payload) })
   })
 })

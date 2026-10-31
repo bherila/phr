@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 
 import { RECORD_FIT_CLASS, RECORD_NUMERIC_CLASS } from '@/components/record-list/RecordTable'
+import { DetailSkeleton } from '@/components/record-list/Skeleton'
 import { formatLabReferenceRange, formatLabValue, isNumericLabValue } from '@/phr/labs/formatLabResult'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
@@ -74,7 +75,7 @@ export default function LabPanelDetail({ patientId, recordId }: LabPanelDetailPr
         </div>
       )}
 
-      {busy && <p className="text-sm text-muted-foreground">Loading panel…</p>}
+      {busy && !panel && <DetailSkeleton label="Loading lab panel" />}
 
       {panel && (
         <>

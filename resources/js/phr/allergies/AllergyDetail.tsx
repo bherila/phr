@@ -2,6 +2,7 @@ import { Pencil, Trash2 } from 'lucide-react'
 import type { FormEvent } from 'react'
 import { useEffect, useId, useState } from 'react'
 
+import { DetailSkeleton } from '@/components/record-list/Skeleton'
 import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
 import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
@@ -173,7 +174,7 @@ export default function AllergyDetail({ patientId, recordId, onDrill }: AllergyD
           {error}
         </div>
       )}
-      {busy && <p className="text-sm text-muted-foreground">Loading...</p>}
+      {busy && !allergy && <DetailSkeleton label="Loading allergy" facts={4} rows={0} />}
       {deleted && (
         <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
           Allergy deleted.

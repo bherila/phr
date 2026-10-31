@@ -2,13 +2,15 @@ import { Fragment, type ReactElement, type ReactNode } from 'react'
 
 import { cn } from '@/lib/utils'
 
+import { LoadingMessage, SkeletonBlock } from './Skeleton'
 import { type RecordNavigationOptions, useRecordNavigation } from './useRecordNavigation'
 
 export interface RecordColumn<Row> {
   id: string
   header: ReactNode
   cell: (row: Row) => ReactNode
-  className?: string | ((row: Row) => string) | undefined
+  /** Cell classes. A string, so loading rows get the same padding as real ones. */
+  className?: string | undefined
   headerClassName?: string | undefined
   /**
    * Size the column to its content and keep it on one line (values, units, dates, flags,
@@ -37,14 +39,21 @@ export interface RecordTableProps<Row> extends RecordNavigationOptions<Row> {
   /** The table's accessible name. */
   label: string
   columns: readonly RecordColumn<Row>[]
-  /** Shown instead of the table while loading. Nothing by default. */
+  /**
+   * The first load: the table renders skeleton rows in its real columns, with `aria-busy` and
+   * a hidden live message. Pass it only while there are no rows yet; a refetch keeps the rows.
+   */
   loading?: boolean | undefined
-  loadingContent?: ReactNode | undefined
+  /** How many skeleton rows to show: the expected count when known. */
+  skeletonRows?: number | undefined
+  /** The hidden live message while loading. Defaults to "Loading {label}". */
+  loadingLabel?: string | undefined
   /** Shown instead of the table when there are no rows. */
   empty?: ReactNode | undefined
   /** Extra full-width rows under a row (an inline edit form, a delete confirmation). */
   renderAfterRow?: ((row: Row, colSpan: number) => ReactNode) | undefined
-  rowClassName?: ((row: Row) => string) | undefined
+  /** A string also applies to skeleton rows; a function only to real ones. */
+  rowClassName?: string | ((row: Row) => string) | undefined
   /** The scroll box around the table: wide tables scroll inside it, not the page. */
   className?: string | undefined
   tableClassName?: string | undefined
@@ -60,7 +69,7 @@ function cellClass<Row>(column: RecordColumn<Row>, row: Row): string {
   const numeric = typeof column.numeric === 'function' ? column.numeric(row) : column.numeric === true
   return cn(
     'text-left',
-    typeof column.className === 'function' ? column.className(row) : column.className,
+    column.className,
     column.fit && RECORD_FIT_CLASS,
     numeric && RECORD_NUMERIC_CLASS,
   )
@@ -70,7 +79,11 @@ function headerClass<Row>(column: RecordColumn<Row>): string {
   return cn('text-left', column.headerClassName, column.fit && RECORD_FIT_CLASS, column.numeric === true && 'text-right')
 }
 
-export const DEFAULT_LOADING = <p role="status" aria-live="polite" className="text-sm text-muted-foreground">Loading…</p>
+export const DEFAULT_SKELETON_ROWS = 8
+
+export function defaultLoadingLabel(label: string): string {
+  return `Loading ${label.toLowerCase()}`
+}
 
 /**
  * A table of records with the shared keyboard model ({@link useRecordNavigation}). Native table
@@ -78,16 +91,19 @@ export const DEFAULT_LOADING = <p role="status" aria-live="polite" className="te
  * whose detail is open is highlighted.
  */
 export function RecordTable<Row>(props: RecordTableProps<Row>): ReactElement | null {
-  const { label, columns, loading = false, loadingContent = DEFAULT_LOADING, empty = null, renderAfterRow, rowClassName, className, tableClassName, headClassName, bodyClassName, selectionColumn, ...options } = props
+  const { label, columns, loading = false, skeletonRows = DEFAULT_SKELETON_ROWS, loadingLabel, empty = null, renderAfterRow, rowClassName, className, tableClassName, headClassName, bodyClassName, selectionColumn, ...options } = props
   const navigation = useRecordNavigation(options)
   const { rows, rowId, selection, onOpen } = options
-  if (loading) return <>{loadingContent}</>
-  if (rows.length === 0) return <>{empty}</>
+  if (!loading && rows.length === 0) return <>{empty}</>
   const selectable = selectionColumn !== undefined && selection !== undefined
   const colSpan = columns.length + (selectable ? 1 : 0)
+  const rowClass = (row: Row | null): string | undefined => (
+    typeof rowClassName === 'function' ? (row === null ? undefined : rowClassName(row)) : rowClassName
+  )
 
   return (
-    <div className={cn('overflow-x-auto', className)}>
+    <div className={cn('overflow-x-auto', className)} aria-busy={loading || undefined}>
+      {loading && <LoadingMessage>{loadingLabel ?? defaultLoadingLabel(label)}</LoadingMessage>}
       <table aria-label={label} className={tableClassName} {...navigation.containerProps}>
         <thead>
           <tr className={headClassName}>
@@ -98,7 +114,17 @@ export function RecordTable<Row>(props: RecordTableProps<Row>): ReactElement | n
           </tr>
         </thead>
         <tbody className={bodyClassName}>
-          {rows.map((row) => {
+          {loading && Array.from({ length: skeletonRows }, (_, index) => (
+            <tr key={index} aria-hidden="true" data-skeleton-row="" className={rowClass(null)}>
+              {selectable && <td className="w-10 px-3 py-2" />}
+              {columns.map((column) => (
+                <td key={column.id} className={cn('text-left', column.className, column.fit && RECORD_FIT_CLASS)}>
+                  <SkeletonBlock className={column.fit ? 'w-14' : 'w-3/4 max-w-64'} />
+                </td>
+              ))}
+            </tr>
+          ))}
+          {!loading && rows.map((row) => {
             const id = rowId(row)
             const props = navigation.rowProps(row)
             return (
@@ -106,7 +132,7 @@ export function RecordTable<Row>(props: RecordTableProps<Row>): ReactElement | n
                 <tr
                   {...props}
                   aria-selected={id === navigation.activeId}
-                  className={cn(RECORD_ROW_CLASS, onOpen && 'cursor-pointer', rowClassName?.(row))}
+                  className={cn(RECORD_ROW_CLASS, onOpen && 'cursor-pointer', rowClass(row))}
                 >
                   {selectable && (
                     <td className="w-10 px-3 py-2 align-top">

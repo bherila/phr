@@ -2,6 +2,7 @@ import { Menu } from 'lucide-react'
 import { type ReactElement, Suspense, useState } from 'react'
 
 import PhrNavbar from '@/components/phr/PhrNavbar'
+import { PageSkeleton } from '@/components/record-list/Skeleton'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { EhiUploadProvider } from '@/phr/imports/ehi/EhiUploadProvider'
@@ -19,7 +20,7 @@ import { usePaletteShortcut } from './usePaletteShortcut'
 import { navigateToView, useLegacyHashRedirect, usePhrView, useShellLinkInterception } from './usePhrView'
 import { useSidebarMode } from './useSidebarMode'
 
-const LOADING = <div role="status" aria-live="polite" className="p-8 text-sm text-muted-foreground">Loading…</div>
+const LOADING = <PageSkeleton />
 
 const NO_VIEW: PhrView = { kind: 'section', section: 'patients', search: '' }
 

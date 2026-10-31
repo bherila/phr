@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import { useState } from 'react'
 
 import { RecordList } from '@/components/record-list/RecordList'
+import { SkeletonBlock } from '@/components/record-list/Skeleton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -228,6 +229,8 @@ export default function ProceduresPage({ patientId, onDrill, openRecord }: PhrLi
     payloadFromForm: procedurePayload,
     sortRecords: sortProcedures,
   })
+  // Skeleton rows on the first load only; a refetch keeps the current rows on screen.
+  const firstLoad = crud.busy && crud.records.length === 0
 
   async function addProcedure(form: PhrProcedureFormData): Promise<boolean> {
     const parsed = PhrProcedureFormSchema.safeParse(form)
@@ -285,16 +288,17 @@ export default function ProceduresPage({ patientId, onDrill, openRecord }: PhrLi
         </div>
       )}
 
-      {crud.busy && <p className="text-sm text-muted-foreground">Loading...</p>}
-
       {!crud.busy && crud.records.length === 0 && (
         <div className="rounded-lg border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
           No procedures recorded.
         </div>
       )}
 
-      {!crud.busy && crud.records.length > 0 && (
+      {(firstLoad || crud.records.length > 0) && (
         <RecordList
+          loading={firstLoad}
+          skeletonRows={5}
+          skeletonItem={<div className="rounded-lg border border-border bg-card px-4 py-3"><SkeletonBlock className="w-1/3 text-sm" /><SkeletonBlock className="mt-1 w-2/3" /></div>}
           label="Procedures"
           as="ol"
           className="relative space-y-4 border-l border-border pl-5"

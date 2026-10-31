@@ -14,6 +14,7 @@ import type { ChangeEvent, FormEvent, ReactNode } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { RecordList } from '@/components/record-list/RecordList'
+import { LoadingMessage, SkeletonBlock } from '@/components/record-list/Skeleton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
@@ -370,7 +371,17 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
         </aside>
 
         <main className="min-w-0">
-          {busy && documents.length === 0 && <p className="text-sm text-muted-foreground">Loading...</p>}
+          {busy && documents.length === 0 && (
+            <div aria-busy="true" className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3" data-testid="documents-skeleton">
+              <LoadingMessage>Loading documents</LoadingMessage>
+              {Array.from({ length: 6 }, (_, index) => (
+                <div key={index} aria-hidden="true" className="grid min-h-64 gap-3 rounded-lg border border-border bg-card p-3">
+                  <div className="aspect-[4/3] animate-pulse rounded-md bg-muted motion-reduce:animate-none" />
+                  <div><SkeletonBlock className="w-2/3 text-sm" /><SkeletonBlock className="mt-1 w-1/2 text-xs" /></div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {!busy && documents.length === 0 && (
             <div className="rounded-lg border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
