@@ -12,6 +12,7 @@ use App\Models\PhrDocument;
 use App\Models\PhrEhiPackage;
 use App\Models\PhrEhiProposal;
 use App\Models\PhrEhiSource;
+use App\Models\PhrEhiUpload;
 use App\Models\PhrHealthLog;
 use App\Models\PhrImmunization;
 use App\Models\PhrLabResult;
@@ -26,6 +27,7 @@ use App\Services\PHR\Import\PhrImportJobPresenter;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\PHR\PhrRecordLifecycle;
 use App\Support\PHR\PhrReviewStatus;
+use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -104,16 +106,95 @@ final readonly class PhrReviewQueueService
     /**
      * Per patient and section: records still standing and those waiting for review
      * (clinical records in pending_review, and reviewable EHI proposals for the
-     * section their records land in). One union query plus one EHI aggregate,
-     * however many patients and sections.
+     * section their records land in).
      *
      * @param  list<int>  $patientIds
      * @return array<int, array<string, array{pending: int, records: int}>>
      */
     public function sectionCounts(array $patientIds): array
     {
+        return $this->tally($patientIds)['sections'];
+    }
+
+    /**
+     * The patient-selection page: per accessible patient, its record count, latest
+     * change and pending count; and across them, what needs attention (imports and
+     * AI extractions ready to review, failed imports of the last 30 days). Patients
+     * themselves come from the patient list the page already holds.
+     *
+     * @param  list<int>  $patientIds  already resolved as readable by the caller
+     * @return array{patients: list<array{id: int, records: int, last_updated: string|null, pending: int}>, attention: list<array<string, mixed>>}
+     */
+    public function overview(array $patientIds): array
+    {
+        $tally = $this->tally($patientIds);
+        $since = now()->subDays(30);
+        $jobs = GenAiImportJob::query()
+            ->whereIn('context_json->patient_id', $patientIds)
+            ->where(fn (Builder $query) => $query
+                ->whereHas('results', fn (Builder $results) => $results->where('status', 'pending_review'))
+                ->orWhere(fn (Builder $failed) => $failed->where('status', 'failed')->where('updated_at', '>=', $since)))
+            ->with('sourceDocument:id,patient_id,genai_job_id,deleted_at,title,original_filename')
+            ->withCount(['results as pending_results_count' => fn (Builder $results) => $results->where('status', 'pending_review')])
+            ->latest('id')->limit(100)->get()
+            // The job's own context names the patient, and its document must agree,
+            // as PhrImportJobDao::forPatient requires.
+            ->filter(static fn (GenAiImportJob $job): bool => $job->sourceDocument !== null
+                && (int) $job->sourceDocument->patient_id === (int) ($job->getContextArray()['patient_id'] ?? 0));
+
+        $aiPending = [];
+        $attention = [];
+        foreach ($jobs as $job) {
+            $patientId = (int) $job->sourceDocument?->patient_id;
+            $document = $job->sourceDocument->title ?? $job->sourceDocument->original_filename ?? null;
+            $pending = (int) $job->getAttribute('pending_results_count');
+            if ($pending > 0) {
+                $aiPending[$patientId] = ($aiPending[$patientId] ?? 0) + $pending;
+                $attention[] = ['kind' => 'ready', 'origin' => 'ai', 'patient_id' => $patientId, 'count' => $pending, 'name' => $document, 'date' => ($job->parsed_at ?? $job->updated_at)?->toIso8601String()];
+            } elseif ($job->status === 'failed') {
+                $attention[] = ['kind' => 'failed', 'origin' => 'ai', 'patient_id' => $patientId, 'count' => 0, 'name' => $document, 'date' => $job->updated_at?->toIso8601String()];
+            }
+        }
+        foreach ($tally['packages'] as $patientId => $packages) {
+            foreach ($packages as $packageId => $count) {
+                $attention[] = ['kind' => 'ready', 'origin' => 'ehi', 'patient_id' => $patientId, 'count' => $count, 'name' => null, 'date' => $tally['package_dates'][$packageId] ?? null];
+            }
+        }
+        foreach ($tally['clinical_pending'] as $patientId => $count) {
+            if ($count > 0) {
+                $attention[] = ['kind' => 'ready', 'origin' => 'records', 'patient_id' => $patientId, 'count' => $count, 'name' => null, 'date' => $tally['updated'][$patientId] ?? null];
+            }
+        }
+        PhrEhiUpload::query()->whereIn('patient_id', $patientIds)->where('status', PhrEhiUpload::STATUS_FAILED)
+            ->where('updated_at', '>=', $since)->latest('id')->limit(20)->get(['id', 'patient_id', 'updated_at'])
+            ->each(function (PhrEhiUpload $upload) use (&$attention): void {
+                $attention[] = ['kind' => 'failed', 'origin' => 'upload', 'patient_id' => (int) $upload->patient_id, 'count' => 0, 'name' => null, 'date' => $upload->updated_at?->toIso8601String()];
+            });
+        usort($attention, static fn (array $a, array $b): int => [$a['kind'] === 'failed' ? 1 : 0, $b['date'] ?? ''] <=> [$b['kind'] === 'failed' ? 1 : 0, $a['date'] ?? '']);
+
+        return [
+            'patients' => array_map(fn (int $id): array => [
+                'id' => $id,
+                'records' => array_sum(array_column($tally['sections'][$id] ?? [], 'records')),
+                'last_updated' => $tally['updated'][$id] ?? null,
+                'pending' => array_sum(array_column($tally['sections'][$id] ?? [], 'pending')) + ($aiPending[$id] ?? 0),
+            ], $patientIds),
+            'attention' => array_slice($attention, 0, 20),
+        ];
+    }
+
+    /**
+     * One union query over every section, plus one aggregate of reviewable EHI
+     * proposals, however many patients and sections.
+     *
+     * @param  list<int>  $patientIds
+     * @return array{sections: array<int, array<string, array{pending: int, records: int}>>, updated: array<int, string>, clinical_pending: array<int, int>, packages: array<int, array<int, int>>, package_dates: array<int, string>} package dates by package id
+     */
+    private function tally(array $patientIds): array
+    {
+        $tally = ['sections' => [], 'updated' => [], 'clinical_pending' => [], 'packages' => [], 'package_dates' => []];
         if ($patientIds === []) {
-            return [];
+            return $tally;
         }
 
         $parts = [];
@@ -121,13 +202,13 @@ final readonly class PhrReviewQueueService
             $query = $model::query()->whereIn('patient_id', $patientIds)->where('review_status', '!=', PhrReviewStatus::REJECTED);
             PhrRecordLifecycle::scopeLive($query);
             $parts[] = $query->toBase()->selectRaw(
-                'patient_id, ? as section, count(*) as records, sum(case when review_status = ? then 1 else 0 end) as pending',
+                'patient_id, ? as section, count(*) as records, sum(case when review_status = ? then 1 else 0 end) as pending, max(updated_at) as last_updated',
                 [$page, PhrReviewStatus::PENDING],
             )->groupBy('patient_id');
         }
         foreach (['health-log' => PhrHealthLog::class, 'documents' => PhrDocument::class, 'imaging' => PhrDicomStudy::class] as $page => $model) {
             $parts[] = $model::query()->whereIn('patient_id', $patientIds)->toBase()
-                ->selectRaw('patient_id, ? as section, count(*) as records, 0 as pending', [$page])
+                ->selectRaw('patient_id, ? as section, count(*) as records, 0 as pending, max(updated_at) as last_updated', [$page])
                 ->groupBy('patient_id');
         }
         $union = array_shift($parts);
@@ -135,24 +216,38 @@ final readonly class PhrReviewQueueService
             $union->unionAll($part);
         }
 
-        $counts = [];
         foreach ($union->get() as $row) {
-            $counts[(int) $row->patient_id][(string) $row->section] = ['pending' => (int) $row->pending, 'records' => (int) $row->records];
+            $patientId = (int) $row->patient_id;
+            $tally['sections'][$patientId][(string) $row->section] = ['pending' => (int) $row->pending, 'records' => (int) $row->records];
+            if (isset(self::CLINICAL[(string) $row->section])) {
+                $tally['clinical_pending'][$patientId] = ($tally['clinical_pending'][$patientId] ?? 0) + (int) $row->pending;
+            }
+            if ($row->last_updated !== null) {
+                $updated = Carbon::parse((string) $row->last_updated)->toIso8601String();
+                if ($updated > ($tally['updated'][$patientId] ?? '')) {
+                    $tally['updated'][$patientId] = $updated;
+                }
+            }
         }
 
         $this->pendingEhiProposals()->whereIn('patient_id', $patientIds)
-            ->selectRaw('patient_id, mapping, count(*) as aggregate')
-            ->groupBy('patient_id', 'mapping')
+            ->selectRaw('patient_id, package_id, mapping, count(*) as aggregate, max(created_at) as proposed_at')
+            ->groupBy('patient_id', 'package_id', 'mapping')
             ->toBase()->get()
-            ->each(function (object $row) use (&$counts): void {
+            ->each(function (object $row) use (&$tally): void {
+                $patientId = (int) $row->patient_id;
+                $tally['packages'][$patientId][(int) $row->package_id] = ($tally['packages'][$patientId][(int) $row->package_id] ?? 0) + (int) $row->aggregate;
+                if ($row->proposed_at !== null) {
+                    $tally['package_dates'][(int) $row->package_id] = max($tally['package_dates'][(int) $row->package_id] ?? '', Carbon::parse((string) $row->proposed_at)->toIso8601String());
+                }
                 $section = self::EHI_SECTIONS[(string) $row->mapping] ?? null;
                 if ($section !== null) {
-                    $counts[(int) $row->patient_id][$section] ??= ['pending' => 0, 'records' => 0];
-                    $counts[(int) $row->patient_id][$section]['pending'] += (int) $row->aggregate;
+                    $tally['sections'][$patientId][$section] ??= ['pending' => 0, 'records' => 0];
+                    $tally['sections'][$patientId][$section]['pending'] += (int) $row->aggregate;
                 }
             });
 
-        return $counts;
+        return $tally;
     }
 
     /**

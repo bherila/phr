@@ -214,6 +214,65 @@ class PhrReviewQueueTest extends TestCase
         self::assertLessThanOrEqual(8, $this->queriesFor(fn () => $this->actingAs($owner)->getJson($this->url($patient).'/summary')->assertOk()));
     }
 
+    public function test_the_patient_overview_counts_every_readable_patient_and_lists_what_needs_attention(): void
+    {
+        [$owner, $own] = $this->ownerAndPatient();
+        $this->record(PhrMedication::class, $own, ['name' => 'Synthetic metformin', 'import_source' => 'ccda']);
+        $this->record(PhrCondition::class, $own, ['name' => 'Synthetic rhinitis', 'review_status' => PhrReviewStatus::CONFIRMED]);
+        $job = $this->aiJob($this->document($own, $owner, 'letter.pdf'), $owner);
+        $this->aiResult($job, 0, ['name' => 'Synthetic amoxicillin']);
+        $failed = $this->aiJob($this->document($own, $owner, 'scan.pdf'), $owner);
+        $failed->forceFill(['status' => 'failed'])->save();
+        [$sharer, $shared] = $this->ownerAndPatient();
+        PhrPatientUserAccess::query()->create(['patient_id' => $shared->id, 'user_id' => $owner->id, 'access_level' => PhrPatientUserAccess::LEVEL_VIEWER, 'granted_by_user_id' => $sharer->id, 'granted_at' => now()]);
+        $this->record(PhrAllergy::class, $shared, ['substance' => 'Synthetic pollen']);
+        [$stranger, $unrelated] = $this->ownerAndPatient();
+        $this->record(PhrAllergy::class, $unrelated, ['substance' => 'Not yours']);
+
+        $response = $this->actingAs($owner)->getJson('/api/phr/patients/overview')->assertOk()
+            ->assertHeader('Cache-Control', 'max-age=0, no-store, private');
+        $patients = collect($response->json('patients'))->keyBy('id');
+        self::assertSame([$own->id, $shared->id], $patients->keys()->all());
+        // Two clinical records and two documents; one medication and one AI proposal wait.
+        self::assertSame([4, 2], [$patients[$own->id]['records'], $patients[$own->id]['pending']]);
+        self::assertSame([1, 1], [$patients[$shared->id]['records'], $patients[$shared->id]['pending']]);
+        self::assertNotNull($patients[$own->id]['last_updated']);
+
+        $attention = collect($response->json('attention'));
+        self::assertEqualsCanonicalizing(
+            [['ready', 'records', $own->id, 1], ['ready', 'ai', $own->id, 1], ['ready', 'records', $shared->id, 1], ['failed', 'ai', $own->id, 0]],
+            $attention->map(static fn (array $item): array => [$item['kind'], $item['origin'], $item['patient_id'], $item['count']])->all(),
+        );
+        self::assertSame('failed', $attention->last()['kind'], 'failures come after what is ready');
+        self::assertSame('Synthetic letter.pdf', $attention->firstWhere('origin', 'ai')['name']);
+        self::assertNotContains($unrelated->id, $attention->pluck('patient_id')->all());
+
+        $this->actingAs($stranger)->getJson('/api/phr/patients/overview')->assertOk()
+            ->assertJsonPath('patients.0.id', $unrelated->id)->assertJsonCount(1, 'patients');
+        $this->app['auth']->forgetGuards();
+        $this->getJson('/api/phr/patients/overview')->assertUnauthorized();
+    }
+
+    public function test_the_overview_query_count_does_not_grow_with_patients(): void
+    {
+        $owner = $this->createUser();
+        $add = function () use ($owner): void {
+            $patient = $this->ehiPatient($owner);
+            PhrPatientUserAccess::query()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'access_level' => PhrPatientUserAccess::LEVEL_OWNER, 'granted_by_user_id' => $owner->id, 'granted_at' => now()]);
+            $this->record(PhrMedication::class, $patient, ['name' => 'Synthetic', 'import_source' => 'ccda']);
+            $this->aiResult($this->aiJob($this->document($patient, $owner, 'letter.pdf'), $owner), 0, ['name' => 'Synthetic']);
+        };
+
+        $add();
+        $few = $this->queriesFor(fn () => $this->actingAs($owner)->getJson('/api/phr/patients/overview')->assertOk());
+        $add();
+        $add();
+        $add();
+        $many = $this->queriesFor(fn () => $this->actingAs($owner)->getJson('/api/phr/patients/overview')->assertOk()->assertJsonCount(4, 'patients'));
+
+        self::assertSame($few, $many);
+    }
+
     private function queriesFor(callable $request): int
     {
         $count = 0;

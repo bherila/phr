@@ -366,6 +366,7 @@ Route::middleware(['web', 'auth'])
         Route::get('/data-hub/native-restores/{restore}', [PhrNativeRestoreController::class, 'show'])->whereNumber('restore')->name('data-hub.native-restores.show');
         Route::post('/data-hub/native-restores/{restore}/apply', [PhrNativeRestoreController::class, 'apply'])->whereNumber('restore')->name('data-hub.native-restores.apply');
         Route::get('/patients', [PHRPatientController::class, 'index'])->name('patients.index');
+        Route::get('/patients/overview', [PhrReviewController::class, 'overview'])->name('patients.overview');
         Route::post('/patients', [PHRPatientController::class, 'store'])->name('patients.store');
         Route::get('/patients/{patient}', [PHRPatientController::class, 'show'])->whereNumber('patient')->name('patients.show');
         Route::get('/patients/{patient}/search', [PhrPatientSearchController::class, 'index'])->whereNumber('patient')->name('patients.search');
