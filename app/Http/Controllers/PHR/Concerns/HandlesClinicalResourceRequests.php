@@ -5,6 +5,7 @@ namespace App\Http\Controllers\PHR\Concerns;
 use App\Http\Requests\PHR\ReviewClinicalRecordRequest;
 use App\Models\PhrPatient;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\PHR\PhrRecordLifecycle;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Builder;
@@ -14,6 +15,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 /**
  * @template TClinicalModel of Model
@@ -116,13 +119,29 @@ trait HandlesClinicalResourceRequests
     /**
      * Records a reviewer's accept/reject decision. This is the only path that may
      * move a record out of `pending_review`; the agent API can never assert it.
+     *
+     * With a version, the decision is conditional on the record being unchanged
+     * since the reviewer read it. A mismatch is a 409 that discloses neither the
+     * record nor its current version, the same as the agent write paths.
      */
     protected function reviewClinicalResource(ReviewClinicalRecordRequest $request, int $patient, int $record): JsonResponse
     {
         $userId = (int) $request->user()?->id;
         $resolvedPatient = $this->accessService()->writablePatient($patient, $userId);
-        $resolved = $this->resolveClinicalResource($resolvedPatient, $record);
-        $resolved->update(['review_status' => $request->reviewStatus()]);
+        $expected = $request->expectedVersion();
+        $modelClass = $this->modelClass();
+        $resolved = DB::transaction(function () use ($modelClass, $resolvedPatient, $record, $expected, $request): Model {
+            $locked = $modelClass::query()
+                ->where('patient_id', $resolvedPatient->id)
+                ->lockForUpdate()
+                ->findOrFail($record);
+            if ($expected !== null && ! hash_equals(app(AgentClinicalRecordVersion::class)->for($locked), $expected)) {
+                throw new ConflictHttpException('This record changed since it was loaded. Reload and review it again.');
+            }
+            $locked->update(['review_status' => $request->reviewStatus()]);
+
+            return $locked;
+        });
 
         return response()->json([$this->resourceKey() => $this->resourcePayload($resolved->refresh())]);
     }
