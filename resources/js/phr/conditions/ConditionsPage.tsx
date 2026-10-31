@@ -8,8 +8,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { classBadge, codeChip, labelize, reviewStatusBadge } from '@/phr/clinical/ui'
-import type { PhrListPageProps } from '@/phr/miller'
 import { compactPayload, zodErrorMessage } from '@/phr/shared'
+import type { PhrListPageProps } from '@/phr/shell/phrPages'
 import {
   type PhrCondition,
   type PhrConditionFormData,

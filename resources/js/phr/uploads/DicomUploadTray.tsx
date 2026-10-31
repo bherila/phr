@@ -70,8 +70,8 @@ function JobIcon({ phase, errored }: { phase: UploadPhase, errored: boolean }): 
 }
 
 /**
- * Collapsed, always-visible view of every upload job. Mounted once by the Miller shell so
- * it outlives column navigation; clicking an entry expands that job's detail modal.
+ * Collapsed, always-visible view of every upload job. Mounted once by the shell so
+ * it outlives page navigation; clicking an entry expands that job's detail modal.
  */
 export function DicomUploadTray(): ReactElement | null {
   const { jobs, openJobId, openJob, dismissJob } = useDicomUploads()

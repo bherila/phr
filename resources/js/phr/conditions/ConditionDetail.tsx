@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
-import { PhrNotFoundColumn } from '@/phr/miller'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
+import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import { type PhrCondition, PhrConditionResponseSchema } from '@/phr/types'
 
 interface ConditionDetailProps {
@@ -59,7 +59,7 @@ export default function ConditionDetail({ patientId, recordId }: ConditionDetail
   }, [patientId, recordId])
 
   if (notFound) {
-    return <PhrNotFoundColumn />
+    return <PhrRecordNotFound />
   }
 
   return (

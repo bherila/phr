@@ -16,8 +16,6 @@
  * The old Miller shell kept its columns in the hash (`/phr/patient/12#/labs/lab-panel-detail:5`).
  * {@link legacyHashUrl} maps those onto the paths above so bookmarks keep working.
  */
-import type { PhrModuleId } from '@/phr/miller/phrModuleRegistry'
-
 export type PhrSection = 'patients' | 'manage-patients' | 'data-hub' | 'imports' | 'config'
 
 export type PhrPageId =
@@ -48,6 +46,12 @@ export type PhrDetailId =
   | 'allergy-detail'
   | 'document-viewer'
   | 'access-grant-detail'
+
+/** The old column shell's ids for the top-level sections, still used by navigation requests. */
+export type PhrSectionModuleId = 'patients' | 'patients-manage' | 'data-hub' | 'imports' | 'config'
+
+/** Anything a page can ask to open: a section, a patient page, or a record's detail. */
+export type PhrModuleId = PhrPageId | PhrDetailId | PhrSectionModuleId
 
 export interface PhrDetailRef {
   module: PhrDetailId

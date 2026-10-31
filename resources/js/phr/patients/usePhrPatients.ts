@@ -101,7 +101,7 @@ function createPatientListStore(): PatientListStore {
 
 const PatientListContext = createContext<PatientListStore | null>(null)
 
-/** One provider lives for the shell, above every patient picker and Miller column. */
+/** One provider lives for the shell, above every patient picker and page. */
 export function PhrPatientsProvider({ children }: { children: ReactNode }): ReactElement {
   const [store] = useState(createPatientListStore)
   useEffect(() => { void store.ensureLoaded() }, [store])

@@ -139,7 +139,7 @@ describe('ImagingStudyDetail', () => {
     expect(values).toEqual(['Cardiac CT', 'CT', '2026-05-17', 'ACC123', '2', '2'])
   })
 
-  it('renders PhrNotFoundColumn on 404', async () => {
+  it('renders PhrRecordNotFound on 404', async () => {
     mockFetch.mockResolvedValue(jsonResponse({ message: 'Not Found' }, { ok: false, status: 404, statusText: 'Not Found' }))
     render(<ImagingStudyDetail patientId={PATIENT_ID} recordId={STUDY_ID} />)
 

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import { PhrNotFoundColumn } from '@/phr/miller'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
+import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import { type PhrAccessGrant, PhrAccessGrantDetailResponseSchema, PhrPatientResponseSchema } from '@/phr/types'
 
 interface AccessGrantDetailProps {
@@ -77,7 +77,7 @@ export default function AccessGrantDetail({ patientId, recordId }: AccessGrantDe
   }, [patientId, parsedRecordId])
 
   if (notFound) {
-    return <PhrNotFoundColumn />
+    return <PhrRecordNotFound />
   }
 
   return (

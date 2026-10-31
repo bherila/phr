@@ -5,8 +5,8 @@ import PdfViewer from '@/components/phr/PdfViewer'
 import { Button } from '@/components/ui/button'
 import { isBrowserPreviewableImage } from '@/phr/documents/browserImagePreview'
 import { documentSourceLabel } from '@/phr/documents/documentSource'
-import { PhrNotFoundColumn } from '@/phr/miller/PhrNotFoundColumn'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
+import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import { type PhrDocument, PhrDocumentResponseSchema } from '@/phr/types'
 
 interface DocumentViewerProps {
@@ -59,7 +59,7 @@ export default function DocumentViewer({ patientId, recordId }: DocumentViewerPr
   }
 
   if (notFound) {
-    return <PhrNotFoundColumn />
+    return <PhrRecordNotFound />
   }
 
   if (error) {
@@ -67,7 +67,7 @@ export default function DocumentViewer({ patientId, recordId }: DocumentViewerPr
   }
 
   if (!document) {
-    return <PhrNotFoundColumn />
+    return <PhrRecordNotFound />
   }
 
   return (

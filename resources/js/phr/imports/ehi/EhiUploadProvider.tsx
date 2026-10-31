@@ -48,8 +48,8 @@ export interface EhiUploadProviderProps {
 }
 
 /**
- * Runs browser uploads of EHI ZIPs. Mounted by the Miller shell above the column stack,
- * like the DICOM provider, so moving between tabs does not stop an upload. Only the
+ * Runs browser uploads of EHI ZIPs. Mounted by the shell above the pages, like the DICOM
+ * provider, so moving between pages does not stop an upload. Only the
  * byte transfer lives here: once intake is queued the server owns the import, and the
  * Imports page reads its progress from there.
  */
@@ -157,7 +157,7 @@ export function EhiUploadProvider({ children, retryDelayMs = 1000 }: EhiUploadPr
     if (!uploading) {
       return undefined
     }
-    // Only a real unload reaches this; Miller navigation is client-side.
+    // Only a real unload reaches this; shell navigation is client-side.
     const guard = (event: BeforeUnloadEvent): void => {
       event.preventDefault()
       event.returnValue = ''

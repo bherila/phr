@@ -1,4 +1,6 @@
-export type PhrSection = 'patients' | 'manage-patients' | 'data-hub' | 'imports' | 'config'
+import type { PhrSection } from '@/phr/shell/phrRoutes'
+
+export type { PhrSection }
 
 export function patientUrl(patientId: number): string {
   return `/phr/patient/${patientId}`

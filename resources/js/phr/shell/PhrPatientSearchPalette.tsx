@@ -10,17 +10,16 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command'
-import type { MillerDrillTarget } from '@/components/ui/miller'
 import { fetchWrapper } from '@/fetchWrapper'
-import type { PhrModuleId } from '@/phr/miller/phrModuleRegistry'
 import { errorMessage } from '@/phr/shared'
+import type { PhrModuleId, PhrNavTarget } from '@/phr/shell/phrRoutes'
 import { PhrPatientSearchResponseSchema, type PhrPatientSearchResult } from '@/phr/types'
 
 interface PhrPatientSearchPaletteProps {
   open: boolean
   patientId: number
   onClose: () => void
-  onDrill: (target: MillerDrillTarget<PhrModuleId>) => void
+  onDrill: (target: PhrNavTarget) => void
 }
 
 export function PhrPatientSearchPalette({ open, patientId, onClose, onDrill }: PhrPatientSearchPaletteProps): ReactElement {

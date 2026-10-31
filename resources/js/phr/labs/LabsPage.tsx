@@ -8,8 +8,8 @@ import { fetchWrapper } from '@/fetchWrapper'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { formatLabReferenceRange, formatLabValue } from '@/phr/labs/formatLabResult'
-import type { PhrListPageProps } from '@/phr/miller'
 import { errorMessage, numericPayload } from '@/phr/shared'
+import type { PhrListPageProps } from '@/phr/shell/phrPages'
 import {
   type PhrLabResult,
   type PhrLabResultFormData,

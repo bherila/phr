@@ -175,8 +175,8 @@ export interface ImportsPageProps {
 
 /**
  * The Imports tab: one drop zone for files PHR can read, the DICOM folder picker, and
- * recent imports. Upload transfers live in providers mounted by the Miller shell, so
- * leaving this column does not stop them; everything after the transfer runs on the
+ * recent imports. Upload transfers live in providers mounted by the shell, so
+ * leaving this page does not stop them; everything after the transfer runs on the
  * server and is read back from it.
  */
 export default function ImportsPage({ patientId }: ImportsPageProps): ReactElement {

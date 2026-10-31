@@ -4,8 +4,8 @@ import { fetchWrapper } from '@/fetchWrapper'
 import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { administrationStatusLabel, doseAmountLabel, seriesPositionLabel } from '@/phr/immunizations/immunizationDose'
-import { PhrNotFoundColumn } from '@/phr/miller'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
+import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import { type PhrImmunization, PhrImmunizationResponseSchema } from '@/phr/types'
 
 interface ImmunizationDetailProps {
@@ -82,7 +82,7 @@ export default function ImmunizationDetail({ patientId, recordId }: Immunization
   }
 
   if (notFound) {
-    return <PhrNotFoundColumn />
+    return <PhrRecordNotFound />
   }
 
   return (

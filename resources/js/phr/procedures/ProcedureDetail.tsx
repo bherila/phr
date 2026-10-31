@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 
 import EncounterEobLinks from '@/phr/clinical/EncounterEobLinks'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
-import { PhrNotFoundColumn } from '@/phr/miller'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
+import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import { type PhrProcedure, PhrProcedureResponseSchema } from '@/phr/types'
 
 interface ProcedureDetailProps {
@@ -61,7 +61,7 @@ export default function ProcedureDetail({ patientId, recordId }: ProcedureDetail
   }, [patientId, recordId])
 
   if (notFound) {
-    return <PhrNotFoundColumn />
+    return <PhrRecordNotFound />
   }
 
   return (

@@ -8,8 +8,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
-import type { PhrListPageProps } from '@/phr/miller'
 import { compactPayload } from '@/phr/shared'
+import type { PhrListPageProps } from '@/phr/shell/phrPages'
 import {
   type PhrMedication,
   PhrMedicationResponseSchema,

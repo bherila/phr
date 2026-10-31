@@ -1,6 +1,6 @@
 import { NotebookPen } from 'lucide-react'
 
-import type { PhrListPageProps } from '@/phr/miller'
+import type { PhrListPageProps } from '@/phr/shell/phrPages'
 
 import { HealthLogEntryForm } from './HealthLogEntryForm'
 import { HealthLogSidebar } from './HealthLogSidebar'

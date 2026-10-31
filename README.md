@@ -52,8 +52,10 @@ flowchart LR
 
 ### Browser application
 
-The React application lives in `resources/js/phr`. Its Miller-column shell keeps the
-patient context visible while users move from a collection to a record detail view.
+The React application lives in `resources/js/phr`. Its shell keeps a patient's record
+sections in a permanent sidebar, shows each section full width, and opens a selected
+record in a detail panel beside the list; every view has its own URL (see
+[the interface shell](docs/ui-shell.md)).
 Clinical modules share Zod-validated API types, common patient navigation, and a
 patient-scoped command search. Blade supplies the authenticated application shell;
 React owns the interactive PHR experience.
@@ -218,7 +220,7 @@ are valid initial data. Both HTML and the list API use private, no-store respons
 | `app/Http/Controllers/Api/V1` | OAuth REST API and MCP entry point |
 | `app/GenAiProcessor` | Minimal queued document-extraction pipeline |
 | `app/Console/Commands/Phr` | Import, export, reconciliation, and maintenance commands |
-| `resources/js/phr` | React PHR modules and Miller-column application shell |
+| `resources/js/phr` | React PHR modules and the sidebar application shell |
 | `resources/views/phr` | Blade mounts and server-rendered PDF views |
 | `routes/api.php` | Session, device, OAuth API, and MCP routes |
 | `docs` | Format, conformance, and security design notes |

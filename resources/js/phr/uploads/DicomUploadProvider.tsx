@@ -75,7 +75,7 @@ function makeJobId(): string {
 /**
  * `beforeunload` guard body, kept separate so tests can assert the contract without
  * fighting JSDOM's unload handling. Only a *real* unload (tab close, reload, external
- * navigation) reaches this — Miller column navigation is client-side and never fires it.
+ * navigation) reaches this — shell navigation is client-side and never fires it.
  */
 export function preventUnloadDuringUpload(event: BeforeUnloadEvent): void {
   event.preventDefault()
