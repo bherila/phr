@@ -26,6 +26,7 @@ describe('parsePhrLocation and phrViewUrl', () => {
     ['/phr/config', { kind: 'section', section: 'config', search: '' }],
     ['/phr/patient/12', patient('summary')],
     ['/phr/patient/12/labs', patient('labs')],
+    ['/phr/patient/12/review', patient('review')],
     ['/phr/patient/12/labs/5', patient('labs', { detail: { module: 'lab-panel-detail', id: '5' } })],
     ['/phr/patient/12/documents/9', patient('documents', { detail: { module: 'document-viewer', id: '9' } })],
     ['/phr/patient/12/imaging/3', patient('imaging', { detail: { module: 'imaging-study-detail', id: '3' } })],

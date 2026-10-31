@@ -95,11 +95,13 @@ function RailToggle({ rail, onRailChange }: { rail: boolean, onRailChange: (rail
 }
 
 /**
- * What the item shows beside its label: how many records the section holds and a dot when
- * some of them wait for review, from the one summary request the sidebar shares.
+ * What the item shows beside its label: Review, how many items wait in all; a section, how
+ * many records it holds and a dot when some of them wait for review. Both come from the one
+ * summary request the sidebar shares.
  */
 export function sidebarAmounts(page: PhrPageId, summary: ReviewSummary | null): { count: number | null, pending: number } {
   if (summary === null) return { count: null, pending: 0 }
+  if (page === 'review') return { count: summary.total > 0 ? summary.total : null, pending: 0 }
   const section = summary.sections[page]
   return { count: section && section.records > 0 ? section.records : null, pending: section?.pending ?? 0 }
 }
@@ -108,7 +110,9 @@ function SidebarItem({ patientId, page, current, rail, summary }: { patientId: n
   const meta = PHR_PAGES[page]
   const Icon = meta.icon
   const { count, pending } = sidebarAmounts(page, summary)
-  const described = [count !== null ? `${count} ${count === 1 ? 'record' : 'records'}` : null, pending > 0 ? `${pending} waiting for review` : null].filter(Boolean).join(', ')
+  const described = page === 'review'
+    ? (count !== null ? `${count} waiting for review` : '')
+    : [count !== null ? `${count} ${count === 1 ? 'record' : 'records'}` : null, pending > 0 ? `${pending} waiting for review` : null].filter(Boolean).join(', ')
   const name = described === '' ? meta.label : `${meta.label}, ${described}`
   const link = (
     <a
@@ -126,7 +130,7 @@ function SidebarItem({ patientId, page, current, rail, summary }: { patientId: n
       )}
     >
       <Icon className="size-4 shrink-0" aria-hidden="true" />
-      {rail && pending > 0 && <span aria-hidden="true" data-pending-dot="" className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-warning" />}
+      {rail && (page === 'review' ? count !== null : pending > 0) && <span aria-hidden="true" data-pending-dot="" className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-warning" />}
       {!rail && (
         <>
           <span className="flex-1 truncate">{meta.label}</span>

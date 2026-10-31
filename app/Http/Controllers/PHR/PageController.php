@@ -17,6 +17,7 @@ class PageController extends Controller
      * PHR_PAGE_IDS in resources/js/phr/shell/phrRoutes.ts.
      */
     public const PATIENT_PAGES = [
+        'review',
         'summary',
         'health-log',
         'labs',

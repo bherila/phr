@@ -26,6 +26,7 @@ const ResponseSchema = z.object({ summary: ReviewSummarySchema, can_manage: z.bo
 
 const entries = new Map<number, ReviewSummaryState | null>()
 const inFlight = new Map<number, Promise<void>>()
+const queued = new Map<number, Promise<void>>()
 const listeners = new Set<() => void>()
 
 function emit(): void {
@@ -74,16 +75,28 @@ export function setReviewSummary(patientId: number, state: ReviewSummaryState): 
   emit()
 }
 
-/** A decision was recorded for this patient: fetch the counts again. */
+/**
+ * A decision was recorded for this patient: fetch the counts again. A request already
+ * running may have read them before the decision, so the new one starts after it; any
+ * number of decisions made meanwhile share that one request.
+ */
 export function refreshReviewSummary(patientId: number): Promise<void> {
-  // A request already running may have read the counts before the decision.
-  const running = inFlight.get(patientId)
-  return (running ?? Promise.resolve()).then(() => load(patientId))
+  // Nothing shows this patient's counts yet: whoever shows them first fetches them.
+  if (!entries.has(patientId) && !inFlight.has(patientId)) return Promise.resolve()
+  const waiting = queued.get(patientId)
+  if (waiting) return waiting
+  const next = (inFlight.get(patientId) ?? Promise.resolve()).then(() => {
+    queued.delete(patientId)
+    return load(patientId)
+  })
+  queued.set(patientId, next)
+  return next
 }
 
 /** For tests: forget every patient's counts. */
 export function resetReviewSummaries(): void {
   entries.clear()
   inFlight.clear()
+  queued.clear()
   emit()
 }

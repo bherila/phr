@@ -6,7 +6,8 @@
  *   section pages with no patient context. Their query string (e.g. `?patient_id=` on Imports)
  *   is part of the view and is kept as-is.
  * - `/phr/patient/{id}`: the patient's Summary.
- * - `/phr/patient/{id}/{page}`: one of the patient's record pages (`labs`, `conditions`, …).
+ * - `/phr/patient/{id}/{page}`: one of the patient's record pages (`labs`, `conditions`, …),
+ *   or `review`, everything waiting for the patient's review.
  * - `/phr/patient/{id}/{page}/{recordId}`: that page with a record's detail open.
  * - `/phr/patient/{id}/{page}/{kind}/{recordId}`: a detail the page hosts that is not its own
  *   record type, e.g. `/office-visits/procedure/7` or `/vitals/trend/weight`.
@@ -19,6 +20,7 @@
 export type PhrSection = 'patients' | 'manage-patients' | 'data-hub' | 'imports' | 'config'
 
 export type PhrPageId =
+  | 'review'
   | 'summary'
   | 'health-log'
   | 'labs'
@@ -69,6 +71,7 @@ export interface PhrNavTarget {
 }
 
 export const PHR_PAGE_IDS: readonly PhrPageId[] = [
+  'review',
   'summary',
   'health-log',
   'labs',
