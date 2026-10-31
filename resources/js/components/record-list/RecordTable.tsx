@@ -22,6 +22,12 @@ export interface RecordColumn<Row> {
    * function can decide per row (a lab value is a number or a word).
    */
   numeric?: boolean | ((row: Row) => boolean) | undefined
+  /**
+   * Show the column only when at least one row satisfies this (a Review column that only
+   * matters while something waits for review). Rows that do not satisfy it get an empty cell.
+   * Skeleton rows have no data, so the column is hidden while loading.
+   */
+  showWhenAnyRow?: ((row: Row) => boolean) | undefined
 }
 
 /** Sizes a column to its content on one line. */
@@ -93,9 +99,10 @@ export function defaultLoadingLabel(label: string): string {
  * whose detail is open is highlighted.
  */
 export function RecordTable<Row>(props: RecordTableProps<Row>): ReactElement | null {
-  const { label, columns, loading = false, skeletonRows = DEFAULT_SKELETON_ROWS, loadingLabel, empty = null, renderAfterRow, rowClassName, className, tableClassName, headClassName, bodyClassName, selectionColumn, ...options } = props
+  const { label, columns: allColumns, loading = false, skeletonRows = DEFAULT_SKELETON_ROWS, loadingLabel, empty = null, renderAfterRow, rowClassName, className, tableClassName, headClassName, bodyClassName, selectionColumn, ...options } = props
   const navigation = useRecordNavigation(options)
   const { rows, rowId, selection, onOpen } = options
+  const columns = allColumns.filter((column) => column.showWhenAnyRow === undefined || (!loading && rows.some(column.showWhenAnyRow)))
   if (!loading && rows.length === 0) return <>{empty}</>
   const selectable = selectionColumn !== undefined && selection !== undefined
   const colSpan = columns.length + (selectable ? 1 : 0)

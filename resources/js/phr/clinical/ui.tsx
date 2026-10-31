@@ -34,17 +34,25 @@ export function classBadge(value: string | null, classes: Record<string, string>
   )
 }
 
-const REVIEW_STATUS_TONE: Record<PhrReviewStatus, StatusTone> = {
-  pending_review: 'warning',
-  confirmed: 'success',
-  rejected: 'danger',
+/**
+ * Review status is shown only when it needs attention. Approved (confirmed) is the resting
+ * state, so repeating it on every row is noise; a rejected row is muted.
+ */
+const REVIEW_STATUS_DISPLAY: Partial<Record<PhrReviewStatus, { tone: StatusTone, label: string }>> = {
+  pending_review: { tone: 'warning', label: 'Pending review' },
+  rejected: { tone: 'neutral', label: 'Rejected' },
 }
 
-/** The review status as a dot and a label on one line (the color is on the dot, not the text). */
+export function reviewStatusNeedsAttention(status: PhrReviewStatus | null | undefined): boolean {
+  return status !== null && status !== undefined && REVIEW_STATUS_DISPLAY[status] !== undefined
+}
+
+/** A dot and a label for pending or rejected records; nothing for approved ones. */
 export function reviewStatusBadge(status: PhrReviewStatus | null | undefined): ReactElement | null {
-  if (!status) {
+  const display = status ? REVIEW_STATUS_DISPLAY[status] : undefined
+  if (!display) {
     return null
   }
 
-  return <StatusDot tone={REVIEW_STATUS_TONE[status]} label={labelize(status)} title="Clinical review status" className="capitalize" />
+  return <StatusDot tone={display.tone} label={display.label} title="Clinical review status" />
 }

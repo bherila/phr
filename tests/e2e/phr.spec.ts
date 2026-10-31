@@ -151,6 +151,26 @@ test.describe.serial('PHR browser journeys', () => {
     await expect(second).toBeFocused()
   })
 
+  test('fills the viewport without a footer gap and follows the sidebar width rule', async ({ page }) => {
+    await signIn(page, ownerCredentials)
+    const patientId = await ownerPatientId(page, 'Synthetic Chart Patient')
+    await page.goto(`/phr/patient/${patientId}/conditions`)
+    await expect(page.getByRole('table', { name: 'Active Problems' })).toBeVisible()
+    await expect(page.locator('footer')).toHaveCount(0)
+    const scrolls = await page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight)
+    expect(scrolls).toBe(false)
+
+    const sidebar = page.getByRole('complementary', { name: 'Patient record' })
+    const openRow = page.getByRole('table', { name: 'Active Problems' }).locator('tbody tr[data-record-row]').first()
+    for (const [width, expected] of [[1440, 64], [2000, 248]] as const) {
+      await page.setViewportSize({ width, height: 900 })
+      await openRow.click()
+      await expect(page.getByRole('complementary', { name: 'Condition detail' })).toBeVisible()
+      expect(Math.round((await sidebar.boundingBox())?.width ?? 0)).toBe(expected)
+      await page.keyboard.press('Escape')
+    }
+  })
+
   test('loads the Conditions table without shifting the layout', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await signIn(page, ownerCredentials)

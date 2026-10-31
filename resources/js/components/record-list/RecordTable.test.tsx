@@ -566,3 +566,26 @@ describe('RecordList', () => {
     expect(onOpen).toHaveBeenCalledWith(ITEMS[1], { replace: false })
   })
 })
+
+describe('RecordTable conditional columns', () => {
+  const rows = [
+    { id: 'a', name: 'Alpha', attention: false },
+    { id: 'b', name: 'Beta', attention: true },
+  ]
+  const columns: RecordColumn<(typeof rows)[number]>[] = [
+    { id: 'name', header: 'Name', cell: (row) => row.name },
+    { id: 'review', header: 'Review', showWhenAnyRow: (row) => row.attention, cell: (row) => (row.attention ? 'Needs review' : null) },
+  ]
+
+  it('shows the column when some row needs it, leaving the other rows empty', () => {
+    render(<RecordTable label="Things" columns={columns} rows={rows} rowId={(row) => row.id} />)
+    expect(screen.getByRole('columnheader', { name: 'Review' })).toBeInTheDocument()
+    expect(screen.getByText('Needs review')).toBeInTheDocument()
+  })
+
+  it('hides the column when no row needs it', () => {
+    render(<RecordTable label="Things" columns={columns} rows={rows.map((row) => ({ ...row, attention: false }))} rowId={(row) => row.id} />)
+    expect(screen.queryByRole('columnheader', { name: 'Review' })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('row')[1]?.children).toHaveLength(1)
+  })
+})

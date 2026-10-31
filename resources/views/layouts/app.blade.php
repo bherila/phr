@@ -47,6 +47,8 @@
       @yield('content')
     </main>
 
+    {{-- Full-height app shells opt out with @section('hide_footer', '1'). --}}
+    @unless (View::hasSection('hide_footer'))
     <footer class="border-t border-border py-6 text-sm text-center text-muted-foreground">
       <span>&copy; {{ date('Y') }} {{ config('app.name', 'Personal Health Record') }}</span>
       @if (auth()->check() && auth()->user()->hasRole('admin'))
@@ -54,6 +56,7 @@
         <a class="underline underline-offset-4 hover:text-foreground" href="{{ route('uptime') }}">Uptime</a>
       @endif
     </footer>
+    @endunless
 
     @stack('scripts')
   </body>

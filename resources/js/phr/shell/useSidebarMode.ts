@@ -7,8 +7,8 @@ export type SidebarMode = 'expanded' | 'rail'
 /** A normal page, or a full-width view (document viewer, imaging study) that wants the room. */
 export type SidebarContext = 'page' | 'full-width'
 
-/** Below this width an open detail panel collapses the sidebar, so the list keeps ~560px. */
-export const WIDE_VIEWPORT_QUERY = '(min-width: 1440px)'
+/** Below this width an open detail panel collapses the sidebar, so the list keeps its room. */
+export const WIDE_VIEWPORT_QUERY = '(min-width: 1600px)'
 
 export function automaticSidebarMode(context: SidebarContext, detailOpen: boolean, wideViewport: boolean): SidebarMode {
   if (context === 'full-width') return 'rail'

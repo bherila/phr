@@ -58,7 +58,7 @@ describe('AllergiesPage', () => {
   it('keeps the mounted list synchronized with detail mutations', async () => {
     render(<AllergiesPage patientId={42} />)
     await screen.findByText('Synthetic reaction')
-    expect(screen.getByText('pending review')).toBeInTheDocument()
+    expect(screen.getByText('Pending review')).toBeInTheDocument()
 
     notifyAllergyChanged({
       action: 'updated',

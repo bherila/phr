@@ -296,7 +296,7 @@ describe('PHR page mounts', () => {
     const allFilter = await screen.findByRole('button', { name: /^all 4$/i })
     expect(allFilter).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText('Follow-up')).toBeInTheDocument()
-    expect(screen.getByText('pending review')).toBeInTheDocument()
+    expect(screen.getByText('Pending review')).toBeInTheDocument()
     expect(screen.getByText('Example vaccine')).toBeInTheDocument()
     expect(screen.queryByText('Allergen extract preparation')).not.toBeInTheDocument()
     expect(screen.queryByText('Dental restoration')).not.toBeInTheDocument()
