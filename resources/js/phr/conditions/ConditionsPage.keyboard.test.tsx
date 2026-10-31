@@ -137,6 +137,27 @@ describe('Conditions keyboard navigation with the detail panel', () => {
     expect(row('Asthma')).toHaveFocus()
   })
 
+  it('keeps the panel closed and history untouched when Esc follows an arrow within the debounce', async () => {
+    window.history.replaceState(null, '', '/phr/patient/2/conditions/11')
+    render(<PhrShell />)
+    await screen.findByRole('heading', { name: 'Condition 11' })
+    await screen.findByRole('table', { name: 'Active Problems' })
+    await waitFor(() => expect(row('Asthma')).toHaveAttribute('data-open'))
+    act(() => row('Asthma').focus())
+    pushState.mockClear()
+    replaceState.mockClear()
+
+    press('ArrowDown')
+    press('Escape')
+    expect(window.location.pathname).toBe('/phr/patient/2/conditions')
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 400)) })
+
+    expect(window.location.pathname).toBe('/phr/patient/2/conditions')
+    expect(replaceState).not.toHaveBeenCalled()
+    expect(pushState).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('heading', { name: 'Condition 12' })).not.toBeInTheDocument()
+  })
+
   it('puts focus back on the row when Esc closes the panel from inside it', async () => {
     window.history.replaceState(null, '', '/phr/patient/2/conditions/13')
     render(<PhrShell />)

@@ -132,6 +132,9 @@ export function useRecordNavigation<Row>({
     followTimerRef.current = null
   }, [])
   useEffect(() => cancelFollow, [cancelFollow])
+  // Whatever opened, closed or swapped the panel (Esc, a link, Back, the follow itself), a
+  // follow scheduled against the previous state no longer applies.
+  useEffect(() => cancelFollow, [openRowId, cancelFollow])
 
   useLayoutEffect(() => {
     if (container) syncRowTabIndexes(container, activeId)
@@ -175,6 +178,11 @@ export function useRecordNavigation<Row>({
     cancelFollow()
     followTimerRef.current = setTimeout(() => {
       followTimerRef.current = null
+      // Act only if nothing moved underneath the timer: the panel still shows the record it
+      // was scheduled from, and the active row is still the one it targets. A navigation the
+      // list did not see (Back, a link) may not have re-rendered it yet, so check, not trust.
+      const current = latestRef.current
+      if (current.openRowId !== openId || current.activeId !== id) return
       const row = rowById(id)
       if (row !== undefined) open(row, { replace: true })
     }, delay)

@@ -339,6 +339,116 @@ describe('RecordTable keyboard model', () => {
   })
 })
 
+/**
+ * The panel can change without the list's help: Esc, a link, Back. These stand in for those
+ * paths by setting the open record from outside the table.
+ */
+function FollowHarness({ onOpen }: { onOpen: (item: Item, options: RecordOpenOptions) => void }): ReactElement {
+  const [openId, setOpenId] = useState<string | null>('a')
+  return (
+    <>
+      <RecordTable
+        label="Things"
+        rows={ITEMS}
+        rowId={(item) => item.id}
+        columns={COLUMNS}
+        openRowId={openId}
+        onOpen={(item, options) => {
+          onOpen(item, options)
+          setOpenId(item.id)
+        }}
+      />
+      <button type="button" onClick={() => setOpenId(null)}>Close panel</button>
+      <button type="button" onClick={() => setOpenId('c')}>Open Gamma elsewhere</button>
+      <button type="button" onClick={() => setOpenId('a')}>Back to Alpha</button>
+      <output data-testid="open">{openId ?? 'closed'}</output>
+    </>
+  )
+}
+
+describe('the panel following the active row', () => {
+  beforeEach(() => {
+    jest.useFakeTimers()
+  })
+
+  afterEach(() => {
+    jest.useRealTimers()
+  })
+
+  function arrowFromAlpha(onOpen: jest.Mock): void {
+    render(<FollowHarness onOpen={onOpen} />)
+    act(() => rowNamed('Alpha').focus())
+    key(rowNamed('Alpha'), 'ArrowDown')
+    act(() => { jest.advanceTimersByTime(100) })
+  }
+
+  it('does not reopen the panel when it was closed during the debounce', () => {
+    const onOpen = jest.fn()
+    arrowFromAlpha(onOpen)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close panel' }))
+    act(() => { jest.advanceTimersByTime(500) })
+
+    expect(onOpen).not.toHaveBeenCalled()
+    expect(screen.getByTestId('open')).toHaveTextContent('closed')
+  })
+
+  it('lets a record opened another way win over a pending follow', () => {
+    const onOpen = jest.fn()
+    arrowFromAlpha(onOpen)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Gamma elsewhere' }))
+    act(() => { jest.advanceTimersByTime(500) })
+
+    expect(onOpen).not.toHaveBeenCalled()
+    expect(screen.getByTestId('open')).toHaveTextContent('c')
+  })
+
+  it('lets a Back navigation win over a pending follow', () => {
+    const onOpen = jest.fn()
+    render(<FollowHarness onOpen={onOpen} />)
+    act(() => rowNamed('Alpha').focus())
+    key(rowNamed('Alpha'), 'ArrowDown')
+    act(() => { jest.advanceTimersByTime(200) })
+    expect(onOpen).toHaveBeenLastCalledWith(ITEMS[1], { replace: true })
+
+    // Now on Beta; arrow on, then Back returns the panel to Alpha before the follow fires.
+    key(rowNamed('Beta'), 'ArrowDown')
+    act(() => { jest.advanceTimersByTime(100) })
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Alpha' }))
+    act(() => { jest.advanceTimersByTime(500) })
+
+    expect(onOpen).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('open')).toHaveTextContent('a')
+  })
+
+  it('opens only the last of several quick moves, once', () => {
+    const onOpen = jest.fn()
+    render(<FollowHarness onOpen={onOpen} />)
+    act(() => rowNamed('Alpha').focus())
+
+    key(rowNamed('Alpha'), 'ArrowDown')
+    key(rowNamed('Beta'), 'ArrowDown')
+    key(rowNamed('Gamma'), 'ArrowUp')
+    act(() => { jest.advanceTimersByTime(500) })
+
+    expect(onOpen).toHaveBeenCalledTimes(1)
+    expect(onOpen).toHaveBeenCalledWith(ITEMS[1], { replace: true })
+  })
+
+  it('does nothing when the list unmounts during the debounce', () => {
+    const onOpen = jest.fn()
+    const { unmount } = render(<FollowHarness onOpen={onOpen} />)
+    act(() => rowNamed('Alpha').focus())
+    key(rowNamed('Alpha'), 'ArrowDown')
+
+    unmount()
+    act(() => { jest.advanceTimersByTime(500) })
+
+    expect(onOpen).not.toHaveBeenCalled()
+  })
+})
+
 describe('RecordTable column sizing', () => {
   interface Result { id: string, analyte: string, value: string }
   const results: Result[] = [{ id: '1', analyte: 'Glucose', value: '112' }, { id: '2', analyte: 'Influenza A RNA', value: 'Not Detected' }]
