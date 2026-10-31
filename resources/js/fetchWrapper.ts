@@ -1,4 +1,6 @@
 
+import { clearPhrPreload, takePhrPreload } from '@/fetchPreload'
+
 export function getCsrfToken() {
   const meta = document.querySelector('meta[name="csrf-token"]');
   if (meta) {
@@ -19,7 +21,13 @@ export const fetchWrapper = {
   deleteRaw,
 }
 
+// GETs check the page's first-load preload before the network (see fetchPreload.ts); any write
+// drops the unused entries, since it may have changed what they describe.
 function get(url: string) {
+  const preloaded = takePhrPreload(url)
+  if (preloaded !== null) {
+    return Promise.resolve(preloaded).then(handleResponse)
+  }
   const requestOptions = {
     method: 'GET',
     headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
@@ -29,6 +37,10 @@ function get(url: string) {
 }
 
 function getRaw(url: string) {
+  const preloaded = takePhrPreload(url)
+  if (preloaded !== null) {
+    return Promise.resolve(preloaded)
+  }
   const requestOptions = {
     method: 'GET',
     headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
@@ -43,6 +55,7 @@ interface FetchWrapperOptions {
 }
 
 function post(url: string, body: unknown, options: FetchWrapperOptions = {}) {
+  clearPhrPreload()
   const isFormData = body instanceof FormData;
   const requestOptions: RequestInit = {
     method: 'POST',
@@ -59,6 +72,7 @@ function post(url: string, body: unknown, options: FetchWrapperOptions = {}) {
 }
 
 function postRaw(url: string, body: unknown, options: FetchWrapperOptions = {}) {
+  clearPhrPreload()
   const isFormData = body instanceof FormData;
   const requestOptions: RequestInit = {
     method: 'POST',
@@ -75,6 +89,7 @@ function postRaw(url: string, body: unknown, options: FetchWrapperOptions = {}) 
 }
 
 function patch(url: string, body: any) {
+  clearPhrPreload()
   const requestOptions: RequestInit = {
     method: 'PATCH',
     headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': getCsrfToken() || '' },
@@ -85,6 +100,7 @@ function patch(url: string, body: any) {
 }
 
 function put(url: string, body: any, options: FetchWrapperOptions = {}) {
+  clearPhrPreload()
   const requestOptions: RequestInit = {
     method: 'PUT',
     headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': getCsrfToken() || '' },
@@ -99,6 +115,7 @@ function put(url: string, body: any, options: FetchWrapperOptions = {}) {
 // code and error body (e.g. HTTP 409 lease conflicts) instead of the flattened
 // error-message string that `handleResponse` rejects with.
 function putRaw(url: string, body: unknown, options: FetchWrapperOptions = {}) {
+  clearPhrPreload()
   const requestOptions: RequestInit = {
     method: 'PUT',
     headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': getCsrfToken() || '' },
@@ -114,6 +131,7 @@ function putRaw(url: string, body: unknown, options: FetchWrapperOptions = {}) {
 // array a guarded refusal carries — and the blockers are the part that tells a human what to
 // do about it.
 function deleteRaw(url: string, body: unknown = {}, options: FetchWrapperOptions = {}) {
+  clearPhrPreload()
   const requestOptions: RequestInit = {
     method: 'DELETE',
     headers: {
@@ -131,6 +149,7 @@ function deleteRaw(url: string, body: unknown = {}, options: FetchWrapperOptions
 
 // prefixed with underscored because delete is a reserved word in javascript
 function _delete(url: string, body: any, options: FetchWrapperOptions = {}) {
+  clearPhrPreload()
   const requestOptions: RequestInit = {
     method: 'DELETE',
     headers: {

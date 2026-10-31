@@ -12,6 +12,10 @@ use Illuminate\Validation\Rule;
  * Only `confirmed` and `rejected` are accepted. `pending_review` is a state the
  * server assigns when an agent writes or edits a record; a reviewer cannot put
  * a record back into the queue by hand.
+ *
+ * `version` is the record's opaque version as a reviewer last saw it. When it is
+ * given, the decision applies only if the record is still exactly that, so a
+ * batch approval cannot confirm content that changed after the page loaded.
  */
 class ReviewClinicalRecordRequest extends FormRequest
 {
@@ -20,11 +24,19 @@ class ReviewClinicalRecordRequest extends FormRequest
     {
         return [
             'review_status' => ['required', 'string', Rule::in(PhrReviewStatus::DECISIONS)],
+            'version' => ['sometimes', 'string', 'size:64'],
         ];
     }
 
     public function reviewStatus(): string
     {
         return (string) $this->validated('review_status');
+    }
+
+    public function expectedVersion(): ?string
+    {
+        $version = $this->validated('version');
+
+        return is_string($version) ? $version : null;
     }
 }

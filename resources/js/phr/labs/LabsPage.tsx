@@ -2,14 +2,20 @@ import { FlaskConical, Plus } from 'lucide-react'
 import type { ComponentProps, FormEvent } from 'react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
+import { type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
+import { SkeletonBlock } from '@/components/record-list/Skeleton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
-import { reviewStatusBadge } from '@/phr/clinical/ui'
-import { formatLabReferenceRange, formatLabValue } from '@/phr/labs/formatLabResult'
+import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
+import { reviewStatusBadge, reviewStatusNeedsAttention } from '@/phr/clinical/ui'
+import { formatLabReferenceRange, formatLabValue, isNumericLabValue } from '@/phr/labs/formatLabResult'
+import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
+import { reviewStateChanged } from '@/phr/review/reviewSummary'
 import { errorMessage, numericPayload } from '@/phr/shared'
-import type { PhrListPageProps } from '@/phr/shell/phrPages'
+import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
+import { openRecordId } from '@/phr/shell/phrRoutes'
 import {
   type PhrLabResult,
   type PhrLabResultFormData,
@@ -110,69 +116,102 @@ function groupLabResults(results: PhrLabResult[]): LabResultGroup[] {
 }
 
 interface LabResultsTableProps {
+  label: string
+  loading?: boolean
   results: PhrLabResult[]
   showPanelColumn: boolean
   onDrill: PhrListPageProps['onDrill']
+  openRowId: string | null
   canManage: boolean
   reviewingId: number | null
   onReview: (result: PhrLabResult, decision: PhrReviewDecision) => void
 }
 
-function LabResultsTable({ results, showPanelColumn, onDrill, canManage, reviewingId, onReview }: LabResultsTableProps) {
-  return (
-    <table className="w-full text-sm">
-      <thead>
-        <tr className="border-b border-border bg-muted/40">
-          <th className="px-3 py-2 text-left font-medium text-muted-foreground">Analyte</th>
-          {showPanelColumn && (
-            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Panel</th>
+const HEAD = 'px-3 py-2 font-medium text-muted-foreground'
+
+function LabResultsTable({ label, loading = false, results, showPanelColumn, onDrill, openRowId, canManage, reviewingId, onReview }: LabResultsTableProps) {
+  const columns: RecordColumn<PhrLabResult>[] = [
+    {
+      id: 'analyte',
+      header: 'Analyte',
+      headerClassName: HEAD,
+      className: 'px-3 py-2 font-medium text-foreground',
+      cell: (result) => result.analyte ?? '—',
+    },
+    ...(showPanelColumn ? [{
+      id: 'panel',
+      header: 'Panel',
+      headerClassName: HEAD,
+      className: 'px-3 py-2 text-muted-foreground',
+      cell: (result: PhrLabResult) => result.test_name ?? '—',
+    }] : []),
+    {
+      id: 'value',
+      header: 'Value',
+      headerClassName: HEAD,
+      fit: true,
+      numeric: isNumericLabValue,
+      className: 'px-3 py-2',
+      cell: (result) => (
+        <span className={flagClass(result.abnormal_flag)}>
+          {formatLabValue(result) ?? '—'}
+          {result.unit && <span className="ml-1 text-xs text-muted-foreground">{result.unit}</span>}
+        </span>
+      ),
+    },
+    { id: 'range', header: 'Range', fit: true, headerClassName: HEAD, className: 'px-3 py-2 text-muted-foreground', cell: (result) => formatLabReferenceRange(result) ?? '—' },
+    {
+      id: 'flag',
+      header: 'Flag',
+      headerClassName: `${HEAD} text-center`,
+      fit: true,
+      className: 'px-3 py-2 text-center font-semibold',
+      cell: (result) => <span className={flagClass(result.abnormal_flag)}>{result.abnormal_flag && result.abnormal_flag !== 'N' ? result.abnormal_flag : ''}</span>,
+    },
+    {
+      id: 'date',
+      header: 'Date',
+      fit: true,
+      headerClassName: HEAD,
+      className: 'px-3 py-2 text-muted-foreground',
+      cell: (result) => (result.result_datetime ?? result.collection_datetime ?? '').slice(0, 10) || '—',
+    },
+    {
+      id: 'review',
+      header: 'Review',
+      showWhenAnyRow: (result) => reviewStatusNeedsAttention(result.review_status),
+      fit: true,
+      headerClassName: HEAD,
+      className: 'px-3 py-2',
+      cell: (result) => (
+        <div className="flex items-center gap-2">
+          {reviewStatusBadge(result.review_status)}
+          {canManage && (
+            <ReviewActions
+              status={result.review_status}
+              label={result.analyte ?? result.test_name ?? 'lab result'}
+              busy={reviewingId === result.id}
+              onReview={(decision) => onReview(result, decision)}
+            />
           )}
-          <th className="px-3 py-2 text-right font-medium text-muted-foreground">Value</th>
-          <th className="px-3 py-2 text-left font-medium text-muted-foreground">Range</th>
-          <th className="px-3 py-2 text-center font-medium text-muted-foreground">Flag</th>
-          <th className="px-3 py-2 text-left font-medium text-muted-foreground">Date</th>
-          <th className="px-3 py-2 text-right font-medium text-muted-foreground">Review</th>
-        </tr>
-      </thead>
-      <tbody>
-        {results.map((result) => (
-          <tr
-            key={result.id}
-            className={`border-b border-border last:border-0 hover:bg-muted/20 ${onDrill ? 'cursor-pointer' : ''}`}
-            onClick={() => onDrill?.({ id: 'lab-panel-detail', instance: String(result.id) })}
-          >
-            <td className="px-3 py-2 font-medium text-foreground">
-              <div>{result.analyte ?? '—'}</div>
-              <div className="mt-1">{reviewStatusBadge(result.review_status)}</div>
-            </td>
-            {showPanelColumn && (
-              <td className="px-3 py-2 text-muted-foreground">{result.test_name ?? '—'}</td>
-            )}
-            <td className={`px-3 py-2 text-right ${flagClass(result.abnormal_flag)}`}>
-              {formatLabValue(result) ?? '—'}
-              {result.unit && <span className="ml-1 text-xs text-muted-foreground">{result.unit}</span>}
-            </td>
-            <td className="px-3 py-2 text-muted-foreground">{formatLabReferenceRange(result) ?? '—'}</td>
-            <td className={`px-3 py-2 text-center font-semibold ${flagClass(result.abnormal_flag)}`}>
-              {result.abnormal_flag && result.abnormal_flag !== 'N' ? result.abnormal_flag : ''}
-            </td>
-            <td className="px-3 py-2 text-muted-foreground">
-              {(result.result_datetime ?? result.collection_datetime ?? '').slice(0, 10) || '—'}
-            </td>
-            <td className="px-3 py-2 text-right" onClick={(event) => event.stopPropagation()}>
-              {canManage && (
-                <ReviewActions
-                  status={result.review_status}
-                  label={result.analyte ?? result.test_name ?? 'lab result'}
-                  busy={reviewingId === result.id}
-                  onReview={(decision) => onReview(result, decision)}
-                />
-              )}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+        </div>
+      ),
+    },
+  ]
+
+  return (
+    <RecordTable
+      label={label}
+      loading={loading}
+      rows={results}
+      rowId={(result) => String(result.id)}
+      columns={columns}
+      openRowId={openRowId}
+      onOpen={drillOpener(onDrill, (result: PhrLabResult) => ({ id: 'lab-panel-detail', instance: String(result.id) }))}
+      tableClassName="w-full text-sm"
+      headClassName="border-b border-border bg-muted/40"
+      rowClassName="border-b border-border last:border-0 hover:bg-muted/20"
+    />
   )
 }
 
@@ -202,6 +241,7 @@ function AddLabForm({ patientId, onAdded }: AddLabFormProps) {
         numericPayload(parsed.data, ['value_numeric', 'range_min', 'range_max']),
       )
       onAdded(PhrLabResultResponseSchema.parse(raw).lab_result)
+      void reviewStateChanged(patientId)
       setForm(emptyForm)
       setOpen(false)
     } catch (err) {
@@ -249,9 +289,10 @@ function AddLabForm({ patientId, onAdded }: AddLabFormProps) {
   )
 }
 
-export default function LabsPage({ patientId, onDrill }: PhrListPageProps) {
+export default function LabsPage({ patientId, onDrill, openRecord }: PhrListPageProps) {
   const [results, setResults] = useState<PhrLabResult[]>([])
-  const [canManage, setCanManage] = useState(false)
+  const knownCanManage = useKnownPatientCanManage(patientId)
+  const [canManage, setCanManage] = useState(knownCanManage)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
@@ -287,10 +328,7 @@ export default function LabsPage({ patientId, onDrill }: PhrListPageProps) {
     setReviewingId(result.id)
     setError(null)
     try {
-      const raw: unknown = await fetchWrapper.patch(
-        `/api/phr/patients/${patientId}/lab-results/${result.id}/review`,
-        { review_status: decision },
-      )
+      const raw: unknown = await recordReviewDecision(`/api/phr/patients/${patientId}/lab-results/${result.id}`, decision)
       const updated = PhrLabResultResponseSchema.parse(raw).lab_result
       if (decision === 'rejected' && !showRejected) {
         setResults((prev) => prev.filter((r) => r.id !== updated.id))
@@ -368,6 +406,8 @@ export default function LabsPage({ patientId, onDrill }: PhrListPageProps) {
       <div className="mb-4 flex flex-wrap gap-3">
         <Input
           placeholder="Search analyte or panel…"
+          aria-label="Search analyte or panel"
+          data-record-list-filter=""
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="max-w-xs"
@@ -398,7 +438,22 @@ export default function LabsPage({ patientId, onDrill }: PhrListPageProps) {
         </Button>
       </div>
 
-      {busy && <p className="text-sm text-muted-foreground">Loading…</p>}
+      {busy && results.length === 0 && (
+        <section aria-label="Lab results" className="overflow-hidden rounded-lg border border-border bg-card">
+          <div className="border-b border-border bg-muted/30 px-3 py-2"><SkeletonBlock className="w-48 text-sm" /></div>
+          <LabResultsTable
+            label="Lab results"
+            loading
+            results={[]}
+            showPanelColumn
+            onDrill={onDrill}
+            openRowId={null}
+            canManage={canManage}
+            reviewingId={null}
+            onReview={() => undefined}
+          />
+        </section>
+      )}
 
       {!busy && filtered.length === 0 && (
         <div className="rounded-lg border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
@@ -420,16 +475,16 @@ export default function LabsPage({ patientId, onDrill }: PhrListPageProps) {
                   {group.results.length} result{group.results.length === 1 ? '' : 's'}
                 </span>
               </div>
-              <div className="overflow-x-auto">
-                <LabResultsTable
-                  results={group.results}
-                  showPanelColumn={group.showPanelColumn}
-                  onDrill={onDrill}
-                  canManage={canManage}
-                  reviewingId={reviewingId}
-                  onReview={(result, decision) => void reviewResult(result, decision)}
-                />
-              </div>
+              <LabResultsTable
+                label={group.title}
+                results={group.results}
+                showPanelColumn={group.showPanelColumn}
+                onDrill={onDrill}
+                openRowId={openRecordId(openRecord, 'lab-panel-detail')}
+                canManage={canManage}
+                reviewingId={reviewingId}
+                onReview={(result, decision) => void reviewResult(result, decision)}
+              />
             </section>
           ))}
         </div>

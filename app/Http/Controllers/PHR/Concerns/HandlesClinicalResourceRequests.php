@@ -5,6 +5,7 @@ namespace App\Http\Controllers\PHR\Concerns;
 use App\Http\Requests\PHR\ReviewClinicalRecordRequest;
 use App\Models\PhrPatient;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\PHR\PhrRecordLifecycle;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Builder;
@@ -14,6 +15,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 /**
  * @template TClinicalModel of Model
@@ -43,6 +46,19 @@ trait HandlesClinicalResourceRequests
     protected function indexQuery(Builder $query): Builder
     {
         return $query->orderByDesc('id');
+    }
+
+    /**
+     * What a read of one record loads with it. Every write response is built
+     * from this same read, so a create, update or review returns the record
+     * exactly as a later GET of it would.
+     *
+     * @param  Builder<TClinicalModel>  $query
+     * @return Builder<TClinicalModel>
+     */
+    protected function showQuery(Builder $query): Builder
+    {
+        return $query;
     }
 
     protected function indexClinicalResource(Request $request, int $patient): JsonResponse
@@ -89,7 +105,12 @@ trait HandlesClinicalResourceRequests
             ...$request->validated(),
         ]);
 
-        return response()->json([$this->resourceKey() => $this->resourcePayload($record)], 201);
+        // create() never reads the row back, so a column the request omitted has
+        // no value in memory even where the database supplied a default
+        // (review_status, and the status columns). Respond with a real read.
+        return response()->json([
+            $this->resourceKey() => $this->resourcePayload($this->readClinicalResource($resolvedPatient, (int) $record->getKey())),
+        ], 201);
     }
 
     protected function showClinicalResource(Request $request, int $patient, int $record): JsonResponse
@@ -98,7 +119,7 @@ trait HandlesClinicalResourceRequests
         $resolvedPatient = $this->accessService()->accessiblePatient($patient, $userId);
 
         return response()->json([
-            $this->resourceKey() => $this->resourcePayload($this->resolveClinicalResource($resolvedPatient, $record)),
+            $this->resourceKey() => $this->resourcePayload($this->readClinicalResource($resolvedPatient, $record)),
             'can_manage' => $this->accessService()->canWrite($resolvedPatient, $userId),
         ]);
     }
@@ -107,24 +128,37 @@ trait HandlesClinicalResourceRequests
     {
         $userId = (int) $request->user()?->id;
         $resolvedPatient = $this->accessService()->writablePatient($patient, $userId);
-        $resolved = $this->resolveClinicalResource($resolvedPatient, $record);
-        $resolved->update($request->validated());
+        $this->resolveClinicalResource($resolvedPatient, $record)->update($request->validated());
 
-        return response()->json([$this->resourceKey() => $this->resourcePayload($resolved->refresh())]);
+        return response()->json([$this->resourceKey() => $this->resourcePayload($this->readClinicalResource($resolvedPatient, $record))]);
     }
 
     /**
      * Records a reviewer's accept/reject decision. This is the only path that may
      * move a record out of `pending_review`; the agent API can never assert it.
+     *
+     * With a version, the decision is conditional on the record being unchanged
+     * since the reviewer read it. A mismatch is a 409 that discloses neither the
+     * record nor its current version, the same as the agent write paths.
      */
     protected function reviewClinicalResource(ReviewClinicalRecordRequest $request, int $patient, int $record): JsonResponse
     {
         $userId = (int) $request->user()?->id;
         $resolvedPatient = $this->accessService()->writablePatient($patient, $userId);
-        $resolved = $this->resolveClinicalResource($resolvedPatient, $record);
-        $resolved->update(['review_status' => $request->reviewStatus()]);
+        $expected = $request->expectedVersion();
+        $modelClass = $this->modelClass();
+        DB::transaction(function () use ($modelClass, $resolvedPatient, $record, $expected, $request): void {
+            $locked = $modelClass::query()
+                ->where('patient_id', $resolvedPatient->id)
+                ->lockForUpdate()
+                ->findOrFail($record);
+            if ($expected !== null && ! hash_equals(app(AgentClinicalRecordVersion::class)->for($locked), $expected)) {
+                throw new ConflictHttpException('This record changed since it was loaded. Reload and review it again.');
+            }
+            $locked->update(['review_status' => $request->reviewStatus()]);
+        });
 
-        return response()->json([$this->resourceKey() => $this->resourcePayload($resolved->refresh())]);
+        return response()->json([$this->resourceKey() => $this->resourcePayload($this->readClinicalResource($resolvedPatient, $record))]);
     }
 
     protected function destroyClinicalResource(Request $request, int $patient, int $record): Response
@@ -142,6 +176,14 @@ trait HandlesClinicalResourceRequests
 
         return $modelClass::query()
             ->where('patient_id', $patient->id)
+            ->findOrFail($record);
+    }
+
+    private function readClinicalResource(PhrPatient $patient, int $record): Model
+    {
+        $modelClass = $this->modelClass();
+
+        return $this->showQuery($modelClass::query()->where('patient_id', $patient->id))
             ->findOrFail($record);
     }
 

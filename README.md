@@ -420,6 +420,13 @@ redirect URLs and raw curl errors remain private and are removed after verificat
 The Playwright suite uses isolated local storage and a synthetic OAuth provider. Test
 fixtures must remain synthetic.
 
+`Tests\Support\PhrSyntheticChartFixture::seed($ownerUserId)` creates a patient whose chart
+looks like real data, for layout checks and screenshots: a 20-result lab panel mixing text
+values (Not Detected, Negative, Nonreactive) with flagged numeric values, a second panel with
+long analyte names, conditions with long names and ICD-10 codes, and a few records pending
+review. The Playwright seeder adds it for the record owner as "Synthetic Chart Patient"; PHPUnit
+tests can call it directly. Every value in it is invented.
+
 ## Diagnose a deployment left in maintenance
 
 The manual **PHR Maintenance Diagnostic** workflow accepts the exact selected

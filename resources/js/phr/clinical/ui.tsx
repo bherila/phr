@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react'
 
+import { StatusDot, type StatusTone } from '@/components/record-list/StatusDot'
 import type { PhrReviewStatus } from '@/phr/types'
 
 export function labelize(value: string): string {
@@ -33,23 +34,25 @@ export function classBadge(value: string | null, classes: Record<string, string>
   )
 }
 
-const REVIEW_STATUS_CLASS: Record<PhrReviewStatus, string> = {
-  pending_review: 'bg-amber-100 text-amber-900 dark:bg-amber-900/30 dark:text-amber-200',
-  confirmed: 'bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-300',
-  rejected: 'bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-300',
+/**
+ * Review status is shown only when it needs attention. Approved (confirmed) is the resting
+ * state, so repeating it on every row is noise; a rejected row is muted.
+ */
+const REVIEW_STATUS_DISPLAY: Partial<Record<PhrReviewStatus, { tone: StatusTone, label: string }>> = {
+  pending_review: { tone: 'warning', label: 'Pending review' },
+  rejected: { tone: 'neutral', label: 'Rejected' },
 }
 
+export function reviewStatusNeedsAttention(status: PhrReviewStatus | null | undefined): boolean {
+  return status !== null && status !== undefined && REVIEW_STATUS_DISPLAY[status] !== undefined
+}
+
+/** A dot and a label for pending or rejected records; nothing for approved ones. */
 export function reviewStatusBadge(status: PhrReviewStatus | null | undefined): ReactElement | null {
-  if (!status) {
+  const display = status ? REVIEW_STATUS_DISPLAY[status] : undefined
+  if (!display) {
     return null
   }
 
-  return (
-    <span
-      title="Clinical review status"
-      className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium capitalize ${REVIEW_STATUS_CLASS[status]}`}
-    >
-      {labelize(status)}
-    </span>
-  )
+  return <StatusDot tone={display.tone} label={display.label} title="Clinical review status" />
 }

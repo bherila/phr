@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client'
 
+import { installPhrPreload } from '@/fetchPreload'
 import { legacyHashUrl } from '@/phr/shell/phrRoutes'
 import { PhrShell } from '@/phr/shell/PhrShell'
 
@@ -15,6 +16,8 @@ document.addEventListener('DOMContentLoaded', () => {
   if (target !== null) {
     window.history.replaceState(null, '', target)
   }
+  // After the rewrite: preloaded responses are served only while the page is still where it loaded.
+  installPhrPreload()
 
   createRoot(mount).render(<PhrShell />)
 })

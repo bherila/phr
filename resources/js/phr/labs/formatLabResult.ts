@@ -65,12 +65,40 @@ interface LabRangeResult {
   reference_range_text: string | null
 }
 
+const STATED_COMPARATOR = /^\s*(<=|>=|≤|≥|<|>)/
+
+/**
+ * The comparator for a range with one bound. The bounds carry no inclusiveness,
+ * so a source text that states an inclusive one ("≥60", ">=60") is kept;
+ * otherwise the bound reads as exclusive, as labs usually print it ("<200").
+ */
+function singleBoundComparator(side: 'low' | 'high', text: string | null): string {
+  const stated = text === null ? null : (STATED_COMPARATOR.exec(text)?.[1] ?? null)
+  if (side === 'low') {
+    return stated === '>=' || stated === '≥' ? '≥' : '>'
+  }
+
+  return stated === '<=' || stated === '≤' ? '≤' : '<'
+}
+
+/**
+ * A reference range is its numeric bounds and their unit; `reference_range_text`
+ * is shown only when there are no bounds, as the source wrote it, with no unit
+ * added.
+ */
 export function formatLabReferenceRange(result: LabRangeResult): string | null {
   const min = formatLabReferenceBound(result.range_min)
   const max = formatLabReferenceBound(result.range_max)
+  const unit = result.range_unit ? ` ${result.range_unit}` : ''
 
   if (min !== null && max !== null) {
-    return `${min}–${max}${result.range_unit ? ` ${result.range_unit}` : ''}`
+    return `${min}–${max}${unit}`
+  }
+  if (max !== null) {
+    return `${singleBoundComparator('high', result.reference_range_text)}${max}${unit}`
+  }
+  if (min !== null) {
+    return `${singleBoundComparator('low', result.reference_range_text)}${min}${unit}`
   }
 
   return result.reference_range_text
@@ -79,6 +107,11 @@ export function formatLabReferenceRange(result: LabRangeResult): string | null {
 interface LabValueResult {
   value: string | null
   value_numeric: string | null
+}
+
+/** Whether the result is a number (right-aligned) rather than a word such as "Not Detected". */
+export function isNumericLabValue(result: LabValueResult): boolean {
+  return formatLabValueNumber(result.value_numeric) !== null
 }
 
 export function formatLabValue(result: LabValueResult): string | null {

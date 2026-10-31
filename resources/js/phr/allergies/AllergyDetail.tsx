@@ -2,10 +2,13 @@ import { Pencil, Trash2 } from 'lucide-react'
 import type { FormEvent } from 'react'
 import { useEffect, useId, useState } from 'react'
 
+import { DetailSkeleton } from '@/components/record-list/Skeleton'
 import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
 import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
+import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
+import { reviewStateChanged } from '@/phr/review/reviewSummary'
 import { errorMessage, fetchPhrDetail, zodErrorMessage } from '@/phr/shared'
 import type { PhrListPageProps } from '@/phr/shell/phrPages'
 import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
@@ -129,7 +132,7 @@ export default function AllergyDetail({ patientId, recordId, onDrill }: AllergyD
     setMutation('review')
     setError(null)
     try {
-      const raw: unknown = await fetchWrapper.patch(`${endpoint}/review`, { review_status: decision })
+      const raw: unknown = await recordReviewDecision(endpoint, decision)
       const updated = PhrAllergyResponseSchema.parse(raw).allergy
       setAllergy(updated)
       notifyAllergyChanged({ action: 'updated', allergy: updated, patientId })
@@ -147,6 +150,7 @@ export default function AllergyDetail({ patientId, recordId, onDrill }: AllergyD
     setError(null)
     try {
       await fetchWrapper.delete(endpoint, {})
+      void reviewStateChanged(patientId)
       notifyAllergyChanged({ action: 'deleted', allergyId: allergy.id, patientId })
       setAllergy(null)
       setDeleted(true)
@@ -170,7 +174,7 @@ export default function AllergyDetail({ patientId, recordId, onDrill }: AllergyD
           {error}
         </div>
       )}
-      {busy && <p className="text-sm text-muted-foreground">Loading...</p>}
+      {busy && !allergy && <DetailSkeleton label="Loading allergy" facts={4} rows={0} />}
       {deleted && (
         <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
           Allergy deleted.

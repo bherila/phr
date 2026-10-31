@@ -11,6 +11,7 @@ use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatientVital;
 use App\Models\PhrProcedure;
 use App\Models\User;
+use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\PHR\PhrReviewStatus;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
@@ -104,6 +105,45 @@ class ClinicalReviewControllerTest extends TestCase
         $this->actingAs($owner)->getJson("{$listUrl}/{$rejected->id}")
             ->assertOk()
             ->assertJsonPath("{$key}.review_status", PhrReviewStatus::REJECTED);
+    }
+
+    /**
+     * A reviewer who saw a record may require that it is still what they saw: a
+     * batch approval must not confirm content an agent or an import changed after
+     * the page loaded. The precondition is optional, so single-record review on a
+     * section page keeps working without it.
+     *
+     * @param  class-string  $modelClass
+     * @param  array<string, mixed>  $attributes
+     */
+    #[DataProvider('reviewableResources')]
+    public function test_a_supplied_version_must_match_the_record_or_nothing_is_decided(
+        string $path,
+        string $key,
+        string $modelClass,
+        array $attributes,
+    ): void {
+        ['owner' => $owner, 'patientId' => $patientId] = $this->createPatientWithAccess();
+        $record = $this->createRecord($modelClass, $patientId, $owner, [...$attributes, 'review_status' => PhrReviewStatus::PENDING]);
+        $url = "/api/phr/patients/{$patientId}/{$path}/{$record->id}/review";
+        $seen = app(AgentClinicalRecordVersion::class)->for($record->fresh());
+
+        // Changed after the reviewer loaded it.
+        $record->forceFill(['import_source' => 'ccda'])->save();
+
+        $this->actingAs($owner)->patchJson($url, ['review_status' => PhrReviewStatus::CONFIRMED, 'version' => $seen])
+            ->assertStatus(409)
+            ->assertJsonMissingPath($key);
+        $this->assertSame(PhrReviewStatus::PENDING, $record->fresh()?->review_status);
+
+        $current = app(AgentClinicalRecordVersion::class)->for($record->fresh());
+        $this->actingAs($owner)->patchJson($url, ['review_status' => PhrReviewStatus::CONFIRMED, 'version' => $current])
+            ->assertOk()
+            ->assertJsonPath("{$key}.review_status", PhrReviewStatus::CONFIRMED);
+
+        $this->actingAs($owner)->patchJson($url, ['review_status' => PhrReviewStatus::REJECTED, 'version' => 'not-a-version'])
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['version']);
     }
 
     public function test_review_rejects_a_status_a_reviewer_may_not_assign(): void

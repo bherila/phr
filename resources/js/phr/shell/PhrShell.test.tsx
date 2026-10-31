@@ -60,6 +60,7 @@ jest.mock('@/phr/imports/ImportsPage', () => ({
   default: () => <h1>Imports</h1>,
 }))
 
+import { PAGE_CONTENT_MAX_WIDTH } from './PhrPatientView'
 import { PhrShell } from './PhrShell'
 import { sidebarModeStorageKey } from './useSidebarMode'
 
@@ -334,6 +335,22 @@ describe('PhrShell', () => {
     fireEvent.keyDown(window, { key: 'k', metaKey: true })
     fireEvent.click(await screen.findByRole('option', { name: 'Bob' }))
     expect(path()).toBe('/phr/patient/3')
+  })
+
+  it('caps list pages at the content width and scales the detail panel, but not full-width viewers', async () => {
+    window.history.replaceState(null, '', '/phr/patient/2/labs/5')
+    const { unmount } = render(<PhrShell />)
+    await screen.findByRole('heading', { name: 'Labs for 2' })
+    expect(screen.getByTestId('page-content')).toHaveClass(PAGE_CONTENT_MAX_WIDTH)
+    expect(PAGE_CONTENT_MAX_WIDTH).toBe('max-w-[80rem]')
+    const panel = await screen.findByRole('complementary', { name: 'Lab Panel detail' })
+    expect(panel).toHaveClass('lg:w-[clamp(400px,32vw,640px)]', '@container')
+    unmount()
+
+    window.history.replaceState(null, '', '/phr/patient/2/documents/9')
+    render(<PhrShell />)
+    await screen.findByRole('heading', { name: 'Document 9' })
+    expect(screen.queryByTestId('page-content')).not.toBeInTheDocument()
   })
 
   it('leaves links to separate PHR documents to the browser', async () => {

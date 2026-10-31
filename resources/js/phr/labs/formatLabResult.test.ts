@@ -51,6 +51,49 @@ describe('lab result formatting', () => {
     })).toBe('0.006–0.01 mg/L')
   })
 
+  describe('one representation: numeric bounds and their unit, text only without bounds', () => {
+    const range = (overrides: Partial<Parameters<typeof formatLabReferenceRange>[0]>) => formatLabReferenceRange({
+      range_min: null,
+      range_max: null,
+      range_unit: null,
+      reference_range_text: null,
+      ...overrides,
+    })
+
+    it('renders both bounds with the unit', () => {
+      expect(range({ range_min: '13.6000000000', range_max: '17.5000000000', range_unit: 'g/dL' })).toBe('13.6–17.5 g/dL')
+    })
+
+    it('renders a lower bound alone with the unit', () => {
+      expect(range({ range_min: '40.0000000000', range_unit: 'mg/dL' })).toBe('>40 mg/dL')
+    })
+
+    it('renders an upper bound alone with the unit', () => {
+      expect(range({ range_max: '200.0000000000', range_unit: 'mg/dL' })).toBe('<200 mg/dL')
+    })
+
+    it('keeps an inclusive comparator the source text states for a single bound', () => {
+      expect(range({ range_min: '60', range_unit: 'mL/min', reference_range_text: '>=60' })).toBe('≥60 mL/min')
+      expect(range({ range_max: '5', range_unit: 'mg/L', reference_range_text: '≤5 mg/L' })).toBe('≤5 mg/L')
+    })
+
+    it('uses the bounds over text that repeats them', () => {
+      expect(range({ range_max: '165', range_unit: 'IU/mL', reference_range_text: '<165 IU/mL' })).toBe('<165 IU/mL')
+    })
+
+    it('renders text as written when there are no bounds', () => {
+      expect(range({ reference_range_text: 'Not Detected' })).toBe('Not Detected')
+    })
+
+    it('does not append a unit to text without bounds', () => {
+      expect(range({ reference_range_text: 'Negative', range_unit: 'mg/dL' })).toBe('Negative')
+    })
+
+    it('renders nothing when there is neither', () => {
+      expect(range({ range_unit: 'mg/dL' })).toBeNull()
+    })
+  })
+
   it('falls back to formatted numeric values when display values are absent', () => {
     expect(formatLabValue({ value: null, value_numeric: '0.8800000000' })).toBe('0.88')
     expect(formatLabValue({ value: 'Positive', value_numeric: null })).toBe('Positive')

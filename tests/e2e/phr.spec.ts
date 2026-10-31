@@ -42,6 +42,22 @@ async function ownerPatientId(page: Page, patientName: string): Promise<number> 
   return patient!.id
 }
 
+/**
+ * Adds a condition with the page's own form, waits for the create request to
+ * answer, and returns the new record's ID.
+ */
+async function addConditionThroughUi(page: Page, patientId: number, name: string): Promise<number> {
+  const created = page.waitForResponse((response) => response.request().method() === 'POST'
+    && new URL(response.url()).pathname === `/api/phr/patients/${patientId}/conditions`)
+  await page.getByRole('button', { name: 'Add Condition' }).click()
+  await page.getByLabel('Name *').fill(name)
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  const response = await created
+  expect(response.status()).toBe(201)
+  const payload = await response.json() as { condition: { id: number } }
+  return payload.condition.id
+}
+
 /** The synthetic C-CDA document the PHPUnit suites use, as a file on disk. */
 function syntheticCcda(): string {
   const xmlPath = path.join(mkdtempSync(path.join(tmpdir(), 'phr-e2e-ccda-')), 'synthetic-visit-summary.xml')
@@ -115,6 +131,127 @@ test.describe.serial('PHR browser journeys', () => {
     const sidebar = page.getByRole('complementary', { name: 'Patient record' })
     await expect(sidebar.getByRole('link', { name: 'Summary', exact: true })).toHaveAttribute('aria-current', 'page')
     await expect(page.getByRole('heading', { name: patientName })).toBeVisible()
+  })
+
+  test('moves through the Conditions table from the keyboard and returns focus from the panel', async ({ page }, testInfo) => {
+    await signIn(page, ownerCredentials)
+    const patientId = await ownerPatientId(page, patientNameForAttempt(testInfo.retry))
+    await page.goto(`/phr/patient/${patientId}/conditions`)
+    const table = page.getByRole('table', { name: 'Active Problems' })
+    for (const name of ['Synthetic keyboard condition A', 'Synthetic keyboard condition B']) {
+      await addConditionThroughUi(page, patientId, name)
+      await expect(table.getByText(name, { exact: true })).toBeVisible()
+    }
+
+    const rows = table.locator('tbody tr[data-record-row]')
+    await rows.first().focus()
+    await page.keyboard.press('ArrowDown')
+    const second = rows.nth(1)
+    await expect(second).toBeFocused()
+    await expect(second).toHaveAttribute('aria-selected', 'true')
+    const recordId = await second.getAttribute('data-record-row')
+
+    await page.keyboard.press('Enter')
+    await expect(page).toHaveURL(new RegExp(`/phr/patient/${patientId}/conditions/${recordId}$`))
+    await expect(page.getByRole('complementary', { name: 'Condition detail' })).toBeVisible()
+    await expect(second).toBeFocused()
+
+    await page.keyboard.press('Escape')
+    await expect(page).toHaveURL(new RegExp(`/phr/patient/${patientId}/conditions$`))
+    await expect(page.getByRole('complementary', { name: 'Condition detail' })).toHaveCount(0)
+    await expect(second).toBeFocused()
+  })
+
+  test('fills the viewport without a footer gap and follows the sidebar width rule', async ({ page }) => {
+    await signIn(page, ownerCredentials)
+    const patientId = await ownerPatientId(page, 'Synthetic Chart Patient')
+    await page.goto(`/phr/patient/${patientId}/conditions`)
+    await expect(page.getByRole('table', { name: 'Active Problems' })).toBeVisible()
+    await expect(page.locator('footer')).toHaveCount(0)
+    const scrolls = await page.evaluate(() => document.documentElement.scrollHeight > window.innerHeight)
+    expect(scrolls).toBe(false)
+
+    const sidebar = page.getByRole('complementary', { name: 'Patient record' })
+    const openRow = page.getByRole('table', { name: 'Active Problems' }).locator('tbody tr[data-record-row]').first()
+    for (const [width, expected] of [[1440, 64], [2000, 248]] as const) {
+      await page.setViewportSize({ width, height: 900 })
+      await openRow.click()
+      await expect(page.getByRole('complementary', { name: 'Condition detail' })).toBeVisible()
+      expect(Math.round((await sidebar.boundingBox())?.width ?? 0)).toBe(expected)
+      await page.keyboard.press('Escape')
+    }
+  })
+
+  test('loads the Conditions table without shifting the layout', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await signIn(page, ownerCredentials)
+    const patientId = await ownerPatientId(page, 'Synthetic Chart Patient')
+    await page.addInitScript(() => {
+      const scope = window as unknown as { layoutShift: number }
+      scope.layoutShift = 0
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries() as unknown as { value: number, hadRecentInput: boolean }[]) {
+          if (!entry.hadRecentInput) scope.layoutShift += entry.value
+        }
+      }).observe({ type: 'layout-shift', buffered: true })
+    })
+    // The page normally arrives with its records preloaded; first check that path, with no
+    // request to wait for, then the network path with its skeleton.
+    await page.goto(`/phr/patient/${patientId}/conditions`)
+    const table = page.getByRole('table', { name: 'Active Problems' })
+    await expect(table.getByText('Essential (primary) hypertension')).toBeVisible()
+    await page.waitForTimeout(500)
+    expect(await page.evaluate(() => (window as unknown as { layoutShift: number }).layoutShift)).toBeLessThan(0.02)
+
+    // Without the preload, hold the records back so the skeleton is on screen first.
+    await page.route(`**/phr/patient/${patientId}/conditions`, async (route) => {
+      const response = await route.fetch()
+      const body = (await response.text()).replace(/<script type="application\/json" id="phr-preload">[\s\S]*?<\/script>/, '')
+      await route.fulfill({ response, body })
+    })
+    let release: () => void = () => undefined
+    const held = new Promise<void>((resolve) => { release = resolve })
+    await page.route(`**/api/phr/patients/${patientId}/conditions`, async (route) => {
+      await held
+      await route.continue()
+    })
+
+    await page.goto(`/phr/patient/${patientId}/conditions`)
+    await expect(table.locator('tr[data-skeleton-row]').first()).toBeVisible()
+    release()
+    await expect(table.getByText('Essential (primary) hypertension')).toBeVisible()
+    await page.waitForTimeout(500)
+
+    const shift = await page.evaluate(() => (window as unknown as { layoutShift: number }).layoutShift)
+    expect(shift).toBeLessThan(0.02)
+  })
+
+  test('adds a condition from the Conditions page and lists it with no error', async ({ page }, testInfo) => {
+    await signIn(page, ownerCredentials)
+    const patientId = await ownerPatientId(page, 'Synthetic Chart Patient')
+    await page.goto(`/phr/patient/${patientId}/conditions`)
+    const table = page.getByRole('table', { name: 'Active Problems' })
+    await expect(table.getByText('Essential (primary) hypertension')).toBeVisible()
+    const name = `Synthetic condition added in the browser ${testInfo.retry}`
+
+    const conditionId = await addConditionThroughUi(page, patientId, name)
+    try {
+      // Issue 253: the create succeeded but its response was rejected, so the
+      // page showed an error and left the new condition out of the list.
+      await expect(table.getByText(name, { exact: true })).toBeVisible()
+      await expect(page.getByRole('alert')).toHaveCount(0)
+      await expect(page.getByLabel('Name *')).toHaveCount(0)
+      await page.reload()
+      await expect(table.getByText(name, { exact: true })).toBeVisible()
+    } finally {
+      // The chart fixture is shared with the layout journeys, which a retry
+      // runs again: leave it as seeded.
+      const csrf = await page.locator('meta[name="csrf-token"]').getAttribute('content')
+      const deleted = await page.request.delete(`/api/phr/patients/${patientId}/conditions/${conditionId}`, {
+        headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-CSRF-TOKEN': csrf ?? '' },
+      })
+      expect(deleted.status()).toBe(204)
+    }
   })
 
   test('uploads and views a synthetic document', async ({ page }, testInfo) => {
@@ -426,5 +563,34 @@ test.describe.serial('PHR browser journeys', () => {
 
     await page.goto('/phr/config')
     await expect(page.getByText(/the default applies: the AI Agent Inbox/)).toBeVisible()
+  })
+
+  test('approves one item from the Review page and the sidebar count drops', async ({ page }, testInfo) => {
+    await signIn(page, ownerCredentials)
+    const patientName = patientNameForAttempt(testInfo.retry)
+    const patientId = await ownerPatientId(page, patientName)
+    // Import the synthetic C-CDA file so records wait for review whatever ran before.
+    await page.goto(`/phr/imports?patient_id=${patientId}`)
+    await page.getByLabel('File to import').setInputFiles(syntheticCcda())
+    await page.getByLabel(`This file belongs to ${patientName}`).check()
+    await page.getByRole('button', { name: 'Import', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'C-CDA clinical summary' })).toBeVisible()
+
+    await page.goto(`/phr/patient/${patientId}/review`)
+    await expect(page.getByRole('heading', { name: 'Waiting for review' })).toBeVisible()
+    const sidebar = page.getByRole('complementary', { name: 'Patient record' })
+    const review = sidebar.getByRole('link', { name: /^Review, \d+ waiting for review$/ })
+    await expect(review).toHaveAttribute('aria-current', 'page')
+    const before = Number(/(\d+) waiting/.exec((await review.getAttribute('aria-label')) ?? '')?.[1])
+    expect(before).toBeGreaterThan(0)
+
+    const imported = page.getByRole('region', { name: /^C-CDA import/ })
+    await imported.getByRole('checkbox', { name: /^Select all in / }).uncheck()
+    await imported.getByRole('checkbox', { name: /^Select (?!all in )/ }).first().check()
+    await imported.getByRole('button', { name: 'Approve 1 selected' }).click()
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Approve 1', exact: true }).click()
+
+    await expect(page.getByText('Approved 1.', { exact: true })).toBeVisible()
+    await expect(sidebar.getByRole('link', { name: before - 1 > 0 ? `Review, ${before - 1} waiting for review` : 'Review', exact: true })).toBeVisible()
   })
 })

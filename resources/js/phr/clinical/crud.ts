@@ -3,6 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { fetchWrapper } from '@/fetchWrapper'
 import type { PhrReviewDecision } from '@/phr/clinical/review'
+import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
+import { reviewStateChanged } from '@/phr/review/reviewSummary'
 import { errorMessage } from '@/phr/shared'
 
 export interface ClinicalRecordBase {
@@ -22,6 +24,8 @@ interface UseClinicalCrudOptions<TRecord extends ClinicalRecordBase, TForm> {
   parseList: (raw: unknown) => ClinicalListResult<TRecord>
   payloadFromForm: (form: TForm) => Record<string, unknown>
   sortRecords?: (records: TRecord[]) => TRecord[]
+  /** What the shell already knows, until the list response says otherwise. */
+  initialCanManage?: boolean
 }
 
 export interface ClinicalCrudState<TRecord extends ClinicalRecordBase, TForm> {
@@ -58,9 +62,10 @@ export function useClinicalCrud<TRecord extends ClinicalRecordBase, TForm>({
   parseList,
   payloadFromForm,
   sortRecords,
+  initialCanManage = false,
 }: UseClinicalCrudOptions<TRecord, TForm>): ClinicalCrudState<TRecord, TForm> {
   const [records, setRecords] = useState<TRecord[]>([])
-  const [canManage, setCanManage] = useState(false)
+  const [canManage, setCanManage] = useState(initialCanManage)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -134,12 +139,19 @@ export function useClinicalCrud<TRecord extends ClinicalRecordBase, TForm>({
     ))))
   }
 
+  /** A record added or deleted changes the section's count, and maybe what waits. */
+  function countsChanged(): void {
+    const patientId = Number(/^\/api\/phr\/patients\/(\d+)\//.exec(endpoint)?.[1])
+    if (patientId > 0) void reviewStateChanged(patientId)
+  }
+
   async function addRecord(form: TForm): Promise<TRecord | null> {
     setMutatingKey('add')
     setError(null)
     try {
       const raw: unknown = await fetchWrapper.post(endpoint, payloadFromFormRef.current(form))
       const addedRecord = parseItemRef.current(raw)
+      countsChanged()
       setRecords((current) => applySort([addedRecord, ...current]))
       return addedRecord
     } catch (caught) {
@@ -174,7 +186,7 @@ export function useClinicalCrud<TRecord extends ClinicalRecordBase, TForm>({
     setMutatingKey(`review:${recordId}`)
     setError(null)
     try {
-      const raw: unknown = await fetchWrapper.patch(`${endpoint}/${recordId}/review`, { review_status: decision })
+      const raw: unknown = await recordReviewDecision(`${endpoint}/${recordId}`, decision)
       const updatedRecord = parseItemRef.current(raw)
       // A record rejected while the rejected rows are hidden leaves the list.
       if (decision === 'rejected' && !showRejected) {
@@ -207,6 +219,7 @@ export function useClinicalCrud<TRecord extends ClinicalRecordBase, TForm>({
     setError(null)
     try {
       await fetchWrapper.delete(`${endpoint}/${recordId}`, {})
+      countsChanged()
       setRecords((current) => current.filter((record) => record.id !== recordId))
       setDeletingId(null)
       if (editingId === recordId) {

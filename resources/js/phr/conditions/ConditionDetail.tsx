@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import { DetailSkeleton } from '@/components/record-list/Skeleton'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import { type PhrCondition, PhrConditionResponseSchema } from '@/phr/types'
@@ -69,7 +70,7 @@ export default function ConditionDetail({ patientId, recordId }: ConditionDetail
           {error}
         </div>
       )}
-      {busy && <p className="text-sm text-muted-foreground">Loading...</p>}
+      {busy && !condition && <DetailSkeleton label="Loading condition" facts={4} rows={0} />}
       {condition && (
         <section className="rounded-lg border border-border bg-card p-4">
           <h2 className="text-lg font-semibold text-card-foreground">{condition.name}</h2>
