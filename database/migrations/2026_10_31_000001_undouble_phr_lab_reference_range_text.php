@@ -23,7 +23,8 @@ use Illuminate\Support\Facades\Schema;
  * `updated_at` is left alone: this undoes a load error rather than editing the
  * result, and a native backup's record hash covers `updated_at`, so touching it
  * would make a backup taken before this migration conflict with its own rows.
- * Withdrawn rows are included.
+ * Archives taken before it are repaired on restore by
+ * PhrNativeLabReferenceRangeCompatibility. Withdrawn rows are included.
  *
  * The rule is frozen here on purpose: the result of a migration must not change
  * when the application's rule does later.
