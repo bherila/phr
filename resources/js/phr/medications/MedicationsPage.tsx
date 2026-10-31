@@ -1,15 +1,18 @@
 import { ChevronDown, ChevronRight, Pencil, Pill, Plus, Trash2 } from 'lucide-react'
 import type { FormEvent } from 'react'
-import { Fragment, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
+import { type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
+import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { compactPayload } from '@/phr/shared'
-import type { PhrListPageProps } from '@/phr/shell/phrPages'
+import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
+import { openRecordId } from '@/phr/shell/phrRoutes'
 import {
   type PhrMedication,
   PhrMedicationResponseSchema,
@@ -44,6 +47,7 @@ interface AddFormProps {
 }
 
 interface MedicationTableProps {
+  loading?: boolean
   title: string
   description: string
   medications: PhrMedication[]
@@ -63,6 +67,7 @@ interface MedicationTableProps {
   onReview: (medicationId: number, decision: PhrReviewDecision) => void
   isMutating: (key: string) => boolean
   onDrill?: PhrListPageProps['onDrill']
+  openRowId: string | null
 }
 
 const STATUS_CLASS: Record<MedicationStatus, string> = {
@@ -292,6 +297,7 @@ function AddForm({ busy, onSubmit }: AddFormProps) {
 }
 
 function MedicationTable({
+  loading = false,
   title,
   description,
   medications,
@@ -311,166 +317,187 @@ function MedicationTable({
   onReview,
   isMutating,
   onDrill,
+  openRowId,
 }: MedicationTableProps) {
+  const busyFor = (medication: PhrMedication): boolean => (
+    isMutating(`end:${medication.id}`) || isMutating(`save:${medication.id}`) || isMutating(`delete:${medication.id}`)
+  )
+  const columns: RecordColumn<PhrMedication>[] = [
+    {
+      id: 'medication',
+      header: 'Medication',
+      headerClassName: 'px-4 py-3 font-medium',
+      className: 'px-4 py-3',
+      cell: (medication) => (
+        <>
+          <div className="font-medium text-card-foreground">{medication.name}</div>
+          {medication.reason_for_use && (
+            <p className="mt-1 text-xs text-muted-foreground">{medication.reason_for_use}</p>
+          )}
+        </>
+      ),
+    },
+    { id: 'details', header: 'Details', fit: true, headerClassName: 'px-4 py-3 font-medium', className: 'px-4 py-3 text-muted-foreground', cell: (medication) => medicationDetails(medication) || '—' },
+    { id: 'prescriber', header: 'Prescriber', fit: true, headerClassName: 'px-4 py-3 font-medium', className: 'px-4 py-3 text-muted-foreground', cell: (medication) => medication.prescriber_name ?? '—' },
+    {
+      id: 'status',
+      header: 'Status',
+      fit: true,
+      headerClassName: 'px-4 py-3 font-medium',
+      className: 'px-4 py-3',
+      cell: (medication) => {
+        const resolvedStatus = resolveMedicationStatus(medication.status)
+        return (
+          <div className="flex flex-wrap gap-1.5">
+            <span
+              className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${resolvedStatus ? STATUS_CLASS[resolvedStatus] : 'bg-muted text-muted-foreground'}`}
+            >
+              {medication.status}
+            </span>
+            {reviewStatusBadge(medication.review_status)}
+          </div>
+        )
+      },
+    },
+  ]
+  if (canManage) {
+    columns.push({
+      id: 'actions',
+      header: 'Actions',
+      fit: true,
+      headerClassName: 'px-4 py-3 font-medium text-right',
+      className: 'px-4 py-3',
+      cell: (medication) => {
+        const isEndingNow = isMutating(`end:${medication.id}`)
+        return (
+          <div className="flex justify-end gap-2">
+            {medication.status === 'active' && (
+              <Button
+                size="sm"
+                variant="outline"
+                aria-label={`${isEndingNow ? 'Ending' : 'End now'}: ${medication.name}`}
+                disabled={busyFor(medication)}
+                onClick={() => void onEndNow(medication)}
+              >
+                {isEndingNow ? 'Ending…' : 'End now'}
+              </Button>
+            )}
+            <ReviewActions
+              status={medication.review_status}
+              label={medication.name}
+              busy={isMutating(`review:${medication.id}`)}
+              disabled={busyFor(medication)}
+              onReview={(decision) => onReview(medication.id, decision)}
+            />
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              title={`Edit ${medication.name}`}
+              aria-label={`Edit ${medication.name}`}
+              disabled={busyFor(medication)}
+              onClick={() => onStartEdit(medication)}
+            >
+              <Pencil className="size-4" />
+            </Button>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              className="text-destructive hover:text-destructive"
+              title={`Delete ${medication.name}`}
+              aria-label={`Delete ${medication.name}`}
+              disabled={busyFor(medication)}
+              onClick={() => onStartDelete(medication.id)}
+            >
+              <Trash2 className="size-4" />
+            </Button>
+          </div>
+        )
+      },
+    })
+  }
+
   return (
     <section className="rounded-lg border border-border bg-card">
       <div className="border-b border-border px-4 py-3">
         <h2 className="font-semibold text-card-foreground">{title}</h2>
         <p className="text-sm text-muted-foreground">{description}</p>
       </div>
-      {medications.length === 0 ? (
-        <div className="px-4 py-8 text-sm text-muted-foreground">{emptyMessage}</div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-border text-sm">
-            <thead>
-              <tr className="text-left text-muted-foreground">
-                <th className="px-4 py-3 font-medium">Medication</th>
-                <th className="px-4 py-3 font-medium">Details</th>
-                <th className="px-4 py-3 font-medium">Prescriber</th>
-                <th className="px-4 py-3 font-medium">Status</th>
-                {canManage && <th className="px-4 py-3 font-medium text-right">Actions</th>}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {medications.map((medication) => {
-                const isEditing = editingId === medication.id
-                const isDeleting = deletingId === medication.id
-                const isSaving = isMutating(`save:${medication.id}`)
-                const isDeletingBusy = isMutating(`delete:${medication.id}`)
-                const isEndingNow = isMutating(`end:${medication.id}`)
-                const resolvedStatus = resolveMedicationStatus(medication.status)
-
-                return (
-                  <Fragment key={medication.id}>
-                    <tr
-                      className={`align-top ${onDrill ? 'cursor-pointer hover:bg-muted/30' : ''}`}
-                      onClick={() => onDrill?.({ id: 'medication-detail', instance: String(medication.id) })}
+      <RecordTable
+        label={title}
+        loading={loading}
+        loadingLabel="Loading medications"
+        rows={medications}
+        rowId={(medication) => String(medication.id)}
+        columns={columns}
+        openRowId={openRowId}
+        onOpen={drillOpener(onDrill, (medication: PhrMedication) => ({ id: 'medication-detail', instance: String(medication.id) }))}
+        empty={<div className="px-4 py-8 text-sm text-muted-foreground">{emptyMessage}</div>}
+        tableClassName="min-w-full divide-y divide-border text-sm"
+        headClassName="text-left text-muted-foreground"
+        bodyClassName="divide-y divide-border"
+        rowClassName="align-top hover:bg-muted/30"
+        renderAfterRow={(medication, colSpan) => {
+          const isSaving = isMutating(`save:${medication.id}`)
+          const isDeletingBusy = isMutating(`delete:${medication.id}`)
+          return (
+            <>
+              {editingId === medication.id && (
+                <tr>
+                  <td colSpan={colSpan} className="bg-muted/20 px-4 py-4">
+                    <form
+                      className="space-y-3"
+                      onSubmit={(event) => {
+                        event.preventDefault()
+                        void onSaveEdit(medication.id)
+                      }}
                     >
-                      <td className="px-4 py-3">
-                        <div className="font-medium text-card-foreground">{medication.name}</div>
-                        {medication.reason_for_use && (
-                          <p className="mt-1 text-xs text-muted-foreground">{medication.reason_for_use}</p>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-muted-foreground">{medicationDetails(medication) || '—'}</td>
-                      <td className="px-4 py-3 text-muted-foreground">{medication.prescriber_name ?? '—'}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-1.5">
-                          <span
-                            className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${resolvedStatus ? STATUS_CLASS[resolvedStatus] : 'bg-muted text-muted-foreground'}`}
-                          >
-                            {medication.status}
-                          </span>
-                          {reviewStatusBadge(medication.review_status)}
-                        </div>
-                      </td>
-                      {canManage && (
-                        <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
-                          <div className="flex justify-end gap-2">
-                            {medication.status === 'active' && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                disabled={isEndingNow || isSaving || isDeletingBusy}
-                                onClick={() => void onEndNow(medication)}
-                              >
-                                {isEndingNow ? 'Ending…' : 'End now'}
-                              </Button>
-                            )}
-                            <ReviewActions
-                              status={medication.review_status}
-                              label={medication.name}
-                              busy={isMutating(`review:${medication.id}`)}
-                              disabled={isEndingNow || isSaving || isDeletingBusy}
-                              onReview={(decision) => onReview(medication.id, decision)}
-                            />
-                            <Button
-                              size="icon-sm"
-                              variant="ghost"
-                              title="Edit medication"
-                              disabled={isEndingNow || isSaving || isDeletingBusy}
-                              onClick={() => onStartEdit(medication)}
-                            >
-                              <Pencil className="size-4" />
-                            </Button>
-                            <Button
-                              size="icon-sm"
-                              variant="ghost"
-                              className="text-destructive hover:text-destructive"
-                              title="Delete medication"
-                              disabled={isEndingNow || isSaving || isDeletingBusy}
-                              onClick={() => onStartDelete(medication.id)}
-                            >
-                              <Trash2 className="size-4" />
-                            </Button>
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                    {isEditing && (
-                      <tr>
-                        <td colSpan={canManage ? 5 : 4} className="bg-muted/20 px-4 py-4">
-                          <form
-                            className="space-y-3"
-                            onSubmit={(event) => {
-                              event.preventDefault()
-                              void onSaveEdit(medication.id)
-                            }}
-                          >
-                            <MedicationFormFields form={editForm} onChange={setEditForm} />
-                            <div className="flex gap-2">
-                              <Button type="submit" size="sm" disabled={isSaving}>
-                                {isSaving ? 'Saving…' : 'Save'}
-                              </Button>
-                              <Button type="button" variant="outline" size="sm" onClick={onCancelEdit} disabled={isSaving}>
-                                Cancel
-                              </Button>
-                            </div>
-                          </form>
-                        </td>
-                      </tr>
-                    )}
-                    {isDeleting && (
-                      <tr>
-                        <td colSpan={canManage ? 5 : 4} className="bg-destructive/5 px-4 py-4">
-                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                            <p className="text-sm text-foreground">
-                              Delete <strong>{medication.name}</strong>? This cannot be undone.
-                            </p>
-                            <div className="flex gap-2">
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                disabled={isDeletingBusy}
-                                onClick={() => void onConfirmDelete(medication.id)}
-                              >
-                                {isDeletingBusy ? 'Deleting…' : 'Delete'}
-                              </Button>
-                              <Button type="button" variant="outline" size="sm" disabled={isDeletingBusy} onClick={onCancelDelete}>
-                                Cancel
-                              </Button>
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                      <MedicationFormFields form={editForm} onChange={setEditForm} />
+                      <div className="flex gap-2">
+                        <Button type="submit" size="sm" disabled={isSaving}>
+                          {isSaving ? 'Saving…' : 'Save'}
+                        </Button>
+                        <Button type="button" variant="outline" size="sm" onClick={onCancelEdit} disabled={isSaving}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </form>
+                  </td>
+                </tr>
+              )}
+              {deletingId === medication.id && (
+                <tr>
+                  <td colSpan={colSpan} className="bg-destructive/5 px-4 py-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-sm text-foreground">
+                        Delete <strong>{medication.name}</strong>? This cannot be undone.
+                      </p>
+                      <div className="flex gap-2">
+                        <Button variant="destructive" size="sm" disabled={isDeletingBusy} onClick={() => void onConfirmDelete(medication.id)}>
+                          {isDeletingBusy ? 'Deleting…' : 'Delete'}
+                        </Button>
+                        <Button type="button" variant="outline" size="sm" disabled={isDeletingBusy} onClick={onCancelDelete}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            </>
+          )
+        }}
+      />
     </section>
   )
 }
 
-export default function MedicationsPage({ patientId, onDrill }: PhrListPageProps) {
+export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrListPageProps) {
+  const openRowId = openRecordId(openRecord, 'medication-detail')
   const [statusFilter, setStatusFilter] = useState<MedicationFilter>('all')
   const [historicalOpen, setHistoricalOpen] = useState(false)
   const endpoint = `/api/phr/patients/${patientId}/medications`
 
+  const knownCanManage = useKnownPatientCanManage(patientId)
   const crud = useClinicalCrud<PhrMedication, MedicationFormState>({
     endpoint,
     emptyForm: EMPTY_FORM,
@@ -482,6 +509,8 @@ export default function MedicationsPage({ patientId, onDrill }: PhrListPageProps
     },
     payloadFromForm: medicationPayload,
   })
+  // Skeleton rows on the first load only; a refetch keeps the current rows on screen.
+  const firstLoad = crud.busy && crud.records.length === 0
 
   const filteredMedications = useMemo(() => {
     if (statusFilter === 'all') {
@@ -572,17 +601,16 @@ export default function MedicationsPage({ patientId, onDrill }: PhrListPageProps
         </div>
       )}
 
-      {crud.busy && <p className="text-sm text-muted-foreground">Loading…</p>}
-
       {!crud.busy && crud.records.length === 0 && (
         <div className="rounded-lg border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
           No medications recorded.
         </div>
       )}
 
-      {!crud.busy && crud.records.length > 0 && (
+      {(firstLoad || crud.records.length > 0) && (
         <div className="space-y-4">
           <MedicationTable
+            loading={firstLoad}
             title="Active Medications"
             description="Currently active medications for this patient."
             medications={activeMedications}
@@ -602,52 +630,56 @@ export default function MedicationsPage({ patientId, onDrill }: PhrListPageProps
             onReview={(medicationId, decision) => void crud.reviewRecord(medicationId, decision)}
             isMutating={crud.isMutating}
             onDrill={onDrill}
+            openRowId={openRowId}
           />
 
-          <section className="rounded-lg border border-border bg-card">
-            <button
-              type="button"
-              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
-              onClick={() => setHistoricalOpen((current) => !current)}
-              aria-expanded={historicalOpen}
-            >
-              <div>
-                <h2 className="font-semibold text-card-foreground">Historical Medications</h2>
-                <p className="text-sm text-muted-foreground">
-                  Completed, discontinued, or on-hold medications.
-                </p>
-              </div>
-              <span className="flex items-center gap-2 text-sm text-muted-foreground">
-                {historicalMedications.length}
-                {historicalOpen ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-              </span>
-            </button>
-            {historicalOpen && (
-              <div className="border-t border-border">
-                <MedicationTable
-                  title="Historical Medications"
-                  description="Previous medications retained for reference."
-                  medications={historicalMedications}
-                  emptyMessage="No historical medications match the current filter."
-                  canManage={crud.canManage}
-                  editingId={crud.editingId}
-                  deletingId={crud.deletingId}
-                  editForm={crud.editForm}
-                  setEditForm={crud.setEditForm}
-                  onStartEdit={crud.startEdit}
-                  onCancelEdit={crud.cancelEdit}
-                  onSaveEdit={saveEdit}
-                  onStartDelete={crud.startDelete}
-                  onCancelDelete={crud.cancelDelete}
-                  onConfirmDelete={async (id) => { await crud.deleteRecord(id) }}
-                   onEndNow={endNow}
-                   onReview={(medicationId, decision) => void crud.reviewRecord(medicationId, decision)}
-                   isMutating={crud.isMutating}
-                   onDrill={onDrill}
-                 />
-              </div>
-            )}
-          </section>
+          {!firstLoad && (
+            <section className="rounded-lg border border-border bg-card">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+                onClick={() => setHistoricalOpen((current) => !current)}
+                aria-expanded={historicalOpen}
+              >
+                <div>
+                  <h2 className="font-semibold text-card-foreground">Historical Medications</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Completed, discontinued, or on-hold medications.
+                  </p>
+                </div>
+                <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                  {historicalMedications.length}
+                  {historicalOpen ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+                </span>
+              </button>
+              {historicalOpen && (
+                <div className="border-t border-border">
+                  <MedicationTable
+                    title="Historical Medications"
+                    description="Previous medications retained for reference."
+                    medications={historicalMedications}
+                    emptyMessage="No historical medications match the current filter."
+                    canManage={crud.canManage}
+                    editingId={crud.editingId}
+                    deletingId={crud.deletingId}
+                    editForm={crud.editForm}
+                    setEditForm={crud.setEditForm}
+                    onStartEdit={crud.startEdit}
+                    onCancelEdit={crud.cancelEdit}
+                    onSaveEdit={saveEdit}
+                    onStartDelete={crud.startDelete}
+                    onCancelDelete={crud.cancelDelete}
+                    onConfirmDelete={async (id) => { await crud.deleteRecord(id) }}
+                    onEndNow={endNow}
+                    onReview={(medicationId, decision) => void crud.reviewRecord(medicationId, decision)}
+                    isMutating={crud.isMutating}
+                    onDrill={onDrill}
+                    openRowId={openRowId}
+                  />
+                </div>
+              )}
+            </section>
+          )}
         </div>
       )}
     </div>

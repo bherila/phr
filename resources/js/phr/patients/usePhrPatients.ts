@@ -125,6 +125,20 @@ export function usePhrPatients() {
 }
 
 
+const NO_PATIENTS: PatientListState = { patients: [], loaded: false, busy: false, error: null }
+const noSubscription = (): (() => void) => () => {}
+
+/**
+ * Whether the signed-in person can manage this patient, from the list the shell already holds
+ * (never a request). Pages start from it so their add controls are in place before their own
+ * records arrive, instead of appearing afterwards and pushing the list down.
+ */
+export function useKnownPatientCanManage(patientId: number): boolean {
+  const store = use(PatientListContext)
+  const state = useSyncExternalStore(store?.subscribe ?? noSubscription, store?.snapshot ?? (() => NO_PATIENTS), store?.snapshot ?? (() => NO_PATIENTS))
+  return state.patients.find((patient) => patient.id === patientId)?.can_manage ?? false
+}
+
 /** Mutation-only screens update the shell without starting a separate list request. */
 export function usePhrPatientListActions(): Pick<PatientListStore, 'upsertPatient' | 'removePatient' | 'reloadPatients'> | null {
   return use(PatientListContext)

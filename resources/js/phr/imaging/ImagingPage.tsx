@@ -1,15 +1,18 @@
 import { Download, ExternalLink, Images, RefreshCcw, UploadCloud } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
+import { RecordList } from '@/components/record-list/RecordList'
+import { SkeletonBlock } from '@/components/record-list/Skeleton'
 import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
 import { cn, formatBytes } from '@/lib/utils'
 import { errorMessage } from '@/phr/shared'
-import type { PhrListPageProps } from '@/phr/shell/phrPages'
+import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
+import { openRecordId } from '@/phr/shell/phrRoutes'
 import { PhrDicomStudiesResponseSchema, type PhrDicomStudy } from '@/phr/types'
 import { useDicomUploadCompletions } from '@/phr/uploads'
 
-export default function ImagingPage({ patientId, onDrill }: PhrListPageProps) {
+export default function ImagingPage({ patientId, onDrill, openRecord }: PhrListPageProps) {
   const [canManage, setCanManage] = useState(false)
   const [studies, setStudies] = useState<PhrDicomStudy[]>([])
   const [busy, setBusy] = useState(false)
@@ -68,33 +71,29 @@ export default function ImagingPage({ patientId, onDrill }: PhrListPageProps) {
         </div>
       )}
 
-      {busy && studies.length === 0 && <p className="text-sm text-muted-foreground">Loading…</p>}
-
       {!busy && studies.length === 0 && (
         <div className="rounded-lg border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
           No imaging studies.
         </div>
       )}
 
-      {studies.length > 0 && (
-        <div className="flex flex-col gap-3">
-          {studies.map((study) => (
-            <div
-              key={study.id}
-              className={cn(
-                'flex flex-col gap-3 rounded-lg border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between',
-                onDrill && 'cursor-pointer transition-colors hover:border-primary/50 hover:bg-accent/40',
-              )}
-              onClick={onDrill ? () => onDrill({ id: 'imaging-study-detail', instance: String(study.id) }) : undefined}
-              tabIndex={onDrill ? 0 : undefined}
-              onKeyDown={onDrill ? (e) => {
-                if (e.target !== e.currentTarget) return
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  onDrill({ id: 'imaging-study-detail', instance: String(study.id) })
-                }
-              } : undefined}
-            >
+      {(studies.length > 0 || (busy && studies.length === 0)) && (
+        <RecordList
+          label="Imaging studies"
+          loading={busy && studies.length === 0}
+          skeletonRows={3}
+          skeletonItem={<div className="min-w-0 flex-1"><SkeletonBlock className="w-1/2" /><SkeletonBlock className="mt-1 w-2/3 text-xs" /></div>}
+          className="flex flex-col gap-3"
+          rows={studies}
+          rowId={(study) => String(study.id)}
+          openRowId={openRecordId(openRecord, 'imaging-study-detail')}
+          onOpen={drillOpener(onDrill, (study: PhrDicomStudy) => ({ id: 'imaging-study-detail', instance: String(study.id) }))}
+          itemClassName={cn(
+            'flex flex-col gap-3 rounded-lg border border-border bg-card p-4 sm:flex-row sm:items-center sm:justify-between',
+            onDrill && 'transition-colors hover:border-primary/50 hover:bg-accent/40',
+          )}
+          renderItem={(study) => (
+            <>
               <div className="min-w-0">
                 <p className="break-words font-medium text-card-foreground">{study.description || 'DICOM Study'}</p>
                 <p className="mt-1 break-words text-xs text-muted-foreground">
@@ -102,18 +101,18 @@ export default function ImagingPage({ patientId, onDrill }: PhrListPageProps) {
                 </p>
               </div>
               <div className="flex shrink-0 flex-wrap gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); openInOhifViewer(patientId, study.id) }}>
+                <Button type="button" variant="outline" size="sm" aria-label={`Open ${study.description || 'DICOM Study'} in the viewer`} onClick={() => openInOhifViewer(patientId, study.id)}>
                   <ExternalLink className="size-4" />
                   Viewer
                 </Button>
-                <Button type="button" variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); downloadStudyZip(patientId, study.id) }}>
+                <Button type="button" variant="outline" size="sm" aria-label={`Download ${study.description || 'DICOM Study'} as ZIP`} onClick={() => downloadStudyZip(patientId, study.id)}>
                   <Download className="size-4" />
                   ZIP
                 </Button>
               </div>
-            </div>
-          ))}
-        </div>
+            </>
+          )}
+        />
       )}
     </div>
   )

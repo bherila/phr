@@ -81,6 +81,11 @@ interface LabValueResult {
   value_numeric: string | null
 }
 
+/** Whether the result is a number (right-aligned) rather than a word such as "Not Detected". */
+export function isNumericLabValue(result: LabValueResult): boolean {
+  return formatLabValueNumber(result.value_numeric) !== null
+}
+
 export function formatLabValue(result: LabValueResult): string | null {
   return result.value ?? formatLabValueNumber(result.value_numeric)
 }

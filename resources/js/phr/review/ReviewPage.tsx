@@ -1,5 +1,6 @@
-import { Fragment, type ReactElement, useCallback, useEffect, useMemo, useState } from 'react'
+import { type ReactElement, useCallback, useEffect, useMemo, useState } from 'react'
 
+import { type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,8 +16,9 @@ import { cn } from '@/lib/utils'
 import { AiResultDetails, type AiResultView,aiResultView } from '@/phr/imports/ai/AiImportReview'
 import { ehiFailureText, ehiImportsUrl,ehiReviewUrl } from '@/phr/imports/ehi/ehiApi'
 import { formatSourceDate, proposalView, retainReason } from '@/phr/imports/ehi/ehiProposalView'
+import { pushPhrLocation } from '@/phr/shell/phrLocation'
 import { PHR_PAGES, type PhrListPageProps } from '@/phr/shell/phrPages'
-import { patientPageUrl, type PhrPageId } from '@/phr/shell/phrRoutes'
+import { isPhrShellPath, patientPageUrl, type PhrPageId } from '@/phr/shell/phrRoutes'
 
 import { decideReviewItems, getReviewQueue, type ReviewDecision, type ReviewGroup, type ReviewItem, type ReviewQueue, sectionOf } from './reviewApi'
 import { setReviewSummary } from './reviewSummary'
@@ -178,6 +180,89 @@ interface PendingBatch {
   rows: ReviewRow[]
 }
 
+function detailsIdOf(row: ReviewRow): string {
+  return `review-details-${row.item.key.replaceAll(/[^a-z0-9]+/gi, '-')}`
+}
+
+/** Enter (or a click outside the row's controls) opens the record, or an AI proposal's view. */
+function openReviewRow(row: ReviewRow, toggleExpanded: (key: string) => void): void {
+  if (row.ai) {
+    toggleExpanded(row.item.key)
+    return
+  }
+  if (!row.action) return
+  const url = new URL(row.action.href, window.location.href)
+  if (isPhrShellPath(url.pathname)) pushPhrLocation(`${url.pathname}${url.search}`)
+  else window.location.assign(url.href)
+}
+
+function reviewColumns(
+  bySection: boolean,
+  failures: Readonly<Record<string, string>>,
+  expanded: ReadonlySet<string>,
+  toggleExpanded: (key: string) => void,
+): RecordColumn<ReviewRow>[] {
+  return [
+    {
+      id: 'proposed',
+      header: 'Proposed',
+      headerClassName: 'px-3 py-2.5',
+      className: 'px-3 py-3',
+      cell: (row) => (
+        <>
+          <span className="block font-semibold text-foreground">{row.title}</span>
+          {row.detail && <span className="mt-0.5 block text-xs text-muted-foreground">{row.detail}</span>}
+          {failures[row.item.key] && <span role="alert" className="mt-1 block text-xs text-destructive">{failures[row.item.key]}</span>}
+        </>
+      ),
+    },
+    {
+      id: 'where',
+      header: bySection ? 'Source' : 'Section',
+      fit: true,
+      headerClassName: 'px-3 py-2.5',
+      className: 'px-3 py-3 text-muted-foreground',
+      cell: (row) => (bySection ? row.source : PHR_PAGES[row.section].label),
+    },
+    {
+      id: 'change',
+      header: 'Change',
+      headerClassName: 'px-3 py-2.5',
+      className: 'px-3 py-3',
+      cell: (row) => (
+        <>
+          <span className="inline-flex items-center gap-1.5 whitespace-nowrap text-xs font-semibold text-foreground">
+            <span aria-hidden="true" className={cn('size-[7px] rounded-full', CHANGE[row.change].dot)} />
+            {CHANGE[row.change].label}
+          </span>
+          {row.changeDetail && <span className="mt-0.5 block text-xs text-muted-foreground">{row.changeDetail}</span>}
+        </>
+      ),
+    },
+    {
+      id: 'actions',
+      header: <span className="sr-only">Actions</span>,
+      fit: true,
+      headerClassName: 'px-4 py-2.5 md:pr-5',
+      className: 'px-4 py-2 text-right md:pr-5',
+      cell: (row) => (
+        <>
+          {row.action && (
+            <Button asChild size="sm" variant="outline">
+              <a href={row.action.href} aria-label={`${row.action.label} ${row.title}`}>{row.action.label}</a>
+            </Button>
+          )}
+          {row.ai && (
+            <Button type="button" size="sm" variant="outline" aria-expanded={expanded.has(row.item.key)} aria-controls={detailsIdOf(row)} aria-label={`Review ${row.title}`} onClick={() => toggleExpanded(row.item.key)}>
+              {expanded.has(row.item.key) ? 'Hide' : 'Review'}
+            </Button>
+          )}
+        </>
+      ),
+    },
+  ]
+}
+
 /**
  * Everything proposed for this patient's record, grouped by where it came from (or by
  * section), approved or rejected in batches. Nothing changes the record until a person who
@@ -293,6 +378,22 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
         </div>
       )}
 
+      {queue === null && !loadError && (
+        <section aria-label="Waiting for review" className="overflow-hidden rounded-xl border border-border bg-card">
+          <RecordTable
+            label="Waiting for review"
+            loading
+            skeletonRows={5}
+            rows={[]}
+            rowId={(row: ReviewRow) => row.item.key}
+            columns={reviewColumns(bySection, {}, new Set(), () => undefined)}
+            tableClassName="w-full min-w-[760px] border-collapse text-sm"
+            headClassName="text-left text-xs font-semibold text-muted-foreground"
+            rowClassName="border-t border-border align-top"
+          />
+        </section>
+      )}
+
       {queue !== null && groups.length === 0 && (
         <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border py-16 text-center">
           <h2 className="text-base font-semibold text-foreground">Nothing waiting for review</h2>
@@ -334,98 +435,54 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
                 </Button>
               )}
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] border-collapse text-sm">
-                <thead>
-                  <tr className="text-left text-xs font-semibold text-muted-foreground">
-                    <th scope="col" className="w-11 py-2.5 pr-0 pl-4 md:pl-5">
-                      {batchable.length > 0 ? (
-                        <input
-                          type="checkbox"
-                          aria-label={`Select all in ${group.title}`}
-                          checked={allChecked}
-                          disabled={!canManage || busy}
-                          onChange={(event) => setRowChecked(batchable.map((row) => row.item.key), event.target.checked)}
-                          className="size-4 accent-primary"
-                        />
-                      ) : <span className="sr-only">Select</span>}
-                    </th>
-                    <th scope="col" className="px-3 py-2.5">Proposed</th>
-                    <th scope="col" className="px-3 py-2.5">{bySection ? 'Source' : 'Section'}</th>
-                    <th scope="col" className="px-3 py-2.5">Change</th>
-                    <th scope="col" className="px-4 py-2.5 md:pr-5"><span className="sr-only">Actions</span></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {group.rows.map((row) => {
-                    const change = CHANGE[row.change]
-                    const failure = failures[row.item.key]
-                    const open = expanded.has(row.item.key)
-                    const detailsId = `review-details-${row.item.key.replaceAll(/[^a-z0-9]+/gi, '-')}`
-                    return (
-                      <Fragment key={row.item.key}>
-                      <tr className="border-t border-border align-top">
-                        <td className="py-3 pr-0 pl-4 md:pl-5">
-                          {row.ai === null && (
-                            <input
-                              type="checkbox"
-                              aria-label={`Select ${row.title}`}
-                              checked={isChecked(row)}
-                              disabled={!canManage || busy}
-                              onChange={(event) => setRowChecked([row.item.key], event.target.checked)}
-                              className="size-4 accent-primary"
-                            />
-                          )}
-                        </td>
-                        <td className="px-3 py-3">
-                          <span className="block font-semibold text-foreground">{row.title}</span>
-                          {row.detail && <span className="mt-0.5 block text-xs text-muted-foreground">{row.detail}</span>}
-                          {failure && <span role="alert" className="mt-1 block text-xs text-destructive">{failure}</span>}
-                        </td>
-                        <td className="px-3 py-3 text-muted-foreground">{bySection ? row.source : PHR_PAGES[row.section].label}</td>
-                        <td className="px-3 py-3">
-                          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground">
-                            <span aria-hidden="true" className={cn('size-[7px] rounded-full', change.dot)} />
-                            {change.label}
-                          </span>
-                          {row.changeDetail && <span className="mt-0.5 block text-xs text-muted-foreground">{row.changeDetail}</span>}
-                        </td>
-                        <td className="px-4 py-2 text-right whitespace-nowrap md:pr-5">
-                          {row.action && (
-                            <Button asChild size="sm" variant="outline">
-                              <a href={row.action.href} aria-label={`${row.action.label} ${row.title}`}>{row.action.label}</a>
-                            </Button>
-                          )}
-                          {row.ai && (
-                            <Button type="button" size="sm" variant="outline" aria-expanded={open} aria-controls={detailsId} aria-label={`Review ${row.title}`} onClick={() => toggleExpanded(row.item.key)}>
-                              {open ? 'Hide' : 'Review'}
-                            </Button>
-                          )}
-                        </td>
-                      </tr>
-                      {row.ai && open && (
-                        <tr id={detailsId} className="bg-muted/20">
-                          <td colSpan={5} className="px-4 pt-1 pb-4 md:px-5">
-                            <div className="flex flex-col gap-2 pl-8">
-                              <p className="text-sm text-muted-foreground">
-                                Approving adds everything below to the record. Check it against the document first.
-                                {row.ai.documentHref && <> <a href={row.ai.documentHref} className="font-medium text-primary hover:underline">Open the document</a></>}
-                              </p>
-                              <AiResultDetails view={row.ai.view} />
-                              <div className="flex flex-wrap gap-2">
-                                <Button type="button" size="sm" disabled={!canManage || busy} aria-label={`Approve ${row.title}`} onClick={() => void run({ group, decision: 'approve', rows: [row] })}>Approve</Button>
-                                <Button type="button" size="sm" variant="outline" disabled={!canManage || busy} aria-label={`Reject ${row.title}`} onClick={() => void run({ group, decision: 'reject', rows: [row] })}>Reject</Button>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                      </Fragment>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <RecordTable
+              label={group.title}
+              rows={group.rows}
+              rowId={(row) => row.item.key}
+              columns={reviewColumns(bySection, failures, expanded, toggleExpanded)}
+              onOpen={(row) => openReviewRow(row, toggleExpanded)}
+              className="border-t border-border"
+              tableClassName="w-full min-w-[760px] border-collapse text-sm"
+              headClassName="text-left text-xs font-semibold text-muted-foreground"
+              rowClassName="border-t border-border align-top"
+              selection={{
+                isSelected: (key) => { const row = group.rows.find((candidate) => candidate.item.key === key); return row !== undefined && isChecked(row) },
+                onToggle: (key) => { const row = group.rows.find((candidate) => candidate.item.key === key); if (row) setRowChecked([key], !isChecked(row)) },
+                isSelectable: (key) => group.rows.find((candidate) => candidate.item.key === key)?.ai === null,
+                disabled: !canManage || busy,
+              }}
+              selectionColumn={{
+                label: (row) => row.title,
+                className: 'w-11 pr-0 pl-4 md:pl-5',
+                header: batchable.length > 0 ? (
+                  <input
+                    type="checkbox"
+                    aria-label={`Select all in ${group.title}`}
+                    checked={allChecked}
+                    disabled={!canManage || busy}
+                    onChange={(event) => setRowChecked(batchable.map((row) => row.item.key), event.target.checked)}
+                    className="size-4 accent-primary"
+                  />
+                ) : <span className="sr-only">Select</span>,
+              }}
+              renderAfterRow={(row, colSpan) => row.ai && expanded.has(row.item.key) && (
+                <tr id={detailsIdOf(row)} className="bg-muted/20">
+                  <td colSpan={colSpan} className="px-4 pt-1 pb-4 md:px-5">
+                    <div className="flex flex-col gap-2 pl-8">
+                      <p className="text-sm text-muted-foreground">
+                        Approving adds everything below to the record. Check it against the document first.
+                        {row.ai.documentHref && <> <a href={row.ai.documentHref} className="font-medium text-primary hover:underline">Open the document</a></>}
+                      </p>
+                      <AiResultDetails view={row.ai.view} />
+                      <div className="flex flex-wrap gap-2">
+                        <Button type="button" size="sm" disabled={!canManage || busy} aria-label={`Approve ${row.title}`} onClick={() => void run({ group, decision: 'approve', rows: [row] })}>Approve</Button>
+                        <Button type="button" size="sm" variant="outline" disabled={!canManage || busy} aria-label={`Reject ${row.title}`} onClick={() => void run({ group, decision: 'reject', rows: [row] })}>Reject</Button>
+                      </div>
+                    </div>
+                  </td>
+                </tr>
+              )}
+            />
             {group.note && (
               <p className="border-t border-border px-4 py-2 text-xs text-muted-foreground md:px-5">
                 {group.note}

@@ -171,6 +171,11 @@ function pageHosts(page: PhrPageId, module: PhrDetailId): boolean {
   return primaryDetail(page) === module || segmentFor(HOSTED_DETAILS[page], module) !== undefined
 }
 
+/** The id of `ref` when it is a `module` record, for marking that row open in its list. */
+export function openRecordId(ref: PhrDetailRef | undefined, module: PhrDetailId): string | null {
+  return ref?.module === module ? ref.id : null
+}
+
 /** How a detail is shown: a linked child always takes the parent's panel. */
 export function detailPresentation(view: Extract<PhrView, { kind: 'patient' }>): PhrDetailPresentation | null {
   if (!view.detail) return null

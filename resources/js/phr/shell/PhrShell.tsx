@@ -2,7 +2,9 @@ import { Menu } from 'lucide-react'
 import { type ReactElement, Suspense, useState } from 'react'
 
 import PhrNavbar from '@/components/phr/PhrNavbar'
+import { PageSkeleton } from '@/components/record-list/Skeleton'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
+import { cn } from '@/lib/utils'
 import { EhiUploadProvider } from '@/phr/imports/ehi/EhiUploadProvider'
 import { PhrPatientsProvider, usePhrPatients } from '@/phr/patients/usePhrPatients'
 import { DicomUploadProvider, DicomUploadTray } from '@/phr/uploads'
@@ -11,14 +13,14 @@ import { PhrJumpPalette } from './PhrJumpPalette'
 import { pushPhrLocation } from './phrLocation'
 import { ConfigPage, DataHubPage, ImportsPage, PatientsManagePage, PatientsPage } from './phrPages'
 import { PhrPatientSearchPalette } from './PhrPatientSearchPalette'
-import { PhrPatientView } from './PhrPatientView'
+import { PAGE_CONTENT_MAX_WIDTH, PhrPatientView } from './PhrPatientView'
 import { detailPresentation, patientPageUrl, patientPath, type PhrView, phrViewUrl, resolveNavTarget } from './phrRoutes'
 import { patientDisplayName, PhrSidebar } from './PhrSidebar'
 import { usePaletteShortcut } from './usePaletteShortcut'
 import { navigateToView, useLegacyHashRedirect, usePhrView, useShellLinkInterception } from './usePhrView'
 import { useSidebarMode } from './useSidebarMode'
 
-const LOADING = <div role="status" aria-live="polite" className="p-8 text-sm text-muted-foreground">Loading…</div>
+const LOADING = <PageSkeleton />
 
 const NO_VIEW: PhrView = { kind: 'section', section: 'patients', search: '' }
 
@@ -103,7 +105,7 @@ function ShellLayout(): ReactElement {
             <PhrPatientView view={view} patientName={patientName} />
           ) : (
             <div className="h-full overflow-y-auto">
-              <div className="px-4 py-6 md:px-8">
+              <div className={cn('px-4 py-6 md:px-8', PAGE_CONTENT_MAX_WIDTH)}>
                 <Suspense fallback={LOADING}>
                   <SectionContent view={view} />
                 </Suspense>

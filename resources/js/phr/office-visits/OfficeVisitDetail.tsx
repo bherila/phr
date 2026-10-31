@@ -2,6 +2,7 @@ import { Film, ReceiptText } from 'lucide-react'
 import type { ReactElement } from 'react'
 import { useEffect, useState } from 'react'
 
+import { DetailSkeleton } from '@/components/record-list/Skeleton'
 import { Button } from '@/components/ui/button'
 import EncounterEobLinks from '@/phr/clinical/EncounterEobLinks'
 import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
@@ -124,7 +125,7 @@ export default function OfficeVisitDetail({ patientId, recordId, onDrill }: Offi
           {error}
         </div>
       )}
-      {busy && <p className="text-sm text-muted-foreground">Loading...</p>}
+      {busy && !visit && <DetailSkeleton label="Loading visit" facts={4} rows={0} />}
       {visit && (
         <>
           <section className="rounded-lg border border-border bg-card p-4">

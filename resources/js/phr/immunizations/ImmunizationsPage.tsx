@@ -1,7 +1,8 @@
 import { Pencil, Plus, ShieldCheck, Trash2 } from 'lucide-react'
 import type { FormEvent } from 'react'
-import { Fragment, useState } from 'react'
+import { useState } from 'react'
 
+import { type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -10,8 +11,10 @@ import { ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { codeChip, reviewStatusBadge } from '@/phr/clinical/ui'
 import { doseAmountLabel, seriesPositionLabel } from '@/phr/immunizations/immunizationDose'
 import { EhiPendingBanner } from '@/phr/imports/ehi/EhiPendingBanner'
+import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { numericPayload, zodErrorMessage } from '@/phr/shared'
-import type { PhrListPageProps } from '@/phr/shell/phrPages'
+import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
+import { openRecordId } from '@/phr/shell/phrRoutes'
 import {
   type PhrImmunization,
   type PhrImmunizationFormData,
@@ -176,8 +179,9 @@ function AddForm({ busy, onSubmit }: AddFormProps) {
   )
 }
 
-export default function ImmunizationsPage({ patientId, onDrill }: PhrListPageProps) {
+export default function ImmunizationsPage({ patientId, onDrill, openRecord }: PhrListPageProps) {
   const endpoint = `/api/phr/patients/${patientId}/immunizations`
+  const knownCanManage = useKnownPatientCanManage(patientId)
   const crud = useClinicalCrud<PhrImmunization, PhrImmunizationFormData>({
     endpoint,
     emptyForm: EMPTY_FORM,
@@ -188,8 +192,11 @@ export default function ImmunizationsPage({ patientId, onDrill }: PhrListPagePro
       return { records: parsed.immunizations, canManage: parsed.can_manage }
     },
     payloadFromForm: immunizationPayload,
+    initialCanManage: knownCanManage,
     sortRecords: sortImmunizations,
   })
+  // Skeleton rows on the first load only; a refetch keeps the current rows on screen.
+  const firstLoad = crud.busy && crud.records.length === 0
 
   async function addImmunization(form: PhrImmunizationFormData): Promise<boolean> {
     const parsed = PhrImmunizationFormSchema.safeParse(form)
@@ -212,6 +219,107 @@ export default function ImmunizationsPage({ patientId, onDrill }: PhrListPagePro
     if (updated) {
       crud.cancelEdit()
     }
+  }
+
+  const busyFor = (immunization: PhrImmunization): boolean => crud.isMutating(`save:${immunization.id}`) || crud.isMutating(`delete:${immunization.id}`)
+  const columns: RecordColumn<PhrImmunization>[] = [
+    {
+      id: 'vaccine',
+      header: 'Vaccine',
+      headerClassName: 'px-4 py-3 font-medium',
+      className: 'px-4 py-3',
+      cell: (immunization) => (
+        <>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="font-medium text-card-foreground">{immunization.vaccine_name}</span>
+            {reviewStatusBadge(immunization.review_status)}
+          </div>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {codeChip('CVX', immunization.cvx_code)}
+            {immunization.manufacturer && (
+              <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                {immunization.manufacturer}
+              </span>
+            )}
+            {immunization.lot_number && (
+              <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
+                Lot {immunization.lot_number}
+              </span>
+            )}
+          </div>
+          {immunization.notes && <p className="mt-2 text-xs text-muted-foreground">{immunization.notes}</p>}
+        </>
+      ),
+    },
+    { id: 'administered', header: 'Administered', fit: true, headerClassName: 'px-4 py-3 font-medium', className: 'px-4 py-3 text-muted-foreground', cell: (immunization) => immunization.administered_on ?? 'Not recorded' },
+    {
+      id: 'dose',
+      header: 'Dose',
+      fit: true,
+      headerClassName: 'px-4 py-3 font-medium',
+      className: 'px-4 py-3 text-muted-foreground',
+      cell: (immunization) => (
+        <>
+          <div>{doseLabel(immunization)}</div>
+          <div>{[immunization.site, immunization.route].filter(Boolean).join(' · ')}</div>
+        </>
+      ),
+    },
+    {
+      id: 'facility',
+      header: 'Facility',
+      headerClassName: 'px-4 py-3 font-medium',
+      className: 'px-4 py-3 text-muted-foreground',
+      cell: (immunization) => (
+        <>
+          <div>{immunization.facility_name ?? 'Not recorded'}</div>
+          {immunization.administered_by && <div>{immunization.administered_by}</div>}
+        </>
+      ),
+    },
+  ]
+  if (crud.canManage) {
+    columns.push({
+      id: 'actions',
+      header: 'Actions',
+      fit: true,
+      headerClassName: 'px-4 py-3 font-medium text-right',
+      className: 'px-4 py-3',
+      cell: (immunization) => (
+        <div className="flex justify-end gap-2">
+          <ReviewActions
+            status={immunization.review_status}
+            label={immunization.vaccine_name}
+            busy={crud.isMutating(`review:${immunization.id}`)}
+            disabled={busyFor(immunization)}
+            onReview={(decision) => void crud.reviewRecord(immunization.id, decision)}
+          />
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            title={`Edit ${immunization.vaccine_name}`}
+            aria-label={`Edit ${immunization.vaccine_name}`}
+            disabled={busyFor(immunization)}
+            onClick={() => crud.startEdit(immunization)}
+          >
+            <Pencil className="size-4" />
+          </Button>
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            className="text-destructive hover:text-destructive"
+            title={`Delete ${immunization.vaccine_name}`}
+            aria-label={`Delete ${immunization.vaccine_name}`}
+            disabled={busyFor(immunization)}
+            onClick={() => crud.startDelete(immunization.id)}
+          >
+            <Trash2 className="size-4" />
+          </Button>
+        </div>
+      ),
+    })
   }
 
   return (
@@ -246,144 +354,71 @@ export default function ImmunizationsPage({ patientId, onDrill }: PhrListPagePro
         </div>
       )}
 
-      {crud.busy && <p className="text-sm text-muted-foreground">Loading...</p>}
-
       {!crud.busy && crud.records.length === 0 && (
         <div className="rounded-lg border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
           No immunizations recorded.
         </div>
       )}
 
-      {!crud.busy && crud.records.length > 0 && (
+      {(firstLoad || crud.records.length > 0) && (
         <section className="rounded-lg border border-border bg-card">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-border text-sm">
-              <thead>
-                <tr className="text-left text-muted-foreground">
-                  <th className="px-4 py-3 font-medium">Vaccine</th>
-                  <th className="px-4 py-3 font-medium">Administered</th>
-                  <th className="px-4 py-3 font-medium">Dose</th>
-                  <th className="px-4 py-3 font-medium">Facility</th>
-                  {crud.canManage && <th className="px-4 py-3 font-medium text-right">Actions</th>}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {crud.records.map((immunization) => {
-                  const isEditing = crud.editingId === immunization.id
-                  const isDeleting = crud.deletingId === immunization.id
-                  const isSaving = crud.isMutating(`save:${immunization.id}`)
-                  const isDeletingBusy = crud.isMutating(`delete:${immunization.id}`)
-
-                  return (
-                    <Fragment key={immunization.id}>
-                      <tr
-                        className={`align-top ${onDrill ? 'cursor-pointer hover:bg-muted/30' : ''}`}
-                        onClick={() => onDrill?.({ id: 'immunization-detail', instance: String(immunization.id) })}
-                      >
-                        <td className="px-4 py-3">
-                          <div className="font-medium text-card-foreground">{immunization.vaccine_name}</div>
-                          <div className="mt-1">{reviewStatusBadge(immunization.review_status)}</div>
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {codeChip('CVX', immunization.cvx_code)}
-                            {immunization.manufacturer && (
-                              <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                                {immunization.manufacturer}
-                              </span>
-                            )}
-                            {immunization.lot_number && (
-                              <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">
-                                Lot {immunization.lot_number}
-                              </span>
-                            )}
+          <RecordTable
+            loading={firstLoad}
+            label="Immunizations"
+            rows={crud.records}
+            rowId={(immunization) => String(immunization.id)}
+            columns={columns}
+            openRowId={openRecordId(openRecord, 'immunization-detail')}
+            onOpen={drillOpener(onDrill, (immunization: PhrImmunization) => ({ id: 'immunization-detail', instance: String(immunization.id) }))}
+            tableClassName="min-w-full divide-y divide-border text-sm"
+            headClassName="text-left text-muted-foreground"
+            bodyClassName="divide-y divide-border"
+            rowClassName="align-top hover:bg-muted/30"
+            renderAfterRow={(immunization, colSpan) => {
+              const isSaving = crud.isMutating(`save:${immunization.id}`)
+              const isDeletingBusy = crud.isMutating(`delete:${immunization.id}`)
+              return (
+                <>
+                  {crud.editingId === immunization.id && (
+                    <tr>
+                      <td colSpan={colSpan} className="bg-muted/20 px-4 py-4">
+                        <form
+                          className="space-y-3"
+                          onSubmit={(event) => {
+                            event.preventDefault()
+                            void saveImmunization(immunization.id)
+                          }}
+                        >
+                          <ImmunizationFormFields form={crud.editForm} onChange={crud.setEditForm} />
+                          <div className="flex gap-2">
+                            <Button type="submit" size="sm" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save'}</Button>
+                            <Button type="button" variant="outline" size="sm" disabled={isSaving} onClick={crud.cancelEdit}>Cancel</Button>
                           </div>
-                          {immunization.notes && <p className="mt-2 text-xs text-muted-foreground">{immunization.notes}</p>}
-                        </td>
-                        <td className="px-4 py-3 text-muted-foreground">{immunization.administered_on ?? 'Not recorded'}</td>
-                        <td className="px-4 py-3 text-muted-foreground">
-                          <div>{doseLabel(immunization)}</div>
-                          <div>{[immunization.site, immunization.route].filter(Boolean).join(' · ')}</div>
-                        </td>
-                        <td className="px-4 py-3 text-muted-foreground">
-                          <div>{immunization.facility_name ?? 'Not recorded'}</div>
-                          {immunization.administered_by && <div>{immunization.administered_by}</div>}
-                        </td>
-                        {crud.canManage && (
-                          <td className="px-4 py-3" onClick={(event) => event.stopPropagation()}>
-                            <div className="flex justify-end gap-2">
-                              <ReviewActions
-                                status={immunization.review_status}
-                                label={immunization.vaccine_name}
-                                busy={crud.isMutating(`review:${immunization.id}`)}
-                                disabled={isSaving || isDeletingBusy}
-                                onReview={(decision) => void crud.reviewRecord(immunization.id, decision)}
-                              />
-                              <Button
-                                type="button"
-                                size="icon-sm"
-                                variant="ghost"
-                                title="Edit immunization"
-                                disabled={isSaving || isDeletingBusy}
-                                onClick={() => crud.startEdit(immunization)}
-                              >
-                                <Pencil className="size-4" />
-                              </Button>
-                              <Button
-                                type="button"
-                                size="icon-sm"
-                                variant="ghost"
-                                className="text-destructive hover:text-destructive"
-                                title="Delete immunization"
-                                disabled={isSaving || isDeletingBusy}
-                                onClick={() => crud.startDelete(immunization.id)}
-                              >
-                                <Trash2 className="size-4" />
-                              </Button>
-                            </div>
-                          </td>
-                        )}
-                      </tr>
-                      {isEditing && (
-                        <tr>
-                          <td colSpan={crud.canManage ? 5 : 4} className="bg-muted/20 px-4 py-4">
-                            <form
-                              className="space-y-3"
-                              onSubmit={(event) => {
-                                event.preventDefault()
-                                void saveImmunization(immunization.id)
-                              }}
-                            >
-                              <ImmunizationFormFields form={crud.editForm} onChange={crud.setEditForm} />
-                              <div className="flex gap-2">
-                                <Button type="submit" size="sm" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save'}</Button>
-                                <Button type="button" variant="outline" size="sm" disabled={isSaving} onClick={crud.cancelEdit}>Cancel</Button>
-                              </div>
-                            </form>
-                          </td>
-                        </tr>
-                      )}
-                      {isDeleting && (
-                        <tr>
-                          <td colSpan={crud.canManage ? 5 : 4} className="bg-destructive/5 px-4 py-4">
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                              <p className="text-sm text-foreground">
-                                Delete <strong>{immunization.vaccine_name}</strong>? This cannot be undone.
-                              </p>
-                              <div className="flex gap-2">
-                                <Button variant="destructive" size="sm" disabled={isDeletingBusy} onClick={() => void crud.deleteRecord(immunization.id)}>
-                                  {isDeletingBusy ? 'Deleting...' : 'Delete'}
-                                </Button>
-                                <Button type="button" variant="outline" size="sm" disabled={isDeletingBusy} onClick={crud.cancelDelete}>Cancel</Button>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+                        </form>
+                      </td>
+                    </tr>
+                  )}
+                  {crud.deletingId === immunization.id && (
+                    <tr>
+                      <td colSpan={colSpan} className="bg-destructive/5 px-4 py-4">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                          <p className="text-sm text-foreground">
+                            Delete <strong>{immunization.vaccine_name}</strong>? This cannot be undone.
+                          </p>
+                          <div className="flex gap-2">
+                            <Button variant="destructive" size="sm" disabled={isDeletingBusy} onClick={() => void crud.deleteRecord(immunization.id)}>
+                              {isDeletingBusy ? 'Deleting...' : 'Delete'}
+                            </Button>
+                            <Button type="button" variant="outline" size="sm" disabled={isDeletingBusy} onClick={crud.cancelDelete}>Cancel</Button>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </>
+              )
+            }}
+          />
         </section>
       )}
     </div>
