@@ -149,9 +149,8 @@ final class WriteResponseMatchesReadTest extends TestCase
         array $create,
         array $update,
     ): void {
-        $owner = $this->createUser();
-        $this->actingAs($owner);
-        $parameters = $this->browserParameters($storeRoute, $owner);
+        $this->actingAs($this->createUser());
+        $parameters = $this->browserParameters($storeRoute);
         $collection = route($storeRoute, $parameters, false);
 
         $created = $this->write('POST', $collection, $create)->assertCreated()->json($key);
@@ -324,7 +323,7 @@ final class WriteResponseMatchesReadTest extends TestCase
     }
 
     /** @return array<string, int> */
-    private function browserParameters(string $storeRoute, User $owner): array
+    private function browserParameters(string $storeRoute): array
     {
         if ($storeRoute === 'phr.patients.store') {
             return [];
