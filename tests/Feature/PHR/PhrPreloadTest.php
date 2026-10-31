@@ -46,10 +46,13 @@ final class PhrPreloadTest extends TestCase
         $this->seedRecords();
         $p = "/api/phr/patients/{$this->patient->id}";
         $lists = ["{$p}/office-visits", "{$p}/procedures", "{$p}/immunizations"];
+        $summary = "{$p}/review/summary";
         $expected = [
             '' => [$p, "{$p}/lab-results", "{$p}/vitals", "{$p}/dicom/studies", "{$p}/exports"],
             '/summary' => [$p, "{$p}/lab-results", "{$p}/vitals", "{$p}/dicom/studies", "{$p}/exports"],
-            '/health-log' => ["{$p}/health-logs", "{$p}/health-logs/{$this->ids['log']}/entries"],
+            '/review' => ["{$p}/review"],
+            // The first log's entries follow from the preloaded list, so they come last.
+            '/health-log' => ["{$p}/health-logs", $summary, "{$p}/health-logs/{$this->ids['log']}/entries"],
             '/labs' => ["{$p}/lab-results"],
             "/labs/{$this->ids['lab']}" => ["{$p}/labs/{$this->ids['lab']}", "{$p}/lab-results"],
             '/vitals' => ["{$p}/vitals"],
@@ -76,6 +79,8 @@ final class PhrPreloadTest extends TestCase
             '/access' => [$p],
             '/access/5' => [$p],
         ];
+        // The sidebar's review counts load on every patient view, after the page's own requests.
+        $expected = array_map(static fn (array $urls): array => in_array($summary, $urls, true) ? $urls : [...$urls, $summary], $expected);
 
         foreach ($expected as $suffix => $urls) {
             $html = $this->actingAs($this->owner)->get("/phr/patient/{$this->patient->id}{$suffix}")->assertOk();
@@ -85,6 +90,7 @@ final class PhrPreloadTest extends TestCase
         }
 
         foreach ([
+            '/phr/patients' => ['/api/phr/patients/overview'],
             '/phr/data-hub' => ['/api/phr/data-hub', '/api/phr/data-hub/deletions', '/api/phr/data-hub/native-restores'],
             '/phr/config' => ['/api/user/ai-prefs', '/api/user/ai-execution-mode'],
         ] as $path => $urls) {
@@ -94,7 +100,7 @@ final class PhrPreloadTest extends TestCase
         }
 
         // The patient list already arrives with every shell; Imports picks its patient in the browser.
-        foreach (['/phr/patients', '/phr/patients/manage', '/phr/imports'] as $path) {
+        foreach (['/phr/patients/manage', '/phr/imports'] as $path) {
             $this->assertNull($this->preload($this->actingAs($this->owner)->get($path)->assertOk()), $path);
         }
     }
@@ -112,15 +118,27 @@ final class PhrPreloadTest extends TestCase
         foreach ([$manager, $viewer] as $actor) {
             $summary = $this->preload($this->actingAs($actor)->get("/phr/patient/{$this->patient->id}")->assertOk());
             // Exports belong to the actual owner: the API refuses them here, so nothing is inlined.
-            $this->assertSame([$p, "{$p}/lab-results", "{$p}/vitals", "{$p}/dicom/studies"], array_keys($summary));
+            $this->assertSame([$p, "{$p}/lab-results", "{$p}/vitals", "{$p}/dicom/studies", "{$p}/review/summary"], array_keys($summary));
             $this->assertPreloadIsTheApiResponse($actor, $summary);
             $this->assertSame($actor === $manager, $summary[$p]->patient->can_manage);
+            $this->assertSame($actor === $manager, $summary["{$p}/review/summary"]->can_manage);
 
             $condition = $this->preload($this->actingAs($actor)->get("/phr/patient/{$this->patient->id}/conditions/{$this->ids['condition']}")->assertOk());
-            $this->assertSame(["{$p}/conditions/{$this->ids['condition']}", "{$p}/conditions"], array_keys($condition));
+            $this->assertSame(["{$p}/conditions/{$this->ids['condition']}", "{$p}/conditions", "{$p}/review/summary"], array_keys($condition));
             $this->assertPreloadIsTheApiResponse($actor, $condition);
+
+            $overview = $this->preload($this->actingAs($actor)->get('/phr/patients')->assertOk());
+            $this->assertSame(['/api/phr/patients/overview'], array_keys($overview));
+            $this->assertPreloadIsTheApiResponse($actor, $overview);
+            $this->assertSame([$this->patient->id], array_column($overview['/api/phr/patients/overview']->patients, 'id'));
         }
         $this->actingAs($outsider)->getJson("{$p}/exports")->assertNotFound();
+        $this->actingAs($outsider)->getJson("{$p}/review/summary")->assertNotFound();
+
+        // Someone with no access still gets their own (empty) overview, never this patient's counts.
+        $outsiderOverview = $this->preload($this->actingAs($outsider)->get('/phr/patients')->assertOk());
+        $this->assertPreloadIsTheApiResponse($outsider, $outsiderOverview);
+        $this->assertSame([], $outsiderOverview['/api/phr/patients/overview']->patients);
 
         foreach (['', '/labs', "/conditions/{$this->ids['condition']}"] as $suffix) {
             $denied = $this->actingAs($outsider)->get("/phr/patient/{$this->patient->id}{$suffix}")->assertNotFound();
@@ -133,7 +151,7 @@ final class PhrPreloadTest extends TestCase
         $foreign = (int) $this->actingAs($this->owner)->postJson("/api/phr/patients/{$other->id}/conditions", ['name' => 'Synthetic foreign'])
             ->assertCreated()->json('condition.id');
         $mismatch = $this->preload($this->actingAs($viewer)->get("/phr/patient/{$this->patient->id}/conditions/{$foreign}")->assertOk());
-        $this->assertSame(["{$p}/conditions"], array_keys($mismatch));
+        $this->assertSame(["{$p}/conditions", "{$p}/review/summary"], array_keys($mismatch));
     }
 
     public function test_preload_is_script_safe_round_trips_exactly_and_is_never_cached(): void
@@ -170,12 +188,12 @@ final class PhrPreloadTest extends TestCase
         ]);
         $p = "/api/phr/patients/{$this->patient->id}";
 
-        $this->assertNull($this->preload($this->actingAs($this->owner)->get("/phr/patient/{$this->patient->id}/labs")->assertOk()));
+        $this->assertSame(["{$p}/review/summary"], array_keys($this->preload($this->actingAs($this->owner)->get("/phr/patient/{$this->patient->id}/labs")->assertOk())));
         $this->actingAs($this->owner)->getJson("{$p}/lab-results")->assertOk()->assertJsonCount(1, 'lab_results');
 
         $html = $this->actingAs($this->owner)->get("/phr/patient/{$this->patient->id}")->assertOk();
         $summary = $this->preload($html);
-        $this->assertSame([$p, "{$p}/vitals", "{$p}/dicom/studies", "{$p}/exports"], array_keys($summary));
+        $this->assertSame([$p, "{$p}/vitals", "{$p}/dicom/studies", "{$p}/exports", "{$p}/review/summary"], array_keys($summary));
         preg_match('/id="phr-preload">(.*?)<\/script>/s', (string) $html->getContent(), $match);
         $this->assertLessThanOrEqual(PhrPreloadBuilder::MAX_BYTES, strlen($match[1]));
     }
@@ -207,15 +225,18 @@ final class PhrPreloadTest extends TestCase
     public function test_plan_mirrors_the_client_url_model(): void
     {
         $p = '/api/phr/patients/4';
+        $summary = "{$p}/review/summary";
         $study = ["{$p}/dicom/studies/9", "{$p}/dicom/studies/9/viewer-json"];
-        $this->assertSame($study, PhrPreloadPlan::forPatient(4, '/imaging/9')->urls);
+        $this->assertSame([...$study, $summary], PhrPreloadPlan::forPatient(4, '/imaging/9')->urls);
         // A visit's linked study takes the visit's panel; the Visits list stays on screen.
-        $this->assertSame([...$study, "{$p}/office-visits", "{$p}/procedures", "{$p}/immunizations"], PhrPreloadPlan::forPatient(4, '/office-visits/3/imaging/9')->urls);
-        $this->assertSame(["{$p}/conditions"], PhrPreloadPlan::forPatient(4, '/conditions/not-a-record')->urls);
-        $this->assertSame(["{$p}/conditions/0012", "{$p}/conditions"], PhrPreloadPlan::forPatient(4, '/conditions/0012/')->urls);
-        $this->assertSame([], PhrPreloadPlan::forPatient(4, '/vitals/trend/a%2Fb')->urls);
-        $this->assertSame(["{$p}/health-logs"], PhrPreloadPlan::forPatient(4, '/health-log')->urls);
+        $this->assertSame([...$study, "{$p}/office-visits", "{$p}/procedures", "{$p}/immunizations", $summary], PhrPreloadPlan::forPatient(4, '/office-visits/3/imaging/9')->urls);
+        $this->assertSame(["{$p}/conditions", $summary], PhrPreloadPlan::forPatient(4, '/conditions/not-a-record')->urls);
+        $this->assertSame(["{$p}/conditions/0012", "{$p}/conditions", $summary], PhrPreloadPlan::forPatient(4, '/conditions/0012/')->urls);
+        $this->assertSame([$summary], PhrPreloadPlan::forPatient(4, '/vitals/trend/a%2Fb')->urls);
+        $this->assertSame(["{$p}/review", $summary], PhrPreloadPlan::forPatient(4, '/review')->urls);
+        $this->assertSame(["{$p}/health-logs", $summary], PhrPreloadPlan::forPatient(4, '/health-log')->urls);
         $this->assertSame(PhrPreloadPlan::forPatient(4, '')->urls, PhrPreloadPlan::forPatient(4, '/unknown/3')->urls);
+        $this->assertSame(['/api/phr/patients/overview'], PhrPreloadPlan::forSection('patients')->urls);
         $this->assertSame(["{$p}/health-logs/8/entries"], PhrPreloadPlan::forPatient(4, '/health-log')
             ->followUps("{$p}/health-logs", (object) ['health_logs' => [(object) ['id' => 8], (object) ['id' => 2]]]));
         $this->assertSame([], PhrPreloadPlan::forPatient(4, '/health-log')->followUps("{$p}/health-logs", (object) ['health_logs' => []]));

@@ -197,8 +197,10 @@ waiting for its own round trips. **(shipped)**
   page sends on first load, written exactly as the browser writes it, to the JSON body that URL
   returns for the signed-in person. On a patient view that is the current page's list request
   (with its default query), the open record's detail, and the Health Log's first log entries.
-  Summary and Imaging also get the patient record they fetch. Data Hub gets its inventory,
-  deletions and restores, and Config gets its default AI Providers tab. Nothing is preloaded for
+  Every patient view also gets the sidebar's review counts (`/review/summary`), and Review gets
+  its queue. Summary and Imaging also get the patient record they fetch. Patients gets the
+  selection cards' overview, Data Hub its inventory, deletions and restores, and Config its
+  default AI Providers tab. Nothing is preloaded for
   sections not on screen, nor for the list under a full-width detail (document viewer, imaging
   study, vitals trend). The patient list already ships in `app-initial-data` on every shell page,
   and Imports picks its patient in the browser, so neither is in the map.
@@ -215,8 +217,8 @@ waiting for its own round trips. **(shipped)**
   `fetchWrapper.get` and `getRaw` (and so `fetchPhrDetail`) look a URL up by same-origin path plus
   sorted query string. A hit is removed and answered as a 200 JSON `Response`, which callers
   cannot tell from a fetched one; a miss goes to the network. Every unused entry is dropped on an
-  in-app navigation, Back or Forward, any `fetchWrapper` write, a restore from the back/forward
-  cache (`pageshow` with `persisted`), or 30 seconds after boot. A refetch, or a later visit,
+  in-app navigation, Back or Forward, any `fetchWrapper` write, `reviewStateChanged`, a restore
+  from the back/forward cache (`pageshow` with `persisted`), or 30 seconds after boot. A refetch, or a later visit,
   therefore always reaches the network.
 - **Security.**
   - The map is encoded with `JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT`, so no

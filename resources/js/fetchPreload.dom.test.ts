@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 import { clearPhrPreload, installPhrPreload, PHR_PRELOAD_ELEMENT_ID, PHR_PRELOAD_TTL_MS, phrPreloadKey } from '@/fetchPreload'
 import { fetchWrapper } from '@/fetchWrapper'
+import { resetReviewSummaries, reviewStateChanged } from '@/phr/review/reviewSummary'
 import { fetchPhrDetail } from '@/phr/shared'
 import { PHR_LOCATION_CHANGE_EVENT } from '@/phr/shell/phrLocation'
 
@@ -190,6 +191,37 @@ describe('PHR first-load preload', () => {
 
     await fetchWrapper.get(LABS)
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  describe('the review counts', () => {
+    const SUMMARY = '/api/phr/patients/7/review/summary'
+    const SUMMARY_BODY = { summary: { total: 2, sections: { labs: { pending: 2, records: 2 } }, ai_results: 0 }, can_manage: true }
+
+    afterEach(() => {
+      resetReviewSummaries()
+    })
+
+    it('fetches them from the network after a write, never the counts the page loaded with', async () => {
+      seed({ [SUMMARY]: SUMMARY_BODY })
+      installPhrPreload()
+
+      await fetchWrapper.patch('/api/phr/patients/7/lab-results/1/review', { review_status: 'confirmed' })
+      void reviewStateChanged(7)
+      fetchMock.mockClear()
+      await fetchWrapper.get(SUMMARY)
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(fetchMock.mock.calls[0]?.[0]).toBe(SUMMARY)
+    })
+
+    it('drops the preload when review state changes without a fetchWrapper write', async () => {
+      seed({ [SUMMARY]: SUMMARY_BODY, [LABS]: LABS_BODY })
+      installPhrPreload()
+
+      await reviewStateChanged(7)
+      await fetchWrapper.get(SUMMARY)
+      await fetchWrapper.get(LABS)
+      expect(fetchMock).toHaveBeenCalledTimes(2)
+    })
   })
 
   it('expires entries a late consumer would otherwise read stale', async () => {

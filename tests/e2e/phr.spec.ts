@@ -164,7 +164,20 @@ test.describe.serial('PHR browser journeys', () => {
         }
       }).observe({ type: 'layout-shift', buffered: true })
     })
-    // Hold the records back so the skeleton is on screen first.
+    // The page normally arrives with its records preloaded; first check that path, with no
+    // request to wait for, then the network path with its skeleton.
+    await page.goto(`/phr/patient/${patientId}/conditions`)
+    const table = page.getByRole('table', { name: 'Active Problems' })
+    await expect(table.getByText('Essential (primary) hypertension')).toBeVisible()
+    await page.waitForTimeout(500)
+    expect(await page.evaluate(() => (window as unknown as { layoutShift: number }).layoutShift)).toBeLessThan(0.02)
+
+    // Without the preload, hold the records back so the skeleton is on screen first.
+    await page.route(`**/phr/patient/${patientId}/conditions`, async (route) => {
+      const response = await route.fetch()
+      const body = (await response.text()).replace(/<script type="application\/json" id="phr-preload">[\s\S]*?<\/script>/, '')
+      await route.fulfill({ response, body })
+    })
     let release: () => void = () => undefined
     const held = new Promise<void>((resolve) => { release = resolve })
     await page.route(`**/api/phr/patients/${patientId}/conditions`, async (route) => {
@@ -173,7 +186,6 @@ test.describe.serial('PHR browser journeys', () => {
     })
 
     await page.goto(`/phr/patient/${patientId}/conditions`)
-    const table = page.getByRole('table', { name: 'Active Problems' })
     await expect(table.locator('tr[data-skeleton-row]').first()).toBeVisible()
     release()
     await expect(table.getByText('Essential (primary) hypertension')).toBeVisible()

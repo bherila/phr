@@ -19,6 +19,7 @@ use App\Http\Controllers\PHR\PhrDocumentController;
 use App\Http\Controllers\PHR\PhrExportController;
 use App\Http\Controllers\PHR\PhrNativeRestoreController;
 use App\Http\Controllers\PHR\PhrPatientDeletionController;
+use App\Http\Controllers\PHR\PhrReviewController;
 use App\Http\Controllers\PHR\ProcedureController;
 use App\Http\Controllers\PHR\VitalController;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -65,6 +66,9 @@ final class PhrPreloadBuilder
     /** The only controller actions whose responses may be inlined (all are GET reads). */
     private const array ACTIONS = [
         PatientController::class.'@show',
+        PhrReviewController::class.'@overview',
+        PhrReviewController::class.'@index',
+        PhrReviewController::class.'@summary',
         LabResultController::class.'@index',
         LabResultController::class.'@showPanel',
         VitalController::class.'@index',

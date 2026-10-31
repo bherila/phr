@@ -46,9 +46,9 @@ class PageController extends Controller
         return redirect('/phr/patients');
     }
 
-    public function patients(): Response
+    public function patients(Request $request): Response
     {
-        return $this->shell('patients', 'PHR Patients');
+        return $this->shell('patients', 'PHR Patients', preload: $this->preload->build($request, PhrPreloadPlan::forSection('patients')));
     }
 
     public function managePatients(): Response

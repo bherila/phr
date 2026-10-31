@@ -13,6 +13,8 @@ async function signIn(page: Page): Promise<void> {
   await page.getByLabel('Password').fill(ownerCredentials.password)
   await page.getByRole('button', { name: 'Authorize' }).click()
   await expect(page).toHaveURL(/\/phr\/patients/)
+  // Let the Patients page finish, so none of its requests is counted against the next view.
+  await page.waitForLoadState('networkidle')
 }
 
 /** POST through the signed-in session, with the page's CSRF token. */
@@ -131,9 +133,9 @@ test.describe.serial('PHR first-load preload', () => {
     expect(requests).toEqual([])
 
     const sidebar = page.getByRole('complementary', { name: 'Patient record' })
-    await sidebar.getByRole('link', { name: 'Conditions', exact: true }).click()
+    await sidebar.getByRole('link', { name: /^Conditions\b/ }).click()
     await expect(page.getByText('Synthetic condition')).toBeVisible()
-    await sidebar.getByRole('link', { name: 'Labs', exact: true }).click()
+    await sidebar.getByRole('link', { name: /^Labs\b/ }).click()
     await expect(page.locator('tbody tr').first()).toBeVisible()
     await page.waitForLoadState('networkidle')
 

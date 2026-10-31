@@ -16,7 +16,7 @@ final readonly class PhrPreloadPlan
 {
     /** PHR_PAGE_IDS; PageController::PATIENT_PAGES serves the shell for exactly these. */
     private const array PAGES = [
-        'summary', 'health-log', 'labs', 'vitals', 'office-visits', 'medications', 'conditions',
+        'review', 'summary', 'health-log', 'labs', 'vitals', 'office-visits', 'medications', 'conditions',
         'procedures', 'immunizations', 'allergies', 'documents', 'imaging', 'access',
     ];
 
@@ -56,6 +56,8 @@ final readonly class PhrPreloadPlan
     public static function forSection(string $section): self
     {
         return new self(match ($section) {
+            // The selection cards' counts and the "needs your attention" list.
+            'patients' => ['/api/phr/patients/overview'],
             'data-hub' => ['/api/phr/data-hub', '/api/phr/data-hub/deletions', '/api/phr/data-hub/native-restores'],
             // The default tab, AI Providers.
             'config' => ['/api/user/ai-prefs', '/api/user/ai-execution-mode'],
@@ -92,7 +94,10 @@ final readonly class PhrPreloadPlan
         $detailUrls = $detail === null ? [] : self::detailUrls($base, $detail['module'], $detail['id']);
         $listOnScreen = $detail === null || $parent !== null || ! in_array($detail['module'], self::PAGE_DETAILS, true);
 
-        return new self(array_values(array_unique([...$detailUrls, ...($listOnScreen ? self::listUrls($base, $page) : [])])));
+        // The sidebar, on every patient view, loads the patient's review counts.
+        $sidebar = ["{$base}/review/summary"];
+
+        return new self(array_values(array_unique([...$detailUrls, ...($listOnScreen ? self::listUrls($base, $page) : []), ...$sidebar])));
     }
 
     /**
@@ -117,6 +122,7 @@ final readonly class PhrPreloadPlan
     private static function listUrls(string $base, string $page): array
     {
         return match ($page) {
+            'review' => ["{$base}/review"],
             'summary' => [$base, "{$base}/lab-results", "{$base}/vitals", "{$base}/dicom/studies", "{$base}/exports"],
             'health-log' => ["{$base}/health-logs"],
             'labs' => ["{$base}/lab-results"],
