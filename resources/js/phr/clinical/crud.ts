@@ -24,6 +24,8 @@ interface UseClinicalCrudOptions<TRecord extends ClinicalRecordBase, TForm> {
   parseList: (raw: unknown) => ClinicalListResult<TRecord>
   payloadFromForm: (form: TForm) => Record<string, unknown>
   sortRecords?: (records: TRecord[]) => TRecord[]
+  /** What the shell already knows, until the list response says otherwise. */
+  initialCanManage?: boolean
 }
 
 export interface ClinicalCrudState<TRecord extends ClinicalRecordBase, TForm> {
@@ -60,9 +62,10 @@ export function useClinicalCrud<TRecord extends ClinicalRecordBase, TForm>({
   parseList,
   payloadFromForm,
   sortRecords,
+  initialCanManage = false,
 }: UseClinicalCrudOptions<TRecord, TForm>): ClinicalCrudState<TRecord, TForm> {
   const [records, setRecords] = useState<TRecord[]>([])
-  const [canManage, setCanManage] = useState(false)
+  const [canManage, setCanManage] = useState(initialCanManage)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)

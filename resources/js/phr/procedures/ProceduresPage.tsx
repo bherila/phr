@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { classBadge, codeChip, reviewStatusBadge } from '@/phr/clinical/ui'
+import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { compactPayload, zodErrorMessage } from '@/phr/shared'
 import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
 import { openRecordId } from '@/phr/shell/phrRoutes'
@@ -217,6 +218,7 @@ function AddForm({ busy, onSubmit }: AddFormProps) {
 
 export default function ProceduresPage({ patientId, onDrill, openRecord }: PhrListPageProps) {
   const endpoint = `/api/phr/patients/${patientId}/procedures`
+  const knownCanManage = useKnownPatientCanManage(patientId)
   const crud = useClinicalCrud<PhrProcedure, PhrProcedureFormData>({
     endpoint,
     emptyForm: EMPTY_FORM,
@@ -227,6 +229,7 @@ export default function ProceduresPage({ patientId, onDrill, openRecord }: PhrLi
       return { records: parsed.procedures, canManage: parsed.can_manage }
     },
     payloadFromForm: procedurePayload,
+    initialCanManage: knownCanManage,
     sortRecords: sortProcedures,
   })
   // Skeleton rows on the first load only; a refetch keeps the current rows on screen.

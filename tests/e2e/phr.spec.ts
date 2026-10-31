@@ -151,6 +151,38 @@ test.describe.serial('PHR browser journeys', () => {
     await expect(second).toBeFocused()
   })
 
+  test('loads the Conditions table without shifting the layout', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await signIn(page, ownerCredentials)
+    const patientId = await ownerPatientId(page, 'Synthetic Chart Patient')
+    await page.addInitScript(() => {
+      const scope = window as unknown as { layoutShift: number }
+      scope.layoutShift = 0
+      new PerformanceObserver((list) => {
+        for (const entry of list.getEntries() as unknown as { value: number, hadRecentInput: boolean }[]) {
+          if (!entry.hadRecentInput) scope.layoutShift += entry.value
+        }
+      }).observe({ type: 'layout-shift', buffered: true })
+    })
+    // Hold the records back so the skeleton is on screen first.
+    let release: () => void = () => undefined
+    const held = new Promise<void>((resolve) => { release = resolve })
+    await page.route(`**/api/phr/patients/${patientId}/conditions`, async (route) => {
+      await held
+      await route.continue()
+    })
+
+    await page.goto(`/phr/patient/${patientId}/conditions`)
+    const table = page.getByRole('table', { name: 'Active Problems' })
+    await expect(table.locator('tr[data-skeleton-row]').first()).toBeVisible()
+    release()
+    await expect(table.getByText('Essential (primary) hypertension')).toBeVisible()
+    await page.waitForTimeout(500)
+
+    const shift = await page.evaluate(() => (window as unknown as { layoutShift: number }).layoutShift)
+    expect(shift).toBeLessThan(0.02)
+  })
+
   test('uploads and views a synthetic document', async ({ page }, testInfo) => {
     await signIn(page, ownerCredentials)
     const patientId = await ownerPatientId(page, patientNameForAttempt(testInfo.retry))

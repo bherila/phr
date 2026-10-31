@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { ShowRejectedToggle } from '@/phr/clinical/review'
 import { classBadge, codeChip, labelize, reviewStatusBadge } from '@/phr/clinical/ui'
+import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { zodErrorMessage } from '@/phr/shared'
 import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
 import { openRecordId } from '@/phr/shell/phrRoutes'
@@ -220,6 +221,7 @@ export default function AllergiesPage({ patientId, onDrill, openRecord }: PhrLis
   const openRowId = openRecordId(openRecord, 'allergy-detail')
   const [historicalOpen, setHistoricalOpen] = useState(false)
   const endpoint = `/api/phr/patients/${patientId}/allergies`
+  const knownCanManage = useKnownPatientCanManage(patientId)
   const crud = useClinicalCrud<PhrAllergy, PhrAllergyFormData>({
     endpoint,
     emptyForm: EMPTY_ALLERGY_FORM,
@@ -230,6 +232,7 @@ export default function AllergiesPage({ patientId, onDrill, openRecord }: PhrLis
       return { records: parsed.allergies, canManage: parsed.can_manage }
     },
     payloadFromForm: allergyPayload,
+    initialCanManage: knownCanManage,
     sortRecords: sortAllergies,
   })
   // Skeleton rows on the first load only; a refetch keeps the current rows on screen.

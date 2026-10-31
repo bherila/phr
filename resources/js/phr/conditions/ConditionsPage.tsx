@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { classBadge, codeChip, labelize, reviewStatusBadge } from '@/phr/clinical/ui'
+import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { compactPayload, zodErrorMessage } from '@/phr/shared'
 import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
 import { openRecordId } from '@/phr/shell/phrRoutes'
@@ -476,6 +477,7 @@ export default function ConditionsPage({ patientId, onDrill, openRecord }: PhrLi
   const [historicalOpen, setHistoricalOpen] = useState(false)
   const endpoint = `/api/phr/patients/${patientId}/conditions`
 
+  const knownCanManage = useKnownPatientCanManage(patientId)
   const crud = useClinicalCrud<PhrCondition, PhrConditionFormData>({
     endpoint,
     emptyForm: EMPTY_FORM,
@@ -486,6 +488,7 @@ export default function ConditionsPage({ patientId, onDrill, openRecord }: PhrLi
       return { records: parsed.conditions, canManage: parsed.can_manage }
     },
     payloadFromForm: conditionPayload,
+    initialCanManage: knownCanManage,
     sortRecords: sortConditions,
   })
   // Skeleton rows on the first load only; a refetch keeps the current rows on screen.

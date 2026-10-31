@@ -9,6 +9,7 @@ import { fetchWrapper } from '@/fetchWrapper'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
+import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { reviewStateChanged } from '@/phr/review/reviewSummary'
 import { errorMessage, numericPayload } from '@/phr/shared'
 import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
@@ -147,7 +148,8 @@ function displayValue(v: PhrVital): string {
 
 export default function VitalsPage({ patientId, onDrill, openRecord }: PhrListPageProps) {
   const [vitals, setVitals] = useState<PhrVital[]>([])
-  const [canManage, setCanManage] = useState(false)
+  const knownCanManage = useKnownPatientCanManage(patientId)
+  const [canManage, setCanManage] = useState(knownCanManage)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')

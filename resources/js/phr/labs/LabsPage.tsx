@@ -11,6 +11,7 @@ import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr
 import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { formatLabReferenceRange, formatLabValue, isNumericLabValue } from '@/phr/labs/formatLabResult'
+import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { reviewStateChanged } from '@/phr/review/reviewSummary'
 import { errorMessage, numericPayload } from '@/phr/shared'
 import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
@@ -289,7 +290,8 @@ function AddLabForm({ patientId, onAdded }: AddLabFormProps) {
 
 export default function LabsPage({ patientId, onDrill, openRecord }: PhrListPageProps) {
   const [results, setResults] = useState<PhrLabResult[]>([])
-  const [canManage, setCanManage] = useState(false)
+  const knownCanManage = useKnownPatientCanManage(patientId)
+  const [canManage, setCanManage] = useState(knownCanManage)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')

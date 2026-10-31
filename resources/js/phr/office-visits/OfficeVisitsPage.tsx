@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
 import { ShowRejectedToggle } from '@/phr/clinical/review'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
+import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { reviewStateChanged } from '@/phr/review/reviewSummary'
 import { compactPayload, errorMessage } from '@/phr/shared'
 import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
@@ -217,7 +218,8 @@ export default function OfficeVisitsPage({ patientId, onDrill, openRecord }: Phr
   const [procedures, setProcedures] = useState<PhrProcedure[]>([])
   const [immunizations, setImmunizations] = useState<PhrImmunization[]>([])
   const [filter, setFilter] = useState<VisitFilter>('all')
-  const [canManage, setCanManage] = useState(false)
+  const knownCanManage = useKnownPatientCanManage(patientId)
+  const [canManage, setCanManage] = useState(knownCanManage)
   const [showRejected, setShowRejected] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)

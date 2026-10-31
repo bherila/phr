@@ -11,6 +11,7 @@ import { ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { codeChip, reviewStatusBadge } from '@/phr/clinical/ui'
 import { doseAmountLabel, seriesPositionLabel } from '@/phr/immunizations/immunizationDose'
 import { EhiPendingBanner } from '@/phr/imports/ehi/EhiPendingBanner'
+import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { numericPayload, zodErrorMessage } from '@/phr/shared'
 import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
 import { openRecordId } from '@/phr/shell/phrRoutes'
@@ -180,6 +181,7 @@ function AddForm({ busy, onSubmit }: AddFormProps) {
 
 export default function ImmunizationsPage({ patientId, onDrill, openRecord }: PhrListPageProps) {
   const endpoint = `/api/phr/patients/${patientId}/immunizations`
+  const knownCanManage = useKnownPatientCanManage(patientId)
   const crud = useClinicalCrud<PhrImmunization, PhrImmunizationFormData>({
     endpoint,
     emptyForm: EMPTY_FORM,
@@ -190,6 +192,7 @@ export default function ImmunizationsPage({ patientId, onDrill, openRecord }: Ph
       return { records: parsed.immunizations, canManage: parsed.can_manage }
     },
     payloadFromForm: immunizationPayload,
+    initialCanManage: knownCanManage,
     sortRecords: sortImmunizations,
   })
   // Skeleton rows on the first load only; a refetch keeps the current rows on screen.

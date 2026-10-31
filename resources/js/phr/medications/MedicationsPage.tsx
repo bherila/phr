@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
+import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { compactPayload } from '@/phr/shared'
 import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
 import { openRecordId } from '@/phr/shell/phrRoutes'
@@ -496,6 +497,7 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
   const [historicalOpen, setHistoricalOpen] = useState(false)
   const endpoint = `/api/phr/patients/${patientId}/medications`
 
+  const knownCanManage = useKnownPatientCanManage(patientId)
   const crud = useClinicalCrud<PhrMedication, MedicationFormState>({
     endpoint,
     emptyForm: EMPTY_FORM,
