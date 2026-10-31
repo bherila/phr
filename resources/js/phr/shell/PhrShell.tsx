@@ -12,11 +12,11 @@ import { PhrJumpPalette } from './PhrJumpPalette'
 import { pushPhrLocation } from './phrLocation'
 import { ConfigPage, DataHubPage, ImportsPage, PatientsManagePage, PatientsPage } from './phrPages'
 import { PhrPatientView } from './PhrPatientView'
-import { patientPageUrl, patientPath, type PhrView, phrViewUrl, resolveNavTarget } from './phrRoutes'
+import { detailPresentation, patientPageUrl, patientPath, type PhrView, phrViewUrl, resolveNavTarget } from './phrRoutes'
 import { patientDisplayName, PhrSidebar } from './PhrSidebar'
 import { usePaletteShortcut } from './usePaletteShortcut'
 import { navigateToView, useLegacyHashRedirect, usePhrView, useShellLinkInterception } from './usePhrView'
-import { useSidebarCollapsed } from './useSidebarCollapsed'
+import { useSidebarMode } from './useSidebarMode'
 
 const LOADING = <div role="status" aria-live="polite" className="p-8 text-sm text-muted-foreground">Loading…</div>
 
@@ -53,7 +53,9 @@ function ShellLayout(): ReactElement {
   // itself once you have gone somewhere.
   const [sheetFor, setSheetFor] = useState<string | null>(null)
   const sheetOpen = sheetFor === url
-  const [rail, setRail] = useSidebarCollapsed()
+  const presentation = view.kind === 'patient' ? detailPresentation(view) : null
+  const sidebar = useSidebarMode(presentation === 'page' ? 'full-width' : 'page', presentation === 'panel')
+  const rail = sidebar.mode === 'rail'
   usePaletteShortcut(paletteOpen, setPaletteOpen)
 
   const patientId = view.kind === 'patient' ? view.patientId : undefined
@@ -84,7 +86,7 @@ function ShellLayout(): ReactElement {
       <div className="flex min-h-0 flex-1">
         {view.kind === 'patient' && (
           <>
-            <PhrSidebar patientId={view.patientId} page={view.page} rail={rail} onRailChange={setRail} className="hidden md:flex" />
+            <PhrSidebar patientId={view.patientId} page={view.page} rail={rail} onRailChange={(next) => sidebar.setMode(next ? 'rail' : 'expanded')} className="hidden md:flex" />
             <Dialog open={sheetOpen} onOpenChange={(open) => setSheetFor(open ? url : null)}>
               <DialogContent
                 className="top-0 left-0 h-dvh max-h-dvh w-72 max-w-[85vw] translate-x-0 translate-y-0 gap-0 rounded-none border-0 border-r p-0 data-[closed]:zoom-out-100 data-[open]:zoom-in-100 sm:max-w-72"

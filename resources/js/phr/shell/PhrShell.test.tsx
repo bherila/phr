@@ -61,7 +61,7 @@ jest.mock('@/phr/imports/ImportsPage', () => ({
 }))
 
 import { PhrShell } from './PhrShell'
-import { sidebarStorageKey } from './useSidebarCollapsed'
+import { sidebarModeStorageKey } from './useSidebarMode'
 
 function patient(id: number, name: string) {
   return {
@@ -270,6 +270,8 @@ describe('PhrShell', () => {
     expect(within(breadcrumb).getByRole('link', { name: 'Documents' })).toHaveAttribute('href', '/phr/patient/2/documents')
     expect(within(breadcrumb).getByText('Document')).toHaveAttribute('aria-current', 'page')
     expect(sidebarLink('Documents')).toHaveAttribute('aria-current', 'page')
+    // Full-width views drop the sidebar to its rail.
+    expect(sidebar()).toHaveAttribute('data-rail', 'true')
   })
 
   it('switches patient from the sidebar and stays on the same page', async () => {
@@ -293,7 +295,7 @@ describe('PhrShell', () => {
     expect(sidebar()).toHaveAttribute('data-rail', 'true')
     // Icon-only items keep their names.
     expect(sidebarLink('Labs')).toHaveAttribute('aria-current', 'page')
-    expect(window.localStorage.getItem(sidebarStorageKey())).toBe('true')
+    expect(window.localStorage.getItem(sidebarModeStorageKey('page'))).toBe('rail')
 
     unmount()
     render(<PhrShell />)
