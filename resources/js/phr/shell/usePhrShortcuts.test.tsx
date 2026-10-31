@@ -28,6 +28,10 @@ jest.mock('@/phr/conditions/ConditionsPage', () => ({
   __esModule: true,
   default: ({ patientId }: PhrListPageProps) => <h1>Conditions for {patientId}</h1>,
 }))
+jest.mock('@/phr/review/ReviewPage', () => ({
+  __esModule: true,
+  default: ({ patientId }: PhrListPageProps) => <h1>Review for {patientId}</h1>,
+}))
 jest.mock('@/phr/imports/ImportsPage', () => ({
   __esModule: true,
   default: () => <h1>Imports</h1>,
@@ -97,7 +101,7 @@ describe('PHR keyboard shortcuts', () => {
     expect(path()).toBe('/phr/patient/2')
   })
 
-  it('drops the G sequence after a timeout or an invalid second key, and G R waits for the Review page', async () => {
+  it('drops the G sequence after a timeout or an invalid second key', async () => {
     await renderAt('/phr/patient/2/labs', 'Labs for 2')
     jest.useFakeTimers()
 
@@ -111,9 +115,16 @@ describe('PHR keyboard shortcuts', () => {
     press('c')
     expect(path()).toBe('/phr/patient/2/labs')
 
+  })
+
+  it('goes to the Review page with G then R', async () => {
+    await renderAt('/phr/patient/2/labs', 'Labs for 2')
+
     press('g')
     press('r')
-    expect(path()).toBe('/phr/patient/2/labs')
+
+    expect(path()).toBe('/phr/patient/2/review')
+    expect(await screen.findByRole('heading', { name: 'Review for 2' })).toBeInTheDocument()
     expect(GO_TO_KEYS.find((entry) => entry.key === 'r')?.page).toBe('review')
   })
 
@@ -151,7 +162,7 @@ describe('PHR keyboard shortcuts', () => {
       expect(within(dialog.querySelector<HTMLElement>(`[data-shortcut="${binding.id}"]`)!).getByText(binding.description)).toBeInTheDocument()
     }
     expect(within(dialog).getByText('Conditions')).toBeInTheDocument()
-    expect(dialog.querySelector('[data-shortcut="go-review"]')).toBeNull()
+    expect(within(dialog.querySelector<HTMLElement>('[data-shortcut="go-review"]')!).getByText('Review')).toBeInTheDocument()
 
     // While the dialog is open the other shortcuts pause.
     press('g')

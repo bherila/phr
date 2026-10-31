@@ -8,10 +8,7 @@ import { PHR_PAGES } from './phrPages'
 import { detailPresentation, isPhrPageId, patientPageUrl, type PhrView, phrViewUrl } from './phrRoutes'
 import type { SidebarMode } from './useSidebarMode'
 
-/**
- * G then a letter. `review` is listed before its page exists: the binding appears (and works)
- * once `review` is a page id, and until then it is simply not registered.
- */
+/** G then a letter. A page id the shell does not know is simply not registered. */
 export const GO_TO_KEYS: readonly { key: string, page: string }[] = [
   { key: 'r', page: 'review' },
   { key: 's', page: 'summary' },

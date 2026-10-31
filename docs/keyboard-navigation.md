@@ -78,7 +78,7 @@ handled on its own.
 
 | Letter | Section |
 |---|---|
-| R | Review **(planned)**: listed and active once the Review page exists |
+| R | Review |
 | S | Summary |
 | H | Health Log |
 | L | Labs |
