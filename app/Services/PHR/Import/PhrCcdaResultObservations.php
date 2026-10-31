@@ -148,20 +148,19 @@ final class PhrCcdaResultObservations
 
         $value = $this->child($range, 'value');
         $type = $this->type($value);
-        [$low, $lowUnit, $lowInclusive] = $this->bound($value === null ? null : $this->child($value, 'low'));
-        [$high, $highUnit, $highInclusive] = $this->bound($value === null ? null : $this->child($value, 'high'));
+        [$low, $lowUnit] = $this->bound($value === null ? null : $this->child($value, 'low'));
+        [$high, $highUnit] = $this->bound($value === null ? null : $this->child($value, 'high'));
         $rangeUnit = $lowUnit ?? $highUnit;
 
-        // Prefer the range's own text, then an ST value, then the bounds. One source
-        // only, kept as the source wrote it: a bound's unit goes to range_unit and
-        // is never appended. A source whose text is only a unit keeps that text;
-        // nothing structured marks it as a unit rather than a qualitative range.
+        // The bounds and their unit are the range. Text is only what the source
+        // wrote, its own text or else an ST value, kept as written; none is made
+        // up from the bounds, so it never disagrees with them. A bound's unit goes
+        // to range_unit and is never appended. A source whose text is only a unit
+        // keeps that text; nothing structured marks it as a unit rather than a
+        // qualitative range.
         $text = $this->edText($this->child($range, 'text'));
         if ($text === null && $type === 'ST') {
             $text = $this->edText($value);
-        }
-        if ($text === null) {
-            $text = $this->boundsText($low, $lowInclusive, $high, $highInclusive);
         }
 
         return [

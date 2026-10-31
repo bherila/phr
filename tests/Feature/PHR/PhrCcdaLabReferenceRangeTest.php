@@ -27,8 +27,9 @@ final class PhrCcdaLabReferenceRangeTest extends TestCase
         // The unit sits in each bound's translation/originalText; it goes to
         // range_unit and is never appended to the text again.
         'lab-ivl-translation' => ['4.3 - 5.6 PERCENT', '4.3', '5.6', 'PERCENT'],
-        // No <text>: built from the bounds, without the unit.
-        'lab-ivl-no-text' => ['<200', null, '200', 'mg/dL'],
+        // No <text>: the bound and unit are the range; no text is made up from
+        // them, so text never disagrees with the numbers.
+        'lab-ivl-no-text' => [null, null, '200', 'mg/dL'],
         // <text> by reference resolves to the narrative it points at.
         'lab-text-reference' => ['Nonreactive', null, null, null],
         'lab-interval-value' => ['<150 mg/g', null, '150', 'mg/g'],

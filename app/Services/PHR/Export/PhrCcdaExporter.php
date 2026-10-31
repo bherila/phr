@@ -86,7 +86,7 @@ class PhrCcdaExporter
             $lab->analyte ?? $lab->test_name,
             $lab->value ?? $lab->value_numeric,
             $lab->unit,
-            $lab->reference_range_text ?? trim(($lab->range_min ?? '').' - '.($lab->range_max ?? '')),
+            $lab->reference_range_text ?? $this->rangeFromBounds($lab->range_min, $lab->range_max),
             $lab->abnormal_flag,
         ])->all());
         $this->section($xml, 'Vital Signs', ['Date', 'Name', 'Value', 'Unit'], $data['vitals']->map(fn ($vital): array => [
@@ -172,6 +172,38 @@ class PhrCcdaExporter
         $xml->endDocument();
 
         return $xml->outputMemory();
+    }
+
+    /**
+     * A reference range without text, from its bounds: "13.6 - 17.5", or one
+     * side alone as "<200" or ">40", the way the browser shows it.
+     */
+    private function rangeFromBounds(mixed $min, mixed $max): string
+    {
+        $low = $this->boundNumber($min);
+        $high = $this->boundNumber($max);
+
+        return match (true) {
+            $low !== null && $high !== null => "{$low} - {$high}",
+            $high !== null => "<{$high}",
+            $low !== null => ">{$low}",
+            default => '',
+        };
+    }
+
+    /** A stored decimal without its padding ("200.0000000000" -> "200"). */
+    private function boundNumber(mixed $value): ?string
+    {
+        if (! is_numeric($value)) {
+            return null;
+        }
+
+        $number = (string) $value;
+        if (str_contains($number, '.')) {
+            $number = rtrim(rtrim($number, '0'), '.');
+        }
+
+        return $number === '' || $number === '-' ? '0' : $number;
     }
 
     private function patient(XMLWriter $xml, PhrPatient $patient): void
