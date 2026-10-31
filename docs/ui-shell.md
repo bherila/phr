@@ -125,7 +125,7 @@ The sidebar's width depends on the context: **(shipped)**
 | Mode | Width | When |
 |---|---|---|
 | Expanded | 248px | Default on desktop |
-| Rail | 64px, icons only | Automatic on full-width views (document viewer, imaging study, vitals trend), and when a detail panel is open on a viewport narrower than 1440px, so the list keeps at least 560px |
+| Rail | 64px, icons only | Automatic on full-width views (document viewer, imaging study, vitals trend), and when a detail panel is open on a viewport narrower than 1600px, so the list keeps its room beside the panel |
 | Hidden | — | Below `md`: a menu button opens the sidebar as a sheet |
 
 A manual toggle (the button at the top of the sidebar) overrides the automatic choice. The

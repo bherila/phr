@@ -26,6 +26,15 @@ describe('automaticSidebarMode', () => {
   })
 })
 
+describe('WIDE_VIEWPORT_QUERY', () => {
+  it('switches at 1600px, so 1440 with a panel open is the rail and 1700 is expanded', () => {
+    expect(WIDE_VIEWPORT_QUERY).toBe('(min-width: 1600px)')
+    const width = (w: number): boolean => w >= Number(/min-width: (\d+)px/.exec(WIDE_VIEWPORT_QUERY)?.[1])
+    expect(automaticSidebarMode('page', true, width(1440))).toBe('rail')
+    expect(automaticSidebarMode('page', true, width(1700))).toBe('expanded')
+  })
+})
+
 describe('useSidebarMode', () => {
   let restore: () => void
 
