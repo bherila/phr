@@ -10,6 +10,15 @@ import { navigateToView } from './usePhrView'
 
 type PatientView = Extract<PhrView, { kind: 'patient' }>
 
+/** List pages stop growing here, aligned to the sidebar; full-width viewers are exempt. */
+export const PAGE_CONTENT_MAX_WIDTH = 'max-w-[80rem]'
+
+/**
+ * The detail panel scales with the window, so its tables have room on wide screens; the list
+ * beside it gives up width first.
+ */
+export const DETAIL_PANEL_WIDTH = 'lg:w-[clamp(400px,32vw,640px)]'
+
 const LOADING = <div role="status" aria-live="polite" className="p-6 text-sm text-muted-foreground">Loading…</div>
 
 interface Crumb {
@@ -101,7 +110,7 @@ export function PhrPatientView({ view, patientName }: PhrPatientViewProps): Reac
         className={cn('min-w-0 flex-1 overflow-y-auto', view.detail && 'hidden lg:block')}
         data-pane="list"
       >
-        <div className="flex flex-col gap-4 px-4 py-6 md:px-8">
+        <div className={cn('flex flex-col gap-4 px-4 py-6 md:px-8', PAGE_CONTENT_MAX_WIDTH)} data-testid="page-content">
           <Breadcrumb crumbs={crumbs} />
           <Suspense fallback={LOADING}>
             <ListPage key={`${view.patientId}-${view.page}`} patientId={view.patientId} onDrill={fromList} openRecord={view.parent ?? view.detail} />
@@ -130,7 +139,7 @@ function DetailPanel({ view, closeUrl, crumbs, children }: { view: PatientView, 
     <aside
       aria-label={`${detail.label} detail`}
       data-pane="detail"
-      className="flex w-full min-w-0 flex-col overflow-y-auto border-border bg-card lg:w-[380px] lg:shrink-0 lg:border-l xl:w-[420px]"
+      className={cn('@container flex w-full min-w-0 flex-col overflow-y-auto border-border bg-card lg:shrink-0 lg:border-l', DETAIL_PANEL_WIDTH)}
     >
       <div className="flex flex-col gap-2 border-b border-border px-4 py-3">
         <Breadcrumb crumbs={[...crumbs, { label: detail.label }]} className="lg:hidden" />
