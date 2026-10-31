@@ -3,6 +3,7 @@ import { type ReactElement, Suspense, useState } from 'react'
 
 import PhrNavbar from '@/components/phr/PhrNavbar'
 import { PageSkeleton } from '@/components/record-list/Skeleton'
+import { ShortcutsDialog } from '@/components/ShortcutsDialog'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { EhiUploadProvider } from '@/phr/imports/ehi/EhiUploadProvider'
@@ -16,7 +17,7 @@ import { PhrPatientSearchPalette } from './PhrPatientSearchPalette'
 import { PAGE_CONTENT_MAX_WIDTH, PhrPatientView } from './PhrPatientView'
 import { detailPresentation, patientPageUrl, patientPath, type PhrView, phrViewUrl, resolveNavTarget } from './phrRoutes'
 import { patientDisplayName, PhrSidebar } from './PhrSidebar'
-import { usePaletteShortcut } from './usePaletteShortcut'
+import { usePhrShortcuts } from './usePhrShortcuts'
 import { navigateToView, useLegacyHashRedirect, usePhrView, useShellLinkInterception } from './usePhrView'
 import { useSidebarMode } from './useSidebarMode'
 
@@ -51,6 +52,7 @@ function ShellLayout(): ReactElement {
   const interceptLinks = useShellLinkInterception()
   const { patients } = usePhrPatients()
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
   // The small-screen sidebar sheet belongs to the view it was opened on, so it closes by
   // itself once you have gone somewhere.
   const [sheetFor, setSheetFor] = useState<string | null>(null)
@@ -58,7 +60,7 @@ function ShellLayout(): ReactElement {
   const presentation = view.kind === 'patient' ? detailPresentation(view) : null
   const sidebar = useSidebarMode(presentation === 'page' ? 'full-width' : 'page', presentation === 'panel')
   const rail = sidebar.mode === 'rail'
-  usePaletteShortcut(paletteOpen, setPaletteOpen)
+  const shortcuts = usePhrShortcuts({ view, paletteOpen, setPaletteOpen, setHelpOpen, sidebarMode: sidebar.mode, setSidebarMode: sidebar.setMode })
 
   const patientId = view.kind === 'patient' ? view.patientId : undefined
   const patientName = patientId === undefined
@@ -125,6 +127,7 @@ function ShellLayout(): ReactElement {
           onDrill={(target) => navigateToView(resolveNavTarget(view, target))}
         />
       )}
+      <ShortcutsDialog open={helpOpen} onOpenChange={setHelpOpen} bindings={shortcuts} />
     </div>
   )
 }

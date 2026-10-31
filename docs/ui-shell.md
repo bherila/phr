@@ -131,8 +131,8 @@ The sidebar's width depends on the context: **(shipped)**
 A manual toggle (the button at the top of the sidebar) overrides the automatic choice. The
 choice is remembered per signed-in person and per context type (a normal page vs a full-width
 view), in `localStorage` behind `try`/`catch`; without storage it lasts for the visit. Rail
-items keep an `aria-label` and a tooltip. **(shipped)** The `[` key as a second way to toggle
-is part of [keyboard navigation](keyboard-navigation.md). **(planned)**
+items keep an `aria-label` and a tooltip. The `[` key toggles it too, as the same manual
+choice; see [keyboard navigation](keyboard-navigation.md). **(shipped)**
 
 The 3D imaging explorer is a separate page outside the shell, so it has no sidebar.
 
