@@ -33,6 +33,7 @@ class PhrPatientSearchTest extends TestCase
             'user_id' => $owner->id,
             'title' => 'Example document',
             'document_type' => 'other',
+            'source' => 'manual_upload',
             'storage_disk' => PhrDocument::STORAGE_DISK,
             'storage_path' => 'patients/example/document.pdf',
             'extracted_text' => 'Searchable synthetic phrase in extracted text',

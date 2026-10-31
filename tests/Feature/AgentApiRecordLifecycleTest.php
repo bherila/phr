@@ -265,6 +265,7 @@ final class AgentApiRecordLifecycleTest extends TestCase
             'user_id' => $patient->owner_user_id,
             'uploaded_by_user_id' => $patient->owner_user_id,
             'document_type' => 'other',
+            'source' => 'manual_upload',
             'storage_disk' => PhrDocument::STORAGE_DISK,
             'byte_size' => 0,
         ]);

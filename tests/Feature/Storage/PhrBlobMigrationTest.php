@@ -572,6 +572,7 @@ class PhrBlobMigrationTest extends TestCase
             'uploaded_by_user_id' => $owner->id,
             'title' => 'Synthetic document',
             'document_type' => 'other',
+            'source' => 'manual_upload',
             'original_filename' => basename($key),
             'storage_disk' => PhrDocument::STORAGE_DISK,
             'storage_path' => $key,

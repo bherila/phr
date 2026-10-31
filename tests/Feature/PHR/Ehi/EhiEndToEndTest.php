@@ -402,6 +402,7 @@ class EhiEndToEndTest extends TestCase
             'user_id' => $owner->id,
             'uploaded_by_user_id' => $owner->id,
             'document_type' => 'other',
+            'source' => 'manual_upload',
             'storage_disk' => PhrDocument::STORAGE_DISK,
             'storage_path' => $existingKey,
             'byte_size' => 27,

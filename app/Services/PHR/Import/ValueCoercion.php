@@ -3,6 +3,7 @@
 namespace App\Services\PHR\Import;
 
 use App\Models\PhrDocument;
+use App\Support\PHR\PhrDocumentSource;
 use Illuminate\Support\Carbon;
 
 final class ValueCoercion
@@ -181,15 +182,7 @@ final class ValueCoercion
 
     public static function normalizeDocumentSource(mixed $source): string
     {
-        $value = self::string($source);
-
-        return match ($value) {
-            'genai', 'genai_import' => 'genai_import',
-            'fhir', 'fhir_import' => 'fhir_import',
-            'ccda', 'ccda_import' => 'ccda_import',
-            'mychart', 'mychart_zip' => 'mychart_zip',
-            default => 'manual_upload',
-        };
+        return PhrDocumentSource::normalize(self::string($source));
     }
 
     public static function normalizeDocumentType(mixed $type): string

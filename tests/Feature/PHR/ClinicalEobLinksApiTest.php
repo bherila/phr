@@ -24,6 +24,7 @@ class ClinicalEobLinksApiTest extends TestCase
             'user_id' => $owner->id,
             'title' => 'Example claim document',
             'document_type' => 'insurance',
+            'source' => 'manual_upload',
             'storage_disk' => 'phr_documents',
             'storage_path' => 'patients/example/eob.pdf',
             'mime_type' => 'application/pdf',

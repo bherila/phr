@@ -168,6 +168,7 @@ class PhrBlobCleanupTest extends TestCase
             'uploaded_by_user_id' => $owner->id,
             'title' => 'Synthetic cleanup document',
             'document_type' => 'other',
+            'source' => 'manual_upload',
             'original_filename' => "{$token}.pdf",
             'storage_disk' => PhrDocument::STORAGE_DISK,
             'storage_path' => $legacyKey,

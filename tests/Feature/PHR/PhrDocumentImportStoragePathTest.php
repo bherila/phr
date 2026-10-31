@@ -112,6 +112,7 @@ class PhrDocumentImportStoragePathTest extends TestCase
             'patient_id' => $patient->id,
             'user_id' => $patient->owner_user_id,
             'document_type' => 'other',
+            'source' => 'manual_upload',
             'storage_disk' => 'local',
             'storage_path' => 'secrets/other-patient.pdf',
             'byte_size' => 22,

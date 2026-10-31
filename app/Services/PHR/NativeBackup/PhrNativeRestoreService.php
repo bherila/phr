@@ -7,6 +7,7 @@ use App\Jobs\PHR\PreviewPhrNativeRestoreJob;
 use App\Models\PhrDocument;
 use App\Models\PhrNativeRecordIdentity;
 use App\Models\PhrNativeRestoreAttempt;
+use App\Support\PHR\PhrDocumentSource;
 use App\Support\Storage\PhrStorageKey;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\UploadedFile;
@@ -578,6 +579,9 @@ final class PhrNativeRestoreService
     private function setOperationalColumns(string $table, string $nativeId, int $patientId, array $record, array &$data, ?array $artifact): void
     {
         if ($table === 'phr_documents') {
+            // This raw insert bypasses the model's guard; the archive has already
+            // mapped a legacy source (PhrNativeDocumentSourceCompatibility).
+            PhrDocumentSource::assertValid($data['source'] ?? null);
             $data['genai_job_id'] = null;
             $data['storage_disk'] = PhrDocument::STORAGE_DISK;
             $data['storage_path'] = $artifact === null ? null : PhrStorageKey::document($patientId, $nativeId, 'document.bin');

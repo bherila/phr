@@ -86,6 +86,7 @@ class PhrExportTest extends TestCase
             'uploaded_by_user_id' => $owner->id,
             'title' => 'Lab PDF',
             'document_type' => 'lab_report',
+            'source' => 'manual_upload',
             'original_filename' => 'lab.pdf',
             'storage_disk' => 'phr_documents',
             'storage_path' => 'source/lab.pdf',

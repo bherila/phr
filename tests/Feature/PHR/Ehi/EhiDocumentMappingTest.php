@@ -724,7 +724,7 @@ class EhiDocumentMappingTest extends TestCase
         $this->assertRefused(EhiDocumentApplyRefused::TARGET_WITHDRAWN, fn () => $this->ehiDocApply($proposal, PhrEhiProposal::DECISION_LINK, $trashed->id));
         $otherOwner = $this->createUser();
         $otherPatient = PhrPatient::query()->create(['owner_user_id' => $otherOwner->id, 'display_name' => 'Other Synthetic', 'relationship' => 'self']);
-        $foreign = PhrDocument::query()->create(['patient_id' => $otherPatient->id, 'user_id' => $otherOwner->id, 'document_type' => 'other', 'storage_disk' => PhrDocument::STORAGE_DISK, 'byte_size' => 0]);
+        $foreign = PhrDocument::query()->create(['patient_id' => $otherPatient->id, 'user_id' => $otherOwner->id, 'document_type' => 'other', 'source' => 'manual_upload', 'storage_disk' => PhrDocument::STORAGE_DISK, 'byte_size' => 0]);
         $this->assertRefused(EhiDocumentApplyRefused::TARGET_NOT_FOUND, fn () => $this->ehiDocApply($proposal, PhrEhiProposal::DECISION_LINK, $foreign->id));
         $this->assertRefused(EhiDocumentApplyRefused::TARGET_NOT_FOUND, fn () => $this->ehiDocApply($proposal, PhrEhiProposal::DECISION_LINK, null));
 
