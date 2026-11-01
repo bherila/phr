@@ -105,8 +105,17 @@ class MedicationFillMedicationLinker
     {
         [$name, $dose, $unit] = $this->nameAndDose($fill);
 
-        return mb_strtolower($medication->name) === mb_strtolower($name)
-            && mb_strtolower(trim($medication->dose.' '.$medication->dose_unit)) === mb_strtolower(trim($dose.' '.$unit));
+        return $this->comparableList($medication->name) === $this->comparableList($name)
+            && $this->comparableList(trim($medication->dose.' '.$medication->dose_unit)) === $this->comparableList(trim($dose.' '.$unit));
+    }
+
+    /**
+     * Lowercased, with either list delimiter read the same: entries named before
+     * substances were semicolon-delimited ("a / b") still match ones named now ("a; b").
+     */
+    private function comparableList(?string $value): string
+    {
+        return mb_strtolower((string) preg_replace('/\s*(?:;|\s\/\s)\s*/', '; ', trim((string) $value)));
     }
 
     private function hasOtherFills(PhrMedication $medication, PhrMedicationFill $fill): bool
