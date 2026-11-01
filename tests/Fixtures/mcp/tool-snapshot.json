@@ -944,7 +944,7 @@
                 "openWorldHint": false
             },
             "description": "Partially update one existing Immunizations record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
-            "inputSchema": "sha256:f9cc442583d09814003ae0d4838da21c25020b72f14390fa167fb1cfe4386587",
+            "inputSchema": "sha256:4796f8acde257f80f724eab162c83b814ec5f7c4b97ad075f1c9662dfaccdab6",
             "name": "immunizations.update",
             "outputSchema": "sha256:8d27ab7435cdd77b0812ac4fca1416596454bf6a40c5928b5b282d8e942fe32e",
             "title": "Update Immunizations"
@@ -957,7 +957,7 @@
                 "openWorldHint": false
             },
             "description": "Idempotently create or update one Immunizations record through the versioned REST API.",
-            "inputSchema": "sha256:d67618dccf8325bb1886d3c1ddc078ec926beb5ef1dfa413afae8cc21cad812b",
+            "inputSchema": "sha256:d55e3c453e928f7f7ad12a943d025dfb479742f727f8874d16b3f2233febfdf8",
             "name": "immunizations.upsert",
             "outputSchema": "sha256:8d27ab7435cdd77b0812ac4fca1416596454bf6a40c5928b5b282d8e942fe32e",
             "title": "Upsert Immunizations"

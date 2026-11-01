@@ -365,6 +365,31 @@ class PhrClinicalDataTest extends TestCase
         $this->actingAs($manager)->deleteJson("/api/phr/patients/{$patientId}/immunizations/{$immunId}")->assertNoContent();
     }
 
+    public function test_manager_can_write_immunization_dose_amount_and_unit(): void
+    {
+        ['manager' => $manager, 'patientId' => $patientId] = $this->createPatientWithAccess();
+
+        $id = (int) $this->actingAs($manager)->postJson("/api/phr/patients/{$patientId}/immunizations", [
+            'vaccine_name' => 'Synthetic vaccine',
+            'dose_amount' => '0.50',
+            'dose_unit' => 'mL',
+        ])->assertCreated()
+            ->assertJsonPath('immunization.dose_amount', '0.50')
+            ->assertJsonPath('immunization.dose_unit', 'mL')
+            ->json('immunization.id');
+
+        $this->actingAs($manager)->patchJson("/api/phr/patients/{$patientId}/immunizations/{$id}", [
+            'dose_amount' => '1',
+            'dose_unit' => null,
+        ])->assertOk()
+            ->assertJsonPath('immunization.dose_amount', '1')
+            ->assertJsonPath('immunization.dose_unit', null);
+
+        $this->actingAs($manager)->patchJson("/api/phr/patients/{$patientId}/immunizations/{$id}", [
+            'dose_amount' => str_repeat('9', 33),
+        ])->assertUnprocessable();
+    }
+
     public function test_immunization_exposes_imported_dose_amount_status_and_time_provenance(): void
     {
         ['owner' => $owner, 'viewer' => $viewer, 'patientId' => $patientId] = $this->createPatientWithAccess();
