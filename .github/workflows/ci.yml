@@ -165,11 +165,11 @@ jobs:
         run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G
 
   backend-tests:
-    name: Backend Tests (${{ matrix.shard }}/3)
+    name: Backend Tests (${{ matrix.shard }}/2)
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2]
     # Some page tests render a real Blade view without ->withoutVite(), so they need
     # an actual public/build/manifest.json — reuse frontend-build's artifact instead
     # of building twice.
@@ -217,7 +217,7 @@ jobs:
         run: |
           mkdir -p build/phpunit
           php -d memory_limit=1G vendor/bin/phpunit --list-tests-xml build/phpunit/inventory.xml
-          php scripts/phpunit-shards.php plan build/phpunit/inventory.xml .github/phpunit-timings.json 3 ${{ matrix.shard }} build/phpunit
+          php scripts/phpunit-shards.php plan build/phpunit/inventory.xml .github/phpunit-timings.json 2 ${{ matrix.shard }} build/phpunit
 
       # ParaTest runs the shard's classes across one worker per core. It has no
       # --test-id-filter-file, so the plan also writes filter.txt, a --filter pattern
@@ -420,7 +420,7 @@ jobs:
           path: build/phpunit-results/
 
       - name: Verify every PHPUnit test ran once
-        run: php scripts/phpunit-shards.php verify build/phpunit-results 3
+        run: php scripts/phpunit-shards.php verify build/phpunit-results 2
 
   deploy:
     name: Deploy to Production
