@@ -1,0 +1,417 @@
+import '@testing-library/jest-dom'
+
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+
+import { DisplayPreferencesProvider } from '@/phr/display/DisplayPreferences'
+import { MedicationFillHistory } from '@/phr/medication-fills/MedicationFillHistory'
+import MedicationFillsPage from '@/phr/medication-fills/MedicationFillsPage'
+
+const mockGet = jest.fn()
+const mockPostRaw = jest.fn()
+const mockPatch = jest.fn()
+const mockDelete = jest.fn()
+const mockPut = jest.fn()
+
+jest.mock('@/fetchWrapper', () => ({
+  fetchWrapper: {
+    get: (...args: unknown[]) => mockGet(...args),
+    postRaw: (...args: unknown[]) => mockPostRaw(...args),
+    patch: (...args: unknown[]) => mockPatch(...args),
+    delete: (...args: unknown[]) => mockDelete(...args),
+    put: (...args: unknown[]) => mockPut(...args),
+  },
+}))
+
+const DRUG = {
+  substance_names: ['atorvastatin calcium'],
+  strengths: ['20 mg/1'],
+  brand_name: 'Lipitor',
+  dosage_form: 'tablet, film coated',
+  route: 'oral',
+  labeler_name: 'Parke-Davis Div of Pfizer Inc',
+  package_description: '90 tablet, film coated in 1 bottle (0071-0155-23)',
+  rxcui: '617312',
+}
+
+function makeFill(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 1,
+    patient_id: 42,
+    user_id: 7,
+    medication_id: 7,
+    medication: { id: 7, name: 'atorvastatin calcium' },
+    source_kind: 'manual',
+    review_status: 'confirmed',
+    ndc_10: '0071-0155-23',
+    ndc_status: 'resolved',
+    drug: DRUG,
+    filled_on: '2026-10-28',
+    quantity: '90.000',
+    quantity_unit: 'tablet',
+    days_supply: 90,
+    directions: 'Take 1 Tablet By Mouth Daily',
+    prescriber_name: 'Dr. A. Smith',
+    paid_cents: 1000,
+    retail_cents: 18999,
+    pharmacy_name: 'Example Pharmacy',
+    pharmacy_location: null,
+    ...overrides,
+  }
+}
+
+function candidate(ndc10: string, extra: Record<string, unknown> = {}) {
+  return {
+    ndc_10: ndc10,
+    ndc_11: null,
+    product_ndc: null,
+    drug: { ...DRUG, package_description: `pkg for ${ndc10}`, labeler_name: `Labeler ${ndc10}` },
+    match_reasons: ['package NDC exact'],
+    fetched_at: null,
+    ...extra,
+  }
+}
+
+function jsonResponse(status: number, body: unknown) {
+  return { ok: status >= 200 && status < 300, status, statusText: 'x', text: async () => JSON.stringify(body) }
+}
+
+let fills: unknown[]
+let lookups: Record<string, unknown>
+
+function renderPage(preferenceLowercase = false) {
+  mockPut.mockResolvedValue({ force_lowercase: preferenceLowercase })
+  return render(
+    <DisplayPreferencesProvider>
+      <MedicationFillsPage patientId={42} />
+    </DisplayPreferencesProvider>,
+  )
+}
+
+beforeEach(() => {
+  jest.clearAllMocks()
+  fills = [
+    makeFill(),
+    makeFill({ id: 2, filled_on: '2025-03-04', paid_cents: null, retail_cents: null, pharmacy_name: null, drug: null, ndc_status: 'unresolved', medication: { id: 9, name: 'Mystery' }, medication_id: 9, drug_as_printed: 'mystery tab', directions: null, quantity: '30', quantity_unit: null }),
+  ]
+  lookups = {}
+  mockGet.mockImplementation(async (url: string) => {
+    if (url === '/api/user/display-preferences') return { force_lowercase: false }
+    if (url.startsWith('/api/ndc/lookup')) {
+      const ndc = new URL(url, 'http://x').searchParams.get('ndc') ?? ''
+      return lookups[ndc]
+    }
+    if (url.startsWith('/api/ndc/search')) return lookups['search']
+    if (url === '/api/phr/patients/42/medication-fills') return { medication_fills: fills, can_manage: true }
+    if (url === '/api/phr/patients/42/medications/7/fills') return { medication_fills: [fills[0]], can_manage: true }
+    return {}
+  })
+})
+
+describe('MedicationFillsPage table', () => {
+  it('renders columns in order with the contract formats', async () => {
+    renderPage()
+
+    const table = await screen.findByRole('table', { name: 'Fills' })
+    const headers = within(table).getAllByRole('columnheader').map((header) => header.textContent)
+    expect(headers.slice(0, 7)).toEqual(['Date', 'Drug', 'Quantity', 'Paid', 'Retail', 'Pharmacy', 'Route / manufacturer / package'])
+
+    const row = within(table).getAllByRole('row')[1]!
+    const cells = within(row).getAllByRole('cell')
+    expect(cells[0]).toHaveTextContent('26.10.28')
+    expect(cells[1]).toHaveTextContent('atorvastatin calcium (Lipitor)')
+    expect(cells[1]).toHaveTextContent('20 mg/1 · tablet, film coated')
+    expect(cells[2]).toHaveTextContent('90 tablet')
+    expect(cells[3]).toHaveTextContent('$10.00')
+    expect(cells[4]).toHaveTextContent('$189.99')
+    expect(cells[5]).toHaveTextContent('Example Pharmacy')
+    expect(cells[6]).toHaveTextContent('oral')
+    expect(cells[6]).toHaveTextContent('Parke-Davis Div of Pfizer Inc')
+    expect(cells[6]).toHaveTextContent('90 tablet, film coated in 1 bottle (0071-0155-23)')
+  })
+
+  it('shows a dash for missing values', async () => {
+    renderPage()
+    const table = await screen.findByRole('table', { name: 'Fills' })
+    const row = within(table).getAllByRole('row')[2]!
+    const cells = within(row).getAllByRole('cell')
+    expect(cells[0]).toHaveTextContent('25.03.04')
+    expect(cells[3]).toHaveTextContent('—')
+    expect(cells[4]).toHaveTextContent('—')
+    expect(cells[5]).toHaveTextContent('—')
+    expect(cells[6]).toHaveTextContent('—')
+  })
+
+  it('leaves stored casing alone by default', async () => {
+    renderPage()
+    const table = await screen.findByRole('table', { name: 'Fills' })
+    expect(table.querySelector('.lowercase')).toBeNull()
+    expect(screen.getByText('Take 1 Tablet By Mouth Daily')).toBeInTheDocument()
+  })
+
+  it('lowercases drug, pharmacy, prescriber and directions text when the preference is on', async () => {
+    mockGet.mockImplementation(async (url: string) => {
+      if (url === '/api/user/display-preferences') return { force_lowercase: true }
+      return { medication_fills: fills, can_manage: true }
+    })
+    renderPage()
+
+    const table = await screen.findByRole('table', { name: 'Fills' })
+    await waitFor(() => expect(table.querySelector('.lowercase')).not.toBeNull())
+    for (const text of ['atorvastatin calcium (Lipitor)', 'Take 1 Tablet By Mouth Daily', 'Example Pharmacy', 'Dr. A. Smith', 'Parke-Davis Div of Pfizer Inc']) {
+      for (const element of screen.getAllByText(text, { exact: false })) {
+        expect(element.closest('.lowercase')).not.toBeNull()
+      }
+    }
+    // Stored text is unchanged: only a CSS class lowercases it.
+    expect(screen.getByText('Take 1 Tablet By Mouth Daily')).toBeInTheDocument()
+  })
+
+  it('explains how fills arrive when there are none', async () => {
+    fills = []
+    renderPage()
+    expect(await screen.findByText('No fills recorded.')).toBeInTheDocument()
+    expect(screen.getByText(/add one by hand with its NDC/)).toHaveTextContent(/label.*receipt.*CSV.*MCP/)
+  })
+
+  it('filters by date range and medication', async () => {
+    renderPage()
+    await screen.findByRole('table', { name: 'Fills' })
+
+    fireEvent.change(screen.getByLabelText('Filled from'), { target: { value: '2026-01-01' } })
+    expect(screen.queryByText('25.03.04')).not.toBeInTheDocument()
+    expect(screen.getByText('26.10.28')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+    fireEvent.change(screen.getByLabelText('Medication filter'), { target: { value: '9' } })
+    expect(screen.queryByText('26.10.28')).not.toBeInTheDocument()
+    expect(screen.getByText('25.03.04')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Filled to'), { target: { value: '2024-12-31' } })
+    expect(screen.getByText('No fills match the current filters.')).toBeInTheDocument()
+  })
+
+  it('records a review decision on a pending fill', async () => {
+    fills = [makeFill({ review_status: 'pending_review' })]
+    mockPatch.mockResolvedValue({ medication_fill: makeFill({ review_status: 'confirmed' }) })
+    renderPage()
+
+    expect(await screen.findByText('Pending review')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^Confirm/ }))
+
+    await waitFor(() => expect(mockPatch).toHaveBeenCalledWith('/api/phr/patients/42/medication-fills/1/review', { review_status: 'confirmed' }))
+  })
+})
+
+describe('Fill entry form', () => {
+  async function openForm() {
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /add fill/i }))
+    return screen.getByLabelText(/^NDC/)
+  }
+
+  function fillRequired() {
+    fireEvent.change(screen.getByLabelText(/^Fill date/), { target: { value: '2026-10-28' } })
+    fireEvent.change(screen.getByLabelText(/^Quantity/), { target: { value: '90' } })
+  }
+
+  it('shows the drug preview for a resolved lookup and sends dollars as cents', async () => {
+    lookups['00071-0155-23'] = { status: 'resolved', input: '00071015523', selected: candidate('0071-0155-23'), candidates: [candidate('0071-0155-23')] }
+    mockPostRaw.mockResolvedValue(jsonResponse(201, { medication_fill: makeFill({ id: 3 }) }))
+    const ndc = await openForm()
+
+    fireEvent.change(ndc, { target: { value: '00071-0155-23' } })
+    const preview = await screen.findByLabelText('Drug preview')
+    expect(preview).toHaveTextContent('atorvastatin calcium')
+    expect(preview).toHaveTextContent('Labeler 0071-0155-23')
+
+    fillRequired()
+    fireEvent.change(screen.getByLabelText('Unit'), { target: { value: 'tablet' } })
+    fireEvent.change(screen.getByLabelText('Paid ($)'), { target: { value: '10.00' } })
+    fireEvent.change(screen.getByLabelText('Retail price ($)'), { target: { value: '189.99' } })
+    fireEvent.change(screen.getByLabelText('Pharmacy'), { target: { value: 'Example Pharmacy' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save fill' }))
+
+    await waitFor(() => expect(mockPostRaw).toHaveBeenCalledTimes(1))
+    const [url, body] = mockPostRaw.mock.calls[0] as [string, Record<string, unknown>]
+    expect(url).toBe('/api/phr/patients/42/medication-fills')
+    expect(body).toMatchObject({
+      ndc: '00071-0155-23',
+      filled_on: '2026-10-28',
+      quantity: '90',
+      quantity_unit: 'tablet',
+      paid_cents: 1000,
+      retail_cents: 18999,
+      pharmacy_name: 'Example Pharmacy',
+      days_supply: null,
+      medication_id: null,
+    })
+    expect(body).not.toHaveProperty('drug')
+    expect(body).not.toHaveProperty('ndc_candidate')
+    // The saved fill joins the table and the form closes.
+    await waitFor(() => expect(screen.queryByLabelText(/^NDC/)).not.toBeInTheDocument())
+  })
+
+  it('looks up a 10-digit NDC typed without dashes', async () => {
+    lookups['0071015523'] = { status: 'resolved', input: '0071015523', selected: candidate('0071-0155-23'), candidates: [candidate('0071-0155-23')] }
+    const ndc = await openForm()
+    fireEvent.change(ndc, { target: { value: '0071015523' } })
+    await screen.findByLabelText('Drug preview')
+    expect(mockGet).toHaveBeenCalledWith('/api/ndc/lookup?ndc=0071015523')
+  })
+
+  it('does not look up until the NDC has 10 or 11 digits', async () => {
+    const ndc = await openForm()
+    fireEvent.change(ndc, { target: { value: '0071-01' } })
+    expect(mockGet.mock.calls.some(([url]) => String(url).startsWith('/api/ndc/lookup'))).toBe(false)
+  })
+
+  it('offers a candidate picker for an ambiguous NDC and sends the chosen package', async () => {
+    const a = candidate('60505-0134-0', { match_reasons: ['package NDC exact (5-4-1)'] })
+    const b = candidate('60505-134-00', { match_reasons: ['package NDC exact (5-3-2)'] })
+    lookups['6050501340'] = { status: 'ambiguous', input: '6050501340', selected: null, candidates: [a, b] }
+    mockPostRaw.mockResolvedValue(jsonResponse(201, { medication_fill: makeFill({ id: 4 }) }))
+    const ndc = await openForm()
+
+    fireEvent.change(ndc, { target: { value: '6050501340' } })
+    expect(await screen.findByText('NDC 60505-0134-0')).toBeInTheDocument()
+    expect(screen.getByText('NDC 60505-134-00')).toBeInTheDocument()
+    expect(screen.getByText('pkg for 60505-0134-0')).toBeInTheDocument()
+    expect(screen.getByText('Labeler 60505-134-00')).toBeInTheDocument()
+    expect(screen.getByText(/package NDC exact \(5-3-2\)/)).toBeInTheDocument()
+    expect(screen.queryByLabelText('Drug preview')).not.toBeInTheDocument()
+
+    // Saving before choosing is refused here, without a request.
+    fillRequired()
+    fireEvent.click(screen.getByRole('button', { name: 'Save fill' }))
+    expect(await screen.findByText('Choose one of the matching packages')).toBeInTheDocument()
+    expect(mockPostRaw).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('radio', { name: /60505-134-00/ }))
+    expect(screen.getByLabelText('Drug preview')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Save fill' }))
+
+    await waitFor(() => expect(mockPostRaw).toHaveBeenCalledTimes(1))
+    expect(mockPostRaw.mock.calls[0]![1]).toMatchObject({ ndc: '6050501340', ndc_candidate: '60505-134-00' })
+  })
+
+  it('explains an unresolved NDC, searches by name and can save unresolved', async () => {
+    lookups['99999-9999-99'] = { status: 'unresolved', input: '99999999999', selected: null, candidates: [] }
+    lookups['search'] = { candidates: [candidate('0071-0155-23')] }
+    mockPostRaw.mockResolvedValue(jsonResponse(201, { medication_fill: makeFill({ id: 5, ndc_status: 'unresolved' }) }))
+    const ndc = await openForm()
+
+    fireEvent.change(ndc, { target: { value: '99999-9999-99' } })
+    expect(await screen.findByText('No FDA listing matches this NDC.')).toBeInTheDocument()
+
+    // Without choosing to save unresolved, the form stays put.
+    fillRequired()
+    fireEvent.click(screen.getByRole('button', { name: 'Save fill' }))
+    expect(await screen.findByText(/Search by name, or choose to save it without a match/)).toBeInTheDocument()
+    expect(mockPostRaw).not.toHaveBeenCalled()
+
+    // Search by name.
+    fireEvent.click(screen.getByRole('button', { name: 'Search by name' }))
+    fireEvent.change(screen.getByLabelText('Drug name'), { target: { value: 'atorvastatin' } })
+    fireEvent.change(screen.getByLabelText('Strength'), { target: { value: '20 mg' } })
+    fireEvent.change(screen.getByLabelText('Dosage form'), { target: { value: 'tablet' } })
+    fireEvent.change(screen.getByLabelText('Package'), { target: { value: '90' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Search FDA listings' }))
+    expect(await screen.findByText('NDC 0071-0155-23')).toBeInTheDocument()
+    const searchUrl = mockGet.mock.calls.map(([url]) => String(url)).find((url) => url.startsWith('/api/ndc/search'))!
+    expect(new URL(searchUrl, 'http://x').searchParams.toString()).toBe('name=atorvastatin&strength=20+mg&dosage_form=tablet&package=90')
+
+    // Save unresolved instead.
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Save without an FDA match' }))
+    fireEvent.change(screen.getByLabelText(/^Drug name as printed/), { target: { value: 'mystery tab' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save fill' }))
+
+    await waitFor(() => expect(mockPostRaw).toHaveBeenCalledTimes(1))
+    expect(mockPostRaw.mock.calls[0]![1]).toMatchObject({ ndc: '99999-9999-99', allow_unresolved: true, drug_as_printed: 'mystery tab' })
+  })
+
+  it('picking a search result re-runs the lookup with its NDC', async () => {
+    lookups['99999-9999-99'] = { status: 'unresolved', input: '99999999999', selected: null, candidates: [] }
+    lookups['0071-0155-23'] = { status: 'resolved', input: '0071015523', selected: candidate('0071-0155-23'), candidates: [candidate('0071-0155-23')] }
+    lookups['search'] = { candidates: [candidate('0071-0155-23')] }
+    const ndc = await openForm()
+    fireEvent.change(ndc, { target: { value: '99999-9999-99' } })
+    fireEvent.click(await screen.findByRole('button', { name: 'Search by name' }))
+    fireEvent.change(screen.getByLabelText('Drug name'), { target: { value: 'atorvastatin' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Search FDA listings' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Use NDC 0071-0155-23' }))
+
+    expect(await screen.findByLabelText('Drug preview')).toBeInTheDocument()
+    expect(screen.getByLabelText(/^NDC/)).toHaveValue('0071-0155-23')
+  })
+
+  it('shows 422 errors next to their fields', async () => {
+    lookups['00071-0155-23'] = { status: 'resolved', input: '00071015523', selected: candidate('0071-0155-23'), candidates: [candidate('0071-0155-23')] }
+    mockPostRaw.mockResolvedValue(jsonResponse(422, {
+      message: 'The given data was invalid.',
+      errors: { quantity: ['The quantity must be greater than 0.'], paid_cents: ['The paid cents field must be at least 0.'] },
+    }))
+    const ndc = await openForm()
+    fireEvent.change(ndc, { target: { value: '00071-0155-23' } })
+    await screen.findByLabelText('Drug preview')
+    fillRequired()
+    fireEvent.click(screen.getByRole('button', { name: 'Save fill' }))
+
+    const quantityError = await screen.findByText('The quantity must be greater than 0.')
+    expect(quantityError.closest('label')).toHaveTextContent('Quantity')
+    expect(screen.getByText('The paid cents field must be at least 0.').closest('label')).toHaveTextContent('Paid ($)')
+    expect(screen.getByText('The given data was invalid.')).toBeInTheDocument()
+    // The form stays open for correction.
+    expect(screen.getByLabelText(/^NDC/)).toBeInTheDocument()
+  })
+
+  it('rejects a dollar amount that is not money before sending', async () => {
+    lookups['00071-0155-23'] = { status: 'resolved', input: '00071015523', selected: candidate('0071-0155-23'), candidates: [candidate('0071-0155-23')] }
+    const ndc = await openForm()
+    fireEvent.change(ndc, { target: { value: '00071-0155-23' } })
+    await screen.findByLabelText('Drug preview')
+    fillRequired()
+    fireEvent.change(screen.getByLabelText('Paid ($)'), { target: { value: 'ten' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save fill' }))
+
+    expect(await screen.findByText('Enter a dollar amount such as 18.99.')).toBeInTheDocument()
+    expect(mockPostRaw).not.toHaveBeenCalled()
+  })
+})
+
+describe('MedicationFillHistory', () => {
+  it('lists a medication\'s fills from its fills route', async () => {
+    render(<MedicationFillHistory patientId={42} medicationId={7} />)
+
+    expect(await screen.findByText('26.10.28')).toBeInTheDocument()
+    expect(mockGet).toHaveBeenCalledWith('/api/phr/patients/42/medications/7/fills')
+    expect(screen.getByText('$189.99')).toBeInTheDocument()
+    expect(screen.queryByText('25.03.04')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /delete/i })).not.toBeInTheDocument()
+  })
+
+  it('says so when a medication has no fills', async () => {
+    mockGet.mockResolvedValue({ medication_fills: [], can_manage: true })
+    render(<MedicationFillHistory patientId={42} medicationId={7} />)
+    expect(await screen.findByText('No fills recorded for this medication.')).toBeInTheDocument()
+  })
+})
+
+describe('Fill entry without an NDC', () => {
+  it('saves a manual fill with only the drug name as printed', async () => {
+    mockPostRaw.mockResolvedValue(jsonResponse(201, { medication_fill: makeFill({ id: 6, ndc_status: 'manual' }) }))
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /add fill/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save fill' }))
+    expect(await screen.findByText('Enter an NDC, or the drug name as printed.')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText(/^Drug name as printed/), { target: { value: 'aspirin 81mg' } })
+    fireEvent.change(screen.getByLabelText(/^Fill date/), { target: { value: '2026-10-28' } })
+    fireEvent.change(screen.getByLabelText(/^Quantity/), { target: { value: '30' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save fill' }))
+
+    await waitFor(() => expect(mockPostRaw).toHaveBeenCalledTimes(1))
+    const body = mockPostRaw.mock.calls[0]![1] as Record<string, unknown>
+    expect(body).not.toHaveProperty('ndc')
+    expect(body).toMatchObject({ drug_as_printed: 'aspirin 81mg' })
+  })
+})
