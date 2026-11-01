@@ -119,14 +119,19 @@ final readonly class SignedDocumentUploadService
                     throw new HttpException(500, 'The uploaded file could not be stored.');
                 }
                 $staged = $path;
-                $upload->forceFill([
+                // Only a session still receiving may become uploaded: a cancel (or expiry) that
+                // ran while the body was draining wins, and its bytes are not kept.
+                $published = PhrDocumentUpload::query()->whereKey($upload->id)->where('status', PhrDocumentUpload::RECEIVING)->update([
                     'status' => PhrDocumentUpload::UPLOADED,
                     'staging_path' => $path,
                     'received_size' => $received['size'],
                     'received_sha256' => $received['sha256'],
                     'uploaded_at' => now(),
                     'expires_at' => now()->addMinutes(self::TTL_MINUTES),
-                ])->save();
+                ]);
+                if ($published !== 1) {
+                    throw new ConflictHttpException('The upload was cancelled or expired while it was being received.');
+                }
             });
             fclose($buffer);
         } catch (Throwable $exception) {

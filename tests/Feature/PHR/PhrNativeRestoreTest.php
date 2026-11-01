@@ -1161,7 +1161,7 @@ final class PhrNativeRestoreTest extends TestCase
         $this->assertSame(DB::table('phr_eob_lines')->where('patient_id', $target)->value('id'), $evidence->eob_line_id);
         $this->assertSame($document->file_hash, DB::table('phr_documents')->where('id', $evidence->document_id)->value('file_hash'));
         $this->assertSame('pending_review', DB::table('phr_eobs')->where('patient_id', $target)->value('review_status'));
-        $this->assertStringContainsString('possible_duplicate', (string) $restoredFill->review_flags);
+        $this->assertNull($restoredFill->review_flags, 'a flag names another fill by an ID that restore changes, so it is not archived');
 
         // An archive downloaded before fill evidence existed has no such table, and restores.
         DB::table('phr_patients')->where('id', $target)->delete();

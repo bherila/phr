@@ -9607,6 +9607,7 @@
                         "enum": [
                             "rx_number",
                             "attributes",
+                            "external_id",
                             null
                         ]
                     },

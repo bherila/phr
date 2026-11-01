@@ -69,10 +69,28 @@ final class EobClaim
         }
 
         $lines = [];
-        foreach (array_values((array) ($data['lines'] ?? [])) as $index => $line) {
+        $rawLines = array_values((array) ($data['lines'] ?? []));
+        // A line without a number takes the next one no other line claims, so explicit and
+        // omitted numbers can never collide.
+        $taken = [];
+        foreach ($rawLines as $raw) {
+            if (isset(((array) $raw)['line_number'])) {
+                $taken[(int) ((array) $raw)['line_number']] = true;
+            }
+        }
+        $next = 0;
+        foreach ($rawLines as $line) {
             $line = (array) $line;
+            if (isset($line['line_number'])) {
+                $number = (int) $line['line_number'];
+            } else {
+                do {
+                    $next++;
+                } while (isset($taken[$next]));
+                $number = $next;
+            }
             $normalized = [
-                'line_number' => isset($line['line_number']) ? (int) $line['line_number'] : $index + 1,
+                'line_number' => $number,
                 'procedure_code' => strtoupper((string) self::text($line['procedure_code'] ?? null)),
                 'revenue_code' => self::text($line['revenue_code'] ?? null),
                 'code_type' => self::text($line['code_type'] ?? null) ?? 'unknown',

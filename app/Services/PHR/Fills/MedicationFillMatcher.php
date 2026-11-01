@@ -163,8 +163,13 @@ final class MedicationFillMatcher
         if ($mine === [] || $theirs === []) {
             return self::UNKNOWN;
         }
-        if (array_intersect($mine, $theirs) === []) {
-            return self::DIFFERENT;
+        // Every identifying word of the shorter name must be in the longer one ("atorvastatin
+        // calcium" is "atorvastatin"; "levothyroxine sodium" is not "liothyronine sodium", though
+        // both say sodium). A partial overlap settles nothing, so it is neither a match nor a flag.
+        $shorter = count($mine) <= count($theirs) ? $mine : $theirs;
+        $longer = $shorter === $mine ? $theirs : $mine;
+        if (array_diff($shorter, $longer) !== []) {
+            return array_intersect($mine, $theirs) === [] ? self::DIFFERENT : self::UNKNOWN;
         }
         $mineStrengths = $this->strengths($incoming['drug_as_printed'] ?? null, $incoming['strengths'] ?? null);
         $theirStrengths = $this->strengths($existing->drug_as_printed, $existing->strengths);

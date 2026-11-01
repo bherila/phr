@@ -771,7 +771,7 @@
             "description": "Partially correct an EOB this connection wrote, by its ID and current version (read it with eobs_get). data holds the header fields to change; lines, when present, replaces every line (matched by line_number, so linked fills stay linked). Reopens review.",
             "inputSchema": "sha256:b8512de02e36f2606130d0da583b70a325b31d1995a5130dae08d8e431aa7158",
             "name": "eobs.update",
-            "outputSchema": "sha256:d766d68cbcdb4fb20c2805b221841dfa378347a0ac23ae47684ea7624e1522c8",
+            "outputSchema": "sha256:657840ff75e0bca63ea8c7961b129ebc4b275a088c9a1c7e5654ae4b4a27b177",
             "title": "Update an EOB"
         },
         "eobs.upsert": {
@@ -784,7 +784,7 @@
             "description": "Write an EOB claim and its lines that you read from a document, pending_review. Always eobs_list first. Requires source_document_id (upload the EOB first). Idempotent on the importers' claim fingerprint across every source: a claim PHR already holds, from a parser or another client, is returned unchanged with match.by. A pharmacy line may carry a fill (ndc or drug_as_printed, quantity, rx_number, pharmacy_name, filled_on): the server writes it through the fill write path, so the same fill from a label, a receipt and this EOB is one fill, linked to its line. Correcting your own claim needs expected_version.",
             "inputSchema": "sha256:82b8606a5991aa120204d95fef4b64faf3e4b19301f0086767ef2da19854c0a7",
             "name": "eobs.upsert",
-            "outputSchema": "sha256:d766d68cbcdb4fb20c2805b221841dfa378347a0ac23ae47684ea7624e1522c8",
+            "outputSchema": "sha256:657840ff75e0bca63ea8c7961b129ebc4b275a088c9a1c7e5654ae4b4a27b177",
             "title": "Upsert an EOB"
         },
         "evidence.links": {
@@ -1096,7 +1096,7 @@
             "description": "Idempotently create or update one prescription fill. Send the NDC from ndc_lookup (or the package the person chose among ambiguous candidates as ndc_candidate) with the fill, price, pharmacy and source fields; the server resolves the drug and links or creates the patient's medication. Provenance is required: source_kind, and source_document_id (upload the source with documents_upload first) unless manual. external_id is optional; the server derives it from pharmacy, Rx number and fill date so a receipt and a label photo of the same fill merge. Returns the fill, the medication and whether it was created, and the NDC resolution.",
             "inputSchema": "sha256:7735647cba7374a441cbef4951bdd0e9c6aaa40e7e7a2deebfefbe460350f052",
             "name": "medication_fills.upsert",
-            "outputSchema": "sha256:8faafc2d1790c18080c15db6d0e34172117d1e973f9c551720744fdd4a28cf8e",
+            "outputSchema": "sha256:01a05eaafc5c30beee7a606f7b430eff339686245b487881dd413157e653d223",
             "title": "Upsert Medication Fills"
         },
         "medications.update": {

@@ -10,6 +10,7 @@ use App\Models\PhrMedicationFillEvidence;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Models\User;
+use App\Services\PHR\Fills\MedicationFillExternalId;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -97,7 +98,7 @@ final class MedicationFillCrossSourceDedupeTest extends TestCase
             ->assertJsonPath('outcome', 'unchanged')
             ->assertJsonPath('fills.0.fill_id', $fillId);
         $this->assertSame(1, PhrMedicationFill::query()->count());
-        $this->assertSame(2, PhrMedicationFillEvidence::query()->count(), 'one document and one EOB line, once each');
+        $this->assertSame(2, PhrMedicationFillEvidence::query()->where('source_kind', '!=', 'alias')->count(), 'one document and one EOB line, once each');
     }
 
     public function test_without_an_rx_number_the_fill_date_drug_pharmacy_and_quantity_match(): void
@@ -169,6 +170,43 @@ final class MedicationFillCrossSourceDedupeTest extends TestCase
             ->assertJsonPath('dedupe.status', 'none')
             ->assertJsonPath('data.review_flags', []);
         $this->assertSame(2, PhrMedicationFill::query()->count());
+    }
+
+    public function test_a_partial_name_overlap_is_not_the_same_drug(): void
+    {
+        $base = ['ndc' => null, 'rx_number' => null, 'quantity' => 30, 'pharmacy_name' => 'Example Pharmacy', 'source_kind' => 'receipt_pdf'];
+        $this->fill('receipt', $this->document(), [...$base, 'drug_as_printed' => 'Levothyroxine sodium 50 mcg tablet'])->assertCreated();
+        // Both say "sodium" and "50 mcg", but they are different drugs: neither merged nor flagged.
+        $this->fill('statement', $this->document(), [...$base, 'drug_as_printed' => 'Liothyronine sodium 50 mcg tablet', 'source_kind' => 'statement'])
+            ->assertCreated()
+            ->assertJsonPath('dedupe.status', 'none');
+        // The same drug named more fully on the other source is still the same fill.
+        $this->fill('label', $this->document(), [...$base, 'drug_as_printed' => 'Levothyroxine 50 mcg', 'source_kind' => 'label_photo'])
+            ->assertOk()
+            ->assertJsonPath('dedupe.status', 'matched');
+        $this->assertSame(2, PhrMedicationFill::query()->count());
+    }
+
+    public function test_an_identity_merged_into_another_fill_stays_there_and_is_not_recreated_after_a_delete(): void
+    {
+        $label = $this->document();
+        $receipt = $this->document();
+        $fillId = $this->fill('label', $label, ['ndc' => '58151-0155-77', 'rx_number' => null, 'source_kind' => 'label_photo'])->assertCreated()->json('data.id');
+        $payload = ['ndc' => '58151-0155-77', 'rx_number' => null, 'source_kind' => 'receipt_pdf'];
+        $first = $this->fill('receipt', $receipt, $payload)->assertOk()->assertJsonPath('dedupe.status', 'matched');
+        $externalId = (string) $this->resolveExternalId($receipt);
+
+        // The receipt connection's own identity resolves to that fill, and a retry lands there again.
+        $this->actingAsClient('receipt');
+        $this->postJson("/api/v1/patients/{$this->patient->id}/medication-fills/resolve", ['external_ids' => [$externalId]])
+            ->assertOk()->assertJsonPath("resolved.{$externalId}.id", $fillId);
+        $this->fill('receipt', $receipt, $payload)->assertOk()->assertJsonPath('dedupe.matched_by', 'external_id')->assertJsonPath('data.id', $fillId);
+
+        // A person deletes the fill: the retry must not bring it back.
+        PhrMedicationFill::query()->findOrFail($fillId)->delete();
+        $this->fill('receipt', $receipt, $payload)->assertConflict();
+        $this->assertSame(0, PhrMedicationFill::query()->count());
+        $this->assertNotNull($first->json('data.id'));
     }
 
     public function test_another_day_or_another_patient_is_never_a_match(): void
@@ -265,6 +303,12 @@ final class MedicationFillCrossSourceDedupeTest extends TestCase
         $this->actingAsClient('insurer');
 
         return $this->getJson("/api/v1/patients/{$this->patient->id}/medication-fills/{$id}")->assertOk()->json('data');
+    }
+
+    /** The external id the server derived for a document that carries no Rx number (what a retry re-sends). */
+    private function resolveExternalId(PhrDocument $document): string
+    {
+        return MedicationFillExternalId::derive(['source_locator' => null], $document->id) ?? '';
     }
 
     private function eobUrl(): string

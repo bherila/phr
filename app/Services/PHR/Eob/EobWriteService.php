@@ -52,19 +52,24 @@ final readonly class EobWriteService
         $written = DB::transaction(function () use ($patient, $claim, $fingerprint, $source, $externalId, $expected, $documentId): array {
             PhrPatient::query()->whereKey($patient->id)->lockForUpdate()->first();
 
-            $same = PhrEob::query()->where('patient_id', $patient->id)->where('claim_fingerprint', $fingerprint)->orderBy('id')->first();
-            if ($same instanceof PhrEob) {
-                return [$same, ClinicalUpsertResult::UNCHANGED, ['by' => 'claim_fingerprint', 'import_source' => $same->import_source]];
-            }
-
+            // This connection's own EOB first: a change to a field the fingerprint does not cover
+            // (the plan name, the source document) is a correction, not a duplicate.
             $own = PhrEob::query()->where('patient_id', $patient->id)->where('import_source', $source)->where('external_id', $externalId)->first();
             if ($own instanceof PhrEob) {
+                if ($this->withoutFills($claim) == EobClaim::normalize($this->stored($own)) && $own->source_document_id === $documentId) {
+                    return [$own, ClinicalUpsertResult::UNCHANGED, ['by' => 'claim_fingerprint', 'import_source' => $own->import_source]];
+                }
                 if ($expected === null || ! hash_equals($this->versions->for($own), $expected)) {
                     throw new ConflictHttpException('An EOB with this external_id exists with different content. Read it (eobs.get) and send its current version as expected_version, or use eobs.update.');
                 }
                 $this->apply($own, $claim, $fingerprint, $documentId);
 
                 return [$own->refresh(), ClinicalUpsertResult::UPDATED, null];
+            }
+
+            $same = PhrEob::query()->where('patient_id', $patient->id)->where('claim_fingerprint', $fingerprint)->orderBy('id')->first();
+            if ($same instanceof PhrEob) {
+                return [$same, ClinicalUpsertResult::UNCHANGED, ['by' => 'claim_fingerprint', 'import_source' => $same->import_source]];
             }
 
             // The same claim another source read slightly differently (an AI reading of a
@@ -139,11 +144,7 @@ final readonly class EobWriteService
             }
 
             $replacesLines = array_key_exists('lines', $data);
-            $stored = array_merge($eob->only([...EobClaim::HEADER_TEXT, ...EobClaim::HEADER_DATES, ...EobClaim::HEADER_MONEY, 'claim_type']), [
-                'lines' => $eob->lines()->orderBy('line_number')->get()->map(
-                    fn (PhrEobLine $line): array => $line->only(['line_number', 'procedure_code', 'revenue_code', 'code_type', 'description', 'service_start', 'service_end', 'notes_applied', ...EobClaim::LINE_MONEY]),
-                )->all(),
-            ]);
+            $stored = $this->stored($eob);
             $current = array_merge($stored, $data);
             if ($replacesLines) {
                 // Totals stated before the lines changed no longer describe them, unless re-stated.
@@ -171,6 +172,29 @@ final readonly class EobWriteService
         }, 3);
 
         return new EobUpsertResult($written[0], $written[1], $this->versions->for($written[0]), null, $written[0]->lines()->orderBy('line_number')->get(), []);
+    }
+
+    /**
+     * @param  array{header: array<string, mixed>, lines: list<array<string, mixed>>}  $claim
+     * @return array{header: array<string, mixed>, lines: list<array<string, mixed>>}
+     */
+    private function withoutFills(array $claim): array
+    {
+        return ['header' => $claim['header'], 'lines' => array_map(static fn (array $line): array => array_diff_key($line, ['fill' => true]), $claim['lines'])];
+    }
+
+    /**
+     * The EOB as the claim input it would have been written from.
+     *
+     * @return array<string, mixed>
+     */
+    private function stored(PhrEob $eob): array
+    {
+        return array_merge($eob->only([...EobClaim::HEADER_TEXT, ...EobClaim::HEADER_DATES, ...EobClaim::HEADER_MONEY, 'claim_type']), [
+            'lines' => $eob->lines()->orderBy('line_number')->get()->map(
+                fn (PhrEobLine $line): array => $line->only(['line_number', 'procedure_code', 'revenue_code', 'code_type', 'description', 'service_start', 'service_end', 'notes_applied', ...EobClaim::LINE_MONEY]),
+            )->all(),
+        ]);
     }
 
     /**
@@ -242,6 +266,11 @@ final readonly class EobWriteService
             ], static fn (mixed $value): bool => $value !== null);
 
             $entry = ['line_id' => (int) $line->id, 'line_number' => (int) $line->line_number];
+            if (! isset($data['filled_on'])) {
+                $results[] = [...$entry, 'fill_id' => null, 'outcome' => 'error', 'errors' => ['filled_on' => ['The fill has no date: send fill.filled_on, or give the line a service_start.']]];
+
+                continue;
+            }
             try {
                 $result = $this->fills->upsert($patient, $client, ClinicalUpsertData::fromValidated('medication-fills', [
                     'external_id' => MedicationFillExternalId::derive($data, $documentId),

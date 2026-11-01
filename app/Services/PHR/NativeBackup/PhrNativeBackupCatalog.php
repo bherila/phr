@@ -144,6 +144,9 @@ final class PhrNativeBackupCatalog
             'phr_medication_fills' => [
                 'patient_column' => 'patient_id',
                 'relationships' => [...$clinical(), 'medication_id' => self::record('phr_medications', true)],
+                'excluded_columns' => [
+                    'review_flags' => 'IDs change on restore.',
+                ],
             ],
             'phr_medication_fill_evidence' => [
                 'patient_column' => 'patient_id',
@@ -323,7 +326,7 @@ final class PhrNativeBackupCatalog
             ],
             'phr_document_uploads' => [
                 'patient_column' => 'patient_id',
-                'because' => 'Short-lived signed upload sessions; a finalized upload is the document, which is backed up with its bytes.',
+                'because' => 'Transient upload sessions.',
             ],
         ];
     }

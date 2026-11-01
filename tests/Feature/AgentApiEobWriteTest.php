@@ -131,6 +131,38 @@ final class AgentApiEobWriteTest extends TestCase
         $this->assertEqualsCanonicalizing($lineIds, PhrEobLine::query()->pluck('id')->all(), 'lines are updated in place');
     }
 
+    public function test_a_change_the_fingerprint_does_not_cover_is_a_correction_not_a_duplicate(): void
+    {
+        $document = $this->document();
+        $created = $this->putJson($this->url(), $this->claim($document))->assertCreated()->json();
+
+        $changed = $this->claim($document);
+        $changed['data']['plan_name'] = 'Corrected Plan';
+        $this->putJson($this->url(), $changed)->assertConflict();
+        $this->putJson($this->url(), [...$changed, 'expected_version' => $created['version']])
+            ->assertOk()
+            ->assertJsonPath('outcome', 'updated')
+            ->assertJsonPath('data.plan_name', 'Corrected Plan');
+        $this->assertSame(1, PhrEob::query()->count());
+    }
+
+    public function test_line_numbers_cannot_collide_and_a_fill_without_a_date_is_reported(): void
+    {
+        $document = $this->document();
+        $claim = $this->pharmacyClaim($document);
+        // An explicit 1 and an omitted number: the omitted one must not also become 1.
+        $claim['data']['lines'][0]['line_number'] = 1;
+        unset($claim['data']['lines'][1]['line_number']);
+        $claim['data']['lines'][1]['service_start'] = null;
+        $claim['data']['lines'][1]['fill'] = ['drug_as_printed' => 'Synthetic drug', 'quantity' => 30];
+
+        $created = $this->putJson($this->url(), $claim)->assertCreated()->json();
+        $this->assertSame([1, 2], array_column($created['lines'], 'line_number'));
+        $this->assertSame('error', $created['fills'][1]['outcome']);
+        $this->assertArrayHasKey('filled_on', $created['fills'][1]['errors']);
+        $this->assertSame(1, PhrEob::query()->count(), 'the claim is saved, the fill is reported');
+    }
+
     public function test_provenance_is_required_and_review_status_is_not_accepted(): void
     {
         $claim = $this->claim($this->document());

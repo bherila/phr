@@ -6,6 +6,7 @@ use App\Models\PhrEobLine;
 use App\Models\PhrMedicationFill;
 use App\Models\PhrMedicationFillEvidence;
 use App\Models\PhrPatient;
+use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -53,5 +54,36 @@ final class MedicationFillEvidenceService
         ]);
 
         return $evidence->wasRecentlyCreated;
+    }
+
+    /**
+     * Remembers that a connection's own identity for a fill resolved to a fill the patient
+     * already had, so its retry lands there again and cannot recreate the fill if a person
+     * deleted it.
+     */
+    public function alias(PhrPatient $patient, PhrMedicationFill $fill, string $importSource, string $externalId): void
+    {
+        PhrMedicationFillEvidence::query()->firstOrCreate([
+            'fill_id' => $fill->id,
+            'evidence_key' => substr(hash('sha256', 'alias|'.$importSource.'|'.$externalId), 0, 40),
+        ], [
+            'patient_id' => $patient->id,
+            'source_kind' => 'alias',
+            'import_source' => $importSource,
+            'external_id' => $externalId,
+        ]);
+    }
+
+    /** The fill (live or withdrawn) a connection's identity was merged into, if any. */
+    public function findAlias(PhrPatient $patient, string $importSource, string $externalId): ?PhrMedicationFill
+    {
+        $fillId = PhrMedicationFillEvidence::query()
+            ->where('patient_id', $patient->id)
+            ->where('source_kind', 'alias')
+            ->where('import_source', $importSource)
+            ->where('external_id', $externalId)
+            ->value('fill_id');
+
+        return $fillId === null ? null : PhrMedicationFill::withoutGlobalScope(SoftDeletingScope::class)->whereKey($fillId)->first();
     }
 }

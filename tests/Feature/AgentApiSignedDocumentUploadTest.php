@@ -13,6 +13,7 @@ use App\Support\PHR\PhrDocumentUploadLimits;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
@@ -150,6 +151,26 @@ final class AgentApiSignedDocumentUploadTest extends TestCase
         $this->actingWith([AgentApiScopes::DOCUMENTS_WRITE]);
         $this->finalize($session['upload_id'])->assertUnprocessable();
         $this->assertSame(0, PhrDocument::query()->count());
+    }
+
+    public function test_a_cancel_that_lands_while_the_body_is_received_wins(): void
+    {
+        $session = $this->open()->assertCreated()->json('data');
+        $cancelled = false;
+        DB::listen(function ($query) use (&$cancelled): void {
+            // The moment the PUT has claimed the session, the person cancels it.
+            if (! $cancelled && str_starts_with(strtolower($query->sql), 'update "phr_document_uploads"') && in_array(PhrDocumentUpload::RECEIVING, $query->bindings, true)) {
+                $cancelled = true;
+                DB::table('phr_document_uploads')->update(['status' => PhrDocumentUpload::CANCELLED]);
+            }
+        });
+
+        $this->putBytes($session['url'], self::PDF)->assertConflict();
+        $this->assertTrue($cancelled);
+        $this->assertSame(PhrDocumentUpload::CANCELLED, PhrDocumentUpload::query()->sole()->status);
+        $this->assertSame([], Storage::disk(PhrDocument::STORAGE_DISK)->allFiles(), 'the bytes were not kept');
+        $this->actingWith([AgentApiScopes::DOCUMENTS_WRITE]);
+        $this->finalize($session['upload_id'])->assertConflict();
     }
 
     public function test_finalize_before_the_put_is_refused(): void

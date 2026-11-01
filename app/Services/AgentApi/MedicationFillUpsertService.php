@@ -96,6 +96,9 @@ final readonly class MedicationFillUpsertService
                         $eobLineId !== null ? 'eob' : (string) ($data->attributes['source_kind'] ?? 'manual'),
                         isset($data->attributes['source_locator']) ? (string) $data->attributes['source_locator'] : null,
                     );
+                    if ($result->dedupe['status'] === 'matched') {
+                        $this->evidence->alias($patient, $result->record, $identity['import_source'], $identity['external_id']);
+                    }
 
                     return $result;
                 }, 3);
@@ -138,6 +141,16 @@ final readonly class MedicationFillUpsertService
         $attributes = $prepared['attributes'];
         $dedupe = ['status' => 'none', 'matched_by' => null, 'matched_fill_id' => null];
         if (! PhrMedicationFill::query()->where($identity)->exists()) {
+            // An identity this connection already merged into another fill stays there: a retry
+            // lands on it again, and if a person deleted that fill it is not recreated.
+            $aliased = $this->evidence->findAlias($patient, $identity['import_source'], $identity['external_id']);
+            if ($aliased !== null) {
+                if ($aliased->deleted_at !== null || $aliased->retracted_at !== null) {
+                    throw new ConflictHttpException('The external identifier is no longer available for this patient.');
+                }
+
+                return $this->mergeInto($patient, $aliased, $prepared, 'external_id');
+            }
             $match = $this->matcher->find($patient, $attributes);
             if ($match['status'] === MedicationFillMatcher::MATCHED && $match['fill'] !== null) {
                 return $this->mergeInto($patient, $match['fill'], $prepared, (string) $match['by']);

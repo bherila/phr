@@ -23,7 +23,7 @@ class PhrMedicationFillEvidence extends Model
 {
     protected $table = 'phr_medication_fill_evidence';
 
-    protected $fillable = ['patient_id', 'fill_id', 'document_id', 'eob_line_id', 'source_kind', 'source_locator', 'evidence_key'];
+    protected $fillable = ['patient_id', 'fill_id', 'document_id', 'eob_line_id', 'source_kind', 'source_locator', 'evidence_key', 'import_source', 'external_id'];
 
     protected function casts(): array
     {
