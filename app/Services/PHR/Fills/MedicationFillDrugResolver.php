@@ -124,8 +124,10 @@ class MedicationFillDrugResolver
         return [
             'ndc_status' => $status,
             'ndc_as_captured' => $captured,
-            'ndc_10' => null,
-            'ndc_11' => null,
+            // The ten-digit form is always shown, so keep it whenever the input
+            // fixes one, even without an FDA match.
+            'ndc_10' => $ten = ($captured === null ? null : NdcNumber::toTenDigit($captured)),
+            'ndc_11' => $ten === null ? null : NdcNumber::toNdc11($ten),
             'substance_names' => null,
             'strengths' => null,
             'brand_name' => null,

@@ -13,10 +13,14 @@ use Illuminate\Support\Facades\Http;
  * NDC and otherwise 404, as openFDA does; any other search gets the recorded
  * atorvastatin search.
  *
- * The fixtures are real responses trimmed to the products used. `00002-0800-1`
- * is the one synthetic listing, served only when a test lists it: a copy of the
- * 0002-0800-01 product under that package code, to model an 11-digit NDC that two
- * real packages could mean.
+ * The fixtures are real responses trimmed to the products used. Two kinds of
+ * synthetic listing are copies of a recorded product under another package code:
+ * - Any package a test passes in `$listed` is a copy of the 0002-0800-01 product,
+ *   to model a ten-digit NDC without hyphens that two real packages could mean
+ *   (0002080001 reads as 0002-0800-01 and 00020-800-01).
+ * - `60505-134-00` is always served as a copy of the cyclosporine product: the
+ *   owner's hard-coded rule turns the billing NDC 60505-0134-00 into it, though
+ *   openFDA lists that product as 60505-0134-0.
  */
 trait FakesOpenFda
 {
@@ -58,10 +62,11 @@ trait FakesOpenFda
         if (is_file($file)) {
             return Http::response($this->fixture('package-'.$packageNdc.'.json'));
         }
-        if (in_array($packageNdc, $listed, true) && $packageNdc === '00002-0800-1') {
-            $synthetic = json_decode(str_replace('0002-0800-01', '00002-0800-1', (string) file_get_contents(__DIR__.'/../Fixtures/openfda/package-0002-0800-01.json')), true);
-
-            return Http::response($synthetic);
+        if ($packageNdc === '60505-134-00') {
+            return Http::response(json_decode(str_replace('60505-0134-0', '60505-134-00', (string) file_get_contents(__DIR__.'/../Fixtures/openfda/package-60505-0134-0.json')), true));
+        }
+        if (in_array($packageNdc, $listed, true)) {
+            return Http::response(json_decode(str_replace('0002-0800-01', $packageNdc, (string) file_get_contents(__DIR__.'/../Fixtures/openfda/package-0002-0800-01.json')), true));
         }
 
         return Http::response($this->fixture('not-found.json'), 404);

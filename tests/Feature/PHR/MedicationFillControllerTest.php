@@ -20,7 +20,7 @@ final class MedicationFillControllerTest extends TestCase
         parent::setUp();
 
         Cache::flush();
-        $this->fakeOpenFda(['00002-0800-1']);
+        $this->fakeOpenFda(['00020-800-01']);
     }
 
     /** @return array{owner: User, viewer: User, patientId: int} */
@@ -81,16 +81,16 @@ final class MedicationFillControllerTest extends TestCase
         ['owner' => $owner, 'patientId' => $patientId] = $this->patientWithViewer();
         $url = "/api/phr/patients/{$patientId}/medication-fills";
 
-        $this->actingAs($owner)->postJson($url, $this->body(['ndc' => '00002080001']))
+        $this->actingAs($owner)->postJson($url, $this->body(['ndc' => '0002080001']))
             ->assertUnprocessable()
             ->assertJsonPath('errors.ndc_candidate.0', 'Choose one of the matching packages');
         $this->assertSame(0, PhrMedicationFill::query()->count());
 
-        $this->actingAs($owner)->postJson($url, $this->body(['ndc' => '00002080001', 'ndc_candidate' => '00002-0800-1']))
+        $this->actingAs($owner)->postJson($url, $this->body(['ndc' => '0002080001', 'ndc_candidate' => '00020-800-01']))
             ->assertCreated()
             ->assertJsonPath('medication_fill.ndc_status', 'resolved')
-            ->assertJsonPath('medication_fill.ndc_10', '00002-0800-1');
-        $this->actingAs($owner)->postJson($url, $this->body(['ndc' => '00002080001', 'ndc_candidate' => '58151-155-77']))
+            ->assertJsonPath('medication_fill.ndc_10', '00020-800-01');
+        $this->actingAs($owner)->postJson($url, $this->body(['ndc' => '0002080001', 'ndc_candidate' => '58151-155-77']))
             ->assertUnprocessable()
             ->assertJsonValidationErrors('ndc_candidate');
     }
@@ -207,7 +207,7 @@ final class MedicationFillControllerTest extends TestCase
         $this->assertSame('cyclosporine', $changed['medication']['name']);
 
         $this->actingAs($owner)->patchJson($url, ['ndc' => '12345-6789-0'])->assertUnprocessable()->assertJsonValidationErrors('ndc');
-        $this->assertSame('60505-0134-0', PhrMedicationFill::query()->findOrFail($created['id'])->ndc_10, 'a refused edit changes nothing');
+        $this->assertSame('60505-134-00', PhrMedicationFill::query()->findOrFail($created['id'])->ndc_10, 'a refused edit changes nothing');
     }
 
     public function test_index_show_history_review_and_delete(): void
@@ -304,7 +304,7 @@ final class MedicationFillControllerTest extends TestCase
             ->assertJsonPath('input', '60505-0134-00')
             ->assertJsonPath('selected.ndc_11', '60505013400')
             ->assertJsonPath('selected.drug.labeler_name', 'Apotex Corp.');
-        $this->actingAs($user)->getJson('/api/ndc/lookup?ndc=00002080001')
+        $this->actingAs($user)->getJson('/api/ndc/lookup?ndc=0002080001')
             ->assertOk()
             ->assertJsonPath('status', 'ambiguous')
             ->assertJsonPath('selected', null)
