@@ -132,7 +132,7 @@ final class AgentMcpToolCatalog
             $this->write(
                 'documents.upload_access_create',
                 'Open a signed upload',
-                'Preferred for photos and PDFs: open a signed upload, then PUT the raw file to the returned url with the returned headers (no Authorization header; the URL is single-use and short-lived), then call documents_upload_finalize. kind is eob, pharmacy_receipt, rx_label, statement or other. Content types and the 50 MiB limit are those of documents_upload; byte_size must be exact, and send sha256 when you have it. Use documents_upload only for small files.',
+                'Preferred for photos and PDFs: open a signed upload, then PUT the raw file to the returned url with the returned headers (no Authorization header; the URL is short-lived), then call documents_upload_finalize. kind is eob, pharmacy_receipt, rx_label, statement or other. Content types and the 50 MiB limit are those of documents_upload; byte_size must be exact, and send sha256 when you have it. Use documents_upload only for small files.',
                 [$writes, 'documentsUploadAccessCreate'],
                 new WriteSafety(note: 'Opens a session that is finalized or cancelled explicitly, or expires.'),
             ),

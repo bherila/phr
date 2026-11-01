@@ -10,6 +10,7 @@ use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
 use App\Services\PHR\Import\PhrMultiplePatientsInSource;
 use App\Services\PHR\Import\PhrMyChartZipImporter;
+use App\Services\PHR\Storage\BlobStorageQuota;
 use App\Support\Storage\PhrStorageKey;
 use App\Support\Storage\StagedChunkAppender;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -61,6 +62,7 @@ final class EhiUploadService
 
         return $this->writeGuard->run((int) $patient->id, function (PhrPatient $locked) use ($actorUserId, $size, $diskName): PhrEhiUpload {
             $this->ensureWritable($locked, $actorUserId);
+            app(BlobStorageQuota::class)->assertForPatient($locked, $size);
             $path = PhrStorageKey::ehiUpload((int) $locked->id, (string) Str::uuid());
             $disk = Storage::disk($diskName);
             try {
@@ -124,6 +126,7 @@ final class EhiUploadService
                 return [$existing, true];
             }
 
+            app(BlobStorageQuota::class)->assertForPatient($locked, $size);
             $path = PhrStorageKey::ehiUpload((int) $locked->id, (string) Str::uuid());
             try {
                 $written = $this->linkOrCopy($document, $diskName, $path);

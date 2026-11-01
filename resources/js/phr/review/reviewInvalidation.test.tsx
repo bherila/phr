@@ -178,7 +178,8 @@ describe('review decision paths', () => {
   const NO_COUNT_CHANGE: Record<string, string> = {
     'access/AccessPage.tsx': 'grants and revokes sharing; no record or review state changes',
     'clinical/EncounterEobLinks.tsx': 'links a visit or procedure to a claim; no section count or review state changes',
-    'config/AiProviderSettingsPage.tsx': 'account AI settings, not patient records',
+    'config/StorageSettingsPage.tsx': 'Admin capacity settings do not change clinical review counts.',
+  'config/AiProviderSettingsPage.tsx': 'account AI settings, not patient records',
     'config/ConnectedDevicesPanel.tsx': 'account devices, not patient records',
     'config/connectedApps.ts': 'account app consents, not patient records',
     'data-hub/DataHubPage.tsx': 'exports and backups read the record; a deleted patient leaves the list; a native restore creates a new patient, which has nothing cached',

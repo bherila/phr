@@ -60,6 +60,7 @@ use App\Http\Controllers\PHR\ProcedureController as PHRProcedureController;
 use App\Http\Controllers\PHR\RespiratoryEventController as PHRRespiratoryEventController;
 use App\Http\Controllers\PHR\SinusEnrollmentController as PHRSinusEnrollmentController;
 use App\Http\Controllers\PHR\SinusSettingsController as PHRSinusSettingsController;
+use App\Http\Controllers\PHR\StorageSettingsController;
 use App\Http\Controllers\PHR\VitalController as PHRVitalController;
 use App\Http\Middleware\AuditAgentApiRequest;
 use App\Http\Middleware\AuthenticateWebOrMcpRequest;
@@ -358,6 +359,12 @@ Route::prefix('v1')->middleware([
 // Per-user AI provider settings used by ParseImportJob via User::resolvedAiClient().
 // The authenticated PHR Config screen consumes these session-protected endpoints.
 Route::middleware(['web', 'auth'])->group(function (): void {
+    Route::get('/admin/storage', [StorageSettingsController::class, 'show']);
+    Route::put('/admin/storage', [StorageSettingsController::class, 'update']);
+    Route::get('/admin/storage/users', [StorageSettingsController::class, 'users']);
+    Route::get('/admin/storage/users/{user}', [StorageSettingsController::class, 'user'])->whereNumber('user');
+    Route::put('/admin/storage/users/{user}', [StorageSettingsController::class, 'updateUser'])->whereNumber('user');
+
     Route::get('/user/ai-prefs', [UserAiConfigurationController::class, 'index']);
     Route::post('/user/ai-prefs', [UserAiConfigurationController::class, 'store']);
     Route::put('/user/ai-prefs/{id}', [UserAiConfigurationController::class, 'update']);

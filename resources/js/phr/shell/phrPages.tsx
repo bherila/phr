@@ -128,9 +128,10 @@ export const ImportsPage = lazy(() => import('@/phr/imports/ImportsPage'))
 const AiProviderSettingsPage = lazy(() => import('@/phr/config/AiProviderSettingsPage'))
 const ConnectedDevicesPanel = lazy(() => import('@/phr/config/ConnectedDevicesPanel'))
 const ConnectedAppsPage = lazy(() => import('@/phr/config/ConnectedAppsPage'))
+const StorageSettingsPage = lazy(() => import('@/phr/config/StorageSettingsPage'))
 const ApiAccessPanel = lazy(() => import('@/phr/config/ApiAccessPanel'))
 
-type ConfigTab = 'ai-providers' | 'devices' | 'connected-apps' | 'api-access'
+type ConfigTab = 'ai-providers' | 'devices' | 'connected-apps' | 'api-access' | 'storage'
 
 const CONFIG_TABS: { id: ConfigTab, label: string }[] = [
   { id: 'ai-providers', label: 'AI Provider Settings' },
@@ -140,11 +141,13 @@ const CONFIG_TABS: { id: ConfigTab, label: string }[] = [
 ]
 
 export function ConfigPage(): ReactElement {
+  const isAdmin = document.getElementById('PhrShell')?.dataset['isAdmin'] === 'true'
+  const tabs = isAdmin ? [...CONFIG_TABS, { id: 'storage' as const, label: 'Storage limits' }] : CONFIG_TABS
   const [tab, setTab] = useState<ConfigTab>('ai-providers')
   return (
     <div className="flex flex-col gap-4">
       <div role="tablist" aria-label="PHR configuration" className="flex shrink-0 gap-2 overflow-x-auto border-b border-border">
-        {CONFIG_TABS.map((candidate) => (
+        {tabs.map((candidate) => (
           <Button
             key={candidate.id}
             type="button"
@@ -164,6 +167,7 @@ export function ConfigPage(): ReactElement {
         {tab === 'devices' ? <ConnectedDevicesPanel /> : null}
         {tab === 'connected-apps' ? <ConnectedAppsPage /> : null}
         {tab === 'api-access' ? <ApiAccessPanel /> : null}
+        {tab === 'storage' && isAdmin ? <StorageSettingsPage /> : null}
       </div>
     </div>
   )

@@ -1373,8 +1373,8 @@
         "/patients/{patient}/documents/upload-access": {
             "post": {
                 "operationId": "documents.upload_access_create",
-                "summary": "Open a signed upload: a short-lived, single-use URL to PUT a file to",
-                "description": "For photos and PDFs too large to pass through a model. Returns a signed URL to PUT the raw file to with the returned headers. The URL is a bearer capability that stages bytes of the declared content type and size once; it creates no document. Finalize with documents.upload_finalize, which verifies size and hash and creates the document. The content types, extensions and size limit are those of documents.upload.",
+                "summary": "Open a signed upload: a short-lived URL to PUT a file to",
+                "description": "For photos and PDFs too large to pass through a model. Returns a signed URL to PUT the raw file to with the returned headers. The URL is a bearer capability that stages bytes of the declared content type and size; it creates no document. Finalize with documents.upload_finalize, which verifies size and hash and creates the document. The content types, extensions and size limit are those of documents.upload.",
                 "security": [
                     {
                         "oauth2": [
@@ -7390,7 +7390,7 @@
                             "url": {
                                 "type": "string",
                                 "format": "uri",
-                                "description": "Signed, short-lived and single-use. PUT the raw file here; it takes no Authorization header."
+                                "description": "Signed and short-lived. PUT the raw file here; it takes no Authorization header."
                             },
                             "method": {
                                 "const": "PUT"

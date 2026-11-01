@@ -30,10 +30,8 @@ final class AgentDocumentUploadController extends Controller
             'patient_id' => (int) $resolved->id,
             'data' => [
                 ...$this->payload($upload),
-                'url' => $this->uploads->url($upload),
+                ...$this->uploads->authorization($upload),
                 'method' => 'PUT',
-                // Everything the PUT needs: the URL carries its own signature and takes no credential.
-                'headers' => ['Content-Type' => $upload->content_type],
             ],
         ], 201);
     }

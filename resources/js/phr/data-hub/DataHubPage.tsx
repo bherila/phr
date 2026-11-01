@@ -61,6 +61,7 @@ const DELETION_MESSAGES: Record<string, string> = {
   clinical_export_in_progress: 'A clinical export is still being generated. Wait for it to finish, then preview again.',
   dispatch_failed: 'Storage cleanup could not be queued. Retry the cleanup.',
   dicom_upload_in_progress: 'A DICOM upload is still in progress. Finish or cancel it, then preview again.',
+  document_upload_in_progress: 'A document upload is receiving bytes or its direct upload URL has not expired. Wait for it to expire, then preview again.',
   ehi_intake_in_progress: 'An EHI package intake is still running. Wait for it to finish, then preview again.',
   invalid_storage_reference: 'A stored-file reference needs administrator attention before deletion.',
   native_backup_in_progress: 'A native backup is still being generated. Wait for it to finish, then preview again.',

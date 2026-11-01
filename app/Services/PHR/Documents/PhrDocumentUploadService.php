@@ -7,6 +7,7 @@ use App\DataTransferObjects\PHR\DocumentUploadResult;
 use App\Models\PhrDocument;
 use App\Models\PhrPatient;
 use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
+use App\Services\PHR\Storage\BlobStorageQuota;
 use App\Support\Storage\PhrStorageKey;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -22,7 +23,7 @@ final readonly class PhrDocumentUploadService
         private PhrDocumentIdentityDao $identities,
     ) {}
 
-    public function upload(PhrPatient $patient, int $actorUserId, DocumentUploadData $data): DocumentUploadResult
+    public function upload(PhrPatient $patient, int $actorUserId, DocumentUploadData $data, bool $admitted = false): DocumentUploadResult
     {
         $realPath = $data->file->getRealPath();
         if (! is_string($realPath)) {
@@ -41,7 +42,7 @@ final readonly class PhrDocumentUploadService
 
         return $this->artifactWriteGuard->run(
             (int) $patient->id,
-            function (PhrPatient $lockedPatient) use ($actorUserId, $byteSize, $data, $hash, $originalName, $realPath): DocumentUploadResult {
+            function (PhrPatient $lockedPatient) use ($actorUserId, $byteSize, $data, $hash, $originalName, $realPath, $admitted): DocumentUploadResult {
                 $existing = $this->identities->find($lockedPatient, $data);
                 if ($existing instanceof PhrDocument) {
                     if ($existing->trashed()
@@ -62,6 +63,9 @@ final readonly class PhrDocumentUploadService
                     throw new ConflictHttpException('The document content already exists in this client namespace.');
                 }
 
+                if (! $admitted) {
+                    app(BlobStorageQuota::class)->assertForPatient($lockedPatient, $byteSize);
+                }
                 $storagePath = PhrStorageKey::document(
                     (int) $lockedPatient->id,
                     Str::uuid()->toString(),

@@ -37,6 +37,7 @@ class PhrStorageMap
     {
         return [
             'phr_dicom' => ['patients', 'phr/dicom', 'derived/volume-cache'],
+            'phr_uploads' => ['patients'],
             'phr_documents' => ['patients', 'phr/documents'],
             'phr_exports' => ['patients', 'phr/exports', 'phr/native-backups', 'phr/native-restores'],
 

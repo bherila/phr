@@ -13,6 +13,7 @@
     class="h-dvh flex flex-col overflow-hidden"
     @isset($patientId) data-patient-id="{{ $patientId }}" @endisset
     @isset($activeSection) data-active-section="{{ $activeSection }}" @endisset
+    data-is-admin="{{ auth()->user()?->hasRole('admin') ? 'true' : 'false' }}"
     data-can-manage="{{ $canManage ? 'true' : 'false' }}"
   ></div>
 @endsection

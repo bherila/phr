@@ -9,6 +9,7 @@ use App\Models\PhrDicomStudy;
 use App\Models\PhrDicomUpload;
 use App\Models\PhrPatient;
 use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
+use App\Services\PHR\Storage\BlobStorageQuota;
 use App\Support\Logging\SafeLog;
 use App\Support\Storage\PhrStorageKey;
 use Illuminate\Contracts\Filesystem\Filesystem;
@@ -365,6 +366,7 @@ class DicomUploadProcessor
         }
 
         $storageKey = $this->storageKey($upload->r2_prefix, $relativePath);
+        app(BlobStorageQuota::class)->assertForPatient($patient, (int) $file->getSize());
         $this->storeFile($realPath, $storageKey);
 
         $sha256 = hash_file('sha256', $realPath);
