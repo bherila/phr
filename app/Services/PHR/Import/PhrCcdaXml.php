@@ -397,7 +397,7 @@ final class PhrCcdaXml
         return $match instanceof DOMElement ? $match : null;
     }
 
-    private function narrativeElement(string $id): ?DOMElement
+    public function narrativeElement(string $id): ?DOMElement
     {
         if ($id === '' || str_contains($id, '"')) {
             return null;
