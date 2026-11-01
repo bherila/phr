@@ -11,8 +11,10 @@ class PilotDeploymentTest extends TestCase
 {
     private const PILOT_ENV = "PILOT_DEPLOYMENT=1\nAPP_DEBUG=false\nMAIL_MAILER=log\nDB_CONNECTION=mysql\nDB_HOST=127.0.0.1\n";
 
-    /** Environment keys that select a database connection for one subsystem. */
-    private const CONNECTION_SELECTORS = ['DB_QUEUE_CONNECTION', 'DB_CACHE_CONNECTION', 'DB_CACHE_LOCK_CONNECTION', 'SESSION_CONNECTION', 'PASSPORT_CONNECTION'];
+    /** Selector keys whose discovery the tests pin, so a regex regression cannot hide one. */
+    private const KNOWN_CONNECTION_SELECTORS = ['DB_QUEUE_CONNECTION', 'DB_CACHE_CONNECTION', 'DB_CACHE_LOCK_CONNECTION',
+        'SESSION_CONNECTION', 'PASSPORT_CONNECTION', 'PHR_DELEGATED_ACCESS_NONCE_CONNECTION',
+        'PHR_DELEGATED_ACCESS_RECEIPT_CONNECTION', 'BHERILA_AUTH_IDENTITY_TOMBSTONE_CONNECTION'];
 
     /** Keys config/database.php reads that cannot move the pinned mysql connection off the local server. */
     private const NON_DESTINATION_KEYS = ['DB_DATABASE', 'DB_USERNAME', 'DB_PASSWORD', 'DB_CHARSET', 'DB_COLLATION', 'DB_FOREIGN_KEYS',
@@ -159,6 +161,42 @@ JS;
     }
 
     /**
+     * Every environment key feeding a database-connection selector, in the published configuration
+     * or in a package default that providers merge at registration. REDIS_* keys name Redis
+     * connections, which are checked by destination instead.
+     *
+     * @return list<string>
+     */
+    private static function connectionSelectorKeys(): array
+    {
+        $root = dirname(__DIR__, 2);
+        $pattern = "/'([a-z_]*connection|database)' => env\('([A-Z0-9_]+)'(?:, env\('([A-Z0-9_]+)'\))?/";
+        $keys = [];
+        $published = [];
+        foreach (glob($root.'/config/*.php') as $file) {
+            $published[basename($file)] = (string) file_get_contents($file);
+            preg_match_all($pattern, $published[basename($file)], $matches, PREG_SET_ORDER);
+            foreach ($matches as $match) {
+                array_push($keys, ...array_slice($match, 2));
+            }
+        }
+        foreach (glob($root.'/vendor/*/*/config/*.php') as $file) {
+            preg_match_all($pattern, (string) file_get_contents($file), $matches, PREG_SET_ORDER);
+            foreach ($matches as $match) {
+                // A setting the published file also defines replaces the package default.
+                if (! str_contains($published[basename($file)] ?? '', "'{$match[1]}' =>")) {
+                    array_push($keys, ...array_slice($match, 2));
+                }
+            }
+        }
+        $keys = array_filter(array_unique($keys), fn (string $key): bool => $key !== ''
+            && ! str_starts_with($key, 'REDIS_') && ! in_array($key, ['DB_CONNECTION', 'DB_DATABASE'], true));
+        sort($keys);
+
+        return array_values($keys);
+    }
+
+    /**
      * Every setting that can move the effective database destination off the local server.
      * A leading "-" removes the key instead of assigning it.
      *
@@ -181,7 +219,7 @@ JS;
         foreach (self::otherConnections() as $connection) {
             $cases["default connection {$connection}"] = ["DB_CONNECTION={$connection}"];
         }
-        foreach (self::CONNECTION_SELECTORS as $selector) {
+        foreach (self::connectionSelectorKeys() as $selector) {
             $cases["{$selector} selects sqlite"] = ["{$selector}=sqlite"];
         }
 
@@ -232,7 +270,7 @@ JS;
     public function test_local_pilot_configuration_is_accepted_by_every_database_guard(): void
     {
         $env = self::PILOT_ENV."DB_URL=\nDB_SOCKET=\nDB_PORT=3306\nREDIS_HOST=127.0.0.1\nDB_DATABASE=synthetic_pilot\n";
-        foreach (self::CONNECTION_SELECTORS as $selector) {
+        foreach (self::connectionSelectorKeys() as $selector) {
             $env .= "{$selector}=mysql\n";
         }
         $home = $this->scaffold();
@@ -258,15 +296,12 @@ JS;
         $this->assertContains('mariadb', self::otherConnections());
         $this->assertContains('pgsql', self::otherConnections());
         $this->assertContains('sqlsrv', self::otherConnections());
-        $selectors = [];
-        foreach (glob($this->root.'/config/*.php') as $file) {
-            preg_match_all("/'(?:lock_)?connection' => env\('([A-Z0-9_]+)'/", (string) file_get_contents($file), $matches);
-            $selectors = array_merge($selectors, array_filter($matches[1], fn (string $key): bool => ! str_starts_with($key, 'REDIS_')));
+        $selectors = self::connectionSelectorKeys();
+        foreach (self::KNOWN_CONNECTION_SELECTORS as $selector) {
+            $this->assertContains($selector, $selectors);
         }
-        sort($selectors);
-        $expected = self::CONNECTION_SELECTORS;
-        sort($expected);
-        $this->assertSame($expected, $selectors);
+        // Shadowed package defaults are not read, so they are not override sites.
+        $this->assertNotContains('DELEGATED_ACCESS_NONCE_CONNECTION', $selectors);
     }
 
     /** @param array<string, string> $processEnv */
@@ -486,8 +521,9 @@ JS;
         $this->assertNotFalse($publish);
         $this->assertLessThan($publish, $compose);
         $this->assertContains('scripts', self::block($text, 'paths'), 'The resolved check boots the uploaded candidate.');
-        $this->assertStringContainsString('"DB_CONNECTION" => "mysql"', file_get_contents($this->root.'/scripts/deploy/pilot/prepare-host.sh'));
-        $this->assertStringContainsString('$config->get("database.default") !== "mysql"', file_get_contents($this->root.'/scripts/deploy/pilot/assert-local-database.sh'));
+        foreach (['prepare-host.sh', 'assert-local-database.sh'] as $script) {
+            $this->assertStringContainsString('$pilot = "mysql";', file_get_contents($this->root.'/scripts/deploy/pilot/'.$script));
+        }
     }
 
     public function test_composed_pre_migrate_hook_provisions_secrets_only_after_the_database_check_passes(): void

@@ -14,11 +14,12 @@ pilot_assert_local_database() {
         echo 'The candidate is not ready for database verification.' >&2
         exit 1
     }
-    # Resolve .env, the process environment and config/*.php exactly as the uncached migration
-    # will, without registering providers, so nothing can connect before the check passes.
+    # Resolve .env, the process environment, config/*.php and the package defaults that providers
+    # merge at registration, exactly as the uncached migration will. Providers are registered but
+    # not booted, so nothing connects before the check passes.
     # shellcheck disable=SC2016 # PHP variable names must remain literal.
     (cd "$root" && "$php" -d memory_limit=1G -d display_errors=0 -d log_errors=0 -r '
-$local = static fn ($name): bool => $name === null || $name === "" || $name === "mysql";
+$pilot = "mysql";
 $refused = [];
 try {
     $base = getcwd();
@@ -31,35 +32,40 @@ try {
     $app->bootstrapWith([
         Illuminate\Foundation\Bootstrap\LoadEnvironmentVariables::class,
         Illuminate\Foundation\Bootstrap\LoadConfiguration::class,
+        Illuminate\Foundation\Bootstrap\RegisterFacades::class,
+        Illuminate\Foundation\Bootstrap\RegisterProviders::class,
     ]);
     if ($app->configurationIsCached() || realpath($app->basePath()) !== realpath($base)) { exit(1); }
     $config = $app->make("config");
-    if ($config->get("database.default") !== "mysql") { $refused[] = "database.default"; }
-    $mysql = $config->get("database.connections.mysql");
-    if (!is_array($mysql)) {
-        $refused[] = "database.connections.mysql";
+    if ($config->get("database.default") !== $pilot) { $refused[] = "database.default"; }
+    $connection = $config->get("database.connections.".$pilot);
+    if (!is_array($connection)) {
+        $refused[] = "database.connections.".$pilot;
     } else {
         $checks = [
-            "driver" => ($mysql["driver"] ?? null) === "mysql",
-            "url" => in_array($mysql["url"] ?? null, [null, ""], true),
-            "host" => ($mysql["host"] ?? null) === "127.0.0.1",
-            "port" => in_array($mysql["port"] ?? null, ["3306", 3306], true),
-            "unix_socket" => in_array($mysql["unix_socket"] ?? null, [null, ""], true),
-            "read" => !array_key_exists("read", $mysql),
-            "write" => !array_key_exists("write", $mysql),
+            "driver" => ($connection["driver"] ?? null) === $pilot,
+            "url" => in_array($connection["url"] ?? null, [null, ""], true),
+            "host" => ($connection["host"] ?? null) === "127.0.0.1",
+            "port" => in_array($connection["port"] ?? null, ["3306", 3306], true),
+            "unix_socket" => in_array($connection["unix_socket"] ?? null, [null, ""], true),
+            "read" => !array_key_exists("read", $connection),
+            "write" => !array_key_exists("write", $connection),
         ];
-        foreach ($checks as $key => $ok) { if (!$ok) { $refused[] = "database.connections.mysql.".$key; } }
+        foreach ($checks as $key => $ok) { if (!$ok) { $refused[] = "database.connections.".$pilot.".".$key; } }
     }
-    $selectors = ["queue.batching.database", "queue.failed.database", "session.connection", "passport.connection"];
-    foreach ((array) $config->get("cache.stores", []) as $name => $store) {
-        if (is_array($store) && ($store["driver"] ?? null) === "database") {
-            array_push($selectors, "cache.stores.$name.connection", "cache.stores.$name.lock_connection");
+    // Any subsystem may name its own database connection (queue, cache, session, OAuth,
+    // delegated access, identity tombstones, ...): every resolved selector must use the pilot one.
+    $names = array_keys((array) $config->get("database.connections", []));
+    $selectors = static function (array $node, string $path) use (&$selectors, &$refused, $names, $pilot): void {
+        foreach ($node as $key => $value) {
+            $here = $path === "" ? (string) $key : $path.".".$key;
+            if ($here === "database.connections" || $here === "database.redis") { continue; }
+            if (is_array($value)) { $selectors($value, $here); continue; }
+            if (is_string($key) && preg_match("/(^|_)connection\$|^database\$/", $key) === 1
+                && is_string($value) && in_array($value, $names, true) && $value !== $pilot) { $refused[] = $here; }
         }
-    }
-    foreach ((array) $config->get("queue.connections", []) as $name => $queue) {
-        if (is_array($queue) && ($queue["driver"] ?? null) === "database") { $selectors[] = "queue.connections.$name.connection"; }
-    }
-    foreach ($selectors as $selector) { if (!$local($config->get($selector))) { $refused[] = $selector; } }
+    };
+    $selectors($config->all(), "");
     foreach ((array) $config->get("database.redis", []) as $name => $redis) {
         if ($name === "client" || $name === "options") { continue; }
         if (!is_array($redis) || $name === "clusters" || !in_array($redis["url"] ?? null, [null, ""], true)

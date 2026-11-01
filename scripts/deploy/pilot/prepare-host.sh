@@ -17,16 +17,19 @@ try {
     $env = parse_ini_file($argv[1], false, INI_SCANNER_RAW);
     if (!is_array($env)) { exit(1); }
     // Early refusal only: the pre-migrate hook verifies the resolved configuration.
+    $pilot = "mysql";
     $required = ["PILOT_DEPLOYMENT" => "1", "APP_DEBUG" => "false", "MAIL_MAILER" => "log",
-        "DB_CONNECTION" => "mysql", "DB_HOST" => "127.0.0.1"];
+        "DB_CONNECTION" => $pilot, "DB_HOST" => "127.0.0.1"];
     foreach ($required as $key => $value) { if (($env[$key] ?? null) !== $value) { exit(1); } }
-    $local = ["", "mysql"];
     $optional = ["DB_URL" => [""], "DB_SOCKET" => [""], "DB_PORT" => ["3306"],
-        "DB_QUEUE_CONNECTION" => $local, "DB_CACHE_CONNECTION" => $local, "DB_CACHE_LOCK_CONNECTION" => $local,
-        "SESSION_CONNECTION" => $local, "PASSPORT_CONNECTION" => $local,
         "REDIS_URL" => [""], "REDIS_HOST" => ["127.0.0.1"], "REDIS_PORT" => ["6379"]];
     foreach ($optional as $key => $values) {
         if (array_key_exists($key, $env) && !in_array($env[$key], $values, true)) { exit(1); }
+    }
+    // Any *_CONNECTION key naming another database connection selects it for some subsystem.
+    $others = array_diff(["sqlite", "mysql", "mariadb", "pgsql", "sqlsrv"], [$pilot]);
+    foreach ($env as $key => $value) {
+        if (preg_match("/(^|_)CONNECTION\$/", (string) $key) === 1 && in_array($value, $others, true)) { exit(1); }
     }
 } catch (Throwable $error) { exit(1); }
 ' "$HOME/$env_source" || { echo 'Private target does not have the required pilot-only configuration.' >&2; exit 1; }
