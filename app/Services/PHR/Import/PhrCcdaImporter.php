@@ -118,6 +118,7 @@ class PhrCcdaImporter
             new PhrCcdaProcedureActivities($xml),
             new PhrCcdaImmunizationActivities($xml),
             new PhrCcdaAllergyObservations($xml),
+            new PhrCcdaEncounterActivities($xml),
         ];
     }
 
@@ -200,20 +201,6 @@ class PhrCcdaImporter
     {
         if ($this->isResultsSection($title)) {
             return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_lab_result', array_map($this->narrativeLabRecord(...), $rows), ['import_source' => self::IMPORT_SOURCE]);
-        }
-
-        if (str_contains($title, 'encounter') || str_contains($title, 'visit')) {
-            return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_office_visit', array_map(
-                fn (array $row): array => [
-                    'visit_date' => $row[0] ?? null,
-                    'visit_type' => $row[1] ?? null,
-                    'provider_name' => $row[2] ?? null,
-                    'chief_complaint' => $row[3] ?? null,
-                    'assessment' => $row[4] ?? null,
-                    'external_id' => 'ccda-visit-'.sha1(implode('|', $row)),
-                ],
-                $rows
-            ), ['import_source' => self::IMPORT_SOURCE]);
         }
 
         return new PhrImportResult(skipped: count($rows));
