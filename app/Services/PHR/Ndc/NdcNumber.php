@@ -7,10 +7,10 @@ namespace App\Services\PHR\Ndc;
  *
  * A labeler-product-package code is written in three hyphenated formats of ten
  * digits (4-4-2, 5-3-2, 5-4-1) and billed as eleven digits (5-4-2) with a zero
- * padded into one segment. Going from eleven digits back to ten is therefore
- * ambiguous: any segment that starts with 0 may be the padded one. This class
- * produces every candidate and leaves choosing the real one to the openFDA
- * packaging directory.
+ * padded into one segment. Eleven digits become ten by the owner's hard-coded
+ * rule (see toTenDigit) before anything is looked up. Ten digits without
+ * hyphens carry no layout, so those produce all three readings for openFDA to
+ * settle.
  */
 final class NdcNumber
 {
@@ -63,8 +63,8 @@ final class NdcNumber
      *
      * - Hyphenated ten-digit input is exact: one candidate.
      * - Ten digits without hyphens could be 4-4-2, 5-3-2 or 5-4-1: three candidates.
-     * - Eleven digits (5-4-2, hyphenated or not): drop one leading zero from each
-     *   segment that has one, in turn.
+     * - Eleven digits (5-4-2, hyphenated or not): the one ten-digit code from
+     *   toTenDigit, or none when no segment has a padded zero.
      *
      * @return list<string>
      */
@@ -84,18 +84,51 @@ final class NdcNumber
             return array_map(static fn (array $layout): string => self::join($digits, $layout), self::TEN_DIGIT_LAYOUTS);
         }
 
-        $segments = [substr($digits, 0, 5), substr($digits, 5, 4), substr($digits, 9, 2)];
-        $candidates = [];
-        foreach ([0, 1, 2] as $index) {
-            if (! str_starts_with($segments[$index], '0')) {
-                continue;
-            }
-            $dropped = $segments;
-            $dropped[$index] = substr($segments[$index], 1);
-            $candidates[] = implode('-', $dropped);
+        $ten = self::elevenToTen($digits);
+
+        return $ten === null ? [] : [$ten];
+    }
+
+    /**
+     * The hyphenated ten-digit form of an NDC, for display and storage, or null
+     * when the input does not fix one (not an NDC, ten digits without hyphens,
+     * or eleven digits with no padded zero).
+     *
+     * Eleven digits follow the owner's hard-coded rule (phr#265 follow-up): split
+     * 5-4-2, then take the first rule that applies, in this order:
+     * 1. The first segment starts with 0: drop that 0 (5-4-2 becomes 4-4-2).
+     *    00299-5918-25 becomes 0299-5918-25.
+     * 2. Otherwise the second segment starts with 0: drop that 0 (5-3-2).
+     *    54868-0925-02 becomes 54868-925-02.
+     * 3. Otherwise the third segment starts with 0: drop that 0 (5-4-1).
+     *    58151-1557-07 becomes 58151-1557-7.
+     */
+    public static function toTenDigit(string $input): ?string
+    {
+        $parsed = self::parse($input);
+        if (! $parsed['valid']) {
+            return null;
+        }
+        $digits = $parsed['digits'];
+        if (strlen($digits) === 11) {
+            return self::elevenToTen($digits);
         }
 
-        return array_values(array_unique($candidates));
+        return $parsed['hyphenated'] ? self::join($digits, $parsed['layout'] ?? []) : null;
+    }
+
+    private static function elevenToTen(string $digits): ?string
+    {
+        $segments = [substr($digits, 0, 5), substr($digits, 5, 4), substr($digits, 9, 2)];
+        foreach ([0, 1, 2] as $index) {
+            if (str_starts_with($segments[$index], '0')) {
+                $segments[$index] = substr($segments[$index], 1);
+
+                return implode('-', $segments);
+            }
+        }
+
+        return null;
     }
 
     /** The eleven-digit billing form (5-4-2, no hyphens) of a hyphenated ten-digit NDC. */

@@ -1079,7 +1079,7 @@
                 "idempotentHint": true,
                 "openWorldHint": false
             },
-            "description": "Resolve a 10- or 11-digit NDC against the openFDA packaging directory on the server. Returns resolved (one package, with its drug fields), ambiguous (every candidate: ask the person which package is on the label) or unresolved. Call this before writing a fill; never call openFDA yourself and never supply drug fields.",
+            "description": "Resolve a 10- or 11-digit NDC against the openFDA packaging directory on the server. An 11-digit NDC is converted to 10 digits by a fixed rule and is never ambiguous; the result always shows the 10-digit NDC (ndc_10). Returns resolved (one package, with its drug fields), ambiguous (only for 10 digits without hyphens: every candidate, ask the person which package is on the label) or unresolved. Call this before writing a fill; never call openFDA yourself and never supply drug fields.",
             "inputSchema": "sha256:5904670e2a246a7988f5f8b68decec49192a53aed779e0e42db488769e960b65",
             "name": "ndc.lookup",
             "outputSchema": "sha256:e0e484cc368af30bf343569bd1f48e047a8e4fa59e825659b164f23cd8f848cc",

@@ -9,9 +9,11 @@ use Illuminate\Support\Facades\Cache;
  * Resolves NDCs and searches drugs through the openFDA packaging directory.
  *
  * Deterministic apart from what openFDA lists: an eleven-digit billing NDC
- * becomes every ten-digit reading, each checked against
- * `packaging.package_ndc`, and the answer is `resolved` (exactly one exists),
- * `ambiguous` (several do; a person picks) or `unresolved`.
+ * becomes one ten-digit code by the owner's fixed rule (NdcNumber::toTenDigit),
+ * so it is never ambiguous. Ten digits without hyphens have three readings.
+ * Each reading is checked against `packaging.package_ndc`, and the answer is
+ * `resolved` (exactly one exists), `ambiguous` (several do, only for unhyphenated
+ * ten digits; a person picks) or `unresolved`.
  */
 class NdcLookupService
 {

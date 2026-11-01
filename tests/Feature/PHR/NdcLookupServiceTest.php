@@ -25,34 +25,46 @@ final class NdcLookupServiceTest extends TestCase
         $this->ndc = app(NdcLookupService::class);
     }
 
-    public function test_an_eleven_digit_ndc_resolves_to_the_one_package_openfda_lists(): void
+    public function test_an_eleven_digit_ndc_is_converted_by_the_fixed_rule_and_only_that_package_is_looked_up(): void
     {
         $this->fakeOpenFda();
 
-        // 60505-0134-00 reads as 60505-134-00 and 60505-0134-0; only the second is listed.
+        // 60505-0134-00 becomes 60505-134-00 (middle segment first); the fixture lists it under that code.
         $resolution = $this->ndc->lookup('60505-0134-00');
 
         $this->assertSame(NdcResolution::RESOLVED, $resolution->status);
         $chosen = $resolution->chosen();
-        $this->assertSame('60505-0134-0', $chosen?->ndc10);
+        $this->assertSame('60505-134-00', $chosen?->ndc10);
         $this->assertSame('60505013400', $chosen?->ndc11);
         $this->assertSame('Cyclosporine', $chosen->drug['brand_name']);
-        $this->assertSame(['cyclosporine'], $chosen->drug['substance_names']);
-        $this->assertSame(['100 mg/1'], $chosen->drug['strengths']);
-        $this->assertSame('capsule, gelatin coated', $chosen->drug['dosage_form']);
-        $this->assertSame('oral', $chosen->drug['route']);
-        $this->assertSame('Apotex Corp.', $chosen->drug['labeler_name']);
-        $this->assertSame('197553', $chosen->drug['rxcui']);
-        $this->assertSame('30 CAPSULE, GELATIN COATED in 1 BOTTLE (60505-0134-0)', $chosen->snapshot['packaging'][0]['description'] ?? null, 'the raw listing is kept');
+        $this->assertCount(1, $this->openFdaRequests, 'one reading, one request');
+        $this->assertStringContainsString('60505-134-00', urldecode($this->openFdaRequests[0]));
     }
 
-    public function test_the_other_reading_of_the_issue_example_resolves_the_same_way(): void
+    public function test_an_eleven_digit_ndc_never_tries_the_other_readings(): void
+    {
+        $this->fakeOpenFda();
+
+        // 60505-0134-0 is listed, but the rule reads 60505-0134-00 as 60505-134-00 only.
+        $resolution = $this->ndc->lookup('60505013400');
+
+        $this->assertSame(NdcResolution::RESOLVED, $resolution->status);
+        $this->assertSame('60505-134-00', $resolution->chosen()?->ndc10);
+        $this->assertCount(1, $this->openFdaRequests);
+
+        $this->fakeOpenFda();
+        $unlisted = $this->ndc->lookup('12345-6789-01');
+        $this->assertSame(NdcResolution::UNRESOLVED, $unlisted->status);
+        $this->assertCount(1, $this->openFdaRequests);
+    }
+
+    public function test_the_issue_example_converts_by_the_first_segment_rule(): void
     {
         $this->fakeOpenFda();
 
         $resolution = $this->ndc->lookup('00002-0800-01');
 
-        // 00002-0800-01 reads as 0002-0800-01, 00002-800-01 and 00002-0800-1; only the first is listed.
+        // The rule drops the first segment's leading 0: 00002-0800-01 becomes 0002-0800-01.
         $this->assertSame(NdcResolution::RESOLVED, $resolution->status);
         $this->assertSame('0002-0800-01', $resolution->chosen()?->ndc10);
         $this->assertSame('00002080001', $resolution->chosen()?->ndc11);
@@ -66,6 +78,11 @@ final class NdcLookupServiceTest extends TestCase
 
         $this->assertSame(NdcResolution::RESOLVED, $resolution->status);
         $this->assertSame('60505-0134-0', $resolution->chosen()?->ndc10);
+        $this->assertSame('60505013400', $resolution->chosen()->ndc11);
+        $this->assertSame(['cyclosporine'], $resolution->chosen()->drug['substance_names']);
+        $this->assertSame(['100 mg/1'], $resolution->chosen()->drug['strengths']);
+        $this->assertSame('capsule, gelatin coated', $resolution->chosen()->drug['dosage_form']);
+        $this->assertSame('30 CAPSULE, GELATIN COATED in 1 BOTTLE (60505-0134-0)', $resolution->chosen()->snapshot['packaging'][0]['description'] ?? null, 'the raw listing is kept');
         $this->assertCount(3, $this->openFdaRequests);
     }
 
@@ -83,13 +100,14 @@ final class NdcLookupServiceTest extends TestCase
 
     public function test_several_listed_packages_are_ambiguous_and_all_returned(): void
     {
-        $this->fakeOpenFda(['00002-0800-1']);
+        $this->fakeOpenFda(['00020-800-01']);
 
-        $resolution = $this->ndc->lookup('00002080001');
+        // Ten digits without hyphens have no known layout: 0002-0800-01, 00020-800-01 and 00020-8000-1.
+        $resolution = $this->ndc->lookup('0002080001');
 
         $this->assertSame(NdcResolution::AMBIGUOUS, $resolution->status);
         $this->assertNull($resolution->chosen());
-        $this->assertSame(['0002-0800-01', '00002-0800-1'], array_map(static fn ($c) => $c->ndc10, $resolution->candidates));
+        $this->assertSame(['0002-0800-01', '00020-800-01'], array_map(static fn ($c) => $c->ndc10, $resolution->candidates));
         $array = $resolution->toArray();
         $this->assertNull($array['selected']);
         $this->assertCount(2, $array['candidates']);
@@ -98,13 +116,13 @@ final class NdcLookupServiceTest extends TestCase
 
     public function test_the_chosen_candidate_resolves_exactly_that_package(): void
     {
-        $this->fakeOpenFda(['00002-0800-1']);
+        $this->fakeOpenFda(['00020-800-01']);
 
-        $resolution = $this->ndc->lookupChosen('00002-0800-1', '00002080001');
+        $resolution = $this->ndc->lookupChosen('00020-800-01', '0002080001');
 
         $this->assertSame(NdcResolution::RESOLVED, $resolution->status);
-        $this->assertSame('00002-0800-1', $resolution->chosen()?->ndc10);
-        $this->assertSame('00002080001', $resolution->chosen()?->ndc11);
+        $this->assertSame('00020-800-01', $resolution->chosen()?->ndc10);
+        $this->assertSame('00020080001', $resolution->chosen()?->ndc11);
     }
 
     public function test_an_unlisted_ndc_is_unresolved_and_a_discontinued_one_drops_out(): void

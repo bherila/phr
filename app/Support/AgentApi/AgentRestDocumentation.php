@@ -1434,7 +1434,7 @@ final class AgentRestDocumentation
                 'method' => 'GET',
                 'path' => '/ndc/lookup',
                 'summary' => 'Resolve an NDC against the openFDA packaging directory',
-                'description' => 'Server-side and deterministic. An 11-digit billing NDC is read as every 10-digit candidate (a segment starting with 0 may be padding), 10 digits without hyphens as 4-4-2, 5-3-2 and 5-4-1, and each candidate is checked against openFDA packaging.package_ndc. Exactly one listed package is resolved; several are ambiguous and a person must pick; none is unresolved. Returns normalized drug fields. Sends only the NDC to openFDA, never patient data.',
+                'description' => 'Server-side and deterministic. An 11-digit billing NDC is converted to 10 digits by a fixed rule (split 5-4-2; drop a leading 0 from the first segment, else from the middle segment, else from the last), then checked against openFDA packaging.package_ndc; it is never ambiguous. 10 digits without hyphens have no known layout and are read as 4-4-2, 5-3-2 and 5-4-1. Exactly one listed package is resolved; several (only possible for unhyphenated 10 digits) are ambiguous and a person must pick; none is unresolved. The answer always shows the 10-digit NDC (ndc_10); ndc_11 is the billing form. Returns normalized drug fields. Sends only the NDC to openFDA, never patient data.',
                 'scopes' => ['clinical:read'],
                 'parameters' => ['NdcInput'],
                 'success' => [200 => 'The resolution of the NDC'],

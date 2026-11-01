@@ -104,13 +104,13 @@ Where the backend follows phr's existing convention instead of the proposal abov
 2. **Index filters** are `medication_id`, `from`, `to` (dates, inclusive, on `filled_on`), `ndc_status`, `review_status`, `include_rejected` (as for other resources). Order is `filled_on` desc, then `id` desc. Retracted and deleted fills are not listed.
 3. **Dates**: `filled_on` is `YYYY-MM-DD`; `created_at` / `updated_at` are `YYYY-MM-DD HH:MM:SS`, as in `MedicationResource`.
 4. **`quantity`** is a decimal string with trailing zeros trimmed (`"90"`, `"0.5"`).
-5. **`ndc_11`** is eleven digits without hyphens (`"00071015523"`); `ndc_10` is hyphenated as openFDA lists it (`"0071-0155-23"`).
+5. **`ndc_11`** is eleven digits without hyphens (`"00071015523"`); `ndc_10` is hyphenated as openFDA lists it (`"0071-0155-23"`). **`ndc_10` is the NDC clients show**; `ndc_as_captured` is kept as evidence and shown only when `ndc_10` is null. An 11-digit input is converted to 10 digits by a fixed rule before the openFDA lookup: split 5-4-2, then apply the first match of (a) first segment starts with 0, drop it (`00299-5918-25` -> `0299-5918-25`); (b) middle segment starts with 0, drop it (`54868-0925-02` -> `54868-925-02`; `60505-0134-00` -> `60505-134-00`); (c) last segment starts with 0, drop it (5-4-1). So an 11-digit NDC is never `ambiguous`; only 10 digits without hyphens (no known layout: 4-4-2, 5-3-2, 5-4-1) can be. Unresolved and ambiguous fills still keep `ndc_10`/`ndc_11` whenever the input fixes a 10-digit form.
 6. **`NdcCandidate`** is exactly as proposed (`fetched_at`, `match_reasons`); `ndc_search` candidates add a numeric `score`. Lookup candidates carry `match_reasons: ["package NDC exact"]`.
 7. **`NdcLookupResult`** is as proposed plus two optional keys: `reason` (`invalid_ndc` | `not_found` | `lookup_unavailable` | null) and `next_step` (guidance text, null when resolved).
 8. **Manual create/update body**: `ndc`, `ndc_candidate`, `allow_unresolved`, `medication_id`, `drug_as_printed` and the fill fields as proposed. `source_kind` is forced to `manual` for session writes. Drug fields (`brand_name`, `substance_names`, ...) are never accepted from the web client.
    - `ndc` omitted: the fill is saved with `ndc_status: manual` and no drug fields (the person types the drug in `drug_as_printed`).
    - `ndc` resolved: `ndc_status: resolved`, drug fields from openFDA.
-   - `ndc` ambiguous: 422 on `ndc_candidate` ("Choose one of the matching packages") until `ndc_candidate` names one of the candidates' `ndc_10`.
+   - `ndc` ambiguous (10 digits without hyphens only): 422 on `ndc_candidate` ("Choose one of the matching packages") until `ndc_candidate` names one of the candidates' `ndc_10`.
    - `ndc` unresolved: 422 on `ndc` ("No FDA listing matches this NDC") unless `allow_unresolved: true`, which saves `ndc_status: unresolved` with `drug_as_printed` as the only drug text.
 9. **Display preferences**: `GET/PUT /api/user/display-preferences`, body `{ "force_lowercase": boolean }`. The value is also in `app-initial-data` as `currentUser.force_lowercase_display`.
 10. **`MedicationFill.medication`** is `{ "id", "name" }` or null.

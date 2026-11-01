@@ -51,6 +51,18 @@ final class MedicationFillLinkerTest extends TestCase
         $this->assertSame($two['medication']->id, $three['medication']->id);
     }
 
+    public function test_an_unresolved_fills_ndc_digits_are_not_a_product_identity(): void
+    {
+        $linker = app(MedicationFillMedicationLinker::class);
+        $one = $this->fill(['ndc_status' => 'unresolved', 'ndc_10' => '11111-111-01', 'ndc_11' => '11111111101', 'substance_names' => null, 'strengths' => null, 'drug_as_printed' => 'Alpha Tab']);
+        $two = $this->fill(['ndc_status' => 'unresolved', 'ndc_10' => '11111-111-02', 'ndc_11' => '11111111102', 'substance_names' => null, 'strengths' => null, 'drug_as_printed' => 'Beta Tab']);
+
+        $first = $linker->attach($this->patient, $one);
+        $second = $linker->attach($this->patient, $two);
+
+        $this->assertNotSame($first['medication']->id, $second['medication']->id, 'the same unverified product digits do not merge different printed names');
+    }
+
     public function test_reconcile_does_not_keep_a_medication_of_the_swapped_formulation(): void
     {
         $linker = app(MedicationFillMedicationLinker::class);

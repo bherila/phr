@@ -373,9 +373,9 @@ final class AgentApiMedicationFillTest extends TestCase
 
     public function test_an_ambiguous_ndc_is_saved_as_ambiguous_with_every_candidate_for_the_person_to_pick(): void
     {
-        $this->fakeOpenFda(['00002-0800-1']);
+        $this->fakeOpenFda(['00020-800-01']);
         $document = $this->document();
-        $payload = $this->fillPayload($document, ['ndc' => '00002080001', 'drug_as_printed' => 'STERILE DILUENT 10ML']);
+        $payload = $this->fillPayload($document, ['ndc' => '0002080001', 'drug_as_printed' => 'STERILE DILUENT 10ML']);
 
         $response = $this->putJson($this->url(), $payload)
             ->assertCreated()
@@ -393,12 +393,12 @@ final class AgentApiMedicationFillTest extends TestCase
 
         // The person picks one; the fill is updated and now resolved.
         $chosen = $payload;
-        $chosen['data']['ndc_candidate'] = '00002-0800-1';
+        $chosen['data']['ndc_candidate'] = '00020-800-01';
         $chosen['expected_version'] = $response['version'];
         $this->putJson($this->url(), $chosen)
             ->assertOk()
             ->assertJsonPath('data.ndc_status', 'resolved')
-            ->assertJsonPath('data.ndc_10', '00002-0800-1')
+            ->assertJsonPath('data.ndc_10', '00020-800-01')
             ->assertJsonPath('data.drug.brand_name', 'Sterile Diluent');
     }
 
@@ -455,10 +455,10 @@ final class AgentApiMedicationFillTest extends TestCase
 
     public function test_a_write_only_retry_and_an_ambiguous_fill_disclose_no_ndc_candidates_or_drug_detail(): void
     {
-        $this->fakeOpenFda(['00002-0800-1']);
+        $this->fakeOpenFda(['00020-800-01']);
         $this->actingWith([AgentApiScopes::CLINICAL_WRITE]);
         $resolved = $this->fillPayload($this->document(), ['ndc' => '58151-0155-77']);
-        $ambiguous = $this->fillPayload($this->document(), ['ndc' => '00002080001', 'rx_number' => 'AMB', 'drug_as_printed' => 'DILUENT']);
+        $ambiguous = $this->fillPayload($this->document(), ['ndc' => '0002080001', 'rx_number' => 'AMB', 'drug_as_printed' => 'DILUENT']);
 
         foreach ([$resolved, $resolved, $ambiguous, $ambiguous] as $payload) {
             $body = $this->putJson($this->url(), $payload)->assertSuccessful()->assertJsonPath('receipt_only', true)->json();
@@ -531,7 +531,7 @@ final class AgentApiMedicationFillTest extends TestCase
 
         $updated = $this->patchJson($this->recordUrl($id), ['expected_version' => $version, 'data' => ['ndc' => '60505-0134-00']])
             ->assertOk()
-            ->assertJsonPath('data.ndc_10', '60505-0134-0')
+            ->assertJsonPath('data.ndc_10', '60505-134-00')
             ->assertJsonPath('data.drug.brand_name', 'Cyclosporine')
             ->assertJsonPath('data.drug.dosage_form', 'capsule, gelatin coated')
             ->assertJsonPath('data.review_status', PhrReviewStatus::PENDING)
