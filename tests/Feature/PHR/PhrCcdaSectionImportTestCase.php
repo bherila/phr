@@ -39,7 +39,7 @@ abstract class PhrCcdaSectionImportTestCase extends TestCase
     abstract protected static function keyColumn(): string;
 
     /**
-     * Key column value => the fixture entry that row comes from.
+     * Row key (rowKey()) => the fixture entry that row comes from.
      *
      * @return array<string, string>
      */
@@ -82,6 +82,12 @@ abstract class PhrCcdaSectionImportTestCase extends TestCase
      * @return array<string, mixed>
      */
     abstract protected static function earlierLoadColumns(): array;
+
+    /** What tells one row from another in entries(): the key column, by default. */
+    protected function rowKey(Model $row): string
+    {
+        return (string) $row->getAttribute(static::keyColumn());
+    }
 
     /**
      * Statement => (column => stored value) for the section's negated entries.
@@ -220,7 +226,7 @@ abstract class PhrCcdaSectionImportTestCase extends TestCase
     {
         $rows = [];
         foreach (static::model()::query()->where('patient_id', $patient->id)->orderBy('id')->get() as $row) {
-            $key = (string) $row->getAttribute(static::keyColumn());
+            $key = $this->rowKey($row);
             $rows[static::entries()[$key] ?? 'unexpected: '.$key] = $row;
         }
 

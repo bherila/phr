@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Synthetic C-CDA Immunizations section. No patient data.
+
+  The narrative table is ordered Immunization, Administration Dates, Next Due,
+  one row per vaccine with every date it was given, so reading it by position
+  (vaccine, date, lot) stores the next due date as the lot number and keeps
+  one dose of several. The entries carry every dose and field explicitly:
+
+    imm-display      CVX code with a displayName; lot; manufacturer; dose
+                     number; route; site; performer and organization
+    imm-second-dose  a second dose of the same vaccine, from the same row
+    imm-original     CVX code whose originalText references the narrative cell
+    imm-name         no code: the product's <name>
+    imm-code-only    nothing but the CVX code names it
+    imm-planned      moodCode INT: planned, not given
+    imm-refused      negationInd: not given
+    imm-unnamed      nothing names it, and its text references its own row
+
+  imm-display and imm-second-dose reference one row; imm-original, imm-name
+  and imm-unnamed reference their own.
+-->
+<ClinicalDocument xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <realmCode code="US"/>
+  <typeId root="2.16.840.1.113883.1.3" extension="POCD_HD000040"/>
+  <templateId root="2.16.840.1.113883.10.20.22.1.1"/>
+  <templateId root="2.16.840.1.113883.10.20.22.1.2"/>
+  <id root="2.25.1008"/>
+  <code code="34133-9" codeSystem="2.16.840.1.113883.6.1" displayName="Summarization of Episode Note"/>
+  <title>Synthetic Health Summary</title>
+  <effectiveTime value="20260102030405-0800"/>
+  <confidentialityCode code="N" codeSystem="2.16.840.1.113883.5.25"/>
+  <recordTarget>
+    <patientRole>
+      <id root="2.25.1002" extension="synthetic"/>
+      <patient>
+        <name><given>Synthetic</given><family>Patient</family></name>
+      </patient>
+    </patientRole>
+  </recordTarget>
+  <component>
+    <structuredBody>
+      <component>
+        <section>
+          <templateId root="2.16.840.1.113883.10.20.22.2.2"/>
+          <templateId root="2.16.840.1.113883.10.20.22.2.2.1" extension="2015-08-01"/>
+          <code code="11369-6" codeSystem="2.16.840.1.113883.6.1"/>
+          <title>Immunizations</title>
+          <text>
+            <table>
+              <thead>
+                <tr><th>Immunization</th><th>Administration Dates</th><th>Next Due</th></tr>
+              </thead>
+              <tbody>
+                <tr><td ID="imm-name-a">Synthetic vaccine A</td><td>01/01/2025, 02/01/2025</td><td>01/01/2030</td></tr>
+                <tr><td ID="imm-name-original">Synthetic referenced vaccine</td><td>01/01/2025</td><td/></tr>
+                <tr ID="imm-row-name"><td>Synthetic named vaccine</td><td>01/01/2025</td><td/></tr>
+                <tr><td>Synthetic coded vaccine</td><td>01/01/2025</td><td/></tr>
+                <tr><td>Synthetic planned vaccine</td><td/><td>06/01/2026</td></tr>
+                <tr><td>Synthetic unnamed vaccine</td><td>01/01/2025</td><td><content ID="imm-unnamed"/></td></tr>
+              </tbody>
+            </table>
+          </text>
+          <entry typeCode="DRIV">
+            <substanceAdministration classCode="SBADM" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.52" extension="2015-08-01"/>
+              <id root="2.25.8001" extension="imm-display"/>
+              <text><reference value="#imm-name-a"/></text>
+              <statusCode code="completed"/>
+              <effectiveTime value="20250101"/>
+              <repeatNumber value="2"/>
+              <routeCode code="C28161" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="Synthetic intramuscular"/>
+              <approachSiteCode code="368208006" codeSystem="2.16.840.1.113883.6.96" displayName="Synthetic left arm"/>
+              <performer>
+                <assignedEntity>
+                  <id root="2.25.8200"/>
+                  <assignedPerson><name><given>Synthetic</given><family>Nurse</family></name></assignedPerson>
+                  <representedOrganization><name>Synthetic Clinic</name></representedOrganization>
+                </assignedEntity>
+              </performer>
+              <consumable>
+                <manufacturedProduct classCode="MANU">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.54" extension="2014-06-09"/>
+                  <manufacturedMaterial>
+                    <code code="901" codeSystem="2.16.840.1.113883.12.292" displayName="Synthetic vaccine A"/>
+                    <lotNumberText>SYN-LOT-1</lotNumberText>
+                  </manufacturedMaterial>
+                  <manufacturerOrganization><name>Synthetic Manufacturer</name></manufacturerOrganization>
+                </manufacturedProduct>
+              </consumable>
+            </substanceAdministration>
+          </entry>
+          <entry typeCode="DRIV">
+            <substanceAdministration classCode="SBADM" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.52" extension="2015-08-01"/>
+              <id root="2.25.8001" extension="imm-second-dose"/>
+              <text><reference value="#imm-name-a"/></text>
+              <statusCode code="completed"/>
+              <effectiveTime value="20250201"/>
+              <consumable>
+                <manufacturedProduct classCode="MANU">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.54" extension="2014-06-09"/>
+                  <manufacturedMaterial>
+                    <code code="901" codeSystem="2.16.840.1.113883.12.292" displayName="Synthetic vaccine A"/>
+                  </manufacturedMaterial>
+                </manufacturedProduct>
+              </consumable>
+            </substanceAdministration>
+          </entry>
+          <entry typeCode="DRIV">
+            <substanceAdministration classCode="SBADM" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.52" extension="2015-08-01"/>
+              <id root="2.25.8001" extension="imm-original"/>
+              <statusCode code="completed"/>
+              <effectiveTime value="20250101"/>
+              <consumable>
+                <manufacturedProduct classCode="MANU">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.54" extension="2014-06-09"/>
+                  <manufacturedMaterial>
+                    <code code="902" codeSystem="2.16.840.1.113883.12.292"><originalText><reference value="#imm-name-original"/></originalText></code>
+                  </manufacturedMaterial>
+                </manufacturedProduct>
+              </consumable>
+            </substanceAdministration>
+          </entry>
+          <entry typeCode="DRIV">
+            <substanceAdministration classCode="SBADM" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.52" extension="2015-08-01"/>
+              <id root="2.25.8001" extension="imm-name"/>
+              <text><reference value="#imm-row-name"/></text>
+              <statusCode code="completed"/>
+              <effectiveTime value="20250101"/>
+              <consumable>
+                <manufacturedProduct classCode="MANU">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.54" extension="2014-06-09"/>
+                  <manufacturedMaterial>
+                    <code nullFlavor="UNK"/>
+                    <name>Synthetic named vaccine</name>
+                  </manufacturedMaterial>
+                </manufacturedProduct>
+              </consumable>
+            </substanceAdministration>
+          </entry>
+          <entry typeCode="DRIV">
+            <substanceAdministration classCode="SBADM" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.52" extension="2015-08-01"/>
+              <id root="2.25.8001" extension="imm-code-only"/>
+              <statusCode code="completed"/>
+              <effectiveTime value="20250101"/>
+              <consumable>
+                <manufacturedProduct classCode="MANU">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.54" extension="2014-06-09"/>
+                  <manufacturedMaterial>
+                    <code code="904" codeSystem="2.16.840.1.113883.12.292" codeSystemName="CVX"/>
+                  </manufacturedMaterial>
+                </manufacturedProduct>
+              </consumable>
+            </substanceAdministration>
+          </entry>
+          <entry typeCode="DRIV">
+            <substanceAdministration classCode="SBADM" moodCode="INT">
+              <templateId root="2.16.840.1.113883.10.20.22.4.52" extension="2015-08-01"/>
+              <id root="2.25.8001" extension="imm-planned"/>
+              <statusCode code="completed"/>
+              <effectiveTime value="20260601"/>
+              <consumable>
+                <manufacturedProduct classCode="MANU">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.54" extension="2014-06-09"/>
+                  <manufacturedMaterial>
+                    <code code="905" codeSystem="2.16.840.1.113883.12.292" displayName="Synthetic planned vaccine"/>
+                  </manufacturedMaterial>
+                </manufacturedProduct>
+              </consumable>
+            </substanceAdministration>
+          </entry>
+          <entry typeCode="DRIV">
+            <substanceAdministration classCode="SBADM" moodCode="EVN" negationInd="true">
+              <templateId root="2.16.840.1.113883.10.20.22.4.52" extension="2015-08-01"/>
+              <id root="2.25.8001" extension="imm-refused"/>
+              <statusCode code="completed"/>
+              <effectiveTime value="20260102"/>
+              <consumable>
+                <manufacturedProduct classCode="MANU">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.54" extension="2014-06-09"/>
+                  <manufacturedMaterial>
+                    <code code="906" codeSystem="2.16.840.1.113883.12.292" displayName="Synthetic refused vaccine"/>
+                  </manufacturedMaterial>
+                </manufacturedProduct>
+              </consumable>
+            </substanceAdministration>
+          </entry>
+          <entry typeCode="DRIV">
+            <substanceAdministration classCode="SBADM" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.52" extension="2015-08-01"/>
+              <id root="2.25.8001" extension="imm-unnamed"/>
+              <text><reference value="#imm-unnamed"/></text>
+              <statusCode code="completed"/>
+              <effectiveTime value="20250101"/>
+              <consumable>
+                <manufacturedProduct classCode="MANU">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.54" extension="2014-06-09"/>
+                  <manufacturedMaterial>
+                    <code nullFlavor="UNK"/>
+                  </manufacturedMaterial>
+                </manufacturedProduct>
+              </consumable>
+            </substanceAdministration>
+          </entry>
+        </section>
+      </component>
+    </structuredBody>
+  </component>
+</ClinicalDocument>
