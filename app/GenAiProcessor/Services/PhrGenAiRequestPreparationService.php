@@ -55,6 +55,11 @@ final class PhrGenAiRequestPreparationService
             $records[$name] = ['type' => 'array', 'maxItems' => 500, 'items' => $this->recordSchema($jobType)];
         }
 
+        // Optional, and not in the required list below: results from before fills
+        // existed, and documents without a dispensed prescription, omit it.
+        $records['medication_fills'] = ['type' => 'array', 'maxItems' => 500, 'items' => $this->fillSchema()];
+        $required = array_values(array_diff(array_keys($records), ['medication_fills']));
+
         return $this->object([
             'schema_version' => ['const' => 'phr_pdf_bundle.v1'],
             'source_document' => $this->object([
@@ -74,8 +79,39 @@ final class PhrGenAiRequestPreparationService
                 'birth_date' => $this->nullableString(32),
                 'sex_at_birth' => $this->nullableString(100),
             ]),
-            'records' => $this->object($records, array_keys($records)),
+            'records' => $this->object($records, $required),
         ], ['schema_version', 'source_document', 'records']);
+    }
+
+    /**
+     * One dispensed prescription, printed values only. Never the FDA drug fields:
+     * the server resolves those from the NDC. Money is dollars here and cents in
+     * the database; the mapper converts.
+     *
+     * @return array<string, mixed>
+     */
+    private function fillSchema(): array
+    {
+        return $this->object([
+            'record_key' => $this->nullableString(255),
+            'patient_name_as_printed' => $this->nullableString(255),
+            'ndc' => $this->nullableString(64),
+            'drug_as_printed' => $this->nullableString(255),
+            'filled_on' => ['type' => 'string', 'minLength' => 1, 'maxLength' => 32],
+            'quantity' => ['type' => ['number', 'string'], 'minimum' => 0],
+            'quantity_unit' => $this->nullableString(50),
+            'days_supply' => $this->nullableInteger(),
+            'rx_number' => $this->nullableString(64),
+            'refills_remaining' => $this->nullableInteger(),
+            'directions' => $this->nullableString(),
+            'prescriber_name' => $this->nullableString(255),
+            'paid_dollars' => $this->nullableNumber(),
+            'retail_dollars' => $this->nullableNumber(),
+            'pharmacy_name' => $this->nullableString(255),
+            'pharmacy_location' => $this->nullableString(255),
+            'source_locator' => $this->nullableString(255),
+            'raw_text' => $this->nullableString(100_000),
+        ], ['filled_on', 'quantity']);
     }
 
     /** @return array<string, mixed> */

@@ -40,6 +40,8 @@ export interface ReviewRow {
   source: string
   title: string
   detail: string | null
+  /** Warnings from the server about this record. */
+  flags: string[]
   change: ChangeKind
   changeDetail: string | null
   action: { label: 'Open' | 'Compare', href: string } | null
@@ -62,11 +64,12 @@ export function reviewRow(item: ReviewItem, group: ReviewGroup, patientId: numbe
   const source = joined([group.label, group.name]) ?? group.label
   if (item.type === 'record') {
     return {
-      item, section, source, title: item.title, detail: item.detail,
+      item, section, source, title: item.title, detail: item.detail, flags: (item.flags ?? []).map((flag) => flag.message),
       change: item.change,
       changeDetail: item.change === 'new' ? 'Not in the record yet' : 'Changed by its source since it was added',
       action: { label: 'Open', href: patientPageUrl(patientId, section, item.id) },
-      checkedByDefault: true,
+      // A flagged record is looked at, not approved in a batch by default.
+      checkedByDefault: (item.flags ?? []).length === 0,
       ai: null,
     }
   }
@@ -75,6 +78,7 @@ export function reviewRow(item: ReviewItem, group: ReviewGroup, patientId: numbe
     return {
       item, section, source, title: view.title,
       detail: joined(view.groups.length > 0 ? view.groups.map((nested) => `${nested.records.length} ${nested.label}`) : view.fields.slice(0, 2).map((field) => field.value)),
+      flags: [],
       change: 'new',
       changeDetail: 'Added to the record when you approve it',
       action: null,
@@ -93,7 +97,7 @@ export function reviewRow(item: ReviewItem, group: ReviewGroup, patientId: numbe
     kept: retainReason(proposal) ?? 'Kept with the export; nothing is added',
   }[change]
   return {
-    item, section, source, title: view.title, detail: joined([view.date, view.detail]),
+    item, section, source, title: view.title, detail: joined([view.date, view.detail]), flags: [],
     change, changeDetail,
     action: { label: change === 'new' || change === 'kept' ? 'Open' : 'Compare', href: ehiReviewUrl(patientId, item.package_id) },
     checkedByDefault: change !== 'duplicate',
@@ -212,6 +216,7 @@ function reviewColumns(
         <>
           <span className="block font-semibold text-foreground">{row.title}</span>
           {row.detail && <span className="mt-0.5 block text-xs text-muted-foreground">{row.detail}</span>}
+          {row.flags.map((flag) => <span key={flag} className="mt-1 block text-xs text-amber-700 dark:text-amber-400">{flag}</span>)}
           {failures[row.item.key] && <span role="alert" className="mt-1 block text-xs text-destructive">{failures[row.item.key]}</span>}
         </>
       ),

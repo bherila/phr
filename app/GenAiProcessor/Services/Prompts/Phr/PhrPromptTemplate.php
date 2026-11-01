@@ -128,6 +128,28 @@ Use this exact top-level shape:
         "raw_text": "source text"
       }
     ],
+    "medication_fills": [
+      {
+        "record_key": "stable unique key",
+        "patient_name_as_printed": "patient name exactly as printed on the line",
+        "ndc": "NDC exactly as printed, with any dashes",
+        "drug_as_printed": "drug name and strength exactly as printed",
+        "filled_on": "YYYY-MM-DD",
+        "quantity": 90,
+        "quantity_unit": "tablet",
+        "days_supply": 90,
+        "rx_number": "Rx number as printed",
+        "refills_remaining": 3,
+        "directions": "directions as printed",
+        "prescriber_name": "prescriber as printed",
+        "paid_dollars": 10.00,
+        "retail_dollars": 189.99,
+        "pharmacy_name": "pharmacy name",
+        "pharmacy_location": "pharmacy address or store number",
+        "source_locator": "page N, line M",
+        "raw_text": "the printed line"
+      }
+    ],
     "vitals": [
       {
         "record_key": "stable unique key",
@@ -239,6 +261,7 @@ Rules:
 - Use `source_refs` to identify where each record came from, such as page numbers, section headings, or table names.
 - Dates must use YYYY-MM-DD. Date-times must use YYYY-MM-DD HH:MM:SS when time is known.
 - Numeric fields must be numbers only when the source value parses cleanly. Keep the raw printed value in the raw value field.
+- Pharmacy labels, receipts and statements: put each dispensed prescription (one per label, receipt line or statement line) in `medication_fills`, with the values exactly as printed. `medication_fills` is optional; omit it when the document has no dispensed prescriptions. Never supply drug details (active ingredient, strength, brand, dosage form, labeler); the server looks the drug up from the NDC. Amounts are in dollars, not cents. Do not also list those prescriptions in `medications`.
 - Include empty arrays for record groups with no records.
 - Omit unknown scalar fields or set them to null.
 PROMPT;

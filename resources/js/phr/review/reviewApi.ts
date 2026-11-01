@@ -24,6 +24,8 @@ const RecordItemSchema = z.object({
   review_segment: z.string(),
   title: z.string(),
   detail: z.string().nullable(),
+  /** Why a person should look closely, such as a fill printed for another name. */
+  flags: z.array(z.object({ code: z.string(), message: z.string() })).optional(),
   change: z.enum(['new', 'update']),
   version: z.string(),
   updated_at: z.string().nullable(),

@@ -31,6 +31,7 @@ class PhrStructuredDataImporter
         private PhrRecordAttributeMapper $attributeMapper,
         private PhrDocumentImporter $documentImporter,
         private PhrImportModelUpserter $upserter,
+        private PhrDocumentFillImporter $fillImporter,
     ) {}
 
     public static function isPhrJobType(string $jobType): bool
@@ -105,6 +106,18 @@ class PhrStructuredDataImporter
             // external_id and the upserter would collapse them into one row
             // instead of using each record's own stable record_key.
             unset($recordOptions['external_id']);
+
+            // Fills are the source of truth for the prescriptions a document lists: they
+            // link or create their medication, so a medication extracted from the same
+            // line is dropped rather than written twice.
+            $fills = $records['medication_fills'] ?? null;
+            if (is_array($fills) && $fills !== []) {
+                $fillResult = $this->fillImporter->import($patient, $document, array_values($fills));
+                $result->merge($fillResult->result);
+                if (isset($records['medications']) && is_array($records['medications'])) {
+                    $records['medications'] = $this->fillImporter->withoutFillLines($records['medications'], $fillResult->lines);
+                }
+            }
 
             foreach (self::DOCUMENT_BUNDLE_RECORD_TYPES as $payloadKey => $jobType) {
                 $recordsForType = $records[$payloadKey] ?? null;
