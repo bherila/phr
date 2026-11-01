@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Synthetic C-CDA Vital Signs section. No patient data.
+
+  The narrative table is ordered Vital Sign, Reading, Time Taken, Comments, so
+  reading it by position (date, name, value, unit) puts the vital's name in the
+  date and its reading in the name. The entries carry every field explicitly:
+
+    vital-display      code with a displayName, PQ in UCUM, a time of day,
+                       a target site
+    vital-original     code whose originalText references the narrative cell
+    vital-text         code with only code/codeSystem; the observation's <text>
+                       references the cell that names it
+    vital-code-only    nothing but code/codeSystem/codeSystemName names it
+    vital-translation  a PQ in a non-UCUM unit: nullFlavor, number and unit in
+                       its translation
+    vital-organizer    no effectiveTime of its own: the organizer's
+    vital-date-only    an effectiveTime with a date and no time
+    (no id)            an observation without an id, identified by content
+    vital-unnamed      nothing names it: no code, and a <text> that references
+                       an empty cell of its own row
+
+  Every observation but vital-code-only references its table row.
+-->
+<ClinicalDocument xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <realmCode code="US"/>
+  <typeId root="2.16.840.1.113883.1.3" extension="POCD_HD000040"/>
+  <templateId root="2.16.840.1.113883.10.20.22.1.1"/>
+  <templateId root="2.16.840.1.113883.10.20.22.1.2"/>
+  <id root="2.25.1004"/>
+  <code code="34133-9" codeSystem="2.16.840.1.113883.6.1" displayName="Summarization of Episode Note"/>
+  <title>Synthetic Health Summary</title>
+  <effectiveTime value="20260102030405-0800"/>
+  <confidentialityCode code="N" codeSystem="2.16.840.1.113883.5.25"/>
+  <recordTarget>
+    <patientRole>
+      <id root="2.25.1002" extension="synthetic"/>
+      <patient>
+        <name><given>Synthetic</given><family>Patient</family></name>
+      </patient>
+    </patientRole>
+  </recordTarget>
+  <component>
+    <structuredBody>
+      <component>
+        <section>
+          <templateId root="2.16.840.1.113883.10.20.22.2.4"/>
+          <templateId root="2.16.840.1.113883.10.20.22.2.4.1" extension="2015-08-01"/>
+          <code code="8716-3" codeSystem="2.16.840.1.113883.6.1"/>
+          <title>Last Filed Vital Signs</title>
+          <text>
+            <table>
+              <thead>
+                <tr><th>Vital Sign</th><th>Reading</th><th>Time Taken</th><th>Comments</th></tr>
+              </thead>
+              <tbody>
+                <tr ID="vit-row-display"><td>Synthetic pressure</td><td>118 mm[Hg]</td><td>01/02/2026 3:04 AM PST</td><td/></tr>
+                <tr><td ID="vit-name-original">Synthetic pulse</td><td>64 /min</td><td>01/02/2026 3:04 AM PST</td><td/></tr>
+                <tr><td ID="vit-name-text">Synthetic height</td><td>170 cm</td><td>01/02/2026 3:04 AM PST</td><td/></tr>
+                <tr><td>Synthetic coded vital</td><td>97</td><td>01/02/2026 3:04 AM PST</td><td/></tr>
+                <tr ID="vit-row-translation"><td>Synthetic weight</td><td>150 LBS</td><td>01/02/2026 3:04 AM PST</td><td/></tr>
+                <tr ID="vit-row-organizer"><td>Synthetic temperature</td><td>36.8 Cel</td><td>01/02/2026</td><td/></tr>
+                <tr ID="vit-row-date-only"><td>Synthetic saturation</td><td>99 %</td><td>01/03/2026</td><td/></tr>
+                <tr ID="vit-row-no-id"><td>Synthetic respiration</td><td>14 /min</td><td>01/02/2026 3:04 AM PST</td><td/></tr>
+                <tr><td>Synthetic unnamed vital</td><td>21</td><td>01/02/2026 3:04 AM PST</td><td><content ID="vit-unnamed"/></td></tr>
+              </tbody>
+            </table>
+          </text>
+          <entry typeCode="DRIV">
+            <organizer classCode="CLUSTER" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.26" extension="2015-08-01"/>
+              <id root="2.25.4000"/>
+              <code code="46680005" codeSystem="2.16.840.1.113883.6.96" displayName="Vital signs"/>
+              <statusCode code="completed"/>
+              <effectiveTime value="20260102030405-0800"/>
+
+              <component>
+                <observation classCode="OBS" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.27" extension="2014-06-09"/>
+                  <id root="2.25.4001" extension="vital-display"/>
+                  <code code="8480-6" codeSystem="2.16.840.1.113883.6.1" displayName="Synthetic pressure"/>
+                  <text><reference value="#vit-row-display"/></text>
+                  <statusCode code="completed"/>
+                  <effectiveTime value="20260102030405-0800"/>
+                  <value xsi:type="PQ" value="118" unit="mm[Hg]"/>
+                  <targetSiteCode code="368209003" codeSystem="2.16.840.1.113883.6.96" displayName="Synthetic arm"/>
+                </observation>
+              </component>
+
+              <component>
+                <observation classCode="OBS" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.27" extension="2014-06-09"/>
+                  <id root="2.25.4001" extension="vital-original"/>
+                  <code code="8867-4" codeSystem="2.16.840.1.113883.6.1">
+                    <originalText><reference value="#vit-name-original"/></originalText>
+                  </code>
+                  <statusCode code="completed"/>
+                  <effectiveTime value="20260102030405-0800"/>
+                  <value xsi:type="PQ" value="64" unit="/min"/>
+                </observation>
+              </component>
+
+              <component>
+                <observation classCode="OBS" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.27" extension="2014-06-09"/>
+                  <id root="2.25.4001" extension="vital-text"/>
+                  <code code="8302-2" codeSystem="2.16.840.1.113883.6.1"/>
+                  <text><reference value="#vit-name-text"/></text>
+                  <statusCode code="completed"/>
+                  <effectiveTime value="20260102030405-0800"/>
+                  <value xsi:type="PQ" value="170" unit="cm"/>
+                </observation>
+              </component>
+
+              <component>
+                <observation classCode="OBS" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.27" extension="2014-06-09"/>
+                  <id root="2.25.4001" extension="vital-code-only"/>
+                  <code code="SYN-VIT" codeSystem="2.25.9" codeSystemName="SYNTHETIC"/>
+                  <statusCode code="completed"/>
+                  <effectiveTime value="20260102030405-0800"/>
+                  <value xsi:type="PQ" value="97" unit="1"/>
+                </observation>
+              </component>
+
+              <component>
+                <observation classCode="OBS" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.27" extension="2014-06-09"/>
+                  <id root="2.25.4001" extension="vital-translation"/>
+                  <code code="29463-7" codeSystem="2.16.840.1.113883.6.1" displayName="Synthetic weight"/>
+                  <text><reference value="#vit-row-translation"/></text>
+                  <statusCode code="completed"/>
+                  <effectiveTime value="20260102030405-0800"/>
+                  <value xsi:type="PQ" nullFlavor="OTH">
+                    <translation value="150" nullFlavor="OTH"><originalText>LBS</originalText></translation>
+                  </value>
+                </observation>
+              </component>
+
+              <component>
+                <observation classCode="OBS" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.27" extension="2014-06-09"/>
+                  <id root="2.25.4001" extension="vital-organizer"/>
+                  <code code="8310-5" codeSystem="2.16.840.1.113883.6.1" displayName="Synthetic temperature"/>
+                  <text><reference value="#vit-row-organizer"/></text>
+                  <statusCode code="completed"/>
+                  <value xsi:type="PQ" value="36.8" unit="Cel"/>
+                </observation>
+              </component>
+
+              <component>
+                <observation classCode="OBS" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.27" extension="2014-06-09"/>
+                  <id root="2.25.4001" extension="vital-date-only"/>
+                  <code code="59408-5" codeSystem="2.16.840.1.113883.6.1" displayName="Synthetic saturation"/>
+                  <text><reference value="#vit-row-date-only"/></text>
+                  <statusCode code="completed"/>
+                  <effectiveTime value="20260103"/>
+                  <value xsi:type="PQ" value="99" unit="%"/>
+                </observation>
+              </component>
+
+              <component>
+                <observation classCode="OBS" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.27" extension="2014-06-09"/>
+                  <id nullFlavor="NI"/>
+                  <code code="9279-1" codeSystem="2.16.840.1.113883.6.1" displayName="Synthetic respiration"/>
+                  <text><reference value="#vit-row-no-id"/></text>
+                  <statusCode code="completed"/>
+                  <effectiveTime value="20260102030405-0800"/>
+                  <value xsi:type="PQ" value="14" unit="/min"/>
+                </observation>
+              </component>
+
+              <component>
+                <observation classCode="OBS" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.27" extension="2014-06-09"/>
+                  <id root="2.25.4001" extension="vital-unnamed"/>
+                  <code nullFlavor="UNK"/>
+                  <text><reference value="#vit-unnamed"/></text>
+                  <statusCode code="completed"/>
+                  <effectiveTime value="20260102030405-0800"/>
+                  <value xsi:type="PQ" value="21" unit="1"/>
+                </observation>
+              </component>
+            </organizer>
+          </entry>
+        </section>
+      </component>
+    </structuredBody>
+  </component>
+</ClinicalDocument>
