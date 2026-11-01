@@ -56,3 +56,35 @@ describe('DisplayPreferencesPanel', () => {
     expect(screen.getByRole('switch', { name: 'Force lowercase display' })).not.toBeChecked()
   })
 })
+
+describe('seeded preference', () => {
+  function seed(currentUser: Record<string, unknown>) {
+    const node = document.createElement('script')
+    node.id = 'app-initial-data'
+    node.type = 'application/json'
+    node.textContent = JSON.stringify({ authenticated: true, currentUser })
+    document.body.appendChild(node)
+  }
+
+  afterEach(() => {
+    document.getElementById('app-initial-data')?.remove()
+  })
+
+  it('starts from app-initial-data without waiting for or sending a GET', () => {
+    seed({ name: 'Ben', force_lowercase_display: true })
+    mockGet.mockReturnValue(new Promise(() => {}))
+    renderPanel()
+
+    expect(screen.getByRole('switch', { name: 'Force lowercase display' })).toBeChecked()
+    expect(mockGet).not.toHaveBeenCalled()
+  })
+
+  it('falls back to the GET when the page does not carry the preference', async () => {
+    seed({ name: 'Ben' })
+    mockGet.mockResolvedValue({ force_lowercase: true })
+    renderPanel()
+
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Force lowercase display' })).toBeChecked())
+    expect(mockGet).toHaveBeenCalledWith('/api/user/display-preferences')
+  })
+})

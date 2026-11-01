@@ -2,6 +2,7 @@ import { createContext, type ReactElement, type ReactNode, useCallback, useConte
 
 import { Switch } from '@/components/ui/switch'
 import { fetchWrapper } from '@/fetchWrapper'
+import { forceLowercaseDisplay } from '@/lib/appShell'
 import { DisplayPreferencesSchema } from '@/phr/medication-fills/fillTypes'
 import { errorMessage } from '@/phr/shared'
 
@@ -23,9 +24,12 @@ const DisplayPreferencesContext = createContext<DisplayPreferencesValue>({
 })
 
 export function DisplayPreferencesProvider({ children }: { children: ReactNode }): ReactElement {
-  const [forceLowercase, setForce] = useState(false)
+  // The page carries the saved value, so there is no flash; the GET is the fallback.
+  const [seeded] = useState(forceLowercaseDisplay)
+  const [forceLowercase, setForce] = useState(seeded ?? false)
 
   useEffect(() => {
+    if (seeded !== null) return
     let cancelled = false
     fetchWrapper.get(ENDPOINT).then((raw: unknown) => {
       if (!cancelled) setForce(DisplayPreferencesSchema.parse(raw).force_lowercase)
@@ -35,7 +39,7 @@ export function DisplayPreferencesProvider({ children }: { children: ReactNode }
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [seeded])
 
   const setForceLowercase = useCallback(async (value: boolean): Promise<void> => {
     const raw: unknown = await fetchWrapper.put(ENDPOINT, { force_lowercase: value })

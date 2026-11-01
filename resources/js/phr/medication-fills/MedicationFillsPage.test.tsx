@@ -8,6 +8,7 @@ import MedicationFillsPage from '@/phr/medication-fills/MedicationFillsPage'
 
 const mockGet = jest.fn()
 const mockPostRaw = jest.fn()
+const mockPatchRaw = jest.fn()
 const mockPatch = jest.fn()
 const mockDelete = jest.fn()
 const mockPut = jest.fn()
@@ -16,6 +17,7 @@ jest.mock('@/fetchWrapper', () => ({
   fetchWrapper: {
     get: (...args: unknown[]) => mockGet(...args),
     postRaw: (...args: unknown[]) => mockPostRaw(...args),
+    patchRaw: (...args: unknown[]) => mockPatchRaw(...args),
     patch: (...args: unknown[]) => mockPatch(...args),
     delete: (...args: unknown[]) => mockDelete(...args),
     put: (...args: unknown[]) => mockPut(...args),
@@ -101,6 +103,11 @@ beforeEach(() => {
       return lookups[ndc]
     }
     if (url.startsWith('/api/ndc/search')) return lookups['search']
+    if (url === '/api/phr/patients/42/medications') {
+      const medication = (id: number, name: string) => ({ id, patient_id: 42, user_id: 7, name, rxnorm_code: null, dose: null, dose_unit: null, route: null, frequency: null, started_on: null, ended_on: null, status: 'active', prescriber_name: null, reason_for_use: null, raw_text: null, created_at: null, updated_at: null })
+      return { medications: [medication(7, 'atorvastatin calcium'), medication(9, 'Mystery')], can_manage: true }
+    }
+    if (url === '/api/phr/patients/42/medication-fills/1') return { medication_fill: fills[0] }
     if (url === '/api/phr/patients/42/medication-fills') return { medication_fills: fills, can_manage: true }
     if (url === '/api/phr/patients/42/medications/7/fills') return { medication_fills: [fills[0]], can_manage: true }
     return {}
@@ -413,5 +420,120 @@ describe('Fill entry without an NDC', () => {
     const body = mockPostRaw.mock.calls[0]![1] as Record<string, unknown>
     expect(body).not.toHaveProperty('ndc')
     expect(body).toMatchObject({ drug_as_printed: 'aspirin 81mg' })
+  })
+})
+
+describe('Editing a fill', () => {
+  async function openEdit() {
+    renderPage()
+    await screen.findByRole('table', { name: 'Fills' })
+    fireEvent.click(screen.getByRole('button', { name: /^Edit atorvastatin calcium fill 26\.10\.28/ }))
+    return screen.findByRole('button', { name: 'Save changes' })
+  }
+
+  it('prefills the form from the fill and keeps the stored drug', async () => {
+    await openEdit()
+
+    expect(screen.getByText('Edit Fill')).toBeInTheDocument()
+    expect(screen.getByLabelText(/^Fill date/)).toHaveValue('2026-10-28')
+    expect(screen.getByLabelText(/^Quantity/)).toHaveValue('90.000')
+    expect(screen.getByLabelText('Unit')).toHaveValue('tablet')
+    expect(screen.getByLabelText('Paid ($)')).toHaveValue('10.00')
+    expect(screen.getByLabelText('Retail price ($)')).toHaveValue('189.99')
+    expect(screen.getByLabelText('Pharmacy')).toHaveValue('Example Pharmacy')
+    expect(screen.getByLabelText('Days supply')).toHaveValue('90')
+    expect(screen.getByLabelText(/^NDC/)).toHaveValue('0071-0155-23')
+    expect(screen.getByLabelText('Drug preview')).toBeInTheDocument()
+    // Unchanged NDC: no lookup.
+    expect(mockGet.mock.calls.some(([url]) => String(url).startsWith('/api/ndc/lookup'))).toBe(false)
+  })
+
+  it('PATCHes the changes, with the version, without re-sending the unchanged NDC', async () => {
+    fills = [makeFill({ version: 'v1' })]
+    mockPatchRaw.mockResolvedValue(jsonResponse(200, { medication_fill: makeFill({ version: 'v2', paid_cents: 1250 }) }))
+    await openEdit()
+
+    fireEvent.change(screen.getByLabelText('Paid ($)'), { target: { value: '12.50' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(mockPatchRaw).toHaveBeenCalledTimes(1))
+    const [url, body] = mockPatchRaw.mock.calls[0] as [string, Record<string, unknown>]
+    expect(url).toBe('/api/phr/patients/42/medication-fills/1')
+    expect(body).toMatchObject({ version: 'v1', paid_cents: 1250, medication_id: 7 })
+    expect(body).not.toHaveProperty('ndc')
+    expect(await screen.findByText('$12.50')).toBeInTheDocument()
+    expect(screen.queryByText('Edit Fill')).not.toBeInTheDocument()
+  })
+
+  it('re-runs the lookup when the NDC changes and sends the new NDC', async () => {
+    lookups['00002-0800-01'] = { status: 'resolved', input: '00002080001', selected: candidate('0002-0800-01'), candidates: [candidate('0002-0800-01')] }
+    mockPatchRaw.mockResolvedValue(jsonResponse(200, { medication_fill: makeFill() }))
+    await openEdit()
+
+    fireEvent.change(screen.getByLabelText(/^NDC/), { target: { value: '00002-0800-01' } })
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/api/ndc/lookup?ndc=00002-0800-01'))
+    expect(await screen.findByText(/NDC 0002-0800-01/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(mockPatchRaw).toHaveBeenCalledTimes(1))
+    expect(mockPatchRaw.mock.calls[0]![1]).toMatchObject({ ndc: '00002-0800-01' })
+  })
+
+  it('shows a conflict message instead of overwriting, and reloads the latest', async () => {
+    mockPatchRaw.mockResolvedValue(jsonResponse(409, { message: 'This record changed since it was loaded.' }))
+    await openEdit()
+    fireEvent.change(screen.getByLabelText('Pharmacy'), { target: { value: 'Other Pharmacy' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    expect(await screen.findByText('This fill changed since you opened it. Reload to see the latest')).toBeInTheDocument()
+    // The row was not overwritten.
+    expect(screen.queryByText('Other Pharmacy')).not.toBeInTheDocument()
+
+    fills = [makeFill({ pharmacy_name: 'Latest Pharmacy' })]
+    fireEvent.click(screen.getByRole('button', { name: 'Reload' }))
+    await waitFor(() => expect(screen.getByLabelText('Pharmacy')).toHaveValue('Latest Pharmacy'))
+    expect(screen.queryByText('This fill changed since you opened it. Reload to see the latest')).not.toBeInTheDocument()
+  })
+
+  it('edits from the medication fill history too', async () => {
+    mockPatchRaw.mockResolvedValue(jsonResponse(200, { medication_fill: makeFill() }))
+    render(<MedicationFillHistory patientId={42} medicationId={7} />)
+    fireEvent.click(await screen.findByRole('button', { name: /^Edit atorvastatin calcium fill/ }))
+    expect(await screen.findByText('Edit Fill')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(mockPatchRaw).toHaveBeenCalledWith('/api/phr/patients/42/medication-fills/1', expect.any(Object)))
+  })
+})
+
+describe('Medication select', () => {
+  it('sends medication_id for a chosen medication and null for automatic matching', async () => {
+    lookups['00071-0155-23'] = { status: 'resolved', input: '00071015523', selected: candidate('0071-0155-23'), candidates: [candidate('0071-0155-23')] }
+    mockPostRaw.mockResolvedValue(jsonResponse(201, { medication_fill: makeFill({ id: 8 }) }))
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /add fill/i }))
+    fireEvent.change(screen.getByLabelText(/^NDC/), { target: { value: '00071-0155-23' } })
+    await screen.findByLabelText('Drug preview')
+    fireEvent.change(screen.getByLabelText(/^Fill date/), { target: { value: '2026-10-28' } })
+    fireEvent.change(screen.getByLabelText(/^Quantity/), { target: { value: '90' } })
+
+    const select = await screen.findByRole('combobox', { name: 'Medication' })
+    expect(within(select).getByRole('option', { name: 'Match or create automatically' })).toBeInTheDocument()
+    expect(select).toHaveValue('')
+    await waitFor(() => expect(within(screen.getByRole('combobox', { name: 'Medication' })).getByRole('option', { name: 'Mystery' })).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save fill' }))
+    await waitFor(() => expect(mockPostRaw).toHaveBeenCalledTimes(1))
+    expect(mockPostRaw.mock.calls[0]![1]).toMatchObject({ medication_id: null })
+
+    fireEvent.click(await screen.findByRole('button', { name: /add fill/i }))
+    fireEvent.change(screen.getByLabelText(/^NDC/), { target: { value: '00071-0155-23' } })
+    await screen.findByLabelText('Drug preview')
+    fireEvent.change(screen.getByLabelText(/^Fill date/), { target: { value: '2026-10-28' } })
+    fireEvent.change(screen.getByLabelText(/^Quantity/), { target: { value: '90' } })
+    await waitFor(() => expect(within(screen.getByRole('combobox', { name: 'Medication' })).getByRole('option', { name: 'Mystery' })).toBeInTheDocument())
+    fireEvent.change(screen.getByRole('combobox', { name: 'Medication' }), { target: { value: '9' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save fill' }))
+    await waitFor(() => expect(mockPostRaw).toHaveBeenCalledTimes(2))
+    expect(mockPostRaw.mock.calls[1]![1]).toMatchObject({ medication_id: 9 })
   })
 })

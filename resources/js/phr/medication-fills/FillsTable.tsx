@@ -1,4 +1,4 @@
-import { Trash2 } from 'lucide-react'
+import { Pencil, Trash2 } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 import { type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
@@ -26,6 +26,8 @@ interface FillsTableProps {
   empty: ReactNode
   /** Review and delete controls; omitted for a read-only list. */
   actions?: FillActions | undefined
+  /** Adds an edit button per row. */
+  onEdit?: ((fill: MedicationFill) => void) | undefined
 }
 
 function strengthAndForm(fill: MedicationFill): string {
@@ -36,7 +38,7 @@ function Missing() {
   return <span className="text-muted-foreground">{MISSING}</span>
 }
 
-export function FillsTable({ label, rows, loading = false, empty, actions }: FillsTableProps) {
+export function FillsTable({ label, rows, loading = false, empty, actions, onEdit }: FillsTableProps) {
   const lc = useLowercaseClass()
   const textClass = (extra?: string) => cn(lc, extra)
 
@@ -129,7 +131,7 @@ export function FillsTable({ label, rows, loading = false, empty, actions }: Fil
     },
   ]
 
-  if (actions) {
+  if (actions || onEdit) {
     columns.push({
       id: 'actions',
       header: 'Actions',
@@ -138,27 +140,34 @@ export function FillsTable({ label, rows, loading = false, empty, actions }: Fil
       className: 'px-4 py-3',
       cell: (fill) => {
         const name = `${fillDrugName(fill)} fill ${formatFillDate(fill.filled_on)}`
-        const busy = actions.isMutating(`review:${fill.id}`) || actions.isMutating(`delete:${fill.id}`)
+        const busy = actions ? actions.isMutating(`review:${fill.id}`) || actions.isMutating(`delete:${fill.id}`) : false
         return (
           <div className="flex justify-end gap-2">
-            <ReviewActions
+            {actions && <ReviewActions
               status={fill.review_status}
               label={name}
               busy={actions.isMutating(`review:${fill.id}`)}
               disabled={busy}
               onReview={(decision) => actions.onReview(fill.id, decision)}
-            />
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              className="text-destructive hover:text-destructive"
-              title={`Delete ${name}`}
-              aria-label={`Delete ${name}`}
-              disabled={busy}
-              onClick={() => actions.onStartDelete(fill.id)}
-            >
-              <Trash2 className="size-4" />
-            </Button>
+            />}
+            {onEdit && (
+              <Button size="icon-sm" variant="ghost" title={`Edit ${name}`} aria-label={`Edit ${name}`} disabled={busy} onClick={() => onEdit(fill)}>
+                <Pencil className="size-4" />
+              </Button>
+            )}
+            {actions && (
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                className="text-destructive hover:text-destructive"
+                title={`Delete ${name}`}
+                aria-label={`Delete ${name}`}
+                disabled={busy}
+                onClick={() => actions.onStartDelete(fill.id)}
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            )}
           </div>
         )
       },

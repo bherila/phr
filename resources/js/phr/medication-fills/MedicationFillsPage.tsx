@@ -3,11 +3,13 @@ import { useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { fetchWrapper } from '@/fetchWrapper'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { ShowRejectedToggle } from '@/phr/clinical/review'
+import { errorMessage } from '@/phr/shared'
 import type { PhrListPageProps } from '@/phr/shell/phrPages'
 
-import { FillEntryForm } from './FillEntryForm'
+import { FillEntryForm, FillForm } from './FillEntryForm'
 import { FillsTable } from './FillsTable'
 import {
   type MedicationFill,
@@ -21,6 +23,8 @@ export default function MedicationFillsPage({ patientId }: PhrListPageProps) {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [medicationId, setMedicationId] = useState('')
+  const [editing, setEditing] = useState<MedicationFill | null>(null)
+  const [editKey, setEditKey] = useState(0)
 
   const crud = useClinicalCrud<MedicationFill, Record<string, never>>({
     endpoint: `/api/phr/patients/${patientId}/medication-fills`,
@@ -56,6 +60,25 @@ export default function MedicationFillsPage({ patientId }: PhrListPageProps) {
 
   function created(fill: MedicationFill): void {
     crud.setRecords((current) => [fill, ...current.filter((existing) => existing.id !== fill.id)])
+  }
+
+  function saved(fill: MedicationFill): void {
+    crud.setRecords((current) => current.map((existing) => (existing.id === fill.id ? fill : existing)))
+    setEditing(null)
+  }
+
+  // The fill changed elsewhere: fetch the latest and reopen the form on it.
+  async function reloadEditing(): Promise<void> {
+    if (!editing) return
+    try {
+      const raw: unknown = await fetchWrapper.get(`/api/phr/patients/${patientId}/medication-fills/${editing.id}`)
+      const latest = MedicationFillResponseSchema.parse(raw).medication_fill
+      crud.setRecords((current) => current.map((existing) => (existing.id === latest.id ? latest : existing)))
+      setEditing(latest)
+      setEditKey((key) => key + 1)
+    } catch (caught) {
+      crud.setError(errorMessage(caught))
+    }
   }
 
   return (
@@ -105,6 +128,19 @@ export default function MedicationFillsPage({ patientId }: PhrListPageProps) {
         </div>
       )}
 
+      {editing && (
+        <div className="mb-6">
+          <FillForm
+            key={`${editing.id}:${editKey}`}
+            patientId={patientId}
+            fill={editing}
+            onSaved={saved}
+            onCancel={() => setEditing(null)}
+            onReload={() => void reloadEditing()}
+          />
+        </div>
+      )}
+
       {!crud.busy && crud.records.length === 0 ? (
         <div className="rounded-lg border border-dashed border-border px-6 py-12 text-center text-sm text-muted-foreground">
           <p className="font-medium text-foreground">No fills recorded.</p>
@@ -119,6 +155,7 @@ export default function MedicationFillsPage({ patientId }: PhrListPageProps) {
             rows={rows}
             loading={firstLoad}
             empty={<div className="px-4 py-8 text-sm text-muted-foreground">No fills match the current filters.</div>}
+            onEdit={crud.canManage ? setEditing : undefined}
             actions={crud.canManage ? {
               isMutating: crud.isMutating,
               onReview: (id, decision) => void crud.reviewRecord(id, decision),

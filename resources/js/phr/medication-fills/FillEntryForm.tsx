@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 import { useLowercaseClass } from '@/phr/display/DisplayPreferences'
 import { reviewStateChanged } from '@/phr/review/reviewSummary'
 import { errorMessage } from '@/phr/shared'
+import { PhrMedicationsResponseSchema } from '@/phr/types'
 
 import {
   dollarsToCents,
@@ -24,6 +25,7 @@ import {
 export type FieldErrors = Record<string, string[]>
 
 interface FillFormState {
+  medicationId: string
   ndc: string
   ndcCandidate: string
   allowUnresolved: boolean
@@ -43,6 +45,7 @@ interface FillFormState {
 }
 
 const EMPTY_FORM: FillFormState = {
+  medicationId: '',
   ndc: '',
   ndcCandidate: '',
   allowUnresolved: false,
@@ -78,11 +81,13 @@ const textOrNull = (value: string): string | null => (value.trim() === '' ? null
 const intOrNull = (value: string): number | null => (value.trim() === '' ? null : Number(value))
 
 /** The create body of the contract. Money is typed in dollars and sent as cents; drug fields are never sent. */
-export function buildFillPayload(form: FillFormState): Record<string, unknown> {
+export function buildFillPayload(form: FillFormState, options: { sendNdc?: boolean, version?: string | null } = {}): Record<string, unknown> {
+  const sendNdc = options.sendNdc ?? true
   return {
-    ...(form.ndc.trim() ? { ndc: form.ndc.trim() } : {}),
-    ...(form.ndcCandidate ? { ndc_candidate: form.ndcCandidate } : {}),
-    ...(form.allowUnresolved ? { allow_unresolved: true } : {}),
+    ...(options.version ? { version: options.version } : {}),
+    ...(sendNdc && form.ndc.trim() ? { ndc: form.ndc.trim() } : {}),
+    ...(sendNdc && form.ndcCandidate ? { ndc_candidate: form.ndcCandidate } : {}),
+    ...(sendNdc && form.allowUnresolved ? { allow_unresolved: true } : {}),
     filled_on: form.filledOn,
     quantity: textOrNull(form.quantity),
     quantity_unit: textOrNull(form.quantityUnit),
@@ -96,9 +101,36 @@ export function buildFillPayload(form: FillFormState): Record<string, unknown> {
     prescriber_name: textOrNull(form.prescriberName),
     directions: textOrNull(form.directions),
     drug_as_printed: textOrNull(form.drugAsPrinted),
-    medication_id: null,
+    medication_id: form.medicationId ? Number(form.medicationId) : null,
   }
 }
+
+const centsToDollars = (cents: number | null): string => (cents === null ? '' : `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`)
+const numberText = (value: number | null): string => (value === null ? '' : String(value))
+
+function formFromFill(fill: MedicationFill): FillFormState {
+  return {
+    medicationId: fill.medication_id === null ? '' : String(fill.medication_id),
+    ndc: fill.ndc_as_captured ?? fill.ndc_10 ?? '',
+    ndcCandidate: '',
+    allowUnresolved: fill.ndc_status === 'unresolved',
+    drugAsPrinted: fill.drug_as_printed ?? '',
+    filledOn: fill.filled_on.slice(0, 10),
+    quantity: fill.quantity ?? '',
+    quantityUnit: fill.quantity_unit ?? '',
+    paid: centsToDollars(fill.paid_cents),
+    retail: centsToDollars(fill.retail_cents),
+    pharmacyName: fill.pharmacy_name ?? '',
+    pharmacyLocation: fill.pharmacy_location ?? '',
+    daysSupply: numberText(fill.days_supply),
+    rxNumber: fill.rx_number ?? '',
+    refillsRemaining: numberText(fill.refills_remaining),
+    prescriberName: fill.prescriber_name ?? '',
+    directions: fill.directions ?? '',
+  }
+}
+
+export const FILL_CONFLICT_MESSAGE = 'This fill changed since you opened it. Reload to see the latest'
 
 function FieldError({ errors, field }: { errors: FieldErrors, field: string }) {
   const messages = errors[field]
@@ -241,27 +273,71 @@ function NameSearch({ onPick }: { onPick: (candidate: NdcCandidate) => void }) {
   )
 }
 
-interface FillEntryFormProps {
+interface FillFormProps {
   patientId: number
+  /** An existing fill to edit; absent for a new one. */
+  fill?: MedicationFill | undefined
   /** Called with the saved fill once the server accepts it. */
-  onCreated: (fill: MedicationFill) => void
+  onSaved: (fill: MedicationFill) => void
+  onCancel: () => void
+  /** Called when the fill changed elsewhere and the person asks to reload it. */
+  onReload?: (() => void) | undefined
 }
 
-export function FillEntryForm({ patientId, onCreated }: FillEntryFormProps) {
+/** Add-a-fill entry point: a button that opens the form. */
+export function FillEntryForm({ patientId, onCreated }: { patientId: number, onCreated: (fill: MedicationFill) => void }) {
   const [open, setOpen] = useState(false)
-  const [form, setForm] = useState<FillFormState>(EMPTY_FORM)
+  if (!open) {
+    return (
+      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+        <Plus className="size-4" />
+        Add Fill
+      </Button>
+    )
+  }
+  return (
+    <FillForm
+      patientId={patientId}
+      onSaved={(fill) => { onCreated(fill); setOpen(false) }}
+      onCancel={() => setOpen(false)}
+    />
+  )
+}
+
+export function FillForm({ patientId, fill, onSaved, onCancel, onReload }: FillFormProps) {
+  const editing = fill !== undefined
+  const [form, setForm] = useState<FillFormState>(() => (fill ? formFromFill(fill) : EMPTY_FORM))
+  const initialNdc = fill ? formFromFill(fill).ndc : ''
+  const [medications, setMedications] = useState<Array<{ id: number, name: string }>>([])
   const [lookup, setLookup] = useState<LookupState>({ phase: 'idle' })
   const [searchOpen, setSearchOpen] = useState(false)
   const [errors, setErrors] = useState<FieldErrors>({})
   const [formError, setFormError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [conflict, setConflict] = useState(false)
   const lookupSeqRef = useRef(0)
 
   const update = (patch: Partial<FillFormState>) => setForm((current) => ({ ...current, ...patch }))
 
+  // Editing keeps the stored drug until the NDC itself is changed.
+  const ndcUnchanged = editing && form.ndc.trim() === initialNdc.trim()
+
+  useEffect(() => {
+    let cancelled = false
+    fetchWrapper.get(`/api/phr/patients/${patientId}/medications`).then((raw: unknown) => {
+      const parsed = PhrMedicationsResponseSchema.safeParse(raw)
+      if (!cancelled && parsed.success) setMedications(parsed.data.medications.map((medication) => ({ id: medication.id, name: medication.name })))
+    }).catch(() => {
+      // The select then offers only automatic matching.
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [patientId])
+
   // The lookup runs by itself once the NDC is a plausible 10 or 11 digits.
   useEffect(() => {
-    if (!isLookupableNdc(form.ndc)) {
+    if (ndcUnchanged || !isLookupableNdc(form.ndc)) {
       lookupSeqRef.current += 1
       setLookup({ phase: 'idle' })
       return
@@ -273,7 +349,7 @@ export function FillEntryForm({ patientId, onCreated }: FillEntryFormProps) {
     }).catch((caught: unknown) => {
       if (seq === lookupSeqRef.current) setLookup({ phase: 'error', message: errorMessage(caught) })
     })
-  }, [form.ndc])
+  }, [form.ndc, ndcUnchanged])
 
   function changeNdc(value: string): void {
     update({ ndc: value, ndcCandidate: '', allowUnresolved: false })
@@ -284,22 +360,26 @@ export function FillEntryForm({ patientId, onCreated }: FillEntryFormProps) {
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault()
     setFormError(null)
+    setConflict(false)
     const local: FieldErrors = {}
     if (form.ndc.trim() !== '' && !isLookupableNdc(form.ndc)) local['ndc'] = ['Enter a 10 or 11 digit NDC.']
-    if (form.ndc.trim() === '' && form.drugAsPrinted.trim() === '') local['drug_as_printed'] = ['Enter an NDC, or the drug name as printed.']
+    if (!editing && form.ndc.trim() === '' && form.drugAsPrinted.trim() === '') local['drug_as_printed'] = ['Enter an NDC, or the drug name as printed.']
     if (!form.filledOn) local['filled_on'] = ['Enter the fill date.']
     if (form.quantity.trim() === '') local['quantity'] = ['Enter the quantity.']
     for (const [field, value] of [['paid_cents', form.paid], ['retail_cents', form.retail]] as const) {
       if (Number.isNaN(dollarsToCents(value))) local[field] = ['Enter a dollar amount such as 18.99.']
     }
-    if (result?.status === 'ambiguous' && !form.ndcCandidate) local['ndc_candidate'] = ['Choose one of the matching packages'] 
-    if (result?.status === 'unresolved' && !form.allowUnresolved) local['ndc'] = ['No FDA listing matches this NDC. Search by name, or choose to save it without a match.']
+    if (!ndcUnchanged && result?.status === 'ambiguous' && !form.ndcCandidate) local['ndc_candidate'] = ['Choose one of the matching packages'] 
+    if (!ndcUnchanged && result?.status === 'unresolved' && !form.allowUnresolved) local['ndc'] = ['No FDA listing matches this NDC. Search by name, or choose to save it without a match.']
     setErrors(local)
     if (Object.keys(local).length > 0) return
 
     setSaving(true)
     try {
-      const response = await fetchWrapper.postRaw(`/api/phr/patients/${patientId}/medication-fills`, buildFillPayload(form))
+      const payload = buildFillPayload(form, { sendNdc: !ndcUnchanged, version: fill?.version ?? null })
+      const response = fill
+        ? await fetchWrapper.patchRaw(`/api/phr/patients/${patientId}/medication-fills/${fill.id}`, payload)
+        : await fetchWrapper.postRaw(`/api/phr/patients/${patientId}/medication-fills`, payload)
       const text = await response.text()
       let body: unknown = null
       try {
@@ -307,23 +387,23 @@ export function FillEntryForm({ patientId, onCreated }: FillEntryFormProps) {
       } catch {
         body = null
       }
+      if (response.status === 409) {
+        setConflict(true)
+        return
+      }
       if (response.status === 422) {
-        const payload = (body ?? {}) as { message?: string, errors?: FieldErrors }
-        setErrors(payload.errors ?? {})
-        setFormError(payload.message ?? 'Please correct the highlighted fields.')
+        const invalid = (body ?? {}) as { message?: string, errors?: FieldErrors }
+        setErrors(invalid.errors ?? {})
+        setFormError(invalid.message ?? 'Please correct the highlighted fields.')
         return
       }
       if (!response.ok) {
-        const payload = (body ?? {}) as { message?: string, error?: string }
-        setFormError(payload.message ?? payload.error ?? response.statusText ?? 'Request failed.')
+        const failed = (body ?? {}) as { message?: string, error?: string }
+        setFormError(failed.message ?? failed.error ?? response.statusText ?? 'Request failed.')
         return
       }
       void reviewStateChanged(patientId)
-      onCreated(MedicationFillResponseSchema.parse(body).medication_fill)
-      setForm(EMPTY_FORM)
-      setErrors({})
-      setSearchOpen(false)
-      setOpen(false)
+      onSaved(MedicationFillResponseSchema.parse(body).medication_fill)
     } catch (caught) {
       setFormError(errorMessage(caught))
     } finally {
@@ -331,22 +411,15 @@ export function FillEntryForm({ patientId, onCreated }: FillEntryFormProps) {
     }
   }
 
-  if (!open) {
-    return (
-      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
-        <Plus className="size-4" />
-        Add Fill
-      </Button>
-    )
-  }
-
-  const selectedCandidate = result?.status === 'ambiguous'
+  const selectedCandidate = ndcUnchanged
+    ? null
+    : result?.status === 'ambiguous'
     ? result.candidates.find((candidate) => candidate.ndc_10 === form.ndcCandidate) ?? null
     : result?.selected ?? null
 
   return (
     <div className="w-full rounded-lg border border-border bg-card p-4">
-      <h2 className="mb-3 text-sm font-semibold text-card-foreground">Add Fill</h2>
+      <h2 className="mb-3 text-sm font-semibold text-card-foreground">{editing ? 'Edit Fill' : 'Add Fill'}</h2>
       <form onSubmit={(event) => void submit(event)} className="space-y-4" noValidate>
         <div className="space-y-2">
           <Field label="NDC *" field="ndc" errors={errors}>
@@ -358,6 +431,7 @@ export function FillEntryForm({ patientId, onCreated }: FillEntryFormProps) {
               <Input value={form.drugAsPrinted} onChange={(event) => update({ drugAsPrinted: event.target.value })} placeholder="atorvastatin 20mg tab" />
             </Field>
           )}
+          {ndcUnchanged && fill?.drug && <DrugPreview drug={fill.drug} ndc={fill.ndc_10} />}
           {lookup.phase === 'loading' && <p className="text-sm text-muted-foreground">Looking up NDC…</p>}
           {lookup.phase === 'error' && <p role="alert" className="text-sm text-destructive">{lookup.message}</p>}
 
@@ -411,6 +485,16 @@ export function FillEntryForm({ patientId, onCreated }: FillEntryFormProps) {
         </div>
 
         <div className="grid gap-3 md:grid-cols-2">
+          <Field label="Medication" field="medication_id" errors={errors} className="md:col-span-2">
+            <select
+              value={form.medicationId}
+              onChange={(event) => update({ medicationId: event.target.value })}
+              className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+            >
+              <option value="">Match or create automatically</option>
+              {medications.map((medication) => <option key={medication.id} value={String(medication.id)}>{medication.name}</option>)}
+            </select>
+          </Field>
           <Field label="Fill date *" field="filled_on" errors={errors}>
             <Input type="date" value={form.filledOn} onChange={(event) => update({ filledOn: event.target.value })} />
           </Field>
@@ -451,10 +535,16 @@ export function FillEntryForm({ patientId, onCreated }: FillEntryFormProps) {
           </Field>
         </div>
 
+        {conflict && (
+          <div role="alert" className="flex flex-wrap items-center gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <span>{FILL_CONFLICT_MESSAGE}</span>
+            {onReload && <Button type="button" size="sm" variant="outline" onClick={onReload}>Reload</Button>}
+          </div>
+        )}
         {formError && <p role="alert" className="text-sm text-destructive">{formError}</p>}
         <div className="flex gap-2">
-          <Button type="submit" size="sm" disabled={saving}>{saving ? 'Saving…' : 'Save fill'}</Button>
-          <Button type="button" variant="outline" size="sm" disabled={saving} onClick={() => setOpen(false)}>Cancel</Button>
+          <Button type="submit" size="sm" disabled={saving}>{saving ? 'Saving…' : editing ? 'Save changes' : 'Save fill'}</Button>
+          <Button type="button" variant="outline" size="sm" disabled={saving} onClick={onCancel}>Cancel</Button>
         </div>
       </form>
     </div>

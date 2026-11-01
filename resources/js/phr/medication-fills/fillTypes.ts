@@ -52,6 +52,7 @@ export const MedicationFillSchema = z.object({
   user_id: z.number().optional(),
   medication_id: nullableNumber,
   medication: z.object({ id: z.number(), name: z.string() }).nullable().optional().transform((value) => value ?? null),
+  version: nullableString,
   source_kind: nullableString,
   review_status: PhrReviewStatusSchema.optional(),
   ndc_as_captured: nullableString,
