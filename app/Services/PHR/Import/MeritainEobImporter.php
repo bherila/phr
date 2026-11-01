@@ -116,50 +116,7 @@ class MeritainEobImporter
                         $document->restore();
                     }
 
-                    $eob = PhrEob::create([
-                        'patient_id' => $patient->id,
-                        'user_id' => $patient->owner_user_id,
-                        'source_document_id' => $document->id,
-                        'import_source' => self::IMPORT_SOURCE,
-                        'external_id' => $externalId,
-                        'claim_fingerprint' => $claimFingerprint,
-                        'claim_number' => $parsed['claim_number'],
-                        'claim_type' => $parsed['claim_type'],
-                        'administrator' => $parsed['administrator'],
-                        'carrier' => $parsed['carrier'],
-                        'plan_name' => $parsed['plan_name'],
-                        'group_number' => $parsed['group_number'],
-                        'member_id' => $parsed['member_id'],
-                        'participant_name' => $parsed['participant_name'],
-                        'patient_name' => $parsed['patient_name'],
-                        'provider_name' => $parsed['provider_name'],
-                        'payment_to' => $parsed['payment_to'],
-                        'provider_tin' => $parsed['provider_tin'],
-                        'check_number' => $parsed['check_number'],
-                        'check_amount' => $parsed['check_amount'],
-                        'print_date' => $parsed['print_date'],
-                        'processed_date' => $parsed['processed_date'],
-                        'total_charges' => $parsed['total_charges'],
-                        'total_provider_discount' => $parsed['total_provider_discount'],
-                        'total_ineligible_amount' => $parsed['total_ineligible_amount'],
-                        'total_deductible_applied' => $parsed['total_deductible_applied'],
-                        'total_copay_applied' => $parsed['total_copay_applied'],
-                        'total_benefit_percent' => $parsed['total_benefit_percent'],
-                        'total_carrier_payment' => $parsed['total_carrier_payment'],
-                        'total_plan_payment' => $parsed['total_plan_payment'],
-                        'total_patient_responsibility' => $parsed['total_patient_responsibility'],
-                        'parsed_data' => $parsed['parsed_data'],
-                        'raw_text' => $parsed['raw_text'],
-                        'parser_version' => MeritainEobParser::PARSER_VERSION,
-                    ]);
-
-                    foreach ($parsed['lines'] as $line) {
-                        PhrEobLine::create([
-                            'eob_id' => $eob->id,
-                            'patient_id' => $patient->id,
-                            ...$line,
-                        ]);
-                    }
+                    $this->persistClaim($patient, $parsed, $document->id, $externalId, $claimFingerprint, $parsed['raw_text']);
                 });
                 $result['imported']++;
             } catch (\Throwable $exception) {
@@ -169,6 +126,64 @@ class MeritainEobImporter
         }
 
         return $result;
+    }
+
+    /**
+     * Writes one parsed claim and its lines. The directory import and the
+     * single-document import (agent API) share it, so a claim has one shape
+     * however it arrived.
+     *
+     * @param  array<string, mixed>  $parsed
+     */
+    public function persistClaim(PhrPatient $patient, array $parsed, int $documentId, string $externalId, string $claimFingerprint, string $rawText, string $reviewStatus = 'confirmed'): PhrEob
+    {
+        $eob = PhrEob::create([
+            'patient_id' => $patient->id,
+            'user_id' => $patient->owner_user_id,
+            'source_document_id' => $documentId,
+            'import_source' => self::IMPORT_SOURCE,
+            'external_id' => $externalId,
+            'claim_fingerprint' => $claimFingerprint,
+            'claim_number' => $parsed['claim_number'],
+            'claim_type' => $parsed['claim_type'],
+            'administrator' => $parsed['administrator'],
+            'carrier' => $parsed['carrier'],
+            'plan_name' => $parsed['plan_name'],
+            'group_number' => $parsed['group_number'],
+            'member_id' => $parsed['member_id'],
+            'participant_name' => $parsed['participant_name'],
+            'patient_name' => $parsed['patient_name'],
+            'provider_name' => $parsed['provider_name'],
+            'payment_to' => $parsed['payment_to'],
+            'provider_tin' => $parsed['provider_tin'],
+            'check_number' => $parsed['check_number'],
+            'check_amount' => $parsed['check_amount'],
+            'print_date' => $parsed['print_date'],
+            'processed_date' => $parsed['processed_date'],
+            'total_charges' => $parsed['total_charges'],
+            'total_provider_discount' => $parsed['total_provider_discount'],
+            'total_ineligible_amount' => $parsed['total_ineligible_amount'],
+            'total_deductible_applied' => $parsed['total_deductible_applied'],
+            'total_copay_applied' => $parsed['total_copay_applied'],
+            'total_benefit_percent' => $parsed['total_benefit_percent'],
+            'total_carrier_payment' => $parsed['total_carrier_payment'],
+            'total_plan_payment' => $parsed['total_plan_payment'],
+            'total_patient_responsibility' => $parsed['total_patient_responsibility'],
+            'parsed_data' => $parsed['parsed_data'],
+            'raw_text' => $rawText,
+            'parser_version' => MeritainEobParser::PARSER_VERSION,
+            'review_status' => $reviewStatus,
+        ]);
+
+        foreach ($parsed['lines'] as $line) {
+            PhrEobLine::create([
+                'eob_id' => $eob->id,
+                'patient_id' => $patient->id,
+                ...$line,
+            ]);
+        }
+
+        return $eob;
     }
 
     private function extractText(string $path): string

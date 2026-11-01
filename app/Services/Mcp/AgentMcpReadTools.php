@@ -263,7 +263,7 @@ final class AgentMcpReadTools
     /** @return array<string, mixed> */
     public function evidenceLinks(
         #[Schema(minimum: 1)] int $patient_id,
-        #[Schema(enum: ['document', 'eob', 'medication-fill', 'office-visit', 'procedure'])] string $resource_type,
+        #[Schema(enum: ['document', 'eob', 'eob-line', 'medication-fill', 'office-visit', 'procedure'])] string $resource_type,
         #[Schema(minimum: 1)] int $resource_id,
         #[Schema(minimum: 1, maximum: 100)] int $limit = 25,
         #[Schema(maxLength: 2048)] ?string $cursor = null,

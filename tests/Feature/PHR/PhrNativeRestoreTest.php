@@ -5,8 +5,11 @@ namespace Tests\Feature\PHR;
 use App\Jobs\PHR\ApplyPhrNativeRestoreJob;
 use App\Jobs\PHR\PreviewPhrNativeRestoreJob;
 use App\Models\PhrDocument;
+use App\Models\PhrEob;
+use App\Models\PhrEobLine;
 use App\Models\PhrMedication;
 use App\Models\PhrMedicationFill;
+use App\Models\PhrMedicationFillEvidence;
 use App\Models\PhrNativeRecordIdentity;
 use App\Models\PhrNativeRestoreAttempt;
 use App\Models\PhrPatient;
@@ -1022,6 +1025,7 @@ final class PhrNativeRestoreTest extends TestCase
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['ehi_tables'],
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['ehi_evidence'],
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['medication_fills'],
+            ...PhrNativeTableCompatibility::LATER_GENERATIONS['medication_fill_evidence'],
         ]);
         DB::table('phr_patients')->where('id', $patient->id)->delete();
 
@@ -1059,6 +1063,7 @@ final class PhrNativeRestoreTest extends TestCase
         $this->removeTables($archivePath, [
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['ehi_evidence'],
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['medication_fills'],
+            ...PhrNativeTableCompatibility::LATER_GENERATIONS['medication_fill_evidence'],
         ]);
         $this->mutateTableRecords($archivePath, 'phr_immunizations', static function (array $record): array {
             foreach (PhrNativeLifecycleCompatibility::TABLE_COLUMNS['phr_immunizations'] as $column) {
@@ -1112,7 +1117,10 @@ final class PhrNativeRestoreTest extends TestCase
         $patient = $this->patientWithOwnerGrant((int) $owner->id);
         PhrMedication::factory()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'name' => 'Synthetic older medication']);
         $archivePath = $this->archiveCopy($patient, (int) $owner->id);
-        $this->removeTables($archivePath, PhrNativeTableCompatibility::LATER_GENERATIONS['medication_fills']);
+        $this->removeTables($archivePath, [
+            ...PhrNativeTableCompatibility::LATER_GENERATIONS['medication_fills'],
+            ...PhrNativeTableCompatibility::LATER_GENERATIONS['medication_fill_evidence'],
+        ]);
         DB::table('phr_patients')->where('id', $patient->id)->delete();
 
         $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
@@ -1126,6 +1134,55 @@ final class PhrNativeRestoreTest extends TestCase
         $this->assertSame(0, DB::table('phr_medication_fills')->where('patient_id', $attempt->target_patient_root_id)->count());
         @unlink($current);
         @unlink($archivePath);
+    }
+
+    public function test_fill_evidence_and_the_eob_review_status_survive_a_round_trip_and_an_older_archive_restores_without_them(): void
+    {
+        $owner = User::factory()->create(['user_role' => 'user']);
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        $document = PhrDocument::query()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'uploaded_by_user_id' => $owner->id, 'document_type' => 'other', 'source' => 'manual_upload', 'storage_disk' => PhrDocument::STORAGE_DISK, 'byte_size' => 0]);
+        $eob = PhrEob::query()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'import_source' => 'synthetic', 'external_id' => 'eob-1', 'claim_type' => 'pharmacy', 'review_status' => 'pending_review']);
+        $line = PhrEobLine::query()->create(['eob_id' => $eob->id, 'patient_id' => $patient->id, 'line_number' => 1, 'procedure_code' => 'X']);
+        $fill = PhrMedicationFill::factory()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'external_id' => 'fill-1', 'import_source' => 'synthetic']);
+        $twin = PhrMedicationFill::factory()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'external_id' => 'fill-2', 'import_source' => 'synthetic']);
+        PhrMedicationFillEvidence::query()->create(['patient_id' => $patient->id, 'fill_id' => $twin->id, 'related_fill_id' => $fill->id, 'source_kind' => 'possible_duplicate', 'evidence_key' => str_repeat('b', 40)]);
+        PhrMedicationFillEvidence::query()->create(['patient_id' => $patient->id, 'fill_id' => $fill->id, 'document_id' => $document->id, 'eob_line_id' => $line->id, 'source_kind' => 'eob', 'evidence_key' => str_repeat('a', 40)]);
+
+        $current = $this->archiveCopy($patient, (int) $owner->id);
+        $older = $this->archiveCopy($patient, (int) $owner->id);
+        $this->removeTables($older, PhrNativeTableCompatibility::LATER_GENERATIONS['medication_fill_evidence']);
+        // An EOB archived before it had a review status has no such attribute, and was confirmed.
+        $this->mutateTableRecords($older, 'phr_eobs', static function (array $record): array {
+            unset($record['attributes']['review_status'], $record['attributes']['lines_digest']);
+
+            return $record;
+        });
+        DB::table('phr_patients')->where('id', $patient->id)->delete();
+
+        $attempt = $this->readyAttempt($current, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $attempt->status, (string) $attempt->failure_category);
+        app(PhrNativeRestoreService::class)->apply($attempt->refresh());
+        $target = $attempt->refresh()->target_patient_root_id;
+        $restoredFill = DB::table('phr_medication_fills')->where('patient_id', $target)->where('external_id', 'fill-1')->sole();
+        $evidence = DB::table('phr_medication_fill_evidence')->where('patient_id', $target)->where('source_kind', 'eob')->sole();
+        $this->assertSame($restoredFill->id, $evidence->fill_id);
+        $this->assertSame(DB::table('phr_eob_lines')->where('patient_id', $target)->value('id'), $evidence->eob_line_id);
+        $this->assertSame($document->file_hash, DB::table('phr_documents')->where('id', $evidence->document_id)->value('file_hash'));
+        $this->assertSame('pending_review', DB::table('phr_eobs')->where('patient_id', $target)->value('review_status'));
+        $flag = DB::table('phr_medication_fill_evidence')->where('patient_id', $target)->where('source_kind', 'possible_duplicate')->sole();
+        $this->assertSame($restoredFill->id, $flag->related_fill_id, 'a possible-duplicate flag points at the restored fill, not the old ID');
+        $this->assertNotSame($flag->fill_id, $flag->related_fill_id);
+
+        // An archive downloaded before fill evidence existed has no such table, and restores.
+        DB::table('phr_patients')->where('id', $target)->delete();
+        $olderAttempt = $this->readyAttempt($older, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $olderAttempt->status, (string) $olderAttempt->failure_category);
+        app(PhrNativeRestoreService::class)->apply($olderAttempt->refresh());
+        $this->assertSame(2, DB::table('phr_medication_fills')->where('patient_id', $olderAttempt->refresh()->target_patient_root_id)->count());
+        $this->assertSame(0, DB::table('phr_medication_fill_evidence')->where('patient_id', $olderAttempt->target_patient_root_id)->count());
+        $this->assertSame('confirmed', DB::table('phr_eobs')->where('patient_id', $olderAttempt->target_patient_root_id)->value('review_status'));
+        @unlink($current);
+        @unlink($older);
     }
 
     public function test_only_a_whole_later_table_generation_may_be_absent(): void

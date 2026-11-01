@@ -47,7 +47,17 @@ final class PhrNativeLifecycleCompatibility
             'dose_unit',
             'administration_status',
         ],
+        // The review status an agent-written EOB waits in (#268). Older EOBs were all confirmed.
+        'phr_eobs' => ['review_status', 'lines_digest'],
     ];
+
+    /**
+     * What a column holds for a record of an archive that predates it, where that is not null
+     * (the column is NOT NULL with a default).
+     *
+     * @var array<string, array<string, string>>
+     */
+    private const array LEGACY_VALUES = ['phr_eobs' => ['review_status' => 'confirmed']];
 
     /** @var array<string, list<string>> */
     private static array $columnsByTable = [];
@@ -93,7 +103,7 @@ final class PhrNativeLifecycleCompatibility
         }
 
         foreach ($missing as $column) {
-            $attributes[$column] = null;
+            $attributes[$column] = self::LEGACY_VALUES[$table][$column] ?? null;
         }
 
         // Re-derive the hash so downstream comparison against a current row is

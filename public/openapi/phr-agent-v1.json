@@ -1370,6 +1370,198 @@
                 }
             }
         },
+        "/patients/{patient}/documents/upload-access": {
+            "post": {
+                "operationId": "documents.upload_access_create",
+                "summary": "Open a signed upload: a short-lived, single-use URL to PUT a file to",
+                "description": "For photos and PDFs too large to pass through a model. Returns a signed URL to PUT the raw file to with the returned headers. The URL is a bearer capability that stages bytes of the declared content type and size once; it creates no document. Finalize with documents.upload_finalize, which verifies size and hash and creates the document. The content types, extensions and size limit are those of documents.upload.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "documents:write"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DocumentUploadAccessRequest"
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Signed upload session",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DocumentUploadAccessResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            }
+        },
+        "/patients/{patient}/documents/uploads/{upload}/cancel": {
+            "post": {
+                "operationId": "documents.upload_cancel",
+                "summary": "Cancel a signed upload and delete its staged bytes",
+                "security": [
+                    {
+                        "oauth2": [
+                            "documents:write"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    },
+                    {
+                        "name": "upload",
+                        "in": "path",
+                        "required": true,
+                        "description": "The upload_id returned by documents.upload_access_create.",
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[0-9A-Za-z]{26}$"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Cancelled (or already closed) upload",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DocumentUploadSessionResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/Conflict"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            }
+        },
+        "/patients/{patient}/documents/uploads/{upload}/finalize": {
+            "post": {
+                "operationId": "documents.upload_finalize",
+                "summary": "Verify a signed upload and create the document",
+                "description": "Verifies the staged size and SHA-256 and the content-type allowlist, then creates the document through the same service as documents.upload. A repeat returns the same document; bytes the connection already has as a document resolve to that document (outcome duplicate). An expired upload answers 410.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "documents:write"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    },
+                    {
+                        "name": "upload",
+                        "in": "path",
+                        "required": true,
+                        "description": "The upload_id returned by documents.upload_access_create.",
+                        "schema": {
+                            "type": "string",
+                            "pattern": "^[0-9A-Za-z]{26}$"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Existing document returned",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DocumentUploadFinalizeResponse"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Document created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DocumentUploadFinalizeResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/Conflict"
+                    },
+                    "410": {
+                        "$ref": "#/components/responses/Gone"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            }
+        },
         "/patients/{patient}/eobs/{eob}/lines/{line}": {
             "get": {
                 "operationId": "eob_lines.get",
@@ -1535,6 +1727,142 @@
                         "$ref": "#/components/responses/RateLimited"
                     }
                 }
+            },
+            "patch": {
+                "operationId": "eobs.update",
+                "summary": "Partially correct an EOB this connection wrote",
+                "description": "Header fields to change, and optionally every line (matched by line_number and updated in place, so fills linked to a line stay linked). Requires the EOB's current version. An effective change reopens review. An EOB imported by another source cannot be corrected here.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "clinical:read",
+                            "clinical:write"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/EobUpdateRequest"
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    },
+                    {
+                        "$ref": "#/components/parameters/EobId"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "EOB updated or desired state already present",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/EobUpsertResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/Conflict"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            }
+        },
+        "/patients/{patient}/eobs/import": {
+            "post": {
+                "operationId": "eobs.import",
+                "summary": "Import a stored document as an EOB with the server's own parsers",
+                "description": "Reads a Meritain EOB PDF or a Delta Dental claim CSV already stored as a document. Idempotent on the claim fingerprint, across sources. New claims land pending_review. A document in any other format answers outcome unrecognised_format: extract the claim and call eobs.upsert with source_document_id.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "clinical:write"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/EobImportRequest"
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Recognised and already imported, or not recognised",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/EobImportResponse"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "EOB imported",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/EobImportResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/Conflict"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
             }
         },
         "/patients/{patient}/eobs": {
@@ -1620,6 +1948,76 @@
                         "$ref": "#/components/responses/RateLimited"
                     }
                 }
+            },
+            "put": {
+                "operationId": "eobs.upsert",
+                "summary": "Idempotently write an EOB claim and its lines, pending review",
+                "description": "For a claim the client read itself. Requires source_document_id. Idempotent on the importers' claim fingerprint across every source, so re-reading a claim a parser or another client already holds is unchanged, and a claim with the same number, type and processed date is the same claim. A pharmacy line may carry a fill (NDC or drug, quantity, Rx number, pharmacy, date): the server writes it through the fill write path, so the same dispensing read from a label, a receipt and this EOB is one fill, linked to this line. A caller without clinical:read receives receipts only.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "clinical:write"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/EobUpsertRequest"
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Existing claim, unchanged or updated",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/EobUpsertResponse"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Claim created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/EobUpsertResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/Conflict"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
             }
         },
         "/patients/{patient}/evidence-links": {
@@ -1650,6 +2048,7 @@
                             "enum": [
                                 "document",
                                 "eob",
+                                "eob-line",
                                 "medication-fill",
                                 "office-visit",
                                 "procedure"
@@ -2724,7 +3123,7 @@
         "/patients/{patient}/imports": {
             "post": {
                 "operationId": "imports.create",
-                "summary": "Idempotently import a stored document: with PHR's own parsers when it is C-CDA, FHIR, or a MyChart or EHI export ZIP, otherwise by queuing AI extraction",
+                "summary": "Import a stored document with PHR's own parsers when it is C-CDA, FHIR, or a MyChart or EHI export ZIP; any other document answers client_extraction_required",
                 "security": [
                     {
                         "oauth2": [
@@ -2752,7 +3151,7 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "Imported directly, or the document's existing import returned",
+                        "description": "Imported directly, the document's existing import returned, or client extraction required",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -2762,7 +3161,7 @@
                         }
                     },
                     "202": {
-                        "description": "Import job or staged upload accepted",
+                        "description": "Staged upload accepted or an earlier AI import job returned",
                         "content": {
                             "application/json": {
                                 "schema": {
@@ -5136,6 +5535,16 @@
                     }
                 }
             },
+            "Gone": {
+                "description": "The signed upload expired; open a new one",
+                "content": {
+                    "application/json": {
+                        "schema": {
+                            "$ref": "#/components/schemas/Error"
+                        }
+                    }
+                }
+            },
             "NotFound": {
                 "description": "Patient, resource, or record was not found within the caller's access boundary",
                 "content": {
@@ -5500,6 +5909,30 @@
                     "watermark": {
                         "type": "string",
                         "format": "date-time"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "ClientExtractionReceipt": {
+                "type": "object",
+                "required": [
+                    "document_id",
+                    "write_tools",
+                    "next_step"
+                ],
+                "properties": {
+                    "document_id": {
+                        "type": "integer"
+                    },
+                    "write_tools": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "description": "Operation ids of the upserts that apply, each taking source_document_id."
+                    },
+                    "next_step": {
+                        "type": "string"
                     }
                 },
                 "additionalProperties": false
@@ -6694,6 +7127,234 @@
                 },
                 "additionalProperties": false
             },
+            "DocumentUploadAccessRequest": {
+                "type": "object",
+                "required": [
+                    "kind",
+                    "filename",
+                    "content_type",
+                    "byte_size"
+                ],
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "enum": [
+                            "eob",
+                            "pharmacy_receipt",
+                            "rx_label",
+                            "statement",
+                            "other"
+                        ],
+                        "description": "What the file is. It sets the stored document's type and tag."
+                    },
+                    "filename": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 255,
+                        "description": "The extension must match the content type."
+                    },
+                    "content_type": {
+                        "type": "string",
+                        "enum": [
+                            "application/pdf",
+                            "image/png",
+                            "image/jpeg",
+                            "image/gif",
+                            "image/webp",
+                            "image/tiff",
+                            "text/plain",
+                            "text/html"
+                        ]
+                    },
+                    "byte_size": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 52428800,
+                        "description": "The exact size of the file in bytes; the PUT must send exactly this many."
+                    },
+                    "sha256": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "pattern": "^[a-fA-F0-9]{64}$",
+                        "description": "Optional lowercase hex SHA-256 of the file; the PUT and finalize verify it."
+                    }
+                },
+                "additionalProperties": false
+            },
+            "DocumentUploadAccessResponse": {
+                "type": "object",
+                "required": [
+                    "resource_type",
+                    "patient_id",
+                    "data"
+                ],
+                "properties": {
+                    "resource_type": {
+                        "const": "document_upload"
+                    },
+                    "patient_id": {
+                        "type": "integer"
+                    },
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "upload_id",
+                            "status",
+                            "kind",
+                            "content_type",
+                            "byte_size",
+                            "expires_at",
+                            "url",
+                            "method",
+                            "headers"
+                        ],
+                        "properties": {
+                            "upload_id": {
+                                "type": "string",
+                                "pattern": "^[0-9A-Za-z]{26}$",
+                                "description": "Identifies the signed upload in documents.upload_finalize and documents.upload_cancel."
+                            },
+                            "status": {
+                                "type": "string",
+                                "enum": [
+                                    "pending",
+                                    "receiving",
+                                    "uploaded",
+                                    "finalized",
+                                    "cancelled",
+                                    "expired"
+                                ]
+                            },
+                            "kind": {
+                                "type": "string",
+                                "enum": [
+                                    "eob",
+                                    "pharmacy_receipt",
+                                    "rx_label",
+                                    "statement",
+                                    "other"
+                                ]
+                            },
+                            "content_type": {
+                                "type": "string"
+                            },
+                            "byte_size": {
+                                "type": "integer"
+                            },
+                            "expires_at": {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            "url": {
+                                "type": "string",
+                                "format": "uri",
+                                "description": "Signed, short-lived and single-use. PUT the raw file here; it takes no Authorization header."
+                            },
+                            "method": {
+                                "const": "PUT"
+                            },
+                            "headers": {
+                                "type": "object",
+                                "required": [
+                                    "Content-Type"
+                                ],
+                                "properties": {
+                                    "Content-Type": {
+                                        "type": "string"
+                                    }
+                                },
+                                "additionalProperties": false,
+                                "description": "Send exactly these headers with the PUT."
+                            }
+                        },
+                        "additionalProperties": false
+                    }
+                },
+                "additionalProperties": false
+            },
+            "DocumentUploadFinalizeResponse": {
+                "type": "object",
+                "required": [
+                    "resource_type",
+                    "patient_id",
+                    "outcome",
+                    "data"
+                ],
+                "properties": {
+                    "resource_type": {
+                        "const": "document_upload"
+                    },
+                    "patient_id": {
+                        "type": "integer"
+                    },
+                    "outcome": {
+                        "type": "string",
+                        "enum": [
+                            "created",
+                            "unchanged",
+                            "duplicate"
+                        ],
+                        "description": "created: a new document. unchanged: this upload was finalized before. duplicate: the connection already had these bytes as a document, which is returned."
+                    },
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "upload_id",
+                            "status",
+                            "kind",
+                            "content_type",
+                            "byte_size",
+                            "expires_at",
+                            "document_id"
+                        ],
+                        "properties": {
+                            "upload_id": {
+                                "type": "string",
+                                "pattern": "^[0-9A-Za-z]{26}$",
+                                "description": "Identifies the signed upload in documents.upload_finalize and documents.upload_cancel."
+                            },
+                            "status": {
+                                "type": "string",
+                                "enum": [
+                                    "pending",
+                                    "receiving",
+                                    "uploaded",
+                                    "finalized",
+                                    "cancelled",
+                                    "expired"
+                                ]
+                            },
+                            "kind": {
+                                "type": "string",
+                                "enum": [
+                                    "eob",
+                                    "pharmacy_receipt",
+                                    "rx_label",
+                                    "statement",
+                                    "other"
+                                ]
+                            },
+                            "content_type": {
+                                "type": "string"
+                            },
+                            "byte_size": {
+                                "type": "integer"
+                            },
+                            "expires_at": {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            "document_id": {
+                                "type": "integer"
+                            }
+                        },
+                        "additionalProperties": false
+                    }
+                },
+                "additionalProperties": false
+            },
             "DocumentUploadRequest": {
                 "type": "object",
                 "required": [
@@ -6812,6 +7473,76 @@
                 },
                 "additionalProperties": false
             },
+            "DocumentUploadSession": {
+                "type": "object",
+                "required": [
+                    "upload_id",
+                    "status",
+                    "kind",
+                    "content_type",
+                    "byte_size",
+                    "expires_at"
+                ],
+                "properties": {
+                    "upload_id": {
+                        "type": "string",
+                        "pattern": "^[0-9A-Za-z]{26}$",
+                        "description": "Identifies the signed upload in documents.upload_finalize and documents.upload_cancel."
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "pending",
+                            "receiving",
+                            "uploaded",
+                            "finalized",
+                            "cancelled",
+                            "expired"
+                        ]
+                    },
+                    "kind": {
+                        "type": "string",
+                        "enum": [
+                            "eob",
+                            "pharmacy_receipt",
+                            "rx_label",
+                            "statement",
+                            "other"
+                        ]
+                    },
+                    "content_type": {
+                        "type": "string"
+                    },
+                    "byte_size": {
+                        "type": "integer"
+                    },
+                    "expires_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "DocumentUploadSessionResponse": {
+                "type": "object",
+                "required": [
+                    "resource_type",
+                    "patient_id",
+                    "data"
+                ],
+                "properties": {
+                    "resource_type": {
+                        "const": "document_upload"
+                    },
+                    "patient_id": {
+                        "type": "integer"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/DocumentUploadSession"
+                    }
+                },
+                "additionalProperties": false
+            },
             "DownloadAccess": {
                 "type": "object",
                 "required": [
@@ -6857,7 +7588,9 @@
                     "claim_type",
                     "lines_count",
                     "created_at",
-                    "updated_at"
+                    "updated_at",
+                    "review_status",
+                    "version"
                 ],
                 "properties": {
                     "id": {
@@ -7025,6 +7758,19 @@
                             "null"
                         ],
                         "format": "date-time"
+                    },
+                    "review_status": {
+                        "type": "string",
+                        "enum": [
+                            "pending_review",
+                            "confirmed",
+                            "rejected"
+                        ]
+                    },
+                    "version": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$",
+                        "description": "The opaque version eobs.update requires."
                     }
                 },
                 "additionalProperties": false
@@ -7169,6 +7915,101 @@
                 },
                 "additionalProperties": false
             },
+            "EobImportRequest": {
+                "type": "object",
+                "required": [
+                    "document_id"
+                ],
+                "properties": {
+                    "document_id": {
+                        "type": "integer",
+                        "minimum": 1
+                    }
+                },
+                "additionalProperties": false
+            },
+            "EobImportResponse": {
+                "type": "object",
+                "required": [
+                    "resource_type",
+                    "patient_id",
+                    "outcome",
+                    "data"
+                ],
+                "properties": {
+                    "resource_type": {
+                        "const": "eob_import"
+                    },
+                    "patient_id": {
+                        "type": "integer"
+                    },
+                    "outcome": {
+                        "type": "string",
+                        "enum": [
+                            "created",
+                            "unchanged",
+                            "unrecognised_format"
+                        ]
+                    },
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "document_id",
+                            "format",
+                            "eobs",
+                            "next_step"
+                        ],
+                        "properties": {
+                            "document_id": {
+                                "type": "integer"
+                            },
+                            "format": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "enum": [
+                                    "meritain",
+                                    "delta_dental",
+                                    null
+                                ]
+                            },
+                            "eobs": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "required": [
+                                        "id",
+                                        "outcome",
+                                        "lines_count"
+                                    ],
+                                    "properties": {
+                                        "id": {
+                                            "type": "integer"
+                                        },
+                                        "outcome": {
+                                            "type": "string",
+                                            "enum": [
+                                                "created",
+                                                "unchanged"
+                                            ]
+                                        },
+                                        "lines_count": {
+                                            "type": "integer"
+                                        }
+                                    },
+                                    "additionalProperties": false
+                                }
+                            },
+                            "next_step": {
+                                "type": "string"
+                            }
+                        },
+                        "additionalProperties": false
+                    }
+                },
+                "additionalProperties": false
+            },
             "EobLine": {
                 "type": "object",
                 "description": "EOB line without raw parser payloads.",
@@ -7180,7 +8021,8 @@
                     "procedure_code",
                     "code_type",
                     "created_at",
-                    "updated_at"
+                    "updated_at",
+                    "medication_fill_ids"
                 ],
                 "properties": {
                     "id": {
@@ -7300,6 +8142,13 @@
                             "null"
                         ],
                         "format": "date-time"
+                    },
+                    "medication_fill_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        },
+                        "description": "The live prescription fills this line adjudicated."
                     }
                 },
                 "additionalProperties": false
@@ -7385,6 +8234,374 @@
                 },
                 "additionalProperties": false
             },
+            "EobPatchData": {
+                "type": "object",
+                "properties": {
+                    "claim_type": {
+                        "type": "string",
+                        "enum": [
+                            "medical",
+                            "dental",
+                            "vision",
+                            "pharmacy",
+                            "unknown"
+                        ]
+                    },
+                    "claim_number": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 80
+                    },
+                    "administrator": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255
+                    },
+                    "carrier": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255
+                    },
+                    "plan_name": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255
+                    },
+                    "group_number": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 100
+                    },
+                    "member_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 100
+                    },
+                    "participant_name": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255
+                    },
+                    "patient_name": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255
+                    },
+                    "provider_name": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255
+                    },
+                    "provider_phone": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 50
+                    },
+                    "payment_to": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255
+                    },
+                    "provider_tin": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 50
+                    },
+                    "check_number": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 100
+                    },
+                    "submission_date": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date"
+                    },
+                    "print_date": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date"
+                    },
+                    "processed_date": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date"
+                    },
+                    "check_amount": {
+                        "type": [
+                            "string",
+                            "number",
+                            "null"
+                        ],
+                        "description": "A decimal amount with at most two places, e.g. 12.50."
+                    },
+                    "total_accepted_fee": {
+                        "type": [
+                            "string",
+                            "number",
+                            "null"
+                        ],
+                        "description": "A decimal amount with at most two places, e.g. 12.50."
+                    },
+                    "total_charges": {
+                        "type": [
+                            "string",
+                            "number",
+                            "null"
+                        ],
+                        "description": "A decimal amount with at most two places, e.g. 12.50."
+                    },
+                    "total_provider_discount": {
+                        "type": [
+                            "string",
+                            "number",
+                            "null"
+                        ],
+                        "description": "A decimal amount with at most two places, e.g. 12.50."
+                    },
+                    "total_ineligible_amount": {
+                        "type": [
+                            "string",
+                            "number",
+                            "null"
+                        ],
+                        "description": "A decimal amount with at most two places, e.g. 12.50."
+                    },
+                    "total_deductible_applied": {
+                        "type": [
+                            "string",
+                            "number",
+                            "null"
+                        ],
+                        "description": "A decimal amount with at most two places, e.g. 12.50."
+                    },
+                    "total_copay_applied": {
+                        "type": [
+                            "string",
+                            "number",
+                            "null"
+                        ],
+                        "description": "A decimal amount with at most two places, e.g. 12.50."
+                    },
+                    "total_benefit_percent": {
+                        "type": [
+                            "string",
+                            "number",
+                            "null"
+                        ],
+                        "description": "A decimal amount with at most two places, e.g. 12.50."
+                    },
+                    "total_carrier_payment": {
+                        "type": [
+                            "string",
+                            "number",
+                            "null"
+                        ],
+                        "description": "A decimal amount with at most two places, e.g. 12.50."
+                    },
+                    "total_plan_payment": {
+                        "type": [
+                            "string",
+                            "number",
+                            "null"
+                        ],
+                        "description": "A decimal amount with at most two places, e.g. 12.50."
+                    },
+                    "total_patient_responsibility": {
+                        "type": [
+                            "string",
+                            "number",
+                            "null"
+                        ],
+                        "description": "A decimal amount with at most two places, e.g. 12.50."
+                    },
+                    "lines": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 500,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "line_number": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "description": "Defaults to the line's position, from 1."
+                                },
+                                "procedure_code": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 30,
+                                    "description": "CPT, HCPCS or CDT code; for a pharmacy line, the NDC or Rx number the claim prints."
+                                },
+                                "revenue_code": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "maxLength": 30
+                                },
+                                "code_type": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "maxLength": 40
+                                },
+                                "description": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "maxLength": 255
+                                },
+                                "service_start": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "format": "date"
+                                },
+                                "service_end": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "format": "date"
+                                },
+                                "notes_applied": {
+                                    "type": [
+                                        "array",
+                                        "null"
+                                    ],
+                                    "maxItems": 20,
+                                    "items": {
+                                        "type": "string",
+                                        "maxLength": 50
+                                    }
+                                },
+                                "accepted_fee": {
+                                    "type": [
+                                        "string",
+                                        "number",
+                                        "null"
+                                    ],
+                                    "description": "A decimal amount with at most two places, e.g. 12.50."
+                                },
+                                "total_charges": {
+                                    "type": [
+                                        "string",
+                                        "number",
+                                        "null"
+                                    ],
+                                    "description": "A decimal amount with at most two places, e.g. 12.50."
+                                },
+                                "provider_discount": {
+                                    "type": [
+                                        "string",
+                                        "number",
+                                        "null"
+                                    ],
+                                    "description": "A decimal amount with at most two places, e.g. 12.50."
+                                },
+                                "ineligible_amount": {
+                                    "type": [
+                                        "string",
+                                        "number",
+                                        "null"
+                                    ],
+                                    "description": "A decimal amount with at most two places, e.g. 12.50."
+                                },
+                                "deductible_applied": {
+                                    "type": [
+                                        "string",
+                                        "number",
+                                        "null"
+                                    ],
+                                    "description": "A decimal amount with at most two places, e.g. 12.50."
+                                },
+                                "copay_applied": {
+                                    "type": [
+                                        "string",
+                                        "number",
+                                        "null"
+                                    ],
+                                    "description": "A decimal amount with at most two places, e.g. 12.50."
+                                },
+                                "benefit_percent": {
+                                    "type": [
+                                        "string",
+                                        "number",
+                                        "null"
+                                    ],
+                                    "description": "A decimal amount with at most two places, e.g. 12.50."
+                                },
+                                "carrier_payment": {
+                                    "type": [
+                                        "string",
+                                        "number",
+                                        "null"
+                                    ],
+                                    "description": "A decimal amount with at most two places, e.g. 12.50."
+                                },
+                                "plan_payment": {
+                                    "type": [
+                                        "string",
+                                        "number",
+                                        "null"
+                                    ],
+                                    "description": "A decimal amount with at most two places, e.g. 12.50."
+                                },
+                                "patient_responsibility": {
+                                    "type": [
+                                        "string",
+                                        "number",
+                                        "null"
+                                    ],
+                                    "description": "A decimal amount with at most two places, e.g. 12.50."
+                                }
+                            },
+                            "required": [
+                                "procedure_code"
+                            ],
+                            "additionalProperties": false
+                        },
+                        "description": "Replaces every line when present."
+                    }
+                },
+                "additionalProperties": false
+            },
             "EobResponse": {
                 "type": "object",
                 "required": [
@@ -7410,6 +8627,717 @@
                         ]
                     }
                 },
+                "additionalProperties": false
+            },
+            "EobUpdateRequest": {
+                "type": "object",
+                "required": [
+                    "expected_version",
+                    "data"
+                ],
+                "properties": {
+                    "expected_version": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "source_document_id": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "minimum": 1
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/EobPatchData"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "EobUpsertRequest": {
+                "type": "object",
+                "required": [
+                    "source_document_id",
+                    "data"
+                ],
+                "description": "review_status is not accepted: the claim lands pending_review.",
+                "properties": {
+                    "external_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 255,
+                        "description": "Optional. Defaults to an identity derived from the claim number, type and processed date (or its content)."
+                    },
+                    "source_document_id": {
+                        "type": "integer",
+                        "minimum": 1
+                    },
+                    "expected_version": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "pattern": "^[a-f0-9]{64}$",
+                        "description": "Needed only to correct a claim this connection already wrote under the same external_id."
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/EobWriteData"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "EobUpsertResponse": {
+                "type": "object",
+                "required": [
+                    "resource_type",
+                    "patient_id",
+                    "match",
+                    "lines",
+                    "fills",
+                    "outcome",
+                    "version",
+                    "data",
+                    "receipt_only"
+                ],
+                "properties": {
+                    "resource_type": {
+                        "const": "eob"
+                    },
+                    "patient_id": {
+                        "type": "integer"
+                    },
+                    "match": {
+                        "type": [
+                            "object",
+                            "null"
+                        ],
+                        "description": "When the claim already existed: how it was recognised (claim_fingerprint or claim_number) and the source that holds it.",
+                        "properties": {
+                            "by": {
+                                "type": "string",
+                                "enum": [
+                                    "claim_fingerprint",
+                                    "claim_number"
+                                ]
+                            },
+                            "import_source": {
+                                "type": "string"
+                            }
+                        },
+                        "required": [
+                            "by",
+                            "import_source"
+                        ],
+                        "additionalProperties": false
+                    },
+                    "lines": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": [
+                                "id",
+                                "line_number"
+                            ],
+                            "properties": {
+                                "id": {
+                                    "type": "integer"
+                                },
+                                "line_number": {
+                                    "type": "integer"
+                                }
+                            },
+                            "additionalProperties": false
+                        }
+                    },
+                    "fills": {
+                        "type": "array",
+                        "description": "One entry per line that carried a fill. A line whose fill could not be written is reported with outcome error; repeating the call retries it.",
+                        "items": {
+                            "type": "object",
+                            "required": [
+                                "line_id",
+                                "line_number",
+                                "fill_id",
+                                "outcome"
+                            ],
+                            "properties": {
+                                "line_id": {
+                                    "type": [
+                                        "integer",
+                                        "null"
+                                    ]
+                                },
+                                "line_number": {
+                                    "type": "integer"
+                                },
+                                "fill_id": {
+                                    "type": [
+                                        "integer",
+                                        "null"
+                                    ]
+                                },
+                                "outcome": {
+                                    "type": "string",
+                                    "enum": [
+                                        "created",
+                                        "updated",
+                                        "unchanged",
+                                        "error"
+                                    ]
+                                },
+                                "dedupe": {
+                                    "$ref": "#/components/schemas/FillDedupe"
+                                },
+                                "errors": {
+                                    "type": "object",
+                                    "additionalProperties": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            },
+                            "additionalProperties": false
+                        }
+                    },
+                    "outcome": {
+                        "type": "string",
+                        "enum": [
+                            "created",
+                            "updated",
+                            "unchanged"
+                        ]
+                    },
+                    "version": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "data": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/Eob"
+                            },
+                            {
+                                "$ref": "#/components/schemas/MutationReceipt"
+                            }
+                        ]
+                    },
+                    "receipt_only": {
+                        "type": "boolean"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "EobWriteData": {
+                "type": "object",
+                "properties": {
+                    "claim_type": {
+                        "type": "string",
+                        "enum": [
+                            "medical",
+                            "dental",
+                            "vision",
+                            "pharmacy",
+                            "unknown"
+                        ]
+                    },
+                    "claim_number": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 80
+                    },
+                    "administrator": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255
+                    },
+                    "carrier": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255
+                    },
+                    "plan_name": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255
+                    },
+                    "group_number": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 100
+                    },
+                    "member_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 100
+                    },
+                    "participant_name": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255
+                    },
+                    "patient_name": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255
+                    },
+                    "provider_name": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255
+                    },
+                    "provider_phone": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 50
+                    },
+                    "payment_to": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255
+                    },
+                    "provider_tin": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 50
+                    },
+                    "check_number": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 100
+                    },
+                    "submission_date": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date"
+                    },
+                    "print_date": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date"
+                    },
+                    "processed_date": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date"
+                    },
+                    "check_amount": {
+                        "type": [
+                            "string",
+                            "number",
+                            "null"
+                        ],
+                        "description": "A decimal amount with at most two places, e.g. 12.50."
+                    },
+                    "total_accepted_fee": {
+                        "type": [
+                            "string",
+                            "number",
+                            "null"
+                        ],
+                        "description": "A decimal amount with at most two places, e.g. 12.50."
+                    },
+                    "total_charges": {
+                        "type": [
+                            "string",
+                            "number",
+                            "null"
+                        ],
+                        "description": "A decimal amount with at most two places, e.g. 12.50."
+                    },
+                    "total_provider_discount": {
+                        "type": [
+                            "string",
+                            "number",
+                            "null"
+                        ],
+                        "description": "A decimal amount with at most two places, e.g. 12.50."
+                    },
+                    "total_ineligible_amount": {
+                        "type": [
+                            "string",
+                            "number",
+                            "null"
+                        ],
+                        "description": "A decimal amount with at most two places, e.g. 12.50."
+                    },
+                    "total_deductible_applied": {
+                        "type": [
+                            "string",
+                            "number",
+                            "null"
+                        ],
+                        "description": "A decimal amount with at most two places, e.g. 12.50."
+                    },
+                    "total_copay_applied": {
+                        "type": [
+                            "string",
+                            "number",
+                            "null"
+                        ],
+                        "description": "A decimal amount with at most two places, e.g. 12.50."
+                    },
+                    "total_benefit_percent": {
+                        "type": [
+                            "string",
+                            "number",
+                            "null"
+                        ],
+                        "description": "A decimal amount with at most two places, e.g. 12.50."
+                    },
+                    "total_carrier_payment": {
+                        "type": [
+                            "string",
+                            "number",
+                            "null"
+                        ],
+                        "description": "A decimal amount with at most two places, e.g. 12.50."
+                    },
+                    "total_plan_payment": {
+                        "type": [
+                            "string",
+                            "number",
+                            "null"
+                        ],
+                        "description": "A decimal amount with at most two places, e.g. 12.50."
+                    },
+                    "total_patient_responsibility": {
+                        "type": [
+                            "string",
+                            "number",
+                            "null"
+                        ],
+                        "description": "A decimal amount with at most two places, e.g. 12.50."
+                    },
+                    "lines": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 500,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "line_number": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "description": "Defaults to the line's position, from 1."
+                                },
+                                "procedure_code": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 30,
+                                    "description": "CPT, HCPCS or CDT code; for a pharmacy line, the NDC or Rx number the claim prints."
+                                },
+                                "revenue_code": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "maxLength": 30
+                                },
+                                "code_type": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "maxLength": 40
+                                },
+                                "description": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "maxLength": 255
+                                },
+                                "service_start": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "format": "date"
+                                },
+                                "service_end": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "format": "date"
+                                },
+                                "notes_applied": {
+                                    "type": [
+                                        "array",
+                                        "null"
+                                    ],
+                                    "maxItems": 20,
+                                    "items": {
+                                        "type": "string",
+                                        "maxLength": 50
+                                    }
+                                },
+                                "accepted_fee": {
+                                    "type": [
+                                        "string",
+                                        "number",
+                                        "null"
+                                    ],
+                                    "description": "A decimal amount with at most two places, e.g. 12.50."
+                                },
+                                "total_charges": {
+                                    "type": [
+                                        "string",
+                                        "number",
+                                        "null"
+                                    ],
+                                    "description": "A decimal amount with at most two places, e.g. 12.50."
+                                },
+                                "provider_discount": {
+                                    "type": [
+                                        "string",
+                                        "number",
+                                        "null"
+                                    ],
+                                    "description": "A decimal amount with at most two places, e.g. 12.50."
+                                },
+                                "ineligible_amount": {
+                                    "type": [
+                                        "string",
+                                        "number",
+                                        "null"
+                                    ],
+                                    "description": "A decimal amount with at most two places, e.g. 12.50."
+                                },
+                                "deductible_applied": {
+                                    "type": [
+                                        "string",
+                                        "number",
+                                        "null"
+                                    ],
+                                    "description": "A decimal amount with at most two places, e.g. 12.50."
+                                },
+                                "copay_applied": {
+                                    "type": [
+                                        "string",
+                                        "number",
+                                        "null"
+                                    ],
+                                    "description": "A decimal amount with at most two places, e.g. 12.50."
+                                },
+                                "benefit_percent": {
+                                    "type": [
+                                        "string",
+                                        "number",
+                                        "null"
+                                    ],
+                                    "description": "A decimal amount with at most two places, e.g. 12.50."
+                                },
+                                "carrier_payment": {
+                                    "type": [
+                                        "string",
+                                        "number",
+                                        "null"
+                                    ],
+                                    "description": "A decimal amount with at most two places, e.g. 12.50."
+                                },
+                                "plan_payment": {
+                                    "type": [
+                                        "string",
+                                        "number",
+                                        "null"
+                                    ],
+                                    "description": "A decimal amount with at most two places, e.g. 12.50."
+                                },
+                                "patient_responsibility": {
+                                    "type": [
+                                        "string",
+                                        "number",
+                                        "null"
+                                    ],
+                                    "description": "A decimal amount with at most two places, e.g. 12.50."
+                                },
+                                "fill": {
+                                    "type": [
+                                        "object",
+                                        "null"
+                                    ],
+                                    "description": "The prescription fill this pharmacy line adjudicated. filled_on defaults to service_start, pharmacy_name to the claim's provider_name, drug_as_printed to the line description. Never send drug fields: send the NDC.",
+                                    "properties": {
+                                        "ndc": {
+                                            "type": [
+                                                "string",
+                                                "null"
+                                            ],
+                                            "maxLength": 64
+                                        },
+                                        "ndc_candidate": {
+                                            "type": [
+                                                "string",
+                                                "null"
+                                            ],
+                                            "maxLength": 16,
+                                            "pattern": "^[0-9]+-[0-9]+-[0-9]+$"
+                                        },
+                                        "medication_id": {
+                                            "type": [
+                                                "integer",
+                                                "null"
+                                            ],
+                                            "minimum": 1
+                                        },
+                                        "drug_as_printed": {
+                                            "type": [
+                                                "string",
+                                                "null"
+                                            ],
+                                            "maxLength": 255
+                                        },
+                                        "patient_name_as_printed": {
+                                            "type": [
+                                                "string",
+                                                "null"
+                                            ],
+                                            "maxLength": 255
+                                        },
+                                        "filled_on": {
+                                            "type": [
+                                                "string",
+                                                "null"
+                                            ],
+                                            "format": "date"
+                                        },
+                                        "quantity": {
+                                            "type": [
+                                                "number",
+                                                "string"
+                                            ],
+                                            "minimum": 0
+                                        },
+                                        "quantity_unit": {
+                                            "type": [
+                                                "string",
+                                                "null"
+                                            ],
+                                            "maxLength": 50
+                                        },
+                                        "days_supply": {
+                                            "type": [
+                                                "integer",
+                                                "null"
+                                            ],
+                                            "minimum": 0
+                                        },
+                                        "rx_number": {
+                                            "type": [
+                                                "string",
+                                                "null"
+                                            ],
+                                            "maxLength": 64
+                                        },
+                                        "refills_remaining": {
+                                            "type": [
+                                                "integer",
+                                                "null"
+                                            ],
+                                            "minimum": 0
+                                        },
+                                        "directions": {
+                                            "type": [
+                                                "string",
+                                                "null"
+                                            ],
+                                            "maxLength": 10000
+                                        },
+                                        "prescriber_name": {
+                                            "type": [
+                                                "string",
+                                                "null"
+                                            ],
+                                            "maxLength": 255
+                                        },
+                                        "paid_cents": {
+                                            "type": [
+                                                "integer",
+                                                "null"
+                                            ],
+                                            "minimum": 0
+                                        },
+                                        "retail_cents": {
+                                            "type": [
+                                                "integer",
+                                                "null"
+                                            ],
+                                            "minimum": 0
+                                        },
+                                        "pharmacy_name": {
+                                            "type": [
+                                                "string",
+                                                "null"
+                                            ],
+                                            "maxLength": 255
+                                        },
+                                        "pharmacy_location": {
+                                            "type": [
+                                                "string",
+                                                "null"
+                                            ],
+                                            "maxLength": 255
+                                        },
+                                        "source_locator": {
+                                            "type": [
+                                                "string",
+                                                "null"
+                                            ],
+                                            "maxLength": 255
+                                        }
+                                    },
+                                    "required": [
+                                        "quantity"
+                                    ],
+                                    "additionalProperties": false
+                                }
+                            },
+                            "required": [
+                                "procedure_code"
+                            ],
+                            "additionalProperties": false
+                        },
+                        "description": "The claim's service lines."
+                    }
+                },
+                "required": [
+                    "claim_type",
+                    "lines"
+                ],
                 "additionalProperties": false
             },
             "Error": {
@@ -7653,6 +9581,44 @@
                     },
                     "data": {
                         "$ref": "#/components/schemas/ExportMetadata"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "FillDedupe": {
+                "type": "object",
+                "required": [
+                    "status",
+                    "matched_by",
+                    "matched_fill_id"
+                ],
+                "description": "Whether the fill is one the patient already had. matched: the new source was added to the existing fill as evidence. flagged: it may duplicate matched_fill_id; a person settles it. none: a new fill, or a retry of this connection's own.",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "none",
+                            "matched",
+                            "flagged"
+                        ]
+                    },
+                    "matched_by": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "enum": [
+                            "rx_number",
+                            "attributes",
+                            "external_id",
+                            null
+                        ]
+                    },
+                    "matched_fill_id": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ]
                     }
                 },
                 "additionalProperties": false
@@ -8356,7 +10322,7 @@
                 "additionalProperties": false
             },
             "ImportCreateResponse": {
-                "description": "An import job queued for AI extraction (resource_type import_job), or a document PHR's own parsers read (resource_type structured_import): a C-CDA or FHIR file imported directly, pending review, or a MyChart or EHI export ZIP staged for intake.",
+                "description": "An import job from an earlier AI import of the document (import_job), a document PHR's own parsers read (structured_import: a C-CDA or FHIR file imported directly, pending review, or a MyChart or EHI export ZIP staged for intake), or client_extraction_required (client_extraction): PHR does not queue AI extraction for a connected client; extract the records yourself and write them with the listed tools.",
                 "type": "object",
                 "required": [
                     "resource_type",
@@ -8369,7 +10335,8 @@
                         "type": "string",
                         "enum": [
                             "import_job",
-                            "structured_import"
+                            "structured_import",
+                            "client_extraction"
                         ]
                     },
                     "patient_id": {
@@ -8382,7 +10349,8 @@
                             "unchanged",
                             "retried",
                             "imported",
-                            "queued"
+                            "queued",
+                            "client_extraction_required"
                         ],
                         "description": "import_job: created, unchanged or retried. structured_import: imported (written directly), queued (a ZIP staged for intake), or unchanged (a ZIP staged by an earlier call, as it stands now)."
                     },
@@ -8393,6 +10361,9 @@
                             },
                             {
                                 "$ref": "#/components/schemas/StructuredImportReceipt"
+                            },
+                            {
+                                "$ref": "#/components/schemas/ClientExtractionReceipt"
                             }
                         ]
                     }
@@ -9058,6 +11029,13 @@
             "MedicationFillUpsertData": {
                 "type": "object",
                 "properties": {
+                    "eob_line_id": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "minimum": 1
+                    },
                     "ndc": {
                         "type": [
                             "string",
@@ -9184,6 +11162,8 @@
                             "label_photo",
                             "receipt_pdf",
                             "csv",
+                            "statement",
+                            "eob",
                             "manual"
                         ]
                     },
@@ -9247,7 +11227,8 @@
                     "outcome",
                     "version",
                     "data",
-                    "receipt_only"
+                    "receipt_only",
+                    "dedupe"
                 ],
                 "properties": {
                     "resource_type": {
@@ -9351,6 +11332,9 @@
                     },
                     "receipt_only": {
                         "type": "boolean"
+                    },
+                    "dedupe": {
+                        "$ref": "#/components/schemas/FillDedupe"
                     }
                 },
                 "additionalProperties": false

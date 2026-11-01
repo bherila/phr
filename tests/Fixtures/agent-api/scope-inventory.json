@@ -128,6 +128,21 @@
             "documents:write"
         ]
     },
+    "documents.upload_access_create": {
+        "scopes": [
+            "documents:write"
+        ]
+    },
+    "documents.upload_cancel": {
+        "scopes": [
+            "documents:write"
+        ]
+    },
+    "documents.upload_finalize": {
+        "scopes": [
+            "documents:write"
+        ]
+    },
     "eob_lines.get": {
         "scopes": [
             "clinical:read"
@@ -145,12 +160,29 @@
         ],
         "scope_rule": "any"
     },
+    "eobs.import": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
     "eobs.list": {
         "scopes": [
             "clinical:read",
             "billing:read"
         ],
         "scope_rule": "any"
+    },
+    "eobs.update": {
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ],
+        "scope_rule": "all"
+    },
+    "eobs.upsert": {
+        "scopes": [
+            "clinical:write"
+        ]
     },
     "evidence.links": {
         "scopes": [

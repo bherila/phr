@@ -110,6 +110,12 @@ final class PhrStorageKey
         return sprintf('patients/%d/ehi-uploads/%s/package.zip', self::patientId($patientId), self::uuid($uploadUuid));
     }
 
+    /** A signed document upload's bytes while they wait to be finalized into a document. */
+    public static function documentUploadStaging(int $patientId, string $uploadUuid): string
+    {
+        return sprintf('patients/%d/document-uploads/%s', self::patientId($patientId), self::uuid($uploadUuid));
+    }
+
     public static function nativeRestoreSource(string $restoreUuid): string
     {
         return sprintf('phr/native-restores/%s/phr-native-v1.zip', self::uuid($restoreUuid));

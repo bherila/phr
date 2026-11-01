@@ -45,6 +45,10 @@ final class PhrNativeTableCompatibility
         'medication_fills' => [
             'phr_medication_fills',
         ],
+        // The evidence that more than one source shows a fill (phr#268).
+        'medication_fill_evidence' => [
+            'phr_medication_fill_evidence',
+        ],
     ];
 
     /**

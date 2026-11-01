@@ -9,6 +9,9 @@ use App\Models\PhrDocument;
 use App\Models\PhrMedication;
 use App\Models\PhrMedicationFill;
 use App\Models\PhrPatient;
+use App\Services\PHR\Fills\MedicationFillDrugResolver;
+use App\Services\PHR\Fills\MedicationFillEvidenceService;
+use App\Services\PHR\Fills\MedicationFillMatcher;
 use App\Services\PHR\Fills\MedicationFillWriter;
 use App\Services\PHR\Ndc\NdcResolution;
 use App\Support\AgentApi\AgentApiClientIdentity;
@@ -23,13 +26,25 @@ use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
  * The idempotent write of one prescription fill, on the same identity,
  * version and review rules as every other agent-written clinical record, plus
  * what is particular to a fill: the drug is resolved from the NDC by the
- * server, and the fill is attached to a medication (existing or created).
+ * server, the fill is attached to a medication (existing or created), and the
+ * fill is never duplicated across sources.
+ *
+ * Three things can make a write land on a fill the patient already has:
+ *  1. its own identity (this client's external_id, derived from pharmacy, Rx
+ *     number and fill date), which is an ordinary idempotent retry or update;
+ *  2. a confident cross-source match ({@see MedicationFillMatcher}): the label,
+ *     the receipt and the EOB line of one dispensing are one fill, the new source
+ *     is recorded as evidence and only the fill's blanks are filled in;
+ *  3. an uncertain match, which creates the fill but flags it, with the fill it
+ *     may duplicate, for a person to settle.
  */
 final readonly class MedicationFillUpsertService
 {
     public function __construct(
         private AgentClinicalRecordVersion $versions,
         private MedicationFillWriter $writer,
+        private MedicationFillMatcher $matcher,
+        private MedicationFillEvidenceService $evidence,
     ) {}
 
     public function upsert(PhrPatient $patient, AgentApiClientIdentity $client, ClinicalUpsertData $data): MedicationFillUpsertResult
@@ -53,6 +68,9 @@ final readonly class MedicationFillUpsertService
             'external_id' => $data->externalId,
         ];
 
+        $eobLineId = isset($data->attributes['eob_line_id']) ? (int) $data->attributes['eob_line_id'] : null;
+        $this->evidence->assertEobLine($patient, $eobLineId);
+
         // Resolving the NDC may call openFDA, so it happens before the transaction and its row
         // locks. A same-NDC retry skips it by comparing with the stored row, which is only sound
         // while the row is still as it was read: the locked row is checked against that snapshot,
@@ -64,10 +82,26 @@ final readonly class MedicationFillUpsertService
             $snapshot = $this->ndcState($live);
 
             try {
-                return DB::transaction(
-                    fn (): MedicationFillUpsertResult => $this->write($patient, $data, $identity, $prepared, $snapshot),
-                    3,
-                );
+                return DB::transaction(function () use ($patient, $data, $identity, $prepared, $snapshot, $eobLineId): MedicationFillUpsertResult {
+                    // Serializes the writers of one patient's fills, so two sources reading the
+                    // same dispensing at once cannot both decide it is new.
+                    PhrPatient::query()->whereKey($patient->id)->lockForUpdate()->first();
+
+                    $result = $this->write($patient, $data, $identity, $prepared, $snapshot);
+                    $this->evidence->record(
+                        $patient,
+                        $result->record,
+                        $data->sourceDocumentId,
+                        $eobLineId,
+                        $eobLineId !== null ? 'eob' : (string) ($data->attributes['source_kind'] ?? 'manual'),
+                        isset($data->attributes['source_locator']) ? (string) $data->attributes['source_locator'] : null,
+                    );
+                    if ($result->dedupe['status'] === 'matched') {
+                        $this->evidence->alias($patient, $result->record, $identity['import_source'], $identity['external_id']);
+                    }
+
+                    return $result;
+                }, 3);
             } catch (StaleNdcPreparation) {
                 if ($attempt >= 3) {
                     throw new ConflictHttpException('The fill changed while it was being written; fetch it and retry with its current version.');
@@ -105,6 +139,29 @@ final readonly class MedicationFillUpsertService
         $this->refuseWithdrawnIdentity($identity);
 
         $attributes = $prepared['attributes'];
+        $dedupe = ['status' => 'none', 'matched_by' => null, 'matched_fill_id' => null];
+        $flagged = null;
+        if (! PhrMedicationFill::query()->where($identity)->exists()) {
+            // An identity this connection already merged into another fill stays there: a retry
+            // lands on it again, and if a person deleted that fill it is not recreated.
+            $aliased = $this->evidence->findAlias($patient, $identity['import_source'], $identity['external_id']);
+            if ($aliased !== null) {
+                if ($aliased->deleted_at !== null || $aliased->retracted_at !== null) {
+                    throw new ConflictHttpException('The external identifier is no longer available for this patient.');
+                }
+
+                return $this->mergeInto($patient, $aliased, $prepared, 'external_id');
+            }
+            $match = $this->matcher->find($patient, $attributes);
+            if ($match['status'] === MedicationFillMatcher::MATCHED && $match['fill'] !== null) {
+                return $this->mergeInto($patient, $match['fill'], $prepared, (string) $match['by']);
+            }
+            if ($match['status'] === MedicationFillMatcher::UNCERTAIN && $match['fill'] !== null) {
+                $flagged = $match['fill'];
+                $dedupe = ['status' => 'flagged', 'matched_by' => $match['by'], 'matched_fill_id' => (int) $match['fill']->id];
+            }
+        }
+
         try {
             /** @var PhrMedicationFill $existing */
             $existing = PhrMedicationFill::query()->createOrFirst($identity, [
@@ -121,6 +178,9 @@ final readonly class MedicationFillUpsertService
             $existing = PhrMedicationFill::query()->where($identity)->firstOrFail();
         }
         if ($existing->wasRecentlyCreated) {
+            if ($flagged !== null) {
+                $this->evidence->flagPossibleDuplicate($patient, $existing, $flagged);
+            }
             $attached = $this->writer->attach($patient, $existing, $prepared['medication_id']);
             $existing->refresh();
 
@@ -131,6 +191,7 @@ final readonly class MedicationFillUpsertService
                 $attached['medication'],
                 $attached['created'],
                 $prepared['resolution'],
+                $dedupe,
             );
         }
 
@@ -186,6 +247,69 @@ final readonly class MedicationFillUpsertService
             $medication instanceof PhrMedication ? $medication : $existing->medication,
             $created,
             $prepared['resolution'],
+        );
+    }
+
+    /**
+     * The fill is one the patient already has, read from another source. Only the
+     * fill's blanks are filled in (a receipt adds the price a label lacks); a value
+     * already stored is never overwritten by a second source. The new source is
+     * recorded as evidence by the caller.
+     *
+     * @param  array{attributes: array<string, mixed>, resolution: NdcResolution|null, medication_id: int|null, drug_changed: bool}  $prepared
+     */
+    private function mergeInto(PhrPatient $patient, PhrMedicationFill $existing, array $prepared, string $by): MedicationFillUpsertResult
+    {
+        $incoming = $prepared['attributes'];
+        $skip = ['source_kind', 'source_locator', 'medication_id', ...MedicationFillDrugResolver::DRUG_COLUMNS];
+        foreach ($incoming as $column => $value) {
+            if (in_array($column, $skip, true) || $value === null || $value === '') {
+                continue;
+            }
+            $current = $existing->getAttribute($column);
+            if ($current === null || $current === '') {
+                $existing->setAttribute($column, $value);
+            }
+        }
+        // A fill whose drug never resolved takes the drug another source resolved.
+        $drugChanged = false;
+        if ($existing->ndc_status !== PhrMedicationFill::NDC_RESOLVED && ($incoming['ndc_status'] ?? null) === PhrMedicationFill::NDC_RESOLVED) {
+            foreach (MedicationFillDrugResolver::DRUG_COLUMNS as $column) {
+                if (array_key_exists($column, $incoming)) {
+                    $existing->setAttribute($column, $incoming[$column]);
+                }
+            }
+            $drugChanged = true;
+        }
+
+        $outcome = ClinicalUpsertResult::UNCHANGED;
+        if ($existing->isDirty()) {
+            // The fill really is changing, so human review reopens.
+            $existing->setAttribute('review_status', PhrReviewStatus::PENDING);
+            $existing->save();
+            $outcome = ClinicalUpsertResult::UPDATED;
+        }
+        $medication = $existing->medication;
+        $created = false;
+        if ($drugChanged) {
+            $attached = $this->writer->reconcile($patient, $existing);
+            $medication = $attached['medication'];
+            $created = $attached['created'];
+        } elseif ($existing->medication_id === null) {
+            $attached = $this->writer->attach($patient, $existing, null);
+            $medication = $attached['medication'];
+            $created = $attached['created'];
+        }
+        $existing->refresh();
+
+        return new MedicationFillUpsertResult(
+            $existing,
+            $outcome,
+            $this->versions->for($existing),
+            $medication instanceof PhrMedication ? $medication : $existing->medication,
+            $created,
+            $prepared['resolution'],
+            ['status' => 'matched', 'matched_by' => $by, 'matched_fill_id' => (int) $existing->id],
         );
     }
 

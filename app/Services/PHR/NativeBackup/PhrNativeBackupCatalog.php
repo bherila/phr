@@ -145,6 +145,15 @@ final class PhrNativeBackupCatalog
                 'patient_column' => 'patient_id',
                 'relationships' => [...$clinical(), 'medication_id' => self::record('phr_medications', true)],
             ],
+            'phr_medication_fill_evidence' => [
+                'patient_column' => 'patient_id',
+                'relationships' => [
+                    'fill_id' => self::record('phr_medication_fills', false),
+                    'document_id' => self::record('phr_documents', true),
+                    'eob_line_id' => self::record('phr_eob_lines', true),
+                    'related_fill_id' => self::record('phr_medication_fills', true),
+                ],
+            ],
             'phr_conditions' => ['patient_column' => 'patient_id', 'relationships' => $clinical()],
             'phr_procedures' => ['patient_column' => 'patient_id', 'relationships' => $clinical()],
             'phr_procedure_eobs' => [
@@ -312,6 +321,10 @@ final class PhrNativeBackupCatalog
             'phr_ehi_uploads' => [
                 'patient_column' => 'patient_id',
                 'because' => 'Transient browser staging of an EHI ZIP; the package intake produced from it is backed up with its preserved members.',
+            ],
+            'phr_document_uploads' => [
+                'patient_column' => 'patient_id',
+                'because' => 'Transient upload sessions.',
             ],
         ];
     }

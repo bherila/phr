@@ -2,6 +2,8 @@
 
 namespace App\Services\AgentApi;
 
+use App\Models\PhrMedicationFill;
+use App\Models\PhrMedicationFillEvidence;
 use App\Models\PhrPatient;
 use App\Support\AgentApi\AgentApiClientIdentity;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
@@ -55,16 +57,22 @@ final readonly class AgentClinicalResolveService
         $resolved = [];
         foreach ($records as $record) {
             /** @var Model $record */
-            $resolved[(string) $record->getAttribute('external_id')] = [
-                'id' => (int) $record->getAttribute('id'),
-                // The same opaque version the write endpoints compare against,
-                // so a caller can decide skip-or-update without a second read.
-                'version' => $this->versions->for($record),
-                'review_status' => $this->stringOrNull($record->getAttribute('review_status')),
-                'updated_at' => $this->timestamp($record->getAttribute('updated_at')),
-                'lifecycle' => PhrRecordLifecycle::of($record),
-                'retracted_at' => $this->timestamp($record->getAttribute('retracted_at')),
-            ];
+            $resolved[(string) $record->getAttribute('external_id')] = $this->entry($record);
+        }
+        // An identity a fill write merged into a fill the patient already had resolves to that fill.
+        if ($resource === 'medication-fills') {
+            $aliases = PhrMedicationFillEvidence::query()
+                ->where('patient_id', $patient->id)
+                ->where('source_kind', 'alias')
+                ->where('import_source', $client->importSource())
+                ->whereIn('external_id', array_values(array_diff($externalIds, array_keys($resolved))))
+                ->get(['fill_id', 'external_id']);
+            $fills = PhrMedicationFill::withoutGlobalScopes([SoftDeletingScope::class])->whereIn('id', $aliases->pluck('fill_id'))->get()->keyBy('id');
+            foreach ($aliases as $alias) {
+                if (($fill = $fills->get($alias->fill_id)) !== null) {
+                    $resolved[(string) $alias->external_id] = $this->entry($fill);
+                }
+            }
         }
 
         return [
@@ -73,6 +81,21 @@ final readonly class AgentClinicalResolveService
                 $externalIds,
                 static fn (string $externalId): bool => ! isset($resolved[$externalId]),
             )),
+        ];
+    }
+
+    /** @return array{id: int, version: string, review_status: string|null, updated_at: string|null, lifecycle: string, retracted_at: string|null} */
+    private function entry(Model $record): array
+    {
+        return [
+            'id' => (int) $record->getAttribute('id'),
+            // The same opaque version the write endpoints compare against,
+            // so a caller can decide skip-or-update without a second read.
+            'version' => $this->versions->for($record),
+            'review_status' => $this->stringOrNull($record->getAttribute('review_status')),
+            'updated_at' => $this->timestamp($record->getAttribute('updated_at')),
+            'lifecycle' => PhrRecordLifecycle::of($record),
+            'retracted_at' => $this->timestamp($record->getAttribute('retracted_at')),
         ];
     }
 

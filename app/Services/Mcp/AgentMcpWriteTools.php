@@ -273,6 +273,79 @@ final readonly class AgentMcpWriteTools
     }
 
     /** @return array<string, mixed> */
+    public function documentsUploadAccessCreate(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(enum: ['eob', 'pharmacy_receipt', 'rx_label', 'statement', 'other'])] string $kind,
+        #[Schema(minLength: 1, maxLength: 255)] string $filename,
+        #[Schema(enum: ['application/pdf', 'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/tiff', 'text/plain', 'text/html'])] string $content_type,
+        #[Schema(minimum: 1, maximum: 52428800)] int $byte_size,
+        #[Schema(pattern: '^[a-fA-F0-9]{64}$')] ?string $sha256 = null,
+    ): array {
+        return $this->api->documentUploadAccessCreate($patient_id, compact('kind', 'filename', 'content_type', 'byte_size', 'sha256'))->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function documentsUploadFinalize(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(pattern: '^[0-9A-Za-z]{26}$')] string $upload_id,
+    ): array {
+        return $this->api->documentUploadFinalize($patient_id, $upload_id)->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function documentsUploadCancel(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(pattern: '^[0-9A-Za-z]{26}$')] string $upload_id,
+    ): array {
+        return $this->api->documentUploadCancel($patient_id, $upload_id)->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function eobsImport(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $document_id,
+    ): array {
+        return $this->api->eobImport($patient_id, $document_id)->toArray();
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    public function eobsUpsert(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $source_document_id,
+        #[Schema(type: 'object')] array $data,
+        #[Schema(minLength: 1, maxLength: 255, pattern: self::NO_CONTROL_CHARACTERS)] ?string $external_id = null,
+        #[Schema(pattern: '^[a-f0-9]{64}$')] ?string $expected_version = null,
+    ): array {
+        return $this->api->eobUpsert($patient_id, array_filter([
+            'external_id' => $external_id,
+            'source_document_id' => $source_document_id,
+            'expected_version' => $expected_version,
+            'data' => $data,
+        ], static fn (mixed $value): bool => $value !== null))->toArray();
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    public function eobsUpdate(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $eob_id,
+        #[Schema(pattern: '^[a-f0-9]{64}$')] string $expected_version,
+        #[Schema(type: 'object')] array $data,
+        #[Schema(minimum: 1)] ?int $source_document_id = null,
+    ): array {
+        return $this->api->eobUpdate($patient_id, $eob_id, array_filter([
+            'expected_version' => $expected_version,
+            'source_document_id' => $source_document_id,
+            'data' => $data,
+        ], static fn (mixed $value): bool => $value !== null))->toArray();
+    }
+
+    /** @return array<string, mixed> */
     public function healthLogsCreate(
         #[Schema(minimum: 1)] int $patient_id,
         #[Schema(minLength: 1, maxLength: 255, pattern: self::NO_CONTROL_CHARACTERS)] string $external_id,

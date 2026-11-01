@@ -11,6 +11,7 @@ Artisan::command('inspire', function () {
 // PHR jobs run through an allow-listed uptime wrapper that persists only fixed
 // job names and numeric result metadata (never output, exception text, or PHI).
 Schedule::command('phr:uptime:run-task', ['phr:dicom:gc'])->hourly()->withoutOverlapping(30);
+Schedule::command('phr:uptime:run-task', ['phr:document-uploads:gc'])->hourly()->withoutOverlapping(30);
 Schedule::command('phr:uptime:run-task', ['phr:exports:purge'])->daily()->withoutOverlapping(30);
 Schedule::command('phr:uptime:run-task', ['phr:native-backups:purge'])->daily()->withoutOverlapping(30);
 Schedule::command('phr:uptime:run-task', ['phr:native-restores:purge'])->daily()->withoutOverlapping(30);

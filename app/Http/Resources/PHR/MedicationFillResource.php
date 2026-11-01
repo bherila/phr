@@ -64,6 +64,17 @@ class MedicationFillResource extends JsonResource
             'retail_cents' => $fill->retail_cents,
             'pharmacy_name' => $fill->pharmacy_name,
             'pharmacy_location' => $fill->pharmacy_location,
+            // Why a person should look closely, beyond the fill being new: it may duplicate another.
+            'review_flags' => $fill->evidence->where('source_kind', 'possible_duplicate')->whereNotNull('related_fill_id')->map(
+                static fn ($flag): array => [
+                    'code' => 'possible_duplicate',
+                    'message' => "This may be the same fill as fill {$flag->related_fill_id}: it matches on the fill date and drug, but the pharmacy, quantity or Rx number do not settle it. Keep one and reject the other if they are the same.",
+                    'fill_id' => (int) $flag->related_fill_id,
+                ],
+            )->values()->all(),
+            // The EOB lines that adjudicated this fill, and the other documents that show it.
+            'eob_line_ids' => $fill->evidence->whereNotNull('eob_line_id')->pluck('eob_line_id')->map(fn ($id): int => (int) $id)->values()->all(),
+            'evidence_document_ids' => $fill->evidence->whereNotNull('document_id')->pluck('document_id')->map(fn ($id): int => (int) $id)->unique()->values()->all(),
             'display' => FillDisplayCasing::forFill($fill),
             'version' => app(AgentClinicalRecordVersion::class)->for($fill),
             'created_at' => $fill->created_at?->toDateTimeString(),

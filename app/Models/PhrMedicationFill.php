@@ -7,6 +7,7 @@ use Database\Factories\PhrMedicationFillFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 
@@ -75,7 +76,7 @@ class PhrMedicationFill extends Model
     public const array NDC_STATUSES = [self::NDC_RESOLVED, self::NDC_AMBIGUOUS, self::NDC_UNRESOLVED, self::NDC_MANUAL];
 
     /** @var list<string> */
-    public const array SOURCE_KINDS = ['label_photo', 'receipt_pdf', 'csv', 'manual'];
+    public const array SOURCE_KINDS = ['label_photo', 'receipt_pdf', 'csv', 'statement', 'eob', 'manual'];
 
     protected $table = 'phr_medication_fills';
 
@@ -162,5 +163,11 @@ class PhrMedicationFill extends Model
     public function sourceDocument(): BelongsTo
     {
         return $this->belongsTo(PhrDocument::class, 'source_document_id');
+    }
+
+    /** @return HasMany<PhrMedicationFillEvidence, $this> */
+    public function evidence(): HasMany
+    {
+        return $this->hasMany(PhrMedicationFillEvidence::class, 'fill_id');
     }
 }

@@ -12,6 +12,8 @@ use App\Http\Controllers\Api\V1\AgentDicomController;
 use App\Http\Controllers\Api\V1\AgentDicomUploadController;
 use App\Http\Controllers\Api\V1\AgentDiscoveryController;
 use App\Http\Controllers\Api\V1\AgentDocumentController;
+use App\Http\Controllers\Api\V1\AgentDocumentUploadController;
+use App\Http\Controllers\Api\V1\AgentEobController;
 use App\Http\Controllers\Api\V1\AgentEvidenceController;
 use App\Http\Controllers\Api\V1\AgentExportController;
 use App\Http\Controllers\Api\V1\AgentHealthLogController;
@@ -83,6 +85,16 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
     Route::options('/mcp', AgentMcpController::class)
         ->middleware([McpHttpSecurityMiddleware::class, 'throttle:60,1'])
         ->name('mcp.options');
+
+    // The PUT of a signed document upload. The URL is the credential: signed, short-lived
+    // and good for one upload of the declared type and size, which only stages bytes
+    // (no document exists until the OAuth-authenticated documents.upload_finalize).
+    // It is deliberately not an OAuth route: the sandbox that holds the file rarely
+    // holds the token, and a bearer-less URL can do nothing the session did not declare.
+    Route::put('/document-uploads/{upload}', [AgentDocumentUploadController::class, 'receive'])
+        ->whereAlphaNumeric('upload')
+        ->middleware(['throttle:60,1', 'signed', PreventAgentApiResponseCaching::class])
+        ->name('document-uploads.receive');
 
     // The MCP endpoint is a protected resource of its own (RFC 9728 section 3.3):
     // its credentials are bound to APP_URL/api/v1/mcp and refused at every REST
@@ -185,6 +197,19 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
             ->whereNumber(['patient', 'document'])->middleware('throttle:agent-api');
         Route::operation('documents.download_access.create', [AgentDocumentController::class, 'createDownloadAccess'])
             ->whereNumber(['patient', 'document'])->middleware('throttle:agent-api');
+        Route::operation('documents.upload_access_create', [AgentDocumentUploadController::class, 'open'])
+            ->whereNumber('patient')->middleware('throttle:agent-api');
+        Route::operation('documents.upload_finalize', [AgentDocumentUploadController::class, 'finalize'])
+            ->whereNumber('patient')->whereAlphaNumeric('upload')->middleware('throttle:agent-api');
+        Route::operation('documents.upload_cancel', [AgentDocumentUploadController::class, 'cancel'])
+            ->whereNumber('patient')->whereAlphaNumeric('upload')->middleware('throttle:agent-api');
+
+        Route::operation('eobs.import', [AgentEobController::class, 'import'])
+            ->whereNumber('patient')->middleware('throttle:agent-api');
+        Route::operation('eobs.upsert', [AgentEobController::class, 'upsert'])
+            ->whereNumber('patient')->middleware('throttle:agent-api');
+        Route::operation('eobs.update', [AgentEobController::class, 'update'])
+            ->whereNumber(['patient', 'eob'])->middleware('throttle:agent-api');
 
         Route::operation('imports.list', [AgentImportController::class, 'index'])
             ->whereNumber('patient')->middleware('throttle:agent-api');
@@ -451,6 +476,7 @@ Route::middleware(['web', 'auth'])
         Route::delete('/patients/{patient}/immunizations/{immunization}', [PHRImmunizationController::class, 'destroy'])->whereNumber(['patient', 'immunization'])->name('patients.immunizations.destroy');
         Route::patch('/patients/{patient}/immunizations/{immunization}/review', [PHRImmunizationController::class, 'review'])->whereNumber(['patient', 'immunization'])->name('patients.immunizations.review');
         Route::get('/patients/{patient}/eobs', [PHRClinicalEobController::class, 'index'])->whereNumber('patient')->name('patients.eobs.index');
+        Route::patch('/patients/{patient}/eobs/{eob}/review', [PHRClinicalEobController::class, 'review'])->whereNumber(['patient', 'eob'])->name('patients.eobs.review');
         Route::get('/patients/{patient}/allergies', [PHRAllergyController::class, 'index'])->whereNumber('patient')->name('patients.allergies.index');
         Route::post('/patients/{patient}/allergies', [PHRAllergyController::class, 'store'])->whereNumber('patient')->name('patients.allergies.store');
         Route::get('/patients/{patient}/allergies/{allergy}', [PHRAllergyController::class, 'show'])->whereNumber(['patient', 'allergy'])->name('patients.allergies.show');
