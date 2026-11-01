@@ -105,7 +105,7 @@ export function reviewRow(item: ReviewItem, group: ReviewGroup, patientId: numbe
 function sectionNoun(section: PhrPageId, count: number): string {
   const label = PHR_PAGES[section].label.toLowerCase()
   if (count !== 1) return label
-  return { labs: 'lab result', vitals: 'vital', 'office-visits': 'visit', medications: 'medication', conditions: 'condition', procedures: 'procedure', immunizations: 'immunization', allergies: 'allergy', documents: 'document' }[section as string] ?? label
+  return { labs: 'lab result', vitals: 'vital', 'office-visits': 'visit', medications: 'medication', 'medication-fills': 'fill', conditions: 'condition', procedures: 'procedure', immunizations: 'immunization', allergies: 'allergy', documents: 'document' }[section as string] ?? label
 }
 
 function sectionChips(rows: ReviewRow[]): string[] {

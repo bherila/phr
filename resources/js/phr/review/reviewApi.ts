@@ -90,7 +90,7 @@ const AI_SECTIONS: Record<string, PhrPageId> = {
   phr_lab_result: 'labs',
   phr_vital: 'vitals',
   phr_medication: 'medications',
-  phr_medication_fill: 'fills',
+  phr_medication_fill: 'medication-fills',
   phr_problem_list: 'conditions',
   phr_procedure: 'procedures',
   phr_immunization: 'immunizations',

@@ -27,7 +27,7 @@ export type PhrPageId =
   | 'vitals'
   | 'office-visits'
   | 'medications'
-  | 'fills'
+  | 'medication-fills'
   | 'conditions'
   | 'procedures'
   | 'immunizations'
@@ -79,7 +79,7 @@ export const PHR_PAGE_IDS: readonly PhrPageId[] = [
   'vitals',
   'office-visits',
   'medications',
-  'fills',
+  'medication-fills',
   'conditions',
   'procedures',
   'immunizations',
