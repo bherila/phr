@@ -30,8 +30,11 @@ final class PhrCcdaResultEntries
 {
     private const string OBSERVATION_INTERPRETATION = '2.16.840.1.113883.5.83';
 
-    /** Namespace of the stable ids this exporter derives for results. */
+    /** Base namespace of the stable ids this exporter derives for results. */
     private const string ID_NAMESPACE = '6f3b1c52-8d4e-4f6a-9b27-3c5a1e9d7b04';
+
+    /** The namespace of this deployment's result ids; see idNamespace(). */
+    private string $idNamespace;
 
     private const string ORGANIZER_TEMPLATE = '2.16.840.1.113883.10.20.22.4.1';
 
@@ -58,6 +61,21 @@ final class PhrCcdaResultEntries
         'held' => 'held',
         'suspended' => 'suspended',
     ];
+
+    /**
+     * @param  string  $deploymentKey  a secret unique to this deployment (the application key);
+     *                                 empty only where there is none, as in the synthetic fixture
+     */
+    public function __construct(string $deploymentKey = '')
+    {
+        // Row ids are only unique within a deployment, so two installations' exports of
+        // "patient 1, lab 1" must not name the same result. A keyed hash makes the
+        // namespace deployment-specific and stable across exports, and the key itself is
+        // never recoverable from the ids.
+        $this->idNamespace = $deploymentKey === ''
+            ? self::ID_NAMESPACE
+            : Uuid::uuid5(self::ID_NAMESPACE, hash_hmac('sha256', 'phr-ccda-result-ids', $deploymentKey))->toString();
+    }
 
     /**
      * Narrative-row ids, in lab order: the id a lab's `tr` carries and its
@@ -147,7 +165,7 @@ final class PhrCcdaResultEntries
             ]));
 
         $xml->startElement('id');
-        $xml->writeAttribute('root', Uuid::uuid5(self::ID_NAMESPACE, "lab-{$kind}:{$key}")->toString());
+        $xml->writeAttribute('root', Uuid::uuid5($this->idNamespace, "lab-{$kind}:{$key}")->toString());
         $xml->endElement();
     }
 
@@ -201,14 +219,13 @@ final class PhrCcdaResultEntries
     private function value(XMLWriter $xml, object $lab): void
     {
         $raw = $this->text($lab->value ?? null);
-        $number = $raw === null ? PhrLabReferenceRangeNotation::number($lab->value_numeric ?? null) : null;
         $unit = $this->text($lab->unit ?? null);
-        $text = $raw ?? $number;
+        $text = $raw ?? PhrLabReferenceRangeNotation::number($lab->value_numeric ?? null);
 
         $xml->startElement('value');
-        if ($text !== null && $unit !== null && preg_match('/^[+-]?\d+(\.\d+)?$/', $text) === 1) {
+        $number = $text === null ? null : $this->plainNumber($text);
+        if ($number !== null && $unit !== null) {
             $xml->writeAttribute('xsi:type', 'PQ');
-            $number = ltrim($text, '+');
             if ($this->isUnit($unit)) {
                 $xml->writeAttribute('value', $number);
                 $xml->writeAttribute('unit', $unit);
@@ -221,10 +238,10 @@ final class PhrCcdaResultEntries
                 $xml->writeElement('originalText', $unit);
                 $xml->endElement();
             }
-        } elseif ($text !== null && $unit !== null && preg_match('/^(<=|>=|<|>)\s*([+-]?\d+(\.\d+)?)$/', $text, $m) === 1) {
+        } elseif ($text !== null && $unit !== null && preg_match('/^(<=|>=|<|>)\s*(\S+)$/', $text, $m) === 1 && ($bound = $this->plainNumber($m[2])) !== null) {
             // "<5" is an interval open on one side, in the same notation the importer reads back.
             $xml->writeAttribute('xsi:type', 'IVL_PQ');
-            $this->bound($xml, $m[1][0] === '<' ? 'high' : 'low', ltrim($m[2], '+'), $unit, strlen($m[1]) === 2);
+            $this->bound($xml, $m[1][0] === '<' ? 'high' : 'low', $bound, $unit, strlen($m[1]) === 2);
         } else {
             $xml->writeAttribute('xsi:type', 'ST');
             if ($text === null) {
@@ -234,6 +251,26 @@ final class PhrCcdaResultEntries
             }
         }
         $xml->endElement();
+    }
+
+    /**
+     * A number the importer accepts (".5", "1,234", "1e3") as the plain decimal a PQ's
+     * value is, or null when the text is not a number.
+     */
+    private function plainNumber(string $text): ?string
+    {
+        $number = str_replace(',', '', trim($text));
+        if (! is_numeric($number)) {
+            return null;
+        }
+        if (preg_match('/^([+-]?)(\d*)(?:\.(\d+))?$/', $number, $m) === 1) {
+            return ($m[1] === '-' ? '-' : '').($m[2] === '' ? '0' : $m[2]).(($m[3] ?? '') === '' ? '' : '.'.$m[3]);
+        }
+
+        // An exponent or a trailing point.
+        $plain = rtrim(rtrim(sprintf('%.10F', (float) $number), '0'), '.');
+
+        return $plain === '' || $plain === '-' ? '0' : $plain;
     }
 
     private function interpretation(XMLWriter $xml, ?string $flag): void

@@ -5,6 +5,7 @@ namespace App\Services\PHR\Export;
 use App\Models\PhrPatient;
 use App\Support\PHR\PhrLabReferenceRangeNotation;
 use Illuminate\Support\Str;
+use Throwable;
 use XMLWriter;
 
 class PhrCcdaExporter
@@ -91,7 +92,7 @@ class PhrCcdaExporter
             $lab->unit,
             $lab->reference_range_text ?? PhrLabReferenceRangeNotation::fromBounds($lab),
             $lab->abnormal_flag,
-        ], $labs), array_map(PhrCcdaResultEntries::rowId(...), array_keys($labs)), fn () => (new PhrCcdaResultEntries)->write($xml, $labs));
+        ], $labs), array_map(PhrCcdaResultEntries::rowId(...), array_keys($labs)), fn () => (new PhrCcdaResultEntries($this->deploymentKey()))->write($xml, $labs));
         $this->section($xml, 'Vital Signs', ['Date', 'Name', 'Value', 'Unit'], $data['vitals']->map(fn ($vital): array => [
             $vital->observed_at?->toDateString() ?? $vital->vital_date?->toDateString(),
             $vital->vital_name,
@@ -362,6 +363,18 @@ class PhrCcdaExporter
         }
 
         return trim($amount.' '.(is_scalar($unit) ? trim((string) $unit) : ''));
+    }
+
+    /** The application key where there is one; the synthetic fixture runs without an application. */
+    private function deploymentKey(): string
+    {
+        try {
+            $key = config('app.key');
+        } catch (Throwable) {
+            return '';
+        }
+
+        return is_string($key) ? $key : '';
     }
 
     private function cell(mixed $value): string

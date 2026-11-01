@@ -75,6 +75,23 @@ class PhrCcdaResultEntriesTest extends TestCase
         $this->assertStringNotContainsString('42', implode('', $first));
     }
 
+    public function test_ids_differ_between_deployments_for_the_same_patient_and_lab_numbers(): void
+    {
+        $lab = [$this->lab(1, 'Synthetic a', [])];
+        $original = config('app.key');
+        try {
+            config(['app.key' => 'base64:'.base64_encode(str_repeat('a', 32))]);
+            $first = $this->observationIds($this->export($lab)[0]);
+            config(['app.key' => 'base64:'.base64_encode(str_repeat('b', 32))]);
+            $second = $this->observationIds($this->export($lab)[0]);
+        } finally {
+            config(['app.key' => $original]);
+        }
+
+        // Another installation's patient 42 / lab 1 is not this installation's.
+        $this->assertNotSame($first, $second);
+    }
+
     public function test_values_are_quantities_comparisons_or_strings(): void
     {
         [$xpath] = $this->export([
@@ -85,6 +102,11 @@ class PhrCcdaResultEntriesTest extends TestCase
             // A number with no unit is not given an invented one.
             $this->lab(5, 'Synthetic unitless', ['value' => '7', 'unit' => null]),
             $this->lab(6, 'Synthetic odd unit', ['value' => '5.2', 'unit' => 'thousand per uL']),
+            // Number formats the importer accepts keep their unit as a plain decimal.
+            $this->lab(8, 'Synthetic bare point', ['value' => '.5', 'unit' => 'mg/dL']),
+            $this->lab(9, 'Synthetic thousands', ['value' => '1,234', 'unit' => 'mg/dL']),
+            $this->lab(10, 'Synthetic exponent', ['value' => '1e3', 'unit' => 'mg/dL']),
+            $this->lab(11, 'Synthetic below point', ['value' => '<.5', 'unit' => 'mg/dL']),
             $this->lab(7, 'Synthetic numeric only', ['value' => null, 'value_numeric' => '3.1000000000', 'unit' => 'g/L']),
         ]);
 
@@ -112,6 +134,13 @@ class PhrCcdaResultEntriesTest extends TestCase
         $this->assertSame(['PQ', 'OTH', false], [$odd->getAttribute('xsi:type'), $odd->getAttribute('nullFlavor'), $odd->hasAttribute('unit')]);
         $this->assertSame('5.2', $this->one($xpath, 'c:translation/@value', $odd)->nodeValue);
         $this->assertSame('thousand per uL', $this->one($xpath, 'c:translation/c:originalText', $odd)->textContent);
+
+        foreach (['Synthetic bare point' => '0.5', 'Synthetic thousands' => '1234', 'Synthetic exponent' => '1000'] as $analyte => $plain) {
+            $quantity = $value($analyte);
+            $this->assertSame(['PQ', $plain, 'mg/dL'], [$quantity->getAttribute('xsi:type'), $quantity->getAttribute('value'), $quantity->getAttribute('unit')], $analyte);
+        }
+        $belowPoint = $this->el($xpath, 'c:high', $value('Synthetic below point'));
+        $this->assertSame(['0.5', 'false'], [$belowPoint->getAttribute('value'), $belowPoint->getAttribute('inclusive')]);
 
         $numeric = $value('Synthetic numeric only');
         $this->assertSame(['PQ', '3.1'], [$numeric->getAttribute('xsi:type'), $numeric->getAttribute('value')]);

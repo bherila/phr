@@ -68,8 +68,10 @@ references its own row.
 
 - **Organizers** group labs sharing a test name, effective time and status, and the
   organizer's `code` is that test name. A lab with no test name is its own organizer.
-- **Ids** are version 5 UUIDs derived from the lab's patient and row identity, never the
-  database key itself, and stay the same across exports. The importer keys results on the
+- **Ids** are version 5 UUIDs derived from the lab's patient and row identity under a
+  namespace keyed by the deployment's application key, so they are never the database key
+  itself, two installations' "patient 1, lab 1" do not collide, and they stay the same
+  across exports (rotating the application key renames them). The importer keys results on the
   observation id, so importing an export again updates the same rows. A document first
   imported from its narrative table alone is adopted in place by the narrative-row match
   the importer already performs.
@@ -89,7 +91,8 @@ references its own row.
   code. A lab with no flag has none.
 - **Value.** A number with a unit is a `PQ`; a comparison with a unit (`<5 mg/dL`,
   `>=60 mL/min`) is an `IVL_PQ` open on one side, with `inclusive` on its bound; anything
-  else is an `ST`. A number with no unit is an `ST`, not a `PQ` with an invented unit.
+  else is an `ST`. Numbers are written as plain decimals (".5" as 0.5, "1,234" as 1234).
+  A number with no unit is an `ST`, not a `PQ` with an invented unit.
   A qualitative value with a unit keeps the unit only in the narrative.
 - **Reference range** is an `IVL_PQ` in `observationRange/value`, marked `N` (normal).
   `low` and `high` are the bounds in the range's own unit, each with an `inclusive`
