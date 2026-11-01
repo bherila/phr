@@ -216,6 +216,7 @@ final readonly class EobWriteService
             'claim_fingerprint' => $fingerprint,
             'parsed_data' => ['written_by' => 'agent_api'],
             'parser_version' => self::PARSER_VERSION,
+            'lines_digest' => hash('sha256', json_encode($this->withoutFills($claim)['lines'], JSON_THROW_ON_ERROR)),
             // A claim that changed is a new claim for a reviewer to look at.
             'review_status' => PhrReviewStatus::PENDING,
         ]);

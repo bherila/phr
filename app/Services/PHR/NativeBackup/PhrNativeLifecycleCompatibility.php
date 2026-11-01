@@ -48,7 +48,7 @@ final class PhrNativeLifecycleCompatibility
             'administration_status',
         ],
         // The review status an agent-written EOB waits in (#268). Older EOBs were all confirmed.
-        'phr_eobs' => ['review_status'],
+        'phr_eobs' => ['review_status', 'lines_digest'],
     ];
 
     /**

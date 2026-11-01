@@ -271,6 +271,20 @@ final class AgentApiEobWriteTest extends TestCase
         $this->patchJson("{$this->url()}/{$id}", ['expected_version' => $replaced['version'], 'review_status' => 'confirmed', 'data' => []])->assertUnprocessable();
     }
 
+    public function test_correcting_only_a_line_still_advances_the_version(): void
+    {
+        $created = $this->putJson($this->url(), $this->claim($this->document()))->assertCreated()->json();
+        $id = $created['data']['id'];
+        $lines = $this->claim($this->document())['data']['lines'];
+        $lines[0]['description'] = 'Corrected description';
+
+        $updated = $this->patchJson("{$this->url()}/{$id}", ['expected_version' => $created['version'], 'data' => ['lines' => $lines]])
+            ->assertOk()->assertJsonPath('outcome', 'updated')->json();
+        $this->assertNotSame($created['version'], $updated['version']);
+        // The version a reviewer or a second writer held before the correction no longer applies.
+        $this->patchJson("{$this->url()}/{$id}", ['expected_version' => $created['version'], 'data' => ['provider_name' => 'Other']])->assertConflict();
+    }
+
     public function test_an_eob_another_source_imported_cannot_be_corrected(): void
     {
         $normalized = EobClaim::normalize($this->claim($this->document())['data']);

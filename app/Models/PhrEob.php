@@ -71,6 +71,7 @@ class PhrEob extends Model
         'raw_text',
         'parser_version',
         'review_status',
+        'lines_digest',
     ];
 
     protected function casts(): array

@@ -20,6 +20,9 @@ return new class extends Migration
         Schema::table('phr_eobs', function (Blueprint $table): void {
             $table->string('review_status', 32)->default('confirmed')->after('parser_version');
             $table->index(['patient_id', 'review_status'], 'phr_eobs_patient_review_idx');
+            // A digest of the lines an agent wrote, so correcting only a line (a description, say)
+            // still changes the EOB's opaque version, which hashes the EOB's own columns.
+            $table->char('lines_digest', 64)->nullable()->after('review_status');
         });
     }
 
@@ -27,7 +30,7 @@ return new class extends Migration
     {
         Schema::table('phr_eobs', function (Blueprint $table): void {
             $table->dropIndex('phr_eobs_patient_review_idx');
-            $table->dropColumn('review_status');
+            $table->dropColumn(['review_status', 'lines_digest']);
         });
     }
 };

@@ -1153,7 +1153,7 @@ final class PhrNativeRestoreTest extends TestCase
         $this->removeTables($older, PhrNativeTableCompatibility::LATER_GENERATIONS['medication_fill_evidence']);
         // An EOB archived before it had a review status has no such attribute, and was confirmed.
         $this->mutateTableRecords($older, 'phr_eobs', static function (array $record): array {
-            unset($record['attributes']['review_status']);
+            unset($record['attributes']['review_status'], $record['attributes']['lines_digest']);
 
             return $record;
         });
