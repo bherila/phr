@@ -30,10 +30,6 @@ interface FillsTableProps {
   onEdit?: ((fill: MedicationFill) => void) | undefined
 }
 
-function strengthAndForm(fill: MedicationFill): string {
-  return [fill.drug?.strengths.join(' / '), fill.drug?.dosage_form].filter(Boolean).join(' · ')
-}
-
 function Missing() {
   return <span className="text-muted-foreground">{MISSING}</span>
 }
@@ -42,49 +38,57 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
   const lc = useLowercaseClass()
   const textClass = (extra?: string) => cn(lc, extra)
 
+  const head = 'px-4 py-3 font-medium'
+  const cellClass = 'px-4 py-3'
+  /** A plain NDC text column: lowercased with the preference, a dash when missing. */
+  const textColumn = (id: string, header: string, value: (fill: MedicationFill) => string | null | undefined, extra?: string): RecordColumn<MedicationFill> => ({
+    id,
+    header,
+    headerClassName: head,
+    className: cn(cellClass, extra),
+    cell: (fill) => {
+      const text = value(fill)
+      return text ? <span className={lc}>{text}</span> : <Missing />
+    },
+  })
+
   const columns: RecordColumn<MedicationFill>[] = [
     {
       id: 'date',
       header: 'Date',
       fit: true,
-      headerClassName: 'px-4 py-3 font-medium',
-      className: 'px-4 py-3',
+      headerClassName: head,
+      className: cn(cellClass, 'whitespace-nowrap'),
       cell: (fill) => formatFillDate(fill.filled_on),
     },
     {
-      id: 'drug',
-      header: 'Drug',
-      headerClassName: 'px-4 py-3 font-medium',
-      className: 'px-4 py-3',
-      cell: (fill) => {
-        const strength = strengthAndForm(fill)
-        return (
-          <div className={textClass()}>
-            <div className="font-medium text-card-foreground">
-              {fillDrugName(fill)}
-              {fill.drug?.brand_name ? ` (${fill.drug.brand_name})` : ''}
-            </div>
-            {strength && <div className="text-xs text-muted-foreground">{strength}</div>}
-            {fill.directions && <p className="mt-1 text-xs text-muted-foreground">{fill.directions}</p>}
-            <div className="mt-1 flex flex-wrap gap-1.5">
-              {fill.ndc_status === 'unresolved' && (
-                <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">No FDA match</span>
-              )}
-              {fill.ndc_status === 'ambiguous' && (
-                <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">Ambiguous NDC</span>
-              )}
-              {reviewStatusBadge(fill.review_status)}
-            </div>
+      id: 'name',
+      header: 'Name',
+      headerClassName: head,
+      className: cellClass,
+      cell: (fill) => (
+        <div>
+          <div className={textClass('font-medium text-card-foreground')}>{fillDrugName(fill)}</div>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {fill.ndc_status === 'unresolved' && (
+              <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">No FDA match</span>
+            )}
+            {fill.ndc_status === 'ambiguous' && (
+              <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">Ambiguous NDC</span>
+            )}
+            {reviewStatusBadge(fill.review_status)}
           </div>
-        )
-      },
+        </div>
+      ),
     },
+    textColumn('strength', 'Strength', (fill) => fill.drug?.strengths.join(' / ')),
+    textColumn('dosage_form', 'Dosage form', (fill) => fill.drug?.dosage_form),
     {
       id: 'quantity',
       header: 'Quantity',
       fit: true,
-      headerClassName: 'px-4 py-3 font-medium',
-      className: 'px-4 py-3',
+      headerClassName: head,
+      className: cn(cellClass, 'whitespace-nowrap'),
       cell: (fill) => <span className={lc}>{formatQuantity(fill.quantity, fill.quantity_unit)}</span>,
     },
     {
@@ -92,46 +96,23 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
       header: 'Paid',
       fit: true,
       numeric: true,
-      headerClassName: 'px-4 py-3 font-medium',
-      className: 'px-4 py-3',
+      headerClassName: head,
+      className: cellClass,
       cell: (fill) => formatCents(fill.paid_cents),
     },
     {
       id: 'retail',
-      header: 'Retail',
+      header: 'Retail price',
       fit: true,
       numeric: true,
-      headerClassName: 'px-4 py-3 font-medium',
-      className: 'px-4 py-3',
+      headerClassName: head,
+      className: cellClass,
       cell: (fill) => formatCents(fill.retail_cents),
     },
-    {
-      id: 'pharmacy',
-      header: 'Pharmacy',
-      headerClassName: 'px-4 py-3 font-medium',
-      className: 'px-4 py-3',
-      cell: (fill) => (
-        fill.pharmacy_name || fill.pharmacy_location || fill.prescriber_name ? (
-          <div className={textClass()}>
-            <div>{fill.pharmacy_name ?? MISSING}</div>
-            {fill.pharmacy_location && <div className="text-xs text-muted-foreground">{fill.pharmacy_location}</div>}
-            {fill.prescriber_name && <div className="text-xs text-muted-foreground">{fill.prescriber_name}</div>}
-          </div>
-        ) : <Missing />
-      ),
-    },
-    {
-      id: 'package',
-      header: 'Route / manufacturer / package',
-      headerClassName: 'px-4 py-3 font-medium',
-      className: 'px-4 py-3 text-muted-foreground',
-      cell: (fill) => {
-        const parts = [fill.drug?.route, fill.drug?.labeler_name, fill.drug?.package_description].filter(Boolean)
-        return parts.length === 0
-          ? <Missing />
-          : <div className={textClass()}>{parts.map((part) => <div key={part}>{part}</div>)}</div>
-      },
-    },
+    textColumn('pharmacy', 'Pharmacy', (fill) => fill.pharmacy_name),
+    textColumn('route', 'Route', (fill) => fill.drug?.route, 'text-muted-foreground'),
+    textColumn('manufacturer', 'Manufacturer', (fill) => fill.drug?.labeler_name, 'text-muted-foreground'),
+    textColumn('package', 'Package description', (fill) => fill.drug?.package_description, 'text-muted-foreground'),
   ]
 
   if (actions || onEdit) {

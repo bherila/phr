@@ -115,25 +115,30 @@ beforeEach(() => {
 })
 
 describe('MedicationFillsPage table', () => {
-  it('renders columns in order with the contract formats', async () => {
+  it('renders the eleven requested columns in order with the contract formats', async () => {
     renderPage()
 
     const table = await screen.findByRole('table', { name: 'Fills' })
     const headers = within(table).getAllByRole('columnheader').map((header) => header.textContent)
-    expect(headers.slice(0, 7)).toEqual(['Date', 'Drug', 'Quantity', 'Paid', 'Retail', 'Pharmacy', 'Route / manufacturer / package'])
+    expect(headers.slice(0, 11)).toEqual([
+      'Date', 'Name', 'Strength', 'Dosage form', 'Quantity', 'Paid', 'Retail price',
+      'Pharmacy', 'Route', 'Manufacturer', 'Package description',
+    ])
 
     const row = within(table).getAllByRole('row')[1]!
     const cells = within(row).getAllByRole('cell')
     expect(cells[0]).toHaveTextContent('26.10.28')
-    expect(cells[1]).toHaveTextContent('atorvastatin calcium (Lipitor)')
-    expect(cells[1]).toHaveTextContent('20 mg/1 · tablet, film coated')
-    expect(cells[2]).toHaveTextContent('90 tablet')
-    expect(cells[3]).toHaveTextContent('$10.00')
-    expect(cells[4]).toHaveTextContent('$189.99')
-    expect(cells[5]).toHaveTextContent('Example Pharmacy')
-    expect(cells[6]).toHaveTextContent('oral')
-    expect(cells[6]).toHaveTextContent('Parke-Davis Div of Pfizer Inc')
-    expect(cells[6]).toHaveTextContent('90 tablet, film coated in 1 bottle (0071-0155-23)')
+    expect(cells[1]).toHaveTextContent('atorvastatin calcium')
+    expect(cells[1]).not.toHaveTextContent('Lipitor')
+    expect(cells[2]).toHaveTextContent(/^20 mg\/1$/)
+    expect(cells[3]).toHaveTextContent(/^tablet, film coated$/)
+    expect(cells[4]).toHaveTextContent('90 tablet')
+    expect(cells[5]).toHaveTextContent(/^\$10\.00$/)
+    expect(cells[6]).toHaveTextContent(/^\$189\.99$/)
+    expect(cells[7]).toHaveTextContent(/^Example Pharmacy$/)
+    expect(cells[8]).toHaveTextContent(/^oral$/)
+    expect(cells[9]).toHaveTextContent(/^Parke-Davis Div of Pfizer Inc$/)
+    expect(cells[10]).toHaveTextContent(/^90 tablet, film coated in 1 bottle \(0071-0155-23\)$/)
   })
 
   it('shows a dash for missing values', async () => {
@@ -142,20 +147,19 @@ describe('MedicationFillsPage table', () => {
     const row = within(table).getAllByRole('row')[2]!
     const cells = within(row).getAllByRole('cell')
     expect(cells[0]).toHaveTextContent('25.03.04')
-    expect(cells[3]).toHaveTextContent('—')
-    expect(cells[4]).toHaveTextContent('—')
-    expect(cells[5]).toHaveTextContent('—')
-    expect(cells[6]).toHaveTextContent('—')
+    for (const index of [2, 3, 5, 6, 7, 8, 9, 10]) {
+      expect(cells[index]).toHaveTextContent(/^—$/)
+    }
   })
 
   it('leaves stored casing alone by default', async () => {
     renderPage()
     const table = await screen.findByRole('table', { name: 'Fills' })
     expect(table.querySelector('.lowercase')).toBeNull()
-    expect(screen.getByText('Take 1 Tablet By Mouth Daily')).toBeInTheDocument()
+    expect(screen.getByText('Example Pharmacy')).toBeInTheDocument()
   })
 
-  it('lowercases drug, pharmacy, prescriber and directions text when the preference is on', async () => {
+  it('lowercases the drug, pharmacy and NDC text columns when the preference is on', async () => {
     mockGet.mockImplementation(async (url: string) => {
       if (url === '/api/user/display-preferences') return { force_lowercase: true }
       return { medication_fills: fills, can_manage: true }
@@ -164,13 +168,13 @@ describe('MedicationFillsPage table', () => {
 
     const table = await screen.findByRole('table', { name: 'Fills' })
     await waitFor(() => expect(table.querySelector('.lowercase')).not.toBeNull())
-    for (const text of ['atorvastatin calcium (Lipitor)', 'Take 1 Tablet By Mouth Daily', 'Example Pharmacy', 'Dr. A. Smith', 'Parke-Davis Div of Pfizer Inc']) {
-      for (const element of screen.getAllByText(text, { exact: false })) {
+    for (const text of ['atorvastatin calcium', '20 mg/1', 'Example Pharmacy', 'oral', 'Parke-Davis Div of Pfizer Inc']) {
+      for (const element of within(table).getAllByText(text, { exact: false })) {
         expect(element.closest('.lowercase')).not.toBeNull()
       }
     }
     // Stored text is unchanged: only a CSS class lowercases it.
-    expect(screen.getByText('Take 1 Tablet By Mouth Daily')).toBeInTheDocument()
+    expect(within(table).getByText('Parke-Davis Div of Pfizer Inc')).toBeInTheDocument()
   })
 
   it('explains how fills arrive when there are none', async () => {
