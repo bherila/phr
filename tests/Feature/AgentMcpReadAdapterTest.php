@@ -240,7 +240,7 @@ final class AgentMcpReadAdapterTest extends TestCase
             $this->assertContains($name, $toolNames);
         }
         $this->assertCount(
-            63 + (count(AgentClinicalResourceCatalog::writableIds()) * 2),
+            64 + (count(AgentClinicalResourceCatalog::writableIds()) * 2),
             $toolNames,
         );
         $writeTools = [
