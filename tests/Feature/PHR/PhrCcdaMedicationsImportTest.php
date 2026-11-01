@@ -3,9 +3,50 @@
 namespace Tests\Feature\PHR;
 
 use App\Models\PhrMedication;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 final class PhrCcdaMedicationsImportTest extends PhrCcdaSectionImportTestCase
 {
+    /**
+     * @return array<string, array{0: string, 1: string, 2: string|null}>
+     */
+    public static function doseRanges(): array
+    {
+        return [
+            'both bounds' => ['<low value="1" unit="1"/><high value="2" unit="1"/>', '1-2', 'Synthetic tablet'],
+            'lower bound only' => ['<low value="5" unit="mg"/>', '>=5', 'mg'],
+            'exclusive lower bound' => ['<low value="5" unit="mg" inclusive="false"/>', '>5', 'mg'],
+            'upper bound only' => ['<high value="10" unit="mg"/>', '<=10', 'mg'],
+        ];
+    }
+
+    /** A dose range is never stored as one of its bounds, as if it were exact. */
+    #[DataProvider('doseRanges')]
+    public function test_a_dose_range_keeps_its_bounds(string $bounds, string $dose, ?string $unit): void
+    {
+        $patient = $this->ccdaPatient();
+
+        $this->importCcda($this->ccdaSectionDocument(<<<XML
+            <templateId root="2.16.840.1.113883.10.20.22.2.1.1" extension="2014-06-09"/>
+            <title>Medications</title>
+            <entry>
+              <substanceAdministration classCode="SBADM" moodCode="INT">
+                <templateId root="2.16.840.1.113883.10.20.22.4.16"/>
+                <id root="2.25.5002" extension="med-range"/>
+                <statusCode code="active"/>
+                <doseQuantity xsi:type="IVL_PQ">{$bounds}</doseQuantity>
+                <administrationUnitCode code="C48542" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="Synthetic tablet"/>
+                <consumable><manufacturedProduct><manufacturedMaterial>
+                  <code code="9990090" codeSystem="2.16.840.1.113883.6.88" displayName="Synthetic ranged medicine"/>
+                </manufacturedMaterial></manufacturedProduct></consumable>
+              </substanceAdministration>
+            </entry>
+            XML), $patient);
+
+        $medication = PhrMedication::query()->where('patient_id', $patient->id)->sole();
+        $this->assertSame([$dose, $unit], [$medication->dose, $medication->dose_unit]);
+    }
+
     protected static function model(): string
     {
         return PhrMedication::class;

@@ -85,9 +85,7 @@ final class PhrCcdaMedicationActivities extends PhrCcdaSectionReader
      */
     private function record(DOMElement $activity, string $name, ?DOMElement $code, ?string $startedOn, ?string $endedOn): array
     {
-        $dose = $this->xml->child($activity, 'doseQuantity');
-        $doseValue = $this->xml->attribute($dose, 'value') ?? $this->xml->attribute($this->xml->child($dose, 'low'), 'value');
-        $doseUnit = $this->xml->attribute($dose, 'unit') ?? $this->xml->attribute($this->xml->child($dose, 'low'), 'unit');
+        [$doseValue, $doseUnit] = $this->dose($this->xml->child($activity, 'doseQuantity'));
         // UCUM's unity ("1") counts things; the administration unit says which.
         if ($doseUnit === null || $doseUnit === '1') {
             $doseUnit = $this->xml->codeName($this->xml->child($activity, 'administrationUnitCode')) ?? $doseUnit;
@@ -111,6 +109,33 @@ final class PhrCcdaMedicationActivities extends PhrCcdaSectionReader
             'raw_text' => $this->xml->edText($this->xml->child($activity, 'text')),
             'external_id' => $this->externalId($activity, [$name, $startedOn, $doseValue, $doseUnit]),
         ];
+    }
+
+    /**
+     * A dose and its unit. A range keeps both bounds ("1-2"), and a single
+     * bound says which it is (">=1", "<=2"), so it never reads as an exact dose.
+     *
+     * @return array{0: string|null, 1: string|null}
+     */
+    private function dose(?DOMElement $dose): array
+    {
+        $value = $this->xml->attribute($dose, 'value');
+        if ($value !== null) {
+            return [$value, $this->xml->attribute($dose, 'unit')];
+        }
+
+        $low = $this->xml->child($dose, 'low');
+        $high = $this->xml->child($dose, 'high');
+        $lowValue = $this->xml->attribute($low, 'value');
+        $highValue = $this->xml->attribute($high, 'value');
+        $text = match (true) {
+            $lowValue !== null && $highValue !== null => "{$lowValue}-{$highValue}",
+            $lowValue !== null => ($this->xml->attribute($low, 'inclusive') === 'false' ? '>' : '>=').$lowValue,
+            $highValue !== null => ($this->xml->attribute($high, 'inclusive') === 'false' ? '<' : '<=').$highValue,
+            default => null,
+        };
+
+        return [$text, $this->xml->attribute($low, 'unit') ?? $this->xml->attribute($high, 'unit')];
     }
 
     /**

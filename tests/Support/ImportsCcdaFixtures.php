@@ -16,7 +16,7 @@ use Tests\TestCase;
  */
 trait ImportsCcdaFixtures
 {
-    private function ccdaFixture(string $name): string
+    protected function ccdaFixture(string $name): string
     {
         $xml = file_get_contents(base_path('tests/Fixtures/ccda/'.$name));
         $this->assertIsString($xml);
@@ -24,13 +24,26 @@ trait ImportsCcdaFixtures
         return $xml;
     }
 
-    private function importCcda(string $xml, PhrPatient $patient): PhrImportResult
+    protected function importCcda(string $xml, PhrPatient $patient): PhrImportResult
     {
         return app(PhrCcdaImporter::class)->importXml($xml, $patient, $patient->owner_user_id);
     }
 
+    /** A synthetic document holding one section, given as its inner XML. */
+    protected function ccdaSectionDocument(string $section): string
+    {
+        return <<<XML
+            <?xml version="1.0" encoding="UTF-8"?>
+            <ClinicalDocument xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+              <component><structuredBody><component><section>
+              {$section}
+              </section></component></structuredBody></component>
+            </ClinicalDocument>
+            XML;
+    }
+
     /** The same document as the narrative-table reader saw it: no structured entries. */
-    private function withoutEntries(string $xml): string
+    protected function withoutEntries(string $xml): string
     {
         [$document, $xpath] = $this->ccdaDom($xml);
         foreach (iterator_to_array($xpath->query('//*[local-name()="entry"]') ?: []) as $entry) {
@@ -41,7 +54,7 @@ trait ImportsCcdaFixtures
     }
 
     /** @return array{0: DOMDocument, 1: DOMXPath} */
-    private function ccdaDom(string $xml): array
+    protected function ccdaDom(string $xml): array
     {
         $document = new DOMDocument;
         $this->assertTrue($document->loadXML($xml));
@@ -49,7 +62,7 @@ trait ImportsCcdaFixtures
         return [$document, new DOMXPath($document)];
     }
 
-    private function ccdaPatient(): PhrPatient
+    protected function ccdaPatient(): PhrPatient
     {
         return PhrPatient::query()->create([
             'owner_user_id' => $this->createUser()->id,
@@ -59,7 +72,7 @@ trait ImportsCcdaFixtures
     }
 
     /** decimal(18,10) columns read back padded; compare the number itself. */
-    private function ccdaDecimal(mixed $value): ?string
+    protected function ccdaDecimal(mixed $value): ?string
     {
         if ($value === null) {
             return null;
