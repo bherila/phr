@@ -20,7 +20,9 @@ use App\Support\PHR\PhrDocumentType;
  *
  * Like PhrNativeLifecycleCompatibility, the values are normalized *after* the
  * reader has verified the stored content hash against what was written, and
- * the hash is re-derived so the planner compares like with like.
+ * the hash is re-derived so the planner compares like with like. The planner
+ * maps the current row's projection the same way, so a row that still holds a
+ * legacy value matches its own unchanged backup.
  */
 final class PhrNativeDocumentCompatibility
 {

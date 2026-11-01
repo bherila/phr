@@ -887,6 +887,26 @@ final class PhrNativeRestoreTest extends TestCase
         $this->assertSame(1, $plan['tables']['phr_documents']['skip'] ?? 0);
     }
 
+    public function test_a_stored_legacy_document_type_matches_its_own_unchanged_archive_instead_of_conflicting(): void
+    {
+        // No migration rewrites stored types, so a row can still hold the old
+        // `general` default. Restore maps the archived copy; it must map the
+        // current row the same way before comparing, or an unchanged backup of
+        // that row would block the whole restore.
+        $owner = User::factory()->create(['user_role' => 'user']);
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        $this->metadataOnlyDocument($patient, (int) $owner->id, 'Synthetic stored legacy type');
+        DB::table('phr_documents')->where('patient_id', $patient->id)->update(['document_type' => 'general']);
+
+        $archivePath = $this->archiveCopy($patient, (int) $owner->id);
+
+        $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
+        $plan = $attempt->refresh()->plan_counts_json;
+        $this->assertIsArray($plan);
+        $this->assertSame(0, $plan['tables']['phr_documents']['block'] ?? -1);
+        $this->assertSame(1, $plan['tables']['phr_documents']['skip'] ?? 0);
+    }
+
     public function test_an_archived_doubled_lab_reference_range_restores_once(): void
     {
         $owner = User::factory()->create(['user_role' => 'user']);

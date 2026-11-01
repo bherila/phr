@@ -146,6 +146,10 @@ final class PhrNativeRestorePlanner
                     if ($current !== null) {
                         try {
                             $projected = $this->projector->project($targetPatientId, $table, $definition, $current, fn (string $relatedTable, int $id): ?string => $this->identities->existingNativeId($targetPatientId, $relatedTable, $id));
+                            // The archived record had its legacy document values mapped
+                            // on read; map the current row the same way, so a row that
+                            // still holds one compares equal to its own unchanged backup.
+                            $projected = PhrNativeDocumentCompatibility::normalize($table, $projected);
                             $action = hash_equals((string) $projected['contentHash'], (string) $record['contentHash']) ? 'skip' : 'block';
                         } catch (NativeRestoreException $exception) {
                             $blockers[] = $exception->failureCategory;
