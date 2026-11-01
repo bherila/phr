@@ -364,8 +364,10 @@ final readonly class PhrReviewQueueService
         ], array_values($groups));
     }
 
-    /** @return array<string, mixed> */
-    /** @param array<int, string> $mismatched */
+    /**
+     * @param  array<int, string>  $mismatched
+     * @return array<string, mixed>
+     */
     private function recordItem(string $page, Model $record, PhrPatient $patient, array $mismatched): array
     {
         [$title, $detail] = $this->describe($page, $record);
