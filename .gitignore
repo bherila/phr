@@ -15,7 +15,6 @@
 /.nova
 /.phpunit.cache
 /.tsbuildinfo
-/.eslintcache
 /.vscode
 /.zed
 /auth.json

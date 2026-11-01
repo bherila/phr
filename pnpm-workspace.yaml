@@ -12,13 +12,6 @@ allowBuilds:
   unrs-resolver: true
 minimumReleaseAgeExclude:
   - bwh-auth
-  - '@eslint-react/ast@5.26.0'
-  - '@eslint-react/core@5.26.0'
-  - '@eslint-react/eslint-plugin@5.26.0'
-  - '@eslint-react/eslint@5.26.0'
-  - '@eslint-react/jsx@5.26.0'
-  - '@eslint-react/shared@5.26.0'
-  - '@eslint-react/var@5.26.0'
   - '@swc/core-darwin-arm64@1.16.18'
   - '@swc/core-darwin-x64@1.16.18'
   - '@swc/core-linux-arm-gnueabihf@1.16.18'
@@ -32,12 +25,6 @@ minimumReleaseAgeExclude:
   - '@swc/core-win32-ia32-msvc@1.16.18'
   - '@swc/core-win32-x64-msvc@1.16.18'
   - '@swc/core@1.16.18'
-  - eslint-plugin-react-dom@5.26.0
-  - eslint-plugin-react-jsx@5.26.0
-  - eslint-plugin-react-naming-convention@5.26.0
-  - eslint-plugin-react-rsc@5.26.0
-  - eslint-plugin-react-web-api@5.26.0
-  - eslint-plugin-react-x@5.26.0
   - zod@4.6.6
 onlyBuiltDependencies:
   - '@swc/core'
