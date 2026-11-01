@@ -5,6 +5,7 @@ namespace Tests\Unit\Services\PHR;
 use App\Models\PhrLabResult;
 use App\Models\PhrPatient;
 use App\Services\PHR\Export\PhrCcdaExporter;
+use App\Services\PHR\Export\PhrFhirExporter;
 use DOMDocument;
 use DOMXPath;
 use Tests\TestCase;
@@ -52,6 +53,34 @@ class PhrLabReferenceRangeExportTest extends TestCase
         ], $this->narrativeRanges($xml));
     }
 
+    public function test_fhir_writes_a_single_bound_whose_inclusiveness_is_known_as_text_too(): void
+    {
+        $json = (new PhrFhirExporter)->bundleJson($this->exportData([
+            $this->lab(1, 'Synthetic at most', ['range_max' => '5.0000000000', 'range_max_inclusive' => true, 'range_unit' => 'mg/dL']),
+            $this->lab(2, 'Synthetic strictly above', ['range_min' => '60.0000000000', 'range_min_inclusive' => false, 'range_unit' => 'mL/min']),
+            // Unknown, two-sided, or with source text: exported as before.
+            $this->lab(3, 'Synthetic unstated', ['range_max' => '5', 'range_unit' => 'mg/dL']),
+            $this->lab(4, 'Synthetic span', ['range_min' => '1', 'range_min_inclusive' => false, 'range_max' => '9', 'range_max_inclusive' => true]),
+            $this->lab(5, 'Synthetic own text', ['range_max' => '5', 'range_max_inclusive' => true, 'reference_range_text' => 'up to 5']),
+        ]));
+
+        $ranges = [];
+        foreach (json_decode($json, true, flags: JSON_THROW_ON_ERROR)['entry'] as $entry) {
+            if (($entry['resource']['resourceType'] ?? null) === 'Observation') {
+                $range = $entry['resource']['referenceRange'][0];
+                $ranges[$entry['resource']['code']['text']] = [$range['low']['value'] ?? null, $range['high']['value'] ?? null, $range['text'] ?? null];
+            }
+        }
+
+        $this->assertEquals([
+            'Synthetic at most' => [null, 5, '<=5 mg/dL'],
+            'Synthetic strictly above' => [60, null, '>60 mL/min'],
+            'Synthetic unstated' => [null, 5, null],
+            'Synthetic span' => [1, 9, null],
+            'Synthetic own text' => [null, 5, 'up to 5'],
+        ], $ranges);
+    }
+
     /**
      * @return array<string, string>
      */
@@ -79,6 +108,7 @@ class PhrLabReferenceRangeExportTest extends TestCase
     private function lab(int $id, string $analyte, array $attributes): PhrLabResult
     {
         $lab = new PhrLabResult([
+            'patient_id' => 42,
             'analyte' => $analyte,
             'value' => '1',
             'unit' => 'mg/dL',

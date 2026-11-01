@@ -3,6 +3,7 @@
 namespace App\Services\PHR\Export;
 
 use App\Models\PhrPatient;
+use App\Support\PHR\PhrLabReferenceRangeNotation;
 use Illuminate\Support\Str;
 use XMLWriter;
 
@@ -86,7 +87,7 @@ class PhrCcdaExporter
             $lab->analyte ?? $lab->test_name,
             $lab->value ?? $lab->value_numeric,
             $lab->unit,
-            $lab->reference_range_text ?? $this->rangeFromBounds($lab->range_min, $lab->range_max, $lab->range_unit, $lab->range_min_inclusive, $lab->range_max_inclusive),
+            $lab->reference_range_text ?? PhrLabReferenceRangeNotation::fromBounds($lab),
             $lab->abnormal_flag,
         ])->all());
         $this->section($xml, 'Vital Signs', ['Date', 'Name', 'Value', 'Unit'], $data['vitals']->map(fn ($vital): array => [
@@ -172,45 +173,6 @@ class PhrCcdaExporter
         $xml->endDocument();
 
         return $xml->outputMemory();
-    }
-
-    /**
-     * A reference range without text, from its bounds and their unit:
-     * "13.6 - 17.5 g/dL", or one side alone as "<200 mg/dL" or ">40 mg/dL", the
-     * way the browser shows it. A side known to be inclusive reads "<=5 mg/dL"
-     * or ">=60 mL/min"; one whose inclusiveness is unknown keeps the strict
-     * comparator, as before it was recorded. The unit is the range's own: the
-     * table's Unit column is the result's, which may differ, and a reader of the
-     * narrative has no other place to find it.
-     */
-    private function rangeFromBounds(mixed $min, mixed $max, mixed $unit, ?bool $minInclusive, ?bool $maxInclusive): string
-    {
-        $low = $this->boundNumber($min);
-        $high = $this->boundNumber($max);
-        $range = match (true) {
-            $low !== null && $high !== null => "{$low} - {$high}",
-            $high !== null => ($maxInclusive === true ? '<=' : '<').$high,
-            $low !== null => ($minInclusive === true ? '>=' : '>').$low,
-            default => '',
-        };
-        $unit = is_string($unit) ? trim($unit) : '';
-
-        return $range === '' || $unit === '' ? $range : "{$range} {$unit}";
-    }
-
-    /** A stored decimal without its padding ("200.0000000000" -> "200"). */
-    private function boundNumber(mixed $value): ?string
-    {
-        if (! is_numeric($value)) {
-            return null;
-        }
-
-        $number = (string) $value;
-        if (str_contains($number, '.')) {
-            $number = rtrim(rtrim($number, '0'), '.');
-        }
-
-        return $number === '' || $number === '-' ? '0' : $number;
     }
 
     private function patient(XMLWriter $xml, PhrPatient $patient): void
