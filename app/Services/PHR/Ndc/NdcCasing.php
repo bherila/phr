@@ -90,23 +90,73 @@ final class NdcCasing
     /**
      * Strengths and package descriptions: lowercase the words, write units in
      * their standard form (mg, mcg, mL, g, IU, %), and leave numbers and NDC
-     * codes alone. Standard units and connectors ("in") do not count as
+     * codes alone. Whatever the casing, UCUM bracket units become plain
+     * units, mEq/mL get their standard casing, and a number is spaced from its
+     * unit (5 mL; the /1 denominator stays). Standard units and connectors ("in") do not count as
      * lowercase evidence, because openFDA writes them that way inside
      * otherwise uppercase text ("30 TABLET in 1 BOTTLE").
      */
     public static function measureText(?string $value): ?string
     {
         $value = self::clean($value);
-        if ($value === null || ! self::isAllCaps($value, true)) {
-            return $value;
+        if ($value === null) {
+            return null;
         }
 
-        return (string) preg_replace_callback('/[A-Za-z]+/', static function (array $match): string {
-            $word = $match[0];
-            $upper = strtoupper($word);
+        // UCUM bracket units ("[iU]") are masked while deciding the casing, so their
+        // letters are neither counted as evidence nor lowercased.
+        if (self::isAllCaps((string) preg_replace('/\[[^\]]*\]/', '', $value), true)) {
+            $value = (string) preg_replace_callback('/\[[^\]]*\]|[A-Za-z]+/', static function (array $match): string {
+                $word = $match[0];
+                if ($word[0] === '[') {
+                    return $word;
+                }
 
-            return self::UNITS[$upper] ?? strtolower($word);
+                return self::UNITS[strtoupper($word)] ?? strtolower($word);
+            }, $value);
+        }
+
+        return self::fixUnits($value);
+    }
+
+    /**
+     * Unit notation, whatever the casing of the surrounding text: UCUM brackets
+     * become plain units, mEq and mL get their standard casing, and a number is
+     * separated from its unit. Text inside parentheses (NDC codes) is never touched.
+     */
+    private static function fixUnits(string $value): string
+    {
+        $value = (string) preg_replace_callback('/\[([^\]]*)\]/', static function (array $match): string {
+            $inner = $match[1];
+            if (in_array($inner, ['iU', 'IU'], true)) {
+                return 'IU';
+            }
+            if ($inner === "USP'U") {
+                return 'USP units';
+            }
+            if (preg_match('/\Ahp_([A-Z])\z/', $inner, $potency) === 1) {
+                return $potency[1];
+            }
+
+            return $match[0];
         }, $value);
+
+        $parts = preg_split('/(\([^)]*\))/', $value, -1, PREG_SPLIT_DELIM_CAPTURE) ?: [$value];
+        foreach ($parts as $index => $part) {
+            if ($index % 2 === 1) {
+                continue;
+            }
+            $part = (string) preg_replace('/(?<![A-Za-z])(?<=[\d\s\/]|^)(?:meq)(?![A-Za-z])/i', 'mEq', $part);
+            $part = (string) preg_replace('/(?<![A-Za-z])(?<=[\d\s\/]|^)(?:ml)(?![A-Za-z])/i', 'mL', $part);
+            $part = (string) preg_replace(
+                '/(?<![\w.\-])(\d+(?:\.\d+)?)(mg|mcg|kg|g|mL|L|IU|mEq|mmol|%|units?)(?![A-Za-z])/',
+                '$1 $2',
+                $part,
+            );
+            $parts[$index] = $part;
+        }
+
+        return implode('', $parts);
     }
 
     /**
