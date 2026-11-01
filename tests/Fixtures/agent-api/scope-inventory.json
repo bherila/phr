@@ -343,6 +343,13 @@
             "clinical:read"
         ]
     },
+    "medication_fills.resolve_duplicate": {
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ],
+        "scope_rule": "all"
+    },
     "medication_fills.update": {
         "scopes": [
             "clinical:read",

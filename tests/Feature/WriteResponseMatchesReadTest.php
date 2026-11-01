@@ -59,6 +59,8 @@ final class WriteResponseMatchesReadTest extends TestCase
         'agent-api.v1.eobs.import' => 'returns an import receipt; AgentApiEobWriteTest pins that eobs.upsert and eobs.update answer exactly what eobs.get reads',
         'agent-api.v1.eobs.upsert' => 'AgentApiEobWriteTest pins that its data is exactly what eobs.get reads',
         'agent-api.v1.eobs.update' => 'AgentApiEobWriteTest pins that its data is exactly what eobs.get reads',
+        'agent-api.v1.medication-fills.resolve-duplicate' => 'returns the decision (outcome, merged_into_fill_id); a merged fill is retracted and leaves every read. MedicationFillDuplicateResolutionTest pins it',
+        'phr.patients.medication-fills.resolve-duplicate' => 'returns the decision and the fill as the browser reads it; MedicationFillDuplicateResolutionTest pins it',
         'agent-api.v1.exports.download-access' => 'returns a signed URL',
         'agent-api.v1.native-backups.download-access' => 'returns a signed URL',
         'agent-api.v1.imports.store' => 'returns an import job, whose records arrive later for review',

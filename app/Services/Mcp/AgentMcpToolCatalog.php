@@ -175,6 +175,14 @@ final class AgentMcpToolCatalog
                 $byVersion,
                 effect: Effect::Destructive,
             ),
+            $this->write(
+                'medication_fills.resolve_duplicate',
+                'Resolve a possible-duplicate fill',
+                'For a fill you wrote that came back with review_flags possible_duplicate: action same merges it into the existing fill (its evidence moves there, it is retracted, nothing is deleted); action different clears the flag and keeps both. Pass the flagged fill\'s current version (read it with clinical_get). Ask the person before choosing same. With several open flags, same needs candidate_fill_id.',
+                [$writes, 'medicationFillsResolveDuplicate'],
+                $byVersion,
+                effect: Effect::Destructive,
+            ),
             $this->read('imports.list', 'List imports', 'List bounded import-job status for an accessible patient.', [$reads, 'importsList']),
             $this->read('imports.get', 'Get import', 'Inspect one import job and its proposed structured records.', [$reads, 'importsGet']),
             $this->write(

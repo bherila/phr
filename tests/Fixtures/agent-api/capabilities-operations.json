@@ -171,6 +171,14 @@
             "clinical:write"
         ]
     },
+    "medication_fills.resolve_duplicate": {
+        "available": true,
+        "scope": "clinical:write",
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ]
+    },
     "imports.list": {
         "available": true,
         "scope": "imports:read"

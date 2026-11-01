@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\V1\AgentDocumentUploadController;
 use App\Http\Controllers\Api\V1\AgentEobController;
 use App\Http\Controllers\Api\V1\AgentEvidenceController;
 use App\Http\Controllers\Api\V1\AgentExportController;
+use App\Http\Controllers\Api\V1\AgentFillDuplicateController;
 use App\Http\Controllers\Api\V1\AgentHealthLogController;
 use App\Http\Controllers\Api\V1\AgentImportController;
 use App\Http\Controllers\Api\V1\AgentMcpController;
@@ -210,6 +211,9 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
             ->whereNumber('patient')->middleware('throttle:agent-api');
         Route::operation('eobs.update', [AgentEobController::class, 'update'])
             ->whereNumber(['patient', 'eob'])->middleware('throttle:agent-api');
+
+        Route::operation('medication_fills.resolve_duplicate', [AgentFillDuplicateController::class, 'resolve'])
+            ->whereNumber(['patient', 'fill'])->middleware('throttle:agent-api');
 
         Route::operation('imports.list', [AgentImportController::class, 'index'])
             ->whereNumber('patient')->middleware('throttle:agent-api');
@@ -454,6 +458,7 @@ Route::middleware(['web', 'auth'])
         Route::patch('/patients/{patient}/medication-fills/{fill}', [PHRMedicationFillController::class, 'update'])->whereNumber(['patient', 'fill'])->name('patients.medication-fills.update');
         Route::delete('/patients/{patient}/medication-fills/{fill}', [PHRMedicationFillController::class, 'destroy'])->whereNumber(['patient', 'fill'])->name('patients.medication-fills.destroy');
         Route::patch('/patients/{patient}/medication-fills/{fill}/review', [PHRMedicationFillController::class, 'review'])->whereNumber(['patient', 'fill'])->name('patients.medication-fills.review');
+        Route::post('/patients/{patient}/medication-fills/{fill}/resolve-duplicate', [PHRMedicationFillController::class, 'resolveDuplicate'])->whereNumber(['patient', 'fill'])->name('patients.medication-fills.resolve-duplicate');
         Route::get('/patients/{patient}/medications/{medication}/fills', [PHRMedicationFillController::class, 'forMedication'])->whereNumber(['patient', 'medication'])->name('patients.medications.fills');
         Route::get('/patients/{patient}/conditions', [PHRConditionController::class, 'index'])->whereNumber('patient')->name('patients.conditions.index');
         Route::post('/patients/{patient}/conditions', [PHRConditionController::class, 'store'])->whereNumber('patient')->name('patients.conditions.store');

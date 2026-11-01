@@ -258,3 +258,80 @@ describe('ReviewPage', () => {
     expect(region.querySelectorAll('tr[data-skeleton-row]')).toHaveLength(5)
   })
 })
+
+function fillSummary(id: number, extra: Record<string, unknown> = {}) {
+  return { id, filled_on: '2026-10-28', name: 'Synthetic atorvastatin', strength: '20 mg/1', quantity: '30 tablet', pharmacy: null, rx_number: null, sources: ['Rx label · label.jpg'], review_status: 'pending_review', ...extra }
+}
+
+const flaggedFill = {
+  ...record(61, 'medication-fills', 'Synthetic atorvastatin'),
+  review_segment: 'medication-fills',
+  flags: [{ code: 'possible_duplicate', message: 'Possible duplicate of a fill already in the record.' }],
+  duplicate: { fill: fillSummary(61, { pharmacy: 'Example Pharmacy', sources: ['Pharmacy Receipt · receipt.pdf'] }), candidates: [fillSummary(60, { review_status: 'confirmed' })] },
+}
+const eobItem = { ...record(71, 'documents', 'Example Clinic · claim C100'), review_segment: 'eobs', open_path: `/phr/patient/${PATIENT}/eobs/71` }
+
+describe('ReviewPage possible duplicates and EOBs', () => {
+  beforeEach(() => {
+    mockPost.mockResolvedValue({ outcome: 'merged' })
+  })
+
+  it('lists a flagged fill unchecked, with the existing fill beside it', async () => {
+    mockGet.mockResolvedValue(queue([group('records:agent:', 'records', 'Agent', [flaggedFill, record(62, 'conditions', 'Synthetic rhinitis')])]))
+    render(<ReviewPage patientId={PATIENT} />)
+
+    const agent = await screen.findByRole('region', { name: 'Agent' })
+    expect(within(agent).getByText('Possible duplicate of a fill already in the record.')).toBeInTheDocument()
+    expect(within(agent).getByText('Possible duplicate')).toBeInTheDocument()
+    expect(within(agent).getByRole('checkbox', { name: 'Select Synthetic atorvastatin' })).not.toBeChecked()
+    expect(within(agent).getByRole('checkbox', { name: 'Select Synthetic rhinitis' })).toBeChecked()
+
+    fireEvent.click(within(agent).getByRole('button', { name: 'Review Synthetic atorvastatin' }))
+    const comparison = within(agent).getByRole('table', { name: 'Flagged fill compared with an existing fill' })
+    for (const label of ['Date', 'Name', 'Strength', 'Quantity', 'Pharmacy', 'Rx number', 'Sources']) {
+      expect(within(comparison).getByRole('rowheader', { name: label })).toBeInTheDocument()
+    }
+    expect(within(comparison).getByText('Example Pharmacy')).toBeInTheDocument()
+    expect(within(comparison).getByText('Pharmacy Receipt · receipt.pdf')).toBeInTheDocument()
+    expect(within(comparison).getByText('Rx label · label.jpg')).toBeInTheDocument()
+  })
+
+  it('merges a flagged fill into the existing one', async () => {
+    mockGet.mockResolvedValue(queue([group('records:agent:', 'records', 'Agent', [flaggedFill])]))
+    render(<ReviewPage patientId={PATIENT} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Review Synthetic atorvastatin' }))
+    mockGet.mockResolvedValue(queue([]))
+    fireEvent.click(screen.getByRole('button', { name: /^Same fill/ }))
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith(`/api/phr/patients/${PATIENT}/medication-fills/61/resolve-duplicate`, { action: 'same', version: VERSION, candidate_fill_id: 60 }))
+    expect(await screen.findByText('Merged Synthetic atorvastatin into the existing fill.')).toBeInTheDocument()
+    expect(await screen.findByText('Nothing waiting for review')).toBeInTheDocument()
+  })
+
+  it('keeps both fills when they differ, and reports a stale version on the row', async () => {
+    mockGet.mockResolvedValue(queue([group('records:agent:', 'records', 'Agent', [flaggedFill])]))
+    mockPost.mockRejectedValueOnce('This fill changed since it was loaded. Reload it and review it again.')
+    render(<ReviewPage patientId={PATIENT} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Review Synthetic atorvastatin' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Different fill/ }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('This fill changed since it was loaded.')
+
+    fireEvent.click(screen.getByRole('button', { name: /^Different fill/ }))
+    await waitFor(() => expect(mockPost).toHaveBeenLastCalledWith(`/api/phr/patients/${PATIENT}/medication-fills/61/resolve-duplicate`, { action: 'different', version: VERSION, candidate_fill_id: 60 }))
+  })
+
+  it('approves a pending EOB through its own review route and opens it from its own page', async () => {
+    mockGet.mockResolvedValue(queue([group('records:agent:', 'records', 'Agent', [eobItem])]))
+    mockPatch.mockResolvedValue({})
+    render(<ReviewPage patientId={PATIENT} />)
+
+    const agent = await screen.findByRole('region', { name: 'Agent' })
+    expect(within(agent).getByRole('link', { name: 'Open Example Clinic · claim C100' })).toHaveAttribute('href', `/phr/patient/${PATIENT}/eobs/71`)
+    fireEvent.click(within(agent).getByRole('button', { name: 'Approve 1 selected' }))
+    fireEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Approve 1' }))
+
+    await waitFor(() => expect(mockPatch).toHaveBeenCalledWith(`/api/phr/patients/${PATIENT}/eobs/71/review`, { review_status: 'confirmed', version: VERSION }))
+  })
+})

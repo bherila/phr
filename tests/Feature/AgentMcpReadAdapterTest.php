@@ -240,11 +240,11 @@ final class AgentMcpReadAdapterTest extends TestCase
             $this->assertContains($name, $toolNames);
         }
         $this->assertCount(
-            62 + (count(AgentClinicalResourceCatalog::writableIds()) * 2),
+            63 + (count(AgentClinicalResourceCatalog::writableIds()) * 2),
             $toolNames,
         );
         $writeTools = [
-            'patients.create', 'documents.upload', 'documents.upload_access_create', 'documents.upload_finalize', 'documents.upload_cancel', 'eobs.import', 'imports.create', 'imports.review', 'imports.retry',
+            'patients.create', 'documents.upload', 'documents.upload_access_create', 'documents.upload_finalize', 'documents.upload_cancel', 'eobs.import', 'medication_fills.resolve_duplicate', 'imports.create', 'imports.review', 'imports.retry',
             'health_logs.create', 'health_log_entries.append', 'respiratory_events.ingest',
             'dicom_uploads.open', 'dicom_uploads.upload_file', 'dicom_uploads.finalize', 'dicom_uploads.cancel',
             'reconciliations.apply',
@@ -263,7 +263,7 @@ final class AgentMcpReadAdapterTest extends TestCase
                 str_ends_with((string) $tool['name'], '.upsert')
                     || str_ends_with((string) $tool['name'], '.update')
                     || str_ends_with((string) $tool['name'], '.retract')
-                    || in_array($tool['name'], ['imports.review', 'imports.retry', 'documents.upload_cancel', 'dicom_uploads.finalize', 'dicom_uploads.cancel', 'reconciliations.apply'], true),
+                    || in_array($tool['name'], ['imports.review', 'imports.retry', 'medication_fills.resolve_duplicate', 'documents.upload_cancel', 'dicom_uploads.finalize', 'dicom_uploads.cancel', 'reconciliations.apply'], true),
                 $tool['annotations']['destructiveHint'] ?? null,
             );
             // These operations are not safe to replay after an unknown outcome:

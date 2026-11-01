@@ -72,6 +72,9 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
             {fill.ndc_status === 'ambiguous' && (
               <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">Ambiguous NDC</span>
             )}
+            {fill.review_flags.some((flag) => flag.code === 'possible_duplicate') && (
+              <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground" title="This may be the same fill as another one. Decide on the Review page.">Possible duplicate</span>
+            )}
             {reviewStatusBadge(fill.review_status)}
           </div>
         </div>

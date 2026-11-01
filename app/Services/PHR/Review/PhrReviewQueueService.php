@@ -13,11 +13,13 @@ use App\Models\PhrEhiPackage;
 use App\Models\PhrEhiProposal;
 use App\Models\PhrEhiSource;
 use App\Models\PhrEhiUpload;
+use App\Models\PhrEob;
 use App\Models\PhrHealthLog;
 use App\Models\PhrImmunization;
 use App\Models\PhrLabResult;
 use App\Models\PhrMedication;
 use App\Models\PhrMedicationFill;
+use App\Models\PhrMedicationFillEvidence;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientVital;
@@ -33,6 +35,7 @@ use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 
 /**
@@ -265,6 +268,16 @@ final readonly class PhrReviewQueueService
             }
         }
 
+        // Agent-written EOBs waiting for review count with the documents they came from.
+        PhrEob::query()->whereIn('patient_id', $patientIds)->where('review_status', PhrReviewStatus::PENDING)
+            ->toBase()->selectRaw('patient_id, count(*) as aggregate')->groupBy('patient_id')->get()
+            ->each(function (object $row) use (&$tally): void {
+                $patientId = (int) $row->patient_id;
+                $tally['sections'][$patientId]['documents'] ??= ['pending' => 0, 'records' => 0];
+                $tally['sections'][$patientId]['documents']['pending'] += (int) $row->aggregate;
+                $tally['clinical_pending'][$patientId] = ($tally['clinical_pending'][$patientId] ?? 0) + (int) $row->aggregate;
+            });
+
         $this->pendingEhiProposals()->whereIn('patient_id', $patientIds)
             ->selectRaw('patient_id, package_id, mapping, count(*) as aggregate, max(created_at) as proposed_at')
             ->groupBy('patient_id', 'package_id', 'mapping')
@@ -311,6 +324,15 @@ final readonly class PhrReviewQueueService
                 $rows[] = [$page, null];
             }
         }
+        // EOBs wait for review like records but are not a clinical section; they list with documents.
+        $eobs = PhrEob::query()->where('patient_id', $patient->id)->where('review_status', PhrReviewStatus::PENDING)
+            ->orderByDesc('updated_at')->orderByDesc('id')->limit(self::ITEM_LIMIT + 1)->get();
+        foreach ($eobs->take(self::ITEM_LIMIT) as $eob) {
+            $rows[] = ['eobs', $eob];
+        }
+        if ($eobs->count() > self::ITEM_LIMIT) {
+            $rows[] = ['eobs', null];
+        }
 
         $documentIds = array_values(array_unique(array_filter(array_map(
             static fn (array $row): ?int => $row[1]?->getAttribute('source_document_id'),
@@ -325,6 +347,7 @@ final readonly class PhrReviewQueueService
         $clients = $clientIds === [] ? collect() : PassportClient::query()->whereIn('id', $clientIds)->pluck('name', 'id');
 
         $mismatched = $this->medicationsFromMismatchedFills($patient, $rows);
+        $duplicates = $this->openDuplicates($patient, $rows);
         $groups = [];
         $truncated = [];
         foreach ($rows as [$page, $record]) {
@@ -352,7 +375,7 @@ final readonly class PhrReviewQueueService
             if ($updated instanceof CarbonInterface && ($groups[$key]['date'] === null || $updated->toIso8601String() > $groups[$key]['date'])) {
                 $groups[$key]['date'] = $updated->toIso8601String();
             }
-            $groups[$key]['items'][] = $this->recordItem($page, $record, $patient, $mismatched);
+            $groups[$key]['items'][] = $this->recordItem($page, $record, $patient, $mismatched, $duplicates);
         }
 
         return array_map(static fn (array $group): array => [
@@ -366,24 +389,32 @@ final readonly class PhrReviewQueueService
 
     /**
      * @param  array<int, string>  $mismatched
+     * @param  array<int, array<string, mixed>>  $duplicates  open possible-duplicate detail by fill id
      * @return array<string, mixed>
      */
-    private function recordItem(string $page, Model $record, PhrPatient $patient, array $mismatched): array
+    private function recordItem(string $page, Model $record, PhrPatient $patient, array $mismatched, array $duplicates = []): array
     {
         [$title, $detail] = $this->describe($page, $record);
         $created = $record->getAttribute('created_at');
         $updated = $record->getAttribute('updated_at');
 
+        $duplicate = $page === 'medication-fills' ? ($duplicates[(int) $record->getKey()] ?? null) : null;
+
         return [
             'type' => 'record',
             'key' => "record:{$page}:{$record->getKey()}",
             'id' => (int) $record->getKey(),
-            'section' => $page,
+            'section' => $page === 'eobs' ? 'documents' : $page,
             'review_segment' => self::REVIEW_SEGMENTS[$page] ?? $page,
+            ...($page === 'eobs' ? ['open_path' => '/phr/patient/'.$patient->id.'/eobs/'.$record->getKey()] : []),
             'title' => $title,
             'detail' => $detail,
             // Why a person should look closely, beyond the record being new.
-            'flags' => $this->flags($page, $record, $patient, $mismatched),
+            'flags' => [
+                ...$this->flags($page, $record, $patient, $mismatched),
+                ...($duplicate === null ? [] : [['code' => 'possible_duplicate', 'message' => 'Possible duplicate of a fill already in the record. Compare them, then merge or keep both.']]),
+            ],
+            ...($duplicate === null ? [] : ['duplicate' => $duplicate]),
             // A record changed after it was added was updated by its source (or an
             // agent), which reopened its review. Earlier values are not kept, so
             // there is no field-level difference to show.
@@ -448,6 +479,87 @@ final readonly class PhrReviewQueueService
         return $found;
     }
 
+    /**
+     * For each pending fill carrying an open possible_duplicate flag: the fill and the
+     * existing fills it may duplicate, side by side. Two queries for the fills' evidence
+     * and candidates, one for the documents' titles, however many fills are listed.
+     *
+     * @param  list<array{0: string, 1: Model|null}>  $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function openDuplicates(PhrPatient $patient, array $rows): array
+    {
+        $fills = [];
+        foreach ($rows as [$page, $record]) {
+            if ($page === 'medication-fills' && $record instanceof PhrMedicationFill) {
+                $fills[(int) $record->id] = $record;
+            }
+        }
+        if ($fills === []) {
+            return [];
+        }
+        $flags = PhrMedicationFillEvidence::query()->where('patient_id', $patient->id)->whereIn('fill_id', array_keys($fills))
+            ->where('source_kind', 'possible_duplicate')->whereNotNull('related_fill_id')->orderBy('id')->get();
+        if ($flags->isEmpty()) {
+            return [];
+        }
+        $candidates = PhrMedicationFill::query()->where('patient_id', $patient->id)->whereNull('retracted_at')
+            ->whereIn('id', $flags->pluck('related_fill_id')->unique()->values())->get()->keyBy('id');
+        $all = collect($fills)->only($flags->pluck('fill_id')->all())->merge($candidates);
+        $evidence = PhrMedicationFillEvidence::query()->where('patient_id', $patient->id)->whereIn('fill_id', $all->keys())
+            ->where(fn (Builder $query) => $query->whereNotNull('document_id')->orWhereNotNull('eob_line_id'))
+            ->get()->groupBy('fill_id');
+        $documentIds = $all->pluck('source_document_id')->merge($evidence->flatten(1)->pluck('document_id'))->filter()->unique()->values();
+        $titles = $documentIds->isEmpty() ? collect() : PhrDocument::query()->where('patient_id', $patient->id)
+            ->whereIn('id', $documentIds)->get(['id', 'title', 'original_filename'])
+            ->mapWithKeys(fn (PhrDocument $document): array => [(int) $document->id => (string) ($document->title ?? $document->original_filename ?? 'Document')]);
+
+        $found = [];
+        foreach ($flags as $flag) {
+            $candidate = $candidates->get((int) $flag->related_fill_id);
+            $fill = $fills[(int) $flag->fill_id] ?? null;
+            if ($candidate === null || $fill === null) {
+                continue;
+            }
+            $found[(int) $fill->id] ??= ['fill' => $this->fillSummary($fill, $evidence->get($fill->id, collect()), $titles), 'candidates' => []];
+            $found[(int) $fill->id]['candidates'][] = $this->fillSummary($candidate, $evidence->get($candidate->id, collect()), $titles);
+        }
+
+        return $found;
+    }
+
+    /**
+     * What a person compares to tell two fills apart.
+     *
+     * @param  Collection<int, PhrMedicationFillEvidence>  $evidence
+     * @param  Collection<int, string>  $titles
+     * @return array<string, mixed>
+     */
+    private function fillSummary(PhrMedicationFill $fill, Collection $evidence, Collection $titles): array
+    {
+        $sources = [];
+        $label = static fn (string $kind): string => Str::headline($kind === 'eob' ? 'EOB' : $kind);
+        $sources[] = $this->join([$label((string) $fill->source_kind), $fill->source_document_id !== null ? $titles->get((int) $fill->source_document_id) : null]) ?? 'Entered by hand';
+        foreach ($evidence as $item) {
+            $sources[] = $item->eob_line_id !== null
+                ? 'EOB line'
+                : ($this->join([$label((string) $item->source_kind), $item->document_id !== null ? $titles->get((int) $item->document_id) : null]) ?? 'Document');
+        }
+        $quantity = rtrim(rtrim((string) $fill->quantity, '0'), '.');
+
+        return [
+            'id' => (int) $fill->id,
+            'filled_on' => $fill->filled_on->toDateString(),
+            'name' => (string) ($fill->brand_name ?: $fill->drug_as_printed ?: implode(', ', $fill->substance_names ?? []) ?: 'Prescription fill'),
+            'strength' => $fill->strengths === null || $fill->strengths === [] ? null : implode(', ', $fill->strengths),
+            'quantity' => $quantity === '' ? null : trim($quantity.' '.($fill->quantity_unit ?? '')),
+            'pharmacy' => $fill->pharmacy_name,
+            'rx_number' => $fill->rx_number,
+            'sources' => array_values(array_unique($sources)),
+            'review_status' => $fill->review_status,
+        ];
+    }
+
     /** @return array{0: string, 1: string|null} */
     private function describe(string $page, Model $record): array
     {
@@ -467,6 +579,10 @@ final readonly class PhrReviewQueueService
             'medication-fills' => [
                 (string) ($a('brand_name') ?: $a('drug_as_printed') ?: 'Prescription fill'),
                 $this->join([$this->date($a('filled_on')), $a('pharmacy_name'), $a('quantity') ? 'qty '.rtrim(rtrim((string) $a('quantity'), '0'), '.') : null]),
+            ],
+            'eobs' => [
+                (string) ($a('provider_name') ?: 'Explanation of benefits').($a('claim_number') ? ' · claim '.$a('claim_number') : ''),
+                $this->join([$a('administrator') ?? $a('carrier'), $a('claim_type'), $this->date($a('processed_date'))]),
             ],
             'conditions' => [
                 (string) ($a('name') ?: 'Condition'),

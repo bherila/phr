@@ -313,6 +313,7 @@ class AgentApiOAuthFoundationTest extends TestCase
             'imports.create',
             'imports.get',
             'imports.retry',
+            'medication_fills.resolve_duplicate',
             'imports.review',
             'reconciliations.preview',
             'reconciliations.apply',
