@@ -53,8 +53,16 @@ final readonly class PhrDocumentFillImporter
             }
             try {
                 $validated = Validator::make($data, MedicationFillDataRules::rules())->validate();
+                // Lines that share a locator (several on one page) and have no Rx number
+                // must still get their own identity, so the record key joins the locator
+                // for the derivation only.
+                $key = $fill['record_key'] ?? null;
+                $identity = $validated;
+                if (is_string($key) && $key !== '') {
+                    $identity['source_locator'] = ($validated['source_locator'] ?? '').'|'.$key;
+                }
                 $upsert = $this->upserts->upsertFromSource($patient, self::IMPORT_SOURCE, ClinicalUpsertData::fromValidated('medication-fills', [
-                    'external_id' => MedicationFillExternalId::derive($validated, $document->id),
+                    'external_id' => MedicationFillExternalId::derive($identity, $document->id),
                     'source_document_id' => $document->id,
                     'expected_version' => null,
                     'data' => $validated,
@@ -145,8 +153,12 @@ final readonly class PhrDocumentFillImporter
      */
     private function data(array $fill, PhrDocument $document, int $index): ?array
     {
+        // Carbon reads a blank string as now, which would invent a dispensing date.
+        if (! is_string($fill['filled_on'] ?? null) || trim($fill['filled_on']) === '') {
+            return null;
+        }
         try {
-            $filledOn = Carbon::parse((string) ($fill['filled_on'] ?? ''))->toDateString();
+            $filledOn = Carbon::parse($fill['filled_on'])->toDateString();
         } catch (Throwable) {
             return null;
         }

@@ -104,6 +104,27 @@ final class PhrGenAiFillExtractionTest extends TestCase
         $this->assertSame(2, PhrMedication::query()->where('patient_id', $this->patient->id)->count());
     }
 
+    public function test_lines_sharing_a_locator_and_a_blank_date_are_handled(): void
+    {
+        $this->accept($this->document('receipt.pdf', 'application/pdf'), [
+            $this->fill(['ndc' => '58151-0155-77', 'rx_number' => null, 'pharmacy_name' => null, 'source_locator' => 'page 1', 'record_key' => 'a', 'paid_dollars' => 1]),
+            $this->fill(['ndc' => '60505-0134-0', 'rx_number' => null, 'pharmacy_name' => null, 'source_locator' => 'page 1', 'record_key' => 'b', 'paid_dollars' => 2]),
+            $this->fill(['ndc' => '68180-518-01', 'filled_on' => '  ', 'record_key' => 'c']),
+        ]);
+
+        $this->assertSame(2, PhrMedicationFill::query()->count());
+    }
+
+    public function test_a_medication_created_from_a_mismatched_fill_is_flagged_too(): void
+    {
+        $this->accept($this->document('receipt.pdf', 'application/pdf'), [$this->fill(['patient_name_as_printed' => 'John Smith'])]);
+
+        $items = collect($this->actingAs($this->owner)->getJson("/api/phr/patients/{$this->patient->id}/review")->assertOk()->json('groups'))
+            ->flatMap(fn (array $group): array => $group['items'])->where('section', 'medications');
+        $this->assertCount(1, $items);
+        $this->assertSame('patient_name_mismatch', $items->first()['flags'][0]['code']);
+    }
+
     public function test_reprocessing_the_same_document_does_not_duplicate_fills_or_medications(): void
     {
         $document = $this->document('receipt.pdf', 'application/pdf');
