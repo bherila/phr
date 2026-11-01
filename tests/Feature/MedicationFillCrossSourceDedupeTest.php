@@ -188,6 +188,17 @@ final class MedicationFillCrossSourceDedupeTest extends TestCase
         $this->assertSame(2, PhrMedicationFill::query()->count());
     }
 
+    public function test_combination_drugs_match_only_when_every_component_strength_agrees(): void
+    {
+        $base = ['ndc' => null, 'rx_number' => null, 'quantity' => 20, 'pharmacy_name' => 'Example Pharmacy', 'source_kind' => 'receipt_pdf'];
+        $this->fill('receipt', $this->document(), [...$base, 'drug_as_printed' => 'Amoxicillin clavulanate 500 mg / 125 mg tablets'])->assertCreated();
+        $this->fill('statement', $this->document(), [...$base, 'drug_as_printed' => 'Amoxicillin clavulanate 875 mg / 125 mg tablets', 'source_kind' => 'statement'])
+            ->assertCreated()->assertJsonPath('dedupe.status', 'none');
+        $this->fill('label', $this->document(), [...$base, 'drug_as_printed' => 'Amoxicillin clavulanate 500 mg/125 mg', 'source_kind' => 'label_photo'])
+            ->assertOk()->assertJsonPath('dedupe.status', 'matched');
+        $this->assertSame(2, PhrMedicationFill::query()->count());
+    }
+
     public function test_a_different_release_formulation_is_a_different_fill_and_the_list_loads_evidence_once(): void
     {
         $base = ['ndc' => null, 'rx_number' => null, 'quantity' => 60, 'pharmacy_name' => 'Example Pharmacy', 'source_kind' => 'receipt_pdf'];

@@ -54,7 +54,7 @@ final readonly class EobWriteService
 
             // This connection's own EOB first: a change to a field the fingerprint does not cover
             // (the plan name, the source document) is a correction, not a duplicate.
-            $own = PhrEob::query()->where('patient_id', $patient->id)->where('import_source', $source)->where('external_id', $externalId)->first();
+            $own = PhrEob::query()->where('patient_id', $patient->id)->where('import_source', $source)->where('external_id', $externalId)->lockForUpdate()->first();
             if ($own instanceof PhrEob) {
                 if ($this->withoutFills($claim) == EobClaim::normalize($this->stored($own)) && $own->source_document_id === $documentId) {
                     return [$own, ClinicalUpsertResult::UNCHANGED, ['by' => 'claim_fingerprint', 'import_source' => $own->import_source]];

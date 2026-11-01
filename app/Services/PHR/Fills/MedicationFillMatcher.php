@@ -178,7 +178,10 @@ final class MedicationFillMatcher
         }
         $mineStrengths = $this->strengths($incoming['drug_as_printed'] ?? null, $incoming['strengths'] ?? null);
         $theirStrengths = $this->strengths($existing->drug_as_printed, $existing->strengths);
-        if ($mineStrengths !== [] && $theirStrengths !== [] && array_intersect($mineStrengths, $theirStrengths) === []) {
+        // Every component's strength must agree: 500 mg / 125 mg and 875 mg / 125 mg share 125 mg.
+        sort($mineStrengths);
+        sort($theirStrengths);
+        if ($mineStrengths !== [] && $theirStrengths !== [] && $mineStrengths !== $theirStrengths) {
             return self::DIFFERENT;
         }
 
