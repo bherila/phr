@@ -3,7 +3,9 @@
 namespace Tests\Feature\PHR;
 
 use App\Models\PhrAllergy;
+use App\Models\PhrLabResult;
 use App\Models\PhrMedication;
+use App\Models\PhrProcedure;
 use Tests\Support\ImportsCcdaFixtures;
 use Tests\TestCase;
 
@@ -44,6 +46,30 @@ final class PhrCcdaSectionMatchingTest extends TestCase
 
         $this->assertSame(['Synthetic matched substance'], PhrAllergy::query()->where('patient_id', $patient->id)->pluck('substance')->all());
         $this->assertSame(0, PhrMedication::query()->where('patient_id', $patient->id)->count());
+    }
+
+    public function test_a_known_template_wins_over_a_results_like_title(): void
+    {
+        $patient = $this->ccdaPatient();
+
+        // "Laboratory" in the title must not route a Procedures section to Results.
+        $this->importCcda($this->document(<<<'XML'
+            <templateId root="2.16.840.1.113883.10.20.22.2.7.1" extension="2014-06-09"/>
+            <title>Laboratory Procedures</title>
+            <text><table><tbody><tr><td>Synthetic lab procedure</td><td>01/02/2026</td><td/></tr></tbody></table></text>
+            <entry>
+              <procedure classCode="PROC" moodCode="EVN">
+                <templateId root="2.16.840.1.113883.10.20.22.4.14"/>
+                <id root="2.25.11003" extension="match-procedure"/>
+                <code code="9991103" codeSystem="2.16.840.1.113883.6.96" displayName="Synthetic lab procedure"/>
+                <statusCode code="completed"/>
+                <effectiveTime value="20260102"/>
+              </procedure>
+            </entry>
+            XML), $patient);
+
+        $this->assertSame(['Synthetic lab procedure'], PhrProcedure::query()->where('patient_id', $patient->id)->pluck('name')->all());
+        $this->assertSame(0, PhrLabResult::query()->where('patient_id', $patient->id)->count());
     }
 
     public function test_a_section_without_a_known_template_is_read_by_its_title(): void

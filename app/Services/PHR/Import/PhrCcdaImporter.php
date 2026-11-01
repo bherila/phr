@@ -53,7 +53,11 @@ class PhrCcdaImporter
             }
 
             $title = strtolower($this->sectionTitle($xpath, $section));
-            if ($this->isResultsSection($title)) {
+            // A known template names the section's reader, whatever its title
+            // says: "Laboratory Procedures" is still a Procedures section.
+            $reader = $this->readerByTemplate($readers, $xpath, $section);
+            $results = $reader === null && $this->isResultsSection($title);
+            if ($results) {
                 // Structured Result Observations, when present, are the record;
                 // the narrative table is only their rendering.
                 $observations = (new PhrCcdaResultObservations($xpath))->observations($section);
@@ -79,7 +83,7 @@ class PhrCcdaImporter
                 }
             }
 
-            $reader = $this->isResultsSection($title) ? null : $this->readerFor($readers, $xpath, $section, $title);
+            $reader ??= $results ? null : $this->readerByTitle($readers, $title);
             if ($reader !== null) {
                 // A section's structured entries, when it has any, are the
                 // record; its narrative table is only their rendering.
@@ -123,11 +127,11 @@ class PhrCcdaImporter
     }
 
     /**
-     * The reader for a section: by its template, else by its title.
+     * The reader a section's template names, if any.
      *
      * @param  list<PhrCcdaSectionReader>  $readers
      */
-    private function readerFor(array $readers, DOMXPath $xpath, DOMElement $section, string $title): ?PhrCcdaSectionReader
+    private function readerByTemplate(array $readers, DOMXPath $xpath, DOMElement $section): ?PhrCcdaSectionReader
     {
         $templates = [];
         foreach ($xpath->query('./*[local-name()="templateId"]/@root', $section) ?: [] as $root) {
@@ -138,8 +142,18 @@ class PhrCcdaImporter
                 return $reader;
             }
         }
-        // A section without a known template is matched by its title, in the
-        // order the narrative-table reader has always used.
+
+        return null;
+    }
+
+    /**
+     * The reader for a section without a known template, by its title, in the
+     * order the narrative-table reader has always matched titles.
+     *
+     * @param  list<PhrCcdaSectionReader>  $readers
+     */
+    private function readerByTitle(array $readers, string $title): ?PhrCcdaSectionReader
+    {
         foreach ($readers as $reader) {
             if ($reader->matchesTitle($title)) {
                 return $reader;
