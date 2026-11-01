@@ -9,6 +9,7 @@ use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Models\User;
 use App\Support\AgentApi\AgentApiScopes;
+use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -755,6 +756,76 @@ final class AgentApiMedicationFillTest extends TestCase
 
         $this->putJson($this->url(), $payload)->assertConflict();
         $this->assertSame(1, PhrMedicationFill::withTrashed()->count());
+    }
+
+    public function test_an_agent_correcting_an_unresolved_drug_name_reconciles_the_medication_link(): void
+    {
+        $other = $this->medication(['name' => 'Vitamin B12', 'dose' => null, 'dose_unit' => null, 'rxnorm_code' => null]);
+        $payload = $this->fillPayload($this->document(), ['rx_number' => 'V1', 'drug_as_printed' => 'Vitamin D']);
+        unset($payload['data']['ndc']);
+        $created = $this->putJson($this->url(), $payload)->assertCreated()->json();
+        $id = $created['data']['id'];
+        $version = fn () => $this->getJson($this->recordUrl($id))->json('data.version');
+
+        $this->patchJson($this->recordUrl($id), ['expected_version' => $version(), 'data' => ['drug_as_printed' => 'vitamin b12']])
+            ->assertOk()
+            ->assertJsonPath('data.medication_id', $other->id);
+        $this->assertSoftDeleted('phr_medications', ['id' => $created['medication']['id']]);
+
+        // The same correction through the idempotent upsert.
+        $payload['data']['drug_as_printed'] = 'Fish oil';
+        $payload['expected_version'] = $version();
+        $moved = $this->putJson($this->url(), $payload)->assertOk()->assertJsonPath('outcome', 'updated')->json();
+        $this->assertSame('Fish oil', $moved['medication']['name']);
+        $this->assertNotSame($other->id, $moved['data']['medication_id']);
+    }
+
+    public function test_a_retry_is_not_called_unchanged_when_another_request_changed_the_ndc_after_it_was_read(): void
+    {
+        $payload = $this->fillPayload($this->document(), ['ndc' => '58151-0155-77']);
+        $created = $this->putJson($this->url(), $payload)->assertCreated()->json();
+        $id = $created['data']['id'];
+
+        // Another request moves the fill to a different NDC between this request reading the
+        // row (where the requested NDC still matches) and locking it.
+        $moved = false;
+        PhrMedicationFill::retrieved(function (PhrMedicationFill $fill) use (&$moved, $id): void {
+            if (! $moved && $fill->id === $id) {
+                $moved = true;
+                DB::table('phr_medication_fills')->where('id', $id)->update([
+                    'ndc_as_captured' => '60505-0134-0', 'ndc_10' => '60505-0134-0', 'ndc_11' => '60505013400', 'brand_name' => 'Cyclosporine',
+                ]);
+            }
+        });
+
+        // The retry carries the version it last saw, which the other request has made stale.
+        $this->putJson($this->url(), $payload)->assertConflict();
+
+        $this->assertTrue($moved);
+        $stored = PhrMedicationFill::query()->findOrFail($id);
+        $this->assertSame('60505-0134-0', $stored->ndc_10, 'the other request\'s drug is not overwritten or reported as the requested one');
+    }
+
+    public function test_a_stale_snapshot_is_prepared_again_and_a_current_version_then_applies_the_requested_ndc(): void
+    {
+        $payload = $this->fillPayload($this->document(), ['ndc' => '58151-0155-77']);
+        $created = $this->putJson($this->url(), $payload)->assertCreated()->json();
+        $id = $created['data']['id'];
+        $moved = false;
+        PhrMedicationFill::retrieved(function (PhrMedicationFill $fill) use (&$moved, $id): void {
+            if (! $moved && $fill->id === $id) {
+                $moved = true;
+                DB::table('phr_medication_fills')->where('id', $id)->update(['ndc_as_captured' => '60505-0134-0', 'ndc_10' => '60505-0134-0']);
+            }
+        });
+        // The version the caller holds is the one after the other request's change.
+        $after = new PhrMedicationFill;
+        $after->setRawAttributes([...PhrMedicationFill::query()->findOrFail($id)->getAttributes(), 'ndc_as_captured' => '60505-0134-0', 'ndc_10' => '60505-0134-0']);
+        $moved = false;
+
+        $response = $this->putJson($this->url(), [...$payload, 'expected_version' => app(AgentClinicalRecordVersion::class)->for($after)]);
+
+        $response->assertOk()->assertJsonPath('outcome', 'updated')->assertJsonPath('data.ndc_10', '58151-155-77');
     }
 
     // ---- helpers --------------------------------------------------------------------------

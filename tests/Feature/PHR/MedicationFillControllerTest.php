@@ -468,4 +468,39 @@ final class MedicationFillControllerTest extends TestCase
         $this->assertNotSoftDeleted('phr_medications', ['id' => $created['medication_id']]);
         $this->assertSame('cholesterol', PhrMedication::query()->findOrFail($created['medication_id'])->reason_for_use);
     }
+
+    public function test_correcting_an_unresolved_drug_name_moves_the_fill_to_the_matching_medication(): void
+    {
+        ['owner' => $owner, 'patientId' => $patientId] = $this->patientWithViewer();
+        $base = "/api/phr/patients/{$patientId}/medication-fills";
+        $b12 = PhrMedication::factory()->create(['patient_id' => $patientId, 'user_id' => $owner->id, 'name' => 'Vitamin B12', 'dose' => null, 'dose_unit' => null, 'rxnorm_code' => null]);
+        $created = $this->actingAs($owner)->postJson($base, $this->body(['ndc' => null, 'drug_as_printed' => 'Vitamin D']))->assertCreated()->json('medication_fill');
+        $this->assertSame('Vitamin D', $created['medication']['name']);
+
+        // Whitespace is not a correction: the link stays.
+        $this->actingAs($owner)->patchJson("{$base}/{$created['id']}", ['drug_as_printed' => ' Vitamin D '])
+            ->assertOk()->assertJsonPath('medication_fill.medication_id', $created['medication_id']);
+
+        $this->actingAs($owner)->patchJson("{$base}/{$created['id']}", ['drug_as_printed' => 'vitamin b12'])
+            ->assertOk()
+            ->assertJsonPath('medication_fill.medication_id', $b12->id);
+        $this->assertSoftDeleted('phr_medications', ['id' => $created['medication_id']]);
+
+        // A name nothing matches gets its own entry rather than staying on the old drug.
+        $moved = $this->actingAs($owner)->patchJson("{$base}/{$created['id']}", ['drug_as_printed' => 'Fish oil'])
+            ->assertOk()->json('medication_fill');
+        $this->assertSame('Fish oil', $moved['medication']['name']);
+        $this->assertNotSame($b12->id, $moved['medication_id']);
+    }
+
+    public function test_a_resolved_fills_printed_text_is_only_a_note(): void
+    {
+        ['owner' => $owner, 'patientId' => $patientId] = $this->patientWithViewer();
+        $base = "/api/phr/patients/{$patientId}/medication-fills";
+        $created = $this->actingAs($owner)->postJson($base, $this->body(['drug_as_printed' => 'LIPITOR 10']))->assertCreated()->json('medication_fill');
+
+        $this->actingAs($owner)->patchJson("{$base}/{$created['id']}", ['drug_as_printed' => 'Something else entirely'])
+            ->assertOk()
+            ->assertJsonPath('medication_fill.medication_id', $created['medication_id']);
+    }
 }
