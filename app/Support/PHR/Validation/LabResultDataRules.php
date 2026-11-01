@@ -21,6 +21,8 @@ final class LabResultDataRules implements ClinicalDataRules
             'unit' => ['nullable', 'string', 'max:50'],
             'range_min' => ['nullable', 'numeric'],
             'range_max' => ['nullable', 'numeric'],
+            'range_min_inclusive' => ['nullable', 'boolean'],
+            'range_max_inclusive' => ['nullable', 'boolean'],
             'range_unit' => ['nullable', 'string', 'max:50'],
             'reference_range_text' => ['nullable', 'string', 'max:255'],
             'normal_value' => ['nullable', 'string', 'max:100'],
@@ -36,6 +38,10 @@ final class LabResultDataRules implements ClinicalDataRules
     public static function jsonSchema(): array
     {
         $numeric = ['type' => ['number', 'string', 'null']];
+        $inclusive = static fn (string $bound): array => [
+            'type' => ['boolean', 'null'],
+            'description' => "Whether {$bound} itself is within the range: true for a source's <= or >=, false for < or >, null when the source did not say. Changing {$bound} without this resets it to null.",
+        ];
 
         return ClinicalJsonSchema::object([
             'test_name' => ClinicalJsonSchema::nullableString(maxLength: 255),
@@ -50,6 +56,8 @@ final class LabResultDataRules implements ClinicalDataRules
             'unit' => ClinicalJsonSchema::nullableString(maxLength: 50),
             'range_min' => $numeric,
             'range_max' => $numeric,
+            'range_min_inclusive' => $inclusive('range_min'),
+            'range_max_inclusive' => $inclusive('range_max'),
             'range_unit' => ClinicalJsonSchema::nullableString(maxLength: 50),
             'reference_range_text' => ClinicalJsonSchema::nullableString(maxLength: 255),
             'normal_value' => ClinicalJsonSchema::nullableString(maxLength: 100),

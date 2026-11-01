@@ -112,6 +112,8 @@ class PhrRecordAttributeMapper
                 'unit' => ValueCoercion::string($record['unit'] ?? null),
                 'range_min' => ValueCoercion::numeric($record['range_min'] ?? $record['reference_range_low'] ?? null),
                 'range_max' => ValueCoercion::numeric($record['range_max'] ?? $record['reference_range_high'] ?? null),
+                'range_min_inclusive' => ValueCoercion::boolean($record['range_min_inclusive'] ?? null),
+                'range_max_inclusive' => ValueCoercion::boolean($record['range_max_inclusive'] ?? null),
                 'range_unit' => ValueCoercion::string($record['range_unit'] ?? $record['unit'] ?? null),
                 'reference_range_text' => ValueCoercion::string($record['reference_range_text'] ?? $record['reference_range'] ?? null),
                 'normal_value' => ValueCoercion::string($record['normal_value'] ?? null),

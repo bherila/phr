@@ -1031,7 +1031,7 @@
                 "openWorldHint": false
             },
             "description": "Partially update one existing Lab Results record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
-            "inputSchema": "sha256:09f33af7ba1b0eb1d40388724c9ff267937a986addfbbe3fd100e14a6bb74553",
+            "inputSchema": "sha256:76649d3caa3bd199736db530880518061d0bfc40af3fe452b02f12f9d1c77a01",
             "name": "lab_results.update",
             "outputSchema": "sha256:8d27ab7435cdd77b0812ac4fca1416596454bf6a40c5928b5b282d8e942fe32e",
             "title": "Update Lab Results"
@@ -1044,7 +1044,7 @@
                 "openWorldHint": false
             },
             "description": "Idempotently create or update one Lab Results record through the versioned REST API.",
-            "inputSchema": "sha256:6b6b3bb392c4c7a87d98980a8ce3b5217e5c8abcdf69121e6aaf24e4d0997e5c",
+            "inputSchema": "sha256:e41bd678748177a61cd643403e34a1047b0bcca309e31a5953a03cb2bca37be3",
             "name": "lab_results.upsert",
             "outputSchema": "sha256:8d27ab7435cdd77b0812ac4fca1416596454bf6a40c5928b5b282d8e942fe32e",
             "title": "Upsert Lab Results"
