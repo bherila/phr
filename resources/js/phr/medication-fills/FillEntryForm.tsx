@@ -10,6 +10,7 @@ import { reviewStateChanged } from '@/phr/review/reviewSummary'
 import { errorMessage } from '@/phr/shared'
 import { PhrMedicationsResponseSchema } from '@/phr/types'
 
+import { DiscontinuedBadge } from './DiscontinuedBadge'
 import {
   dollarsToCents,
   type MedicationFill,
@@ -191,7 +192,7 @@ function Field({ label, field, errors, className, children }: { label: string, f
   )
 }
 
-export function DrugPreview({ drug, ndc }: { drug: NdcDrug | null, ndc: string | null }) {
+export function DrugPreview({ drug, ndc, discontinued = false }: { drug: NdcDrug | null, ndc: string | null, discontinued?: boolean }) {
   if (!drug) return null
   const name = drug.substance_names.join('; ')
   const rows: Array<[string, string | null]> = [
@@ -204,7 +205,10 @@ export function DrugPreview({ drug, ndc }: { drug: NdcDrug | null, ndc: string |
  ]
   return (
     <div className={'rounded-md border border-border bg-muted/30 p-3 text-sm'} aria-label="Drug preview">
-      <div className="font-medium text-card-foreground">{name || 'Drug'}{ndc ? ` · NDC ${ndc}` : ''}</div>
+      <div className="flex flex-wrap items-center gap-2 font-medium text-card-foreground">
+        <span>{name || 'Drug'}{ndc ? ` · NDC ${ndc}` : ''}</span>
+        {discontinued && <DiscontinuedBadge />}
+      </div>
       <dl className="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-2">
         {rows.filter(([, value]) => value).map(([term, value]) => (
           <div key={term}>
@@ -240,7 +244,10 @@ function CandidateList({ candidates, name, selected, onSelect, action }: {
               />
             )}
             <span className="grid gap-0.5">
-              <span className="font-medium text-card-foreground">NDC {candidate.ndc_10}</span>
+              <span className="flex flex-wrap items-center gap-2 font-medium text-card-foreground">
+                <span>NDC {candidate.ndc_10}</span>
+                {candidate.discontinued && <DiscontinuedBadge />}
+              </span>
               {candidate.drug?.package_description && <span>{candidate.drug.package_description}</span>}
               {candidate.drug?.labeler_name && <span className="text-muted-foreground">{candidate.drug.labeler_name}</span>}
               {candidate.drug && (candidate.drug.substance_names.length > 0 || candidate.drug.strengths.length > 0) && (
@@ -502,12 +509,12 @@ export function FillForm({ patientId, fill, onSaved, onCancel, onReload }: FillF
               <Input value={form.drugAsPrinted} onChange={(event) => update({ drugAsPrinted: event.target.value })} placeholder="atorvastatin 20mg tab" />
             </Field>
           )}
-          {ndcUnchanged && !staleAmbiguous && fill?.drug && fill.ndc_status === 'resolved' && <DrugPreview drug={fill.drug} ndc={fill.ndc_10} />}
+          {ndcUnchanged && !staleAmbiguous && fill?.drug && fill.ndc_status === 'resolved' && <DrugPreview drug={fill.drug} ndc={fill.ndc_10} discontinued={fill.discontinued} />}
           {lookup.phase === 'loading' && <p className="text-sm text-muted-foreground">Looking up NDC…</p>}
           {lookup.phase === 'error' && <p role="alert" className="text-sm text-destructive">{lookup.message}</p>}
 
           {result?.status === 'resolved' && (
-            <DrugPreview drug={result.selected?.drug ?? null} ndc={result.selected?.ndc_10 ?? null} />
+            <DrugPreview drug={result.selected?.drug ?? null} ndc={result.selected?.ndc_10 ?? null} discontinued={result.selected?.discontinued ?? false} />
           )}
 
           {result?.status === 'ambiguous' && (
@@ -520,7 +527,7 @@ export function FillForm({ patientId, fill, onSaved, onCancel, onReload }: FillF
                 onSelect={(candidate) => update({ ndcCandidate: candidate.ndc_10 })}
               />
               <FieldError errors={errors} field="ndc_candidate" />
-              {selectedCandidate && <DrugPreview drug={selectedCandidate.drug} ndc={selectedCandidate.ndc_10} />}
+              {selectedCandidate && <DrugPreview drug={selectedCandidate.drug} ndc={selectedCandidate.ndc_10} discontinued={selectedCandidate.discontinued} />}
             </fieldset>
           )}
 
@@ -528,7 +535,7 @@ export function FillForm({ patientId, fill, onSaved, onCancel, onReload }: FillF
             <div className="space-y-3 rounded-md border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm">
               <p className="font-medium text-foreground">No FDA listing matches this NDC.</p>
               <p className="text-muted-foreground">
-                {result.next_step ?? 'Check the digits, search the FDA listings by drug name, or save the fill without a match. Discontinued products drop out of the current listing.'}
+                {result.next_step ?? 'Check the digits, search the FDA listings by drug name, or save the fill without a match.'}
               </p>
               {result.reason === 'lookup_unavailable' && (
                 <p className="text-muted-foreground">The FDA listing could not be reached just now, so this may not be a bad NDC. Try again later, or save it without a match.</p>

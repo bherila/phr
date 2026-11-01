@@ -13,6 +13,7 @@ use App\Services\AgentApi\MedicationFillUpsertService;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\Ndc\NdcLookupService;
 use App\Services\PHR\Ndc\NdcResolution;
+use App\Services\PHR\Ndc\RxNavListing;
 use App\Support\AgentApi\AgentApiClientIdentity;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentMutationResponse;
@@ -85,8 +86,12 @@ final class AgentMedicationFillController extends Controller
         $selected = ! $resolved ? null : [
             'ndc_10' => $fill->ndc_10,
             'ndc_11' => $fill->ndc_11,
-            'product_ndc' => $fill->fda_snapshot['product_ndc'] ?? null,
+            'product_ndc' => $fill->ndc_source === PhrMedicationFill::SOURCE_RXNAV
+                ? RxNavListing::productNdc($fill->fda_snapshot)
+                : ($fill->fda_snapshot['product_ndc'] ?? null),
             'drug' => (new MedicationFillResource($fill))->resolve()['drug'],
+            'ndc_source' => $fill->ndc_source,
+            'discontinued' => $fill->isDiscontinued(),
             'match_reasons' => ['package NDC exact'],
             'fetched_at' => $fill->fda_fetched_at?->toIso8601String(),
         ];

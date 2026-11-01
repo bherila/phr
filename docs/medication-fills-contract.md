@@ -28,6 +28,8 @@ Route names follow `patients.medication-fills.*`, `ndc.lookup`, `ndc.search`.
   "patient_name_as_printed": "Jane Q. Doe",
   "ndc_as_captured": "00071-0155-23", "ndc_10": "0071-0155-23", "ndc_11": "00071015523",
   "ndc_status": "resolved",
+  "ndc_source": "openfda",
+  "discontinued": false,
   "drug": {
     "substance_names": ["atorvastatin calcium"], "strengths": ["20 mg/1"],
     "brand_name": "Lipitor", "dosage_form": "tablet, film coated", "route": "oral",
@@ -46,11 +48,13 @@ Route names follow `patients.medication-fills.*`, `ndc.lookup`, `ndc.search`.
 - `drug.*` values are server-resolved and stored with normalized casing. The resource returns captured text (`drug_as_printed`, `pharmacy_name`, `pharmacy_location`, `prescriber_name`, `directions`) exactly as stored, and a derived `display` object beside it (see Display casing).
 - `quantity` is a decimal string. Money is integer cents.
 - `drug` keys may be null when `ndc_status` is `unresolved`.
+- `ndc_source` is which directory resolved the drug: `openfda`, or `rxnav` for a product openFDA no longer lists (see rule 21); null when the fill is not `resolved`. `discontinued` is true only for an `rxnav` fill whose SPL marketing status is not active; it is derived, not stored. Both are read-only.
 
 ## `NdcCandidate` / `NdcLookupResult`
 ```json
 { "ndc_10": "0071-0155-23", "ndc_11": "00071015523", "product_ndc": "0071-0155",
   "drug": { "…": "same shape as MedicationFill.drug" },
+  "ndc_source": "openfda", "discontinued": false,
   "match_reasons": ["package NDC exact"], "fetched_at": "…" }
 ```
 ```json
@@ -112,9 +116,9 @@ Where the backend follows phr's existing convention instead of the proposal abov
 7. **`NdcLookupResult`** is as proposed plus two optional keys: `reason` (`invalid_ndc` | `not_found` | `lookup_unavailable` | null) and `next_step` (guidance text, null when resolved).
 8. **Manual create/update body**: `ndc`, `ndc_candidate`, `allow_unresolved`, `medication_id`, `drug_as_printed` and the fill fields as proposed. `source_kind` is forced to `manual` for session writes. Drug fields (`brand_name`, `substance_names`, ...) are never accepted from the web client.
    - `ndc` omitted: the fill is saved with `ndc_status: manual` and no drug fields (the person types the drug in `drug_as_printed`).
-   - `ndc` resolved: `ndc_status: resolved`, drug fields from openFDA.
+   - `ndc` resolved: `ndc_status: resolved`, drug fields from openFDA, or from RxNav's NDC history when openFDA does not list the NDC (rule 21).
    - `ndc` ambiguous (10 digits without hyphens only): 422 on `ndc_candidate` ("Choose one of the matching packages") until `ndc_candidate` names one of the candidates' `ndc_10`.
-   - `ndc` unresolved: 422 on `ndc` ("No FDA listing matches this NDC") unless `allow_unresolved: true`, which saves `ndc_status: unresolved` with `drug_as_printed` as the only drug text.
+   - `ndc` unresolved: 422 on `ndc` ("No FDA listing matches this NDC"; neither openFDA nor RxNav lists it) unless `allow_unresolved: true`, which saves `ndc_status: unresolved` with `drug_as_printed` as the only drug text.
 9. **Display casing** replaces the retired display-preferences setting: see the Display casing rule above. `users.force_lowercase_display` is dropped, and `/api/user/display-preferences` no longer exists.
 10. **`MedicationFill.medication`** is `{ "id", "name" }` or null.
 11. **Paths and route names follow phr's `/api/phr` prefix** (the table above wrote `/api/...`). The real routes are:
@@ -143,3 +147,4 @@ Where the backend follows phr's existing convention instead of the proposal abov
     A match returns the existing fill (`dedupe.status: "matched"`), fills only its blanks (a stored value is never overwritten by a second source), records the new document as evidence and reopens review only if a field was filled. An uncertain match creates the fill, `pending_review`, flagged by an evidence row (`review_flags: [{code: "possible_duplicate", message, fill_id}]` in reads, remapped by a native restore) and `dedupe.status: "flagged"`: a person keeps one and rejects the other. Everything else is a new fill (`dedupe.status: "none"`).
 23. **Evidence, not a column.** A fill's first document stays `source_document_id`. Every other source is a `phr_medication_fill_evidence` row (a document, an EOB line, or both), idempotent per source. Reads add `eob_line_ids` and `evidence_document_ids` to the fill; `eob_line_id` is accepted on `medication_fills.upsert` (create only) to link a fill to the EOB line that adjudicated it; EOB lines add `medication_fill_ids`; `evidence.links` links fill, EOB line, EOB and document in both directions.
 24. **`source_kind`** also accepts `statement` and `eob`.
+21. **Discontinued products (RxNav fallback).** openFDA's NDC endpoint no longer lists discontinued products. When openFDA answers not-found for every reading of an NDC (never when it is unreachable), NLM RxNav's NDC history is asked for each ten-digit candidate (one for an 11-digit NDC). A hit is `resolved` like any other, with `ndc_source: "rxnav"` and, when the product is off the market, `discontinued: true`. If RxNav is unreachable the result is `unresolved` with `reason: "lookup_unavailable"` (never cached); if it has nothing either, `unresolved` with `reason: "not_found"` and the usual guidance. Field mapping: `substance_names` and `strengths` from the RxCUI's ingredient-with-strength concepts (in the order of the concept name), `dosage_form` and `route` from the RxCUI's one combined dose form ("Extended Release Oral Tablet" becomes `tablet, extended release` and `oral`), `labeler_name` and `package_description` from the NDC's SPL properties, `brand_name` only when RxNav's concept name carries one (`[Lipitor]`), `rxcui` is the NDC's current RxCUI. `discontinued` is true when the SPL `MARKETING_STATUS` is not `active` (without one, when RxNorm marks the NDC inactive). `fda_snapshot` holds the raw RxNav responses (`ndcstatus`, `ndcproperties`, `related`, plus `source: "rxnav"`); application number, DEA schedule, imprint, color, shape, size, marketing dates and SPL set id stay there and have no columns. Medication matching treats these fills as resolved (RxCUI, then labeler and product segments). `phr:fills:resolve-discontinued [--dry-run] [--delay-ms=250] [--max-seconds=0]` re-looks-up `unresolved` fills with a valid captured NDC and resolves the hits; it writes the drug columns and status only, and runs once on deploy (fail-soft, 60 s cap).

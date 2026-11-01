@@ -8,6 +8,11 @@ use Illuminate\Support\Facades\Cache;
 /**
  * Resolves NDCs and searches drugs through the openFDA packaging directory.
  *
+ * When openFDA answers "not listed" (never when it is unreachable), the NDC is
+ * looked up in NLM RxNav's NDC history, which still knows discontinued products.
+ * That answer is resolved, but marked: source `rxnav`, and `discontinued` when
+ * the product is off the market.
+ *
  * Deterministic apart from what openFDA lists: an eleven-digit billing NDC
  * becomes one ten-digit code by the owner's fixed rule (NdcNumber::toTenDigit),
  * so it is never ambiguous. Ten digits without hyphens have three readings.
@@ -20,7 +25,10 @@ class NdcLookupService
     /** Most candidates ndc_search returns. */
     public const int SEARCH_LIMIT = 25;
 
-    public function __construct(private readonly OpenFdaClient $client) {}
+    public function __construct(
+        private readonly OpenFdaClient $client,
+        private readonly RxNavClient $rxnav,
+    ) {}
 
     public function lookup(string $ndc): NdcResolution
     {
@@ -56,12 +64,50 @@ class NdcLookupService
             return new NdcResolution(NdcResolution::AMBIGUOUS, $ndc, $found);
         }
 
+        // openFDA answered, and does not list any reading: it may be a discontinued product.
+        return $this->viaRxNav($ndc, $candidates);
+    }
+
+    /**
+     * RxNav's NDC history, asked only after openFDA said "not listed". An 11-digit NDC has one
+     * candidate; unhyphenated 10 digits are checked for each reading, as with openFDA.
+     *
+     * @param  list<string>  $candidates  hyphenated ten-digit package NDCs
+     */
+    private function viaRxNav(string $ndc, array $candidates): NdcResolution
+    {
+        $found = [];
+        $unavailable = false;
+        foreach ($candidates as $candidate) {
+            try {
+                $entry = $this->rxnav->findNdc(NdcNumber::toNdc11($candidate));
+            } catch (RxNavUnavailableException) {
+                $unavailable = true;
+
+                continue;
+            }
+            if ($entry !== null) {
+                $found[] = NdcCandidate::fromRxNav($candidate, $entry);
+            }
+        }
+
+        if ($unavailable && count($found) < 2) {
+            return new NdcResolution(NdcResolution::UNRESOLVED, $ndc, $found, NdcResolution::REASON_UNAVAILABLE);
+        }
+        if (count($found) === 1) {
+            return new NdcResolution(NdcResolution::RESOLVED, $ndc, $found);
+        }
+        if (count($found) > 1) {
+            return new NdcResolution(NdcResolution::AMBIGUOUS, $ndc, $found);
+        }
+
         return new NdcResolution(NdcResolution::UNRESOLVED, $ndc, [], NdcResolution::REASON_NOT_FOUND);
     }
 
     /**
      * The exact package a person or agent chose among ambiguous candidates.
-     * It resolves only if openFDA lists that ten-digit package NDC.
+     * It resolves only if openFDA lists that ten-digit package NDC, or, failing that,
+     * RxNav's NDC history does.
      */
     public function lookupChosen(string $ndc10, string $ndcAsCaptured): NdcResolution
     {
@@ -76,7 +122,7 @@ class NdcLookupService
             return new NdcResolution(NdcResolution::UNRESOLVED, $ndcAsCaptured, [], NdcResolution::REASON_UNAVAILABLE);
         }
         if ($entry === null) {
-            return new NdcResolution(NdcResolution::UNRESOLVED, $ndcAsCaptured, [], NdcResolution::REASON_NOT_FOUND);
+            return $this->viaRxNav($ndcAsCaptured, [$package]);
         }
 
         return new NdcResolution(NdcResolution::RESOLVED, $ndcAsCaptured, [$this->candidateFor($entry, $package)]);

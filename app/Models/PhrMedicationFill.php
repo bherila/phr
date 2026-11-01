@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\PHR\Ndc\RxNavListing;
 use App\Traits\SerializesDatesAsLocal;
 use Database\Factories\PhrMedicationFillFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -14,6 +15,15 @@ use Illuminate\Support\Carbon;
 /**
  * One prescription dispensing (FHIR MedicationDispense), with the drug resolved
  * from its NDC by the server.
+ *
+ * `fda_snapshot` (and `fda_fetched_at`) hold the raw answer of whichever directory resolved
+ * the NDC, named by `ndc_source`: the openFDA product listing for `openfda`, or, for an NDC
+ * openFDA no longer lists, the unmodified NLM RxNav responses for `rxnav` (keys `ndcstatus`,
+ * `ndcproperties`, `related`, plus `source`, `rxcui`, `fetched_at`). The column keeps its name
+ * to avoid a rename. An RxNav snapshot also carries what no column holds (application number,
+ * DEA schedule, imprint, color, shape, size, marketing dates, SPL set id), for the drug panel.
+ * There is no stored listing status: a fill is discontinued when its source is `rxnav` and the
+ * snapshot's SPL marketing status is not active (see isDiscontinued()).
  *
  * @property int $id
  * @property int $patient_id
@@ -28,6 +38,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $ndc_10
  * @property string|null $ndc_11
  * @property string $ndc_status
+ * @property string|null $ndc_source
  * @property list<string>|null $substance_names
  * @property list<string>|null $strengths
  * @property string|null $brand_name
@@ -72,6 +83,13 @@ class PhrMedicationFill extends Model
 
     public const string NDC_MANUAL = 'manual';
 
+    public const string SOURCE_OPENFDA = 'openfda';
+
+    public const string SOURCE_RXNAV = 'rxnav';
+
+    /** @var list<string> */
+    public const array NDC_SOURCES = [self::SOURCE_OPENFDA, self::SOURCE_RXNAV];
+
     /** @var list<string> */
     public const array NDC_STATUSES = [self::NDC_RESOLVED, self::NDC_AMBIGUOUS, self::NDC_UNRESOLVED, self::NDC_MANUAL];
 
@@ -93,6 +111,7 @@ class PhrMedicationFill extends Model
         'ndc_10',
         'ndc_11',
         'ndc_status',
+        'ndc_source',
         'substance_names',
         'strengths',
         'brand_name',
@@ -139,6 +158,14 @@ class PhrMedicationFill extends Model
             'paid_cents' => 'integer',
             'retail_cents' => 'integer',
         ];
+    }
+
+    /** The product is off the market, as RxNav's history says; openFDA's current listing never is. */
+    public function isDiscontinued(): bool
+    {
+        return $this->ndc_status === self::NDC_RESOLVED
+            && $this->ndc_source === self::SOURCE_RXNAV
+            && RxNavListing::isDiscontinued($this->fda_snapshot);
     }
 
     /** @return BelongsTo<PhrPatient, $this> */

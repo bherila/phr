@@ -1,0 +1,124 @@
+{
+  "ndcPropertyList": {
+    "ndcProperty": [
+      {
+        "ndcItem": "00071015523",
+        "ndc9": "0071-0155",
+        "ndc10": "0071-0155-23",
+        "rxcui": "617312",
+        "splSetIdItem": "",
+        "packagingList": {
+          "packaging": [
+            "90 TABLET, FILM COATED in 1 BOTTLE (0071-0155-23)"
+          ]
+        },
+        "propertyConceptList": {
+          "propertyConcept": [
+            {
+              "propName": "LABELER",
+              "propValue": "Parke-Davis Div of Pfizer Inc"
+            },
+            {
+              "propName": "LABEL_TYPE",
+              "propValue": "HUMAN PRESCRIPTION DRUG"
+            },
+            {
+              "propName": "MARKETING_CATEGORY",
+              "propValue": "NDA"
+            },
+            {
+              "propName": "MARKETING_EFFECTIVE_TIME_HIGH",
+              "propValue": "20250430"
+            },
+            {
+              "propName": "MARKETING_EFFECTIVE_TIME_LOW",
+              "propValue": "19961217"
+            },
+            {
+              "propName": "MARKETING_STATUS",
+              "propValue": "COMPLETED"
+            },
+            {
+              "propName": "NDA",
+              "propValue": "NDA020702"
+            }
+          ]
+        },
+        "source": "FDA"
+      },
+      {
+        "ndcItem": "00071015523",
+        "ndc9": "0071-0155",
+        "ndc10": "0071-0155-23",
+        "rxcui": "617314",
+        "splSetIdItem": "c6e131fe-e7df-4876-83f7-9156fc4e8228",
+        "packagingList": {
+          "packaging": [
+            "90 TABLET, FILM COATED in 1 BOTTLE (0071-0155-23)"
+          ]
+        },
+        "propertyConceptList": {
+          "propertyConcept": [
+            {
+              "propName": "COLORTEXT",
+              "propValue": "WHITE"
+            },
+            {
+              "propName": "COLOR",
+              "propValue": "C48325"
+            },
+            {
+              "propName": "IMPRINT_CODE",
+              "propValue": "PD;155;10"
+            },
+            {
+              "propName": "LABELER",
+              "propValue": "Parke-Davis Div of Pfizer Inc"
+            },
+            {
+              "propName": "LABEL_TYPE",
+              "propValue": "HUMAN PRESCRIPTION DRUG"
+            },
+            {
+              "propName": "MARKETING_CATEGORY",
+              "propValue": "NDA"
+            },
+            {
+              "propName": "MARKETING_EFFECTIVE_TIME_HIGH",
+              "propValue": "20250430"
+            },
+            {
+              "propName": "MARKETING_EFFECTIVE_TIME_LOW",
+              "propValue": "19961217"
+            },
+            {
+              "propName": "MARKETING_STATUS",
+              "propValue": "COMPLETED"
+            },
+            {
+              "propName": "NDA",
+              "propValue": "NDA020702"
+            },
+            {
+              "propName": "SCORE",
+              "propValue": "1"
+            },
+            {
+              "propName": "SHAPETEXT",
+              "propValue": "elliptical"
+            },
+            {
+              "propName": "SHAPE",
+              "propValue": "C48345"
+            },
+            {
+              "propName": "SIZE",
+              "propValue": "10 mm"
+            }
+          ]
+        },
+        "source": "Hybrid"
+      }
+    ]
+  }
+}

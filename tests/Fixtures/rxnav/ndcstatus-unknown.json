@@ -1,0 +1,14 @@
+{
+  "ndcStatus": {
+    "ndc11": "12345678901",
+    "status": "UNKNOWN",
+    "active": "",
+    "rxnormNdc": "",
+    "rxcui": "",
+    "conceptName": "",
+    "conceptStatus": "",
+    "sourceList": {},
+    "altNdc": "N",
+    "comment": null
+  }
+}
