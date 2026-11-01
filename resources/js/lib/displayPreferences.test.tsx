@@ -38,6 +38,20 @@ describe('saving display settings', () => {
     expect(mockPut).toHaveBeenLastCalledWith('/api/user/display-preferences', { separate_columns: true })
   })
 
+  it('does not let a failed save undo a newer choice of the same setting', async () => {
+    const first = deferred()
+    mockPut.mockReturnValueOnce(first.promise).mockResolvedValueOnce({})
+
+    const failing = saveDisplayPreferences({ date_format: 'MM/DD/YYYY' })
+    const newer = saveDisplayPreferences({ date_format: 'DD/MM/YYYY' })
+    first.reject(new Error('Refused'))
+
+    await expect(failing).rejects.toThrow('Refused')
+    await newer
+    expect(getDisplayPreferences().date_format).toBe('DD/MM/YYYY')
+    expect(mockPut).toHaveBeenLastCalledWith('/api/user/display-preferences', { date_format: 'DD/MM/YYYY' })
+  })
+
   it('puts back only what a failed save changed, and still sends the next one', async () => {
     const first = deferred()
     mockPut.mockReturnValueOnce(first.promise).mockResolvedValueOnce({})

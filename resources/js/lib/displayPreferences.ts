@@ -60,21 +60,28 @@ export function useDisplayPreferences(): DisplayPreferences {
 }
 
 let saving: Promise<unknown> = Promise.resolve()
+let saveCount = 0
+/** Which save last changed each setting, so a failure cannot undo a newer choice. */
+const lastSaveOf = new Map<string, number>()
 
 /**
  * Applies at once and saves on the logged-in user, one request at a time so quick changes reach
- * the server in order. If a save fails it rejects and puts back only what it changed.
+ * the server in order. If a save fails it rejects and puts back what it changed, unless a newer
+ * save has changed that setting since.
  */
 export async function saveDisplayPreferences(change: Partial<DisplayPreferences>): Promise<void> {
   const before = read()
+  const save = ++saveCount
+  const keys = Object.keys(change)
+  for (const key of keys) lastSaveOf.set(key, save)
   replace({ ...before, ...change })
   const request = saving.then(() => fetchWrapper.put('/api/user/display-preferences', change))
   saving = request.catch(() => undefined)
   try {
     await request
   } catch (caught) {
-    const restored = Object.fromEntries(Object.keys(change).map((key) => [key, before[key as keyof DisplayPreferences]]))
-    replace({ ...read(), ...restored })
+    const restored = keys.filter((key) => lastSaveOf.get(key) === save).map((key) => [key, before[key as keyof DisplayPreferences]])
+    replace({ ...read(), ...Object.fromEntries(restored) })
     throw caught
   }
 }
@@ -83,4 +90,5 @@ export async function saveDisplayPreferences(change: Partial<DisplayPreferences>
 export function resetDisplayPreferences(): void {
   current = null
   saving = Promise.resolve()
+  lastSaveOf.clear()
 }
