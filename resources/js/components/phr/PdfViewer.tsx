@@ -45,7 +45,7 @@ export default function PdfViewer({ url, page, scale, onLoad }: PdfViewerProps) 
         setIsLoading(false)
       }
     }
-    loadPdf()
+    void loadPdf()
   }, [url])
 
   const renderPage = useCallback(async (num: number, currentScale: number) => {
