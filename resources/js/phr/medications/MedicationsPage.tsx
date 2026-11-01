@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { recordChanged, useRecordChanges } from '@/phr/clinical/recordChanges'
-import { ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
+import { ReviewActions } from '@/phr/clinical/review'
 import { reviewStatusNeedsAttention } from '@/phr/clinical/ui'
 import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { replacePhrLocation } from '@/phr/shell/phrLocation'
@@ -57,7 +57,7 @@ function regimen(medication: PhrMedication): string {
 
 function statusAndReview(medication: PhrMedication): string {
   const status = medicationStatusLabel(medication.status)
-  if (medication.review_status === 'pending_review') return `${status} · pending review`
+  if (medication.review_status === 'pending_review') return `${status} · pending`
   return medication.review_status === 'rejected' ? `${status} · rejected` : status
 }
 
@@ -140,7 +140,7 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
     {
       id: 'medication',
       header: 'Medication',
-      headerClassName: cn(HEAD, 'w-[28%]'),
+      headerClassName: cn(HEAD, 'w-[29%]'),
       className: CELL,
       cell: (medication) => (
         <div className="flex gap-2">
@@ -159,7 +159,7 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
     },
     { id: 'dose', header: 'Dose', showFrom: 'wide', headerClassName: HEAD, className: CELL, cell: (medication) => <span className="inline-block min-w-22">{doseText(medication) || '—'}</span> },
     { id: 'route', header: 'Route', showFrom: 'wide', headerClassName: HEAD, className: cn(CELL, 'text-muted-foreground'), cell: (medication) => medication.route ?? '—' },
-    { id: 'schedule', header: 'Schedule', showFrom: 'wide', headerClassName: cn(HEAD, 'w-[18%]'), className: cn(CELL, 'text-muted-foreground'), cell: (medication) => medication.frequency ?? '—' },
+    { id: 'schedule', header: 'Schedule', showFrom: 'wide', headerClassName: cn(HEAD, 'w-[22%]'), className: cn(CELL, 'text-muted-foreground'), cell: (medication) => medication.frequency ?? '—' },
     { id: 'started', header: 'Started', fit: true, showFrom: 'medium', headerClassName: HEAD, className: cn(CELL, 'tabular-nums'), cell: (medication) => medication.started_on ?? '—' },
     ...(showsEnded
       ? [{ id: 'ended', header: 'Ended', fit: true, showFrom: 'medium', headerClassName: HEAD, className: cn(CELL, 'tabular-nums'), cell: (medication) => medication.ended_on ?? '—' } satisfies RecordColumn<PhrMedication>]
@@ -221,15 +221,12 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <h1 className="text-2xl font-semibold text-foreground">Medications</h1>
-        <div className="ml-auto flex items-center gap-2">
-          <ShowRejectedToggle showRejected={crud.showRejected} onChange={crud.setShowRejected} disabled={crud.busy} />
-          {crud.canManage && (
-            <Button aria-label="Add medication" className="max-md:size-11 max-md:px-0" onClick={() => setAddForm(EMPTY_MEDICATION_FORM)}>
-              <Plus className="size-4" aria-hidden="true" />
-              <span className="max-md:hidden">Add medication</span>
-            </Button>
-          )}
-        </div>
+        {crud.canManage && (
+          <Button aria-label="Add medication" className="ml-auto max-md:size-11 max-md:px-0" onClick={() => setAddForm(EMPTY_MEDICATION_FORM)}>
+            <Plus className="size-4" aria-hidden="true" />
+            <span className="max-md:hidden">Add medication</span>
+          </Button>
+        )}
       </div>
 
       <MedicationSectionTabs patientId={patientId} value="medications" counts={{ fills: fills?.total ?? null, medications: firstLoad ? null : crud.records.length }} />

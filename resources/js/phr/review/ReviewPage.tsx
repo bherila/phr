@@ -20,6 +20,7 @@ import { pushPhrLocation } from '@/phr/shell/phrLocation'
 import { PHR_PAGES, type PhrListPageProps } from '@/phr/shell/phrPages'
 import { isPhrShellPath, patientPageUrl, type PhrPageId } from '@/phr/shell/phrRoutes'
 
+import { RejectedMedications } from './RejectedMedications'
 import { decideReviewItems, type DuplicateAction, type FillDuplicate, type FillSummary, getReviewQueue, resolveFillDuplicate, type ReviewDecision, type ReviewGroup, type ReviewItem, type ReviewQueue, sectionOf } from './reviewApi'
 import { setReviewSummary } from './reviewSummary'
 
@@ -327,6 +328,7 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
   const [failures, setFailures] = useState<Readonly<Record<string, string>>>({})
   const [status, setStatus] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [rejectedKey, setRejectedKey] = useState(0)
   const [confirming, setConfirming] = useState<PendingBatch | null>(null)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const toggleExpanded = (key: string): void => {
@@ -378,6 +380,7 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
     const verb = batch.decision === 'approve' ? 'Approved' : 'Rejected'
     setStatus(`${verb} ${outcome.done.length}.${failed > 0 ? ` ${failed} could not be ${batch.decision === 'approve' ? 'approved' : 'rejected'}; each says why below.` : ''}`)
     await load()
+    setRejectedKey((key) => key + 1)
     setBusy(false)
   }
 
@@ -582,6 +585,8 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
         )
       })}
 
+      <RejectedMedications patientId={patientId} refreshKey={rejectedKey} onChanged={() => void load()} />
+
       <AlertDialog open={confirming !== null} onOpenChange={(open) => { if (!open) setConfirming(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -591,7 +596,7 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
             <AlertDialogDescription>
               {confirming?.decision === 'approve'
                 ? 'They become part of this patient’s record as shown. Anything that changed since this page loaded is left for you to look at again.'
-                : 'Rejected records stay out of the record; a rejected record can still be found on its section’s page.'}
+                : 'Rejected records stay out of the record. A rejected medication or fill is listed at the end of this page; any other is on its section’s page.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

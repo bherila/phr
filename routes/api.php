@@ -420,6 +420,7 @@ Route::middleware(['web', 'auth'])
         Route::get('/patients/{patient}/search', [PhrPatientSearchController::class, 'index'])->whereNumber('patient')->name('patients.search');
         Route::get('/patients/{patient}/review', [PhrReviewController::class, 'index'])->whereNumber('patient')->name('patients.review.index');
         Route::get('/patients/{patient}/review/summary', [PhrReviewController::class, 'summary'])->whereNumber('patient')->name('patients.review.summary');
+        Route::get('/patients/{patient}/review/rejected', [PhrReviewController::class, 'rejected'])->whereNumber('patient')->name('patients.review.rejected');
         Route::patch('/patients/{patient}', [PHRPatientController::class, 'update'])->whereNumber('patient')->name('patients.update');
         Route::delete('/patients/{patient}', [PHRPatientController::class, 'destroy'])->whereNumber('patient')->name('patients.destroy');
         Route::get('/patients/{patient}/lab-results', [PHRLabResultController::class, 'index'])->whereNumber('patient')->name('patients.lab-results.index');

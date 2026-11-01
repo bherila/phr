@@ -334,4 +334,29 @@ describe('ReviewPage possible duplicates and EOBs', () => {
 
     await waitFor(() => expect(mockPatch).toHaveBeenCalledWith(`/api/phr/patients/${PATIENT}/eobs/71/review`, { review_status: 'confirmed', version: VERSION }))
   })
+
+  it('finds rejected medications and fills when asked, and approves one through its own route', async () => {
+    const rejectedFill = { type: 'record', key: 'record:medication-fills:9', id: 9, section: 'medication-fills', review_segment: 'medication-fills', title: 'Rejected fill', detail: '2026-01-02', flags: [], change: 'new', version: 'v1', updated_at: null }
+    let listed = [rejectedFill]
+    mockGet.mockImplementation(async (url: string) => {
+      if (url === '/api/phr/patients/2/review/rejected') return { items: listed, truncated: false, can_manage: true }
+      return queue([])
+    })
+    mockPatch.mockImplementation(async () => {
+      listed = []
+      return {}
+    })
+    render(<ReviewPage patientId={2} />)
+    await screen.findByText('Nothing waiting for review')
+    expect(mockGet).not.toHaveBeenCalledWith('/api/phr/patients/2/review/rejected')
+
+    const summary = screen.getByText('Rejected medications and fills')
+    const details = summary.closest('details') as HTMLDetailsElement
+    details.open = true
+    fireEvent(details, new Event('toggle'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve Rejected fill' }))
+
+    await waitFor(() => expect(mockPatch).toHaveBeenCalledWith('/api/phr/patients/2/medication-fills/9/review', expect.objectContaining({ review_status: 'confirmed' })))
+    expect(await screen.findByText('None rejected.')).toBeInTheDocument()
+  })
 })

@@ -388,6 +388,30 @@ final readonly class PhrReviewQueueService
     }
 
     /**
+     * Rejected medications and fills, newest first. Their lists leave rejected records out, so
+     * this is where a person finds one again and approves it after all, through its own review route.
+     *
+     * @return array{items: list<array<string, mixed>>, truncated: bool}
+     */
+    public function rejectedMedications(PhrPatient $patient): array
+    {
+        $items = [];
+        $truncated = false;
+        foreach (['medication-fills', 'medications'] as $page) {
+            $model = self::CLINICAL[$page];
+            $query = $model::query()->where('patient_id', $patient->id)->where('review_status', PhrReviewStatus::REJECTED);
+            PhrRecordLifecycle::scopeLive($query);
+            $records = $query->orderByDesc('updated_at')->orderByDesc('id')->limit(self::ITEM_LIMIT + 1)->get();
+            $truncated = $truncated || $records->count() > self::ITEM_LIMIT;
+            foreach ($records->take(self::ITEM_LIMIT) as $record) {
+                $items[] = $this->recordItem($page, $record, $patient, []);
+            }
+        }
+
+        return ['items' => $items, 'truncated' => $truncated];
+    }
+
+    /**
      * @param  array<int, string>  $mismatched
      * @param  array<int, array<string, mixed>>  $duplicates  open possible-duplicate detail by fill id
      * @return array<string, mixed>

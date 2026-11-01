@@ -33,7 +33,7 @@ export type FillSummary = z.infer<typeof FillSummarySchema>
 const DuplicateSchema = z.object({ fill: FillSummarySchema, candidates: z.array(FillSummarySchema) })
 export type FillDuplicate = z.infer<typeof DuplicateSchema>
 
-const RecordItemSchema = z.object({
+export const RecordItemSchema = z.object({
   type: z.literal('record'),
   key: z.string(),
   id: z.number(),
@@ -160,6 +160,14 @@ export interface BatchOutcome {
  * (a record changed since the page loaded, a proposal already decided) never stops the
  * rest; it is reported against its own row.
  */
+const RejectedSchema = z.object({ items: z.array(RecordItemSchema), truncated: z.boolean(), can_manage: z.boolean() })
+export type RejectedMedications = z.infer<typeof RejectedSchema>
+
+/** Rejected medications and fills, which their own lists leave out. */
+export async function getRejectedMedications(patientId: number): Promise<RejectedMedications> {
+  return RejectedSchema.parse(await fetchWrapper.get(`/api/phr/patients/${patientId}/review/rejected`))
+}
+
 export async function decideReviewItems(patientId: number, items: ReviewItem[], decision: ReviewDecision): Promise<BatchOutcome> {
   const outcome: BatchOutcome = { done: [], failed: {} }
   for (const item of items) {

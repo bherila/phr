@@ -50,6 +50,17 @@ final class PhrReviewController extends Controller
         ]);
     }
 
+    public function rejected(Request $request, int $patient): JsonResponse
+    {
+        $userId = (int) $request->user()?->id;
+        $patientModel = $this->access->accessiblePatient($patient, $userId);
+
+        return $this->privateJson([
+            ...$this->queue->rejectedMedications($patientModel),
+            'can_manage' => $this->access->canWrite($patientModel, $userId),
+        ]);
+    }
+
     /**
      * The patient-selection page's counts across every patient this person can read,
      * resolved through the same readable scope as the patient list.

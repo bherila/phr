@@ -182,6 +182,26 @@ describe('MedicationsPage', () => {
     expect(within(dialog).getByLabelText('Status')).toBeInTheDocument()
   })
 
+  it('shows each medication\'s last fill and how many, and says so when it has none', async () => {
+    mockGet.mockImplementation(async (url: string) => {
+      if (url === '/api/phr/patients/42/medications') return { medications: [makeMedication(), makeMedication({ id: 3, name: 'Vitamin D3' })], can_manage: true }
+      return {}
+    })
+    render(<MedicationsPage patientId={42} />)
+    expect(await screen.findByText('Vitamin D3')).toBeInTheDocument()
+    expect(within(screen.getByRole('table', { name: 'Medications' })).getByRole('columnheader', { name: 'Last fill' })).toBeInTheDocument()
+  })
+
+  it('keeps on-hold medications under Active: they have not ended', async () => {
+    mockGet.mockImplementation(async (url: string) => (url === '/api/phr/patients/42/medications'
+      ? { medications: [makeMedication({ status: 'on_hold' })], can_manage: true }
+      : {}))
+    render(<MedicationsPage patientId={42} />)
+    expect(await screen.findByText('Metformin')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Active 1' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Ended 0' })).toBeInTheDocument()
+  })
+
   it('does not offer to end a medication now: the end date belongs to Edit', async () => {
     render(<MedicationsPage patientId={42} />)
     await waitFor(() => expect(screen.getByText('Metformin')).toBeInTheDocument())
@@ -351,30 +371,14 @@ describe('MedicationDetail', () => {
   })
 })
 
-it('confirms a medication, drops a rejected one from the list, and can reveal rejected rows', async () => {
-  mockGet.mockImplementation(async (url: string) => {
-    if (url === '/api/phr/patients/42/medications') {
-      return {
-        medications: [makeMedication({ id: 1, name: 'Metformin', review_status: 'pending_review' })],
-        can_manage: true,
-      }
-    }
-
-    if (url === '/api/phr/patients/42/medications?include_rejected=1') {
-      return {
-        medications: [
-          makeMedication({ id: 1, name: 'Metformin', review_status: 'pending_review' }),
-          makeMedication({ id: 3, name: 'Lisinopril', review_status: 'rejected' }),
-        ],
-        can_manage: true,
-      }
-    }
-
-    return {}
-  })
+it('confirms a medication and keeps its row, with no way to reveal rejected rows here: they are on Review', async () => {
+  mockGet.mockImplementation(async (url: string) => (url === '/api/phr/patients/42/medications'
+    ? { medications: [makeMedication({ id: 1, name: 'Metformin', review_status: 'pending_review' })], can_manage: true }
+    : {}))
 
   render(<MedicationsPage patientId={42} />)
   await waitFor(() => expect(screen.getByText('Metformin')).toBeInTheDocument())
+  expect(screen.queryByRole('button', { name: 'Show rejected' })).not.toBeInTheDocument()
 
   // Confirming keeps the row and settles it, so its actions disappear.
   mockPatch.mockResolvedValueOnce({
@@ -391,11 +395,6 @@ it('confirms a medication, drops a rejected one from the list, and can reveal re
     expect(screen.queryByRole('button', { name: 'Confirm Metformin' })).not.toBeInTheDocument()
   })
   expect(screen.getByText('Metformin')).toBeInTheDocument()
-
-  // Revealing rejected rows re-fetches with the flag and shows the hidden record.
-  fireEvent.click(screen.getByRole('button', { name: 'Show rejected' }))
-  await waitFor(() => expect(screen.getByText('Lisinopril')).toBeInTheDocument())
-  expect(mockGet).toHaveBeenCalledWith('/api/phr/patients/42/medications?include_rejected=1')
 })
 
 it('removes a rejected medication from the working list', async () => {
