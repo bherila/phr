@@ -163,4 +163,19 @@ final class PhrCcdaSyntheticDocument
             Carbon::setTestNow();
         }
     }
+
+    /**
+     * The same document as a reader that knows only the narrative tables sees it: every
+     * structured entry removed.
+     */
+    public static function withoutEntries(string $xml): string
+    {
+        $document = new \DOMDocument;
+        $document->loadXML($xml);
+        foreach (iterator_to_array((new \DOMXPath($document))->query('//*[local-name()="entry"]') ?: []) as $entry) {
+            $entry->parentNode?->removeChild($entry);
+        }
+
+        return (string) $document->saveXML();
+    }
 }

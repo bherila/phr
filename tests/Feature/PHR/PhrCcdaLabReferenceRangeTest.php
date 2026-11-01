@@ -97,11 +97,12 @@ final class PhrCcdaLabReferenceRangeTest extends TestCase
     {
         $patient = $this->patient();
 
-        // PHR's own export carries the results narrative but no Result Organizer.
-        app(PhrCcdaImporter::class)->importXml(PhrCcdaSyntheticDocument::xml(), $patient, $patient->owner_user_id);
+        // An export from before results had entries carried the narrative table alone.
+        app(PhrCcdaImporter::class)->importXml(PhrCcdaSyntheticDocument::withoutEntries(PhrCcdaSyntheticDocument::xml()), $patient, $patient->owner_user_id);
 
-        $lab = PhrLabResult::query()->where('patient_id', $patient->id)->sole();
-        $this->assertSame(['Synthetic analyte', '0 - 2'], [$lab->analyte, $lab->reference_range_text]);
+        $lab = PhrLabResult::query()->where('patient_id', $patient->id)->where('analyte', 'Synthetic analyte')->sole();
+        $this->assertSame(4, PhrLabResult::query()->where('patient_id', $patient->id)->count());
+        $this->assertSame('0 - 2 unit', $lab->reference_range_text);
     }
 
     public function test_an_exported_range_keeps_its_reference_unit_through_a_narrative_reimport(): void
@@ -122,8 +123,8 @@ final class PhrCcdaLabReferenceRangeTest extends TestCase
             ...array_fill_keys(['vitals', 'conditions', 'medications', 'procedures', 'immunizations', 'allergies', 'office_visits', 'portal_messages', 'negative_assertions', 'dicom_studies', 'documents'], collect()),
         ]);
 
-        // PHR's export has no Result Organizer, so this reads its narrative table.
-        app(PhrCcdaImporter::class)->importXml($xml, $patient, $patient->owner_user_id);
+        // Without its Result Organizer, as an earlier export had none, this reads the narrative table.
+        app(PhrCcdaImporter::class)->importXml(PhrCcdaSyntheticDocument::withoutEntries($xml), $patient, $patient->owner_user_id);
 
         $row = PhrLabResult::query()->where('patient_id', $patient->id)->sole();
         $this->assertSame(['5.4', 'mg/dL', '3.5 - 5.1 g/dL'], [$row->value, $row->unit, $row->reference_range_text]);

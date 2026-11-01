@@ -13,6 +13,7 @@ use App\Support\AgentApi\AgentClinicalRecordVersion;
 use Laravel\Passport\Client;
 use Laravel\Passport\Passport;
 use Tests\Concerns\ConfiguresPassportKeys;
+use Tests\Support\PhrCcdaSyntheticDocument;
 use Tests\TestCase;
 
 /**
@@ -125,9 +126,10 @@ final class PhrLabReferenceBoundInclusiveTest extends TestCase
             ...array_fill_keys(['vitals', 'conditions', 'medications', 'procedures', 'immunizations', 'allergies', 'office_visits', 'portal_messages', 'negative_assertions', 'dicom_studies', 'documents'], collect()),
         ]);
 
-        // PHR's export is a narrative table, so the comparator travels as the
-        // range text the reimport keeps and the lab views show as written.
-        app(PhrCcdaImporter::class)->importXml($xml, $patient, $patient->owner_user_id);
+        // Read from its narrative table alone (as an export from before results had
+        // entries is), the comparator travels as the range text the reimport keeps
+        // and the lab views show as written.
+        app(PhrCcdaImporter::class)->importXml(PhrCcdaSyntheticDocument::withoutEntries($xml), $patient, $patient->owner_user_id);
 
         $this->assertSame([
             'Synthetic at least' => '>=60 mL/min',

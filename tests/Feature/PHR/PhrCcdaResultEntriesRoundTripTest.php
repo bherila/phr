@@ -93,7 +93,7 @@ final class PhrCcdaResultEntriesRoundTripTest extends TestCase
         // A bound is compared as a number (the column pads its decimals); inclusiveness
         // strictly, since null (unknown) is not false (exclusive).
         foreach ([[$min, $row->range_min], [$max, $row->range_max]] as [$expected, $actual]) {
-            $expected === null ? $this->assertNull($actual, $row->analyte) : $this->assertEquals($expected, $actual, $row->analyte);
+            $expected === null ? $this->assertNull($actual, $row->analyte) : $this->assertEqualsWithDelta((float) $expected, (float) $actual, 1e-9, $row->analyte);
         }
         $this->assertSame(
             [$minInclusive, $maxInclusive, $unit, $text],
