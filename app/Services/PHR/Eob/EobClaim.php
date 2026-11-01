@@ -102,7 +102,7 @@ final class EobClaim
             foreach (self::LINE_MONEY as $key) {
                 $normalized[$key] = self::money($line[$key] ?? null);
             }
-            if (isset($line['fill']) && is_array($line['fill'])) {
+            if (isset($line['fill']) && is_array($line['fill']) && $line['fill'] !== []) {
                 $normalized['fill'] = $line['fill'];
             }
             $lines[] = $normalized;

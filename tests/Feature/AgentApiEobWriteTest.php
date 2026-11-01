@@ -196,6 +196,16 @@ final class AgentApiEobWriteTest extends TestCase
         $this->assertNull($unmatched['line_id']);
     }
 
+    public function test_an_empty_fill_object_is_a_line_without_a_fill(): void
+    {
+        $claim = $this->pharmacyClaim($this->document());
+        $claim['data']['lines'][0]['fill'] = [];
+        $claim['data']['lines'][1]['fill'] = [];
+
+        $this->putJson($this->url(), $claim)->assertCreated()->assertJsonPath('fills', []);
+        $this->assertSame(0, PhrMedicationFill::query()->count());
+    }
+
     public function test_an_identical_retry_is_unchanged_whatever_order_the_lines_were_sent_in(): void
     {
         $claim = $this->claim($this->document());
