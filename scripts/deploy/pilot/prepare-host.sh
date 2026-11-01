@@ -31,10 +31,11 @@ try {
     $redisPort = array_key_exists("REDIS_PORT", $env) ? $env["REDIS_PORT"] : "6379";
     $socket = is_string($redisHost) && str_starts_with($redisHost, "/") && !in_array("..", explode("/", $redisHost), true);
     if (!(($socket && in_array($redisPort, ["0", ""], true)) || ($redisHost === "127.0.0.1" && $redisPort === "6379"))) { exit(1); }
-    // Any *_CONNECTION key naming another database connection selects it for some subsystem.
+    // Any *_CONNECTION key naming another database connection, with or without a Laravel
+    // ::read or ::write suffix, selects it for some subsystem.
     $others = array_diff(["sqlite", "mysql", "mariadb", "pgsql", "sqlsrv"], [$pilot]);
     foreach ($env as $key => $value) {
-        if (preg_match("/(^|_)CONNECTION\$/", (string) $key) === 1 && in_array($value, $others, true)) { exit(1); }
+        if (preg_match("/(^|_)CONNECTION\$/", (string) $key) === 1 && in_array(explode("::", (string) $value, 2)[0], $others, true)) { exit(1); }
     }
 } catch (Throwable $error) { exit(1); }
 ' "$HOME/$env_source" || { echo 'Private target does not have the required pilot-only configuration.' >&2; exit 1; }

@@ -62,7 +62,11 @@ try {
             if ($here === "database.connections" || $here === "database.redis") { continue; }
             if (is_array($value)) { $selectors($value, $here); continue; }
             if (is_string($key) && preg_match("/(^|_)connection\$|^database\$/", $key) === 1
-                && is_string($value) && in_array($value, $names, true) && $value !== $pilot) { $refused[] = $here; }
+                && is_string($value)) {
+                // Laravel takes the name before "::" for a ::read or ::write selector.
+                $selected = explode("::", $value, 2)[0];
+                if (in_array($selected, $names, true) && $selected !== $pilot) { $refused[] = $here; }
+            }
         }
     };
     $selectors($config->all(), "");

@@ -226,7 +226,11 @@ JS;
         }
         foreach (self::connectionSelectorKeys() as $selector) {
             $cases["{$selector} selects sqlite"] = ["{$selector}=sqlite"];
+            $cases["{$selector} selects sqlite for writes"] = ["{$selector}=sqlite::write"];
         }
+        // Laravel splits a suffixed name at its first "::", so only the leading segment names the connection.
+        $cases['selector picks sqlite for reads'] = ['PHR_DELEGATED_ACCESS_RECEIPT_CONNECTION=sqlite::read'];
+        $cases['selector hides sqlite behind a nested suffix'] = ['PHR_DELEGATED_ACCESS_RECEIPT_CONNECTION=sqlite::other::write'];
 
         return $cases;
     }
@@ -294,6 +298,17 @@ JS;
             $result = $this->assertLocalDatabase($candidate);
             $this->assertTrue($result->isSuccessful(), $result->getErrorOutput());
         }
+    }
+
+    public function test_read_write_suffix_on_the_pilot_connection_is_still_accepted(): void
+    {
+        $env = self::PILOT_ENV."PHR_DELEGATED_ACCESS_RECEIPT_CONNECTION=mariadb::write\nPHR_DELEGATED_ACCESS_NONCE_CONNECTION=mariadb::read\n";
+        $home = $this->scaffold();
+        file_put_contents($home.'/.config/sample/deployment.env', $env);
+        $prepare = $this->prepare($home);
+        $this->assertTrue($prepare->isSuccessful(), $prepare->getErrorOutput());
+        $result = $this->assertLocalDatabase($env);
+        $this->assertTrue($result->isSuccessful(), $result->getErrorOutput());
     }
 
     public function test_pilot_shape_with_a_per_application_redis_socket_is_accepted(): void
