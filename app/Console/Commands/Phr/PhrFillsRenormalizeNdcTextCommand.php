@@ -6,6 +6,7 @@ use App\Models\PhrMedicationFill;
 use App\Services\PHR\Ndc\NdcCandidate;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Re-derives the display text of existing fills (strengths, package description)
@@ -37,9 +38,18 @@ final class PhrFillsRenormalizeNdcTextCommand extends BasePhrCommand
                     // events, and timestamps are switched off for this save). The record version
                     // is a hash of the row's attributes (AgentClinicalRecordVersion), so it
                     // follows the new text; there is no stored version column to preserve.
-                    $fill->forceFill($updates);
-                    $fill->timestamps = false;
-                    $fill->saveQuietly();
+                    // The row is re-read under a lock and skipped if its NDC, snapshot or text
+                    // changed since it was loaded, so a concurrent edit is never overwritten.
+                    DB::transaction(function () use ($fill, $updates): void {
+                        $locked = PhrMedicationFill::query()->withTrashed()->lockForUpdate()->find($fill->getKey());
+                        if ($locked === null || $locked->ndc_10 !== $fill->ndc_10 || $locked->fda_snapshot !== $fill->fda_snapshot
+                            || $locked->strengths !== $fill->strengths || $locked->package_description !== $fill->package_description) {
+                            return;
+                        }
+                        $locked->forceFill($updates);
+                        $locked->timestamps = false;
+                        $locked->saveQuietly();
+                    });
                 }
             }
             $this->line("Scanned {$scanned} fill(s), ".($dryRun ? 'would change' : 'changed')." {$changed}...");
