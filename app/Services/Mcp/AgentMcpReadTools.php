@@ -29,8 +29,10 @@ final class AgentMcpReadTools
         #[Schema(format: 'date-time')] ?string $updated_after = null,
         #[Schema(format: 'date-time')] ?string $updated_before = null,
         #[Schema(enum: ['include', 'exclude', 'only'])] string $archived = 'include',
+        #[Schema(minLength: 1, maxLength: 255, description: 'A name printed on a source document. Returns the one accessible patient it matches (case, spacing and LAST, FIRST order ignored), or fails telling you to ask the user. Never guess, and never create a patient.')] ?string $name = null,
+        #[Schema(format: 'date', description: 'The date of birth printed on the source; confirms or narrows a name match. Only with name.')] ?string $birth_date = null,
     ): array {
-        return $this->api->patients($limit, $cursor, $updated_after, $updated_before, $archived)->toArray();
+        return $this->api->patients($limit, $cursor, $updated_after, $updated_before, $archived, $name, $birth_date)->toArray();
     }
 
     /** @return array<string, mixed> */
@@ -47,7 +49,7 @@ final class AgentMcpReadTools
         #[Schema(minimum: 1)] int $patient_id,
         #[Schema(minimum: 1, maximum: 100)] int $limit = 25,
         #[Schema(maxLength: 2048)] ?string $cursor = null,
-        #[Schema(minItems: 1, maxItems: 9, uniqueItems: true, items: ['type' => 'string'])] ?array $resource_type = null,
+        #[Schema(minItems: 1, maxItems: 10, uniqueItems: true, items: ['type' => 'string'])] ?array $resource_type = null,
         #[Schema(maxLength: 200)] ?string $q = null,
         #[Schema(format: 'date')] ?string $date_from = null,
         #[Schema(format: 'date')] ?string $date_to = null,
@@ -74,7 +76,7 @@ final class AgentMcpReadTools
         #[Schema(minimum: 1)] int $patient_id,
         #[Schema(minimum: 1, maximum: 100)] int $limit = 25,
         #[Schema(maxLength: 2048)] ?string $cursor = null,
-        #[Schema(minItems: 1, maxItems: 9, uniqueItems: true, items: ['type' => 'string'])] ?array $resource_type = null,
+        #[Schema(minItems: 1, maxItems: 10, uniqueItems: true, items: ['type' => 'string'])] ?array $resource_type = null,
         #[Schema(maxLength: 200)] ?string $q = null,
         #[Schema(format: 'date')] ?string $date_from = null,
         #[Schema(format: 'date')] ?string $date_to = null,
@@ -101,7 +103,7 @@ final class AgentMcpReadTools
         #[Schema(minimum: 1)] int $patient_id,
         #[Schema(minimum: 1, maximum: 100)] int $limit = 25,
         #[Schema(maxLength: 2048)] ?string $cursor = null,
-        #[Schema(minItems: 1, maxItems: 9, uniqueItems: true, items: ['type' => 'string'])] ?array $resource_type = null,
+        #[Schema(minItems: 1, maxItems: 10, uniqueItems: true, items: ['type' => 'string'])] ?array $resource_type = null,
         #[Schema(format: 'date-time')] ?string $updated_after = null,
         #[Schema(format: 'date-time', description: 'Reuse the watermark from the first page until this sync pass completes.')] ?string $watermark = null,
     ): array {
@@ -129,6 +131,56 @@ final class AgentMcpReadTools
             $patient_id, $resource_type, $limit, $cursor, $updated_after,
             $updated_before, $import_source, $source_document_id, $archived,
         )->toArray();
+    }
+
+    /**
+     * Fills have their own listing because they filter by date, medication,
+     * pharmacy and status; it is the clinical list with those filters.
+     *
+     * @return array<string, mixed>
+     */
+    public function medicationFillsList(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1, maximum: 100)] int $limit = 25,
+        #[Schema(maxLength: 2048)] ?string $cursor = null,
+        #[Schema(format: 'date', description: 'Earliest fill date, inclusive.')] ?string $filled_from = null,
+        #[Schema(format: 'date', description: 'Latest fill date, inclusive.')] ?string $filled_to = null,
+        #[Schema(minimum: 1)] ?int $medication_id = null,
+        #[Schema(maxLength: 255, description: 'Case-insensitive pharmacy name substring.')] ?string $pharmacy = null,
+        #[Schema(enum: ['pending_review', 'confirmed', 'rejected'])] ?string $review_status = null,
+        #[Schema(enum: ['resolved', 'ambiguous', 'unresolved', 'manual'])] ?string $ndc_status = null,
+    ): array {
+        return $this->api->clinicalRecords(
+            $patient_id, 'medication-fills', $limit, $cursor,
+            filters: compact('filled_from', 'filled_to', 'medication_id', 'pharmacy', 'review_status', 'ndc_status'),
+        )->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function medicationFillsGet(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $fill_id,
+    ): array {
+        return $this->api->clinicalRecord($patient_id, 'medication-fills', $fill_id)->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function ndcLookup(
+        #[Schema(minLength: 1, maxLength: 64, description: 'A 10- or 11-digit NDC, with or without hyphens, exactly as read from the source.')] string $ndc,
+    ): array {
+        return $this->api->ndcLookup($ndc)->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function ndcSearch(
+        #[Schema(minLength: 1, maxLength: 255, description: 'Brand or generic drug name.')] string $name,
+        #[Schema(maxLength: 100)] ?string $strength = null,
+        #[Schema(maxLength: 100)] ?string $dosage_form = null,
+        #[Schema(maxLength: 100)] ?string $route = null,
+        #[Schema(maxLength: 255)] ?string $labeler = null,
+        #[Schema(maxLength: 20, description: 'The unit count on the package, such as 90.')] ?string $package_size = null,
+    ): array {
+        return $this->api->ndcSearch(compact('name', 'strength', 'dosage_form', 'route', 'labeler', 'package_size'))->toArray();
     }
 
     /** @return array<string, mixed> */
@@ -211,7 +263,7 @@ final class AgentMcpReadTools
     /** @return array<string, mixed> */
     public function evidenceLinks(
         #[Schema(minimum: 1)] int $patient_id,
-        #[Schema(enum: ['document', 'eob', 'office-visit', 'procedure'])] string $resource_type,
+        #[Schema(enum: ['document', 'eob', 'medication-fill', 'office-visit', 'procedure'])] string $resource_type,
         #[Schema(minimum: 1)] int $resource_id,
         #[Schema(minimum: 1, maximum: 100)] int $limit = 25,
         #[Schema(maxLength: 2048)] ?string $cursor = null,

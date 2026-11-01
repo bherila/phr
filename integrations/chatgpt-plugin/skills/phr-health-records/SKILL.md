@@ -1,6 +1,6 @@
 ---
 name: phr-health-records
-description: Use when the user asks about their personal health records in PHR - patients, visits, medications, conditions, allergies, labs, vitals, immunizations, procedures, documents, imaging, health logs, or imports - or wants to add or correct a record.
+description: Use when the user asks about their personal health records in PHR - patients, visits, medications, prescription fills, conditions, allergies, labs, vitals, immunizations, procedures, documents, imaging, health logs, or imports - or wants to add or correct a record.
 ---
 
 # Working with PHR
@@ -20,7 +20,7 @@ connection was not granted that permission, not that the data is absent.
 
 - `records.search` and `timeline.list` search across clinical types.
 - `clinical.list` and `clinical.get` read one type, chosen by `resource_type`
-  (`office-visits`, `procedures`, `immunizations`, `medications`,
+  (`office-visits`, `procedures`, `immunizations`, `medications`, `medication-fills`,
   `conditions`, `allergies`, `lab-results`, `vitals`, `health-logs`).
 - `documents.list` and `documents.get` return metadata only. Call
   `documents.download_access.create` only when the user needs the file itself.
@@ -41,6 +41,20 @@ Read the patient's existing records before every write.
   to retract; institutions age data out.
 - Every effective change returns the record to human review. Keep records
   `pending_review` unless the user explicitly approves the clinical facts.
+
+## Prescription fills
+
+To import fills from a label photo, receipt or CSV, upload the source with
+`documents.upload` first. Find the patient with `patients.list` using the name
+(and date of birth) printed on it; if none or several match, ask the user, and
+never create a patient. Read the NDC and call `ndc.lookup`, or `ndc.search` by
+drug name, strength, form, route, labeler and package size when it is missing or
+unreadable; ask the user to choose among several candidates. Call
+`medication_fills.list`, then `medication_fills.upsert` with the NDC (or the
+chosen `ndc_candidate`), the fill, price, pharmacy and source. Never send drug
+fields: the server resolves them from the NDC and links or creates the
+medication for review. Use `medication_fills.update` with the current version
+to correct one.
 
 ## Imports
 

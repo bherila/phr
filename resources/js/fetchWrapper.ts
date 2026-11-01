@@ -17,6 +17,7 @@ export const fetchWrapper = {
   put,
   putRaw,
   patch,
+  patchRaw,
   delete: _delete,
   deleteRaw,
 }
@@ -97,6 +98,18 @@ function patch(url: string, body: any) {
     body: JSON.stringify(body),
   }
   return fetch(url, requestOptions).then(handleResponse)
+}
+
+// Like `patch`, but returns the raw Response so callers can read a 409 or 422 body.
+function patchRaw(url: string, body: unknown) {
+  clearPhrPreload()
+  const requestOptions: RequestInit = {
+    method: 'PATCH',
+    headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'Content-Type': 'application/json', 'X-CSRF-TOKEN': getCsrfToken() || '' },
+    credentials: 'include' as RequestCredentials,
+    body: JSON.stringify(body),
+  }
+  return fetch(url, requestOptions)
 }
 
 function put(url: string, body: any, options: FetchWrapperOptions = {}) {

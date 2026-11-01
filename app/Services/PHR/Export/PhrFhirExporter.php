@@ -9,6 +9,7 @@ use App\Models\PhrDocument;
 use App\Models\PhrImmunization;
 use App\Models\PhrLabResult;
 use App\Models\PhrMedication;
+use App\Models\PhrMedicationFill;
 use App\Models\PhrNegativeAssertion;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
@@ -56,6 +57,9 @@ class PhrFhirExporter
         }
         foreach ($data['medications'] as $medication) {
             $entries[] = $this->entry($this->medicationResource($medication));
+        }
+        foreach ($data['medication_fills'] ?? [] as $fill) {
+            $entries[] = $this->entry($this->medicationDispenseResource($fill));
         }
         foreach ($data['procedures'] as $procedure) {
             $entries[] = $this->entry($this->procedureResource($procedure));
@@ -209,6 +213,51 @@ class PhrFhirExporter
                 'text' => trim(implode(' ', array_filter([$medication->dose, $medication->dose_unit, $medication->route, $medication->frequency]))),
             ]] : null,
             'reasonCode' => $medication->reason_for_use ? [$this->textCode($medication->reason_for_use)] : null,
+        ];
+    }
+
+    /**
+     * A prescription fill as a MedicationDispense. The drug is coded by NDC (the
+     * 11-digit form) and RxNorm; price, prescriber and pharmacy location have no
+     * element of their own, so they travel as extensions.
+     *
+     * @return array<string, mixed>
+     */
+    private function medicationDispenseResource(PhrMedicationFill $fill): array
+    {
+        $substances = implode(' / ', (array) $fill->substance_names);
+        $text = $fill->brand_name ?: ($substances !== '' ? $substances : (string) $fill->drug_as_printed);
+        $coding = array_values(array_filter([
+            $fill->ndc_11 !== null ? ['system' => 'http://hl7.org/fhir/sid/ndc', 'code' => $fill->ndc_11, 'display' => $text] : null,
+            $fill->rxcui ? ['system' => 'http://www.nlm.nih.gov/research/umls/rxnorm', 'code' => $fill->rxcui, 'display' => $text] : null,
+        ]));
+        $strength = implode(' / ', (array) $fill->strengths);
+        $quantity = (float) $fill->quantity;
+        $money = static fn (?int $cents): ?array => $cents === null ? null : ['value' => $cents / 100, 'currency' => 'USD'];
+
+        return [
+            'resourceType' => 'MedicationDispense',
+            'id' => 'phr-medication-fill-'.$fill->id,
+            'identifier' => $fill->rx_number ? [['system' => 'urn:phr:rx-number', 'value' => $fill->rx_number]] : null,
+            'status' => 'completed',
+            'subject' => $this->patientReference($fill->patient_id),
+            'medicationCodeableConcept' => [
+                'text' => trim($text.($strength !== '' ? ' '.$strength : '').($fill->dosage_form ? ' '.$fill->dosage_form : '')),
+                ...($coding === [] ? [] : ['coding' => $coding]),
+            ],
+            'quantity' => ['value' => $quantity, 'unit' => $fill->quantity_unit],
+            'daysSupply' => $fill->days_supply !== null
+                ? ['value' => $fill->days_supply, 'unit' => 'day', 'system' => self::UCUM_SYSTEM, 'code' => 'd']
+                : null,
+            'whenHandedOver' => $this->fhirDate($fill->filled_on),
+            'location' => $fill->pharmacy_name ? ['display' => trim($fill->pharmacy_name.($fill->pharmacy_location ? ', '.$fill->pharmacy_location : ''))] : null,
+            'dosageInstruction' => $fill->directions ? [['text' => $fill->directions]] : null,
+            'extension' => array_values(array_filter([
+                $fill->paid_cents !== null ? ['url' => 'urn:phr:fhir:paid-amount', 'valueMoney' => $money($fill->paid_cents)] : null,
+                $fill->retail_cents !== null ? ['url' => 'urn:phr:fhir:retail-amount', 'valueMoney' => $money($fill->retail_cents)] : null,
+                $fill->prescriber_name ? ['url' => 'urn:phr:fhir:prescriber', 'valueString' => $fill->prescriber_name] : null,
+                $fill->refills_remaining !== null ? ['url' => 'urn:phr:fhir:refills-remaining', 'valueInteger' => $fill->refills_remaining] : null,
+            ])) ?: null,
         ];
     }
 

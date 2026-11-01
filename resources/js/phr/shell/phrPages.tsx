@@ -9,6 +9,7 @@ import {
   Image,
   type LucideIcon,
   Pill,
+  PillBottle,
   Scissors,
   Shield,
   Syringe,
@@ -78,6 +79,7 @@ export const PHR_PAGES: Record<PhrPageId, PhrPageMeta> = {
   vitals: { label: 'Vitals', icon: HeartPulse, keywords: ['vitals', 'blood pressure', 'weight', 'height'], component: lazy(() => import('@/phr/vitals/VitalsPage')) },
   'office-visits': { label: 'Visits', icon: CalendarDays, keywords: ['visits', 'appointments', 'encounters', 'allergy shots', 'injections', 'immunotherapy'], component: lazy(() => import('@/phr/office-visits/OfficeVisitsPage')) },
   medications: { label: 'Medications', icon: Pill, keywords: ['medications', 'prescriptions', 'drugs', 'rx'], component: lazy(() => import('@/phr/medications/MedicationsPage')) },
+  'medication-fills': { label: 'Fills', icon: PillBottle, keywords: ['fills', 'prescription fills', 'dispensed', 'pharmacy', 'ndc', 'refills', 'receipts'], component: lazy(() => import('@/phr/medication-fills/MedicationFillsPage')) },
   conditions: { label: 'Conditions', icon: TriangleAlert, keywords: ['conditions', 'diagnoses', 'problems'], component: lazy(() => import('@/phr/conditions/ConditionsPage')) },
   procedures: { label: 'Procedures', icon: Scissors, keywords: ['procedures', 'surgery', 'treatments'], component: lazy(() => import('@/phr/procedures/ProceduresPage')) },
   immunizations: { label: 'Immunizations', icon: Syringe, keywords: ['immunizations', 'vaccines', 'shots'], component: lazy(() => import('@/phr/immunizations/ImmunizationsPage')) },
@@ -110,7 +112,7 @@ export interface PhrNavGroup {
 /** The patient sidebar, top to bottom. Every page appears exactly once. */
 export const PHR_NAV_GROUPS: PhrNavGroup[] = [
   { title: 'Overview', pages: ['review', 'summary', 'health-log'] },
-  { title: 'Clinical', pages: ['labs', 'vitals', 'office-visits', 'medications', 'conditions', 'procedures', 'immunizations', 'allergies'] },
+  { title: 'Clinical', pages: ['labs', 'vitals', 'office-visits', 'medications', 'medication-fills', 'conditions', 'procedures', 'immunizations', 'allergies'] },
   { title: 'Records', pages: ['documents', 'imaging'] },
   { title: 'Sharing', pages: ['access'] },
 ]
@@ -127,14 +129,16 @@ const AiProviderSettingsPage = lazy(() => import('@/phr/config/AiProviderSetting
 const ConnectedDevicesPanel = lazy(() => import('@/phr/config/ConnectedDevicesPanel'))
 const ConnectedAppsPage = lazy(() => import('@/phr/config/ConnectedAppsPage'))
 const ApiAccessPanel = lazy(() => import('@/phr/config/ApiAccessPanel'))
+const DisplayPreferencesPanel = lazy(() => import('@/phr/display/DisplayPreferences'))
 
-type ConfigTab = 'ai-providers' | 'devices' | 'connected-apps' | 'api-access'
+type ConfigTab = 'ai-providers' | 'devices' | 'connected-apps' | 'api-access' | 'display'
 
 const CONFIG_TABS: { id: ConfigTab, label: string }[] = [
   { id: 'ai-providers', label: 'AI Provider Settings' },
   { id: 'devices', label: 'Connected Devices' },
   { id: 'connected-apps', label: 'Connected apps' },
   { id: 'api-access', label: 'API Access' },
+  { id: 'display', label: 'Display' },
 ]
 
 export function ConfigPage(): ReactElement {
@@ -162,6 +166,7 @@ export function ConfigPage(): ReactElement {
         {tab === 'devices' ? <ConnectedDevicesPanel /> : null}
         {tab === 'connected-apps' ? <ConnectedAppsPage /> : null}
         {tab === 'api-access' ? <ApiAccessPanel /> : null}
+        {tab === 'display' ? <DisplayPreferencesPanel /> : null}
       </div>
     </div>
   )

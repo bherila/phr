@@ -43,6 +43,12 @@ final class AgentExternalIdCollationMigrationTest extends TestCase
 
         $covered = (new ReflectionClass($this->migration()))->getConstant('TABLES');
         $this->assertIsArray($covered);
+        // A table created after that migration carries the same collation from its own creation.
+        foreach ($this->laterMigrations() as $later) {
+            $reflection = new ReflectionClass($later);
+            $this->assertSame('utf8mb4_bin', $reflection->getConstant('EXTERNAL_ID_COLLATION'), 'A table created later must also compare external IDs bytewise.');
+            $covered[] = $reflection->getConstant('TABLE');
+        }
         sort($covered);
 
         $this->assertSame(
@@ -70,6 +76,12 @@ final class AgentExternalIdCollationMigrationTest extends TestCase
         );
 
         $this->assertSame([], array_values($statements));
+    }
+
+    /** @return list<object> migrations that create a table keyed on external_id with the binary collation */
+    private function laterMigrations(): array
+    {
+        return [require database_path('migrations/2026_11_01_000000_create_phr_medication_fills_table.php')];
     }
 
     private function migration(): object

@@ -161,6 +161,16 @@ class AppServiceProvider extends ServiceProvider
             return Limit::perMinute(120)->by($key);
         });
 
+        // The browser's NDC autofill and drug search, which spend the shared openFDA allowance.
+        RateLimiter::for('phr-ndc', function (Request $request): Limit {
+            $user = $request->user();
+            $key = $user === null
+                ? 'unauthenticated:'.hash('sha256', (string) $request->ip())
+                : 'user:'.$user->getAuthIdentifier();
+
+            return Limit::perMinute((int) config('services.openfda.web_requests_per_minute', 30))->by($key);
+        });
+
         RateLimiter::for('agent-api-authentication', function (Request $request): Limit {
             // This global limiter runs before routing, so normalize numeric path
             // parameters ourselves. Otherwise an attacker can reset the budget

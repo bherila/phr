@@ -256,6 +256,12 @@ it('keeps a mode just chosen when the initial read of the mode answers late', as
     answerLate({ ...MODE_RESPONSE, mode: 'api', mode_chosen: false })
   })
 
+  // The saved mode settles after the PUT resolves, which a loaded runner can do after the late
+  // read; wait for it rather than asserting mid-flight (the radio is disabled while saving).
+  await waitFor(() => expect(screen.getByRole('radio', { name: /AI Agent Inbox/ })).toBeChecked())
+  await act(async () => {
+    await Promise.resolve()
+  })
   expect(screen.getByRole('radio', { name: /AI Agent Inbox/ })).toBeChecked()
   expect(screen.queryByText(/the default applies/)).not.toBeInTheDocument()
 })

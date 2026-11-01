@@ -1,0 +1,84 @@
+{
+  "meta": {
+    "last_updated": "2026-10-30",
+    "results": {
+      "skip": 0,
+      "limit": 1,
+      "total": 1
+    }
+  },
+  "results": [
+    {
+      "product_ndc": "0002-0800",
+      "generic_name": "diluent",
+      "labeler_name": "Eli Lilly and Company",
+      "brand_name": "Sterile Diluent",
+      "active_ingredients": [
+        {
+          "name": "WATER",
+          "strength": "1 mL/mL"
+        }
+      ],
+      "finished": true,
+      "packaging": [
+        {
+          "package_ndc": "0002-0800-01",
+          "description": "1 VIAL in 1 CARTON (0002-0800-01)  / 10 mL in 1 VIAL",
+          "marketing_start_date": "19870710",
+          "sample": false
+        }
+      ],
+      "listing_expiration_date": "20271231",
+      "openfda": {
+        "manufacturer_name": [
+          "Eli Lilly and Company"
+        ],
+        "rxcui": [
+          "242120",
+          "865098",
+          "1652239",
+          "1652242",
+          "1652639",
+          "1652640",
+          "1652644",
+          "1652646",
+          "1926331",
+          "1926332",
+          "2621571",
+          "2621572"
+        ],
+        "spl_set_id": [
+          "c8ecbd7a-0e22-4fc7-a503-faa58c1b6f3f"
+        ],
+        "is_original_packager": [
+          true
+        ],
+        "nui": [
+          "N0000004931",
+          "N0000175453"
+        ],
+        "pharm_class_cs": [
+          "Insulin [Chemical/Ingredient]"
+        ],
+        "pharm_class_epc": [
+          "Insulin Analog [EPC]"
+        ],
+        "unii": [
+          "059QF0KO0R",
+          "GFX7QIS1II"
+        ]
+      },
+      "marketing_category": "BLA",
+      "dosage_form": "INJECTION, SOLUTION",
+      "spl_id": "03be5386-187a-420f-9021-55778a73eba0",
+      "product_type": "HUMAN PRESCRIPTION DRUG",
+      "route": [
+        "SUBCUTANEOUS"
+      ],
+      "marketing_start_date": "19870710",
+      "product_id": "0002-0800_03be5386-187a-420f-9021-55778a73eba0",
+      "application_number": "BLA020563",
+      "brand_name_base": "Sterile Diluent"
+    }
+  ]
+}

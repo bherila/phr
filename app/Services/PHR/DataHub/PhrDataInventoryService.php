@@ -24,6 +24,7 @@ final class PhrDataInventoryService
         'vitals' => ['table' => 'phr_patient_vitals', 'patient_column' => 'patient_id'],
         'office_visits' => ['table' => 'phr_office_visits', 'patient_column' => 'patient_id'],
         'medications' => ['table' => 'phr_medications', 'patient_column' => 'patient_id'],
+        'medication_fills' => ['table' => 'phr_medication_fills', 'patient_column' => 'patient_id'],
         'conditions' => ['table' => 'phr_conditions', 'patient_column' => 'patient_id'],
         'procedures' => ['table' => 'phr_procedures', 'patient_column' => 'patient_id'],
         'immunizations' => ['table' => 'phr_immunizations', 'patient_column' => 'patient_id'],

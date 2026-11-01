@@ -3,11 +3,13 @@
 namespace App\Support\AgentApi;
 
 use App\Contracts\PHR\ClinicalDataRules;
+use App\Contracts\PHR\ClinicalWriteExtension;
 use App\Http\Resources\PHR\AllergyResource;
 use App\Http\Resources\PHR\ConditionResource;
 use App\Http\Resources\PHR\HealthLogResource;
 use App\Http\Resources\PHR\ImmunizationResource;
 use App\Http\Resources\PHR\LabResultResource;
+use App\Http\Resources\PHR\MedicationFillResource;
 use App\Http\Resources\PHR\MedicationResource;
 use App\Http\Resources\PHR\OfficeVisitResource;
 use App\Http\Resources\PHR\ProcedureResource;
@@ -18,14 +20,17 @@ use App\Models\PhrHealthLog;
 use App\Models\PhrImmunization;
 use App\Models\PhrLabResult;
 use App\Models\PhrMedication;
+use App\Models\PhrMedicationFill;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatientVital;
 use App\Models\PhrProcedure;
+use App\Services\PHR\Fills\MedicationFillWriteExtension;
 use App\Support\PHR\Validation\AllergyDataRules;
 use App\Support\PHR\Validation\ConditionDataRules;
 use App\Support\PHR\Validation\ImmunizationDataRules;
 use App\Support\PHR\Validation\LabResultDataRules;
 use App\Support\PHR\Validation\MedicationDataRules;
+use App\Support\PHR\Validation\MedicationFillDataRules;
 use App\Support\PHR\Validation\OfficeVisitDataRules;
 use App\Support\PHR\Validation\ProcedureDataRules;
 use App\Support\PHR\Validation\VitalDataRules;
@@ -48,6 +53,7 @@ final class AgentClinicalResourceCatalog
      *     resource: class-string<JsonResource>,
      *     provenance: bool,
      *     write_rules?: class-string<ClinicalDataRules>,
+     *     write_extension?: class-string<ClinicalWriteExtension>,
      *     health_log_aggregates?: bool
      * }>
      */
@@ -75,6 +81,13 @@ final class AgentClinicalResourceCatalog
             'resource' => MedicationResource::class,
             'provenance' => true,
             'write_rules' => MedicationDataRules::class,
+        ],
+        'medication-fills' => [
+            'model' => PhrMedicationFill::class,
+            'resource' => MedicationFillResource::class,
+            'provenance' => true,
+            'write_rules' => MedicationFillDataRules::class,
+            'write_extension' => MedicationFillWriteExtension::class,
         ],
         'conditions' => [
             'model' => PhrCondition::class,
@@ -161,6 +174,7 @@ final class AgentClinicalResourceCatalog
      *     resource: class-string<JsonResource>,
      *     provenance: bool,
      *     write_rules?: class-string<ClinicalDataRules>,
+     *     write_extension?: class-string<ClinicalWriteExtension>,
      *     health_log_aggregates?: bool
      * }|null
      */

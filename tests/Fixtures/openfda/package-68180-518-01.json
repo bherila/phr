@@ -1,0 +1,107 @@
+{
+  "meta": {
+    "last_updated": "2026-10-30",
+    "results": {
+      "skip": 0,
+      "limit": 1,
+      "total": 1
+    }
+  },
+  "results": [
+    {
+      "product_ndc": "68180-518",
+      "generic_name": "Lisinopril and Hydrochlorothiazide",
+      "labeler_name": "Lupin Pharmaceuticals, Inc.",
+      "brand_name": "Lisinopril and Hydrochlorothiazide",
+      "active_ingredients": [
+        {
+          "name": "HYDROCHLOROTHIAZIDE",
+          "strength": "12.5 mg/1"
+        },
+        {
+          "name": "LISINOPRIL",
+          "strength": "10 mg/1"
+        }
+      ],
+      "finished": true,
+      "packaging": [
+        {
+          "package_ndc": "68180-518-01",
+          "description": "100 TABLET in 1 BOTTLE (68180-518-01)",
+          "marketing_start_date": "20061004",
+          "sample": false
+        },
+        {
+          "package_ndc": "68180-518-02",
+          "description": "500 TABLET in 1 BOTTLE (68180-518-02)",
+          "marketing_start_date": "20061004",
+          "sample": false
+        },
+        {
+          "package_ndc": "68180-518-30",
+          "description": "5000 TABLET in 1 POUCH (68180-518-30)",
+          "marketing_start_date": "20061004",
+          "sample": false
+        }
+      ],
+      "listing_expiration_date": "20271231",
+      "openfda": {
+        "manufacturer_name": [
+          "Lupin Pharmaceuticals, Inc."
+        ],
+        "rxcui": [
+          "197885",
+          "197886",
+          "197887"
+        ],
+        "spl_set_id": [
+          "515f735c-5dba-43d9-8a58-97a319cafd56"
+        ],
+        "is_original_packager": [
+          true
+        ],
+        "upc": [
+          "0368180519010",
+          "0368180518013",
+          "0368180520016"
+        ],
+        "nui": [
+          "N0000175359",
+          "N0000175419",
+          "M0471776"
+        ],
+        "pharm_class_pe": [
+          "Increased Diuresis [PE]"
+        ],
+        "pharm_class_epc": [
+          "Thiazide Diuretic [EPC]"
+        ],
+        "pharm_class_cs": [
+          "Thiazides [CS]"
+        ],
+        "unii": [
+          "0J48LPH2TH",
+          "E7199S1YWR"
+        ]
+      },
+      "marketing_category": "ANDA",
+      "dosage_form": "TABLET",
+      "spl_id": "4035482a-7e09-464f-ae01-a8a75fc3c4c1",
+      "product_type": "HUMAN PRESCRIPTION DRUG",
+      "route": [
+        "ORAL"
+      ],
+      "marketing_start_date": "20061004",
+      "product_id": "68180-518_4035482a-7e09-464f-ae01-a8a75fc3c4c1",
+      "application_number": "ANDA077912",
+      "brand_name_base": "Lisinopril and Hydrochlorothiazide",
+      "pharm_class": [
+        "Angiotensin Converting Enzyme Inhibitor [EPC]",
+        "Angiotensin-converting Enzyme Inhibitors [MoA]",
+        "Increased Diuresis [PE]",
+        "Thiazide Diuretic [EPC]",
+        "Thiazides [CS]"
+      ]
+    }
+  ]
+}

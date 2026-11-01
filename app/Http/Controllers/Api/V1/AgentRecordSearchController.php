@@ -51,7 +51,7 @@ final class AgentRecordSearchController extends Controller
         $validated = $request->validate([
             'limit' => ['sometimes', 'integer', 'between:1,100'],
             'cursor' => ['sometimes', 'string', 'max:2048'],
-            'resource_type' => ['sometimes', 'array', 'min:1', 'max:9'],
+            'resource_type' => ['sometimes', 'array', 'min:1', 'max:10'],
             'resource_type.*' => ['string', 'distinct', Rule::in(AgentRecordSearchCatalog::ids())],
             'updated_after' => ['sometimes', 'date'],
             'watermark' => ['sometimes', 'date'],
@@ -144,7 +144,7 @@ final class AgentRecordSearchController extends Controller
         return [
             'limit' => ['sometimes', 'integer', 'between:1,100'],
             'cursor' => ['sometimes', 'string', 'max:2048'],
-            'resource_type' => ['sometimes', 'array', 'min:1', 'max:9'],
+            'resource_type' => ['sometimes', 'array', 'min:1', 'max:10'],
             'resource_type.*' => ['string', 'distinct', Rule::in(AgentRecordSearchCatalog::ids())],
             'q' => ['sometimes', 'string', 'max:200'],
             'date_from' => ['sometimes', 'date'],

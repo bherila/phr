@@ -17,6 +17,7 @@ use App\Models\PhrHealthLog;
 use App\Models\PhrImmunization;
 use App\Models\PhrLabResult;
 use App\Models\PhrMedication;
+use App\Models\PhrMedicationFill;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientVital;
@@ -54,6 +55,7 @@ final readonly class PhrReviewQueueService
         'vitals' => PhrPatientVital::class,
         'office-visits' => PhrOfficeVisit::class,
         'medications' => PhrMedication::class,
+        'medication-fills' => PhrMedicationFill::class,
         'conditions' => PhrCondition::class,
         'procedures' => PhrProcedure::class,
         'immunizations' => PhrImmunization::class,
@@ -399,6 +401,10 @@ final readonly class PhrReviewQueueService
                 $this->join([$this->date($a('visit_started_at') ?? $a('visit_date')), $a('provider_name'), $a('facility_name')]),
             ],
             'medications' => [(string) ($a('name') ?: 'Medication'), $this->join([$this->measure($a('dose'), $a('dose_unit')), $a('frequency'), $a('route')])],
+            'medication-fills' => [
+                (string) ($a('brand_name') ?: $a('drug_as_printed') ?: 'Prescription fill'),
+                $this->join([$this->date($a('filled_on')), $a('pharmacy_name'), $a('quantity') ? 'qty '.rtrim(rtrim((string) $a('quantity'), '0'), '.') : null]),
+            ],
             'conditions' => [
                 (string) ($a('name') ?: 'Condition'),
                 $this->join([$a('icd10_code') ? 'ICD-10 '.$a('icd10_code') : null, $a('onset_date') ? 'onset '.$this->date($a('onset_date')) : null]),

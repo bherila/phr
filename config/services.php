@@ -28,6 +28,18 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    // openFDA drug NDC directory. The key is optional: without one openFDA
+    // allows 1,000 requests a day per IP. Only drug descriptors are ever sent.
+    'openfda' => [
+        'key' => env('OPENFDA_API_KEY'),
+        'base_url' => env('OPENFDA_BASE_URL', 'https://api.fda.gov'),
+        'timeout' => (int) env('OPENFDA_TIMEOUT_SECONDS', 5),
+        'cache_ttl_seconds' => (int) env('OPENFDA_CACHE_TTL_SECONDS', 86400),
+        'search_cache_ttl_seconds' => (int) env('OPENFDA_SEARCH_CACHE_TTL_SECONDS', 600),
+        'web_requests_per_minute' => (int) env('OPENFDA_WEB_REQUESTS_PER_MINUTE', 30),
+        'negative_cache_ttl_seconds' => (int) env('OPENFDA_NEGATIVE_CACHE_TTL_SECONDS', 21600),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

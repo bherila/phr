@@ -26,6 +26,7 @@ class PageController extends Controller
         'vitals',
         'office-visits',
         'medications',
+        'medication-fills',
         'conditions',
         'procedures',
         'immunizations',

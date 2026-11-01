@@ -1,0 +1,75 @@
+{
+  "meta": {
+    "last_updated": "2026-10-30",
+    "results": {
+      "skip": 0,
+      "limit": 1,
+      "total": 1
+    }
+  },
+  "results": [
+    {
+      "product_ndc": "70518-1906",
+      "generic_name": "Lisinopril",
+      "labeler_name": "REMEDYREPACK INC.",
+      "brand_name": "Lisinopril",
+      "active_ingredients": [
+        {
+          "name": "LISINOPRIL",
+          "strength": "5 mg/1"
+        }
+      ],
+      "finished": true,
+      "packaging": [
+        {
+          "package_ndc": "70518-1906-1",
+          "description": "30 TABLET in 1 BLISTER PACK (70518-1906-1)",
+          "marketing_start_date": "20200922",
+          "sample": false
+        },
+        {
+          "package_ndc": "70518-1906-2",
+          "description": "90 TABLET in 1 BOTTLE, PLASTIC (70518-1906-2)",
+          "marketing_start_date": "20201213",
+          "sample": false
+        },
+        {
+          "package_ndc": "70518-1906-4",
+          "description": "100 TABLET in 1 BOTTLE, PLASTIC (70518-1906-4)",
+          "marketing_start_date": "20250319",
+          "sample": false
+        }
+      ],
+      "listing_expiration_date": "20271231",
+      "openfda": {
+        "manufacturer_name": [
+          "REMEDYREPACK INC."
+        ],
+        "rxcui": [
+          "311354"
+        ],
+        "spl_set_id": [
+          "a33d860a-1e17-45b7-aede-51ab3223bebd"
+        ],
+        "unii": [
+          "E7199S1YWR"
+        ]
+      },
+      "marketing_category": "ANDA",
+      "dosage_form": "TABLET",
+      "spl_id": "56ac2a81-0e68-c088-e063-6294a90a23d0",
+      "product_type": "HUMAN PRESCRIPTION DRUG",
+      "route": [
+        "ORAL"
+      ],
+      "marketing_start_date": "20181029",
+      "product_id": "70518-1906_56ac2a81-0e68-c088-e063-6294a90a23d0",
+      "application_number": "ANDA077321",
+      "brand_name_base": "Lisinopril",
+      "pharm_class": [
+        "Angiotensin Converting Enzyme Inhibitor [EPC]",
+        "Angiotensin-converting Enzyme Inhibitors [MoA]"
+      ]
+    }
+  ]
+}

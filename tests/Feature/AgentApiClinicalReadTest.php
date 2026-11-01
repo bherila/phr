@@ -10,6 +10,7 @@ use App\Models\PhrHealthLogEntry;
 use App\Models\PhrImmunization;
 use App\Models\PhrLabResult;
 use App\Models\PhrMedication;
+use App\Models\PhrMedicationFill;
 use App\Models\PhrNativeRecordIdentity;
 use App\Models\PhrNativeRestoreAttempt;
 use App\Models\PhrOfficeVisit;
@@ -348,6 +349,13 @@ class AgentApiClinicalReadTest extends TestCase
                 'name' => 'Synthetic medication',
                 'import_source' => 'synthetic-import',
                 'external_id' => 'synthetic-medication',
+                'source_document_id' => $documentId,
+            ]),
+            'medication-fills' => PhrMedicationFill::factory()->create([
+                'patient_id' => $patient->id,
+                'user_id' => $actor->id,
+                'import_source' => 'synthetic-import',
+                'external_id' => 'synthetic-medication-fill',
                 'source_document_id' => $documentId,
             ]),
             'conditions' => PhrCondition::query()->create([

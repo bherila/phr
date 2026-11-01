@@ -1,0 +1,83 @@
+{
+  "meta": {
+    "last_updated": "2026-10-30",
+    "results": {
+      "skip": 0,
+      "limit": 1,
+      "total": 1
+    }
+  },
+  "results": [
+    {
+      "product_ndc": "60505-0134",
+      "generic_name": "Cyclosporine",
+      "labeler_name": "Apotex Corp.",
+      "brand_name": "Cyclosporine",
+      "active_ingredients": [
+        {
+          "name": "CYCLOSPORINE",
+          "strength": "100 mg/1"
+        }
+      ],
+      "finished": true,
+      "packaging": [
+        {
+          "package_ndc": "60505-0134-0",
+          "description": "30 CAPSULE, GELATIN COATED in 1 BOTTLE (60505-0134-0)",
+          "marketing_start_date": "20020529",
+          "sample": false
+        }
+      ],
+      "listing_expiration_date": "20271231",
+      "openfda": {
+        "manufacturer_name": [
+          "Apotex Corp."
+        ],
+        "rxcui": [
+          "197553",
+          "328160"
+        ],
+        "spl_set_id": [
+          "bfca7088-fe93-abb9-3ec3-e6f5710a69c6"
+        ],
+        "is_original_packager": [
+          true
+        ],
+        "nui": [
+          "N0000175457",
+          "N0000175458",
+          "N0000182141",
+          "N0000185503"
+        ],
+        "pharm_class_epc": [
+          "Calcineurin Inhibitor Immunosuppressant [EPC]"
+        ],
+        "pharm_class_moa": [
+          "Calcineurin Inhibitors [MoA]",
+          "Cytochrome P450 3A4 Inhibitors [MoA]",
+          "P-Glycoprotein Inhibitors [MoA]"
+        ],
+        "unii": [
+          "83HN0GTJ6D"
+        ]
+      },
+      "marketing_category": "ANDA",
+      "dosage_form": "CAPSULE, GELATIN COATED",
+      "spl_id": "561ed7a8-f342-f4fe-ce36-998d87c33e7f",
+      "product_type": "HUMAN PRESCRIPTION DRUG",
+      "route": [
+        "ORAL"
+      ],
+      "marketing_start_date": "20020529",
+      "product_id": "60505-0134_561ed7a8-f342-f4fe-ce36-998d87c33e7f",
+      "application_number": "ANDA065040",
+      "brand_name_base": "Cyclosporine",
+      "pharm_class": [
+        "Calcineurin Inhibitor Immunosuppressant [EPC]",
+        "Calcineurin Inhibitors [MoA]",
+        "Cytochrome P450 3A4 Inhibitors [MoA]",
+        "P-Glycoprotein Inhibitors [MoA]"
+      ]
+    }
+  ]
+}
