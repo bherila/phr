@@ -451,4 +451,21 @@ final class MedicationFillControllerTest extends TestCase
         $this->actingAs($other)->getJson('/api/ndc/search?name=atorvastatin')->assertOk();
         $this->assertSame($requests, count($this->openFdaRequests), 'a repeated search is served from the short cache');
     }
+
+    public function test_a_person_edited_medication_survives_orphan_cleanup(): void
+    {
+        ['owner' => $owner, 'patientId' => $patientId] = $this->patientWithViewer();
+        $base = "/api/phr/patients/{$patientId}/medication-fills";
+        $created = $this->actingAs($owner)->postJson($base, $this->body())->assertCreated()->json('medication_fill');
+
+        // The person adds a frequency and a reason before confirming the generated entry.
+        $this->travel(10)->seconds();
+        $this->actingAs($owner)->patchJson("/api/phr/patients/{$patientId}/medications/{$created['medication_id']}", ['frequency' => 'daily', 'reason_for_use' => 'cholesterol'])->assertOk();
+        $this->assertSame(PhrReviewStatus::PENDING, PhrMedication::query()->findOrFail($created['medication_id'])->review_status, 'edited but not yet confirmed');
+
+        $this->actingAs($owner)->deleteJson("{$base}/{$created['id']}")->assertNoContent();
+
+        $this->assertNotSoftDeleted('phr_medications', ['id' => $created['medication_id']]);
+        $this->assertSame('cholesterol', PhrMedication::query()->findOrFail($created['medication_id'])->reason_for_use);
+    }
 }

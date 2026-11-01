@@ -170,18 +170,26 @@ class MedicationFillMedicationLinker
         return (clone $medications)->whereRaw('LOWER(name) = ?', [$printed])->orderBy('id')->first();
     }
 
-    /** Substances, strengths and dosage form, lowercased and ordered, or null when the drug is unknown. */
+    /**
+     * Each ingredient with its own strength, plus the dosage form, lowercased and
+     * ordered, or null when the drug is unknown. Pairs stay together: a combination of
+     * A 5 mg + B 10 mg is not A 10 mg + B 5 mg.
+     */
     private function signature(PhrMedicationFill $fill): ?string
     {
-        $substances = array_map(mb_strtolower(...), (array) $fill->substance_names);
+        $substances = array_values(array_map(mb_strtolower(...), array_filter((array) $fill->substance_names, is_string(...))));
         if ($substances === []) {
             return null;
         }
-        $strengths = array_map(mb_strtolower(...), (array) $fill->strengths);
-        sort($substances);
-        sort($strengths);
+        $strengths = array_values(array_map(mb_strtolower(...), array_filter((array) $fill->strengths, is_string(...))));
+        // openFDA lists each ingredient's strength beside its name, in the same order. If the
+        // counts disagree they cannot be paired, so the strengths are kept as a separate list.
+        $ingredients = count($strengths) === count($substances)
+            ? array_map(static fn (string $name, string $strength): string => $name.'|'.$strength, $substances, $strengths)
+            : [...$substances, '|'.implode(',', $strengths)];
+        sort($ingredients);
 
-        return json_encode([$substances, $strengths, mb_strtolower((string) $fill->dosage_form)], JSON_THROW_ON_ERROR);
+        return json_encode([$ingredients, mb_strtolower((string) $fill->dosage_form)], JSON_THROW_ON_ERROR);
     }
 
     private function createFor(PhrPatient $patient, PhrMedicationFill $fill): PhrMedication
@@ -239,12 +247,17 @@ class MedicationFillMedicationLinker
     }
 
     /**
-     * An entry this linker made, still waiting for review, that no live fill uses
-     * any more is withdrawn; anything a person touched or other fills use stays.
+     * An entry this linker made that nobody has touched, still waiting for review, and
+     * that no live fill uses any more is withdrawn; anything a person reviewed or edited,
+     * or other fills use, stays. Editing bumps updated_at (the linker never writes to the
+     * entry after creating it), so a later updated_at means a person's changes are in it.
      */
     private function discardIfOrphan(PhrMedication $medication, PhrMedicationFill $fill): void
     {
         if ($medication->import_source !== self::IMPORT_SOURCE || $medication->review_status !== PhrReviewStatus::PENDING) {
+            return;
+        }
+        if ($medication->updated_at !== null && $medication->created_at !== null && $medication->updated_at->gt($medication->created_at)) {
             return;
         }
         $stillUsed = PhrMedicationFill::query()
