@@ -175,7 +175,13 @@ final readonly class SignedDocumentUploadService
             }
 
             $file = new UploadedFile($disk->path($path), $upload->filename, $upload->content_type, null, true);
-            Validator::make(['file' => $file], ['file' => (new StorePhrDocumentRequest)->rules()['file']])->validate();
+            $rules = (new StorePhrDocumentRequest)->rules()['file'];
+            if ($upload->content_type === 'text/plain') {
+                // A .txt that holds a CSV (a Delta Dental claim export, for eobs.import) sniffs as
+                // text/csv; as plain text it is within the allowlist.
+                $rules = array_map(static fn (mixed $rule): mixed => is_string($rule) && str_starts_with($rule, 'mimes:') ? $rule.',csv' : $rule, $rules);
+            }
+            Validator::make(['file' => $file], ['file' => $rules])->validate();
 
             // The declared type is the agent's word; the bytes must agree with it.
             $sniffed = (string) $file->getMimeType();

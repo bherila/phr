@@ -48,6 +48,10 @@ final class AgentClinicalReadController extends Controller
                 ->withCount('entries')
                 ->withMax('entries as latest_entry_at', 'occurred_at');
         }
+        if ($resource === 'medication-fills') {
+            // One query for the page's evidence rather than one per fill.
+            $query->with(['medication:id,name', 'evidence']);
+        }
 
         $limit = (int) ($validated['limit'] ?? 25);
         $page = $query

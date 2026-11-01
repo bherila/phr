@@ -220,6 +220,16 @@ final class AgentApiSignedDocumentUploadTest extends TestCase
         }
     }
 
+    public function test_a_csv_claim_export_is_uploaded_as_plain_text(): void
+    {
+        $csv = "Claim Number,Date of Service\n20300102000001,2030-01-02\n";
+        $session = $this->open(['content_type' => 'text/plain', 'filename' => 'claims.txt', 'byte_size' => strlen($csv)])->assertCreated()->json('data');
+        $this->putBytes($session['url'], $csv, 'text/plain')->assertOk();
+        $this->actingWith([AgentApiScopes::DOCUMENTS_WRITE]);
+        $this->finalize($session['upload_id'])->assertCreated();
+        $this->assertSame($csv, Storage::disk(PhrDocument::STORAGE_DISK)->get((string) PhrDocument::query()->sole()->storage_path));
+    }
+
     public function test_the_stored_bytes_must_be_what_the_content_type_says(): void
     {
         $session = $this->open(['content_type' => 'image/png', 'filename' => 'label.png', 'byte_size' => 9])->assertCreated()->json('data');

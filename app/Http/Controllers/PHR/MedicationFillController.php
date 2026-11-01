@@ -144,7 +144,7 @@ class MedicationFillController extends Controller
         $userId = (int) $request->user()?->id;
         $resolvedPatient = $this->accessService->accessiblePatient($patient, $userId);
 
-        $query = PhrMedicationFill::query()->with('medication:id,name')->where('patient_id', $resolvedPatient->id);
+        $query = PhrMedicationFill::query()->with(['medication:id,name', 'evidence'])->where('patient_id', $resolvedPatient->id);
         PhrRecordLifecycle::scopeLive($query);
         if (! $request->boolean('include_rejected')) {
             $query->where('review_status', '!=', PhrReviewStatus::REJECTED);
@@ -203,6 +203,6 @@ class MedicationFillController extends Controller
      */
     protected function showQuery(Builder $query): Builder
     {
-        return $query->with('medication:id,name');
+        return $query->with(['medication:id,name', 'evidence']);
     }
 }

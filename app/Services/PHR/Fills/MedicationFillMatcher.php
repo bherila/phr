@@ -40,7 +40,7 @@ final class MedicationFillMatcher
     private const array NOISE = [
         'pharmacy', 'pharmacies', 'inc', 'llc', 'co', 'corp', 'the', 'store', 'drug', 'drugs', 'rx',
         'tab', 'tabs', 'tablet', 'tablets', 'cap', 'caps', 'capsule', 'capsules', 'film', 'coated', 'oral',
-        'solution', 'suspension', 'and', 'for', 'with', 'extended', 'release', 'delayed', 'hcl', 'hydrochloride',
+        'solution', 'suspension', 'and', 'for', 'with', 'hcl', 'hydrochloride',
     ];
 
     /**
@@ -163,6 +163,11 @@ final class MedicationFillMatcher
         if ($mine === [] || $theirs === []) {
             return self::UNKNOWN;
         }
+        // A different release formulation is a different product, though its name is a superset.
+        if ($this->qualifiers($incoming['drug_as_printed'] ?? null, $incoming['brand_name'] ?? null, $incoming['substance_names'] ?? null)
+            !== $this->qualifiers($existing->drug_as_printed, $existing->brand_name, $existing->substance_names)) {
+            return self::DIFFERENT;
+        }
         // Every identifying word of the shorter name must be in the longer one ("atorvastatin
         // calcium" is "atorvastatin"; "levothyroxine sodium" is not "liothyronine sodium", though
         // both say sodium). A partial overlap settles nothing, so it is neither a match nor a flag.
@@ -178,6 +183,34 @@ final class MedicationFillMatcher
         }
 
         return self::SAME;
+    }
+
+    /**
+     * The release-formulation words a name carries ("extended release", "ER", "XL"): metformin and
+     * metformin ER are not interchangeable.
+     *
+     * @return list<string>
+     */
+    private function qualifiers(mixed ...$sources): array
+    {
+        $found = [];
+        foreach ($sources as $source) {
+            foreach (is_array($source) ? $source : [$source] as $text) {
+                foreach (preg_split('/[^a-z0-9]+/', strtolower(is_scalar($text) ? (string) $text : ''), -1, PREG_SPLIT_NO_EMPTY) ?: [] as $word) {
+                    $found[] = match ($word) {
+                        'extended', 'er', 'xr', 'xl', 'sr', 'cr', 'la', 'prolonged' => 'extended',
+                        'delayed', 'dr', 'ec', 'enteric' => 'delayed',
+                        'orally', 'odt', 'disintegrating' => 'disintegrating',
+                        'chewable' => 'chewable',
+                        default => null,
+                    };
+                }
+            }
+        }
+        $found = array_values(array_unique(array_filter($found)));
+        sort($found);
+
+        return $found;
     }
 
     private function quantity(mixed $a, mixed $b): string

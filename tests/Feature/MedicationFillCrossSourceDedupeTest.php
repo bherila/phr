@@ -15,6 +15,7 @@ use App\Support\AgentApi\AgentApiScopes;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
 use Laravel\Passport\Client;
 use Laravel\Passport\Passport;
@@ -185,6 +186,23 @@ final class MedicationFillCrossSourceDedupeTest extends TestCase
             ->assertOk()
             ->assertJsonPath('dedupe.status', 'matched');
         $this->assertSame(2, PhrMedicationFill::query()->count());
+    }
+
+    public function test_a_different_release_formulation_is_a_different_fill_and_the_list_loads_evidence_once(): void
+    {
+        $base = ['ndc' => null, 'rx_number' => null, 'quantity' => 60, 'pharmacy_name' => 'Example Pharmacy', 'source_kind' => 'receipt_pdf'];
+        $this->fill('receipt', $this->document(), [...$base, 'drug_as_printed' => 'Metformin 500 mg tablets'])->assertCreated();
+        $this->fill('statement', $this->document(), [...$base, 'drug_as_printed' => 'Metformin 500 mg extended release tablets', 'source_kind' => 'statement'])
+            ->assertCreated()->assertJsonPath('dedupe.status', 'none');
+        // "ER" and "extended release" are the same formulation.
+        $this->fill('label', $this->document(), [...$base, 'drug_as_printed' => 'Metformin ER 500 mg', 'source_kind' => 'label_photo'])
+            ->assertOk()->assertJsonPath('dedupe.status', 'matched');
+        $this->assertSame(2, PhrMedicationFill::query()->count());
+
+        DB::enableQueryLog();
+        $this->getJson("/api/v1/patients/{$this->patient->id}/medication-fills")->assertOk()->assertJsonCount(2, 'data');
+        $evidenceQueries = array_filter(DB::getQueryLog(), static fn (array $query): bool => str_contains($query['query'], 'phr_medication_fill_evidence'));
+        $this->assertCount(1, $evidenceQueries, 'one query for the page, not one per fill');
     }
 
     public function test_an_identity_merged_into_another_fill_stays_there_and_is_not_recreated_after_a_delete(): void
