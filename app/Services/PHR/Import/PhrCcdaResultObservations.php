@@ -3,8 +3,6 @@
 namespace App\Services\PHR\Import;
 
 use DOMElement;
-use DOMNode;
-use DOMText;
 use DOMXPath;
 
 /**
@@ -23,16 +21,16 @@ use DOMXPath;
  */
 final class PhrCcdaResultObservations
 {
-    private const string XSI = 'http://www.w3.org/2001/XMLSchema-instance';
-
     private const string RESULT_ORGANIZER = '2.16.840.1.113883.10.20.22.4.1';
 
     private const string RESULT_OBSERVATION = '2.16.840.1.113883.10.20.22.4.2';
 
-    /** Narrative elements whose children are separate lines, not one run of text. */
-    private const array BLOCK_ELEMENTS = ['paragraph', 'br', 'item', 'list', 'tr', 'td', 'th', 'table', 'tbody', 'thead'];
+    private readonly PhrCcdaXml $xml;
 
-    public function __construct(private DOMXPath $xpath) {}
+    public function __construct(private DOMXPath $xpath)
+    {
+        $this->xml = new PhrCcdaXml($xpath);
+    }
 
     /**
      * @return list<array<string, string|bool|null>>
@@ -84,15 +82,15 @@ final class PhrCcdaResultObservations
      */
     private function narrativeCells(DOMElement $observation): ?array
     {
-        $code = $this->child($observation, 'code');
-        foreach ([$this->child($observation, 'text'), $code === null ? null : $this->child($code, 'originalText')] as $element) {
-            $reference = $element === null ? null : $this->attribute($this->child($element, 'reference'), 'value');
-            $target = $reference !== null && str_starts_with($reference, '#') ? $this->narrativeElement(substr($reference, 1)) : null;
+        $code = $this->xml->child($observation, 'code');
+        foreach ([$this->xml->child($observation, 'text'), $code === null ? null : $this->xml->child($code, 'originalText')] as $element) {
+            $reference = $element === null ? null : $this->xml->attribute($this->xml->child($element, 'reference'), 'value');
+            $target = $reference !== null && str_starts_with($reference, '#') ? $this->xml->narrativeElement(substr($reference, 1)) : null;
             if ($target === null) {
                 continue;
             }
 
-            $row = $target->localName === 'tr' ? $target : $this->first('ancestor::*[local-name()="tr"][1]', $target);
+            $row = $target->localName === 'tr' ? $target : $this->xml->first('ancestor::*[local-name()="tr"][1]', $target);
             // The rows that reader takes: those directly in a table or its tbody.
             if ($row === null || ! in_array($row->parentNode?->localName, ['tbody', 'table'], true)) {
                 continue;
@@ -108,10 +106,10 @@ final class PhrCcdaResultObservations
 
     private function sourceId(DOMElement $observation): ?string
     {
-        $id = $this->child($observation, 'id');
-        $root = $this->attribute($id, 'root');
+        $id = $this->xml->child($observation, 'id');
+        $root = $this->xml->attribute($id, 'root');
 
-        return $root === null ? null : $root.'|'.($this->attribute($id, 'extension') ?? '');
+        return $root === null ? null : $root.'|'.($this->xml->attribute($id, 'extension') ?? '');
     }
 
     /**
@@ -121,28 +119,28 @@ final class PhrCcdaResultObservations
     {
         // Named by its code's display name or original text, else by the
         // narrative its own <text> points at, else by the code itself.
-        $code = $this->child($observation, 'code');
-        $analyte = $this->codeName($code)
-            ?? $this->edText($this->child($observation, 'text'))
-            ?? $this->codeLabel($code);
+        $code = $this->xml->child($observation, 'code');
+        $analyte = $this->xml->codeName($code)
+            ?? $this->xml->edText($this->xml->child($observation, 'text'))
+            ?? $this->xml->codeLabel($code);
         if ($analyte === null) {
             return null;
         }
 
         $organizer = $this->organizer($observation);
-        [$value, $unit] = $this->value($this->child($observation, 'value'));
-        $observedAt = $this->time($this->child($observation, 'effectiveTime'))
-            ?? ($organizer === null ? null : $this->time($this->child($organizer, 'effectiveTime')));
+        [$value, $unit] = $this->value($this->xml->child($observation, 'value'));
+        $observedAt = $this->time($this->xml->child($observation, 'effectiveTime'))
+            ?? ($organizer === null ? null : $this->time($this->xml->child($organizer, 'effectiveTime')));
 
         return [
-            'test_name' => ($organizer === null ? null : $this->codeName($this->child($organizer, 'code'))) ?? $analyte,
+            'test_name' => ($organizer === null ? null : $this->xml->codeName($this->xml->child($organizer, 'code'))) ?? $analyte,
             'analyte' => $analyte,
             'observed_at' => $observedAt,
             'value' => $value,
             'unit' => $unit,
             ...$this->referenceRange($observation),
             // The observation's own interpretation; the range carries its own "N".
-            'abnormal_flag' => $this->interpretation($this->child($observation, 'interpretationCode')),
+            'abnormal_flag' => $this->interpretation($this->xml->child($observation, 'interpretationCode')),
             'external_id' => 'ccda-lab-'.sha1(implode('|', $this->identity($observation, $analyte, $observedAt, $value, $unit))),
         ];
     }
@@ -157,10 +155,10 @@ final class PhrCcdaResultObservations
             return ['reference_range_text' => null, 'range_min' => null, 'range_max' => null, 'range_min_inclusive' => null, 'range_max_inclusive' => null, 'range_unit' => null];
         }
 
-        $value = $this->child($range, 'value');
-        $type = $this->type($value);
-        [$low, $lowUnit, $lowInclusive] = $this->bound($value === null ? null : $this->child($value, 'low'));
-        [$high, $highUnit, $highInclusive] = $this->bound($value === null ? null : $this->child($value, 'high'));
+        $value = $this->xml->child($range, 'value');
+        $type = $this->xml->type($value);
+        [$low, $lowUnit, $lowInclusive] = $this->bound($value === null ? null : $this->xml->child($value, 'low'));
+        [$high, $highUnit, $highInclusive] = $this->bound($value === null ? null : $this->xml->child($value, 'high'));
         $rangeUnit = $lowUnit ?? $highUnit;
 
         // The bounds and their unit are the range. Text is only what the source
@@ -169,9 +167,9 @@ final class PhrCcdaResultObservations
         // to range_unit and is never appended. A source whose text is only a unit
         // keeps that text; nothing structured marks it as a unit rather than a
         // qualitative range.
-        $text = $this->edText($this->child($range, 'text'));
+        $text = $this->xml->edText($this->xml->child($range, 'text'));
         if ($text === null && $type === 'ST') {
-            $text = $this->edText($value);
+            $text = $this->xml->edText($value);
         }
 
         return [
@@ -193,13 +191,13 @@ final class PhrCcdaResultObservations
     private function observationRange(DOMElement $observation): ?DOMElement
     {
         $first = null;
-        foreach ($this->children($observation, 'referenceRange') as $referenceRange) {
-            $range = $this->child($referenceRange, 'observationRange');
+        foreach ($this->xml->children($observation, 'referenceRange') as $referenceRange) {
+            $range = $this->xml->child($referenceRange, 'observationRange');
             if ($range === null) {
                 continue;
             }
             $first ??= $range;
-            $interpretation = $this->attribute($this->child($range, 'interpretationCode'), 'code');
+            $interpretation = $this->xml->attribute($this->xml->child($range, 'interpretationCode'), 'code');
             if ($interpretation === null || $interpretation === 'N') {
                 return $range;
             }
@@ -222,13 +220,13 @@ final class PhrCcdaResultObservations
         }
 
         // An xs:boolean: true, false, 1 or 0.
-        $inclusive = ValueCoercion::boolean($this->attribute($bound, 'inclusive'));
-        $number = ValueCoercion::numeric($this->attribute($bound, 'value'));
-        $unit = $this->attribute($bound, 'unit');
-        $translation = $this->child($bound, 'translation');
+        $inclusive = ValueCoercion::boolean($this->xml->attribute($bound, 'inclusive'));
+        $number = ValueCoercion::numeric($this->xml->attribute($bound, 'value'));
+        $unit = $this->xml->attribute($bound, 'unit');
+        $translation = $this->xml->child($bound, 'translation');
         if ($number === null && $translation !== null) {
-            $number = ValueCoercion::numeric($this->attribute($translation, 'value'));
-            $unit ??= $this->edText($this->child($translation, 'originalText'));
+            $number = ValueCoercion::numeric($this->xml->attribute($translation, 'value'));
+            $unit ??= $this->xml->edText($this->xml->child($translation, 'originalText'));
         }
 
         return [$number, $unit, $inclusive];
@@ -253,12 +251,12 @@ final class PhrCcdaResultObservations
             return [null, null];
         }
 
-        return match ($this->type($value)) {
+        return match ($this->xml->type($value)) {
             'PQ' => $this->quantity($value),
             'IVL_PQ', 'IVL_REAL', 'IVL_INT' => $this->interval($value),
-            'ST', 'ED' => [$this->edText($value), null],
-            'CD', 'CE', 'CO', 'CV' => [$this->codeName($value) ?? $this->codeLabel($value), null],
-            default => [ValueCoercion::string($this->attribute($value, 'value')) ?? $this->edText($value), null],
+            'ST', 'ED' => [$this->xml->edText($value), null],
+            'CD', 'CE', 'CO', 'CV' => [$this->xml->codeName($value) ?? $this->xml->codeLabel($value), null],
+            default => [ValueCoercion::string($this->xml->attribute($value, 'value')) ?? $this->xml->edText($value), null],
         };
     }
 
@@ -267,19 +265,19 @@ final class PhrCcdaResultObservations
      */
     private function quantity(DOMElement $value): array
     {
-        $number = ValueCoercion::string($this->attribute($value, 'value'));
+        $number = ValueCoercion::string($this->xml->attribute($value, 'value'));
         if ($number !== null) {
-            return [$number, $this->attribute($value, 'unit')];
+            return [$number, $this->xml->attribute($value, 'unit')];
         }
 
-        $translation = $this->child($value, 'translation');
+        $translation = $this->xml->child($value, 'translation');
         if ($translation === null) {
             return [null, null];
         }
 
         return [
-            ValueCoercion::string($this->attribute($translation, 'value')),
-            $this->edText($this->child($translation, 'originalText')),
+            ValueCoercion::string($this->xml->attribute($translation, 'value')),
+            $this->xml->edText($this->xml->child($translation, 'originalText')),
         ];
     }
 
@@ -290,39 +288,12 @@ final class PhrCcdaResultObservations
      */
     private function interval(DOMElement $value): array
     {
-        [$low, $lowUnit, $lowInclusive] = $this->bound($this->child($value, 'low'));
-        [$high, $highUnit, $highInclusive] = $this->bound($this->child($value, 'high'));
+        [$low, $lowUnit, $lowInclusive] = $this->bound($this->xml->child($value, 'low'));
+        [$high, $highUnit, $highInclusive] = $this->bound($this->xml->child($value, 'high'));
         // A value's text has always read an unstated bound as HL7 does, inclusive.
         $text = $this->boundsText($low, $lowInclusive ?? true, $high, $highInclusive ?? true);
 
         return [$text, $text === null ? null : ($lowUnit ?? $highUnit)];
-    }
-
-    private function codeName(?DOMElement $code): ?string
-    {
-        if ($code === null) {
-            return null;
-        }
-
-        return $this->attribute($code, 'displayName')
-            ?? $this->edText($this->child($code, 'originalText'))
-            ?? $this->attribute($this->child($code, 'translation'), 'displayName');
-    }
-
-    /**
-     * A code that has nothing else to name it: `codeSystemName|code`, or the
-     * code alone.
-     */
-    private function codeLabel(?DOMElement $code): ?string
-    {
-        $value = $this->attribute($code, 'code');
-        if ($value === null) {
-            return null;
-        }
-
-        $system = $this->attribute($code, 'codeSystemName');
-
-        return $system === null ? $value : "{$system}|{$value}";
     }
 
     /**
@@ -334,76 +305,7 @@ final class PhrCcdaResultObservations
             return null;
         }
 
-        return $this->attribute($code, 'code') ?? $this->edText($this->child($code, 'originalText'));
-    }
-
-    /**
-     * Text of an element that may hold its text by reference (ED and ST values,
-     * `text`, `originalText`): the narrative it points at when it has a
-     * reference, otherwise its own text. Every text read in this class goes
-     * through here, so a reference-only element never reads as empty.
-     */
-    private function edText(?DOMElement $element): ?string
-    {
-        if ($element === null) {
-            return null;
-        }
-
-        $reference = $this->attribute($this->child($element, 'reference'), 'value');
-        if ($reference !== null && str_starts_with($reference, '#')) {
-            $target = $this->narrativeElement(substr($reference, 1));
-            if ($target !== null) {
-                return $this->plainText($target);
-            }
-        }
-
-        return $this->plainText($element, skipReference: true);
-    }
-
-    private function narrativeElement(string $id): ?DOMElement
-    {
-        if ($id === '' || str_contains($id, '"')) {
-            return null;
-        }
-
-        return $this->first('//*[@ID="'.$id.'"]');
-    }
-
-    /**
-     * Text of one element with block-level children kept apart, whitespace
-     * collapsed, and an empty result as null.
-     */
-    private function plainText(DOMNode $node, bool $skipReference = false): ?string
-    {
-        $parts = [];
-        $this->collectText($node, $parts, $skipReference);
-        $text = preg_replace('/\s+/u', ' ', implode('', $parts)) ?? '';
-
-        return ValueCoercion::string($text);
-    }
-
-    /**
-     * @param  list<string>  $parts
-     */
-    private function collectText(DOMNode $node, array &$parts, bool $skipReference): void
-    {
-        foreach ($node->childNodes as $child) {
-            if ($child instanceof DOMText) {
-                $parts[] = $child->data;
-            } elseif ($child instanceof DOMElement) {
-                if ($skipReference && $child->localName === 'reference') {
-                    continue;
-                }
-                $block = in_array($child->localName, self::BLOCK_ELEMENTS, true);
-                if ($block) {
-                    $parts[] = ' ';
-                }
-                $this->collectText($child, $parts, $skipReference);
-                if ($block) {
-                    $parts[] = ' ';
-                }
-            }
-        }
+        return $this->xml->attribute($code, 'code') ?? $this->xml->edText($this->xml->child($code, 'originalText'));
     }
 
     /**
@@ -411,8 +313,8 @@ final class PhrCcdaResultObservations
      */
     private function time(?DOMElement $effectiveTime): ?string
     {
-        $value = $this->attribute($effectiveTime, 'value')
-            ?? ($effectiveTime === null ? null : $this->attribute($this->child($effectiveTime, 'low'), 'value'));
+        $value = $this->xml->attribute($effectiveTime, 'value')
+            ?? ($effectiveTime === null ? null : $this->xml->attribute($this->xml->child($effectiveTime, 'low'), 'value'));
         if ($value === null || preg_match('/^(\d{4})(\d{2})(\d{2})(?:(\d{2})(\d{2})?(\d{2})?(?:\.\d+)?)?([+-]\d{4})?$/', $value, $m) !== 1) {
             return null;
         }
@@ -434,10 +336,10 @@ final class PhrCcdaResultObservations
      */
     private function identity(DOMElement $observation, string $analyte, ?string $observedAt, ?string $value, ?string $unit): array
     {
-        $id = $this->child($observation, 'id');
-        $root = $this->attribute($id, 'root');
+        $id = $this->xml->child($observation, 'id');
+        $root = $this->xml->attribute($id, 'root');
         if ($root !== null) {
-            return ['id', $root, $this->attribute($id, 'extension') ?? ''];
+            return ['id', $root, $this->xml->attribute($id, 'extension') ?? ''];
         }
 
         return ['content', $analyte, $observedAt ?? '', $value ?? '', $unit ?? ''];
@@ -445,60 +347,6 @@ final class PhrCcdaResultObservations
 
     private function organizer(DOMElement $observation): ?DOMElement
     {
-        return $this->first('ancestor::*[local-name()="organizer"][*[local-name()="templateId"][@root="'.self::RESULT_ORGANIZER.'"]][1]', $observation);
-    }
-
-    private function first(string $query, ?DOMNode $context = null): ?DOMElement
-    {
-        $matches = $this->xpath->query($query, $context);
-        $match = $matches === false ? null : $matches->item(0);
-
-        return $match instanceof DOMElement ? $match : null;
-    }
-
-    private function type(?DOMElement $element): ?string
-    {
-        if ($element === null) {
-            return null;
-        }
-
-        $type = $element->getAttributeNS(self::XSI, 'type');
-        if ($type === '') {
-            $type = $element->getAttribute('xsi:type');
-        }
-        // A prefixed type ("v3:PQ") names the same datatype.
-        $type = substr((string) strrchr(':'.$type, ':'), 1);
-
-        return $type === '' ? null : strtoupper($type);
-    }
-
-    private function attribute(?DOMElement $element, string $name): ?string
-    {
-        if ($element === null || ! $element->hasAttribute($name)) {
-            return null;
-        }
-
-        return ValueCoercion::string($element->getAttribute($name));
-    }
-
-    private function child(DOMElement $parent, string $localName): ?DOMElement
-    {
-        foreach ($this->children($parent, $localName) as $child) {
-            return $child;
-        }
-
-        return null;
-    }
-
-    /**
-     * @return iterable<DOMElement>
-     */
-    private function children(DOMElement $parent, string $localName): iterable
-    {
-        foreach ($parent->childNodes as $child) {
-            if ($child instanceof DOMElement && $child->localName === $localName) {
-                yield $child;
-            }
-        }
+        return $this->xml->first('ancestor::*[local-name()="organizer"][*[local-name()="templateId"][@root="'.self::RESULT_ORGANIZER.'"]][1]', $observation);
     }
 }

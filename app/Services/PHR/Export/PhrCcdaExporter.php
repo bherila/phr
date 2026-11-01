@@ -5,6 +5,7 @@ namespace App\Services\PHR\Export;
 use App\Models\PhrPatient;
 use App\Support\PHR\PhrLabReferenceRangeNotation;
 use Illuminate\Support\Str;
+use Throwable;
 use XMLWriter;
 
 class PhrCcdaExporter
@@ -12,7 +13,8 @@ class PhrCcdaExporter
     /**
      * C-CDA 5.0 section templates that describe the existing narrative tables.
      *
-     * The eight entries-required clinical sections deliberately retain their human-readable
+     * Results carries structured Result Organizer entries beside its narrative table. The
+     * other seven entries-required clinical sections deliberately retain their human-readable
      * tables without claiming that those rows are structured C-CDA entries. See
      * docs/ccda-conformance.md for the interoperability boundary and validation baseline.
      *
@@ -82,14 +84,15 @@ class PhrCcdaExporter
         $xml->startElement('component');
         $xml->startElement('structuredBody');
 
-        $this->section($xml, 'Results', ['Date', 'Test', 'Value', 'Unit', 'Reference', 'Flag'], $data['lab_results']->map(fn ($lab): array => [
+        $labs = $data['lab_results']->values()->all();
+        $this->section($xml, 'Results', ['Date', 'Test', 'Value', 'Unit', 'Reference', 'Flag'], array_map(fn ($lab): array => [
             $lab->result_datetime?->toDateString() ?? $lab->collection_datetime?->toDateString(),
             $lab->analyte ?? $lab->test_name,
             $lab->value ?? $lab->value_numeric,
             $lab->unit,
             $lab->reference_range_text ?? PhrLabReferenceRangeNotation::fromBounds($lab),
             $lab->abnormal_flag,
-        ])->all());
+        ], $labs), array_map(PhrCcdaResultEntries::rowId(...), array_keys($labs)), fn () => (new PhrCcdaResultEntries($this->deploymentKey()))->write($xml, $labs));
         $this->section($xml, 'Vital Signs', ['Date', 'Name', 'Value', 'Unit'], $data['vitals']->map(fn ($vital): array => [
             $vital->observed_at?->toDateString() ?? $vital->vital_date?->toDateString(),
             $vital->vital_name,
@@ -220,8 +223,10 @@ class PhrCcdaExporter
     /**
      * @param  array<int, string>  $headers
      * @param  array<int, array<int, mixed>>  $rows
+     * @param  array<int, string>  $rowIds  the `ID` of each row, by position, for entries that reference it
+     * @param  (callable(): void)|null  $entries  writes the section's structured entries after its narrative
      */
-    private function section(XMLWriter $xml, string $title, array $headers, array $rows): void
+    private function section(XMLWriter $xml, string $title, array $headers, array $rows, array $rowIds = [], ?callable $entries = null): void
     {
         $xml->startElement('component');
         $xml->startElement('section');
@@ -255,8 +260,11 @@ class PhrCcdaExporter
         $xml->endElement();
         $xml->endElement();
         $xml->startElement('tbody');
-        foreach ($rows as $row) {
+        foreach ($rows as $position => $row) {
             $xml->startElement('tr');
+            if (isset($rowIds[$position])) {
+                $xml->writeAttribute('ID', $rowIds[$position]);
+            }
             foreach ($headers as $index => $_header) {
                 $xml->writeElement('td', $this->cell($row[$index] ?? null));
             }
@@ -265,6 +273,9 @@ class PhrCcdaExporter
         $xml->endElement();
         $xml->endElement();
         $xml->endElement();
+        if ($entries !== null) {
+            $entries();
+        }
         $xml->endElement();
         $xml->endElement();
     }
@@ -352,6 +363,18 @@ class PhrCcdaExporter
         }
 
         return trim($amount.' '.(is_scalar($unit) ? trim((string) $unit) : ''));
+    }
+
+    /** The application key where there is one; the synthetic fixture runs without an application. */
+    private function deploymentKey(): string
+    {
+        try {
+            $key = config('app.key');
+        } catch (Throwable) {
+            return '';
+        }
+
+        return is_string($key) ? $key : '';
     }
 
     private function cell(mixed $value): string

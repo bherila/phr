@@ -8,7 +8,7 @@
   one dose of several. The entries carry every dose and field explicitly:
 
     imm-display      CVX code with a displayName; lot; manufacturer; dose
-                     number; route; site; performer and organization
+                     number; dose quantity (0.50 mL); route; site; performer and organization
     imm-second-dose  a second dose of the same vaccine, from the same row
     imm-original     CVX code whose originalText references the narrative cell
     imm-name         no code: the product's <name>
@@ -69,6 +69,7 @@
               <statusCode code="completed"/>
               <effectiveTime value="20250101"/>
               <repeatNumber value="2"/>
+              <doseQuantity value="0.50" unit="mL"/>
               <routeCode code="C28161" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="Synthetic intramuscular"/>
               <approachSiteCode code="368208006" codeSystem="2.16.840.1.113883.6.96" displayName="Synthetic left arm"/>
               <performer>

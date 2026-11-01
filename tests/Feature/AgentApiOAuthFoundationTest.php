@@ -215,7 +215,12 @@ class AgentApiOAuthFoundationTest extends TestCase
             'code_verifier' => $verifier,
             'code' => $redirectQuery['code'],
         ])->assertOk()->json();
-        $this->assertSame(900, $issued['expires_in']);
+        // league/oauth2-server derives expires_in from a DateTimeImmutable taken while the
+        // token is built and the real time() when the response is rendered, neither of which
+        // Carbon's frozen clock reaches, so a second can tick over in between. The
+        // configured 15 minute lifetime is what is under test, not the wall clock.
+        $this->assertIsInt($issued['expires_in']);
+        $this->assertEqualsWithDelta(900, $issued['expires_in'], 5);
         $originalAccessToken = Token::query()->where('user_id', $user->id)->sole();
         $originalRefreshToken = RefreshToken::query()->where('access_token_id', $originalAccessToken->id)->sole();
         $this->assertSame((string) $user->id, $originalRefreshToken->provider_user_id);

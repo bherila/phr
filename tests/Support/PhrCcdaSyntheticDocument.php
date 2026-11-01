@@ -28,19 +28,84 @@ final class PhrCcdaSyntheticDocument
 
             $data = [
                 'patient' => $patient,
-                'lab_results' => collect([(object) [
-                    'result_datetime' => null,
-                    'collection_datetime' => null,
-                    'analyte' => 'Synthetic analyte',
-                    'test_name' => 'Synthetic test',
-                    'value' => '1',
-                    'value_numeric' => null,
-                    'unit' => 'unit',
-                    'reference_range_text' => '0 - 2',
-                    'range_min' => null,
-                    'range_max' => null,
-                    'abnormal_flag' => null,
-                ]]),
+                'lab_results' => collect([
+                    (object) [
+                        'id' => 1,
+                        'patient_id' => 1,
+                        'result_datetime' => Carbon::parse('2026-01-01 08:30:00 UTC'),
+                        'collection_datetime' => null,
+                        'result_status' => 'final',
+                        'analyte' => 'Synthetic analyte',
+                        'test_name' => 'Synthetic panel',
+                        'value' => '1',
+                        'value_numeric' => null,
+                        'unit' => 'unit',
+                        'reference_range_text' => null,
+                        'range_min' => '0',
+                        'range_max' => '2',
+                        'range_min_inclusive' => true,
+                        'range_max_inclusive' => false,
+                        'range_unit' => 'unit',
+                        'abnormal_flag' => 'H',
+                    ],
+                    (object) [
+                        'id' => 2,
+                        'patient_id' => 1,
+                        'result_datetime' => Carbon::parse('2026-01-01 08:30:00 UTC'),
+                        'collection_datetime' => null,
+                        'result_status' => 'final',
+                        'analyte' => 'Synthetic comparison',
+                        'test_name' => 'Synthetic panel',
+                        'value' => '<5',
+                        'value_numeric' => null,
+                        'unit' => 'mg/dL',
+                        'reference_range_text' => null,
+                        'range_min' => null,
+                        'range_max' => '200.0000000000',
+                        'range_min_inclusive' => null,
+                        'range_max_inclusive' => false,
+                        'range_unit' => 'mg/dL',
+                        'abnormal_flag' => 'N',
+                    ],
+                    (object) [
+                        'id' => 3,
+                        'patient_id' => 1,
+                        'result_datetime' => Carbon::parse('2026-01-01 08:30:00 UTC'),
+                        'collection_datetime' => null,
+                        'result_status' => 'final',
+                        'analyte' => 'Synthetic count',
+                        'test_name' => 'Synthetic panel',
+                        'value' => '5.2',
+                        'value_numeric' => null,
+                        'unit' => 'x10E3/uL',
+                        'reference_range_text' => null,
+                        'range_min' => '4',
+                        'range_max' => '11',
+                        'range_min_inclusive' => null,
+                        'range_max_inclusive' => null,
+                        'range_unit' => 'thousand per uL',
+                        'abnormal_flag' => 'L',
+                    ],
+                    (object) [
+                        'id' => 4,
+                        'patient_id' => 1,
+                        'result_datetime' => null,
+                        'collection_datetime' => null,
+                        'result_status' => null,
+                        'analyte' => 'Synthetic qualitative',
+                        'test_name' => null,
+                        'value' => 'Negative',
+                        'value_numeric' => null,
+                        'unit' => null,
+                        'reference_range_text' => 'Negative',
+                        'range_min' => null,
+                        'range_max' => null,
+                        'range_min_inclusive' => null,
+                        'range_max_inclusive' => null,
+                        'range_unit' => null,
+                        'abnormal_flag' => 'Abnormal',
+                    ],
+                ]),
                 'vitals' => collect([(object) [
                     'observed_at' => null,
                     'vital_date' => null,
@@ -97,5 +162,20 @@ final class PhrCcdaSyntheticDocument
             Str::createUuidsNormally();
             Carbon::setTestNow();
         }
+    }
+
+    /**
+     * The same document as a reader that knows only the narrative tables sees it: every
+     * structured entry removed.
+     */
+    public static function withoutEntries(string $xml): string
+    {
+        $document = new \DOMDocument;
+        $document->loadXML($xml);
+        foreach (iterator_to_array((new \DOMXPath($document))->query('//*[local-name()="entry"]') ?: []) as $entry) {
+            $entry->parentNode?->removeChild($entry);
+        }
+
+        return (string) $document->saveXML();
     }
 }

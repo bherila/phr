@@ -258,6 +258,25 @@ final class PhrNativeRestoreTest extends TestCase
             ->assertAccepted()->assertJsonPath('restore.status', PhrNativeRestoreAttempt::STATUS_PREVIEW_PENDING);
     }
 
+    public function test_bytes_of_an_append_that_never_committed_are_dropped_so_the_resend_succeeds(): void
+    {
+        $owner = $this->createUser();
+        $attemptId = (int) $this->actingAs($owner)->postJson('/api/phr/data-hub/native-restores/uploads', [
+            'source_file_size_bytes' => 4,
+            'restore_access_grants' => false,
+        ])->assertCreated()->json('restore.id');
+        $chunks = "/api/phr/data-hub/native-restores/{$attemptId}/chunks";
+        $this->actingAs($owner)->post($chunks, ['chunk' => UploadedFile::fake()->createWithContent('chunk.bin', 'ab'), 'offset' => 0])->assertOk();
+        $attempt = PhrNativeRestoreAttempt::query()->findOrFail($attemptId);
+        $path = Storage::disk($attempt->source_storage_disk)->path((string) $attempt->source_storage_path);
+        // A second append reached the file, but its row update rolled back.
+        file_put_contents($path, 'cd', FILE_APPEND);
+
+        $this->actingAs($owner)->post($chunks, ['chunk' => UploadedFile::fake()->createWithContent('chunk.bin', 'cd'), 'offset' => 2])
+            ->assertOk()->assertJsonPath('restore.uploaded_bytes', 4);
+        $this->assertSame('abcd', file_get_contents($path));
+    }
+
     public function test_records_created_after_a_backup_remain_outside_its_conflict_set(): void
     {
         $owner = $this->createUser();
