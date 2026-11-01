@@ -86,13 +86,16 @@ Standard Laravel 422 with `errors`. NDC-specific messages:
 - Fills table columns, left to right. Facts of the drug itself repeat on every fill of it, so the table keeps what differs from fill to fill and the fill's own detail (`/phr/patient/{id}/medication-fills/{fill}`) holds the rest. Which columns show depends on the list's width; see the record lists in `docs/ui-shell.md`:
   1. date (YYYY-MM-DD)
   2. medication: name (NDC `substance_names`; falls back to the linked medication, then `drug_as_printed`), then strength (NDC `strengths`), then route and dosage form (NDC `route`, `dosage_form`) at the widest
-  3. quantity
-  4. paid ($X.XX), with `retail $X.XX` under it on a fill that has a retail price, at the widest
-  5. pharmacy
-  6. prescriber
-  7. review status, while a listed fill is pending or rejected
-  8. actions
-- The fill's detail also holds what is not in the table: retail price, days supply, refills left, Rx number, directions, dosage form, route, brand, manufacturer (NDC `labeler_name`), package description (NDC `package_description`), NDC, the pharmacy's and the drug's own dialogs, and the source documents.
+  3. quantity, the number alone (the unit is in the detail)
+  4. paid ($X.XX)
+  5. no insurance (`retail_cents`, $X.XX), at the widest
+  6. prescriber, at the widest
+  7. pharmacy
+  8. review status, while a listed fill is pending
+  9. actions
+
+  No insurance, prescriber and pharmacy can be hidden per user (`hidden_fill_columns`, saved through `PUT /api/user/display-preferences`). Rejected fills are not listed; the Review page lists them (`GET /api/phr/patients/{id}/review/rejected`).
+- The fill's detail also holds what is not in the table: no-insurance price, days supply, directions, the pharmacy's name, dosage form, route, brand, NDC, and, folded under More details, the pharmacy's location, Rx number, refills left and source documents. The drug dialog adds manufacturer (NDC `labeler_name`), package description (NDC `package_description`) and prescribing information. The NDC as captured shows only in the edit form, when it differs from `ndc_10`.
 - Several ingredients (and their strengths, in the same order) are semicolon-delimited, as in the FDA NDC directory's SUBSTANCENAME: `amoxicillin; clavulanate potassium`, `600 mg/5 mL; 42.9 mg/5 mL`.
 - Brand name and directions are not table columns; they show in the fill's detail and the entry form.
 - Missing values render as "—".
@@ -118,7 +121,7 @@ Where the backend follows phr's existing convention instead of the proposal abov
    - `ndc` resolved: `ndc_status: resolved`, drug fields from openFDA, or from RxNav's NDC history when openFDA does not list the NDC (rule 21).
    - `ndc` ambiguous (10 digits without hyphens only): 422 on `ndc_candidate` ("Choose one of the matching packages") until `ndc_candidate` names one of the candidates' `ndc_10`.
    - `ndc` unresolved: 422 on `ndc` ("No FDA listing matches this NDC"; neither openFDA nor RxNav lists it) unless `allow_unresolved: true`, which saves `ndc_status: unresolved` with `drug_as_printed` as the only drug text.
-9. **Display casing** replaces the retired display-preferences setting: see the Display casing rule above. `users.force_lowercase_display` is dropped, and `/api/user/display-preferences` no longer exists.
+9. **Display casing** replaces the retired lowercase setting: see the Display casing rule above. `users.force_lowercase_display` is dropped. `PUT /api/user/display-preferences` now saves `users.display_preferences`, which holds other choices and has no casing option.
 10. **`MedicationFill.medication`** is `{ "id", "name" }` or null.
 11. **Paths and route names follow phr's `/api/phr` prefix** (the table above wrote `/api/...`). The real routes are:
     - `GET|POST /api/phr/patients/{patient}/medication-fills`, `GET|PATCH|DELETE /api/phr/patients/{patient}/medication-fills/{fill}`, `PATCH /api/phr/patients/{patient}/medication-fills/{fill}/review`
