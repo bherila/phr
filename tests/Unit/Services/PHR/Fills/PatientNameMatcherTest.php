@@ -136,4 +136,37 @@ final class PatientNameMatcherTest extends TestCase
 
         $this->assertSame(PatientNameMatcher::AMBIGUOUS, (new PatientNameMatcher)->match($patients, 'Jane Doe', '2010-05-06')['status']);
     }
+
+    public function test_explicitly_contradictory_middle_names_do_not_match(): void
+    {
+        $matcher = new PatientNameMatcher;
+        $mary = $this->patients([['Jane Mary Doe', null]]);
+
+        // Nobody else qualifies, yet this must ask rather than attach to the wrong chart.
+        $this->assertSame(PatientNameMatcher::NONE, $matcher->match($mary, 'Jane Quincy Doe')['status']);
+        $this->assertSame(PatientNameMatcher::NONE, $matcher->match($mary, 'DOE, JANE QUINCY')['status']);
+        $this->assertSame(PatientNameMatcher::NONE, $matcher->match($mary, 'Jane Q. Doe')['status'], 'Q is not an initial of Mary');
+        $this->assertSame(PatientNameMatcher::NONE, $matcher->match($mary, 'Jane Quincy Doe', '2010-05-06')['status']);
+    }
+
+    public function test_a_missing_middle_name_or_a_compatible_initial_still_matches(): void
+    {
+        $matcher = new PatientNameMatcher;
+
+        $this->assertSame([1], $this->ids($matcher->match($this->patients([['Jane Quincy Doe', null]]), 'Jane Doe')));
+        $this->assertSame([1], $this->ids($matcher->match($this->patients([['Jane Doe', null]]), 'Jane Quincy Doe')));
+        $this->assertSame([1], $this->ids($matcher->match($this->patients([['Jane Quincy Doe', null]]), 'Jane Q. Doe')));
+        $this->assertSame([1], $this->ids($matcher->match($this->patients([['Jane Q Doe', null]]), 'DOE, JANE QUINCY')));
+        $this->assertSame([1], $this->ids($matcher->match($this->patients([['Jane Quincy Anne Doe', null]]), 'Jane Quincy Doe')));
+    }
+
+    public function test_a_contradictory_middle_name_leaves_the_compatible_patient_the_only_match(): void
+    {
+        $patients = $this->patients([['Jane Mary Doe', null], ['Jane Quincy Doe', null]]);
+
+        $result = (new PatientNameMatcher)->match($patients, 'Jane Q Doe');
+
+        $this->assertSame(PatientNameMatcher::MATCHED, $result['status']);
+        $this->assertSame([2], $this->ids($result));
+    }
 }

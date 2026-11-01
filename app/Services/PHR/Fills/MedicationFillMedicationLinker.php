@@ -88,19 +88,34 @@ class MedicationFillMedicationLinker
         if ($signature === null) {
             return mb_strtolower($medication->name) === mb_strtolower(trim((string) $fill->drug_as_printed));
         }
-        [$name, $dose, $unit] = $this->nameAndDose($fill);
-        if (mb_strtolower($medication->name) === mb_strtolower($name)
-            && mb_strtolower(trim($medication->dose.' '.$medication->dose_unit)) === mb_strtolower(trim($dose.' '.$unit))) {
-            return true;
-        }
         $product = $fill->ndc_11 === null ? null : substr($fill->ndc_11, 0, 9);
-        foreach (PhrMedicationFill::query()->where('medication_id', $medication->id)->where('id', '!=', $fill->id)->whereNull('retracted_at')->get() as $other) {
+        $others = PhrMedicationFill::query()->where('medication_id', $medication->id)->where('id', '!=', $fill->id)->whereNull('retracted_at')->get();
+        foreach ($others as $other) {
             if (($product !== null && $other->ndc_11 !== null && substr($other->ndc_11, 0, 9) === $product) || $this->signature($other) === $signature) {
                 return true;
             }
         }
 
-        return false;
+        // Name and dose say nothing about the dosage form, so they only vouch for an entry no
+        // other fill has described: with fills of its own, an entry is judged by those fills.
+        return $others->isEmpty() && $this->matchesNameAndDose($medication, $fill);
+    }
+
+    private function matchesNameAndDose(PhrMedication $medication, PhrMedicationFill $fill): bool
+    {
+        [$name, $dose, $unit] = $this->nameAndDose($fill);
+
+        return mb_strtolower($medication->name) === mb_strtolower($name)
+            && mb_strtolower(trim($medication->dose.' '.$medication->dose_unit)) === mb_strtolower(trim($dose.' '.$unit));
+    }
+
+    private function hasOtherFills(PhrMedication $medication, PhrMedicationFill $fill): bool
+    {
+        return PhrMedicationFill::query()
+            ->where('medication_id', $medication->id)
+            ->where('id', '!=', $fill->id)
+            ->whereNull('retracted_at')
+            ->exists();
     }
 
     /** @return Builder<PhrMedication> */
@@ -149,12 +164,12 @@ class MedicationFillMedicationLinker
                     return $medication;
                 }
             }
-            // A medication entered by hand has no fills to compare, so it matches on the
-            // name and dose a new entry would have been given.
-            [$name, $dose, $unit] = $this->nameAndDose($fill);
+            // A medication entered by hand has no fills to compare, so it matches on the name
+            // and dose a new entry would have been given. One that fills already describe was
+            // judged above by those fills (product, signature with its dosage form), and a
+            // tablet and a capsule of the same ingredient and strength must not merge here.
             foreach ((clone $medications)->orderBy('id')->get() as $medication) {
-                if (mb_strtolower($medication->name) === mb_strtolower($name)
-                    && mb_strtolower(trim($medication->dose.' '.$medication->dose_unit)) === mb_strtolower(trim($dose.' '.$unit))) {
+                if (! $this->hasOtherFills($medication, $fill) && $this->matchesNameAndDose($medication, $fill)) {
                     return $medication;
                 }
             }
