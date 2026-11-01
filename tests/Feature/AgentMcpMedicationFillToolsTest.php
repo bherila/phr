@@ -39,7 +39,7 @@ final class AgentMcpMedicationFillToolsTest extends TestCase
 
         $this->configurePassportKeys();
         Cache::flush();
-        $this->fakeOpenFda(['00002-0800-1']);
+        $this->fakeOpenFda(['00020-800-01']);
         $this->actor = User::factory()->create(['user_role' => 'user']);
         $this->patient = PhrPatient::query()->create(['owner_user_id' => $this->actor->id, 'display_name' => 'Synthetic Mcp Patient', 'birth_date' => '1975-05-05']);
         PhrPatientUserAccess::query()->create([
@@ -168,7 +168,7 @@ final class AgentMcpMedicationFillToolsTest extends TestCase
         $this->assertSame('candidates', $search['status']);
         $this->assertNotEmpty($search['candidates'][0]['match_reasons']);
 
-        $lookup = $this->tool('ndc.lookup', ['ndc' => '00002080001'])['structuredContent'];
+        $lookup = $this->tool('ndc.lookup', ['ndc' => '0002080001'])['structuredContent'];
         $this->assertSame('ambiguous', $lookup['status']);
         $this->assertNull($lookup['selected']);
         $this->assertCount(2, $lookup['candidates']);

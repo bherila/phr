@@ -154,7 +154,8 @@ const numberText = (value: number | null): string => (value === null ? '' : Stri
 function formFromFill(fill: MedicationFill): FillFormState {
   return {
     medicationId: fill.medication_id === null ? '' : String(fill.medication_id),
-    ndc: fill.ndc_as_captured ?? fill.ndc_10 ?? '',
+    // Shown in the ten-digit form; what was captured stays on the record as evidence.
+    ndc: fill.ndc_10 ?? fill.ndc_as_captured ?? '',
     ndcCandidate: '',
     allowUnresolved: fill.ndc_status === 'unresolved',
     drugAsPrinted: fill.drug_as_printed ?? '',

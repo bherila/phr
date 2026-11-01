@@ -79,6 +79,15 @@ class MedicationFillMedicationLinker
         return $this->attach($patient, $fill);
     }
 
+    /**
+     * The labeler and product digits of a fill whose NDC resolved. An unresolved or ambiguous fill
+     * keeps its ten- and eleven-digit forms for display, but they are not a verified identity.
+     */
+    private function productOf(PhrMedicationFill $fill): ?string
+    {
+        return $fill->ndc_status === PhrMedicationFill::NDC_RESOLVED && $fill->ndc_11 !== null ? substr($fill->ndc_11, 0, 9) : null;
+    }
+
     private function fits(PhrMedication $medication, PhrMedicationFill $fill): bool
     {
         if ($fill->rxcui !== null && $fill->rxcui !== '' && $medication->rxnorm_code === $fill->rxcui) {
@@ -88,10 +97,10 @@ class MedicationFillMedicationLinker
         if ($signature === null) {
             return mb_strtolower($medication->name) === mb_strtolower(trim((string) $fill->drug_as_printed));
         }
-        $product = $fill->ndc_11 === null ? null : substr($fill->ndc_11, 0, 9);
+        $product = $this->productOf($fill);
         $others = PhrMedicationFill::query()->where('medication_id', $medication->id)->where('id', '!=', $fill->id)->whereNull('retracted_at')->get();
         foreach ($others as $other) {
-            if (($product !== null && $other->ndc_11 !== null && substr($other->ndc_11, 0, 9) === $product) || $this->signature($other) === $signature) {
+            if (($product !== null && $this->productOf($other) === $product) || $this->signature($other) === $signature) {
                 return true;
             }
         }
@@ -146,10 +155,10 @@ class MedicationFillMedicationLinker
             ->orderBy('id')
             ->get();
 
-        $product = $fill->ndc_11 === null ? null : substr($fill->ndc_11, 0, 9);
+        $product = $this->productOf($fill);
         if ($product !== null) {
             foreach ($others as $other) {
-                if ($other->ndc_11 !== null && substr($other->ndc_11, 0, 9) === $product
+                if ($this->productOf($other) === $product
                     && ($medication = (clone $medications)->find($other->medication_id)) instanceof PhrMedication) {
                     return $medication;
                 }

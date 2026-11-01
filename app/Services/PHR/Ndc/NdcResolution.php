@@ -51,7 +51,7 @@ final readonly class NdcResolution
             'reason' => $this->reason,
             'next_step' => match ($this->status) {
                 self::RESOLVED => null,
-                self::AMBIGUOUS => 'Several packages match. Ask the person which one is on the label, then pass that candidate\'s ndc_10 as ndc_candidate.',
+                self::AMBIGUOUS => 'Several packages match this 10-digit NDC, whose layout is unknown. Ask the person which one is on the label, then pass that candidate\'s ndc_10 as ndc_candidate.',
                 default => $this->reason === self::REASON_UNAVAILABLE
                     ? 'openFDA could not be reached. Try again shortly; do not guess the drug.'
                     : 'No listed package matches. Re-read the NDC from the source, try ndc_search by drug name, or leave the drug fields for the person to enter.',
