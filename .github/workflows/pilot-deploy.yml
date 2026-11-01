@@ -88,6 +88,12 @@ jobs:
           test "$(git rev-parse HEAD)" = "$PILOT_APPLICATION_SHA"
           node scripts/deploy/pilot/manifest.mjs
 
+      - name: Compose the pilot pre-migrate hook
+        run: |
+          set -euo pipefail
+          # Verify the candidate's resolved database destination before provisioning secrets or migrating.
+          cat scripts/deploy/pilot/assert-local-database.sh .github/scripts/provision-phr-candidate-secrets.sh > "$RUNNER_TEMP/pilot-pre-migrate.sh"
+
       - name: Configure pilot-only SSH transport
         uses: bherila/shared-cpanel-deployment/configure-ssh@5798879af588e2c786357b69b314d89932b75803 # v2.6.0
         with:
@@ -190,15 +196,19 @@ jobs:
           retain-releases: '3'
           failure-policy: rollback
           recovery-release-id: ${{ vars.PILOT_RECOVERY_RELEASE_ID }}
-          env-values: DB_URL=
+          env-values: |
+            DB_URL=
+            DB_SOCKET=
           env-assert: |
             DB_URL=
+            DB_SOCKET=
+            DB_CONNECTION=mysql
             PILOT_DEPLOYMENT=1
             APP_DEBUG=false
             MAIL_MAILER=log
             DB_HOST=127.0.0.1
           artisan-commands: phr:agent-api:verify-oauth-keys
-          pre-migrate-script: .github/scripts/provision-phr-candidate-secrets.sh
+          pre-migrate-script: ${{ runner.temp }}/pilot-pre-migrate.sh
           artisan-memory-limit: 1G
           web-memory-limit: 1G
           operational-audit: 'true'

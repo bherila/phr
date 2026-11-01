@@ -15,10 +15,19 @@ php=$3
 "$php" -d memory_limit=1G -d display_errors=0 -d log_errors=0 -r '
 try {
     $env = parse_ini_file($argv[1], false, INI_SCANNER_RAW);
-    if (!is_array($env) || ($env["PILOT_DEPLOYMENT"] ?? "") !== "1"
-        || ($env["APP_DEBUG"] ?? "") !== "false" || ($env["MAIL_MAILER"] ?? "") !== "log"
-        || ($env["DB_HOST"] ?? "") !== "127.0.0.1"
-        || ($env["DB_URL"] ?? "") !== "") { exit(1); }
+    if (!is_array($env)) { exit(1); }
+    // Early refusal only: the pre-migrate hook verifies the resolved configuration.
+    $required = ["PILOT_DEPLOYMENT" => "1", "APP_DEBUG" => "false", "MAIL_MAILER" => "log",
+        "DB_CONNECTION" => "mysql", "DB_HOST" => "127.0.0.1"];
+    foreach ($required as $key => $value) { if (($env[$key] ?? null) !== $value) { exit(1); } }
+    $local = ["", "mysql"];
+    $optional = ["DB_URL" => [""], "DB_SOCKET" => [""], "DB_PORT" => ["3306"],
+        "DB_QUEUE_CONNECTION" => $local, "DB_CACHE_CONNECTION" => $local, "DB_CACHE_LOCK_CONNECTION" => $local,
+        "SESSION_CONNECTION" => $local, "PASSPORT_CONNECTION" => $local,
+        "REDIS_URL" => [""], "REDIS_HOST" => ["127.0.0.1"], "REDIS_PORT" => ["6379"]];
+    foreach ($optional as $key => $values) {
+        if (array_key_exists($key, $env) && !in_array($env[$key], $values, true)) { exit(1); }
+    }
 } catch (Throwable $error) { exit(1); }
 ' "$HOME/$env_source" || { echo 'Private target does not have the required pilot-only configuration.' >&2; exit 1; }
 stable="$HOME/$app"
