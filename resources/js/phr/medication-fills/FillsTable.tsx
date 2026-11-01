@@ -81,7 +81,7 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
         </div>
       ),
     },
-    textColumn('strength', 'Strength', (fill) => fill.drug?.strengths.join(' / ')),
+    textColumn('strength', 'Strength', (fill) => fill.drug?.strengths.join('; ')),
     textColumn('dosage_form', 'Dosage form', (fill) => fill.drug?.dosage_form),
     {
       id: 'quantity',

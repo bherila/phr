@@ -142,6 +142,22 @@ describe('MedicationFillsPage table', () => {
     expect(cells[11]).toHaveTextContent(/^90 tablet, film coated in 1 bottle \(0071-0155-23\)$/)
   })
 
+  it('lists several ingredients and their strengths semicolon-delimited, in the same order', async () => {
+    fills = [makeFill({
+      drug: {
+        ...DRUG,
+        substance_names: ['amoxicillin', 'clavulanate potassium'],
+        strengths: ['600 mg/5 mL', '42.9 mg/5 mL'],
+        dosage_form: 'powder, for suspension',
+      },
+    })]
+    renderPage()
+    const table = await screen.findByRole('table', { name: 'Fills' })
+    const cells = within(within(table).getAllByRole('row')[1]!).getAllByRole('cell')
+    expect(cells[1]).toHaveTextContent('amoxicillin; clavulanate potassium')
+    expect(cells[2]).toHaveTextContent(/^600 mg\/5 mL; 42\.9 mg\/5 mL$/)
+  })
+
   it('shows a dash for missing values', async () => {
     renderPage()
     const table = await screen.findByRole('table', { name: 'Fills' })

@@ -91,6 +91,7 @@ Standard Laravel 422 with `errors`. NDC-specific messages:
   10. route (NDC `route`)
   11. manufacturer (NDC `labeler_name`)
   12. package description (NDC `package_description`)
+- Several ingredients (and their strengths, in the same order) are semicolon-delimited, as in the FDA NDC directory's SUBSTANCENAME: `amoxicillin; clavulanate potassium`, `600 mg/5 mL; 42.9 mg/5 mL`.
 - Brand name and directions are not table columns; they show in the entry form.
 - Missing values render as "—".
 - With `force_lowercase`, render the text columns (name, strength, dosage form, quantity unit, prescriber, pharmacy, route, manufacturer, package description) in lowercase (CSS `text-transform: lowercase` is fine). Units keep their standard case (`mL` stays `mL`, `IU` stays `IU`); the owner asked for this on 2026-11-01. Apply it on the fills table, the medication fill history and the entry form preview.

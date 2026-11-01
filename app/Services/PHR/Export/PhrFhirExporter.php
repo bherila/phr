@@ -225,13 +225,13 @@ class PhrFhirExporter
      */
     private function medicationDispenseResource(PhrMedicationFill $fill): array
     {
-        $substances = implode(' / ', (array) $fill->substance_names);
+        $substances = implode('; ', (array) $fill->substance_names);
         $text = $fill->brand_name ?: ($substances !== '' ? $substances : (string) $fill->drug_as_printed);
         $coding = array_values(array_filter([
             $fill->ndc_11 !== null ? ['system' => 'http://hl7.org/fhir/sid/ndc', 'code' => $fill->ndc_11, 'display' => $text] : null,
             $fill->rxcui ? ['system' => 'http://www.nlm.nih.gov/research/umls/rxnorm', 'code' => $fill->rxcui, 'display' => $text] : null,
         ]));
-        $strength = implode(' / ', (array) $fill->strengths);
+        $strength = implode('; ', (array) $fill->strengths);
         $quantity = (float) $fill->quantity;
         $money = static fn (?int $cents): ?array => $cents === null ? null : ['value' => $cents / 100, 'currency' => 'USD'];
 

@@ -158,9 +158,9 @@ class PhrPatientSearchController extends Controller
         });
 
         return $fills->orderByDesc('filled_on')->orderByDesc('id')->limit($limit)->get()->toBase()->map(function (PhrMedicationFill $fill): array {
-            $name = $this->join([$fill->substance_names === null ? null : implode(' / ', $fill->substance_names)])
+            $name = $this->join([$fill->substance_names === null ? null : implode('; ', $fill->substance_names)])
                 ?? $fill->medication->name ?? $fill->drug_as_printed ?? 'Prescription fill';
-            $title = implode(' ', array_filter([$name, $fill->strengths === null ? null : implode(' / ', $fill->strengths), $fill->dosage_form]));
+            $title = implode(' ', array_filter([$name, $fill->strengths === null ? null : implode('; ', $fill->strengths), $fill->dosage_form]));
             $quantity = trim(((str_contains($fill->quantity, '.') ? rtrim(rtrim($fill->quantity, '0'), '.') : $fill->quantity) ?: '0').' '.$fill->quantity_unit);
 
             return $this->result(

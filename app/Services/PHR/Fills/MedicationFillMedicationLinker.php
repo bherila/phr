@@ -255,10 +255,10 @@ class MedicationFillMedicationLinker
             array_values(array_filter((array) $fill->strengths, is_string(...))),
         );
         if (count($strengths) === 1 && preg_match('/\A(\d+(?:\.\d+)?)\s*([A-Za-z%]+)\z/', $strengths[0], $parts) === 1) {
-            return [implode(' / ', $substances), $parts[1], $parts[2]];
+            return [implode('; ', $substances), $parts[1], $parts[2]];
         }
 
-        return [implode(' / ', $substances), implode(' / ', $strengths), ''];
+        return [implode('; ', $substances), implode('; ', $strengths), ''];
     }
 
     /**
