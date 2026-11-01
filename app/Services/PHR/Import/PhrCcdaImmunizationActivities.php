@@ -67,6 +67,10 @@ final class PhrCcdaImmunizationActivities extends PhrCcdaSectionReader
             }
 
             $performer = $this->xml->path($activity, 'performer', 'assignedEntity');
+            // The administered amount (a PQ), kept as the exact text the source wrote.
+            $dose = $this->xml->child($activity, 'doseQuantity');
+            $doseAmount = $this->xml->attribute($dose, 'value');
+            $doseUnit = $this->xml->attribute($dose, 'unit');
             $record = $name === null ? null : [
                 'vaccine_name' => $name,
                 'cvx_code' => $this->xml->codeIn($code, self::CVX),
@@ -74,6 +78,8 @@ final class PhrCcdaImmunizationActivities extends PhrCcdaSectionReader
                 'lot_number' => $this->xml->edText($this->xml->child($material, 'lotNumberText')),
                 'administered_on' => $administeredOn,
                 'dose_number' => $this->xml->attribute($this->xml->child($activity, 'repeatNumber'), 'value'),
+                'dose_amount' => $doseAmount,
+                'dose_unit' => $doseAmount === null ? null : $doseUnit,
                 'route' => $this->xml->codeName($this->xml->child($activity, 'routeCode')),
                 'site' => $this->xml->codeName($this->xml->child($activity, 'approachSiteCode')),
                 'administered_by' => $this->xml->nameText($this->xml->path($performer, 'assignedPerson', 'name')),

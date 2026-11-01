@@ -58,6 +58,8 @@ final class PhrCcdaImmunizationsImportTest extends PhrCcdaSectionImportTestCase
             'lot_number' => [...$none, 'imm-display' => 'SYN-LOT-1'],
             'administered_on' => [...array_fill_keys(array_values(self::entries()), '2025-01-01'), 'imm-second-dose' => '2025-02-01'],
             'dose_number' => [...$none, 'imm-display' => 2],
+            'dose_amount' => [...$none, 'imm-display' => '0.50'],
+            'dose_unit' => [...$none, 'imm-display' => 'mL'],
             'route' => [...$none, 'imm-display' => 'Synthetic intramuscular'],
             'site' => [...$none, 'imm-display' => 'Synthetic left arm'],
             'administered_by' => [...$none, 'imm-display' => 'Synthetic Nurse'],
