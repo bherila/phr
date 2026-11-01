@@ -1,0 +1,112 @@
+name: phpunit-timings
+
+# The backend shards are balanced from .github/phpunit-timings.json. Tests are
+# added and slowed down continuously, so the file goes stale and one shard ends
+# up carrying the wall time. Weekly, rebuild it from the shard JUnit reports of
+# the latest green CI run on main, using the same planner CI uses
+# (scripts/phpunit-shards.php). Only when the committed numbers would make the
+# slowest shard meaningfully slower than freshly measured ones, keep the
+# regenerated file as an artifact and open (or update) one issue pointing at it.
+# The repository does not let Actions create pull requests, and nothing here
+# commits or merges: a person applies the file in a normal PR.
+on:
+  schedule:
+    - cron: '41 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      threshold:
+        description: Report drift when the slowest shard would be this many times slower than a refreshed plan
+        default: '1.10'
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      # Keep in step with the shard count in ci.yml (matrix, plan and verify).
+      SHARDS: '2'
+      THRESHOLD: ${{ inputs.threshold || '1.10' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: simplexml
+
+      - name: Download the latest green main run's shard reports
+        id: run
+        run: |
+          run_id=$(gh run list --workflow ci.yml --branch main --event push --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          if [ -z "$run_id" ] || [ "$run_id" = null ]; then
+            echo "::error::No successful CI run on main to read timings from."
+            exit 1
+          fi
+          echo "id=$run_id" >> "$GITHUB_OUTPUT"
+          gh run download "$run_id" --pattern 'phpunit-shard-*' --dir build/phpunit-results
+
+      # Never learn from a run that did not cover the whole suite exactly once.
+      - name: Verify the reports are complete
+        run: php scripts/phpunit-shards.php verify build/phpunit-results "$SHARDS"
+
+      - name: Measure drift
+        id: drift
+        run: |
+          php scripts/phpunit-shards.php weights build/phpunit-timings.json build/phpunit-results/phpunit-shard-*/junit.xml
+          php scripts/phpunit-shards.php drift build/phpunit-results/phpunit-shard-1/inventory.xml .github/phpunit-timings.json build/phpunit-timings.json "$SHARDS" "$THRESHOLD" | tee drift.txt
+          cat drift.txt >> "$GITHUB_OUTPUT"
+          {
+            echo '### PHPUnit shard balance'
+            echo
+            echo "Source run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ steps.run.outputs.id }}"
+            echo
+            sed 's/^/- /' drift.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the refreshed timings
+        id: upload
+        if: ${{ steps.drift.outputs.drifted == 'true' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: phpunit-timings
+          path: build/phpunit-timings.json
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Open or update the drift issue
+        if: ${{ steps.drift.outputs.drifted == 'true' }}
+        env:
+          SOURCE_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ steps.run.outputs.id }}
+          THIS_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ARTIFACT_URL: ${{ steps.upload.outputs.artifact-url }}
+          COMMITTED: ${{ steps.drift.outputs.committed_slowest_shard_seconds }}
+          REFRESHED: ${{ steps.drift.outputs.refreshed_slowest_shard_seconds }}
+          RATIO: ${{ steps.drift.outputs.ratio }}
+        run: |
+          title='PHPUnit shard timings have drifted'
+          cat > issue.md <<EOF
+          With the committed \`.github/phpunit-timings.json\` the slowest backend shard is estimated at ${COMMITTED}s. Timings measured from [this CI run on main](${SOURCE_RUN_URL}) put a balanced plan at ${REFRESHED}s (ratio ${RATIO}, threshold ${THRESHOLD}).
+
+          To refresh: download the \`phpunit-timings\` artifact (${ARTIFACT_URL}) from [this workflow run](${THIS_RUN_URL}), replace \`.github/phpunit-timings.json\` with its contents, and open a pull request. Shards are planned from that file at run time, so no other change is needed.
+
+          This issue is updated in place while the drift persists. Nothing is committed or merged automatically.
+          EOF
+          number=$(gh issue list --state open --search "in:title \"$title\"" --json number,title --jq "map(select(.title == \"$title\"))[0].number // empty")
+          if [ -n "$number" ]; then
+            gh issue edit "$number" --body-file issue.md
+            gh issue comment "$number" --body "Refreshed again by $THIS_RUN_URL (ratio $RATIO)."
+          else
+            gh issue create --title "$title" --body-file issue.md
+          fi

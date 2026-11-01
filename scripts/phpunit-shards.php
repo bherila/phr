@@ -65,13 +65,16 @@ function shardReportKey(string $id): string
     return $method.' with data set '.((string) (int) $dataset === $dataset ? '#'.$dataset : '"'.$dataset.'"');
 }
 
-function shardPlan(string $inventory, string $weightsPath, int $count, int $index, string $output): void
+/**
+ * Estimated seconds per class: measured seconds per test times the number of
+ * tests PHPUnit discovered today. A class with no recorded timing is assumed to
+ * cost one second per test, so it is placed rather than ignored.
+ *
+ * @param  array<string, list<string>>  $classes
+ * @return array<string, float>
+ */
+function shardEstimates(array $classes, array $weights): array
 {
-    $classes = shardInventory($inventory);
-    if ($count < 1 || $count > count($classes) || $index < 1 || $index > $count) {
-        throw new RuntimeException('Invalid shard count or index.');
-    }
-    $weights = shardJson($weightsPath);
     if (($weights['version'] ?? null) !== 1 || ! is_array($weights['classes'] ?? null)) {
         throw new RuntimeException('Invalid timing weights.');
     }
@@ -83,19 +86,66 @@ function shardPlan(string $inventory, string $weightsPath, int $count, int $inde
         }
         $estimates[$class] = $weight['seconds'] / $weight['tests'] * count($ids);
     }
-    // Longest class first, with explicit tie breaks so every runner independently
-    // creates the same partition. Keep all tests in a class together.
+
+    return $estimates;
+}
+
+/**
+ * Longest class first, with explicit tie breaks so every runner independently
+ * creates the same partition. All tests in a class stay together.
+ *
+ * @param  array<string, float>  $estimates
+ * @return list<list<string>> class names per shard
+ */
+function shardPartition(array $estimates, int $count): array
+{
     uksort($estimates, fn ($a, $b) => ($estimates[$b] <=> $estimates[$a]) ?: strcmp($a, $b));
     $loads = array_fill(0, $count, 0.0);
     $assignments = array_fill(0, $count, []);
     foreach ($estimates as $class => $seconds) {
         $shard = array_search(min($loads), $loads, true);
         $loads[$shard] += $seconds;
-        array_push($assignments[$shard], ...$classes[$class]);
+        $assignments[$shard][] = $class;
     }
+
+    return $assignments;
+}
+
+/**
+ * @param  list<string>  $classNames
+ * @param  array<string, float>  $estimates
+ */
+function shardLoad(array $classNames, array $estimates): float
+{
+    return array_sum(array_map(fn ($class) => $estimates[$class] ?? 0.0, $classNames));
+}
+
+/**
+ * A PHPUnit --filter pattern selecting exactly the given classes. ParaTest has
+ * no --test-id-filter-file, but it does pass --filter through to every worker.
+ * Every test in a selected class is selected, which is what the plan assigns, and
+ * `verify` still proves the executed cases equal the assigned IDs.
+ *
+ * @param  list<string>  $classNames
+ */
+function shardFilterPattern(array $classNames): string
+{
+    sort($classNames);
+
+    return '/^(?:'.implode('|', array_map(fn ($class) => preg_quote($class, '/'), $classNames)).')::/';
+}
+
+function shardPlan(string $inventory, string $weightsPath, int $count, int $index, string $output): void
+{
+    $classes = shardInventory($inventory);
+    if ($count < 1 || $count > count($classes) || $index < 1 || $index > $count) {
+        throw new RuntimeException('Invalid shard count or index.');
+    }
+    $estimates = shardEstimates($classes, shardJson($weightsPath));
+    $assignments = shardPartition($estimates, $count);
     $all = array_merge(...array_values($classes));
     sort($all);
-    $selected = $assignments[$index - 1];
+    $selected = array_merge(...array_map(fn ($class) => $classes[$class], $assignments[$index - 1]));
     sort($selected);
     if (! is_dir($output) && ! mkdir($output, 0777, true)) {
         throw new RuntimeException("Cannot create {$output}");
@@ -107,7 +157,33 @@ function shardPlan(string $inventory, string $weightsPath, int $count, int $inde
     if (file_put_contents($output.'/test-ids.txt', implode("\n", $selected)."\n") === false) {
         throw new RuntimeException('Cannot write test selection.');
     }
-    printf("Shard %d/%d: %d of %d tests; estimated weight %.1fs\n", $index, $count, count($selected), count($all), $loads[$index - 1]);
+    if (file_put_contents($output.'/filter.txt', shardFilterPattern($assignments[$index - 1])) === false) {
+        throw new RuntimeException('Cannot write test filter.');
+    }
+    printf("Shard %d/%d: %d of %d tests; estimated weight %.1fs\n", $index, $count, count($selected), count($all), shardLoad($assignments[$index - 1], $estimates));
+}
+
+/**
+ * How much slower the slowest shard would be under the committed timings than
+ * under timings measured now. Both partitions are scored with the new numbers,
+ * which are the better estimate of what CI actually spends.
+ */
+function shardDrift(string $inventory, string $currentPath, string $freshPath, int $count, float $threshold): void
+{
+    $classes = shardInventory($inventory);
+    if ($count < 1 || $count > count($classes)) {
+        throw new RuntimeException('Invalid shard count.');
+    }
+    $fresh = shardEstimates($classes, shardJson($freshPath));
+    $current = shardPartition(shardEstimates($classes, shardJson($currentPath)), $count);
+    $best = shardPartition($fresh, $count);
+    $slowestCurrent = max(array_map(fn ($shard) => shardLoad($shard, $fresh), $current));
+    $slowestBest = max(array_map(fn ($shard) => shardLoad($shard, $fresh), $best));
+    $ratio = $slowestCurrent / $slowestBest;
+    printf("committed_slowest_shard_seconds=%.1f\n", $slowestCurrent);
+    printf("refreshed_slowest_shard_seconds=%.1f\n", $slowestBest);
+    printf("ratio=%.3f\n", $ratio);
+    printf("drifted=%s\n", $ratio > $threshold ? 'true' : 'false');
 }
 
 function shardVerify(string $directory, int $count): void
@@ -184,10 +260,12 @@ if (realpath($_SERVER['SCRIPT_FILENAME']) === __FILE__) {
             shardPlan($argv[2], $argv[3], (int) $argv[4], (int) $argv[5], $argv[6]);
         } elseif ($command === 'verify' && $argc === 4) {
             shardVerify($argv[2], (int) $argv[3]);
+        } elseif ($command === 'drift' && $argc === 7) {
+            shardDrift($argv[2], $argv[3], $argv[4], (int) $argv[5], (float) $argv[6]);
         } elseif ($command === 'weights' && $argc >= 4) {
             shardWeights($argv[2], array_slice($argv, 3));
         } else {
-            throw new RuntimeException('Usage: phpunit-shards.php plan inventory.xml weights.json count index output-dir | verify reports-dir count | weights output.json junit.xml ...');
+            throw new RuntimeException('Usage: phpunit-shards.php plan inventory.xml weights.json count index output-dir | verify reports-dir count | drift inventory.xml committed.json fresh.json count threshold | weights output.json junit.xml ...');
         }
     } catch (Throwable $error) {
         fwrite(STDERR, $error->getMessage()."\n");

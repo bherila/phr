@@ -174,4 +174,67 @@ XML);
             'New' => ['seconds' => 0.25, 'tests' => 1],
         ], shardJson($output)['classes']);
     }
+
+    public function test_filter_pattern_selects_exactly_the_planned_ids(): void
+    {
+        $inventory = $this->directory.'/namespaced.xml';
+        file_put_contents($inventory, <<<'XML'
+<testSuite xmlns="https://xml.phpunit.de/testSuite"><tests>
+<testClass name="Tests\Feature\Foo"><testMethod id="Tests\Feature\Foo::a"/><testMethod id="Tests\Feature\Foo::b#0"/></testClass>
+<testClass name="Tests\Feature\FooBar"><testMethod id="Tests\Feature\FooBar::a"/></testClass>
+<testClass name="Tests\Unit\Baz.Qux"><testMethod id="Tests\Unit\Baz.Qux::a"/></testClass>
+<testClass name="Tests\Unit\BazXQux"><testMethod id="Tests\Unit\BazXQux::a"/></testClass>
+</tests></testSuite>
+XML);
+        $weights = $this->directory.'/namespaced.json';
+        shardWriteJson($weights, ['version' => 1, 'classes' => []]);
+        $all = [];
+        $matched = [];
+        ob_start();
+        try {
+            foreach ([1, 2] as $index) {
+                $output = $this->directory.'/ns-'.$index;
+                shardPlan($inventory, $weights, 2, $index, $output);
+                $selected = shardJson($output.'/plan.json')['selected'];
+                $all = shardJson($output.'/plan.json')['all'];
+                $pattern = (string) file_get_contents($output.'/filter.txt');
+                $matches = array_values(array_filter($all, fn ($id) => preg_match($pattern, $id) === 1));
+                $this->assertSame($selected, $matches);
+                $matched = array_merge($matched, $matches);
+            }
+        } finally {
+            ob_end_clean();
+        }
+        sort($matched);
+        $this->assertSame($all, $matched);
+    }
+
+    public function test_drift_reports_when_the_committed_timings_unbalance_the_shards(): void
+    {
+        [$inventory, $weights] = $this->fixture();
+        $balanced = $this->directory.'/balanced.json';
+        shardWriteJson($balanced, ['version' => 1, 'classes' => [
+            'Heavy' => ['seconds' => 20, 'tests' => 2],
+            'Medium' => ['seconds' => 10, 'tests' => 2],
+            'New' => ['seconds' => 5, 'tests' => 1],
+        ]]);
+        $stale = $this->directory.'/stale.json';
+        ob_start();
+        shardDrift($inventory, $balanced, $balanced, 2, 1.1);
+        $same = ob_get_clean();
+        $this->assertStringContainsString('drifted=false', $same);
+        $this->assertStringContainsString('ratio=1.000', $same);
+
+        // Believing Heavy is cheap and the others costly puts Heavy beside Medium: 30s of real
+        // work on one shard where the refreshed plan needs 20s.
+        shardWriteJson($stale, ['version' => 1, 'classes' => [
+            'Heavy' => ['seconds' => 1, 'tests' => 2],
+            'Medium' => ['seconds' => 30, 'tests' => 2],
+            'New' => ['seconds' => 30, 'tests' => 1],
+        ]]);
+        ob_start();
+        shardDrift($inventory, $stale, $balanced, 2, 1.1);
+        $drifted = ob_get_clean();
+        $this->assertStringContainsString('drifted=true', $drifted);
+    }
 }
