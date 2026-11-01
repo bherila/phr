@@ -208,7 +208,7 @@ final class AgentApiMedicationFillTest extends TestCase
         $this->assertSame('REMEDYREPACK INC.', $snapshot['labeler_name']);
         $this->assertSame('LISINOPRIL', $snapshot['active_ingredients'][0]['name']);
         $this->assertSame('30 TABLET in 1 BLISTER PACK (70518-1906-1)', $snapshot['packaging'][0]['description']);
-        // Stored text is never lowercased for display: that is a per-user render-time preference.
+        // Stored text keeps its casing; display casing is derived in the `display` object.
         $this->assertSame('Remedyrepack Inc.', PhrMedicationFill::query()->findOrFail($response['data']['id'])->labeler_name);
     }
 

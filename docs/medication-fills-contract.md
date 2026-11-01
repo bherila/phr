@@ -14,9 +14,8 @@ This file is the final word on the shapes below; the backend implements them and
 | GET | `/api/phr/patients/{patient}/medications/{medication}/fills` | Fill history for the medication page, in the same list shape. |
 | GET | `/api/ndc/lookup?ndc=` | `NdcLookupResult` |
 | GET | `/api/ndc/search?name=&strength=&dosage_form=&route=&labeler=&package=` | `{ "candidates": NdcCandidate[] }` |
-| GET / PUT | `/api/user/display-preferences` | `{ "force_lowercase": boolean }`. Default `false`, stored per user. |
 
-Route names follow `patients.medication-fills.*`, `ndc.lookup`, `ndc.search`, `user.display-preferences.*`.
+Route names follow `patients.medication-fills.*`, `ndc.lookup`, `ndc.search`.
 
 ## `MedicationFill` (JSON resource)
 ```json
@@ -44,7 +43,7 @@ Route names follow `patients.medication-fills.*`, `ndc.lookup`, `ndc.search`, `u
   "created_at": "…", "updated_at": "…"
 }
 ```
-- `drug.*` values are server-resolved and stored with normalized casing. The resource never applies `force_lowercase`; that happens only at render time.
+- `drug.*` values are server-resolved and stored with normalized casing. The resource returns captured text (`drug_as_printed`, `pharmacy_name`, `pharmacy_location`, `prescriber_name`, `directions`) exactly as stored, and a derived `display` object beside it (see Display casing).
 - `quantity` is a decimal string. Money is integer cents.
 - `drug` keys may be null when `ndc_status` is `unresolved`.
 
@@ -94,7 +93,11 @@ Standard Laravel 422 with `errors`. NDC-specific messages:
 - Several ingredients (and their strengths, in the same order) are semicolon-delimited, as in the FDA NDC directory's SUBSTANCENAME: `amoxicillin; clavulanate potassium`, `600 mg/5 mL; 42.9 mg/5 mL`.
 - Brand name and directions are not table columns; they show in the entry form.
 - Missing values render as "—".
-- With `force_lowercase`, render the text columns (name, strength, dosage form, quantity unit, prescriber, pharmacy, route, manufacturer, package description) in lowercase (CSS `text-transform: lowercase` is fine). Units keep their standard case (`mL` stays `mL`, `IU` stays `IU`); the owner asked for this on 2026-11-01. Apply it on the fills table, the medication fill history and the entry form preview.
+- Display casing (owner decision 2026-11-01; there is no user setting). Render `display.*`, never the raw captured fields; edit forms keep the stored values. The server derives `display` with `FillDisplayCasing` and nothing is stored or ported to TypeScript. It applies on the fills table, the medication fill history, the entry-form preview and candidates, and the command palette, and the same `display` object is in the agent REST and MCP fill output.
+  - Drug text is lowercase: substance names, dosage form, route and package description are stored lowercase by `NdcCasing`; `display.drug_as_printed` is lowercase when the printed text is ALL CAPS. Units keep their standard case (`mg`, `mcg`, `mL`, `IU`, `mEq`). Brand names keep title case (Lipitor).
+  - `display.pharmacy_name`, `display.pharmacy_location` and `display.prescriber_name`: when ALL CAPS, proper-name casing (`CVS PHARMACY #1234` is `CVS Pharmacy #1234`; `SMITH, JOHN A MD` is `Smith, John A MD`), keeping acronyms, corporate suffixes and credentials (Inc., LLC, USA, CVS, MD, DO, PA-C, NP, RPh, PharmD), O'Brien and Mc names, and state codes in a location.
+  - `display.directions`: when ALL CAPS, sentence case (`Take 1 tablet by mouth daily`); PRN, PO, BID, TID and similar abbreviations stay uppercase, and units keep their case (`mg`).
+  - Text that is not ALL CAPS is returned as written.
 
 ## Final shapes and deviations (backend, authoritative over the sections above)
 
@@ -112,22 +115,21 @@ Where the backend follows phr's existing convention instead of the proposal abov
    - `ndc` resolved: `ndc_status: resolved`, drug fields from openFDA.
    - `ndc` ambiguous (10 digits without hyphens only): 422 on `ndc_candidate` ("Choose one of the matching packages") until `ndc_candidate` names one of the candidates' `ndc_10`.
    - `ndc` unresolved: 422 on `ndc` ("No FDA listing matches this NDC") unless `allow_unresolved: true`, which saves `ndc_status: unresolved` with `drug_as_printed` as the only drug text.
-9. **Display preferences**: `GET/PUT /api/user/display-preferences`, body `{ "force_lowercase": boolean }`. The value is also in `app-initial-data` as `currentUser.force_lowercase_display`.
+9. **Display casing** replaces the retired display-preferences setting: see the Display casing rule above. `users.force_lowercase_display` is dropped, and `/api/user/display-preferences` no longer exists.
 10. **`MedicationFill.medication`** is `{ "id", "name" }` or null.
 11. **Paths and route names follow phr's `/api/phr` prefix** (the table above wrote `/api/...`). The real routes are:
     - `GET|POST /api/phr/patients/{patient}/medication-fills`, `GET|PATCH|DELETE /api/phr/patients/{patient}/medication-fills/{fill}`, `PATCH /api/phr/patients/{patient}/medication-fills/{fill}/review`
     - `GET /api/phr/patients/{patient}/medications/{medication}/fills`
     - `GET /api/ndc/lookup?ndc=`, `GET /api/ndc/search?name=&strength=&dosage_form=&route=&labeler=&package=` (outside `/phr`, as written in the table)
-    - `GET|PUT /api/user/display-preferences`
 
-    Route names are `phr.patients.medication-fills.*`, `phr.patients.medications.fills`, `ndc.lookup`, `ndc.search`, and `user.display-preferences.show|update`.
+    Route names are `phr.patients.medication-fills.*`, `phr.patients.medications.fills`, `ndc.lookup`, and `ndc.search`.
 12. **Page and section ids.** The patient page is `/phr/patient/{id}/medication-fills`, page id `medication-fills`, listed in `PHR_PAGE_IDS` immediately after `medications` (the PHP `PageController::PATIENT_PAGES` already has it in that position, and a navigation test requires the two lists to match). The review summary (`GET /api/phr/patients/{id}/review/summary`) reports fills under section id `medication-fills`, and a pending fill appears in the Review page with `section: "medication-fills"` and `review_segment: "medication-fills"`. There is no fill detail route; a fill opens as a row, and the medication detail page lists its fills.
 13. **`ndc_search` over the web** returns `{ "candidates": NdcCandidate[] }` ranked best first, each with `match_reasons` and `score`. The web `ndc` query for lookup accepts what a person types (hyphens, spaces, an `NDC` prefix).
 14. **Drug text when the NDC does not resolve.** `drug_as_printed` is required whenever `ndc_status` is not `resolved` (including `manual`, where no NDC was given). It is the only drug text a client supplies.
 15. **Medication link.** An explicit `medication_id` must belong to the patient. Otherwise the server links by RxNorm code, then product (NDC labeler + product), then substances + strength + dosage form, and creates a `pending_review` medication when nothing matches. `GET .../medications/{id}/fills` is how the medication page lists the result.
 16. **Optimistic concurrency.** `MedicationFill` carries `version`, the same opaque 64-hex value phr uses for every clinical record (`AgentClinicalRecordVersion`, the one the MCP `*_update` tools take as `expected_version`). `PATCH .../medication-fills/{fill}` accepts an optional `version`; when it is not the record's current version the response is `409 {"message": "..."}` and nothing is changed. The review route keeps its existing `version` behavior.
 17. **`medication_id` on PATCH.** Absent or `null` keeps the current link: an edit never unlinks. If the edit changes the NDC and the current medication no longer fits the new drug (RxNorm code, name and dose, or the other fills linked to it), the server links or creates one. An explicit id relinks to that medication after checking it belongs to the patient (422 on `medication_id` otherwise). On create, `null` means link-or-create.
-18. **Initial data.** `app-initial-data.currentUser.force_lowercase_display` is a boolean, emitted from the same user record that `GET /api/user/display-preferences` reads; the PUT response is `{ "force_lowercase": boolean }`.
+18. **Initial data.** `app-initial-data.currentUser` no longer carries `force_lowercase_display`.
 19. **Clearing the NDC.** `PATCH` with an explicit `"ndc": null` removes the NDC: `ndc_status` becomes `manual`, the FDA fields and snapshot are cleared, and `drug_as_printed` is required (422 on `ndc` otherwise). Omitting `ndc` keeps the stored drug.
 20. **`drug_as_printed` on every write.** While `ndc_status` is not `resolved`, an edit that does not touch the NDC still cannot blank `drug_as_printed` (422).
 21. **Rate limits.** `/api/ndc/lookup` and `/api/ndc/search` are limited per user (`OPENFDA_WEB_REQUESTS_PER_MINUTE`, default 30; 429 beyond it). Search answers are cached for a short time.

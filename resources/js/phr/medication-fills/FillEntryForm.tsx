@@ -6,7 +6,6 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { fetchWrapper } from '@/fetchWrapper'
 import { cn } from '@/lib/utils'
-import { KeepUnitCase, useLowercaseClass } from '@/phr/display/DisplayPreferences'
 import { reviewStateChanged } from '@/phr/review/reviewSummary'
 import { errorMessage } from '@/phr/shared'
 import { PhrMedicationsResponseSchema } from '@/phr/types'
@@ -193,7 +192,6 @@ function Field({ label, field, errors, className, children }: { label: string, f
 }
 
 export function DrugPreview({ drug, ndc }: { drug: NdcDrug | null, ndc: string | null }) {
-  const lc = useLowercaseClass()
   if (!drug) return null
   const name = drug.substance_names.join('; ')
   const rows: Array<[string, string | null]> = [
@@ -205,13 +203,13 @@ export function DrugPreview({ drug, ndc }: { drug: NdcDrug | null, ndc: string |
     ['Package', drug.package_description],
  ]
   return (
-    <div className={cn('rounded-md border border-border bg-muted/30 p-3 text-sm', lc)} aria-label="Drug preview">
+    <div className={'rounded-md border border-border bg-muted/30 p-3 text-sm'} aria-label="Drug preview">
       <div className="font-medium text-card-foreground">{name || 'Drug'}{ndc ? ` · NDC ${ndc}` : ''}</div>
       <dl className="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-2">
         {rows.filter(([, value]) => value).map(([term, value]) => (
           <div key={term}>
             <dt className="inline text-xs uppercase tracking-wide text-muted-foreground">{term}: </dt>
-            <dd className="inline text-card-foreground"><KeepUnitCase text={value} /></dd>
+            <dd className="inline text-card-foreground">{value}</dd>
           </div>
         ))}
       </dl>
@@ -226,9 +224,8 @@ function CandidateList({ candidates, name, selected, onSelect, action }: {
   onSelect: (candidate: NdcCandidate) => void
   action?: 'radio' | 'button'
 }) {
-  const lc = useLowercaseClass()
   return (
-    <ul className={cn('space-y-2', lc)}>
+    <ul className="space-y-2">
       {candidates.map((candidate) => (
         <li key={candidate.ndc_10} className="rounded-md border border-border p-3 text-sm">
           <label className="flex cursor-pointer items-start gap-3">
@@ -244,10 +241,10 @@ function CandidateList({ candidates, name, selected, onSelect, action }: {
             )}
             <span className="grid gap-0.5">
               <span className="font-medium text-card-foreground">NDC {candidate.ndc_10}</span>
-              {candidate.drug?.package_description && <span><KeepUnitCase text={candidate.drug.package_description} /></span>}
+              {candidate.drug?.package_description && <span>{candidate.drug.package_description}</span>}
               {candidate.drug?.labeler_name && <span className="text-muted-foreground">{candidate.drug.labeler_name}</span>}
               {candidate.drug && (candidate.drug.substance_names.length > 0 || candidate.drug.strengths.length > 0) && (
-                <span className="text-muted-foreground"><KeepUnitCase text={[candidate.drug.substance_names.join('; '), candidate.drug.strengths.join('; ')].filter(Boolean).join(' ')} /></span>
+                <span className="text-muted-foreground">{[candidate.drug.substance_names.join('; '), candidate.drug.strengths.join('; ')].filter(Boolean).join(' ')}</span>
               )}
               {candidate.match_reasons.length > 0 && (
                 <span className="text-xs text-muted-foreground">Matched: {candidate.match_reasons.join(', ')}</span>

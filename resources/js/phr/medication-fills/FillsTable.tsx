@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
-import { KeepUnitCase, useLowercaseClass } from '@/phr/display/DisplayPreferences'
 
 import { fillDrugName, formatCents, formatFillDate, formatQuantity, type MedicationFill, MISSING } from './fillTypes'
 
@@ -35,12 +34,9 @@ function Missing() {
 }
 
 export function FillsTable({ label, rows, loading = false, empty, actions, onEdit }: FillsTableProps) {
-  const lc = useLowercaseClass()
-  const textClass = (extra?: string) => cn(lc, extra)
-
   const head = 'px-4 py-3 font-medium'
   const cellClass = 'px-4 py-3'
-  /** A plain NDC text column: lowercased with the preference, a dash when missing. */
+  /** A plain text column, a dash when missing. */
   const textColumn = (id: string, header: string, value: (fill: MedicationFill) => string | null | undefined, extra?: string): RecordColumn<MedicationFill> => ({
     id,
     header,
@@ -48,7 +44,7 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
     className: cn(cellClass, extra),
     cell: (fill) => {
       const text = value(fill)
-      return text ? <span className={lc}><KeepUnitCase text={text} /></span> : <Missing />
+      return text ? <span>{text}</span> : <Missing />
     },
   })
 
@@ -68,7 +64,7 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
       className: cellClass,
       cell: (fill) => (
         <div>
-          <div className={textClass('font-medium text-card-foreground')}>{fillDrugName(fill)}</div>
+          <div className="font-medium text-card-foreground">{fillDrugName(fill)}</div>
           <div className="mt-1 flex flex-wrap gap-1.5">
             {fill.ndc_status === 'unresolved' && (
               <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">No FDA match</span>
@@ -89,7 +85,7 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
       fit: true,
       headerClassName: head,
       className: cn(cellClass, 'whitespace-nowrap'),
-      cell: (fill) => <span className={lc}><KeepUnitCase text={formatQuantity(fill.quantity, fill.quantity_unit)} /></span>,
+      cell: (fill) => formatQuantity(fill.quantity, fill.quantity_unit),
     },
     {
       id: 'paid',
@@ -109,8 +105,8 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
       className: cellClass,
       cell: (fill) => formatCents(fill.retail_cents),
     },
-    textColumn('prescriber', 'Prescriber', (fill) => fill.prescriber_name),
-    textColumn('pharmacy', 'Pharmacy', (fill) => fill.pharmacy_name),
+    textColumn('prescriber', 'Prescriber', (fill) => fill.display?.prescriber_name ?? fill.prescriber_name),
+    textColumn('pharmacy', 'Pharmacy', (fill) => fill.display?.pharmacy_name ?? fill.pharmacy_name),
     textColumn('route', 'Route', (fill) => fill.drug?.route, 'text-muted-foreground'),
     textColumn('manufacturer', 'Manufacturer', (fill) => fill.drug?.labeler_name, 'text-muted-foreground'),
     textColumn('package', 'Package description', (fill) => fill.drug?.package_description, 'text-muted-foreground'),

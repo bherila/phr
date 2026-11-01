@@ -14,6 +14,7 @@ use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatientVital;
 use App\Models\PhrProcedure;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Services\PHR\Ndc\FillDisplayCasing;
 use App\Support\PHR\PhrRecordLifecycle;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Builder;
@@ -159,13 +160,13 @@ class PhrPatientSearchController extends Controller
 
         return $fills->orderByDesc('filled_on')->orderByDesc('id')->limit($limit)->get()->toBase()->map(function (PhrMedicationFill $fill): array {
             $name = $this->join([$fill->substance_names === null ? null : implode('; ', $fill->substance_names)])
-                ?? $fill->medication->name ?? $fill->drug_as_printed ?? 'Prescription fill';
+                ?? $fill->medication->name ?? FillDisplayCasing::drugAsPrinted($fill->drug_as_printed) ?? 'Prescription fill';
             $title = implode(' ', array_filter([$name, $fill->strengths === null ? null : implode('; ', $fill->strengths), $fill->dosage_form]));
             $quantity = trim(((str_contains($fill->quantity, '.') ? rtrim(rtrim($fill->quantity, '0'), '.') : $fill->quantity) ?: '0').' '.$fill->quantity_unit);
 
             return $this->result(
                 'Fill', $fill->id, $title,
-                $this->join([$fill->filled_on->format('y.m.d'), $fill->pharmacy_name, "Qty {$quantity}"]),
+                $this->join([$fill->filled_on->format('y.m.d'), FillDisplayCasing::pharmacyName($fill->pharmacy_name), "Qty {$quantity}"]),
                 $fill->filled_on->toDateString(), 'medication-fills',
             );
         });

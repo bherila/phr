@@ -2,7 +2,6 @@ import '@testing-library/jest-dom'
 
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
-import { DisplayPreferencesProvider } from '@/phr/display/DisplayPreferences'
 import { MedicationFillHistory } from '@/phr/medication-fills/MedicationFillHistory'
 import MedicationFillsPage from '@/phr/medication-fills/MedicationFillsPage'
 
@@ -80,13 +79,8 @@ function jsonResponse(status: number, body: unknown) {
 let fills: unknown[]
 let lookups: Record<string, unknown>
 
-function renderPage(preferenceLowercase = false) {
-  mockPut.mockResolvedValue({ force_lowercase: preferenceLowercase })
-  return render(
-    <DisplayPreferencesProvider>
-      <MedicationFillsPage patientId={42} />
-    </DisplayPreferencesProvider>,
-  )
+function renderPage() {
+  return render(<MedicationFillsPage patientId={42} />)
 }
 
 beforeEach(() => {
@@ -97,7 +91,6 @@ beforeEach(() => {
   ]
   lookups = {}
   mockGet.mockImplementation(async (url: string) => {
-    if (url === '/api/user/display-preferences') return { force_lowercase: false }
     if (url.startsWith('/api/ndc/lookup')) {
       const ndc = new URL(url, 'http://x').searchParams.get('ndc') ?? ''
       return lookups[ndc]
@@ -169,29 +162,31 @@ describe('MedicationFillsPage table', () => {
     }
   })
 
-  it('leaves stored casing alone by default', async () => {
+  it('renders the server-derived display values and applies no lowercase class', async () => {
+    fills = [makeFill({
+      pharmacy_name: 'CVS PHARMACY #1234',
+      prescriber_name: 'SMITH, JOHN A MD',
+      display: { drug_as_printed: 'atorvastatin 10 mg', pharmacy_name: 'CVS Pharmacy #1234', pharmacy_location: null, prescriber_name: 'Smith, John A MD', directions: null },
+    })]
     renderPage()
     const table = await screen.findByRole('table', { name: 'Fills' })
-    expect(table.querySelector('.lowercase')).toBeNull()
-    expect(screen.getByText('Example Pharmacy')).toBeInTheDocument()
+    expect(within(table).getByText('CVS Pharmacy #1234')).toBeInTheDocument()
+    expect(within(table).getByText('Smith, John A MD')).toBeInTheDocument()
+    expect(within(table).queryByText('CVS PHARMACY #1234')).toBeNull()
+    expect(document.querySelector('.lowercase')).toBeNull()
   })
 
-  it('lowercases the drug, pharmacy and NDC text columns when the preference is on', async () => {
-    mockGet.mockImplementation(async (url: string) => {
-      if (url === '/api/user/display-preferences') return { force_lowercase: true }
-      return { medication_fills: fills, can_manage: true }
-    })
+  it('shows the derived name for a fill linked to a medication named from the printed text', async () => {
+    fills = [makeFill({
+      drug: null,
+      medication: { id: 9, name: 'ATORVASTATIN 10MG TAB' },
+      drug_as_printed: 'ATORVASTATIN 10MG TAB',
+      display: { drug_as_printed: 'atorvastatin 10 mg tab', pharmacy_name: null, pharmacy_location: null, prescriber_name: null, directions: null },
+    })]
     renderPage()
-
     const table = await screen.findByRole('table', { name: 'Fills' })
-    await waitFor(() => expect(table.querySelector('.lowercase')).not.toBeNull())
-    for (const text of ['atorvastatin calcium', '20 mg/1', 'Dr. A. Smith', 'Example Pharmacy', 'oral', 'Parke-Davis Div of Pfizer Inc']) {
-      for (const element of within(table).getAllByText(text, { exact: false })) {
-        expect(element.closest('.lowercase')).not.toBeNull()
-      }
-    }
-    // Stored text is unchanged: only a CSS class lowercases it.
-    expect(within(table).getByText('Parke-Davis Div of Pfizer Inc')).toBeInTheDocument()
+    expect(within(table).getByText('atorvastatin 10 mg tab')).toBeInTheDocument()
+    expect(within(table).queryByText('ATORVASTATIN 10MG TAB')).toBeNull()
   })
 
   it('explains how fills arrive when there are none', async () => {
