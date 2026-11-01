@@ -88,7 +88,9 @@ original v1 table, or an unknown table still fails closed as `invalid_archive`.
 
 Columns follow the same idea. A record may lack `deleted_at`/`retracted_at`, and the
 nullable columns listed per table in `PhrNativeLifecycleCompatibility::TABLE_COLUMNS`
-(today the six EHI immunization provenance columns on `phr_immunizations`). Absent ones
+(today the six EHI immunization provenance columns on `phr_immunizations`, the review
+status and lines digest on `phr_eobs`, and the two reference-bound inclusiveness columns
+on `phr_lab_results`). Absent ones
 are read as null only after the stored content hash has been verified against the
 attributes actually written; any other attribute difference fails closed.
 

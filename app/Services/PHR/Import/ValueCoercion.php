@@ -52,6 +52,20 @@ final class ValueCoercion
         return is_numeric($normalized) ? $normalized : null;
     }
 
+    /** A yes/no a source stated, or null when it stated none (or something else). */
+    public static function boolean(mixed $value): ?bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        return match (is_string($value) ? strtolower(trim($value)) : $value) {
+            1, '1', 'true' => true,
+            0, '0', 'false' => false,
+            default => null,
+        };
+    }
+
     public static function integer(mixed $value): ?int
     {
         $string = self::numeric($value);

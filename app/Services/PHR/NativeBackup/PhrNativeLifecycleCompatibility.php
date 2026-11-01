@@ -49,6 +49,8 @@ final class PhrNativeLifecycleCompatibility
         ],
         // The review status an agent-written EOB waits in (#268). Older EOBs were all confirmed.
         'phr_eobs' => ['review_status', 'lines_digest'],
+        // Whether each lab reference bound is inclusive (#259); null is "not stated".
+        'phr_lab_results' => ['range_min_inclusive', 'range_max_inclusive'],
     ];
 
     /**

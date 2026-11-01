@@ -29,6 +29,8 @@ use Illuminate\Support\Carbon;
  * @property string|null $unit
  * @property string|null $range_min
  * @property string|null $range_max
+ * @property bool|null $range_min_inclusive
+ * @property bool|null $range_max_inclusive
  * @property string|null $range_unit
  * @property string|null $reference_range_text
  * @property string|null $normal_value
@@ -67,6 +69,8 @@ class PhrLabResult extends Model
         'unit',
         'range_min',
         'range_max',
+        'range_min_inclusive',
+        'range_max_inclusive',
         'range_unit',
         'reference_range_text',
         'normal_value',
@@ -90,7 +94,53 @@ class PhrLabResult extends Model
             'value_numeric' => 'decimal:10',
             'range_min' => 'decimal:10',
             'range_max' => 'decimal:10',
+            'range_min_inclusive' => 'boolean',
+            'range_max_inclusive' => 'boolean',
         ];
+    }
+
+    /**
+     * Each reference bound with the attribute saying whether it includes its own
+     * value. Null means the source did not say.
+     */
+    private const array RANGE_BOUNDS = [
+        'range_min' => 'range_min_inclusive',
+        'range_max' => 'range_max_inclusive',
+    ];
+
+    /**
+     * A bound's inclusiveness describes that bound's value and no other. A write
+     * that sets a different bound without saying whether it is inclusive leaves
+     * it unknown, rather than carrying over what the source said of the old
+     * value; a write that states both keeps what it states, changed or not.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    public function fill(array $attributes): static
+    {
+        parent::fill($attributes);
+
+        foreach (self::RANGE_BOUNDS as $bound => $inclusive) {
+            if (array_key_exists($bound, $attributes)
+                && ! array_key_exists($inclusive, $attributes)
+                && $this->isDirty($bound)) {
+                $this->setAttribute($inclusive, null);
+            }
+        }
+
+        return $this;
+    }
+
+    protected static function booted(): void
+    {
+        // No bound, nothing for an inclusiveness to describe.
+        static::saving(function (PhrLabResult $result): void {
+            foreach (self::RANGE_BOUNDS as $bound => $inclusive) {
+                if ($result->getAttribute($bound) === null) {
+                    $result->setAttribute($inclusive, null);
+                }
+            }
+        });
     }
 
     /** @return BelongsTo<PhrPatient, $this> */

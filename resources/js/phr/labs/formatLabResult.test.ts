@@ -77,6 +77,31 @@ describe('lab result formatting', () => {
       expect(range({ range_max: '5', range_unit: 'mg/L', reference_range_text: '≤5 mg/L' })).toBe('≤5 mg/L')
     })
 
+    it('uses the inclusiveness a single bound states', () => {
+      expect(range({ range_max: '5', range_max_inclusive: true, range_unit: 'mg/dL' })).toBe('≤5 mg/dL')
+      expect(range({ range_max: '5', range_max_inclusive: false, range_unit: 'mg/dL' })).toBe('<5 mg/dL')
+      expect(range({ range_min: '60', range_min_inclusive: true, range_unit: 'mL/min' })).toBe('≥60 mL/min')
+      expect(range({ range_min: '60', range_min_inclusive: false, range_unit: 'mL/min' })).toBe('>60 mL/min')
+    })
+
+    it('prefers the inclusiveness a bound states over the comparator in its text', () => {
+      expect(range({ range_min: '60', range_min_inclusive: false, reference_range_text: '>=60' })).toBe('>60')
+      expect(range({ range_max: '200', range_max_inclusive: true, reference_range_text: '<200 mg/dL' })).toBe('≤200')
+    })
+
+    it('reads the text as before when a bound does not say', () => {
+      expect(range({ range_max: '200', range_max_inclusive: null, range_unit: 'mg/dL' })).toBe('<200 mg/dL')
+      expect(range({ range_min: '60', range_min_inclusive: null, reference_range_text: '>=60' })).toBe('≥60')
+    })
+
+    it('renders two bounds as a span whatever their inclusiveness', () => {
+      expect(range({ range_min: '1', range_min_inclusive: false, range_max: '9', range_max_inclusive: true, range_unit: 'g/dL' })).toBe('1–9 g/dL')
+    })
+
+    it('ignores the inclusiveness of the absent side', () => {
+      expect(range({ range_max: '5', range_min_inclusive: true, range_max_inclusive: false })).toBe('<5')
+    })
+
     it('uses the bounds over text that repeats them', () => {
       expect(range({ range_max: '165', range_unit: 'IU/mL', reference_range_text: '<165 IU/mL' })).toBe('<165 IU/mL')
     })

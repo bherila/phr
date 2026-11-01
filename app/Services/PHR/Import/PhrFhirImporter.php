@@ -165,10 +165,32 @@ class PhrFhirImporter
             'unit' => $quantity['unit'] ?? $quantity['code'] ?? null,
             'range_min' => data_get($resource, 'referenceRange.0.low.value'),
             'range_max' => data_get($resource, 'referenceRange.0.high.value'),
+            'range_min_inclusive' => $this->boundInclusive(data_get($resource, 'referenceRange.0.low')),
+            'range_max_inclusive' => $this->boundInclusive(data_get($resource, 'referenceRange.0.high')),
             'reference_range_text' => data_get($resource, 'referenceRange.0.text'),
             'abnormal_flag' => $this->codeableText(data_get($resource, 'interpretation.0')),
             'raw_text' => json_encode($resource),
         ]], ['import_source' => 'fhir']);
+    }
+
+    /**
+     * Whether a reference bound includes its value, by the comparator its
+     * Quantity states: "<=" or ">=" is inclusive, "<" or ">" exclusive. A bound
+     * with no comparator is unknown. FHIR defines a reference range's bounds as
+     * inclusive, but sources commonly write a range their lab prints as "<200"
+     * as a bare high of 200, so a bare bound is not taken as the comparator.
+     */
+    private function boundInclusive(mixed $bound): ?bool
+    {
+        if (! is_array($bound) || ! isset($bound['value'])) {
+            return null;
+        }
+
+        return match ($bound['comparator'] ?? null) {
+            '<=', '>=' => true,
+            '<', '>' => false,
+            default => null,
+        };
     }
 
     /**

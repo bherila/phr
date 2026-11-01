@@ -276,6 +276,8 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
             ->middleware('throttle:agent-api');
         Route::operation('ndc.search', [AgentNdcController::class, 'search'])
             ->middleware('throttle:agent-api');
+        Route::operation('ndc.label', [AgentNdcController::class, 'label'])
+            ->middleware('throttle:agent-api');
 
         Route::operation('clinical.list', [AgentClinicalReadController::class, 'index'])
             ->whereNumber('patient')
@@ -366,6 +368,7 @@ Route::middleware(['web', 'auth'])->group(function (): void {
     Route::put('/user/ai-execution-mode', [UserAiExecutionModeController::class, 'update']);
     Route::get('/ndc/lookup', [PHRNdcController::class, 'lookup'])->middleware('throttle:phr-ndc')->name('ndc.lookup');
     Route::get('/ndc/search', [PHRNdcController::class, 'search'])->middleware('throttle:phr-ndc')->name('ndc.search');
+    Route::get('/ndc/label', [PHRNdcController::class, 'label'])->middleware('throttle:phr-ndc')->name('ndc.label');
 
     // Browser-session management of OAuth consent; writes retain the web CSRF guard.
     Route::middleware(PreventAgentApiResponseCaching::class)->group(function (): void {
@@ -455,6 +458,7 @@ Route::middleware(['web', 'auth'])
         Route::get('/patients/{patient}/medication-fills', [PHRMedicationFillController::class, 'index'])->whereNumber('patient')->name('patients.medication-fills.index');
         Route::post('/patients/{patient}/medication-fills', [PHRMedicationFillController::class, 'store'])->whereNumber('patient')->name('patients.medication-fills.store');
         Route::get('/patients/{patient}/medication-fills/{fill}', [PHRMedicationFillController::class, 'show'])->whereNumber(['patient', 'fill'])->name('patients.medication-fills.show');
+        Route::get('/patients/{patient}/medication-fills/{fill}/drug-detail', [PHRMedicationFillController::class, 'drugDetail'])->whereNumber(['patient', 'fill'])->name('patients.medication-fills.drug-detail');
         Route::patch('/patients/{patient}/medication-fills/{fill}', [PHRMedicationFillController::class, 'update'])->whereNumber(['patient', 'fill'])->name('patients.medication-fills.update');
         Route::delete('/patients/{patient}/medication-fills/{fill}', [PHRMedicationFillController::class, 'destroy'])->whereNumber(['patient', 'fill'])->name('patients.medication-fills.destroy');
         Route::patch('/patients/{patient}/medication-fills/{fill}/review', [PHRMedicationFillController::class, 'review'])->whereNumber(['patient', 'fill'])->name('patients.medication-fills.review');
