@@ -8761,7 +8761,10 @@
                             ],
                             "properties": {
                                 "line_id": {
-                                    "type": "integer"
+                                    "type": [
+                                        "integer",
+                                        "null"
+                                    ]
                                 },
                                 "line_number": {
                                     "type": "integer"

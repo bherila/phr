@@ -8,6 +8,7 @@ use App\Models\PhrDocumentUpload;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Models\User;
+use App\Services\PHR\Documents\SignedDocumentUploadService;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\PHR\PhrDocumentUploadLimits;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -171,6 +172,26 @@ final class AgentApiSignedDocumentUploadTest extends TestCase
         $this->assertSame([], Storage::disk(PhrDocument::STORAGE_DISK)->allFiles(), 'the bytes were not kept');
         $this->actingWith([AgentApiScopes::DOCUMENTS_WRITE]);
         $this->finalize($session['upload_id'])->assertConflict();
+    }
+
+    public function test_the_collector_does_not_undo_an_upload_that_was_published_after_it_read_the_row(): void
+    {
+        $session = $this->open()->assertCreated()->json('data');
+        $this->putBytes($session['url'], self::PDF)->assertOk();
+        $row = PhrDocumentUpload::query()->sole();
+        $path = (string) $row->staging_path;
+
+        // The collector read the session as an expired PUT in flight; the PUT then published and renewed it.
+        $stale = new PhrDocumentUpload;
+        $stale->setRawAttributes([...$row->getAttributes(), 'status' => PhrDocumentUpload::RECEIVING, 'expires_at' => now()->subMinute()->toDateTimeString()]);
+        $stale->exists = true;
+        $discard = new \ReflectionMethod(SignedDocumentUploadService::class, 'discard');
+        $discard->invoke(app(SignedDocumentUploadService::class), $stale, PhrDocumentUpload::EXPIRED);
+
+        $this->assertSame(PhrDocumentUpload::UPLOADED, PhrDocumentUpload::query()->sole()->status);
+        Storage::disk(PhrDocument::STORAGE_DISK)->assertExists($path);
+        $this->actingWith([AgentApiScopes::DOCUMENTS_WRITE]);
+        $this->finalize($session['upload_id'])->assertCreated();
     }
 
     public function test_finalize_before_the_put_is_refused(): void

@@ -163,6 +163,62 @@ final class AgentApiEobWriteTest extends TestCase
         $this->assertSame(1, PhrEob::query()->count(), 'the claim is saved, the fill is reported');
     }
 
+    public function test_fills_follow_the_lines_of_a_claim_another_source_numbered_differently(): void
+    {
+        $document = $this->document();
+        $claim = $this->pharmacyClaim($document);
+        $claim['data']['lines'][1]['fill'] = ['ndc' => '70518-1906-1', 'quantity' => 30, 'rx_number' => '7654321'];
+        $claim['data']['lines'][1]['description'] = 'lisinopril tablet';
+        // The claim a parser stored numbered its lines 1 and 2; this reading numbers them 10 and 20.
+        $stored = EobClaim::normalize($claim['data']);
+        $other = PhrEob::query()->create([
+            ...$stored['header'], 'patient_id' => $this->patient->id, 'user_id' => $this->actor->id, 'import_source' => 'meritain_eob',
+            'external_id' => 'eob:x', 'claim_fingerprint' => EobClaim::fingerprint($stored),
+        ]);
+        foreach ($stored['lines'] as $line) {
+            PhrEobLine::query()->create(['eob_id' => $other->id, 'patient_id' => $this->patient->id, ...array_diff_key($line, ['fill' => true])]);
+        }
+        $claim['data']['lines'][0]['line_number'] = 10;
+        $claim['data']['lines'][1]['line_number'] = 20;
+
+        $written = $this->putJson($this->url(), $claim)->assertOk()->assertJsonPath('match.import_source', 'meritain_eob')->json();
+        $this->assertCount(2, $written['fills']);
+        $this->assertSame(['created', 'created'], array_column($written['fills'], 'outcome'));
+        $storedIds = PhrEobLine::query()->where('eob_id', $other->id)->orderBy('line_number')->pluck('id')->all();
+        $this->assertSame($storedIds, array_column($written['fills'], 'line_id'), 'each fill is linked to the stored line it belongs to');
+
+        // Lines that do not correspond are reported, never linked to a guess.
+        $claim['data']['lines'][1]['procedure_code'] = '1111111111';
+        $claim['data']['lines'][1]['fill']['rx_number'] = '9999999';
+        $second = $this->putJson($this->url(), $claim)->assertOk()->json();
+        $unmatched = collect($second['fills'])->firstWhere('line_number', 20);
+        $this->assertSame('error', $unmatched['outcome']);
+        $this->assertNull($unmatched['line_id']);
+    }
+
+    public function test_an_identical_retry_is_unchanged_whatever_order_the_lines_were_sent_in(): void
+    {
+        $claim = $this->claim($this->document());
+        $claim['data']['lines'][0]['line_number'] = 2;
+        $claim['data']['lines'][1]['line_number'] = 1;
+        $this->putJson($this->url(), $claim)->assertCreated();
+        $this->putJson($this->url(), $claim)->assertOk()->assertJsonPath('outcome', 'unchanged');
+    }
+
+    public function test_correcting_a_claim_into_one_that_already_exists_is_a_conflict(): void
+    {
+        $document = $this->document();
+        $first = $this->putJson($this->url(), $this->claim($document))->assertCreated()->json();
+        $secondClaim = $this->claim($document);
+        $secondClaim['data']['claim_number'] = 'CLM-200';
+        $second = $this->putJson($this->url(), [...$secondClaim, 'external_id' => 'second'])->assertCreated()->json();
+
+        // Fixing the second claim's number makes it exactly the first.
+        $this->putJson($this->url(), [...$this->claim($document), 'external_id' => 'second', 'expected_version' => $second['version']])->assertConflict();
+        $this->assertSame(2, PhrEob::query()->count());
+        $this->assertNotSame($first['data']['id'], $second['data']['id']);
+    }
+
     public function test_provenance_is_required_and_review_status_is_not_accepted(): void
     {
         $claim = $this->claim($this->document());

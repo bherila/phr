@@ -1151,6 +1151,12 @@ final class PhrNativeRestoreTest extends TestCase
         $current = $this->archiveCopy($patient, (int) $owner->id);
         $older = $this->archiveCopy($patient, (int) $owner->id);
         $this->removeTables($older, PhrNativeTableCompatibility::LATER_GENERATIONS['medication_fill_evidence']);
+        // An EOB archived before it had a review status has no such attribute, and was confirmed.
+        $this->mutateTableRecords($older, 'phr_eobs', static function (array $record): array {
+            unset($record['attributes']['review_status']);
+
+            return $record;
+        });
         DB::table('phr_patients')->where('id', $patient->id)->delete();
 
         $attempt = $this->readyAttempt($current, (int) $owner->id);
@@ -1174,6 +1180,7 @@ final class PhrNativeRestoreTest extends TestCase
         app(PhrNativeRestoreService::class)->apply($olderAttempt->refresh());
         $this->assertSame(2, DB::table('phr_medication_fills')->where('patient_id', $olderAttempt->refresh()->target_patient_root_id)->count());
         $this->assertSame(0, DB::table('phr_medication_fill_evidence')->where('patient_id', $olderAttempt->target_patient_root_id)->count());
+        $this->assertSame('confirmed', DB::table('phr_eobs')->where('patient_id', $olderAttempt->target_patient_root_id)->value('review_status'));
         @unlink($current);
         @unlink($older);
     }

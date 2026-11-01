@@ -62,6 +62,10 @@ final readonly class EobWriteService
                 if ($expected === null || ! hash_equals($this->versions->for($own), $expected)) {
                     throw new ConflictHttpException('An EOB with this external_id exists with different content. Read it (eobs.get) and send its current version as expected_version, or use eobs.update.');
                 }
+                if ($fingerprint !== $own->claim_fingerprint
+                    && PhrEob::query()->where('patient_id', $patient->id)->where('claim_fingerprint', $fingerprint)->whereKeyNot($own->id)->exists()) {
+                    throw new ConflictHttpException('Another EOB already holds exactly this claim.');
+                }
                 $this->apply($own, $claim, $fingerprint, $documentId);
 
                 return [$own->refresh(), ClinicalUpsertResult::UPDATED, null];
@@ -158,7 +162,7 @@ final readonly class EobWriteService
             $fingerprint = EobClaim::fingerprint($claim);
             // The fingerprint covers what identifies a claim, not every header field (the plan
             // name, say), so "nothing changed" is a comparison of everything that is stored.
-            if ($claim == EobClaim::normalize($stored) && ($sourceDocumentId === null || $sourceDocumentId === $eob->source_document_id)) {
+            if ($this->withoutFills($claim) == $this->withoutFills(EobClaim::normalize($stored)) && ($sourceDocumentId === null || $sourceDocumentId === $eob->source_document_id)) {
                 return [$eob, ClinicalUpsertResult::UNCHANGED];
             }
             $other = $fingerprint !== $eob->claim_fingerprint
@@ -180,7 +184,11 @@ final readonly class EobWriteService
      */
     private function withoutFills(array $claim): array
     {
-        return ['header' => $claim['header'], 'lines' => array_map(static fn (array $line): array => array_diff_key($line, ['fill' => true]), $claim['lines'])];
+        $lines = array_map(static fn (array $line): array => array_diff_key($line, ['fill' => true]), $claim['lines']);
+        // The order lines were sent in is not part of the claim: they are compared by number.
+        usort($lines, static fn (array $a, array $b): int => $a['line_number'] <=> $b['line_number']);
+
+        return ['header' => $claim['header'], 'lines' => $lines];
     }
 
     /**
@@ -243,13 +251,27 @@ final readonly class EobWriteService
     private function writeFills(PhrPatient $patient, AgentApiClientIdentity $client, PhrEob $eob, Collection $lines, array $claimLines, int $documentId): array
     {
         $results = [];
+        $ordered = $lines->sortBy('line_number')->values();
+        $sent = collect($claimLines)->sortBy('line_number')->values();
+        // A claim another source holds may number its lines differently. Lines correspond by
+        // number when the procedure codes agree, else by position when every code agrees.
+        $positional = $ordered->count() === $sent->count()
+            && $sent->every(fn (array $sentLine, int $index): bool => strtoupper((string) $ordered[$index]->procedure_code) === strtoupper((string) $sentLine['procedure_code']));
         $byNumber = $lines->keyBy('line_number');
-        foreach ($claimLines as $claimLine) {
+        foreach ($sent as $index => $claimLine) {
             if (! isset($claimLine['fill'])) {
                 continue;
             }
-            $line = $byNumber->get($claimLine['line_number']);
+            $candidate = $byNumber->get($claimLine['line_number']);
+            $line = $candidate instanceof PhrEobLine && strtoupper((string) $candidate->procedure_code) === strtoupper((string) $claimLine['procedure_code'])
+                ? $candidate
+                : ($positional ? $ordered[$index] : null);
             if (! $line instanceof PhrEobLine) {
+                $results[] = [
+                    'line_id' => null, 'line_number' => (int) $claimLine['line_number'], 'fill_id' => null, 'outcome' => 'error',
+                    'errors' => ['line' => ['This line does not correspond to a line of the claim PHR holds, so its fill was not linked; link it with medication_fills.upsert and eob_line_id.']],
+                ];
+
                 continue;
             }
             $fill = (array) $claimLine['fill'];

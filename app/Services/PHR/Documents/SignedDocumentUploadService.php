@@ -298,13 +298,22 @@ final readonly class SignedDocumentUploadService
         }
     }
 
+    /**
+     * Closes an open session and deletes its bytes. Conditional on the row still being open (and,
+     * for expiry, still expired), so a PUT that published bytes and renewed the window a moment
+     * ago is not undone by a collector that read the row before.
+     */
     private function discard(PhrDocumentUpload $upload, string $status): void
     {
-        $path = $upload->staging_path;
-        $upload->forceFill(['status' => $status, 'staging_path' => null])->save();
-        if (is_string($path)) {
-            $this->deleteBlob($path);
+        $closed = PhrDocumentUpload::query()
+            ->whereKey($upload->id)
+            ->whereIn('status', [PhrDocumentUpload::PENDING, PhrDocumentUpload::RECEIVING, PhrDocumentUpload::UPLOADED])
+            ->when($status === PhrDocumentUpload::EXPIRED, fn ($query) => $query->where('expires_at', '<', now()))
+            ->update(['status' => $status, 'staging_path' => null, 'updated_at' => now()]);
+        if ($closed === 1 && is_string($upload->staging_path)) {
+            $this->deleteBlob($upload->staging_path);
         }
+        $upload->refresh();
     }
 
     private function deleteBlob(string $path): void
