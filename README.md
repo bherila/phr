@@ -266,6 +266,7 @@ registration endpoints, discovery documents) derives from `APP_URL`.
 | `BHERILA_AUTH_TRUSTED_PROXIES`, `TRUSTED_PROXIES` | Whose `X-Forwarded-For`/`-Proto` to believe (default: on, `cloudflare`). Use a comma-separated list for another proxy, `*` only when a firewall admits nothing but the proxy, or empty with no proxy in front. Per-client rate limits key on the resulting address. |
 | `AGENT_API_MCP_ALLOWED_ORIGINS`, `AGENT_API_MCP_ALLOWED_HOSTS` | Browser origins and `Host` values the MCP endpoint accepts. |
 | `BHERILA_AUTH_PROVIDER_IDENTITY_ENABLED`, `BHERILA_AUTH_PROVIDER_IDENTITY_CACHE_STORE` | Provider identity enforcement, off by default: when on, a browser session or OAuth credential whose identity was disabled, deleted, reset or ungranted at the identity provider is refused. Sign-in records each session's baseline even while it is off, so enable it only after people have signed in again on such a release; credentials issued before that re-authorize once. Needs the provider's identity-status endpoint and a lock-capable cache store shared by every web worker (default: `CACHE_STORE`). |
+| `OPENFDA_API_KEY` | Optional openFDA key for NDC lookups of prescription fills (without one, openFDA allows 1,000 requests a day). Package answers are cached; only drug descriptors are sent, never patient data. `OPENFDA_TIMEOUT_SECONDS` (default 5) bounds each call. |
 | `OAUTH_SERVER_CORS_ALLOWED_ORIGINS` | Browser origins (comma-separated, or `*`) given CORS on OAuth discovery, registration and the token endpoint, for browser-based agents. Empty by default: no CORS headers. Independent of the MCP endpoint's own origin check above. |
 
 The agent authorization server follows the auth package's agent preset: S256 PKCE for
@@ -523,6 +524,7 @@ use synthetic data.
 - [Native backup format](docs/phr-native-v1.md)
 - [Interface shell: layout, sidebar, URLs](docs/ui-shell.md)
 - [Keyboard navigation](docs/keyboard-navigation.md)
+- [Medication fills: web API contract](docs/medication-fills-contract.md)
 
 Production ordering, supersession records, OHIF publication proof, and intentional
 rollback procedures are described in [.github/deployment-policy.md](.github/deployment-policy.md).

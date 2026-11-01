@@ -32,9 +32,9 @@ class PhrMedicationFillFactory extends Factory
                 ->findOrFail($attributes['patient_id'])
                 ->owner_user_id,
             'ndc_status' => PhrMedicationFill::NDC_RESOLVED,
-            'ndc_as_captured' => '58151-0155-77',
+            'ndc_as_captured' => '58151015577',
             'ndc_10' => '58151-155-77',
-            'ndc_11' => '58151-0155-77',
+            'ndc_11' => '58151015577',
             'substance_names' => ['atorvastatin calcium trihydrate'],
             'strengths' => ['10 mg/1'],
             'brand_name' => 'Lipitor',

@@ -7,6 +7,7 @@ use App\Models\PhrMedicationFill;
 use App\Models\PhrPatient;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Str;
 
 /**
  * Keeps every fill attached to a medication-list entry: the patient's matching
@@ -172,12 +173,19 @@ class MedicationFillMedicationLinker
     {
         [$name, $dose, $unit] = $this->nameAndDose($fill);
 
+        // The identity names the fill. A fill whose drug changed can create a second
+        // entry (the first may be soft-deleted but still holds its slot), so it is suffixed.
+        $externalId = 'fill:'.$fill->id;
+        if (PhrMedication::withTrashed()->where('patient_id', $patient->id)->where('import_source', self::IMPORT_SOURCE)->where('external_id', $externalId)->exists()) {
+            $externalId .= ':'.Str::lower(Str::random(6));
+        }
+
         return PhrMedication::query()->create([
             'patient_id' => $patient->id,
             'user_id' => $patient->owner_user_id,
             // Provenance points back at the fill that caused this entry.
             'import_source' => self::IMPORT_SOURCE,
-            'external_id' => 'fill:'.$fill->id,
+            'external_id' => $externalId,
             'source_document_id' => $fill->source_document_id,
             'review_status' => PhrReviewStatus::PENDING,
             'name' => mb_substr($name, 0, 255),
@@ -218,7 +226,7 @@ class MedicationFillMedicationLinker
     /** An entry this linker made for a fill that no longer points at it, and nothing else uses, goes away. */
     private function discardIfOrphan(PhrMedication $previous, PhrMedicationFill $fill): void
     {
-        if ($previous->import_source !== self::IMPORT_SOURCE || $previous->external_id !== 'fill:'.$fill->id) {
+        if ($previous->import_source !== self::IMPORT_SOURCE || ! preg_match('/\Afill:'.$fill->id.'(:[a-z0-9]+)?\z/', (string) $previous->external_id)) {
             return;
         }
         $stillUsed = PhrMedicationFill::query()->where('medication_id', $previous->id)->where('id', '!=', $fill->id)->exists();
