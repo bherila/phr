@@ -846,3 +846,24 @@ describe('Fill dialog', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 })
+
+describe('Fill dialog while saving', () => {
+  it('does not close on Escape while a save is in flight', async () => {
+    let finish: (value: unknown) => void = () => {}
+    mockPatchRaw.mockReturnValue(new Promise((resolve) => { finish = resolve }))
+    renderPage()
+    await screen.findByRole('table', { name: 'Fills' })
+    fireEvent.click(screen.getByRole('button', { name: /^Edit atorvastatin calcium fill 26\.10\.28/ }))
+    const dialog = await screen.findByRole('dialog', { name: 'Edit Fill' })
+    fireEvent.change(within(dialog).getByLabelText('Pharmacy'), { target: { value: 'Other Pharmacy' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }))
+    await within(dialog).findByRole('button', { name: 'Saving…' })
+
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    expect(screen.getByRole('dialog', { name: 'Edit Fill' })).toBeInTheDocument()
+    expect(screen.queryByText('Discard your changes?')).not.toBeInTheDocument()
+
+    finish(jsonResponse(200, { medication_fill: makeFill({ pharmacy_name: 'Other Pharmacy' }) }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+})
