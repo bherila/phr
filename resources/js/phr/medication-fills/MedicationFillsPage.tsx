@@ -3,10 +3,9 @@ import { useMemo, useState } from 'react'
 import { fetchWrapper } from '@/fetchWrapper'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { recordChanged, useRecordChanges } from '@/phr/clinical/recordChanges'
-import { MedicationSectionTabs, medicationTabUrl, useMedicationCounts } from '@/phr/medications/medicationSection'
+import { MedicationSectionTabs, useMedicationCount } from '@/phr/medications/medicationSection'
 import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { errorMessage } from '@/phr/shared'
-import { pushPhrLocation } from '@/phr/shell/phrLocation'
 import type { PhrListPageProps } from '@/phr/shell/phrPages'
 import { openRecordId } from '@/phr/shell/phrRoutes'
 
@@ -47,7 +46,7 @@ export default function MedicationFillsPage({ patientId, onDrill, openRecord }: 
   })
   useRecordChanges('medication-fills', patientId, 'detail', () => void crud.reload())
   const firstLoad = crud.busy && crud.records.length === 0
-  const medicationCounts = useMedicationCounts(patientId)
+  const medicationCount = useMedicationCount(patientId)
 
   const medications = useMemo(() => {
     const byId = new Map<number, string>()
@@ -97,11 +96,7 @@ export default function MedicationFillsPage({ patientId, onDrill, openRecord }: 
         {crud.canManage && <div className="ml-auto"><FillEntryForm patientId={patientId} onCreated={created} /></div>}
       </div>
 
-      <MedicationSectionTabs
-        value="fills"
-        counts={{ active: null, historical: null, all: null, ...medicationCounts, fills: firstLoad ? null : crud.records.length }}
-        onSelect={(tab) => { if (tab !== 'fills') pushPhrLocation(medicationTabUrl(patientId, tab)) }}
-      />
+      <MedicationSectionTabs patientId={patientId} value="fills" counts={{ fills: firstLoad ? null : crud.records.length, medications: medicationCount }} />
 
       <FillFilters
         values={filters}

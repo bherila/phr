@@ -88,28 +88,28 @@ afterEach(() => {
 })
 
 describe('MedicationsPage', () => {
-  it('lists active medications first, with a tab for the rest', async () => {
+  it('lists active medications first, with filters for the rest', async () => {
     render(<MedicationsPage patientId={42} />)
 
     await waitFor(() => expect(screen.getByText('Metformin')).toBeInTheDocument())
     expect(screen.queryByText('Amoxicillin')).not.toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: 'Active 1' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('button', { name: 'Active 1' })).toHaveAttribute('aria-pressed', 'true')
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Historical 1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Ended 1' }))
     expect(await screen.findByText('Amoxicillin')).toBeInTheDocument()
     expect(screen.queryByText('Metformin')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('tab', { name: 'All 2' }))
+    fireEvent.click(screen.getByRole('button', { name: 'All 2' }))
     expect(await screen.findByText('Metformin')).toBeInTheDocument()
     expect(screen.getByText('Amoxicillin')).toBeInTheDocument()
   })
 
-  it('gives dose, route and schedule their own columns, and the status only off the Active tab', async () => {
+  it('gives dose, route and schedule their own columns, and and the end date only off the Active filter', async () => {
     render(<MedicationsPage patientId={42} />)
     const table = await screen.findByRole('table', { name: 'Medications' })
     await within(table).findByText('Metformin')
     const headers = () => within(table).getAllByRole('columnheader').map((header) => header.textContent)
-    expect(headers()).toEqual(['Medication', 'Dose', 'Route', 'Schedule', 'Started', 'Last fill', 'Prescriber', 'Actions'])
+    expect(headers()).toEqual(['Medication', 'Dose', 'Route', 'Schedule', 'Started', 'Last fill', 'Prescriber', 'Status', 'Actions'])
 
     const cells = within(within(table).getAllByRole('row')[1]!).getAllByRole('cell')
     expect(cells[1]).toHaveTextContent(/^500 mg$/)
@@ -119,7 +119,7 @@ describe('MedicationsPage', () => {
     expect(cells[5]).toHaveTextContent(/^—$/)
     expect(cells[6]).toHaveTextContent(/^Dr\. Smith$/)
 
-    fireEvent.click(screen.getByRole('tab', { name: /^Historical/ }))
+    fireEvent.click(screen.getByRole('button', { name: /^Ended/ }))
     await within(table).findByText('Amoxicillin')
     expect(headers()).toEqual(['Medication', 'Dose', 'Route', 'Schedule', 'Started', 'Ended', 'Last fill', 'Prescriber', 'Status', 'Actions'])
     expect(within(table).getByText('Completed', { selector: '[data-tone]' })).toBeInTheDocument()
@@ -138,28 +138,28 @@ describe('MedicationsPage', () => {
     expect(within(table).getByText('500 mg · PO · BID')).toHaveClass('@[960px]/record-list:hidden')
   })
 
-  it('shows a record opened from a link on the tab that holds it', async () => {
+  it('shows a record opened from a link under the filter that holds it', async () => {
     render(<MedicationsPage patientId={42} openRecord={{ module: 'medication-detail', id: '2' }} />)
     expect(await screen.findByText('Amoxicillin')).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: /^Historical/ })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('button', { name: /^Ended/ })).toHaveAttribute('aria-pressed', 'true')
   })
 
-  it('heads the list with the section tabs, opening Fills on its own address', async () => {
+  it('heads the list with the section tabs, opening Fills at its own address', async () => {
     render(<MedicationsPage patientId={42} />)
     await screen.findByText('Metformin')
     fireEvent.click(screen.getByRole('tab', { name: /^Fills/ }))
     expect(window.location.pathname).toBe('/phr/patient/42/medication-fills')
   })
 
-  it('keeps the selected tab in the address and opens on it', async () => {
+  it('keeps the status filter in the address and opens on it', async () => {
     const first = render(<MedicationsPage patientId={42} />)
     await screen.findByText('Metformin')
-    fireEvent.click(screen.getByRole('tab', { name: /^Historical/ }))
-    expect(window.location.search).toBe('?tab=historical')
+    fireEvent.click(screen.getByRole('button', { name: /^Ended/ }))
+    expect(window.location.search).toBe('?status=ended')
     first.unmount()
     render(<MedicationsPage patientId={42} />)
     await screen.findByText('Amoxicillin')
-    expect(screen.getByRole('tab', { name: /^Historical/ })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('button', { name: /^Ended/ })).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('settles the status from an end date that has arrived, and gives the choice back when it is removed', async () => {

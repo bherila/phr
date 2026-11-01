@@ -297,7 +297,7 @@ export default function SummaryPage({ patientId }: { patientId: number }) {
           <SectionCount summary={reviewSummary} page="conditions" noun="condition" none="No conditions recorded." />
         </Tile>
 
-        <Tile icon={<Pill className="size-4" />} title="Medications" href={patientPageUrl(patientId, 'medications')}>
+        <Tile icon={<Pill className="size-4" />} title="Medications" href={patientPageUrl(patientId, 'medication-fills')}>
           <SectionCount summary={reviewSummary} page="medications" noun="medication" none="No medications recorded." />
           {(reviewSummary?.sections['medication-fills']?.records ?? 0) > 0 && (
             <p className="mt-1 text-xs">{countOf(reviewSummary!.sections['medication-fills']!.records, 'fill')}</p>

@@ -105,7 +105,7 @@ test.describe('Record lists never cut anything off', () => {
     await expect(table.locator('tbody tr', { hasText: 'mometasone furoate' }).first().getByText(/^\d+ fills?$/)).toBeVisible()
 
     let layout = await layoutOf(page, 'Medications')
-    expect(layout.columns).toEqual(['Medication', 'Dose', 'Route', 'Schedule', 'Started', 'Last fill', 'Prescriber', 'Review', 'Actions'])
+    expect(layout.columns).toEqual(['Medication', 'Dose', 'Route', 'Schedule', 'Started', 'Last fill', 'Prescriber', 'Status', 'Actions'])
     expect(layout.overflow).toBeLessThanOrEqual(0)
     await expectInViewport(page, /^More actions for /)
 
@@ -117,20 +117,20 @@ test.describe('Record lists never cut anything off', () => {
     const rowHeights = await table.locator('tbody tr[data-record-row]').evaluateAll((rows) => rows.map((row) => row.getBoundingClientRect().height))
     expect(Math.max(...rowHeights)).toBeLessThanOrEqual(110)
 
-    await page.getByRole('tab', { name: /^Historical/ }).click()
+    await page.getByRole('button', { name: /^Ended/ }).click()
     await expect(table.getByText('amoxicillin-clavulanate (Augmentin)')).toBeVisible()
     layout = await layoutOf(page, 'Medications')
     expect(layout.columns).toEqual(['Medication', 'Dose', 'Route', 'Schedule', 'Started', 'Ended', 'Last fill', 'Prescriber', 'Status', 'Actions'])
     expect(layout.overflow).toBeLessThanOrEqual(0)
 
-    await page.getByRole('tab', { name: /^Active/ }).click()
+    await page.getByRole('button', { name: /^Active/ }).click()
     await table.getByText('mometasone furoate').click()
     const panel = page.getByRole('complementary', { name: 'Medication detail' })
     await expect(panel.getByRole('heading', { name: 'mometasone furoate' })).toBeVisible()
     await expect(panel.getByRole('table', { name: 'Fill history' }).getByRole('row').nth(1)).toBeVisible()
 
     layout = await layoutOf(page, 'Medications')
-    expect(layout.columns).toEqual(['Medication', 'Started', 'Last fill', 'Review'])
+    expect(layout.columns).toEqual(['Medication', 'Started', 'Last fill', 'Status'])
     expect(layout.overflow).toBeLessThanOrEqual(0)
     await expect(table.getByText('50 ug · nasal · daily')).toBeVisible()
     expect((await layoutOf(page, 'Fill history')).overflow).toBeLessThanOrEqual(0)
@@ -240,6 +240,8 @@ test.describe('Record lists on a phone', () => {
     await page.getByRole('button', { name: 'Open menu' }).click()
     const menu = page.getByRole('dialog', { name: 'Menu' })
     await expect(menu.getByRole('link', { name: /^Medications/ })).toHaveAttribute('aria-current', 'page')
+    await expect(menu.getByRole('link', { name: /^Medications/ })).toHaveAttribute('href', /medication-fills$/)
+    await expect(menu.getByText('Clinical')).toHaveCount(0)
     await expect(menu.getByRole('link', { name: /^Fills/ })).toHaveCount(0)
     expect((await menu.getByRole('button', { name: 'Close' }).boundingBox())!.height).toBeGreaterThanOrEqual(44)
     // A long patient name stays inside the sheet.
@@ -264,8 +266,10 @@ test.describe('Record lists on a phone', () => {
     await expect(page.getByRole('table', { name: 'Fills' }).getByRole('row').nth(1)).toBeVisible()
     await expectNoPageOverflow(page)
 
-    await page.getByRole('tab', { name: /^Historical/ }).click()
-    await expect(page).toHaveURL(/medications\?tab=historical$/)
+    await page.getByRole('tab', { name: /^Medications/ }).click()
+    await expect(page).toHaveURL(/medications$/)
+    await page.getByRole('button', { name: /^Ended/ }).click()
+    await expect(page).toHaveURL(/medications\?status=ended$/)
     await expect(page.getByRole('table', { name: 'Medications' }).getByText('amoxicillin-clavulanate (Augmentin)')).toBeVisible()
     await expectNoPageOverflow(page)
   })
@@ -279,7 +283,7 @@ test.describe('Record lists on a phone', () => {
     expect(columns).toEqual(['Medication'])
     expect(overflow).toBeLessThanOrEqual(0)
     await expectNoPageOverflow(page)
-    expect((await page.getByRole('tab', { name: /^Historical/ }).boundingBox())!.height).toBeGreaterThanOrEqual(44)
+    expect((await page.getByRole('button', { name: /^Ended/ }).boundingBox())!.height).toBeGreaterThanOrEqual(44)
     // The title, the rejected toggle and Add share one row.
     const addBox = (await page.getByRole('button', { name: 'Add medication' }).boundingBox())!
     const toggleBox = (await page.getByRole('button', { name: 'Show rejected' }).boundingBox())!

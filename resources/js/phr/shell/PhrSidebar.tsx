@@ -53,14 +53,9 @@ export function PhrSidebar({ patientId, page, rail, onRailChange, className }: P
       )}
       <PatientSwitcher patientId={patientId} page={page} rail={rail} />
       <nav aria-label="Record sections" className="flex w-full flex-col gap-3">
-        {PHR_NAV_GROUPS.map((group) => (
-          <div key={group.title} className="flex flex-col gap-0.5" role="group" aria-label={group.title}>
-            {!rail && (
-              <span className="px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground" aria-hidden="true">
-                {group.title}
-              </span>
-            )}
-            {group.pages.map((id) => (
+        {PHR_NAV_GROUPS.map((pages) => (
+          <div key={pages[0]} className="flex flex-col gap-0.5">
+            {pages.map((id) => (
               <SidebarItem key={id} patientId={patientId} page={id} current={id === sidebarPageOf(page)} rail={rail} summary={summary} />
             ))}
           </div>
@@ -98,7 +93,7 @@ function RailToggle({ rail, onRailChange }: { rail: boolean, onRailChange: (rail
  * What the item shows beside its label: Review, how many items wait in all; a section, how
  * many records it holds and a dot when some of them wait for review. Both come from the one
  * summary request the sidebar shares. A view inside the section adds to the dot, not the count:
- * Medications counts medications, and its dot also covers fills waiting for review.
+ * Medications counts fills, its default view, and its dot also covers medications waiting for review.
  */
 export function sidebarAmounts(page: PhrPageId, summary: ReviewSummary | null): { count: number | null, pending: number } {
   if (summary === null) return { count: null, pending: 0 }
@@ -117,7 +112,8 @@ function SidebarItem({ patientId, page, current, rail, summary }: { patientId: n
   const described = page === 'review'
     ? (count !== null ? `${count} waiting for review` : '')
     : [count !== null ? `${count} ${count === 1 ? 'record' : 'records'}` : null, pending > 0 ? `${pending} waiting for review` : null].filter(Boolean).join(', ')
-  const name = described === '' ? meta.label : `${meta.label}, ${described}`
+  const label = meta.navLabel ?? meta.label
+  const name = described === '' ? label : `${label}, ${described}`
   const link = (
     <a
       href={patientPageUrl(patientId, page)}
@@ -137,7 +133,7 @@ function SidebarItem({ patientId, page, current, rail, summary }: { patientId: n
       {rail && (page === 'review' ? count !== null : pending > 0) && <span aria-hidden="true" data-pending-dot="" className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-warning" />}
       {!rail && (
         <>
-          <span className="flex-1 truncate">{meta.label}</span>
+          <span className="flex-1 truncate">{label}</span>
           {pending > 0 && <span aria-hidden="true" data-pending-dot="" className="size-[7px] shrink-0 rounded-full bg-warning" />}
           {count !== null && (
             <span aria-hidden="true" className={cn('text-xs font-medium tabular-nums', current ? 'text-accent-foreground' : 'text-muted-foreground')}>{count}</span>

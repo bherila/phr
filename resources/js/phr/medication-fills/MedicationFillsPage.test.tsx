@@ -135,9 +135,9 @@ describe('MedicationFillsPage table', () => {
     renderPage()
     expect(await screen.findByRole('heading', { name: 'Medications' })).toBeInTheDocument()
     expect(await screen.findByRole('tab', { name: /^Fills \d+$/ })).toHaveAttribute('aria-selected', 'true')
-    expect(await screen.findByRole('tab', { name: /^All \d+$/ })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('tab', { name: /^Historical/ }))
-    expect(`${window.location.pathname}${window.location.search}`).toBe('/phr/patient/42/medications?tab=historical')
+    const medications = await screen.findByRole('tab', { name: /^Medications \d+$/ })
+    fireEvent.click(medications)
+    expect(window.location.pathname).toBe('/phr/patient/42/medications')
     window.history.replaceState(null, '', '/')
   })
 

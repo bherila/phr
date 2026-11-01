@@ -9,11 +9,11 @@ import { cn } from '@/lib/utils'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { recordChanged, useRecordChanges } from '@/phr/clinical/recordChanges'
 import { ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
-import { reviewStatusBadge, reviewStatusNeedsAttention } from '@/phr/clinical/ui'
+import { reviewStatusNeedsAttention } from '@/phr/clinical/ui'
 import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
-import { pushPhrLocation, replacePhrLocation } from '@/phr/shell/phrLocation'
+import { replacePhrLocation } from '@/phr/shell/phrLocation'
 import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
-import { openRecordId, patientPageUrl } from '@/phr/shell/phrRoutes'
+import { openRecordId } from '@/phr/shell/phrRoutes'
 import {
   type PhrMedication,
   PhrMedicationResponseSchema,
@@ -29,19 +29,18 @@ import {
   medicationStatusLabel,
 } from './medicationForm'
 import {
-  initialMedicationTab,
-  inMedicationTab,
-  type MedicationSectionTab,
+  initialMedicationStatus,
+  matchesMedicationStatus,
   MedicationSectionTabs,
-  type MedicationTab,
-  medicationTabCounts,
-  medicationTabUrl,
+  medicationStatusCounts,
+  type MedicationStatusFilter,
+  MedicationStatusFilters,
   useFillOverview,
 } from './medicationSection'
 
-const EMPTY_TEXT: Record<MedicationTab, string> = {
+const EMPTY_TEXT: Record<MedicationStatusFilter, string> = {
   active: 'No active medications.',
-  historical: 'No historical medications.',
+  ended: 'No ended medications.',
   all: 'No medications.',
 }
 
@@ -77,7 +76,7 @@ function StatusCell({ medication }: { medication: PhrMedication }) {
 
 export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrListPageProps) {
   const openRowId = openRecordId(openRecord, 'medication-detail')
-  const [tab, setTab] = useState<MedicationTab>(initialMedicationTab)
+  const [statusFilter, setStatusFilter] = useState<MedicationStatusFilter>(initialMedicationStatus)
   const [addForm, setAddForm] = useState<MedicationFormState | null>(null)
   const [seenOpenRowId, setSeenOpenRowId] = useState<string | null>(null)
 
@@ -99,26 +98,21 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
   const firstLoad = crud.busy && crud.records.length === 0
   const fills = useFillOverview(patientId)
 
-  function selectTab(next: MedicationSectionTab): void {
-    if (next === 'fills') {
-      pushPhrLocation(patientPageUrl(patientId, 'medication-fills'))
-      return
-    }
-    setTab(next)
-    // In the address, so a reload or a shared link lands on the same tab; an open record stays open.
-    const query = new URL(medicationTabUrl(patientId, next), window.location.origin).search
-    replacePhrLocation(`${window.location.pathname}${query}`)
+  function selectStatus(next: MedicationStatusFilter): void {
+    setStatusFilter(next)
+    // In the address, so a reload or a shared link lands on the same filter; an open record stays open.
+    replacePhrLocation(`${window.location.pathname}${next === 'active' ? '' : `?status=${next}`}`)
   }
 
   // A record opened from a link, Back or the palette may be on another tab: show its row.
   const openMedication = openRowId === null ? undefined : crud.records.find((medication) => String(medication.id) === openRowId)
   if (openRowId !== seenOpenRowId && (openRowId === null || openMedication)) {
     setSeenOpenRowId(openRowId)
-    if (openMedication && !inMedicationTab(openMedication, tab)) setTab(openMedication.status === 'active' ? 'active' : 'historical')
+    if (openMedication && !matchesMedicationStatus(openMedication, statusFilter)) setStatusFilter(matchesMedicationStatus(openMedication, 'active') ? 'active' : 'ended')
   }
 
-  const rows = useMemo(() => crud.records.filter((medication) => inMedicationTab(medication, tab)), [crud.records, tab])
-  const counts = useMemo(() => medicationTabCounts(crud.records), [crud.records])
+  const rows = useMemo(() => crud.records.filter((medication) => matchesMedicationStatus(medication, statusFilter)), [crud.records, statusFilter])
+  const counts = useMemo(() => medicationStatusCounts(crud.records), [crud.records])
 
   async function addMedication(form: MedicationFormState): Promise<void> {
     if (!form.name.trim()) {
@@ -140,7 +134,7 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
     crud.isMutating(`save:${medication.id}`) || crud.isMutating(`delete:${medication.id}`) || crud.isMutating(`review:${medication.id}`)
   )
 
-  const showsStatus = tab !== 'active'
+  const showsEnded = statusFilter !== 'active'
   const lastFillOf = (medication: PhrMedication) => fills?.byMedication.get(medication.id)
   const columns: RecordColumn<PhrMedication>[] = [
     {
@@ -154,9 +148,9 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
           <div className="min-w-0">
             <div className="font-medium text-card-foreground">{medication.name}</div>
             <div className={cn('mt-0.5 text-xs text-muted-foreground empty:hidden', RECORD_ONLY_BELOW_WIDE)}>{regimen(medication)}</div>
-            {(showsStatus || lastFillOf(medication)) && (
+            {(showsEnded || lastFillOf(medication)) && (
               <div className={cn('mt-0.5 text-xs text-muted-foreground', RECORD_ONLY_BELOW_MEDIUM)}>
-                {[showsStatus ? medicationStatusLabel(medication.status) : null, lastFillOf(medication) ? `Last fill ${lastFillOf(medication)!.lastFilledOn}` : null].filter(Boolean).join(' · ')}
+                {[showsEnded ? medicationStatusLabel(medication.status) : null, lastFillOf(medication) ? `Last fill ${lastFillOf(medication)!.lastFilledOn}` : null].filter(Boolean).join(' · ')}
               </div>
             )}
           </div>
@@ -167,7 +161,7 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
     { id: 'route', header: 'Route', showFrom: 'wide', headerClassName: HEAD, className: cn(CELL, 'text-muted-foreground'), cell: (medication) => medication.route ?? '—' },
     { id: 'schedule', header: 'Schedule', showFrom: 'wide', headerClassName: cn(HEAD, 'w-[18%]'), className: cn(CELL, 'text-muted-foreground'), cell: (medication) => medication.frequency ?? '—' },
     { id: 'started', header: 'Started', fit: true, showFrom: 'medium', headerClassName: HEAD, className: cn(CELL, 'tabular-nums'), cell: (medication) => medication.started_on ?? '—' },
-    ...(showsStatus
+    ...(showsEnded
       ? [{ id: 'ended', header: 'Ended', fit: true, showFrom: 'medium', headerClassName: HEAD, className: cn(CELL, 'tabular-nums'), cell: (medication) => medication.ended_on ?? '—' } satisfies RecordColumn<PhrMedication>]
       : []),
     {
@@ -189,18 +183,7 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
       },
     },
     { id: 'prescriber', header: 'Prescriber', showFrom: 'wide', headerClassName: HEAD, className: cn(CELL, 'text-muted-foreground'), cell: (medication) => <span className="inline-block min-w-24">{medication.prescriber_name ?? '—'}</span> },
-    showsStatus
-      ? { id: 'status', header: 'Status', fit: true, showFrom: 'medium', headerClassName: HEAD, className: CELL, cell: (medication) => <StatusCell medication={medication} /> }
-      : {
-          id: 'review',
-          header: 'Review',
-          fit: true,
-          showFrom: 'medium',
-          showWhenAnyRow: (medication) => reviewStatusNeedsAttention(medication.review_status),
-          headerClassName: HEAD,
-          className: CELL,
-          cell: (medication) => reviewStatusBadge(medication.review_status),
-        },
+    { id: 'status', header: 'Status', fit: true, showFrom: 'medium', headerClassName: HEAD, className: CELL, cell: (medication) => <StatusCell medication={medication} /> },
   ]
   if (crud.canManage) {
     columns.push({
@@ -249,11 +232,9 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
         </div>
       </div>
 
-      <MedicationSectionTabs
-        value={tab}
-        counts={firstLoad ? { active: null, historical: null, all: null, fills: fills?.total ?? null } : { ...counts, fills: fills?.total ?? null }}
-        onSelect={selectTab}
-      />
+      <MedicationSectionTabs patientId={patientId} value="medications" counts={{ fills: fills?.total ?? null, medications: firstLoad ? null : crud.records.length }} />
+
+      <MedicationStatusFilters value={statusFilter} counts={firstLoad ? null : counts} onSelect={selectStatus} />
 
       {crud.error && !addForm && !editing && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -301,7 +282,7 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
             columns={columns}
             openRowId={openRowId}
             onOpen={drillOpener(onDrill, (medication: PhrMedication) => ({ id: 'medication-detail', instance: String(medication.id) }))}
-            empty={<div className="px-4 py-8 text-sm text-muted-foreground">{EMPTY_TEXT[tab]}</div>}
+            empty={<div className="px-4 py-8 text-sm text-muted-foreground">{EMPTY_TEXT[statusFilter]}</div>}
             tableClassName="min-w-full divide-y divide-border text-sm"
             headClassName="text-left text-muted-foreground"
             bodyClassName="divide-y divide-border"
