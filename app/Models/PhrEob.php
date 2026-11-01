@@ -24,6 +24,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $submission_date
  * @property Carbon|null $print_date
  * @property Carbon|null $processed_date
+ * @property string $review_status
  * @property-read Collection<int, PhrEobLine> $lines
  */
 class PhrEob extends Model
@@ -69,6 +70,7 @@ class PhrEob extends Model
         'parsed_data',
         'raw_text',
         'parser_version',
+        'review_status',
     ];
 
     protected function casts(): array

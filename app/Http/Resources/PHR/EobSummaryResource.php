@@ -35,6 +35,7 @@ class EobSummaryResource extends JsonResource
             'service_start' => $serviceStart?->toDateString(),
             'service_end' => $serviceEnd?->toDateString(),
             'processed_date' => $eob->processed_date?->toDateString(),
+            'review_status' => $eob->review_status,
             'source_document_id' => $eob->source_document_id,
             'source_document_url' => $eob->source_document_id
                 ? url("/api/phr/patients/{$eob->patient_id}/documents/{$eob->source_document_id}/file")

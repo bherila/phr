@@ -16,6 +16,7 @@ use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Models\User;
 use App\Services\PHR\Import\Ehi\EhiUploadService;
+use App\Services\PHR\Import\PhrDocumentProcessingService;
 use App\Services\PHR\Import\PhrStructuredDocumentImporter;
 use App\Support\AgentApi\AgentApiResponseSchemaCatalog;
 use App\Support\AgentApi\AgentApiScopes;
@@ -56,22 +57,29 @@ final class AgentApiStructuredImportTest extends TestCase
         $client = $this->client('Synthetic Import Client');
 
         Passport::actingAs($owner, [AgentApiScopes::IMPORTS_WRITE], 'api', $client);
-        $created = $this->postJson("/api/v1/patients/{$patient->id}/imports", [
+        // A connected client has its own AI: PHR queues nothing and says what to write instead.
+        $this->postJson("/api/v1/patients/{$patient->id}/imports", [
             'document_id' => $document->id,
-        ])->assertAccepted()
-            ->assertJsonPath('resource_type', 'import_job')
+        ])->assertOk()
+            ->assertJsonPath('resource_type', 'client_extraction')
             ->assertJsonPath('patient_id', $patient->id)
-            ->assertJsonPath('outcome', 'created')
+            ->assertJsonPath('outcome', 'client_extraction_required')
             ->assertJsonPath('data.document_id', $document->id)
-            ->assertJsonPath('data.status', 'pending')
-            ->json();
+            ->assertJsonFragment(['medication_fills.upsert'])
+            ->assertJsonFragment(['eobs.upsert']);
+        $this->assertDatabaseCount('genai_import_jobs', 0);
+        Queue::assertNothingPushed();
 
+        // The person sending the document to AI from the browser still queues a job...
+        app(PhrDocumentProcessingService::class)->create($patient, $owner->id, $document->id);
         $job = GenAiImportJob::query()->sole();
+        $created = ['data' => ['id' => $job->id]];
         $this->assertSame($job->id, $created['data']['id']);
         $this->assertSame($job->id, $document->refresh()->genai_job_id);
         Storage::disk('s3')->assertExists($job->s3_path);
         Queue::assertPushed(ParseImportJob::class, 1);
 
+        // ...and a repeat over the API returns that import as it stands.
         $this->postJson("/api/v1/patients/{$patient->id}/imports", [
             'document_id' => $document->id,
         ])->assertOk()
@@ -238,7 +246,7 @@ final class AgentApiStructuredImportTest extends TestCase
         Queue::assertPushed(IntakeEhiUploadJob::class, 3);
     }
 
-    public function test_a_zip_that_is_not_an_export_still_goes_to_ai(): void
+    public function test_a_zip_that_is_not_an_export_is_left_to_the_client(): void
     {
         $owner = $this->user('docx-owner@example.test');
         $patient = $this->patient($owner, 'Synthetic DOCX Patient');
@@ -253,11 +261,11 @@ final class AgentApiStructuredImportTest extends TestCase
         @unlink($zipPath);
         Passport::actingAs($owner, [AgentApiScopes::IMPORTS_WRITE], 'api', $this->client('Synthetic DOCX Client'));
 
-        $this->postJson("/api/v1/patients/{$patient->id}/imports", ['document_id' => $document->id])->assertAccepted()
-            ->assertJsonPath('resource_type', 'import_job')
-            ->assertJsonPath('outcome', 'created');
+        $this->postJson("/api/v1/patients/{$patient->id}/imports", ['document_id' => $document->id])->assertOk()
+            ->assertJsonPath('resource_type', 'client_extraction')
+            ->assertJsonPath('outcome', 'client_extraction_required');
         $this->assertSame(0, PhrEhiUpload::query()->count());
-        Queue::assertPushed(ParseImportJob::class, 1);
+        Queue::assertNothingPushed();
     }
 
     public function test_a_zip_document_for_an_archived_patient_is_refused(): void

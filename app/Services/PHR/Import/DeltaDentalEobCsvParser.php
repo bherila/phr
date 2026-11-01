@@ -25,6 +25,12 @@ class DeltaDentalEobCsvParser
         'You Pay',
     ];
 
+    /** The exact header row of the supported export, for recognising one by its first line. */
+    public static function headerLine(): string
+    {
+        return implode(',', self::HEADERS);
+    }
+
     /**
      * @return list<array<string, mixed>>
      */

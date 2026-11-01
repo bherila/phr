@@ -9,6 +9,7 @@ use App\Models\PhrRespiratoryEvent;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use App\Support\AgentApi\AgentClinicalWriteSchemaCatalog;
 use App\Support\AgentApi\AgentRecordSearchCatalog;
+use App\Support\AgentApi\EobWriteRules;
 use Bherila\McpLaravelBridge\Mcp\ReflectedInputSchemaFactory;
 use Bherila\McpLaravelBridge\Mcp\ToolDefinition;
 
@@ -31,6 +32,9 @@ final class AgentMcpInputSchemaFactory
         }
         if ($definition->name === 'documents.upload') {
             $schema['properties']['document_type']['enum'] = PhrDocument::DOCUMENT_TYPES;
+        }
+        if (in_array($definition->name, ['eobs.upsert', 'eobs.update'], true)) {
+            $schema['properties']['data'] = EobWriteRules::jsonSchema($definition->name === 'eobs.update');
         }
         if ($definition->name === 'health_logs.create') {
             $schema['properties']['kind']['enum'] = PhrHealthLog::KINDS;

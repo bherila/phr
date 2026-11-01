@@ -35,6 +35,10 @@ final class UptimeJobCatalog
                 'label' => 'DICOM storage cleanup',
                 'stale_after_seconds' => 2 * 60 * 60,
             ],
+            'phr:document-uploads:gc' => [
+                'label' => 'Unfinished signed upload cleanup',
+                'stale_after_seconds' => 2 * 60 * 60,
+            ],
             'phr:exports:purge' => [
                 'label' => 'Expired export cleanup',
                 'stale_after_seconds' => 26 * 60 * 60,
@@ -72,6 +76,7 @@ final class UptimeJobCatalog
         return [
             'genai:requeue-stale' => 'genai:requeue-stale',
             'phr:dicom:gc' => 'phr:dicom:gc',
+            'phr:document-uploads:gc' => 'phr:document-uploads:gc',
             'phr:exports:purge' => 'phr:exports:purge',
             'phr:native-backups:purge' => 'phr:native-backups:purge',
             'phr:native-restores:purge' => 'phr:native-restores:purge',

@@ -55,6 +55,8 @@ final class AgentMedicationFillController extends Controller
                             : ['id' => $medication->id, 'review_status' => $medication->review_status])
                         : null,
                     'medication_created' => $result->medicationCreated,
+                    // Whether the fill is one the patient already had (matched), or may be (flagged).
+                    'dedupe' => $result->dedupe,
                     // Stored NDC and drug detail is clinical content: a write-only caller gets none of it.
                     'ndc' => $readable ? $this->ndcBlock($result->record, $result->resolution) : null,
                 ],

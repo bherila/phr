@@ -90,6 +90,10 @@ class PhrStorageMap
             // the archive is deleted and the column nulled.
             ->from('phr_ehi_uploads', 'storage_path')
 
+            // A signed document upload's bytes between the PUT and finalize (or expiry,
+            // when they are deleted and the column nulled). On the documents disk.
+            ->from('phr_document_uploads', 'staging_path')
+
             // Patient deletion commits the database graph first, then retries exact
             // artifact cleanup. Durable work rows protect those keys in between.
             ->from('phr_patient_deletion_artifacts', 'storage_key')
@@ -114,6 +118,7 @@ class PhrStorageMap
             ->ignoring('user_ai_configurations', 'api_key', because: 'API credential')
             ->ignoring('agent_api_audits', 'sampling_key', because: 'rate-limit audit bucket digest, not a storage key')
             ->ignoring('bherila_auth_delegated_receipts', 'operation_key', because: 'digest of a delegated access operation id, not a storage key')
+            ->ignoring('phr_medication_fill_evidence', 'evidence_key', because: 'digest identifying one piece of evidence for a fill, not a storage key')
             ->ignoring('phr_ehi_sources', 'source_patient_key', because: 'source system patient identifier, not a storage key')
             ->ignoring('phr_ehi_packages', 'detected_source_patient_key', because: 'source system patient identifier, not a storage key')
             ->ignoring('phr_ehi_package_members', 'path', because: 'normalized path within an EHI package, not a disk key')

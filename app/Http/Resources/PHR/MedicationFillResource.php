@@ -63,6 +63,10 @@ class MedicationFillResource extends JsonResource
             'retail_cents' => $fill->retail_cents,
             'pharmacy_name' => $fill->pharmacy_name,
             'pharmacy_location' => $fill->pharmacy_location,
+            'review_flags' => $fill->review_flags ?? [],
+            // The EOB lines that adjudicated this fill, and the other documents that show it.
+            'eob_line_ids' => $fill->evidence->whereNotNull('eob_line_id')->pluck('eob_line_id')->map(fn ($id): int => (int) $id)->values()->all(),
+            'evidence_document_ids' => $fill->evidence->whereNotNull('document_id')->pluck('document_id')->map(fn ($id): int => (int) $id)->unique()->values()->all(),
             'version' => app(AgentClinicalRecordVersion::class)->for($fill),
             'created_at' => $fill->created_at?->toDateTimeString(),
             'updated_at' => $fill->updated_at?->toDateTimeString(),

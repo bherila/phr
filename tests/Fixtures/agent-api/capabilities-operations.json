@@ -143,6 +143,34 @@
         "available": true,
         "scope": "documents:write"
     },
+    "documents.upload_access_create": {
+        "available": true,
+        "scope": "documents:write"
+    },
+    "documents.upload_finalize": {
+        "available": true,
+        "scope": "documents:write"
+    },
+    "documents.upload_cancel": {
+        "available": true,
+        "scope": "documents:write"
+    },
+    "eobs.import": {
+        "available": true,
+        "scope": "clinical:write"
+    },
+    "eobs.upsert": {
+        "available": true,
+        "scope": "clinical:write"
+    },
+    "eobs.update": {
+        "available": true,
+        "scope": "clinical:write",
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ]
+    },
     "imports.list": {
         "available": true,
         "scope": "imports:read"

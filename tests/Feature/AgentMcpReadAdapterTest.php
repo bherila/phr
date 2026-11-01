@@ -240,11 +240,11 @@ final class AgentMcpReadAdapterTest extends TestCase
             $this->assertContains($name, $toolNames);
         }
         $this->assertCount(
-            56 + (count(AgentClinicalResourceCatalog::writableIds()) * 2),
+            62 + (count(AgentClinicalResourceCatalog::writableIds()) * 2),
             $toolNames,
         );
         $writeTools = [
-            'patients.create', 'documents.upload', 'imports.create', 'imports.review', 'imports.retry',
+            'patients.create', 'documents.upload', 'documents.upload_access_create', 'documents.upload_finalize', 'documents.upload_cancel', 'eobs.import', 'imports.create', 'imports.review', 'imports.retry',
             'health_logs.create', 'health_log_entries.append', 'respiratory_events.ingest',
             'dicom_uploads.open', 'dicom_uploads.upload_file', 'dicom_uploads.finalize', 'dicom_uploads.cancel',
             'reconciliations.apply',
@@ -263,7 +263,7 @@ final class AgentMcpReadAdapterTest extends TestCase
                 str_ends_with((string) $tool['name'], '.upsert')
                     || str_ends_with((string) $tool['name'], '.update')
                     || str_ends_with((string) $tool['name'], '.retract')
-                    || in_array($tool['name'], ['imports.review', 'imports.retry', 'dicom_uploads.finalize', 'dicom_uploads.cancel', 'reconciliations.apply'], true),
+                    || in_array($tool['name'], ['imports.review', 'imports.retry', 'documents.upload_cancel', 'dicom_uploads.finalize', 'dicom_uploads.cancel', 'reconciliations.apply'], true),
                 $tool['annotations']['destructiveHint'] ?? null,
             );
             // These operations are not safe to replay after an unknown outcome:
@@ -913,9 +913,16 @@ final class AgentMcpReadAdapterTest extends TestCase
             'document_id' => $document->id,
         ]);
         $this->assertFalse($created['result']['isError'] ?? true);
-        $this->assertSame('created', $created['result']['structuredContent']['outcome'] ?? null);
-        $job = GenAiImportJob::query()->sole();
-        Queue::assertPushed(ParseImportJob::class, 1);
+        // A connected client extracts for itself: nothing is queued.
+        $this->assertSame('client_extraction_required', $created['result']['structuredContent']['outcome'] ?? null);
+        Queue::assertNothingPushed();
+        $job = GenAiImportJob::query()->create([
+            'user_id' => $actor->id, 'job_type' => 'phr_document', 'file_hash' => $document->file_hash,
+            'original_filename' => 'synthetic.pdf', 's3_path' => 'genai-import/synthetic', 'mime_type' => 'application/pdf',
+            'file_size_bytes' => 1, 'context_json' => json_encode(['patient_id' => $patient->id, 'document_id' => $document->id], JSON_THROW_ON_ERROR),
+            'status' => 'pending',
+        ]);
+        $document->update(['genai_job_id' => $job->id]);
 
         $job->update(['status' => 'parsed', 'parsed_at' => now()]);
         $proposal = GenAiImportResult::query()->create([
