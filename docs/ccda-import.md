@@ -29,8 +29,9 @@ visit.
 | Allergies | Allergy - Intolerance Observation (in an Allergy Concern Act) | `PhrCcdaAllergyObservations` |
 | Encounters | Encounter Activity | `PhrCcdaEncounterActivities` |
 
-Each reader's class comment and its fixture under `tests/Fixtures/ccda/` list the
-fields it reads. Statuses are mapped to the app's own vocabularies (for example a
+Each section's fixture under `tests/Fixtures/ccda/` lists the entry shapes it
+covers, and its test (`tests/Feature/PHR/PhrCcda*ImportTest.php`) the value every
+field takes. Statuses are mapped to the app's own vocabularies (for example a
 Medication Activity's `aborted` is `discontinued`, a Procedure Activity's `active`
 is `in_progress`).
 

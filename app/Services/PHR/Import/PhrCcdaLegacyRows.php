@@ -85,28 +85,28 @@ final class PhrCcdaLegacyRows
             }
 
             // The narrative-table row first, then earlier-load rows, earliest first.
-            /** @var array<int|string, Model> $earlier */
+            /** @var array<int, Model> $earlier */
             $earlier = [];
             foreach ($entry->sourceIds as $sourceId) {
                 foreach ($loaded[$sourceId] ?? [] as $row) {
-                    $earlier[$row->getKey()] = $row;
+                    $earlier[(int) $row->getKey()] = $row;
                 }
             }
             ksort($earlier);
             $candidates = $entry->narrativeId !== null && isset($narrative[$entry->narrativeId]) ? [$narrative[$entry->narrativeId]] : [];
-            $candidates = array_values(array_filter([...$candidates, ...array_values($earlier)], static fn (Model $row): bool => ! isset($claimed[$row->getKey()])));
+            $candidates = array_values(array_filter([...$candidates, ...array_values($earlier)], static fn (Model $row): bool => ! isset($claimed[(int) $row->getKey()])));
             if ($candidates === []) {
                 continue;
             }
 
             foreach ($candidates as $row) {
-                $claimed[$row->getKey()] = true;
+                $claimed[(int) $row->getKey()] = true;
             }
             $adopted = array_shift($candidates);
             $modelClass::query()->whereKey($adopted->getKey())->update(['import_source' => $importSource, 'external_id' => $externalId]);
             $taken[$externalId] = true;
 
-            $others = array_map(static fn (Model $row): mixed => $row->getKey(), $candidates);
+            $others = array_map(static fn (Model $row): int => (int) $row->getKey(), $candidates);
             if ($others !== []) {
                 $modelClass::query()->whereKey($others)
                     ->where('review_status', '!=', PhrReviewStatus::PENDING)

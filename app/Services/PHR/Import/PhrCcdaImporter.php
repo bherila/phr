@@ -166,12 +166,15 @@ class PhrCcdaImporter
             $unnamed = [];
             $skipped = 0;
             foreach ($entries as $entry) {
-                match (true) {
-                    $entry->skip => $skipped++,
-                    $entry->record !== null => $records[$entry->jobType][] = $entry->record,
-                    $entry->narrativeCells !== null => $unnamed[] = $reader->narrativeRecord($entry->narrativeCells),
-                    default => $skipped++,
-                };
+                if ($entry->skip) {
+                    $skipped++;
+                } elseif ($entry->record !== null) {
+                    $records[$entry->jobType][] = $entry->record;
+                } elseif ($entry->narrativeCells !== null) {
+                    $unnamed[] = $reader->narrativeRecord($entry->narrativeCells);
+                } else {
+                    $skipped++;
+                }
             }
 
             $result = new PhrImportResult(skipped: $skipped);
