@@ -41,6 +41,10 @@ class MedicationFillResource extends JsonResource
             'ndc_10' => $fill->ndc_10,
             'ndc_11' => $fill->ndc_11,
             'ndc_status' => $fill->ndc_status,
+            // Which directory resolved the drug (openfda, rxnav; null when unresolved), and whether
+            // RxNav's history says the product is off the market.
+            'ndc_source' => $fill->ndc_source,
+            'discontinued' => $fill->isDiscontinued(),
             'drug' => [
                 'substance_names' => $fill->substance_names ?? [],
                 'strengths' => $fill->strengths ?? [],

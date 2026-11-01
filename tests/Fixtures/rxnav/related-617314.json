@@ -1,0 +1,49 @@
+{
+  "relatedGroup": {
+    "rxcui": null,
+    "conceptGroup": [
+      {
+        "tty": "DF",
+        "conceptProperties": [
+          {
+            "rxcui": "317541",
+            "name": "Oral Tablet",
+            "synonym": "",
+            "tty": "DF",
+            "language": "ENG",
+            "suppress": "N",
+            "umlscui": ""
+          }
+        ]
+      },
+      {
+        "tty": "IN",
+        "conceptProperties": [
+          {
+            "rxcui": "83367",
+            "name": "atorvastatin",
+            "synonym": "",
+            "tty": "IN",
+            "language": "ENG",
+            "suppress": "N",
+            "umlscui": ""
+          }
+        ]
+      },
+      {
+        "tty": "SCDC",
+        "conceptProperties": [
+          {
+            "rxcui": "597970",
+            "name": "atorvastatin 10 MG",
+            "synonym": "",
+            "tty": "SCDC",
+            "language": "ENG",
+            "suppress": "N",
+            "umlscui": ""
+          }
+        ]
+      }
+    ]
+  }
+}

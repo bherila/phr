@@ -10,14 +10,14 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * Turns the NDC a client sent into the drug columns of a fill. Clients never
- * supply drug fields: the server resolves them from openFDA, so a model that
+ * supply drug fields: the server resolves them from openFDA (or RxNav's NDC history for a discontinued product), so a model that
  * misreads a label cannot invent a strength.
  */
 class MedicationFillDrugResolver
 {
     /** Columns that describe the drug and are only ever set here. */
     public const array DRUG_COLUMNS = [
-        'ndc_as_captured', 'ndc_10', 'ndc_11', 'ndc_status', 'substance_names', 'strengths', 'brand_name',
+        'ndc_as_captured', 'ndc_10', 'ndc_11', 'ndc_status', 'ndc_source', 'substance_names', 'strengths', 'brand_name',
         'dosage_form', 'route', 'labeler_name', 'package_description', 'rxcui', 'fda_snapshot', 'fda_fetched_at',
     ];
 
@@ -123,6 +123,7 @@ class MedicationFillDrugResolver
     {
         return [
             'ndc_status' => $status,
+            'ndc_source' => null,
             'ndc_as_captured' => $captured,
             // The ten-digit form is always shown, so keep it whenever the input
             // fixes one, even without an FDA match.

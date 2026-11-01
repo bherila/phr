@@ -1,0 +1,39 @@
+{
+  "ndcStatus": {
+    "ndc11": "00093015010",
+    "status": "OBSOLETE",
+    "active": "NO",
+    "rxnormNdc": "YES",
+    "rxcui": "993781",
+    "conceptName": "acetaminophen 300 MG / codeine phosphate 30 MG Oral Tablet",
+    "conceptStatus": "ACTIVE",
+    "sourceList": {
+      "sourceName": [
+        "GS",
+        "MMSL",
+        "MMX",
+        "MTHFDA",
+        "MTHSPL",
+        "NDDF",
+        "RXNORM",
+        "VANDF"
+      ]
+    },
+    "altNdc": "N",
+    "comment": null,
+    "ndcHistory": [
+      {
+        "activeRxcui": "993781",
+        "originalRxcui": "993781",
+        "startDate": "201007",
+        "endDate": "202503"
+      },
+      {
+        "activeRxcui": "993781",
+        "originalRxcui": "309462",
+        "startDate": "200706",
+        "endDate": "201006"
+      }
+    ]
+  }
+}

@@ -9,7 +9,9 @@ use Illuminate\Support\Facades\Http;
 
 /**
  * Serves recorded openFDA responses (tests/Fixtures/openfda) so CI never calls
- * the live API. Package lookups answer from the fixture named for the package
+ * the live API. RxNav, the fallback for NDCs openFDA does not list, is served from
+ * tests/Fixtures/rxnav: the recorded NDCs answer from their files, and any other NDC
+ * is "UNKNOWN" to RxNorm, as the live service answers (see fakeOpenFda's $rxnavDown). Package lookups answer from the fixture named for the package
  * NDC and otherwise 404, as openFDA does; any other search gets the recorded
  * atorvastatin search.
  *
@@ -27,19 +29,37 @@ trait FakesOpenFda
     /** @var list<string> every request URL, in order */
     protected array $openFdaRequests = [];
 
-    /** @var list<int> the database transaction depth at each request */
+    /** @var list<string> every RxNav request URL, in order */
+    protected array $rxnavRequests = [];
+
+    /** @var (\Closure(string): void)|null called with the URL of each RxNav request, before it is answered */
+    protected ?\Closure $onRxnavRequest = null;
+
+    /** @var list<int> the database transaction depth at each request, to openFDA or RxNav */
     protected array $openFdaTransactionLevels = [];
 
     /**
      * @param  list<string>  $listed  package NDCs to list in addition to the recorded ones
+     * @param  bool  $down  openFDA answers 503
+     * @param  bool  $rxnavDown  RxNav answers 503
      */
-    protected function fakeOpenFda(array $listed = [], bool $down = false): void
+    protected function fakeOpenFda(array $listed = [], bool $down = false, bool $rxnavDown = false): void
     {
         $this->openFdaRequests = [];
+        $this->rxnavRequests = [];
         $this->openFdaTransactionLevels = [];
         // A fresh factory, so a second call replaces the first fake instead of queueing behind it.
         Http::swap(new Factory);
-        Http::fake(function (Request $request) use ($listed, $down) {
+        Http::fake(function (Request $request) use ($listed, $down, $rxnavDown) {
+            if (str_contains($request->url(), 'rxnav')) {
+                $this->rxnavRequests[] = $request->url();
+                if ($this->onRxnavRequest !== null) {
+                    ($this->onRxnavRequest)($request->url());
+                }
+                $this->openFdaTransactionLevels[] = DB::transactionLevel();
+
+                return $rxnavDown ? Http::response(['error' => 'unavailable'], 503) : $this->rxnavResponse($request->url());
+            }
             $this->openFdaRequests[] = $request->url();
             $this->openFdaTransactionLevels[] = DB::transactionLevel();
             if ($down) {
@@ -53,6 +73,34 @@ trait FakesOpenFda
 
             return Http::response($this->fixture('search-atorvastatin.json'));
         });
+    }
+
+    private function rxnavResponse(string $url): mixed
+    {
+        $path = (string) parse_url($url, PHP_URL_PATH);
+        parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+        $dir = __DIR__.'/../Fixtures/rxnav/';
+        if (str_ends_with($path, '/ndcstatus.json')) {
+            $ndc = (string) ($query['ndc'] ?? '');
+            $file = $dir.'ndcstatus-'.$ndc.'.json';
+            if (is_file($file)) {
+                return Http::response(json_decode((string) file_get_contents($file), true));
+            }
+            $unknown = json_decode((string) file_get_contents($dir.'ndcstatus-unknown.json'), true);
+            $unknown['ndcStatus']['ndc11'] = $ndc;
+
+            return Http::response($unknown);
+        }
+        if (str_ends_with($path, '/ndcproperties.json')) {
+            $file = $dir.'ndcproperties-'.(string) ($query['id'] ?? '').'.json';
+
+            return Http::response(json_decode((string) file_get_contents(is_file($file) ? $file : $dir.'ndcproperties-unknown.json'), true));
+        }
+        if (preg_match('#/rxcui/([0-9]+)/related\.json\z#', $path, $match) === 1 && is_file($dir.'related-'.$match[1].'.json')) {
+            return Http::response(json_decode((string) file_get_contents($dir.'related-'.$match[1].'.json'), true));
+        }
+
+        return Http::response(['error' => 'not recorded'], 404);
     }
 
     /** @param list<string> $listed */

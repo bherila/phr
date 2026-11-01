@@ -301,6 +301,30 @@ describe('Fill entry form', () => {
     expect(mockGet.mock.calls.some(([url]) => String(url).startsWith('/api/ndc/lookup'))).toBe(false)
   })
 
+  it('shows a Discontinued badge in the drug preview of a discontinued lookup, not of a listed one', async () => {
+    lookups['00093-0150-10'] = { status: 'resolved', input: '00093015010', selected: candidate('0093-0150-10', { ndc_source: 'rxnav', discontinued: true }), candidates: [] }
+    lookups['00071-0155-23'] = { status: 'resolved', input: '00071015523', selected: candidate('0071-0155-23', { ndc_source: 'openfda', discontinued: false }), candidates: [] }
+    const ndc = await openForm()
+
+    fireEvent.change(ndc, { target: { value: '00093-0150-10' } })
+    expect(await within(await screen.findByLabelText('Drug preview')).findByText('Discontinued')).toBeInTheDocument()
+
+    fireEvent.change(ndc, { target: { value: '00071-0155-23' } })
+    await waitFor(() => expect(screen.getByLabelText('Drug preview')).toHaveTextContent('Labeler 0071-0155-23'))
+    expect(screen.queryByText('Discontinued')).not.toBeInTheDocument()
+  })
+
+  it('marks a discontinued package in the candidate list', async () => {
+    const a = candidate('60505-0134-0', { ndc_source: 'rxnav', discontinued: true })
+    const b = candidate('60505-134-00')
+    lookups['6050501340'] = { status: 'ambiguous', input: '6050501340', selected: null, candidates: [a, b] }
+    const ndc = await openForm()
+
+    fireEvent.change(ndc, { target: { value: '6050501340' } })
+    expect(await screen.findByText('NDC 60505-0134-0')).toBeInTheDocument()
+    expect(screen.getAllByText('Discontinued')).toHaveLength(1)
+  })
+
   it('offers a candidate picker for an ambiguous NDC and sends the chosen package', async () => {
     const a = candidate('60505-0134-0', { match_reasons: ['package NDC exact (5-4-1)'] })
     const b = candidate('60505-134-00', { match_reasons: ['package NDC exact (5-3-2)'] })
@@ -667,6 +691,26 @@ describe('Editing a fill: review fixes', () => {
 
     expect(await screen.findByText('Ambiguous NDC')).toBeInTheDocument()
     expect(screen.getByText('No FDA match')).toBeInTheDocument()
+  })
+
+  it('marks a fill resolved from RxNav history with a Discontinued badge, and only that fill', async () => {
+    fills = [
+      makeFill({ id: 1, ndc_source: 'rxnav', discontinued: true }),
+      makeFill({ id: 2, ndc_source: 'openfda', discontinued: false }),
+      makeFill({ id: 3, ndc_source: 'rxnav', discontinued: false }),
+    ]
+    renderPage()
+
+    expect(await screen.findAllByText('Discontinued')).toHaveLength(1)
+    expect(screen.queryByText('No FDA match')).not.toBeInTheDocument()
+  })
+
+  it('keeps No FDA match for an unresolved fill, with no Discontinued badge', async () => {
+    fills = [makeFill({ ndc_status: 'unresolved', drug: null, drug_as_printed: 'y', discontinued: false, ndc_source: null })]
+    renderPage()
+
+    expect(await screen.findByText('No FDA match')).toBeInTheDocument()
+    expect(screen.queryByText('Discontinued')).not.toBeInTheDocument()
   })
 })
 

@@ -1,0 +1,38 @@
+{
+  "ndcStatus": {
+    "ndc11": "00071015523",
+    "status": "ACTIVE",
+    "active": "YES",
+    "rxnormNdc": "YES",
+    "rxcui": "617314",
+    "conceptName": "atorvastatin 10 MG Oral Tablet [Lipitor]",
+    "conceptStatus": "ACTIVE",
+    "sourceList": {
+      "sourceName": [
+        "GS",
+        "MMSL",
+        "MMX",
+        "MTHFDA",
+        "MTHSPL",
+        "RXNORM",
+        "VANDF"
+      ]
+    },
+    "altNdc": "N",
+    "comment": null,
+    "ndcHistory": [
+      {
+        "activeRxcui": "617314",
+        "originalRxcui": "617314",
+        "startDate": "200706",
+        "endDate": "202610"
+      },
+      {
+        "activeRxcui": "617312",
+        "originalRxcui": "617312",
+        "startDate": "200706",
+        "endDate": "200901"
+      }
+    ]
+  }
+}

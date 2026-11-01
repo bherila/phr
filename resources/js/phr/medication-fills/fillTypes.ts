@@ -29,6 +29,10 @@ export const NdcCandidateSchema = z.object({
   drug: NdcDrugSchema.nullable().optional().transform((value) => value ?? null),
   match_reasons: stringList,
   fetched_at: nullableString,
+  /** openfda, or rxnav for a product openFDA no longer lists. */
+  ndc_source: nullableString,
+  /** The product is off the market, as RxNav's history says. */
+  discontinued: z.boolean().nullable().optional().transform((value) => value ?? false),
 })
 export type NdcCandidate = z.infer<typeof NdcCandidateSchema>
 
@@ -69,6 +73,8 @@ export const MedicationFillSchema = z.object({
   ndc_10: nullableString,
   ndc_11: nullableString,
   ndc_status: z.string().nullable().optional().transform((value) => value ?? null),
+  ndc_source: nullableString,
+  discontinued: z.boolean().nullable().optional().transform((value) => value ?? false),
   drug: NdcDrugSchema.nullable().optional().transform((value) => value ?? null),
   drug_as_printed: nullableString,
   filled_on: z.string(),
