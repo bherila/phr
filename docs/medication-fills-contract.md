@@ -1,0 +1,109 @@
+# Medication fills: web API contract (phr#265)
+
+This file is the final word on the shapes below; the backend implements them and the UI builds against them. They follow phr's existing clinical-resource conventions: `MedicationResource`, the generic `indexClinicalResource` / `storeClinicalResource` / … controller helpers, and the `useClinicalCrud` hook. Where this file and those conventions differ in something trivial (pagination envelope, date format), the existing convention wins. The backend agent records any such difference in `docs/medication-fills-contract.md` in the branch, and that file becomes the final word.
+
+## Session API (web app), mirroring medications
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/patients/{patient}/medication-fills` | Same index envelope and filters as other clinical resources, plus `medication_id`, `from`, `to` (dates), `ndc_status`. Default order `filled_on` desc. |
+| POST | `/api/patients/{patient}/medication-fills` | Manual entry (body below). `source_kind` is forced to `manual`. |
+| GET | `/api/patients/{patient}/medication-fills/{fill}` | |
+| PATCH | `/api/patients/{patient}/medication-fills/{fill}` | Same semantics as the medication update. |
+| DELETE | `/api/patients/{patient}/medication-fills/{fill}` | |
+| PATCH | `/api/patients/{patient}/medication-fills/{fill}/review` | Same review body as the other clinical resources. |
+| GET | `/api/patients/{patient}/medications/{medication}/fills` | Fill history for the medication page, in the same list shape. |
+| GET | `/api/ndc/lookup?ndc=` | `NdcLookupResult` |
+| GET | `/api/ndc/search?name=&strength=&dosage_form=&route=&labeler=&package=` | `{ "candidates": NdcCandidate[] }` |
+| GET / PUT | `/api/user/display-preferences` | `{ "force_lowercase": boolean }`. Default `false`, stored per user. |
+
+Route names follow `patients.medication-fills.*`, `ndc.lookup`, `ndc.search`, `user.display-preferences.*`.
+
+## `MedicationFill` (JSON resource)
+```json
+{
+  "id": 1, "patient_id": 1, "user_id": 1,
+  "medication_id": 7, "medication": { "id": 7, "name": "atorvastatin calcium" },
+  "import_source": null, "external_id": "…", "source_kind": "label_photo",
+  "source_document_id": 12, "source_locator": "page 1",
+  "review_status": "pending_review",
+  "patient_name_as_printed": "Jane Q. Doe",
+  "ndc_as_captured": "00071-0155-23", "ndc_10": "0071-0155-23", "ndc_11": "00071015523",
+  "ndc_status": "resolved",
+  "drug": {
+    "substance_names": ["atorvastatin calcium"], "strengths": ["20 mg/1"],
+    "brand_name": "Lipitor", "dosage_form": "tablet, film coated", "route": "oral",
+    "labeler_name": "Parke-Davis Div of Pfizer Inc", "package_description": "90 tablet, film coated in 1 bottle (0071-0155-23)",
+    "rxcui": "617312"
+  },
+  "drug_as_printed": "atorvastatin 20mg tab",
+  "filled_on": "2026-10-28", "quantity": "90", "quantity_unit": "tablet",
+  "days_supply": 90, "rx_number": "1234567", "refills_remaining": 3,
+  "directions": "take 1 tablet by mouth daily", "prescriber_name": "Dr. A. Smith",
+  "paid_cents": 1000, "retail_cents": 18999,
+  "pharmacy_name": "Example Pharmacy", "pharmacy_location": "#1234, Seattle WA",
+  "created_at": "…", "updated_at": "…"
+}
+```
+- `drug.*` values are server-resolved and stored with normalized casing. The resource never applies `force_lowercase`; that happens only at render time.
+- `quantity` is a decimal string. Money is integer cents.
+- `drug` keys may be null when `ndc_status` is `unresolved`.
+
+## `NdcCandidate` / `NdcLookupResult`
+```json
+{ "ndc_10": "0071-0155-23", "ndc_11": "00071015523", "product_ndc": "0071-0155",
+  "drug": { "…": "same shape as MedicationFill.drug" },
+  "match_reasons": ["package NDC exact"], "fetched_at": "…" }
+```
+```json
+{ "status": "resolved|ambiguous|unresolved", "input": "00071015523",
+  "selected": "NdcCandidate|null", "candidates": ["NdcCandidate"] }
+```
+`resolved` means one candidate, which is `selected`. `ambiguous` means more than one, with `selected` null. `unresolved` means none.
+
+## Manual create / update body
+```json
+{ "ndc": "00071-0155-23", "ndc_candidate": "0071-0155-23 (optional: the chosen ndc_10 when ambiguous)",
+  "filled_on": "2026-10-28", "quantity": "90", "quantity_unit": "tablet",
+  "paid_cents": 1000, "retail_cents": 18999, "pharmacy_name": "…",
+  "days_supply": null, "rx_number": null, "refills_remaining": null,
+  "directions": null, "prescriber_name": null, "pharmacy_location": null,
+  "medication_id": null, "drug_as_printed": null }
+```
+- The server resolves `drug` from `ndc` or `ndc_candidate`. Clients never send `drug`.
+- When `medication_id` is null, the server links an existing medication or creates one, as the issue describes.
+
+## Validation errors
+Standard Laravel 422 with `errors`. NDC-specific messages:
+- `ndc`: "No FDA listing matches this NDC" (unresolved, when the client did not choose to save it unresolved; send `allow_unresolved: true` to save anyway)
+- `ndc_candidate`: "Choose one of the matching packages"
+
+## Display rules (UI)
+- Fills table columns, left to right:
+  - date (YY.MM.DD)
+  - name / strength / dosage form
+  - quantity
+  - paid ($X.XX)
+  - retail ($X.XX)
+  - pharmacy
+  - route / manufacturer (`labeler_name`) / package description
+- Missing values render as "—".
+- With `force_lowercase`, render all text in the drug, pharmacy, prescriber and directions columns in lowercase (CSS `text-transform: lowercase` is fine). This includes strengths (`mL` displays as `ml`), as the owner asked for small case. Apply it on the fills table, the medication fill history and the entry form preview.
+
+## Final shapes and deviations (backend, authoritative over the sections above)
+
+Where the backend follows phr's existing convention instead of the proposal above:
+
+1. **Envelopes** follow the generic clinical controller helpers. Index: `{ "medication_fills": MedicationFill[], "can_manage": boolean }`. Show, create (201), update and review: `{ "medication_fill": MedicationFill }` (show also carries `can_manage`). The medication history route `GET /api/patients/{patient}/medications/{medication}/fills` returns the index shape.
+2. **Index filters** are `medication_id`, `from`, `to` (dates, inclusive, on `filled_on`), `ndc_status`, `review_status`, `include_rejected` (as for other resources). Order is `filled_on` desc, then `id` desc. Retracted and deleted fills are not listed.
+3. **Dates**: `filled_on` is `YYYY-MM-DD`; `created_at` / `updated_at` are `YYYY-MM-DD HH:MM:SS`, as in `MedicationResource`.
+4. **`quantity`** is a decimal string with trailing zeros trimmed (`"90"`, `"0.5"`).
+5. **`ndc_11`** is eleven digits without hyphens (`"00071015523"`); `ndc_10` is hyphenated as openFDA lists it (`"0071-0155-23"`).
+6. **`NdcCandidate`** is exactly as proposed (`fetched_at`, `match_reasons`); `ndc_search` candidates add a numeric `score`. Lookup candidates carry `match_reasons: ["package NDC exact"]`.
+7. **`NdcLookupResult`** is as proposed plus two optional keys: `reason` (`invalid_ndc` | `not_found` | `lookup_unavailable` | null) and `next_step` (guidance text, null when resolved).
+8. **Manual create/update body**: `ndc`, `ndc_candidate`, `allow_unresolved`, `medication_id`, `drug_as_printed` and the fill fields as proposed. `source_kind` is forced to `manual` for session writes. Drug fields (`brand_name`, `substance_names`, ...) are never accepted from the web client.
+   - `ndc` omitted: the fill is saved with `ndc_status: manual` and no drug fields (the person types the drug in `drug_as_printed`).
+   - `ndc` resolved: `ndc_status: resolved`, drug fields from openFDA.
+   - `ndc` ambiguous: 422 on `ndc_candidate` ("Choose one of the matching packages") until `ndc_candidate` names one of the candidates' `ndc_10`.
+   - `ndc` unresolved: 422 on `ndc` ("No FDA listing matches this NDC") unless `allow_unresolved: true`, which saves `ndc_status: unresolved` with `drug_as_printed` as the only drug text.
+9. **Display preferences**: `GET/PUT /api/user/display-preferences`, body `{ "force_lowercase": boolean }`. The value is also in `app-initial-data` as `currentUser.force_lowercase_display`.
+10. **`MedicationFill.medication`** is `{ "id", "name" }` or null.
