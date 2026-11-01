@@ -335,6 +335,8 @@ class NdcLookupService
      */
     private static function parseStrength(string $text): ?array
     {
+        // "USP units" is two words (openFDA lists it as "[USP'U]"); fold it to one token first.
+        $text = preg_replace(['/\bUSP\s+units?\b/iu', "/\\[USP'U\\]/iu"], 'unit', $text) ?? $text;
         if (preg_match('#^\s*(\d+(?:\.\d+)?)\s*([^\s/]*)\s*(?:/\s*(\d*(?:\.\d+)?\s*[^\s]*))?#u', $text, $m) !== 1) {
             return null;
         }
