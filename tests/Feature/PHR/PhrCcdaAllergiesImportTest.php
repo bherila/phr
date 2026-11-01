@@ -6,6 +6,48 @@ use App\Models\PhrAllergy;
 
 final class PhrCcdaAllergiesImportTest extends PhrCcdaSectionImportTestCase
 {
+    public function test_a_coded_reaction_without_display_text_is_kept_by_its_code(): void
+    {
+        $patient = $this->ccdaPatient();
+
+        $this->importCcda($this->ccdaSectionDocument(<<<'XML'
+            <templateId root="2.16.840.1.113883.10.20.22.2.6.1" extension="2015-08-01"/>
+            <title>Allergies</title>
+            <entry>
+              <act classCode="ACT" moodCode="EVN">
+                <templateId root="2.16.840.1.113883.10.20.22.4.30"/>
+                <statusCode code="active"/>
+                <entryRelationship typeCode="SUBJ">
+                  <observation classCode="OBS" moodCode="EVN">
+                    <templateId root="2.16.840.1.113883.10.20.22.4.7"/>
+                    <id root="2.25.9002" extension="alg-coded-reaction"/>
+                    <participant typeCode="CSM"><participantRole><playingEntity>
+                      <code code="9990310" codeSystem="2.16.840.1.113883.6.88" displayName="Synthetic coded-reaction substance"/>
+                    </playingEntity></participantRole></participant>
+                    <entryRelationship typeCode="MFST" inversionInd="true">
+                      <observation classCode="OBS" moodCode="EVN">
+                        <templateId root="2.16.840.1.113883.10.20.22.4.9"/>
+                        <statusCode code="completed"/>
+                        <value xsi:type="CD" code="9990311" codeSystem="2.16.840.1.113883.6.96" codeSystemName="SNOMED CT"/>
+                      </observation>
+                    </entryRelationship>
+                    <entryRelationship typeCode="MFST" inversionInd="true">
+                      <observation classCode="OBS" moodCode="EVN">
+                        <templateId root="2.16.840.1.113883.10.20.22.4.9"/>
+                        <statusCode code="completed"/>
+                        <value xsi:type="CD" code="9990312" codeSystem="2.16.840.1.113883.6.96" displayName="Synthetic named reaction"/>
+                      </observation>
+                    </entryRelationship>
+                  </observation>
+                </entryRelationship>
+              </act>
+            </entry>
+            XML), $patient);
+
+        $allergy = PhrAllergy::query()->where('patient_id', $patient->id)->sole();
+        $this->assertSame('SNOMED CT|9990311, Synthetic named reaction', $allergy->reaction);
+    }
+
     protected static function model(): string
     {
         return PhrAllergy::class;

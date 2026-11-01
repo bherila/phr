@@ -85,7 +85,8 @@ final class PhrCcdaAllergyObservations extends PhrCcdaSectionReader
             $severity = $this->xml->related($observation, 'observation', self::SEVERITY)[0]
                 ?? ($reactions === [] ? null : ($this->xml->related($reactions[0], 'observation', self::SEVERITY)[0] ?? null));
             $reaction = implode(', ', array_values(array_unique(array_filter(array_map(
-                fn (DOMElement $reaction): ?string => $this->xml->codeName($this->xml->child($reaction, 'value')),
+                // A coded reaction without display text is still a reaction.
+                fn (DOMElement $reaction): ?string => $this->xml->codeName($this->xml->child($reaction, 'value')) ?? $this->xml->codeLabel($this->xml->child($reaction, 'value')),
                 $reactions,
             )))));
 
