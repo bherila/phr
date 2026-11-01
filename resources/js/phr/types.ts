@@ -387,7 +387,14 @@ export const PhrAccessGrantDetailResponseSchema = z.object({
   access: PhrAccessGrantSchema,
 })
 
+// The document types the server writes today (PhrDocument::DOCUMENT_TYPES), for
+// filters, forms and labels. A document's own `document_type` is parsed as any
+// string, like `source` below, so a value this build does not know cannot make
+// the document (or the documents list) unreadable.
 export const PhrDocumentTypeSchema = z.enum(['lab_report', 'office_visit_note', 'clinical_questionnaire', 'patient_symptom_log', 'discharge_summary', 'imaging_report', 'prescription', 'medical_necessity_letter', 'prior_authorization', 'insurance', 'consent', 'care_correspondence', 'other'])
+
+export type PhrDocumentType = z.infer<typeof PhrDocumentTypeSchema>
+
 // The sources the server writes today, for filters and labels. A document's own
 // `source` is parsed as any string: one value this build does not know must not
 // make the whole document (or the documents list) unreadable.
@@ -402,7 +409,7 @@ export const PhrDocumentSchema = z.object({
   uploaded_by_user_id: z.number().nullable(),
   genai_job_id: z.number().nullable(),
   title: nullableString,
-  document_type: PhrDocumentTypeSchema,
+  document_type: z.string(),
   observed_at: nullableString,
   original_filename: nullableString,
   mime_type: nullableString,
@@ -436,7 +443,9 @@ export const PhrDocumentResponseSchema = z.object({
 
 export const PhrDocumentMetadataFormSchema = z.object({
   title: z.string().trim().max(255).optional(),
-  document_type: PhrDocumentTypeSchema,
+  // Omitted when the document's stored type is one this build cannot offer, so
+  // a metadata edit leaves that type as it is.
+  document_type: PhrDocumentTypeSchema.optional(),
   observed_at: z.string().trim().optional(),
   summary: z.string().trim().max(20000).optional(),
   tags: z.array(z.string().trim().min(1).max(50)).max(30),
