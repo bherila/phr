@@ -115,14 +115,14 @@ beforeEach(() => {
 })
 
 describe('MedicationFillsPage table', () => {
-  it('renders the eleven requested columns in order with the contract formats', async () => {
+  it('renders the twelve requested columns in order with the contract formats', async () => {
     renderPage()
 
     const table = await screen.findByRole('table', { name: 'Fills' })
     const headers = within(table).getAllByRole('columnheader').map((header) => header.textContent)
-    expect(headers.slice(0, 11)).toEqual([
+    expect(headers.slice(0, 12)).toEqual([
       'Date', 'Name', 'Strength', 'Dosage form', 'Quantity', 'Paid', 'Retail price',
-      'Pharmacy', 'Route', 'Manufacturer', 'Package description',
+      'Prescriber', 'Pharmacy', 'Route', 'Manufacturer', 'Package description',
     ])
 
     const row = within(table).getAllByRole('row')[1]!
@@ -135,10 +135,27 @@ describe('MedicationFillsPage table', () => {
     expect(cells[4]).toHaveTextContent('90 tablet')
     expect(cells[5]).toHaveTextContent(/^\$10\.00$/)
     expect(cells[6]).toHaveTextContent(/^\$189\.99$/)
-    expect(cells[7]).toHaveTextContent(/^Example Pharmacy$/)
-    expect(cells[8]).toHaveTextContent(/^oral$/)
-    expect(cells[9]).toHaveTextContent(/^Parke-Davis Div of Pfizer Inc$/)
-    expect(cells[10]).toHaveTextContent(/^90 tablet, film coated in 1 bottle \(0071-0155-23\)$/)
+    expect(cells[7]).toHaveTextContent(/^Dr\. A\. Smith$/)
+    expect(cells[8]).toHaveTextContent(/^Example Pharmacy$/)
+    expect(cells[9]).toHaveTextContent(/^oral$/)
+    expect(cells[10]).toHaveTextContent(/^Parke-Davis Div of Pfizer Inc$/)
+    expect(cells[11]).toHaveTextContent(/^90 tablet, film coated in 1 bottle \(0071-0155-23\)$/)
+  })
+
+  it('lists several ingredients and their strengths semicolon-delimited, in the same order', async () => {
+    fills = [makeFill({
+      drug: {
+        ...DRUG,
+        substance_names: ['amoxicillin', 'clavulanate potassium'],
+        strengths: ['600 mg/5 mL', '42.9 mg/5 mL'],
+        dosage_form: 'powder, for suspension',
+      },
+    })]
+    renderPage()
+    const table = await screen.findByRole('table', { name: 'Fills' })
+    const cells = within(within(table).getAllByRole('row')[1]!).getAllByRole('cell')
+    expect(cells[1]).toHaveTextContent('amoxicillin; clavulanate potassium')
+    expect(cells[2]).toHaveTextContent(/^600 mg\/5 mL; 42\.9 mg\/5 mL$/)
   })
 
   it('shows a dash for missing values', async () => {
@@ -147,7 +164,7 @@ describe('MedicationFillsPage table', () => {
     const row = within(table).getAllByRole('row')[2]!
     const cells = within(row).getAllByRole('cell')
     expect(cells[0]).toHaveTextContent('25.03.04')
-    for (const index of [2, 3, 5, 6, 7, 8, 9, 10]) {
+    for (const index of [2, 3, 5, 6, 8, 9, 10, 11]) {
       expect(cells[index]).toHaveTextContent(/^—$/)
     }
   })
@@ -168,7 +185,7 @@ describe('MedicationFillsPage table', () => {
 
     const table = await screen.findByRole('table', { name: 'Fills' })
     await waitFor(() => expect(table.querySelector('.lowercase')).not.toBeNull())
-    for (const text of ['atorvastatin calcium', '20 mg/1', 'Example Pharmacy', 'oral', 'Parke-Davis Div of Pfizer Inc']) {
+    for (const text of ['atorvastatin calcium', '20 mg/1', 'Dr. A. Smith', 'Example Pharmacy', 'oral', 'Parke-Davis Div of Pfizer Inc']) {
       for (const element of within(table).getAllByText(text, { exact: false })) {
         expect(element.closest('.lowercase')).not.toBeNull()
       }

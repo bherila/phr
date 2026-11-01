@@ -121,6 +121,6 @@ export function dollarsToCents(input: string): number | null {
 }
 
 export function fillDrugName(fill: MedicationFill): string {
-  const substances = fill.drug?.substance_names.join(' / ')
+  const substances = fill.drug?.substance_names.join('; ')
   return substances || fill.medication?.name || fill.drug_as_printed || MISSING
 }

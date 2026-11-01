@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/command'
 import { fetchWrapper } from '@/fetchWrapper'
 import { cn } from '@/lib/utils'
-import { useLowercaseClass } from '@/phr/display/DisplayPreferences'
+import { KeepUnitCase, useLowercaseClass } from '@/phr/display/DisplayPreferences'
 import { errorMessage } from '@/phr/shared'
 import type { PhrModuleId, PhrNavTarget } from '@/phr/shell/phrRoutes'
 import { PhrPatientSearchResponseSchema, type PhrPatientSearchResult } from '@/phr/types'
@@ -95,9 +95,9 @@ export function PhrPatientSearchPalette({ open, patientId, onClose, onDrill }: P
               <CommandItem key={`${result.module_id}-${result.id}`} value={`${result.module_id}-${result.id}`} onSelect={() => select(result)}>
                 {result.category === 'Document' ? <FileText className="size-4" /> : <Search className="size-4" />}
                 <span className={cn('min-w-0 flex-1', result.category === 'Fill' && lc)}>
-                  <span className="block truncate font-medium">{result.label}</span>
+                  <span className="block truncate font-medium">{result.category === 'Fill' ? <KeepUnitCase text={result.label} /> : result.label}</span>
                   {/* A fill's description already leads with its YY.MM.DD date. */}
-                  {(result.description || result.date) && <span className="block truncate text-xs text-muted-foreground">{(result.category === 'Fill' ? [result.description] : [result.description, result.date]).filter(Boolean).join(' · ')}</span>}
+                  {(result.description || result.date) && <span className="block truncate text-xs text-muted-foreground">{result.category === 'Fill' ? <KeepUnitCase text={result.description} /> : [result.description, result.date].filter(Boolean).join(' · ')}</span>}
                 </span>
               </CommandItem>
             ))}
