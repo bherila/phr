@@ -2,12 +2,16 @@
 
 namespace App\Services\PHR\Import;
 
+use App\Models\PhrDocument;
 use App\Models\PhrPatient;
 use Illuminate\Support\Facades\File;
 use InvalidArgumentException;
 
 class PhrFhirImporter
 {
+    /** The record source for rows read from a stored document, a PhrDocument::SOURCES value. */
+    private const string RECORD_SOURCE = 'fhir_import';
+
     public function __construct(private PhrStructuredDataImporter $structuredImporter) {}
 
     public function importFile(string $path, PhrPatient $patient, int $actorUserId): PhrImportResult
@@ -26,9 +30,20 @@ class PhrFhirImporter
     }
 
     /**
+     * With `$document`, the stored document the bundle was read from, every row
+     * written is linked to it (see PhrStructuredDataImporter::fromDocument()).
+     *
      * @param  array<string, mixed>  $bundle
      */
-    public function importBundle(array $bundle, PhrPatient $patient, int $actorUserId): PhrImportResult
+    public function importBundle(array $bundle, PhrPatient $patient, int $actorUserId, ?PhrDocument $document = null): PhrImportResult
+    {
+        return $this->structuredImporter->fromDocument($document, self::RECORD_SOURCE, fn (): PhrImportResult => $this->readBundle($bundle, $patient, $actorUserId));
+    }
+
+    /**
+     * @param  array<string, mixed>  $bundle
+     */
+    private function readBundle(array $bundle, PhrPatient $patient, int $actorUserId): PhrImportResult
     {
         if (($bundle['resourceType'] ?? null) !== 'Bundle') {
             throw new InvalidArgumentException('FHIR import expects an R4 Bundle resource.');
@@ -121,7 +136,7 @@ class PhrFhirImporter
             'DocumentReference' => $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_document', [
                 'external_id' => $externalId,
                 'title' => $resource['description'] ?? data_get($resource, 'content.0.attachment.title'),
-                'document_type' => $this->codeableText($resource['type'] ?? null) ?? 'document_reference',
+                'document_type' => $this->codeableText($resource['type'] ?? null) ?? 'other',
                 'original_filename' => data_get($resource, 'content.0.attachment.title'),
                 'mime_type' => data_get($resource, 'content.0.attachment.contentType'),
                 'summary' => $resource['description'] ?? null,
@@ -165,10 +180,32 @@ class PhrFhirImporter
             'unit' => $quantity['unit'] ?? $quantity['code'] ?? null,
             'range_min' => data_get($resource, 'referenceRange.0.low.value'),
             'range_max' => data_get($resource, 'referenceRange.0.high.value'),
+            'range_min_inclusive' => $this->boundInclusive(data_get($resource, 'referenceRange.0.low')),
+            'range_max_inclusive' => $this->boundInclusive(data_get($resource, 'referenceRange.0.high')),
             'reference_range_text' => data_get($resource, 'referenceRange.0.text'),
             'abnormal_flag' => $this->codeableText(data_get($resource, 'interpretation.0')),
             'raw_text' => json_encode($resource),
         ]], ['import_source' => 'fhir']);
+    }
+
+    /**
+     * Whether a reference bound includes its value, by the comparator its
+     * Quantity states: "<=" or ">=" is inclusive, "<" or ">" exclusive. A bound
+     * with no comparator is unknown. FHIR defines a reference range's bounds as
+     * inclusive, but sources commonly write a range their lab prints as "<200"
+     * as a bare high of 200, so a bare bound is not taken as the comparator.
+     */
+    private function boundInclusive(mixed $bound): ?bool
+    {
+        if (! is_array($bound) || ! isset($bound['value'])) {
+            return null;
+        }
+
+        return match ($bound['comparator'] ?? null) {
+            '<=', '>=' => true,
+            '<', '>' => false,
+            default => null,
+        };
     }
 
     /**

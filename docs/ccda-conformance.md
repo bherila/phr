@@ -58,6 +58,13 @@ The Immunizations table appends a trailing Dose column (amount and unit exactly 
 e.g. "0.50 mL") only when at least one exported immunization records a dose amount, so
 exports without dose data keep the original Vaccine/Date/Lot table byte for byte.
 
+The Results table's Reference cell is the range text the source wrote, or else the range
+built from its bounds and their unit ("13.6 - 17.5 g/dL", "<200 mg/dL"). A single bound
+the source stated as inclusive reads "<=5 mg/dL" or ">=60 mL/min"; one whose
+inclusiveness is unknown keeps the strict comparator. Without a Result Organizer there is
+no `IVL_PQ` to carry an `inclusive` attribute, so a two-sided range reads as a span either
+way.
+
 ## Validation gate
 
 Run:

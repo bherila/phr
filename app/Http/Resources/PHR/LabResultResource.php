@@ -36,6 +36,8 @@ class LabResultResource extends JsonResource
             'unit' => $labResult->unit,
             'range_min' => $labResult->range_min,
             'range_max' => $labResult->range_max,
+            'range_min_inclusive' => $labResult->range_min_inclusive,
+            'range_max_inclusive' => $labResult->range_max_inclusive,
             'range_unit' => $labResult->range_unit,
             'reference_range_text' => $labResult->reference_range_text,
             'normal_value' => $labResult->normal_value,

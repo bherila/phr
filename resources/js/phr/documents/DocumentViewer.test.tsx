@@ -119,6 +119,22 @@ describe('DocumentViewer', () => {
   })
 
   it.each([
+    ['the old column default', 'general', 'general'],
+    ['a type added after this build', 'some_future_type', 'some_future_type'],
+    ['a known type', 'office_visit_note', 'Office Visit'],
+  ])('still renders the document for %s', async (_case, documentType, label) => {
+    respondWith(makeDocument({ document_type: documentType }))
+
+    render(<DocumentViewer patientId={42} recordId="10" />)
+
+    expect(await screen.findByTestId('pdf-viewer')).toBeInTheDocument()
+    expect(screen.queryByText(/invalid option/i)).not.toBeInTheDocument()
+    // The facts line leads with the type: a label when this build has one, else the stored value.
+    const toolbar = screen.getByRole('toolbar', { name: 'Document' })
+    expect(within(toolbar).getByText(new RegExp(`^${label} · Manual Upload · Added `))).toBeInTheDocument()
+  })
+
+  it.each([
     ['image/tiff', 'scan.tif'],
     ['image/heic', 'photo.heic'],
     ['image/heif', 'photo.heif'],

@@ -69,6 +69,9 @@ export const MedicationFillSchema = z.object({
   version: nullableString,
   source_kind: nullableString,
   review_status: PhrReviewStatusSchema.optional(),
+  source_document_id: nullableNumber,
+  /** Other documents that show the same fill (receipts, labels). */
+  evidence_document_ids: z.array(z.number()).nullable().optional().transform((value) => value ?? []),
   ndc_as_captured: nullableString,
   ndc_10: nullableString,
   ndc_11: nullableString,
@@ -94,6 +97,42 @@ export const MedicationFillSchema = z.object({
   review_flags: z.array(z.object({ code: z.string(), message: z.string(), fill_id: z.number().optional() })).nullable().optional().transform((value) => value ?? []),
 })
 export type MedicationFill = z.infer<typeof MedicationFillSchema>
+
+const linkSchema = z.string().nullable().optional().transform((value) => value ?? null)
+
+/** What a fill's stored FDA/RxNav snapshot says about the drug (GET .../drug-detail). */
+export const DrugDetailSchema = z.object({
+  ndc_source: nullableString,
+  discontinued: z.boolean().nullable().optional().transform((value) => value ?? false),
+  ndc_10: nullableString,
+  ingredients: z.array(z.object({ name: nullableString, strength: nullableString })).nullable().optional().transform((value) => value ?? []),
+  dosage_form: nullableString,
+  route: nullableString,
+  pharm_class: stringList,
+  application_number: nullableString,
+  marketing_category: nullableString,
+  manufacturer: nullableString,
+  package_description: nullableString,
+  dea_schedule: nullableString,
+  imprint: nullableString,
+  color: nullableString,
+  shape: nullableString,
+  spl_set_id: nullableString,
+  links: z.object({ dailymed: linkSchema, ndc_directory: linkSchema }).nullable().optional().transform((value) => value ?? { dailymed: null, ndc_directory: null }),
+})
+export type DrugDetail = z.infer<typeof DrugDetailSchema>
+export const DrugDetailResponseSchema = z.object({ drug_detail: DrugDetailSchema })
+
+/** The FDA drug label, fetched on demand (GET /api/ndc/label). */
+export const NdcLabelSchema = z.object({
+  status: z.enum(['found', 'not_found', 'unavailable', 'invalid']),
+  spl_set_id: nullableString,
+  effective_date: nullableString,
+  version: nullableString,
+  source: nullableString,
+  sections: z.array(z.object({ key: z.string(), title: z.string(), text: z.string(), truncated: z.boolean().optional() })).nullable().optional().transform((value) => value ?? []),
+})
+export type NdcLabel = z.infer<typeof NdcLabelSchema>
 
 export const MedicationFillResponseSchema = z.object({
   medication_fill: MedicationFillSchema,

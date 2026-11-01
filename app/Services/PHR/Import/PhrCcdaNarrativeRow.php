@@ -9,10 +9,10 @@ use DOMXPath;
  * One row of a C-CDA section's narrative table, as the narrative-table reader
  * sees it.
  *
- * The external id a lab row read from that table gets is a hash of these cells.
- * Results read from structured entries recompute it to find the row an earlier
- * import made of the same table row (PhrCcdaLegacyLabRows), so both readers
- * must take the cells from here.
+ * The external id a row read from that table gets is a hash of these cells.
+ * Records read from structured entries recompute it to find the row an earlier
+ * import made of the same table row (PhrCcdaLegacyLabRows, PhrCcdaLegacyRows),
+ * so both readers must take the cells from here.
  */
 final class PhrCcdaNarrativeRow
 {
@@ -52,6 +52,17 @@ final class PhrCcdaNarrativeRow
      */
     public static function labExternalId(array $cells): string
     {
-        return 'ccda-lab-'.sha1(implode('|', $cells));
+        return self::externalId('ccda-lab-', $cells);
+    }
+
+    /**
+     * The id the narrative-table reader gives a row of any section: the
+     * section's prefix and a hash of the row's cells.
+     *
+     * @param  array<int, string>  $cells
+     */
+    public static function externalId(string $prefix, array $cells): string
+    {
+        return $prefix.sha1(implode('|', $cells));
     }
 }

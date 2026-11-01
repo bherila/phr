@@ -184,6 +184,14 @@ final class AgentMcpReadTools
     }
 
     /** @return array<string, mixed> */
+    public function ndcLabel(
+        #[Schema(maxLength: 64, description: 'The 10-digit package NDC (ndc_10) from ndc_lookup. Give this or spl_set_id.')] ?string $ndc_10 = null,
+        #[Schema(maxLength: 64, description: 'The SPL set id of the label. Give this or ndc_10.')] ?string $spl_set_id = null,
+    ): array {
+        return $this->api->ndcLabel($ndc_10, $spl_set_id)->toArray();
+    }
+
+    /** @return array<string, mixed> */
     public function clinicalGet(
         string $resource_type,
         #[Schema(minimum: 1)] int $patient_id,

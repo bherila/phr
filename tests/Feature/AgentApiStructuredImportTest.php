@@ -127,6 +127,10 @@ final class AgentApiStructuredImportTest extends TestCase
         $created = (int) $first->json('data.import.created');
         $this->assertGreaterThan(0, $created);
         $this->assertSame(0, PhrImmunization::query()->where('patient_id', $patient->id)->where('review_status', '!=', PhrReviewStatus::PENDING)->count());
+        // Every row links back to the stored document it was read from.
+        $this->assertGreaterThan(0, PhrLabResult::query()->where('patient_id', $patient->id)->count());
+        $this->assertSame([$document->id], PhrLabResult::query()->where('patient_id', $patient->id)->distinct()->pluck('source_document_id')->all());
+        $this->assertSame([$document->id], PhrImmunization::query()->where('patient_id', $patient->id)->distinct()->pluck('source_document_id')->all());
         $this->assertDatabaseCount('genai_import_jobs', 0);
         Queue::assertNotPushed(ParseImportJob::class);
 
@@ -218,7 +222,8 @@ final class AgentApiStructuredImportTest extends TestCase
             ->assertJsonPath('data.upload.status', PhrEhiUpload::STATUS_COMPLETED)
             ->assertJsonPath('data.upload.format', PhrEhiUpload::FORMAT_MYCHART);
         $this->assertConformsToImportCreate($done->json());
-        $this->assertSame(PhrReviewStatus::PENDING, PhrCondition::query()->where('patient_id', $patient->id)->sole()->review_status);
+        $condition = PhrCondition::query()->where('patient_id', $patient->id)->sole();
+        $this->assertSame([PhrReviewStatus::PENDING, $document->id], [$condition->review_status, $condition->source_document_id]);
         $this->assertDatabaseCount('genai_import_jobs', 0);
     }
 

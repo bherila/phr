@@ -22,6 +22,8 @@ class OpenFdaClient
 {
     private const string CACHE_PREFIX = 'openfda:ndc-package:';
 
+    private const string LABEL_CACHE_PREFIX = 'openfda:label:';
+
     /**
      * The product listing that contains exactly this hyphenated package NDC.
      *
@@ -75,12 +77,39 @@ class OpenFdaClient
     }
 
     /**
+     * The FDA drug label (SPL) found by an openFDA label search expression, such as
+     * `set_id:"..."` or `openfda.package_ndc:"..."`. Label text is public FDA text, cached for
+     * a week by default (labels change rarely); "no label" is cached for the shorter negative TTL.
+     *
+     * @return array<string, mixed>|null null when openFDA has no such label
+     *
+     * @throws OpenFdaUnavailableException
+     */
+    public function findLabel(string $expression): ?array
+    {
+        $key = self::LABEL_CACHE_PREFIX.hash('sha256', $expression);
+        $cached = Cache::get($key);
+        if (is_array($cached) && array_key_exists('found', $cached)) {
+            return $cached['found'] === true && is_array($cached['label'] ?? null) ? $cached['label'] : null;
+        }
+
+        $results = $this->get(['search' => $expression, 'limit' => 1], '/drug/label.json');
+        $label = $results[0] ?? null;
+        $ttl = $label === null
+            ? (int) config('services.openfda.negative_cache_ttl_seconds', 21600)
+            : (int) config('services.openfda.label_cache_ttl_seconds', 604800);
+        Cache::put($key, ['found' => $label !== null, 'label' => $label], max(1, $ttl));
+
+        return $label;
+    }
+
+    /**
      * @param  array<string, mixed>  $query
      * @return list<array<string, mixed>>|null null when openFDA answers 404 "no matches"
      *
      * @throws OpenFdaUnavailableException
      */
-    private function get(array $query): ?array
+    private function get(array $query, string $endpoint = '/drug/ndc.json'): ?array
     {
         $key = config('services.openfda.key');
         if (is_string($key) && $key !== '') {
@@ -88,7 +117,7 @@ class OpenFdaClient
         }
 
         try {
-            $response = $this->request()->get('/drug/ndc.json', $query);
+            $response = $this->request()->get($endpoint, $query);
         } catch (ConnectionException $exception) {
             throw new OpenFdaUnavailableException('openFDA could not be reached.', 0, $exception);
         }

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\GenAiProcessor\Models\GenAiImportJob;
 use App\Support\PHR\PhrDocumentSource;
+use App\Support\PHR\PhrDocumentType;
 use App\Traits\HasPublicId;
 use App\Traits\SerializesDatesAsLocal;
 use Illuminate\Database\Eloquent\Collection;
@@ -47,6 +48,11 @@ class PhrDocument extends Model
     use SerializesDatesAsLocal;
     use SoftDeletes;
 
+    /**
+     * Every allowed value of `document_type`, enforced on save; see PhrDocumentType.
+     *
+     * @var list<string>
+     */
     public const array DOCUMENT_TYPES = [
         'lab_report',
         'office_visit_note',
@@ -103,6 +109,15 @@ class PhrDocument extends Model
      */
     public const string STORAGE_DISK = 'phr_documents';
 
+    /**
+     * A writer that names no type stores `other`, the same as the column default.
+     *
+     * @var array<string, mixed>
+     */
+    protected $attributes = [
+        'document_type' => PhrDocumentType::FALLBACK,
+    ];
+
     protected $fillable = [
         'patient_id',
         'user_id',
@@ -132,9 +147,14 @@ class PhrDocument extends Model
         // the document viewer. A row is checked when it is created or its source
         // changes; an untouched legacy value never turns a metadata edit into an
         // error (the data migration repairs those rows).
+        //
+        // `document_type` follows the same rule against DOCUMENT_TYPES.
         static::saving(static function (self $document): void {
             if (! $document->exists || $document->isDirty('source')) {
                 PhrDocumentSource::assertValid($document->source);
+            }
+            if (! $document->exists || $document->isDirty('document_type')) {
+                PhrDocumentType::assertValid($document->document_type);
             }
         });
         static::saved(static function (self $document): void {

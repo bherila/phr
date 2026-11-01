@@ -35,7 +35,7 @@ final class PhrCcdaResultObservations
     public function __construct(private DOMXPath $xpath) {}
 
     /**
-     * @return list<array<string, string|null>>
+     * @return list<array<string, string|bool|null>>
      */
     public function records(DOMElement $section): array
     {
@@ -52,7 +52,7 @@ final class PhrCcdaResultObservations
      * `narrative_cells`, the table row it references, let the importer read it
      * as the narrative-table reader would rather than drop it.
      *
-     * @return list<array{record: array<string, string|null>|null, narrative_id: string|null, source_id: string|null, narrative_cells: list<string>|null}>
+     * @return list<array{record: array<string, string|bool|null>|null, narrative_id: string|null, source_id: string|null, narrative_cells: list<string>|null}>
      */
     public function observations(DOMElement $section): array
     {
@@ -115,7 +115,7 @@ final class PhrCcdaResultObservations
     }
 
     /**
-     * @return array<string, string|null>|null
+     * @return array<string, string|bool|null>|null
      */
     private function record(DOMElement $observation): ?array
     {
@@ -148,19 +148,19 @@ final class PhrCcdaResultObservations
     }
 
     /**
-     * @return array{reference_range_text: string|null, range_min: string|null, range_max: string|null, range_unit: string|null}
+     * @return array{reference_range_text: string|null, range_min: string|null, range_max: string|null, range_min_inclusive: bool|null, range_max_inclusive: bool|null, range_unit: string|null}
      */
     private function referenceRange(DOMElement $observation): array
     {
         $range = $this->observationRange($observation);
         if ($range === null) {
-            return ['reference_range_text' => null, 'range_min' => null, 'range_max' => null, 'range_unit' => null];
+            return ['reference_range_text' => null, 'range_min' => null, 'range_max' => null, 'range_min_inclusive' => null, 'range_max_inclusive' => null, 'range_unit' => null];
         }
 
         $value = $this->child($range, 'value');
         $type = $this->type($value);
-        [$low, $lowUnit] = $this->bound($value === null ? null : $this->child($value, 'low'));
-        [$high, $highUnit] = $this->bound($value === null ? null : $this->child($value, 'high'));
+        [$low, $lowUnit, $lowInclusive] = $this->bound($value === null ? null : $this->child($value, 'low'));
+        [$high, $highUnit, $highInclusive] = $this->bound($value === null ? null : $this->child($value, 'high'));
         $rangeUnit = $lowUnit ?? $highUnit;
 
         // The bounds and their unit are the range. Text is only what the source
@@ -178,6 +178,11 @@ final class PhrCcdaResultObservations
             'reference_range_text' => $text,
             'range_min' => $low,
             'range_max' => $high,
+            // Only what the bound itself says. HL7 reads an absent `inclusive` as
+            // true, but sources commonly omit it from bounds their labs print as
+            // "<200", so an omission is stored as unknown, not as inclusive.
+            'range_min_inclusive' => $low === null ? null : $lowInclusive,
+            'range_max_inclusive' => $high === null ? null : $highInclusive,
             'range_unit' => $rangeUnit,
         ];
     }
@@ -204,18 +209,20 @@ final class PhrCcdaResultObservations
     }
 
     /**
-     * A bound's number, unit and inclusiveness. A PQ in a unit outside UCUM is a
-     * nullFlavor PQ whose number and unit live in its translation.
+     * A bound's number, unit and its stated inclusiveness: true or false when its
+     * `inclusive` attribute says so, null when it has none. A PQ in a unit outside
+     * UCUM is a nullFlavor PQ whose number and unit live in its translation.
      *
-     * @return array{0: string|null, 1: string|null, 2: bool}
+     * @return array{0: string|null, 1: string|null, 2: bool|null}
      */
     private function bound(?DOMElement $bound): array
     {
         if ($bound === null) {
-            return [null, null, true];
+            return [null, null, null];
         }
 
-        $inclusive = $this->attribute($bound, 'inclusive') !== 'false';
+        // An xs:boolean: true, false, 1 or 0.
+        $inclusive = ValueCoercion::boolean($this->attribute($bound, 'inclusive'));
         $number = ValueCoercion::numeric($this->attribute($bound, 'value'));
         $unit = $this->attribute($bound, 'unit');
         $translation = $this->child($bound, 'translation');
@@ -285,7 +292,8 @@ final class PhrCcdaResultObservations
     {
         [$low, $lowUnit, $lowInclusive] = $this->bound($this->child($value, 'low'));
         [$high, $highUnit, $highInclusive] = $this->bound($this->child($value, 'high'));
-        $text = $this->boundsText($low, $lowInclusive, $high, $highInclusive);
+        // A value's text has always read an unstated bound as HL7 does, inclusive.
+        $text = $this->boundsText($low, $lowInclusive ?? true, $high, $highInclusive ?? true);
 
         return [$text, $text === null ? null : ($lowUnit ?? $highUnit)];
     }

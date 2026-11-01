@@ -1,5 +1,5 @@
 import { Pencil, Trash2 } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { type ReactNode, useState } from 'react'
 
 import { type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
 import { Button } from '@/components/ui/button'
@@ -8,7 +8,9 @@ import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 
 import { DiscontinuedBadge } from './DiscontinuedBadge'
+import { DrugDetailPanel } from './DrugDetailPanel'
 import { fillDrugName, formatCents, formatFillDate, formatQuantity, type MedicationFill, MISSING } from './fillTypes'
+import { PharmacyModal } from './PharmacyModal'
 
 export interface FillActions {
   isMutating: (key: string) => boolean
@@ -20,6 +22,7 @@ export interface FillActions {
 }
 
 interface FillsTableProps {
+  patientId: number
   label: string
   rows: MedicationFill[]
   loading?: boolean
@@ -30,11 +33,15 @@ interface FillsTableProps {
   onEdit?: ((fill: MedicationFill) => void) | undefined
 }
 
+const LINK_BUTTON = 'text-left underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring rounded-sm'
+
 function Missing() {
   return <span className="text-muted-foreground">{MISSING}</span>
 }
 
-export function FillsTable({ label, rows, loading = false, empty, actions, onEdit }: FillsTableProps) {
+export function FillsTable({ patientId, label, rows, loading = false, empty, actions, onEdit }: FillsTableProps) {
+  const [drugFill, setDrugFill] = useState<MedicationFill | null>(null)
+  const [pharmacyFill, setPharmacyFill] = useState<MedicationFill | null>(null)
   const head = 'px-4 py-3 font-medium'
   const cellClass = 'px-4 py-3'
   /** A plain text column, a dash when missing. */
@@ -65,7 +72,14 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
       className: cellClass,
       cell: (fill) => (
         <div>
-          <div className="font-medium text-card-foreground">{fillDrugName(fill)}</div>
+          <button
+            type="button"
+            className={cn(LINK_BUTTON, 'font-medium text-primary')}
+            aria-haspopup="dialog"
+            onClick={() => setDrugFill(fill)}
+          >
+            {fillDrugName(fill)}
+          </button>
           <div className="mt-1 flex flex-wrap gap-1.5">
             {fill.ndc_status === 'unresolved' && (
               <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">No FDA match</span>
@@ -111,7 +125,18 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
       cell: (fill) => formatCents(fill.retail_cents),
     },
     textColumn('prescriber', 'Prescriber', (fill) => fill.display?.prescriber_name ?? fill.prescriber_name),
-    textColumn('pharmacy', 'Pharmacy', (fill) => fill.display?.pharmacy_name ?? fill.pharmacy_name),
+    {
+      id: 'pharmacy',
+      header: 'Pharmacy',
+      headerClassName: head,
+      className: cellClass,
+      cell: (fill) => {
+        const name = fill.display?.pharmacy_name ?? fill.pharmacy_name
+        return name
+          ? <button type="button" className={cn(LINK_BUTTON, 'text-primary')} aria-haspopup="dialog" onClick={() => setPharmacyFill(fill)}>{name}</button>
+          : <Missing />
+      },
+    },
     textColumn('route', 'Route', (fill) => fill.drug?.route, 'text-muted-foreground'),
     textColumn('manufacturer', 'Manufacturer', (fill) => fill.drug?.labeler_name, 'text-muted-foreground'),
     textColumn('package', 'Package description', (fill) => fill.drug?.package_description, 'text-muted-foreground'),
@@ -161,6 +186,9 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
   }
 
   return (
+    <>
+    {drugFill && <DrugDetailPanel patientId={patientId} fill={drugFill} onClose={() => setDrugFill(null)} />}
+    {pharmacyFill && <PharmacyModal patientId={patientId} fill={pharmacyFill} onClose={() => setPharmacyFill(null)} />}
     <RecordTable
       label={label}
       loading={loading}
@@ -193,5 +221,6 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
         ) : null
       ) : undefined}
     />
+    </>
   )
 }
