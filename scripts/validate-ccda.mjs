@@ -40,7 +40,6 @@ const expectedErrors = [
     ['MedicationsSection-errors', 'MedicationsSection-errors-root', 'If section/@nullFlavor is not present, SHALL contain at least one Medication Activity'],
     ['ProblemSection-errors', 'ProblemSection-errors-root', 'If section/@nullFlavor is not present, SHALL contain at least one Problem Concern Act'],
     ['ProceduresSection-errors', 'ProceduresSection-errors-root', 'If section/@nullFlavor is not present, SHALL contain at least one Procedure Activity Procedure'],
-    ['ResultsSection-errors', 'ResultsSection-errors-root', 'If section/@nullFlavor is not present, SHALL contain at least one Result Organizer'],
     ['VitalSignsSection-errors', 'VitalSignsSection-errors-root', 'If section/@nullFlavor is not present, SHALL contain at least one Vital Signs Organizer or Average Blood Pressure Organizer'],
     ['ImmunizationsSection-errors', 'ImmunizationsSection-errors-root', 'If section/@nullFlavor is not present, SHALL contain at least one Immunization Activity'],
     ['EncountersSection-errors', 'EncountersSection-errors-root', 'If section/@nullFlavor is not present, SHALL contain at least one Encounter Activity'],
@@ -56,12 +55,29 @@ const expectedWarnings = [
     ['SHOULD contain legalAuthenticator', 3],
     ['SHOULD contain maritalStatusCode', 2],
     ['SHOULD contain performer', 5],
+    // Result Organizer (one per synthetic panel) and Result Observation: the app has no
+    // result author, diagnostic-service category, organizer narrative reference or LOINC code
+    // to state, and must not invent them.
+    ['SHOULD contain author', 6],
+    ['SHOULD contain sdtcCategory', 2],
+    ['SHOULD contain text/reference/@value', 2],
+    ['**SHOULD** be selected from LOINC (codeSystem 2.16.840.1.113883.6.1) **OR** SNOMED CT (codeSystem 2.16.840.1.113883.6.96), and **MAY** be selected from CPT (codeSystem 2.16.840.1.113883.6.12) (CONF:4537-19218).', 2],
+    ['This code **SHOULD** be a code from the LOINC that identifies the result observation. If an appropriate LOINC code does not exist, then the local code for this result **SHALL** be sent (CONF:4537-19212).', 4],
 ];
 
-// cda-schematron-validator cannot resolve two generated value-set variables in their
-// union-context rules. Freeze both known engine limitations too: new ignored assertions
-// are regressions, not an excuse to weaken validation.
+// cda-schematron-validator cannot resolve generated value-set variables in their
+// union-context rules (the nullFlavor and status-code choices below). Freeze every known
+// engine limitation too: new ignored assertions are regressions, not an excuse to weaken
+// validation. The Result Organizer / Observation value-set assertions are covered by
+// PhrCcdaResultEntriesTest, which checks each emitted code against the value set.
 const expectedIgnored = [
+    ['ResultObservation-errors', 'ResultObservation-errors-code.nullFlavor', 'SHALL be selected from ValueSet CDANullFlavor'],
+    ['ResultObservation-errors', 'ResultObservation-errors-interpretationCode', 'SHALL be selected from ValueSet CDAObservationInterpretation'],
+    ['ResultObservation-errors', 'ResultObservation-errors-statusCode.code', 'SHALL be selected from ValueSet ResultStatus'],
+    ['ResultObservation-errors', 'ResultObservation-errors-statusCode', 'SHALL be selected from ValueSet ActStatus'],
+    ['ResultOrganizer-errors', 'ResultOrganizer-errors-classCode', 'SHALL be selected from ValueSet XActClassDocumentEntryOrganizer'],
+    ['ResultOrganizer-errors', 'ResultOrganizer-errors-statusCode.code', 'SHALL be selected from ValueSet ResultStatus'],
+    ['ResultOrganizer-errors', 'ResultOrganizer-errors-statusCode', 'SHALL be selected from ValueSet ActStatus'],
     ['USRealmAddress-errors', 'USRealmAddress-errors-nullFlavor', 'SHALL be selected from ValueSet CDANullFlavor'],
     ['USRealmHeader-warnings', 'USRealmHeader-warnings-confidentialityCode.code', 'SHOULD be selected from ValueSet HL7BasicConfidentialityKind'],
 ];
