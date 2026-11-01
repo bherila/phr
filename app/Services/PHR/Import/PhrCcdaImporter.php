@@ -113,6 +113,7 @@ class PhrCcdaImporter
     {
         return [
             new PhrCcdaVitalSignObservations($xml),
+            new PhrCcdaMedicationActivities($xml),
         ];
     }
 
@@ -195,19 +196,6 @@ class PhrCcdaImporter
     {
         if ($this->isResultsSection($title)) {
             return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_lab_result', array_map($this->narrativeLabRecord(...), $rows), ['import_source' => self::IMPORT_SOURCE]);
-        }
-
-        if (str_contains($title, 'medication')) {
-            return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_medication', array_map(
-                fn (array $row): array => [
-                    'name' => $row[0] ?? null,
-                    'dose' => $row[1] ?? null,
-                    'frequency' => $row[2] ?? null,
-                    'status' => $row[3] ?? 'active',
-                    'external_id' => 'ccda-med-'.sha1(implode('|', $row)),
-                ],
-                $rows
-            ), ['import_source' => self::IMPORT_SOURCE]);
         }
 
         if (str_contains($title, 'problem') || str_contains($title, 'condition')) {
