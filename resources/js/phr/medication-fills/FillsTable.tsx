@@ -109,6 +109,7 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
       className: cellClass,
       cell: (fill) => formatCents(fill.retail_cents),
     },
+    textColumn('prescriber', 'Prescriber', (fill) => fill.prescriber_name),
     textColumn('pharmacy', 'Pharmacy', (fill) => fill.pharmacy_name),
     textColumn('route', 'Route', (fill) => fill.drug?.route, 'text-muted-foreground'),
     textColumn('manufacturer', 'Manufacturer', (fill) => fill.drug?.labeler_name, 'text-muted-foreground'),
