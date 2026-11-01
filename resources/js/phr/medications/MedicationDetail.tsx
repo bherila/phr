@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { DetailSkeleton } from '@/components/record-list/Skeleton'
+import { MedicationFillHistory } from '@/phr/medication-fills/MedicationFillHistory'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import { type PhrMedication, PhrMedicationResponseSchema } from '@/phr/types'
@@ -111,6 +112,7 @@ export default function MedicationDetail({ patientId, recordId }: MedicationDeta
           </div>
         </section>
       )}
+      {medication && <MedicationFillHistory patientId={patientId} medicationId={medication.id} />}
     </div>
   )
 }

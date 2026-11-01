@@ -6,6 +6,7 @@ import { PageSkeleton } from '@/components/record-list/Skeleton'
 import { ShortcutsDialog } from '@/components/ShortcutsDialog'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
+import { DisplayPreferencesProvider } from '@/phr/display/DisplayPreferences'
 import { EhiUploadProvider } from '@/phr/imports/ehi/EhiUploadProvider'
 import { PhrPatientsProvider, usePhrPatients } from '@/phr/patients/usePhrPatients'
 import { DicomUploadProvider, DicomUploadTray } from '@/phr/uploads'
@@ -35,12 +36,14 @@ export function PhrShell(): ReactElement {
   // beforeunload guard each provider registers) survives moving between pages.
   return (
     <PhrPatientsProvider>
-      <DicomUploadProvider>
-        <EhiUploadProvider>
-          <ShellLayout />
-        </EhiUploadProvider>
-        <DicomUploadTray />
-      </DicomUploadProvider>
+      <DisplayPreferencesProvider>
+        <DicomUploadProvider>
+          <EhiUploadProvider>
+            <ShellLayout />
+          </EhiUploadProvider>
+          <DicomUploadTray />
+        </DicomUploadProvider>
+      </DisplayPreferencesProvider>
     </PhrPatientsProvider>
   )
 }

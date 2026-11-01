@@ -17,6 +17,7 @@ export const GO_TO_KEYS: readonly { key: string, page: string }[] = [
   { key: 'v', page: 'vitals' },
   { key: 't', page: 'office-visits' },
   { key: 'm', page: 'medications' },
+  { key: 'f', page: 'fills' },
   { key: 'c', page: 'conditions' },
   { key: 'p', page: 'procedures' },
   { key: 'i', page: 'immunizations' },
