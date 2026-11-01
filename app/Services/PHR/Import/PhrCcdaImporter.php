@@ -2,6 +2,7 @@
 
 namespace App\Services\PHR\Import;
 
+use App\Models\PhrDocument;
 use App\Models\PhrPatient;
 use DOMDocument;
 use DOMElement;
@@ -14,6 +15,9 @@ use InvalidArgumentException;
 class PhrCcdaImporter
 {
     private const string IMPORT_SOURCE = 'ccda';
+
+    /** The record source for rows read from a stored document, a PhrDocument::SOURCES value. */
+    private const string RECORD_SOURCE = 'ccda_import';
 
     public function __construct(
         private PhrStructuredDataImporter $structuredImporter,
@@ -31,7 +35,16 @@ class PhrCcdaImporter
         return $this->importXml(File::get($path), $patient, $actorUserId);
     }
 
-    public function importXml(string $xml, PhrPatient $patient, int $actorUserId): PhrImportResult
+    /**
+     * With `$document`, the stored document the XML was read from, every row
+     * written is linked to it (see PhrStructuredDataImporter::fromDocument()).
+     */
+    public function importXml(string $xml, PhrPatient $patient, int $actorUserId, ?PhrDocument $document = null): PhrImportResult
+    {
+        return $this->structuredImporter->fromDocument($document, self::RECORD_SOURCE, fn (): PhrImportResult => $this->readXml($xml, $patient, $actorUserId));
+    }
+
+    private function readXml(string $xml, PhrPatient $patient, int $actorUserId): PhrImportResult
     {
         $document = new DOMDocument;
         $previous = libxml_use_internal_errors(true);

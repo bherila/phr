@@ -379,7 +379,7 @@ final class EhiUploadService
         }
         try {
             $this->access->ensureCanWrite($patient, (int) $upload->actor_user_id);
-            $result = $this->myChart->importFile($path, $patient, (int) $upload->actor_user_id);
+            $result = $this->myChart->importFile($path, $patient, (int) $upload->actor_user_id, $this->sourceDocument($upload, $patient));
         } catch (PhrMultiplePatientsInSource) {
             $this->finish($upload, PhrEhiUpload::STATUS_REJECTED, EhiPackageRejected::MULTIPLE_PATIENTS);
 
@@ -407,6 +407,20 @@ final class EhiUploadService
                 'warnings_omitted' => max(0, count($result->warnings) - self::MAX_WARNINGS),
             ],
         ]);
+    }
+
+    /**
+     * The stored document an upload was staged from (an agent's imports.create),
+     * still this patient's; a browser upload has none, and rows it writes are
+     * left unlinked.
+     */
+    private function sourceDocument(PhrEhiUpload $upload, PhrPatient $patient): ?PhrDocument
+    {
+        if ($upload->source_document_id === null) {
+            return null;
+        }
+
+        return PhrDocument::query()->where('patient_id', $patient->id)->find($upload->source_document_id);
     }
 
     /** Record a failure without touching the staged archive, so intake can be queued again. */

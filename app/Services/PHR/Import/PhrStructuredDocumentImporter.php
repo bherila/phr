@@ -76,7 +76,7 @@ final class PhrStructuredDocumentImporter
             return null;
         }
         try {
-            [$format, $result] = $this->files->import($patient, $actorUserId, (string) $disk->get($document->storage_path));
+            [$format, $result] = $this->files->import($patient, $actorUserId, (string) $disk->get($document->storage_path), $document);
         } catch (PhrStructuredImportRefused $refused) {
             if ($refused->reason === PhrStructuredImportRefused::UNSUPPORTED_FORMAT) {
                 // Not a format PHR's parsers read: the caller queues AI extraction.

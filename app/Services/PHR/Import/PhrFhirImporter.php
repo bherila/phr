@@ -2,12 +2,16 @@
 
 namespace App\Services\PHR\Import;
 
+use App\Models\PhrDocument;
 use App\Models\PhrPatient;
 use Illuminate\Support\Facades\File;
 use InvalidArgumentException;
 
 class PhrFhirImporter
 {
+    /** The record source for rows read from a stored document, a PhrDocument::SOURCES value. */
+    private const string RECORD_SOURCE = 'fhir_import';
+
     public function __construct(private PhrStructuredDataImporter $structuredImporter) {}
 
     public function importFile(string $path, PhrPatient $patient, int $actorUserId): PhrImportResult
@@ -26,9 +30,20 @@ class PhrFhirImporter
     }
 
     /**
+     * With `$document`, the stored document the bundle was read from, every row
+     * written is linked to it (see PhrStructuredDataImporter::fromDocument()).
+     *
      * @param  array<string, mixed>  $bundle
      */
-    public function importBundle(array $bundle, PhrPatient $patient, int $actorUserId): PhrImportResult
+    public function importBundle(array $bundle, PhrPatient $patient, int $actorUserId, ?PhrDocument $document = null): PhrImportResult
+    {
+        return $this->structuredImporter->fromDocument($document, self::RECORD_SOURCE, fn (): PhrImportResult => $this->readBundle($bundle, $patient, $actorUserId));
+    }
+
+    /**
+     * @param  array<string, mixed>  $bundle
+     */
+    private function readBundle(array $bundle, PhrPatient $patient, int $actorUserId): PhrImportResult
     {
         if (($bundle['resourceType'] ?? null) !== 'Bundle') {
             throw new InvalidArgumentException('FHIR import expects an R4 Bundle resource.');
