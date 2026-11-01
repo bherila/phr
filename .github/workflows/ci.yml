@@ -219,10 +219,17 @@ jobs:
           php -d memory_limit=1G vendor/bin/phpunit --list-tests-xml build/phpunit/inventory.xml
           php scripts/phpunit-shards.php plan build/phpunit/inventory.xml .github/phpunit-timings.json 3 ${{ matrix.shard }} build/phpunit
 
+      # ParaTest runs the shard's classes across one worker per core. It has no
+      # --test-id-filter-file, so the plan also writes filter.txt, a --filter pattern
+      # naming exactly the classes assigned to this shard. Each worker is its own
+      # process with its own in-memory SQLite database, and ParaTest's TEST_TOKEN
+      # keeps Storage::fake() roots apart. `Run Tests` still proves from the junit
+      # reports that every discovered test ran exactly once.
       - name: Run PHPUnit
         run: >-
-          php -d memory_limit=1G vendor/bin/phpunit
-          --test-id-filter-file build/phpunit/test-ids.txt
+          php -d memory_limit=1G vendor/bin/paratest
+          --processes="$(nproc)"
+          --filter "$(cat build/phpunit/filter.txt)"
           --fail-on-empty-test-suite
           --log-junit build/phpunit/junit.xml
 

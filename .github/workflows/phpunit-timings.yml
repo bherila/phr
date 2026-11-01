@@ -1,0 +1,96 @@
+name: phpunit-timings
+
+# The backend shards are balanced from .github/phpunit-timings.json. Tests are
+# added and slowed down continuously, so the file goes stale and one shard ends
+# up carrying the wall time. Weekly, rebuild it from the shard JUnit reports of
+# the latest green CI run on main, using the same planner CI uses
+# (scripts/phpunit-shards.php), and open a PR only when the committed numbers
+# would make the slowest shard meaningfully slower than freshly measured ones.
+# Nothing here merges anything: a person reviews and merges the PR.
+on:
+  schedule:
+    - cron: '41 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      threshold:
+        description: Open a PR when the slowest shard would be this many times slower than a refreshed plan
+        default: '1.10'
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      # Keep in step with the shard count in ci.yml (matrix, plan and verify).
+      SHARDS: '3'
+      THRESHOLD: ${{ inputs.threshold || '1.10' }}
+      BRANCH: ci/refresh-phpunit-timings
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: simplexml
+
+      - name: Download the latest green main run's shard reports
+        id: run
+        run: |
+          run_id=$(gh run list --workflow ci.yml --branch main --event push --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+          if [ -z "$run_id" ] || [ "$run_id" = null ]; then
+            echo "::error::No successful CI run on main to read timings from."
+            exit 1
+          fi
+          echo "id=$run_id" >> "$GITHUB_OUTPUT"
+          gh run download "$run_id" --pattern 'phpunit-shard-*' --dir build/phpunit-results
+
+      # Never learn from a run that did not cover the whole suite exactly once.
+      - name: Verify the reports are complete
+        run: php scripts/phpunit-shards.php verify build/phpunit-results "$SHARDS"
+
+      - name: Measure drift
+        id: drift
+        run: |
+          php scripts/phpunit-shards.php weights build/phpunit-timings.json build/phpunit-results/phpunit-shard-*/junit.xml
+          php scripts/phpunit-shards.php drift build/phpunit-results/phpunit-shard-1/inventory.xml .github/phpunit-timings.json build/phpunit-timings.json "$SHARDS" "$THRESHOLD" | tee drift.txt
+          cat drift.txt >> "$GITHUB_OUTPUT"
+          {
+            echo '### PHPUnit shard balance'
+            echo
+            echo "Source run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ steps.run.outputs.id }}"
+            echo
+            sed 's/^/- /' drift.txt
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Open or update the timings PR
+        if: ${{ steps.drift.outputs.drifted == 'true' }}
+        run: |
+          cp build/phpunit-timings.json .github/phpunit-timings.json
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -C "$BRANCH"
+          git add .github/phpunit-timings.json
+          git commit -m 'Refresh PHPUnit shard timings'
+          git push --force origin "$BRANCH"
+          body="Refreshes \`.github/phpunit-timings.json\` from the shard reports of [CI run ${{ steps.run.outputs.id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ steps.run.outputs.id }}).
+
+          With the committed timings the slowest shard is estimated at ${{ steps.drift.outputs.committed_slowest_shard_seconds }}s; with these it is ${{ steps.drift.outputs.refreshed_slowest_shard_seconds }}s (ratio ${{ steps.drift.outputs.ratio }}, threshold $THRESHOLD).
+
+          Not merged automatically. Checks do not start for a pull request opened with the workflow token: close and reopen it, or push to the branch, so \`Run Tests\` runs before merging."
+          if [ -n "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number')" ]; then
+            gh pr edit "$BRANCH" --body "$body"
+          elif ! gh pr create --head "$BRANCH" --base main --title 'Refresh PHPUnit shard timings' --body "$body"; then
+            echo "::error::Pushed $BRANCH but could not open the PR (repository setting 'Allow GitHub Actions to create and approve pull requests' may be off). Compare: ${{ github.server_url }}/${{ github.repository }}/compare/main...$BRANCH"
+            exit 1
+          fi
