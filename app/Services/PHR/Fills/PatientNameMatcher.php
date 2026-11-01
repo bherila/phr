@@ -74,6 +74,19 @@ final class PatientNameMatcher
     }
 
     /**
+     * True when a name printed on a document is present and does not refer to this
+     * patient. A blank printed name is not a mismatch.
+     */
+    public function mismatches(PhrPatient $patient, ?string $printedName): bool
+    {
+        if ($printedName === null || self::tokens($printedName) === []) {
+            return false;
+        }
+
+        return $this->match(collect([$patient]), $printedName)['status'] !== self::MATCHED;
+    }
+
+    /**
      * The comparable words of a name: lowercase ASCII letters and digits,
      * "LAST, FIRST MIDDLE" turned into "first middle last".
      *

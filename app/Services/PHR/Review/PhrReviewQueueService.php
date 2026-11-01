@@ -22,6 +22,7 @@ use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientVital;
 use App\Models\PhrProcedure;
+use App\Services\PHR\Fills\PatientNameMatcher;
 use App\Services\PHR\Import\Ehi\EhiImportPresenter;
 use App\Services\PHR\Import\PhrImportJobDao;
 use App\Services\PHR\Import\PhrImportJobPresenter;
@@ -85,6 +86,7 @@ final readonly class PhrReviewQueueService
         private PhrImportJobPresenter $jobPresenter,
         private EhiImportPresenter $ehiPresenter,
         private AgentClinicalRecordVersion $versions,
+        private PatientNameMatcher $names,
     ) {}
 
     /**
@@ -322,6 +324,7 @@ final readonly class PhrReviewQueueService
         ))));
         $clients = $clientIds === [] ? collect() : PassportClient::query()->whereIn('id', $clientIds)->pluck('name', 'id');
 
+        $mismatched = $this->medicationsFromMismatchedFills($patient, $rows);
         $groups = [];
         $truncated = [];
         foreach ($rows as [$page, $record]) {
@@ -349,7 +352,7 @@ final readonly class PhrReviewQueueService
             if ($updated instanceof CarbonInterface && ($groups[$key]['date'] === null || $updated->toIso8601String() > $groups[$key]['date'])) {
                 $groups[$key]['date'] = $updated->toIso8601String();
             }
-            $groups[$key]['items'][] = $this->recordItem($page, $record);
+            $groups[$key]['items'][] = $this->recordItem($page, $record, $patient, $mismatched);
         }
 
         return array_map(static fn (array $group): array => [
@@ -361,8 +364,11 @@ final readonly class PhrReviewQueueService
         ], array_values($groups));
     }
 
-    /** @return array<string, mixed> */
-    private function recordItem(string $page, Model $record): array
+    /**
+     * @param  array<int, string>  $mismatched
+     * @return array<string, mixed>
+     */
+    private function recordItem(string $page, Model $record, PhrPatient $patient, array $mismatched): array
     {
         [$title, $detail] = $this->describe($page, $record);
         $created = $record->getAttribute('created_at');
@@ -376,6 +382,8 @@ final readonly class PhrReviewQueueService
             'review_segment' => self::REVIEW_SEGMENTS[$page] ?? $page,
             'title' => $title,
             'detail' => $detail,
+            // Why a person should look closely, beyond the record being new.
+            'flags' => $this->flags($page, $record, $patient, $mismatched),
             // A record changed after it was added was updated by its source (or an
             // agent), which reopened its review. Earlier values are not kept, so
             // there is no field-level difference to show.
@@ -383,6 +391,61 @@ final readonly class PhrReviewQueueService
             'version' => $this->versions->for($record),
             'updated_at' => $updated instanceof CarbonInterface ? $updated->toIso8601String() : null,
         ];
+    }
+
+    /**
+     * A fill keeps the patient of the document it came from, whatever name is printed
+     * on it; a name that is not the patient's is flagged here so a person confirms it.
+     *
+     * @param  array<int, string>  $mismatched  medication id to the other name printed on its fill
+     * @return list<array{code: string, message: string}>
+     */
+    private function flags(string $page, Model $record, PhrPatient $patient, array $mismatched): array
+    {
+        if ($page === 'medications' && isset($mismatched[(int) $record->getKey()])) {
+            $printed = $mismatched[(int) $record->getKey()];
+
+            return [['code' => 'patient_name_mismatch', 'message' => "Added from a fill printed for \"{$printed}\", not {$patient->display_name}. Confirm it belongs here."]];
+        }
+        if ($page !== 'medication-fills') {
+            return [];
+        }
+        $printed = $record->getAttribute('patient_name_as_printed');
+        if (! is_string($printed) || ! $this->names->mismatches($patient, $printed)) {
+            return [];
+        }
+
+        return [['code' => 'patient_name_mismatch', 'message' => "Printed for \"{$printed}\", not {$patient->display_name}. Kept on this patient; confirm it belongs here."]];
+    }
+
+    /**
+     * Medications on this page whose fills carry another person's printed name:
+     * medication id to that name. One query for the whole page.
+     *
+     * @param  list<array{0: string, 1: Model|null}>  $rows
+     * @return array<int, string>
+     */
+    private function medicationsFromMismatchedFills(PhrPatient $patient, array $rows): array
+    {
+        $ids = [];
+        foreach ($rows as [$page, $record]) {
+            if ($page === 'medications' && $record !== null) {
+                $ids[] = (int) $record->getKey();
+            }
+        }
+        if ($ids === []) {
+            return [];
+        }
+        $found = [];
+        $fills = PhrMedicationFill::query()->where('patient_id', $patient->id)->whereIn('medication_id', $ids)
+            ->whereNotNull('patient_name_as_printed')->get(['medication_id', 'patient_name_as_printed']);
+        foreach ($fills as $fill) {
+            if ($this->names->mismatches($patient, $fill->patient_name_as_printed)) {
+                $found[(int) $fill->medication_id] ??= (string) $fill->patient_name_as_printed;
+            }
+        }
+
+        return $found;
     }
 
     /** @return array{0: string, 1: string|null} */

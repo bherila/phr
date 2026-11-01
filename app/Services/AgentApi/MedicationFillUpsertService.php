@@ -34,13 +34,22 @@ final readonly class MedicationFillUpsertService
 
     public function upsert(PhrPatient $patient, AgentApiClientIdentity $client, ClinicalUpsertData $data): MedicationFillUpsertResult
     {
+        return $this->upsertFromSource($patient, $client->importSource(), $data);
+    }
+
+    /**
+     * The same write for a source that is not an OAuth client, such as phr's own
+     * AI extraction (import source "genai").
+     */
+    public function upsertFromSource(PhrPatient $patient, string $importSource, ClinicalUpsertData $data): MedicationFillUpsertResult
+    {
         if ($data->sourceDocumentId !== null) {
             PhrDocument::query()->where('patient_id', $patient->id)->findOrFail($data->sourceDocumentId);
         }
         /** @var array{patient_id: int, import_source: string, external_id: string} $identity */
         $identity = [
             'patient_id' => $patient->id,
-            'import_source' => $client->importSource(),
+            'import_source' => $importSource,
             'external_id' => $data->externalId,
         ];
 
