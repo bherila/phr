@@ -13,8 +13,6 @@ final class PhrCcdaProblemObservations extends PhrCcdaSectionReader
 {
     private const array OBSERVATION = ['2.16.840.1.113883.10.20.22.4.4'];
 
-    private const array CONCERN = ['2.16.840.1.113883.10.20.22.4.3'];
-
     private const array STATUS = ['2.16.840.1.113883.10.20.22.4.6'];
 
     private const array SEVERITY = ['2.16.840.1.113883.10.20.22.4.8'];
@@ -75,7 +73,7 @@ final class PhrCcdaProblemObservations extends PhrCcdaSectionReader
                 'snomed_code' => $this->xml->codeIn($value, self::SNOMED),
                 'onset_date' => $onset,
                 'abated_date' => $abated,
-                'clinical_status' => $this->clinicalStatus($observation, $abated, self::STATUS, self::CONCERN),
+                'clinical_status' => $this->clinicalStatus($observation, $abated, self::STATUS),
                 'severity' => $this->severity($this->xml->related($observation, 'observation', self::SEVERITY)[0] ?? null),
                 'external_id' => $this->externalId($observation, [$name, $onset]),
             ];

@@ -11,10 +11,11 @@
                       translation; onset; an "active" status observation; a
                       severity observation
     prob-original     ICD-10-CM value whose originalText references the
-                      narrative cell; the concern is completed (resolved)
+                      narrative cell; the concern is completed, which is
+                      not the problem's status (still active)
     prob-abated       onset and abatement (resolved)
     prob-inactive     an "inactive" status observation
-    prob-suspended    the concern is suspended (inactive)
+    prob-suspended    the concern is suspended (still active)
     prob-code-only    nothing but the SNOMED code names it
     prob-negated      negationInd with SNOMED "problem": no known problems
     prob-unnamed      nothing names it, and its text references its own row

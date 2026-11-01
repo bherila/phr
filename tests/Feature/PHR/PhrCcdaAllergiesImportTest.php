@@ -122,8 +122,9 @@ final class PhrCcdaAllergiesImportTest extends PhrCcdaSectionImportTestCase
             'clinical_status' => [
                 // Its status observation says so.
                 'alg-display' => 'active',
-                // Its concern is completed.
-                'alg-original' => 'resolved',
+                // Its concern is completed: no longer tracked, which says
+                // nothing about whether the allergy ended.
+                'alg-original' => 'active',
                 // It has ended.
                 'alg-name' => 'resolved',
                 'alg-inactive' => 'inactive',

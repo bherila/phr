@@ -56,12 +56,14 @@ final class PhrCcdaProblemsImportTest extends PhrCcdaSectionImportTestCase
             'clinical_status' => [
                 // Its status observation says so.
                 'prob-display' => 'active',
-                // Its concern is completed.
-                'prob-original' => 'resolved',
+                // Its concern is completed: no longer tracked, which says
+                // nothing about whether the problem ended.
+                'prob-original' => 'active',
                 // It has abated.
                 'prob-abated' => 'resolved',
                 'prob-inactive' => 'inactive',
-                'prob-suspended' => 'inactive',
+                // Likewise a suspended concern.
+                'prob-suspended' => 'active',
                 'prob-code-only' => 'active',
                 'prob-unnamed' => 'active',
             ],

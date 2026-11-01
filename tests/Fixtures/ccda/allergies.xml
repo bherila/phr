@@ -12,7 +12,8 @@
                     first with a moderate severity
     alg-original    food allergy whose SNOMED substance code's originalText
                     references the narrative cell; a severe severity on the
-                    allergy itself; low criticality; the concern is completed
+                    allergy itself; low criticality; the concern is completed,
+                    which is not the allergy's status (still active)
     alg-name        environmental allergy to a substance with only a <name>;
                     it has ended
     alg-inactive    "allergy to substance" (no category); an "inactive" status
