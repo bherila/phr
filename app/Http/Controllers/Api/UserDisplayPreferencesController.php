@@ -6,6 +6,7 @@ use App\Models\User;
 use App\Support\PHR\DisplayPreferences;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 final readonly class UserDisplayPreferencesController
@@ -20,10 +21,17 @@ final readonly class UserDisplayPreferencesController
             'hidden_fill_columns' => ['sometimes', 'array'],
             'hidden_fill_columns.*' => ['string', Rule::in(DisplayPreferences::FILL_COLUMNS)],
         ]);
-        /** @var User $user */
-        $user = $request->user();
-        $preferences = DisplayPreferences::normalize([...$user->displayPreferences(), ...$validated]);
-        $user->forceFill(['display_preferences' => $preferences])->save();
+        /** @var User $current */
+        $current = $request->user();
+
+        // Read and merged under a lock, so two quick saves of different settings both stick.
+        $preferences = DB::transaction(function () use ($current, $validated): array {
+            $user = User::query()->lockForUpdate()->findOrFail($current->getKey());
+            $merged = DisplayPreferences::normalize([...$user->displayPreferences(), ...$validated]);
+            $user->forceFill(['display_preferences' => $merged])->save();
+
+            return $merged;
+        });
 
         return response()->json(['display_preferences' => $preferences]);
     }

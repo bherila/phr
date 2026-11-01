@@ -1064,11 +1064,11 @@ describe('Editing a fill: review fixes', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'Prescriber' }))
     expect(within(table).getByRole('columnheader', { name: 'Pharmacy' })).toBeInTheDocument()
     expect(within(table).queryByText('Dr. A. Smith')).not.toBeInTheDocument()
-    expect(mockPut).toHaveBeenCalledWith('/api/user/display-preferences', { hidden_fill_columns: ['prescriber'] })
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/api/user/display-preferences', { hidden_fill_columns: ['prescriber'] }))
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Prescriber' }))
     expect(within(table).getByRole('columnheader', { name: 'Pharmacy and prescriber' })).toBeInTheDocument()
-    expect(mockPut).toHaveBeenLastCalledWith('/api/user/display-preferences', { hidden_fill_columns: [] })
+    await waitFor(() => expect(mockPut).toHaveBeenLastCalledWith('/api/user/display-preferences', { hidden_fill_columns: [] }))
     await act(async () => { await Promise.resolve() })
   })
 

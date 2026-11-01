@@ -59,14 +59,22 @@ export function useDisplayPreferences(): DisplayPreferences {
   return useSyncExternalStore(subscribe, read, read)
 }
 
-/** Applies at once and saves on the logged-in user; rejects, and puts it back, if the save fails. */
+let saving: Promise<unknown> = Promise.resolve()
+
+/**
+ * Applies at once and saves on the logged-in user, one request at a time so quick changes reach
+ * the server in order. If a save fails it rejects and puts back only what it changed.
+ */
 export async function saveDisplayPreferences(change: Partial<DisplayPreferences>): Promise<void> {
   const before = read()
   replace({ ...before, ...change })
+  const request = saving.then(() => fetchWrapper.put('/api/user/display-preferences', change))
+  saving = request.catch(() => undefined)
   try {
-    await fetchWrapper.put('/api/user/display-preferences', change)
+    await request
   } catch (caught) {
-    replace(before)
+    const restored = Object.fromEntries(Object.keys(change).map((key) => [key, before[key as keyof DisplayPreferences]]))
+    replace({ ...read(), ...restored })
     throw caught
   }
 }
@@ -74,4 +82,5 @@ export async function saveDisplayPreferences(change: Partial<DisplayPreferences>
 /** Forgets what was read, so the next read starts from the page again. */
 export function resetDisplayPreferences(): void {
   current = null
+  saving = Promise.resolve()
 }
