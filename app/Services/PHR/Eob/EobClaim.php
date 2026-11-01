@@ -20,8 +20,9 @@ final class EobClaim
 
     /** @var list<string> */
     public const array HEADER_TEXT = [
-        'claim_number', 'administrator', 'carrier', 'plan_name', 'group_number', 'member_id', 'participant_name',
-        'patient_name', 'provider_name', 'provider_phone', 'payment_to', 'provider_tin', 'check_number',
+        'claim_number', 'administrator', 'carrier', 'plan_name', 'group_number',
+        'participant_name', 'patient_name', 'provider_name', 'provider_phone', 'payment_to', 'provider_tin', 'check_number',
+        'member_id',
     ];
 
     /** @var list<string> */
