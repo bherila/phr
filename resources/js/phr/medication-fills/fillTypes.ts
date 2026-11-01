@@ -136,6 +136,7 @@ export type NdcLabel = z.infer<typeof NdcLabelSchema>
 
 export const MedicationFillResponseSchema = z.object({
   medication_fill: MedicationFillSchema,
+  can_manage: z.boolean().default(false),
 })
 
 export const MedicationFillsResponseSchema = z.object({
@@ -145,10 +146,10 @@ export const MedicationFillsResponseSchema = z.object({
 
 export const MISSING = '—'
 
-/** 2026-10-28 (or an ISO timestamp) becomes 26.10.28. Sliced, never parsed: no timezone shift. */
+/** A date or ISO timestamp as YYYY-MM-DD. Sliced, never parsed: no timezone shift. */
 export function formatFillDate(value: string | null | undefined): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value ?? '')
-  return match ? `${match[1]!.slice(2)}.${match[2]}.${match[3]}` : MISSING
+  const match = /^\d{4}-\d{2}-\d{2}/.exec(value ?? '')
+  return match ? match[0] : MISSING
 }
 
 /** Integer cents to $X.XX. Zero is a real price ($0.00); only null is missing. */

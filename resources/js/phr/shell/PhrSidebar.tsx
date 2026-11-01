@@ -14,8 +14,8 @@ import { cn } from '@/lib/utils'
 import { usePhrPatients } from '@/phr/patients/usePhrPatients'
 import { type ReviewSummary, useReviewSummary } from '@/phr/review/reviewSummary'
 
-import { PHR_NAV_GROUPS, PHR_PAGES } from './phrPages'
-import { patientPageUrl, type PhrPageId } from './phrRoutes'
+import { PHR_NAV_GROUPS, PHR_PAGES, sidebarPageOf } from './phrPages'
+import { patientPageUrl, PHR_PAGE_IDS, type PhrPageId } from './phrRoutes'
 
 export function patientDisplayName(name: string | null | undefined, patientId: number): string {
   return name?.trim() ? name : `Patient ${patientId}`
@@ -61,7 +61,7 @@ export function PhrSidebar({ patientId, page, rail, onRailChange, className }: P
               </span>
             )}
             {group.pages.map((id) => (
-              <SidebarItem key={id} patientId={patientId} page={id} current={id === page} rail={rail} summary={summary} />
+              <SidebarItem key={id} patientId={patientId} page={id} current={id === sidebarPageOf(page)} rail={rail} summary={summary} />
             ))}
           </div>
         ))}
@@ -97,13 +97,17 @@ function RailToggle({ rail, onRailChange }: { rail: boolean, onRailChange: (rail
 /**
  * What the item shows beside its label: Review, how many items wait in all; a section, how
  * many records it holds and a dot when some of them wait for review. Both come from the one
- * summary request the sidebar shares.
+ * summary request the sidebar shares. A view inside the section adds to the dot, not the count:
+ * Medications counts medications, and its dot also covers fills waiting for review.
  */
 export function sidebarAmounts(page: PhrPageId, summary: ReviewSummary | null): { count: number | null, pending: number } {
   if (summary === null) return { count: null, pending: 0 }
   if (page === 'review') return { count: summary.total > 0 ? summary.total : null, pending: 0 }
   const section = summary.sections[page]
-  return { count: section && section.records > 0 ? section.records : null, pending: section?.pending ?? 0 }
+  const pending = PHR_PAGE_IDS
+    .filter((id) => id === page || PHR_PAGES[id].sectionPage === page)
+    .reduce((sum, id) => sum + (summary.sections[id]?.pending ?? 0), 0)
+  return { count: section && section.records > 0 ? section.records : null, pending }
 }
 
 function SidebarItem({ patientId, page, current, rail, summary }: { patientId: number, page: PhrPageId, current: boolean, rail: boolean, summary: ReviewSummary | null }): ReactElement {

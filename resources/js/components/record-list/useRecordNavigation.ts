@@ -250,6 +250,9 @@ export function useRecordNavigation<Row>({
       onClick: (event) => {
         const open = latestRef.current.onOpen
         if (!open) return
+        // React bubbles a click out of a portal to the row that rendered it: a menu item or a
+        // dialog is not a click on the row.
+        if (!event.currentTarget.contains(event.target as Node)) return
         const interactive = (event.target as Element).closest(INTERACTIVE)
         if (interactive && interactive !== event.currentTarget && event.currentTarget.contains(interactive)) return
         cancelFollow()

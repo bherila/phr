@@ -93,7 +93,7 @@ export function PhrPatientSearchPalette({ open, patientId, onClose, onDrill }: P
                 {result.category === 'Document' ? <FileText className="size-4" /> : <Search className="size-4" />}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium">{result.label}</span>
-                  {/* A fill's description already leads with its YY.MM.DD date. */}
+                  {/* A fill's description already leads with its date. */}
                   {(result.description || result.date) && <span className="block truncate text-xs text-muted-foreground">{result.category === 'Fill' ? result.description : [result.description, result.date].filter(Boolean).join(' · ')}</span>}
                 </span>
               </CommandItem>

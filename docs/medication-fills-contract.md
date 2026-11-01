@@ -83,21 +83,18 @@ Standard Laravel 422 with `errors`. NDC-specific messages:
 - `ndc_candidate`: "Choose one of the matching packages"
 
 ## Display rules (UI)
-- Fills table columns, left to right, one field per column:
-  1. date (YY.MM.DD)
-  2. name (NDC `substance_names`; falls back to the linked medication, then `drug_as_printed`)
-  3. strength (NDC `strengths`)
-  4. dosage form (NDC `dosage_form`)
-  5. quantity
-  6. paid ($X.XX)
-  7. retail price ($X.XX)
-  8. prescriber
-  9. pharmacy
-  10. route (NDC `route`)
-  11. manufacturer (NDC `labeler_name`)
-  12. package description (NDC `package_description`)
+- Fills table columns, left to right. Facts of the drug itself repeat on every fill of it, so the table keeps what differs from fill to fill and the fill's own detail (`/phr/patient/{id}/medication-fills/{fill}`) holds the rest. Which columns show depends on the list's width; see the record lists in `docs/ui-shell.md`:
+  1. date (YYYY-MM-DD)
+  2. medication: name (NDC `substance_names`; falls back to the linked medication, then `drug_as_printed`), then strength (NDC `strengths`), then route and dosage form (NDC `route`, `dosage_form`) at the widest
+  3. quantity
+  4. paid ($X.XX), with `retail $X.XX` under it on a fill that has a retail price, at the widest
+  5. pharmacy
+  6. prescriber
+  7. review status, while a listed fill is pending or rejected
+  8. actions
+- The fill's detail also holds what is not in the table: retail price, days supply, refills left, Rx number, directions, dosage form, route, brand, manufacturer (NDC `labeler_name`), package description (NDC `package_description`), NDC, the pharmacy's and the drug's own dialogs, and the source documents.
 - Several ingredients (and their strengths, in the same order) are semicolon-delimited, as in the FDA NDC directory's SUBSTANCENAME: `amoxicillin; clavulanate potassium`, `600 mg/5 mL; 42.9 mg/5 mL`.
-- Brand name and directions are not table columns; they show in the entry form.
+- Brand name and directions are not table columns; they show in the fill's detail and the entry form.
 - Missing values render as "—".
 - Display casing (owner decision 2026-11-01; there is no user setting). Render `display.*`, never the raw captured fields; edit forms keep the stored values. The server derives `display` with `FillDisplayCasing` and nothing is stored or ported to TypeScript. It applies on the fills table, the medication fill history, the entry-form preview and candidates, and the command palette, and the same `display` object is in the agent REST and MCP fill output.
   - Drug text is lowercase: substance names, dosage form, route and package description are stored lowercase by `NdcCasing`; `display.drug_as_printed` (the Name fallback when a fill has no FDA match) is always lowercase. Units keep their standard case (`mg`, `mcg`, `mL`, `IU`, `mEq`). Brand names keep title case (Lipitor).

@@ -1,7 +1,7 @@
 import { Menu } from 'lucide-react'
 import { type ReactElement, Suspense, useState } from 'react'
 
-import PhrNavbar from '@/components/phr/PhrNavbar'
+import PhrNavbar, { PhrSectionLinks, sectionLabel } from '@/components/phr/PhrNavbar'
 import { PageSkeleton } from '@/components/record-list/Skeleton'
 import { ShortcutsDialog } from '@/components/ShortcutsDialog'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
@@ -72,34 +72,40 @@ function ShellLayout(): ReactElement {
     <div className="flex h-full min-h-0 flex-col bg-background" onClick={interceptLinks}>
       <PhrNavbar
         {...(view.kind === 'section' ? { activeSection: view.section } : { inPatient: true })}
+        title={view.kind === 'section' ? sectionLabel(view.section) : patientName}
         searchLabel={patientId === undefined ? 'Jump to…' : 'Search this patient…'}
         onSearch={() => setPaletteOpen(true)}
-        leading={view.kind === 'patient' ? (
+        leading={(
           <button
             type="button"
-            aria-label="Open record sections"
+            aria-label="Open menu"
             aria-expanded={sheetOpen}
             onClick={() => setSheetFor(url)}
-            className="flex size-8 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
+            className="flex size-11 shrink-0 items-center justify-center rounded-md text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:hidden"
           >
-            <Menu className="size-4" aria-hidden="true" />
+            <Menu className="size-5" aria-hidden="true" />
           </button>
-        ) : undefined}
+        )}
       />
+
+      <Dialog open={sheetOpen} onOpenChange={(open) => setSheetFor(open ? url : null)}>
+        <DialogContent
+          className="top-0 left-0 h-dvh max-h-dvh w-72 max-w-[85vw] translate-x-0 translate-y-0 grid-cols-[minmax(0,1fr)] content-start gap-0 [&>[data-slot=dialog-close]]:top-0.5 [&>[data-slot=dialog-close]]:right-0.5 [&>[data-slot=dialog-close]]:flex [&>[data-slot=dialog-close]]:size-11 [&>[data-slot=dialog-close]]:items-center [&>[data-slot=dialog-close]]:justify-center overflow-y-auto rounded-none border-0 border-r p-0 pt-12 data-[closed]:zoom-out-100 data-[open]:zoom-in-100 sm:max-w-72"
+        >
+          <DialogTitle className="sr-only">Menu</DialogTitle>
+          {view.kind === 'patient' && (
+            <PhrSidebar patientId={view.patientId} page={view.page} rail={false} className="w-full overflow-visible border-r-0 [&_nav_a]:min-h-11" />
+          )}
+          <PhrSectionLinks
+            {...(view.kind === 'section' ? { activeSection: view.section } : { inPatient: true })}
+            className={cn('p-3', view.kind === 'patient' && 'border-t border-border')}
+          />
+        </DialogContent>
+      </Dialog>
 
       <div className="flex min-h-0 flex-1">
         {view.kind === 'patient' && (
-          <>
-            <PhrSidebar patientId={view.patientId} page={view.page} rail={rail} onRailChange={(next) => sidebar.setMode(next ? 'rail' : 'expanded')} className="hidden md:flex" />
-            <Dialog open={sheetOpen} onOpenChange={(open) => setSheetFor(open ? url : null)}>
-              <DialogContent
-                className="top-0 left-0 h-dvh max-h-dvh w-72 max-w-[85vw] translate-x-0 translate-y-0 gap-0 rounded-none border-0 border-r p-0 data-[closed]:zoom-out-100 data-[open]:zoom-in-100 sm:max-w-72"
-              >
-                <DialogTitle className="sr-only">Record sections</DialogTitle>
-                <PhrSidebar patientId={view.patientId} page={view.page} rail={false} className="h-full w-full border-r-0 pt-12" />
-              </DialogContent>
-            </Dialog>
-          </>
+          <PhrSidebar patientId={view.patientId} page={view.page} rail={rail} onRailChange={(next) => sidebar.setMode(next ? 'rail' : 'expanded')} className="hidden md:flex" />
         )}
 
         <main className="min-w-0 flex-1 overflow-hidden" data-view={url}>

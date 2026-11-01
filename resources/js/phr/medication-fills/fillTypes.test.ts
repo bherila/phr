@@ -1,9 +1,9 @@
 import { dollarsToCents, formatCents, formatFillDate, formatQuantity } from './fillTypes'
 
 describe('fill formatting', () => {
-  it('formats dates as YY.MM.DD without timezone drift', () => {
-    expect(formatFillDate('2026-10-28')).toBe('26.10.28')
-    expect(formatFillDate('2026-01-01T00:00:00.000000Z')).toBe('26.01.01')
+  it('formats dates as YYYY-MM-DD without timezone drift', () => {
+    expect(formatFillDate('2026-10-28')).toBe('2026-10-28')
+    expect(formatFillDate('2026-01-01T00:00:00.000000Z')).toBe('2026-01-01')
     expect(formatFillDate(null)).toBe('—')
   })
 

@@ -343,9 +343,9 @@ export function FillEntryForm({ patientId, onCreated }: { patientId: number, onC
   const [open, setOpen] = useState(false)
   return (
     <>
-      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
-        <Plus className="size-4" />
-        Add Fill
+      <Button aria-label="Add fill" className="max-md:size-11 max-md:px-0" onClick={() => setOpen(true)}>
+        <Plus className="size-4" aria-hidden="true" />
+        <span className="max-md:hidden">Add fill</span>
       </Button>
       {open && (
         <FillFormDialog

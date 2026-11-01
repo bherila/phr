@@ -63,6 +63,8 @@ export interface PhrPageMeta {
   keywords: string[]
   icon: LucideIcon
   component: ComponentType<PhrListPageProps>
+  /** A view inside another page's section: it has no sidebar item of its own and marks that page's. */
+  sectionPage?: PhrPageId
 }
 
 export interface PhrDetailMeta {
@@ -79,7 +81,7 @@ export const PHR_PAGES: Record<PhrPageId, PhrPageMeta> = {
   vitals: { label: 'Vitals', icon: HeartPulse, keywords: ['vitals', 'blood pressure', 'weight', 'height'], component: lazy(() => import('@/phr/vitals/VitalsPage')) },
   'office-visits': { label: 'Visits', icon: CalendarDays, keywords: ['visits', 'appointments', 'encounters', 'allergy shots', 'injections', 'immunotherapy'], component: lazy(() => import('@/phr/office-visits/OfficeVisitsPage')) },
   medications: { label: 'Medications', icon: Pill, keywords: ['medications', 'prescriptions', 'drugs', 'rx'], component: lazy(() => import('@/phr/medications/MedicationsPage')) },
-  'medication-fills': { label: 'Fills', icon: PillBottle, keywords: ['fills', 'prescription fills', 'dispensed', 'pharmacy', 'ndc', 'refills', 'receipts'], component: lazy(() => import('@/phr/medication-fills/MedicationFillsPage')) },
+  'medication-fills': { label: 'Fills', sectionPage: 'medications', icon: PillBottle, keywords: ['fills', 'prescription fills', 'dispensed', 'pharmacy', 'ndc', 'refills', 'receipts'], component: lazy(() => import('@/phr/medication-fills/MedicationFillsPage')) },
   conditions: { label: 'Conditions', icon: TriangleAlert, keywords: ['conditions', 'diagnoses', 'problems'], component: lazy(() => import('@/phr/conditions/ConditionsPage')) },
   procedures: { label: 'Procedures', icon: Scissors, keywords: ['procedures', 'surgery', 'treatments'], component: lazy(() => import('@/phr/procedures/ProceduresPage')) },
   immunizations: { label: 'Immunizations', icon: Syringe, keywords: ['immunizations', 'vaccines', 'shots'], component: lazy(() => import('@/phr/immunizations/ImmunizationsPage')) },
@@ -96,6 +98,7 @@ export const PHR_DETAILS: Record<PhrDetailId, PhrDetailMeta> = {
   'imaging-study-detail': { label: 'Study', component: lazy(() => import('@/phr/imaging/ImagingStudyDetail')) },
   'office-visit-detail': { label: 'Visit', component: lazy(() => import('@/phr/office-visits/OfficeVisitDetail')) },
   'medication-detail': { label: 'Medication', component: lazy(() => import('@/phr/medications/MedicationDetail')) },
+  'medication-fill-detail': { label: 'Fill', component: lazy(() => import('@/phr/medication-fills/MedicationFillDetail')) },
   'condition-detail': { label: 'Condition', component: lazy(() => import('@/phr/conditions/ConditionDetail')) },
   'procedure-detail': { label: 'Procedure', component: lazy(() => import('@/phr/procedures/ProcedureDetail')) },
   'immunization-detail': { label: 'Immunization', component: lazy(() => import('@/phr/immunizations/ImmunizationDetail')) },
@@ -109,16 +112,22 @@ export interface PhrNavGroup {
   pages: PhrPageId[]
 }
 
-/** The patient sidebar, top to bottom. Every page appears exactly once. */
+/** The patient sidebar, top to bottom. Every page appears once, or under its `sectionPage`. */
 export const PHR_NAV_GROUPS: PhrNavGroup[] = [
   { title: 'Overview', pages: ['review', 'summary', 'health-log'] },
-  { title: 'Clinical', pages: ['labs', 'vitals', 'office-visits', 'medications', 'medication-fills', 'conditions', 'procedures', 'immunizations', 'allergies'] },
+  { title: 'Clinical', pages: ['labs', 'vitals', 'office-visits', 'medications', 'conditions', 'procedures', 'immunizations', 'allergies'] },
   { title: 'Records', pages: ['documents', 'imaging'] },
   { title: 'Sharing', pages: ['access'] },
 ]
 
+/** The page whose sidebar item stands for `page`. */
+export function sidebarPageOf(page: PhrPageId): PhrPageId {
+  return PHR_PAGES[page].sectionPage ?? page
+}
+
 export function navGroupOf(page: PhrPageId): string {
-  return PHR_NAV_GROUPS.find((group) => group.pages.includes(page))?.title ?? ''
+  const home = sidebarPageOf(page)
+  return PHR_NAV_GROUPS.find((group) => group.pages.includes(home))?.title ?? ''
 }
 
 export const PatientsPage = lazy(() => import('@/phr/patients/PatientsPage'))

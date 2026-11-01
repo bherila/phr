@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
+import { type ReviewSummary, useReviewSummary } from '@/phr/review/reviewSummary'
 import { errorMessage } from '@/phr/shared'
 import { patientPageUrl } from '@/phr/shell/phrRoutes'
 import {
@@ -24,6 +25,23 @@ interface TileProps {
   title: string
   href: string
   children: React.ReactNode
+}
+
+function countOf(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`
+}
+
+/** A section's tile, from the counts the sidebar already loaded. */
+function SectionCount({ summary, page, noun, none }: { summary: ReviewSummary | null, page: string, noun: string, none: string }) {
+  if (summary === null) return null
+  const section = summary.sections[page]
+  if (!section || section.records === 0) return <>{none}</>
+  return (
+    <>
+      <span className="font-medium text-foreground">{section.records}</span> {noun}{section.records === 1 ? '' : 's'}
+      {section.pending > 0 && <span className="ml-2 text-xs">({section.pending} waiting for review)</span>}
+    </>
+  )
 }
 
 function Tile({ icon, title, href, children }: TileProps) {
@@ -61,6 +79,7 @@ const EXPORT_FORMATS = [
 ]
 
 export default function SummaryPage({ patientId }: { patientId: number }) {
+  const reviewSummary = useReviewSummary(patientId)?.summary ?? null
   const [patient, setPatient] = useState<PhrPatient | null>(null)
   const [labs, setLabs] = useState<PhrLabResult[]>([])
   const [vitals, setVitals] = useState<PhrVital[]>([])
@@ -275,11 +294,14 @@ export default function SummaryPage({ patientId }: { patientId: number }) {
         </Tile>
 
         <Tile icon={<Stethoscope className="size-4" />} title="Conditions" href={patientPageUrl(patientId, 'conditions')}>
-          Coming soon.
+          <SectionCount summary={reviewSummary} page="conditions" noun="condition" none="No conditions recorded." />
         </Tile>
 
         <Tile icon={<Pill className="size-4" />} title="Medications" href={patientPageUrl(patientId, 'medications')}>
-          Coming soon.
+          <SectionCount summary={reviewSummary} page="medications" noun="medication" none="No medications recorded." />
+          {(reviewSummary?.sections['medication-fills']?.records ?? 0) > 0 && (
+            <p className="mt-1 text-xs">{countOf(reviewSummary!.sections['medication-fills']!.records, 'fill')}</p>
+          )}
         </Tile>
 
         <Tile icon={<Users className="size-4" />} title="Access" href={patientPageUrl(patientId, 'access')}>

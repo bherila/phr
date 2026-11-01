@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 describe('PhrNavbar', () => {
   let fetchSpy: jest.SpiedFunction<typeof fetch>
@@ -95,6 +95,24 @@ describe('PhrNavbar', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Search this patient/ }))
     expect(onSearch).toHaveBeenCalled()
+  })
+
+  it('names where you are for a phone, and lists the sections for its menu', async () => {
+    const { PhrSectionLinks, default: PhrNavbar } = await import('@/components/phr/PhrNavbar')
+
+    await act(async () => {
+      render(<PhrNavbar inPatient title="Example Person" />)
+    })
+    expect(screen.getByText('Example Person')).toHaveClass('md:hidden')
+    expect(screen.getByRole('navigation', { name: 'Sections' })).toHaveClass('max-md:hidden')
+    cleanup()
+
+    await act(async () => {
+      render(<PhrSectionLinks activeSection="imports" />)
+    })
+    expect(screen.getByRole('link', { name: 'Imports' })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('link', { name: 'Data Hub' })).toHaveAttribute('href', '/phr/data-hub')
+    expect(screen.getByRole('link', { name: 'Config' })).toHaveClass('min-h-11')
   })
 
   it('section links can be handled by the client shell', async () => {

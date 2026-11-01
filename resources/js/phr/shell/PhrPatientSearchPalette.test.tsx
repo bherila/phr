@@ -45,7 +45,7 @@ describe('prescription fills', () => {
       id: 9,
       category: 'Fill',
       label: 'Atorvastatin Calcium 20 mg tablet',
-      description: '26.10.28 · Example Pharmacy · Qty 90 tablet',
+      description: '2026-10-28 · Example Pharmacy · Qty 90 tablet',
       date: '2026-10-28',
       module_id: 'medication-fills',
     }],
@@ -58,8 +58,9 @@ describe('prescription fills', () => {
 
     fireEvent.change(screen.getByPlaceholderText(/search visits/i), { target: { value: 'atorva' } })
     const option = await screen.findByRole('option', { name: /atorvastatin calcium 20 mg tablet/i })
-    expect(option).toHaveTextContent('26.10.28 · Example Pharmacy · Qty 90 tablet')
-    expect(option).not.toHaveTextContent('2026-10-28')
+    expect(option).toHaveTextContent('2026-10-28 · Example Pharmacy · Qty 90 tablet')
+    // The date leads the description, so it is not repeated after it.
+    expect(option.textContent?.match(/2026-10-28/g)).toHaveLength(1)
     expect(option.querySelector('.lowercase')).toBeNull()
 
     fireEvent.click(option)

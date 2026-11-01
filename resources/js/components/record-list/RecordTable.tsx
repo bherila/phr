@@ -28,7 +28,27 @@ export interface RecordColumn<Row> {
    * Skeleton rows have no data, so the column is hidden while loading.
    */
   showWhenAnyRow?: ((row: Row) => boolean) | undefined
+  /**
+   * Show the column only when the list itself is at least this wide. The list is a size
+   * container, so a detail panel narrowing it counts the same as a smaller window. Whatever a
+   * dropped column held must still be reachable: in a line under the name, or in the detail.
+   */
+  showFrom?: RecordColumnTier | undefined
 }
+
+/** The widths a list changes shape at: medium is 560px, wide is 960px. */
+export type RecordColumnTier = 'medium' | 'wide'
+
+const COLUMN_TIER_CLASS: Record<RecordColumnTier, string> = {
+  medium: 'hidden @[560px]/record-list:table-cell',
+  wide: 'hidden @[960px]/record-list:table-cell',
+}
+
+/** For a cell's content that stands in for columns dropped at this width. */
+export const RECORD_ONLY_BELOW_MEDIUM = '@[560px]/record-list:hidden'
+export const RECORD_ONLY_BELOW_WIDE = '@[960px]/record-list:hidden'
+export const RECORD_ONLY_WIDE_INLINE = 'hidden @[960px]/record-list:inline'
+export const RECORD_ONLY_WIDE_BLOCK = 'hidden @[960px]/record-list:block'
 
 /** Sizes a column to its content on one line. */
 export const RECORD_FIT_CLASS = 'w-[1%] whitespace-nowrap'
@@ -80,11 +100,12 @@ function cellClass<Row>(column: RecordColumn<Row>, row: Row): string {
     column.className,
     column.fit && RECORD_FIT_CLASS,
     numeric && RECORD_NUMERIC_CLASS,
+    column.showFrom && COLUMN_TIER_CLASS[column.showFrom],
   )
 }
 
 function headerClass<Row>(column: RecordColumn<Row>): string {
-  return cn('text-left', column.headerClassName, column.fit && RECORD_FIT_CLASS, column.numeric === true && 'text-right')
+  return cn('text-left', column.headerClassName, column.fit && RECORD_FIT_CLASS, column.numeric === true && 'text-right', column.showFrom && COLUMN_TIER_CLASS[column.showFrom])
 }
 
 export const DEFAULT_SKELETON_ROWS = 8
@@ -105,13 +126,16 @@ export function RecordTable<Row>(props: RecordTableProps<Row>): ReactElement | n
   const columns = allColumns.filter((column) => column.showWhenAnyRow === undefined || (!loading && rows.some(column.showWhenAnyRow)))
   if (!loading && rows.length === 0) return <>{empty}</>
   const selectable = selectionColumn !== undefined && selection !== undefined
+  // Only lists that change shape become containers: containment stops the box taking its width
+  // from the table, which a list in a shrink-to-fit parent relies on.
+  const responsive = allColumns.some((column) => column.showFrom !== undefined)
   const colSpan = columns.length + (selectable ? 1 : 0)
   const rowClass = (row: Row | null): string | undefined => (
     typeof rowClassName === 'function' ? (row === null ? undefined : rowClassName(row)) : rowClassName
   )
 
   return (
-    <div className={cn('overflow-x-auto', className)} aria-busy={loading || undefined}>
+    <div className={cn('overflow-x-auto', responsive && '@container/record-list', className)} aria-busy={loading || undefined}>
       {loading && <LoadingMessage>{loadingLabel ?? defaultLoadingLabel(label)}</LoadingMessage>}
       <table aria-label={label} className={tableClassName} {...navigation.containerProps}>
         <thead>
@@ -127,7 +151,7 @@ export function RecordTable<Row>(props: RecordTableProps<Row>): ReactElement | n
             <tr key={index} aria-hidden="true" data-skeleton-row="" className={rowClass(null)}>
               {selectable && <td className={cn('w-10 px-3 py-2', selectionColumn.className)} />}
               {columns.map((column) => (
-                <td key={column.id} className={cn('text-left', column.className, column.fit && RECORD_FIT_CLASS)}>
+                <td key={column.id} className={cn('text-left', column.className, column.fit && RECORD_FIT_CLASS, column.showFrom && COLUMN_TIER_CLASS[column.showFrom])}>
                   <SkeletonBlock className={column.fit ? 'w-14' : 'w-3/4 max-w-64'} />
                 </td>
               ))}

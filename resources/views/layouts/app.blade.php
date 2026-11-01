@@ -42,7 +42,7 @@
     @vite(['resources/css/app.css'])
     @stack('head')
   </head>
-  <body class="phr-shell min-h-screen flex flex-col">
+  <body class="phr-shell min-h-dvh flex flex-col">
     <main class="flex-1">
       @yield('content')
     </main>

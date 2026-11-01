@@ -638,6 +638,7 @@ export type PhrMedication = z.infer<typeof PhrMedicationSchema>
 
 export const PhrMedicationResponseSchema = z.object({
   medication: PhrMedicationSchema,
+  can_manage: z.boolean().default(false),
 })
 
 export const PhrMedicationsResponseSchema = z.object({
