@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 
 import { fetchWrapper } from '@/fetchWrapper'
-import { useDisplayPreferences } from '@/lib/displayPreferences'
+import { type FillColumn, saveDisplayPreferences, useDisplayPreferences } from '@/lib/displayPreferences'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { recordChanged, useRecordChanges } from '@/phr/clinical/recordChanges'
 import { MedicationSectionTabs, useMedicationCount } from '@/phr/medications/medicationSection'
@@ -14,6 +14,7 @@ import { FillEntryForm, FillFormDialog } from './FillEntryForm'
 import { FillFilters, type FillFilterValues, NO_FILL_FILTERS } from './FillFilters'
 import { FillsTable } from './FillsTable'
 import {
+  fillDrugName,
   type MedicationFill,
   MedicationFillResponseSchema,
   MedicationFillsResponseSchema,
@@ -28,7 +29,7 @@ function initialFilters(): FillFilterValues {
 export default function MedicationFillsPage({ patientId, onDrill, openRecord }: PhrListPageProps) {
   const openRowId = openRecordId(openRecord, 'medication-fill-detail')
   const [filters, setFilters] = useState(initialFilters)
-  const { from, to, medicationId } = filters
+  const { query, from, to, medicationId } = filters
   const [editing, setEditing] = useState<MedicationFill | null>(null)
   const [editKey, setEditKey] = useState(0)
 
@@ -47,25 +48,29 @@ export default function MedicationFillsPage({ patientId, onDrill, openRecord }: 
   })
   useRecordChanges('medication-fills', patientId, 'detail', () => void crud.reload())
   const firstLoad = crud.busy && crud.records.length === 0
-  const { hide_medication_list: hideMedicationList } = useDisplayPreferences()
+  const { hide_medication_list: hideMedicationList, hidden_fill_columns: hiddenColumns } = useDisplayPreferences()
   const medicationCount = useMedicationCount(patientId, !hideMedicationList)
 
-  const medications = useMemo(() => {
-    const byId = new Map<number, string>()
-    for (const fill of crud.records) {
-      if (fill.medication) byId.set(fill.medication.id, fill.medication.name)
-    }
-    return [...byId.entries()].sort((a, b) => a[1].localeCompare(b[1]))
-  }, [crud.records])
+  const medicationName = useMemo(
+    () => crud.records.find((fill) => String(fill.medication_id) === medicationId)?.medication?.name ?? null,
+    [crud.records, medicationId],
+  )
 
   // Filters narrow the loaded list in the browser; dates are ISO strings, so they compare as text.
+  const needle = query.trim().toLowerCase()
   const rows = useMemo(() => crud.records.filter((fill) => {
     const day = fill.filled_on.slice(0, 10)
     if (from && day < from) return false
     if (to && day > to) return false
     if (medicationId && String(fill.medication_id) !== medicationId) return false
+    if (needle && !fillDrugName(fill).toLowerCase().includes(needle)) return false
     return true
-  }), [crud.records, from, to, medicationId])
+  }), [crud.records, from, to, medicationId, needle])
+
+  function setColumnShown(column: FillColumn, shown: boolean): void {
+    const hidden = shown ? hiddenColumns.filter((candidate) => candidate !== column) : [...hiddenColumns, column]
+    saveDisplayPreferences({ hidden_fill_columns: hidden }).catch((caught: unknown) => crud.setError(errorMessage(caught)))
+  }
 
   function created(fill: MedicationFill): void {
     crud.setRecords((current) => [fill, ...current.filter((existing) => existing.id !== fill.id)])
@@ -103,11 +108,10 @@ export default function MedicationFillsPage({ patientId, onDrill, openRecord }: 
       <FillFilters
         values={filters}
         onChange={setFilters}
-        medications={medications}
+        medicationName={medicationName}
         shownCount={rows.length}
-        showRejected={crud.showRejected}
-        onShowRejectedChange={crud.setShowRejected}
-        busy={crud.busy}
+        hiddenColumns={hiddenColumns}
+        onColumnChange={setColumnShown}
       />
 
       {crud.error && (
@@ -140,7 +144,8 @@ export default function MedicationFillsPage({ patientId, onDrill, openRecord }: 
             label="Fills"
             rows={rows}
             loading={firstLoad}
-            empty={<div className="px-4 py-8 text-sm text-muted-foreground">No fills match the current filters.</div>}
+            empty={<div className="px-4 py-8 text-sm text-muted-foreground">No fills match these filters.</div>}
+            hiddenColumns={hiddenColumns}
             onDrill={onDrill}
             openRowId={openRowId}
             onEdit={crud.canManage ? setEditing : undefined}

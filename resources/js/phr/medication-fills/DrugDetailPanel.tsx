@@ -5,7 +5,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { fetchWrapper } from '@/fetchWrapper'
 import { errorMessage } from '@/phr/shared'
 
-import { DiscontinuedBadge } from './DiscontinuedBadge'
 import {
   type DrugDetail,
   DrugDetailResponseSchema,
@@ -132,14 +131,8 @@ export function DrugDetailPanel({ patientId, fill, onClose }: { patientId: numbe
     <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent className="top-0 right-0 left-auto h-dvh max-h-none w-full max-w-full translate-x-0 translate-y-0 content-start rounded-none sm:max-w-xl" aria-label={`${name} details`}>
         <DialogHeader>
-          <DialogTitle className="flex flex-wrap items-center gap-2 pr-6">
-            {name}
-            {fill.ndc_status === 'resolved' && fill.discontinued && <DiscontinuedBadge />}
-          </DialogTitle>
-          <DialogDescription>
-            {fill.ndc_10 ? `NDC ${fill.ndc_10}` : fill.ndc_as_captured ? `NDC as captured ${fill.ndc_as_captured}` : 'No NDC on this fill'}
-            {fill.ndc_as_captured && fill.ndc_10 && fill.ndc_as_captured !== fill.ndc_10 ? ` (captured as ${fill.ndc_as_captured})` : ''}
-          </DialogDescription>
+          <DialogTitle className="pr-6">{name}</DialogTitle>
+          <DialogDescription>{fill.ndc_10 ? `NDC ${fill.ndc_10}` : 'No FDA-listed NDC on this fill'}</DialogDescription>
         </DialogHeader>
 
         {!resolved ? (

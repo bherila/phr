@@ -161,7 +161,7 @@ export function formatCents(cents: number | null | undefined): string {
 }
 
 /** The decimal string without trailing zeros: "90.000" is 90. */
-export function formatQuantity(quantity: string | null, unit: string | null): string {
+export function formatQuantity(quantity: string | null, unit: string | null = null): string {
   if (quantity === null || quantity.trim() === '') return MISSING
   const trimmed = quantity.includes('.') ? quantity.replace(/\.?0+$/, '') : quantity
   return [trimmed || '0', unit].filter(Boolean).join(' ')

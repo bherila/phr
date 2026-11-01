@@ -62,7 +62,7 @@ test.describe('Record lists never cut anything off', () => {
     await expect(page.getByRole('table', { name: 'Fills' }).getByRole('row').nth(1)).toBeVisible()
 
     const { columns, overflow } = await layoutOf(page, 'Fills')
-    expect(columns).toEqual(['Date', 'Medication', 'Qty', 'Paid', 'Pharmacy', 'Prescriber', 'Review', 'Actions'])
+    expect(columns).toEqual(['Date', 'Medication', 'Qty', 'Paid', 'No insurance', 'Prescriber', 'Pharmacy', 'Review', 'Actions'])
     expect(overflow).toBeLessThanOrEqual(0)
     await expectNoPageOverflow(page)
     await expectInViewport(page, /^More actions for /)
@@ -71,6 +71,41 @@ test.describe('Record lists never cut anything off', () => {
     const rowHeights = await page.locator('tbody tr[data-record-row]').evaluateAll((rows) => rows.map((row) => row.getBoundingClientRect().height))
     expect(rowHeights.length).toBe(30)
     expect(Math.max(...rowHeights)).toBeLessThanOrEqual(110)
+  })
+
+  test('Fills: search anywhere in the name, and choose the columns', async ({ page }) => {
+    await page.goto(await patientUrl(page, 'medication-fills'))
+    const table = page.getByRole('table', { name: 'Fills' })
+    await expect(table.getByText('mometasone furoate').first()).toBeVisible()
+
+    await page.getByRole('searchbox', { name: 'Search by name' }).fill('METAS')
+    await expect(table.getByText('lisinopril')).toHaveCount(0)
+    await expect(table.getByText('mometasone furoate').first()).toBeVisible()
+    await page.getByRole('searchbox', { name: 'Search by name' }).fill('')
+
+    await page.getByRole('checkbox', { name: 'Prescriber' }).uncheck()
+    await expect.poll(async () => (await layoutOf(page, 'Fills')).columns).not.toContain('Prescriber')
+    await page.reload()
+    await expect(table.getByText('mometasone furoate').first()).toBeVisible()
+    expect((await layoutOf(page, 'Fills')).columns).not.toContain('Prescriber')
+    await page.getByRole('checkbox', { name: 'Prescriber' }).check()
+    await expect.poll(async () => (await layoutOf(page, 'Fills')).columns).toContain('Prescriber')
+  })
+
+  test('Hiding the Medications list is a setting that follows the person', async ({ page }) => {
+    await page.goto('/phr/config')
+    await page.getByRole('tab', { name: 'Display' }).click()
+    await page.getByRole('checkbox', { name: /^Hide the Medications list/ }).check()
+
+    await page.goto(await patientUrl(page, 'medication-fills'))
+    await expect(page.getByRole('table', { name: 'Fills' }).getByRole('row').nth(1)).toBeVisible()
+    await expect(page.getByRole('tablist', { name: 'Medications views' })).toHaveCount(0)
+
+    await page.goto('/phr/config')
+    await page.getByRole('tab', { name: 'Display' }).click()
+    await page.getByRole('checkbox', { name: /^Hide the Medications list/ }).uncheck()
+    await page.goto(await patientUrl(page, 'medication-fills'))
+    await expect(page.getByRole('tablist', { name: 'Medications views' })).toBeVisible()
   })
 
   test('Fills beside the panel: the list drops secondary columns and the panel holds the rest', async ({ page }) => {
@@ -85,9 +120,13 @@ test.describe('Record lists never cut anything off', () => {
     expect(overflow).toBeLessThanOrEqual(0)
     await expectNoPageOverflow(page)
 
-    await expect(panel.getByText('Example Pharmaceutical Manufacturing Company, Incorporated')).toBeVisible()
-    await expect(panel.getByText(/120 spray, metered in 1 bottle/)).toBeVisible()
     await expect(panel.getByText('Rivera, Ana Maria, MD')).toBeVisible()
+    await expect(panel.getByText('Example Pharmaceutical Manufacturing Company, Incorporated')).toHaveCount(0)
+    await expect(panel.getByText(/120 spray, metered in 1 bottle/)).toHaveCount(0)
+    // Where to find the rest, folded away until asked for.
+    await expect(panel.getByText('Rx number')).toBeHidden()
+    await panel.getByText('More details').click()
+    await expect(panel.getByText('Rx number')).toBeVisible()
 
     // A decision in the panel reaches the row beside it without a reload.
     const pendingBefore = await page.getByRole('table', { name: 'Fills' }).getByText('Pending review').count()
@@ -137,9 +176,9 @@ test.describe('Record lists never cut anything off', () => {
     await expectNoPageOverflow(page)
 
     // The medication's fills open filtered to it, through an in-app navigation.
-    await panel.getByRole('link', { name: 'Open in Fills' }).click()
+    await panel.getByRole('link', { name: 'Show these fills' }).click()
     await expect(page).toHaveURL(/medication-fills\?medication_id=\d+$/)
-    await expect(page.getByLabel('Medication filter')).toHaveValue(/^\d+$/)
+    await expect(page.getByRole('button', { name: /^Show all fills, not only / })).toBeVisible()
     const fills = page.getByRole('table', { name: 'Fills' })
     await expect(fills.getByText('mometasone furoate').first()).toBeVisible()
     await expect(fills.getByText('lisinopril')).toHaveCount(0)
@@ -189,7 +228,7 @@ test.describe('Record lists on a phone', () => {
     await expectNoPageOverflow(page)
     const row = table.locator('tbody tr[data-record-row]').first()
     expect((await row.boundingBox())!.height).toBeGreaterThanOrEqual(44)
-    await expect(row.getByText(/^2026-10-28 · Qty 90 tablet · /)).toBeVisible()
+    await expect(row.getByText(/^2026-10-28 · Qty 90 · /)).toBeVisible()
     await expect(table.getByRole('img', { name: 'Pending review' }).first()).toBeVisible()
 
     const add = page.getByRole('button', { name: 'Add fill' })
@@ -284,11 +323,7 @@ test.describe('Record lists on a phone', () => {
     expect(overflow).toBeLessThanOrEqual(0)
     await expectNoPageOverflow(page)
     expect((await page.getByRole('button', { name: /^Ended/ }).boundingBox())!.height).toBeGreaterThanOrEqual(44)
-    // The title, the rejected toggle and Add share one row.
-    const addBox = (await page.getByRole('button', { name: 'Add medication' }).boundingBox())!
-    const toggleBox = (await page.getByRole('button', { name: 'Show rejected' }).boundingBox())!
-    expect(toggleBox.y + toggleBox.height).toBeLessThanOrEqual(addBox.y + addBox.height)
-    expect(toggleBox.y).toBeGreaterThanOrEqual(addBox.y)
+    await expect(page.getByRole('button', { name: 'Show rejected' })).toHaveCount(0)
 
     await table.getByText('mometasone furoate').click()
     await expect(page.getByRole('heading', { name: 'mometasone furoate' })).toBeVisible()

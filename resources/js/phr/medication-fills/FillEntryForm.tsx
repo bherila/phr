@@ -579,6 +579,7 @@ export function FillForm({ patientId, fill, onSaved, onCancel, onReload, onDirty
           <Field label="NDC *" field="ndc" errors={errors}>
             <Input value={form.ndc} onChange={(event) => changeNdc(event.target.value)} placeholder="00071-0155-23" inputMode="numeric" />
           </Field>
+          {fill?.ndc_as_captured && fill.ndc_10 && fill.ndc_as_captured !== fill.ndc_10 && <p className="text-xs text-muted-foreground">Read from its source as {fill.ndc_as_captured}.</p>}
           <p className="text-xs text-muted-foreground">10 or 11 digits, with or without dashes. The drug fills in from the FDA listing. Without an NDC, type the drug name as printed instead.</p>
           {form.ndc.trim() === '' && (
             <Field label="Drug name as printed" field="drug_as_printed" errors={errors}>
@@ -663,7 +664,7 @@ export function FillForm({ patientId, fill, onSaved, onCancel, onReload, onDirty
           <Field label="Paid ($)" field="paid_cents" errors={errors}>
             <Input inputMode="decimal" value={form.paid} onChange={(event) => update({ paid: event.target.value })} placeholder="10.00" />
           </Field>
-          <Field label="Retail price ($)" field="retail_cents" errors={errors}>
+          <Field label="No insurance price ($)" field="retail_cents" errors={errors}>
             <Input inputMode="decimal" value={form.retail} onChange={(event) => update({ retail: event.target.value })} placeholder="189.99" />
           </Field>
           <Field label="Pharmacy" field="pharmacy_name" errors={errors}>

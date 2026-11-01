@@ -1,98 +1,93 @@
-import { CalendarDays, SlidersHorizontal } from 'lucide-react'
+import { Search, SlidersHorizontal, X } from 'lucide-react'
 import { type ReactElement, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { ShowRejectedToggle } from '@/phr/clinical/review'
-
-import { formatFillDate } from './fillTypes'
-
-const SELECT_CLASS = 'flex h-8 min-w-40 max-w-60 rounded-md border border-input bg-transparent px-2 py-1 text-sm shadow-xs'
+import type { FillColumn } from '@/lib/displayPreferences'
 
 export interface FillFilterValues {
+  query: string
   from: string
   to: string
   medicationId: string
 }
 
-export const NO_FILL_FILTERS: FillFilterValues = { from: '', to: '', medicationId: '' }
+export const NO_FILL_FILTERS: FillFilterValues = { query: '', from: '', to: '', medicationId: '' }
+
+const COLUMN_CHOICES: ReadonlyArray<{ column: FillColumn, label: string }> = [
+  { column: 'no_insurance', label: 'No insurance' },
+  { column: 'prescriber', label: 'Prescriber' },
+  { column: 'pharmacy', label: 'Pharmacy' },
+]
 
 interface FillFiltersProps {
   values: FillFilterValues
   onChange: (values: FillFilterValues) => void
-  /** [id, name], for the medication select. */
-  medications: ReadonlyArray<readonly [number, string]>
+  /** The medication a link narrowed the list to, by name, while it does. */
+  medicationName: string | null
   shownCount: number
-  showRejected: boolean
-  onShowRejectedChange: (showRejected: boolean) => void
-  busy: boolean
+  hiddenColumns: readonly FillColumn[]
+  onColumnChange: (column: FillColumn, shown: boolean) => void
 }
 
-function dateRangeLabel({ from, to }: FillFilterValues): string {
-  if (from && to) return `${formatFillDate(from)} to ${formatFillDate(to)}`
-  if (from) return `From ${formatFillDate(from)}`
-  if (to) return `To ${formatFillDate(to)}`
-  return 'Any date'
-}
-
-function DateFields({ values, onChange, inputClassName }: Pick<FillFiltersProps, 'values' | 'onChange'> & { inputClassName?: string }): ReactElement {
+function ColumnChoice({ column, label, hiddenColumns, onColumnChange, className }: Pick<FillFiltersProps, 'hiddenColumns' | 'onColumnChange'> & { column: FillColumn, label: string, className: string }): ReactElement {
   return (
-    <div className="grid grid-cols-2 gap-3">
-      <label className="grid gap-1 text-sm font-medium text-foreground">
-        From
-        <Input type="date" aria-label="Filled from" className={inputClassName} value={values.from} onChange={(event) => onChange({ ...values, from: event.target.value })} />
-      </label>
-      <label className="grid gap-1 text-sm font-medium text-foreground">
-        To
-        <Input type="date" aria-label="Filled to" className={inputClassName} value={values.to} onChange={(event) => onChange({ ...values, to: event.target.value })} />
-      </label>
-    </div>
+    <label className={className}>
+      <input type="checkbox" className="size-4 accent-primary" checked={!hiddenColumns.includes(column)} onChange={(event) => onColumnChange(column, event.target.checked)} />
+      {label}
+    </label>
   )
 }
 
 /**
- * One row of filters while the page has the width. On a narrow page they would take a quarter of
- * the screen, so they collapse to a button that opens them in a sheet, with what is applied beside it.
+ * Search, dates and which columns show, all in one row while the page has the width. On a phone
+ * the search stays and the rest move to a sheet. The columns only choose from what the list has
+ * room for, so their choices appear at the width that shows them; a phone's rows show the pharmacy
+ * alone, and the fill's own page has the rest.
  */
-export function FillFilters({ values, onChange, medications, shownCount, showRejected, onShowRejectedChange, busy }: FillFiltersProps): ReactElement {
+export function FillFilters({ values, onChange, medicationName, shownCount, hiddenColumns, onColumnChange }: FillFiltersProps): ReactElement {
   const [sheetOpen, setSheetOpen] = useState(false)
-  const filtered = values.from !== '' || values.to !== '' || values.medicationId !== ''
-  const medicationName = medications.find(([id]) => String(id) === values.medicationId)?.[1] ?? 'All medications'
-  const clear = (): void => onChange(NO_FILL_FILTERS)
-  const medicationOptions = (
-    <>
-      <option value="">All medications</option>
-      {medications.map(([id, name]) => <option key={id} value={String(id)}>{name}</option>)}
-    </>
-  )
+  const datesSet = values.from !== '' || values.to !== ''
 
   return (
     <>
-      <div role="group" aria-label="Filter fills" className="hidden flex-wrap items-center gap-2 @[560px]/fills-page:flex">
-        <select aria-label="Medication filter" value={values.medicationId} onChange={(event) => onChange({ ...values, medicationId: event.target.value })} className={SELECT_CLASS}>
-          {medicationOptions}
-        </select>
-        <Popover>
-          <PopoverTrigger render={<Button type="button" size="sm" variant="outline" className="font-normal" />}>
-            <CalendarDays className="size-4" aria-hidden="true" />
-            {dateRangeLabel(values)}
-          </PopoverTrigger>
-          <PopoverContent className="w-80">
-            <DateFields values={values} onChange={onChange} />
-          </PopoverContent>
-        </Popover>
-        <ShowRejectedToggle showRejected={showRejected} onChange={onShowRejectedChange} disabled={busy} />
-        {filtered && <Button type="button" size="sm" variant="ghost" onClick={clear}>Clear filters</Button>}
-      </div>
+      <div role="group" aria-label="Filter fills" className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="relative min-w-40 flex-1 @[560px]/fills-page:max-w-60 @[560px]/fills-page:flex-none @[560px]/fills-page:basis-60">
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+          <Input type="search" aria-label="Search by name" placeholder="Search by name" className="h-11 pl-8 text-base @[560px]/fills-page:h-8 @[560px]/fills-page:text-sm" value={values.query} onChange={(event) => onChange({ ...values, query: event.target.value })} />
+        </div>
 
-      <div className="flex items-center gap-2 @[560px]/fills-page:hidden">
-        <Button type="button" variant="outline" className="h-11" aria-haspopup="dialog" onClick={() => setSheetOpen(true)}>
+        <Button type="button" variant="outline" className="h-11 @[560px]/fills-page:hidden" aria-haspopup="dialog" onClick={() => setSheetOpen(true)}>
           <SlidersHorizontal className="size-4" aria-hidden="true" />
           Filter
         </Button>
-        <span className="min-w-0 text-sm text-muted-foreground">{medicationName}, {dateRangeLabel(values).toLowerCase()}</span>
+
+        <div className="hidden items-center gap-3 @[560px]/fills-page:flex">
+          <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            From
+            <Input type="date" aria-label="Filled from" className="h-8 w-auto text-foreground" value={values.from} onChange={(event) => onChange({ ...values, from: event.target.value })} />
+          </label>
+          <label className="flex items-center gap-1.5 text-sm text-muted-foreground">
+            To
+            <Input type="date" aria-label="Filled to" className="h-8 w-auto text-foreground" value={values.to} onChange={(event) => onChange({ ...values, to: event.target.value })} />
+          </label>
+          {datesSet && <Button type="button" size="sm" variant="ghost" onClick={() => onChange({ ...values, from: '', to: '' })}>Clear dates</Button>}
+        </div>
+
+        {medicationName !== null && (
+          <Button type="button" size="sm" variant="secondary" className="max-w-full max-md:h-11" aria-label={`Show all fills, not only ${medicationName}`} onClick={() => onChange({ ...values, medicationId: '' })}>
+            <span className="truncate">Only {medicationName}</span>
+            <X className="size-3.5" aria-hidden="true" />
+          </Button>
+        )}
+
+        <div role="group" aria-label="Columns to show" className="ml-auto hidden flex-wrap items-center gap-x-3 gap-y-1 text-sm @[960px]/fills-page:flex">
+          <span className="text-muted-foreground">Show</span>
+          {COLUMN_CHOICES.map((choice) => (
+            <ColumnChoice key={choice.column} {...choice} hiddenColumns={hiddenColumns} onColumnChange={onColumnChange} className="flex items-center gap-1.5 whitespace-nowrap text-foreground" />
+          ))}
+        </div>
       </div>
 
       {sheetOpen && (
@@ -101,19 +96,19 @@ export function FillFilters({ values, onChange, medications, shownCount, showRej
             <DialogHeader>
               <DialogTitle>Filter fills</DialogTitle>
             </DialogHeader>
-            <label className="grid gap-1 text-sm font-medium text-foreground">
-              Medication
-              <select aria-label="Medication filter" value={values.medicationId} onChange={(event) => onChange({ ...values, medicationId: event.target.value })} className="flex h-11 w-full rounded-md border border-input bg-transparent px-2 text-base shadow-xs">
-                {medicationOptions}
-              </select>
-            </label>
-            <DateFields values={values} onChange={onChange} inputClassName="h-11 text-base" />
-            <label className="flex min-h-11 items-center gap-2.5 text-sm text-foreground">
-              <input type="checkbox" className="size-5 accent-primary" checked={showRejected} disabled={busy} onChange={(event) => onShowRejectedChange(event.target.checked)} />
-              Show rejected fills
-            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="grid gap-1 text-sm font-medium text-foreground">
+                From
+                <Input type="date" aria-label="Filled from" className="h-11 text-base" value={values.from} onChange={(event) => onChange({ ...values, from: event.target.value })} />
+              </label>
+              <label className="grid gap-1 text-sm font-medium text-foreground">
+                To
+                <Input type="date" aria-label="Filled to" className="h-11 text-base" value={values.to} onChange={(event) => onChange({ ...values, to: event.target.value })} />
+              </label>
+            </div>
+            <ColumnChoice column="pharmacy" label="Show the pharmacy on each row" hiddenColumns={hiddenColumns} onColumnChange={onColumnChange} className="flex min-h-11 items-center gap-2.5 text-sm text-foreground" />
             <div className="flex gap-2">
-              <Button type="button" variant="outline" className="h-11 flex-1" disabled={!filtered} onClick={clear}>Clear</Button>
+              <Button type="button" variant="outline" className="h-11 flex-1" disabled={!datesSet} onClick={() => onChange({ ...values, from: '', to: '' })}>Clear dates</Button>
               <Button type="button" className="h-11 flex-2" onClick={() => setSheetOpen(false)}>Show {shownCount} {shownCount === 1 ? 'fill' : 'fills'}</Button>
             </div>
           </DialogContent>

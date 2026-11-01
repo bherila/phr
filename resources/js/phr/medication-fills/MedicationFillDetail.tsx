@@ -1,4 +1,4 @@
-import { Pencil } from 'lucide-react'
+import { ChevronRight, Pencil } from 'lucide-react'
 import { type ReactElement, useCallback, useEffect, useState } from 'react'
 
 import { RowActionsMenu } from '@/components/record-list/RowActionsMenu'
@@ -21,7 +21,6 @@ import { DrugDetailPanel } from './DrugDetailPanel'
 import { FillFormDialog } from './FillEntryForm'
 import { FillFlags, fillStrength } from './FillFlags'
 import { fillDrugName, formatCents, formatFillDate, formatQuantity, type MedicationFill, MedicationFillResponseSchema } from './fillTypes'
-import { PharmacyModal } from './PharmacyModal'
 
 const RESOURCE = 'medication-fills'
 const LINK_BUTTON = 'rounded-sm text-left text-primary underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
@@ -38,7 +37,7 @@ export default function MedicationFillDetail({ patientId, recordId, onDrill }: P
   const [busy, setBusy] = useState(false)
   const [mutating, setMutating] = useState<'review' | 'delete' | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [dialog, setDialog] = useState<'drug' | 'pharmacy' | 'edit' | 'delete' | null>(null)
+  const [dialog, setDialog] = useState<'drug' | 'edit' | 'delete' | null>(null)
   const [editKey, setEditKey] = useState(0)
   const endpoint = `/api/phr/patients/${patientId}/medication-fills/${recordId}`
 
@@ -155,38 +154,28 @@ export default function MedicationFillDetail({ patientId, recordId, onDrill }: P
           <DetailFacts facts={present([
             { label: 'Quantity', value: fill.quantity === null ? null : formatQuantity(fill.quantity, fill.quantity_unit) },
             { label: 'Paid', value: fill.paid_cents === null ? null : formatCents(fill.paid_cents) },
-            { label: 'Retail price', value: fill.retail_cents === null ? null : formatCents(fill.retail_cents) },
+            { label: 'No insurance', value: fill.retail_cents === null ? null : formatCents(fill.retail_cents) },
             { label: 'Days supply', value: fill.days_supply === null ? null : String(fill.days_supply) },
-            { label: 'Refills left', value: fill.refills_remaining === null ? null : String(fill.refills_remaining) },
-            { label: 'Rx number', value: fill.rx_number },
             { label: 'Prescriber', value: fill.display?.prescriber_name ?? fill.prescriber_name },
+            { label: 'Pharmacy', value: pharmacy },
             { label: 'Directions', value: fill.display?.directions ?? fill.directions, wide: true },
           ])} />
-
-          {pharmacy && (
-            <div className="text-sm">
-              <p className="text-xs text-muted-foreground">Pharmacy</p>
-              <button type="button" className={`${LINK_BUTTON} max-lg:min-h-11`} aria-haspopup="dialog" onClick={() => setDialog('pharmacy')}>{pharmacy}</button>
-            </div>
-          )}
 
           <section aria-label="Drug" className="space-y-3 border-t border-border pt-4">
             <div className="flex items-baseline justify-between gap-2">
               <h3 className="text-sm font-semibold text-card-foreground">Drug</h3>
-              <button type="button" className={`${LINK_BUTTON} text-sm max-lg:min-h-11`} aria-haspopup="dialog" onClick={() => setDialog('drug')}>Label and links</button>
+              <button type="button" className={`${LINK_BUTTON} text-sm max-lg:min-h-11`} aria-haspopup="dialog" onClick={() => setDialog('drug')}>Prescribing information</button>
             </div>
             {fill.drug ? (
               <DetailFacts facts={present([
                 { label: 'Form', value: fill.drug.dosage_form },
                 { label: 'Route', value: fill.drug.route },
                 { label: 'Brand', value: fill.drug.brand_name },
-                { label: 'Manufacturer', value: fill.drug.labeler_name },
-                { label: 'Package', value: fill.drug.package_description, wide: true },
                 { label: 'NDC', value: fill.ndc_10 },
               ])} />
             ) : (
               <p className="text-sm text-muted-foreground">
-                {resolved ? 'No drug details are stored for this fill.' : `No FDA listing is stored for this fill${fill.ndc_as_captured ? ` (NDC as captured ${fill.ndc_as_captured})` : ''}.`}
+                {resolved ? 'No drug details are stored for this fill.' : 'No FDA listing is stored for this fill.'}
               </p>
             )}
             {fill.medication && (
@@ -197,17 +186,29 @@ export default function MedicationFillDetail({ patientId, recordId, onDrill }: P
             )}
           </section>
 
-          <section aria-label="Evidence" className="space-y-1.5 border-t border-border pt-4">
-            <h3 className="text-sm font-semibold text-card-foreground">Evidence</h3>
-            {documentIds.length === 0
-              ? <p className="text-sm text-muted-foreground">{fill.source_kind === 'manual' ? 'Entered by hand.' : 'No source document.'}</p>
-              : documentIds.map((id) => (
-                  <a key={id} href={patientPageUrl(patientId, 'documents', id)} className="block text-sm text-primary underline-offset-2 hover:underline max-lg:py-2.5">Source document {id}</a>
-                ))}
-          </section>
+          <details className="group border-t border-border pt-4 text-sm">
+            <summary className="flex min-h-8 cursor-pointer items-center gap-1 font-semibold text-card-foreground marker:content-none max-lg:min-h-11 [&::-webkit-details-marker]:hidden">
+              <ChevronRight className="size-4 transition-transform group-open:rotate-90" aria-hidden="true" />
+              More details
+            </summary>
+            <div className="mt-3 space-y-3">
+              <DetailFacts facts={present([
+                { label: 'Pharmacy location', value: fill.display?.pharmacy_location ?? fill.pharmacy_location },
+                { label: 'Rx number', value: fill.rx_number },
+                { label: 'Refills left', value: fill.refills_remaining === null ? null : String(fill.refills_remaining) },
+              ])} />
+              <div>
+                <p className="text-xs text-muted-foreground">Source</p>
+                {documentIds.length === 0
+                  ? <p>{fill.source_kind === 'manual' ? 'Entered by hand.' : 'No source document.'}</p>
+                  : documentIds.map((id) => (
+                      <a key={id} href={patientPageUrl(patientId, 'documents', id)} className="block text-primary underline-offset-2 hover:underline max-lg:py-2.5">Source document {id}</a>
+                    ))}
+              </div>
+            </div>
+          </details>
 
           {dialog === 'drug' && <DrugDetailPanel patientId={patientId} fill={fill} onClose={() => setDialog(null)} />}
-          {dialog === 'pharmacy' && <PharmacyModal patientId={patientId} fill={fill} onClose={() => setDialog(null)} />}
           {dialog === 'edit' && (
             <FillFormDialog
               patientId={patientId}

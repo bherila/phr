@@ -9,7 +9,7 @@ import { patientPageUrl } from '@/phr/shell/phrRoutes'
 
 import { fillDrugName, formatCents, formatFillDate, formatQuantity, type MedicationFill, MedicationFillsResponseSchema, MISSING } from './fillTypes'
 
-/** How many fills the medication's detail lists; the rest are in Fills. */
+/** How many fills the medication's detail lists; the rest are in the Fills view. */
 const SHOWN_FILLS = 5
 
 const HEAD = 'py-1.5 pr-3 text-xs font-medium'
@@ -68,6 +68,10 @@ export function MedicationFillHistory({ patientId, medicationId, onDrill }: {
         {summary && <span className="text-xs text-muted-foreground">{summary}</span>}
       </div>
       {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+      {fills[0]?.discontinued && (
+        // The product, not the medication: on a medication, "discontinued" means the person stopped it.
+        <p className="text-sm text-muted-foreground">Product no longer listed: the product on the latest fill is off the market.</p>
+      )}
       <RecordTable
         label="Fill history"
         rows={fills.slice(0, SHOWN_FILLS)}
@@ -100,14 +104,14 @@ export function MedicationFillHistory({ patientId, medicationId, onDrill }: {
               </span>
             ),
           },
-          { id: 'quantity', header: 'Qty', fit: true, headerClassName: HEAD, className: CELL, cell: (fill) => formatQuantity(fill.quantity, fill.quantity_unit) },
+          { id: 'quantity', header: 'Qty', fit: true, headerClassName: HEAD, className: CELL, cell: (fill) => formatQuantity(fill.quantity) },
           { id: 'paid', header: 'Paid', fit: true, numeric: true, headerClassName: HEAD, className: CELL, cell: (fill) => formatCents(fill.paid_cents) },
           { id: 'pharmacy', header: 'Pharmacy', headerClassName: 'py-1.5 text-xs font-medium', className: 'py-2 text-muted-foreground', cell: (fill) => (fill.display?.pharmacy_name ?? fill.pharmacy_name) ?? MISSING },
         ]}
       />
       {fills.length > 0 && (
         <a href={`${patientPageUrl(patientId, 'medication-fills')}?medication_id=${medicationId}`} className="inline-block text-sm text-primary underline-offset-2 hover:underline max-lg:py-2.5">
-          Open in Fills
+          Show these fills
         </a>
       )}
     </section>

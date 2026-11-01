@@ -1,8 +1,9 @@
 import type { ReactNode } from 'react'
 
-import { RECORD_ONLY_BELOW_MEDIUM, RECORD_ONLY_WIDE_BLOCK, RECORD_ONLY_WIDE_INLINE, type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
+import { RECORD_ONLY_BELOW_MEDIUM, RECORD_ONLY_WIDE_INLINE, type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
 import { RowActionsMenu } from '@/components/record-list/RowActionsMenu'
 import { Button } from '@/components/ui/button'
+import type { FillColumn } from '@/lib/displayPreferences'
 import { cn } from '@/lib/utils'
 import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
 import { reviewStatusBadge, reviewStatusNeedsAttention } from '@/phr/clinical/ui'
@@ -31,6 +32,8 @@ interface FillsTableProps {
   onEdit?: ((fill: MedicationFill) => void) | undefined
   onDrill?: PhrListPageProps['onDrill']
   openRowId?: string | null | undefined
+  /** Columns this person has chosen not to see. */
+  hiddenColumns?: readonly FillColumn[] | undefined
 }
 
 const HEAD = 'px-3 py-2.5 font-medium'
@@ -50,10 +53,11 @@ function pharmacyName(fill: MedicationFill): string | null {
 /**
  * A patient's fills. Facts about the drug itself (manufacturer, package) repeat on every fill of
  * it, so they live in the fill's detail; the row keeps what differs from one fill to the next.
- * Below 960px the prescriber and the row's actions move to the detail, and below 560px each row
+ * Below 960px the prescriber, the no-insurance price and the row's actions move to the detail, and below 560px each row
  * is two lines that open the record's own page.
  */
-export function FillsTable({ label, rows, loading = false, empty, actions, onEdit, onDrill, openRowId }: FillsTableProps) {
+export function FillsTable({ label, rows, loading = false, empty, actions, onEdit, onDrill, openRowId, hiddenColumns = [] }: FillsTableProps) {
+  const shows = (column: FillColumn): boolean => !hiddenColumns.includes(column)
   const columns: RecordColumn<MedicationFill>[] = [
     {
       id: 'date',
@@ -68,7 +72,7 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
       id: 'medication',
       header: 'Medication',
       // The name column takes the room; the other wrapping columns get what is left.
-      headerClassName: cn(HEAD, 'w-[34%]'),
+      headerClassName: cn(HEAD, 'w-[38%]'),
       className: CELL,
       cell: (fill) => {
         const strength = fillStrength(fill)
@@ -88,7 +92,7 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
                 <FillFlags fill={fill} />
               </div>
               <div className={cn('mt-0.5 text-xs text-muted-foreground', RECORD_ONLY_BELOW_MEDIUM)}>
-                {[formatFillDate(fill.filled_on), `Qty ${formatQuantity(fill.quantity, fill.quantity_unit)}`, pharmacyName(fill)].filter(Boolean).join(' · ')}
+                {[formatFillDate(fill.filled_on), `Qty ${formatQuantity(fill.quantity)}`, shows('pharmacy') ? pharmacyName(fill) : null].filter(Boolean).join(' · ')}
               </div>
             </div>
           </div>
@@ -101,8 +105,9 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
       fit: true,
       showFrom: 'medium',
       headerClassName: HEAD,
+      numeric: true,
       className: CELL,
-      cell: (fill) => formatQuantity(fill.quantity, fill.quantity_unit),
+      cell: (fill) => formatQuantity(fill.quantity),
     },
     {
       id: 'paid',
@@ -111,30 +116,35 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
       numeric: true,
       headerClassName: HEAD,
       className: CELL,
-      // Few fills have a retail price, so it is a line under what was paid, not a column of dashes.
-      cell: (fill) => (
-        <>
-          {formatCents(fill.paid_cents)}
-          {fill.retail_cents !== null && <span className={cn('text-xs text-muted-foreground', RECORD_ONLY_WIDE_BLOCK)}>retail {formatCents(fill.retail_cents)}</span>}
-        </>
-      ),
+      cell: (fill) => formatCents(fill.paid_cents),
     },
-    {
-      id: 'pharmacy',
-      header: 'Pharmacy',
-      showFrom: 'medium',
-      headerClassName: cn(HEAD, 'w-[22%]'),
+    ...(shows('no_insurance') ? [{
+      id: 'no-insurance',
+      // Two short words over short prices: the header may wrap, and the room goes to the name.
+      header: <span className="inline-block w-16 whitespace-normal">No insurance</span>,
+      fit: true,
+      numeric: true,
+      showFrom: 'wide',
+      headerClassName: HEAD,
       className: cn(CELL, 'text-muted-foreground'),
-      cell: (fill) => pharmacyName(fill) ?? MISSING,
-    },
-    {
+      cell: (fill) => formatCents(fill.retail_cents),
+    } satisfies RecordColumn<MedicationFill>] : []),
+    ...(shows('prescriber') ? [{
       id: 'prescriber',
       header: 'Prescriber',
       showFrom: 'wide',
       headerClassName: HEAD,
       className: cn(CELL, 'text-muted-foreground'),
       cell: (fill) => <span className="inline-block min-w-24">{(fill.display?.prescriber_name ?? fill.prescriber_name) ?? MISSING}</span>,
-    },
+    } satisfies RecordColumn<MedicationFill>] : []),
+    ...(shows('pharmacy') ? [{
+      id: 'pharmacy',
+      header: 'Pharmacy',
+      showFrom: 'medium',
+      headerClassName: cn(HEAD, 'w-[20%]'),
+      className: cn(CELL, 'text-muted-foreground'),
+      cell: (fill) => pharmacyName(fill) ?? MISSING,
+    } satisfies RecordColumn<MedicationFill>] : []),
     {
       id: 'review',
       header: 'Review',

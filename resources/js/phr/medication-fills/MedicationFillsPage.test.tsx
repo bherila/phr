@@ -162,7 +162,7 @@ describe('MedicationFillsPage table', () => {
 
     const table = await findLoadedFills()
     const headers = within(table).getAllByRole('columnheader').map((header) => header.textContent)
-    expect(headers).toEqual(['Date', 'Medication', 'Qty', 'Paid', 'Pharmacy', 'Prescriber', 'Actions'])
+    expect(headers).toEqual(['Date', 'Medication', 'Qty', 'Paid', 'No insurance', 'Prescriber', 'Pharmacy', 'Actions'])
 
     const row = within(table).getAllByRole('row')[1]!
     const cells = within(row).getAllByRole('cell')
@@ -170,11 +170,11 @@ describe('MedicationFillsPage table', () => {
     expect(within(cells[1]!).getByText('atorvastatin calcium')).toBeInTheDocument()
     expect(cells[1]).toHaveTextContent('20 mg/1 · oral tablet, film coated')
     expect(cells[1]).not.toHaveTextContent('Lipitor')
-    expect(cells[2]).toHaveTextContent('90 tablet')
-    expect(cells[3]).toHaveTextContent('$10.00')
-    expect(within(cells[3]!).getByText('retail $189.99')).toBeInTheDocument()
-    expect(cells[4]).toHaveTextContent(/^Example Pharmacy$/)
+    expect(cells[2]).toHaveTextContent(/^90$/)
+    expect(cells[3]).toHaveTextContent(/^\$10\.00$/)
+    expect(cells[4]).toHaveTextContent(/^\$189\.99$/)
     expect(cells[5]).toHaveTextContent(/^Dr\. A\. Smith$/)
+    expect(cells[6]).toHaveTextContent(/^Example Pharmacy$/)
     // Facts of the drug itself moved to the fill's detail.
     expect(within(table).queryByText(/Parke-Davis/)).not.toBeInTheDocument()
     expect(within(table).queryByText(/in 1 bottle/)).not.toBeInTheDocument()
@@ -187,11 +187,12 @@ describe('MedicationFillsPage table', () => {
     expect(tier('Date')).toHaveClass('hidden', '@[560px]/record-list:table-cell')
     expect(tier('Pharmacy')).toHaveClass('hidden', '@[560px]/record-list:table-cell')
     expect(tier('Prescriber')).toHaveClass('hidden', '@[960px]/record-list:table-cell')
+    expect(tier('No insurance')).toHaveClass('hidden', '@[960px]/record-list:table-cell')
     expect(tier('Actions')).toHaveClass('hidden', '@[960px]/record-list:table-cell')
     expect(tier('Medication')).not.toHaveClass('hidden')
     expect(tier('Paid')).not.toHaveClass('hidden')
     // Below 560px the date, the quantity and the pharmacy are on the row's second line.
-    const line = screen.getByText('2026-10-28 · Qty 90 tablet · Example Pharmacy')
+    const line = screen.getByText('2026-10-28 · Qty 90 · Example Pharmacy')
     expect(line).toHaveClass('@[560px]/record-list:hidden')
   })
 
@@ -255,7 +256,8 @@ describe('MedicationFillsPage table', () => {
       renderPage()
       expect(await screen.findByText('2025-03-04')).toBeInTheDocument()
       expect(screen.queryByText('2026-10-28')).not.toBeInTheDocument()
-      expect(screen.getByLabelText('Medication filter')).toHaveValue('9')
+      fireEvent.click(await screen.findByRole('button', { name: 'Show all fills, not only Mystery' }))
+      expect(screen.getByText('2026-10-28')).toBeInTheDocument()
     } finally {
       window.history.pushState(null, '', '/')
     }
@@ -305,23 +307,25 @@ describe('MedicationFillsPage table', () => {
     expect(screen.getByText(/add one by hand with its NDC/)).toHaveTextContent(/label.*receipt.*CSV.*MCP/)
   })
 
-  it('filters by date range and medication', async () => {
+  it('searches anywhere in the name, ignoring case, and filters by dates', async () => {
     renderPage()
-    await screen.findByRole('table', { name: 'Fills' })
+    await findLoadedFills()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Any date' }))
-    fireEvent.change(await screen.findByLabelText('Filled from'), { target: { value: '2026-01-01' } })
+    const search = screen.getByRole('searchbox', { name: 'Search by name' })
+    fireEvent.change(search, { target: { value: 'VAST' } })
+    expect(screen.getByText('2026-10-28')).toBeInTheDocument()
+    expect(screen.queryByText('2025-03-04')).not.toBeInTheDocument()
+    fireEvent.change(search, { target: { value: '' } })
+    expect(screen.getByText('2025-03-04')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Filled from'), { target: { value: '2026-01-01' } })
     expect(screen.queryByText('2025-03-04')).not.toBeInTheDocument()
     expect(screen.getByText('2026-10-28')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'From 2026-01-01' })).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
-    fireEvent.change(screen.getByLabelText('Medication filter'), { target: { value: '9' } })
-    expect(screen.queryByText('2026-10-28')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Clear dates' }))
     expect(screen.getByText('2025-03-04')).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText('Filled to'), { target: { value: '2024-12-31' } })
-    expect(screen.getByText('No fills match the current filters.')).toBeInTheDocument()
+    expect(screen.getByText('No fills match these filters.')).toBeInTheDocument()
   })
 
   it('filters from a sheet where the row of filters has no room, with the same state', async () => {
@@ -330,12 +334,12 @@ describe('MedicationFillsPage table', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Filter' }))
     const sheet = await screen.findByRole('dialog', { name: 'Filter fills' })
-    fireEvent.change(within(sheet).getByLabelText('Medication filter'), { target: { value: '9' } })
+    fireEvent.change(within(sheet).getByLabelText('Filled to'), { target: { value: '2025-12-31' } })
     expect(screen.queryByText('2026-10-28')).not.toBeInTheDocument()
 
     fireEvent.click(within(sheet).getByRole('button', { name: 'Show 1 fill' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    expect(screen.getByText('Mystery, any date')).toBeInTheDocument()
+    expect(screen.getByText('2025-03-04')).toBeInTheDocument()
   })
 
   it('records a review decision on a pending fill', async () => {
@@ -388,8 +392,8 @@ describe('Fill entry form', () => {
     fillRequired()
     fireEvent.change(screen.getByLabelText('Unit'), { target: { value: 'tablet' } })
     fireEvent.change(screen.getByLabelText('Paid ($)'), { target: { value: '10.00' } })
-    fireEvent.change(screen.getByLabelText('Retail price ($)'), { target: { value: '189.99' } })
-    fireEvent.change(screen.getByLabelText('Pharmacy'), { target: { value: 'Example Pharmacy' } })
+    fireEvent.change(screen.getByLabelText('No insurance price ($)'), { target: { value: '189.99' } })
+    fireEvent.change(within(screen.getByRole('dialog')).getByLabelText('Pharmacy'), { target: { value: 'Example Pharmacy' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save fill' }))
 
     await waitFor(() => expect(mockPostRaw).toHaveBeenCalledTimes(1))
@@ -574,7 +578,7 @@ describe('MedicationFillHistory', () => {
     expect(await within(table).findByRole('link', { name: 'atorvastatin calcium fill 2026-10-28' })).toHaveAttribute('href', '/phr/patient/42/medication-fills/1')
     expect(within(table).getByRole('img', { name: 'Pending review' })).toBeInTheDocument()
     expect(screen.getByText('1 fill · last 2026-10-28 · 1 waiting for review')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Open in Fills' })).toHaveAttribute('href', '/phr/patient/42/medication-fills?medication_id=7')
+    expect(screen.getByRole('link', { name: 'Show these fills' })).toHaveAttribute('href', '/phr/patient/42/medication-fills?medication_id=7')
     expect(screen.queryByText('2025-03-04')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /delete|edit/i })).not.toBeInTheDocument()
   })
@@ -613,17 +617,17 @@ describe('Fill detail', () => {
     })
   })
 
-  it('shows what the list dropped: the drug, the fill\'s own facts and its evidence', async () => {
-    fills = [makeFill({ rx_number: 'RX123', refills_remaining: 2, source_kind: 'receipt', source_document_id: 5, evidence_document_ids: [5, 6] })]
+  it('shows the fill\'s own facts and the drug, leaving manufacturer and package to the drug dialog', async () => {
+    fills = [makeFill({ source_kind: 'receipt' })]
     renderDetail()
 
     expect(await screen.findByRole('heading', { name: 'atorvastatin calcium 20 mg/1' })).toBeInTheDocument()
     expect(screen.getByText('Filled 2026-10-28')).toBeInTheDocument()
-    for (const value of ['Parke-Davis Div of Pfizer Inc', '90 tablet, film coated in 1 bottle (0071-0155-23)', 'Dr. A. Smith', 'RX123', '90 tablet', '$10.00', '$189.99', 'tablet, film coated', 'oral', 'Take 1 Tablet By Mouth Daily']) {
+    for (const value of ['Dr. A. Smith', '90 tablet', '$189.99', 'No insurance', 'tablet, film coated', 'oral', 'Lipitor']) {
       expect(screen.getByText(value)).toBeInTheDocument()
     }
-    expect(screen.getByRole('link', { name: 'Source document 5' })).toHaveAttribute('href', '/phr/patient/42/documents/5')
-    expect(screen.getByRole('link', { name: 'Source document 6' })).toBeInTheDocument()
+    expect(screen.queryByText('Parke-Davis Div of Pfizer Inc')).not.toBeInTheDocument()
+    expect(screen.queryByText('90 tablet, film coated in 1 bottle (0071-0155-23)')).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'atorvastatin calcium' })).toHaveAttribute('href', '/phr/patient/42/medications/7')
   })
 
@@ -704,7 +708,7 @@ describe('Fill detail', () => {
     lookups['detail'] = DETAIL
     lookups['label'] = { status: 'found', spl_set_id: DETAIL.drug_detail.spl_set_id, effective_date: '2026-05-21', version: '3', sections: [{ key: 'indications_and_usage', title: 'Indications and usage', text: 'For high cholesterol.' }] }
     renderDetail()
-    fireEvent.click(await screen.findByRole('button', { name: 'Label and links' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Prescribing information' }))
 
     const panel = await screen.findByRole('dialog')
     expect(await within(panel).findByText('NDA020702')).toBeInTheDocument()
@@ -720,15 +724,15 @@ describe('Fill detail', () => {
     expect(mockGet).toHaveBeenCalledWith('/api/ndc/label?ndc_10=0071-0155-23')
   })
 
-  it('shows the Discontinued badge and RxNav extras for an rxnav listing, and says so when there is no label', async () => {
+  it('shows RxNav extras for an rxnav listing, without the Discontinued badge, and says so when there is no label', async () => {
     fills = [makeFill({ ndc_source: 'rxnav', discontinued: true })]
     lookups['detail'] = { drug_detail: { ...DETAIL.drug_detail, ndc_source: 'rxnav', discontinued: true, dea_schedule: 'CIV', imprint: '3;TV;150' } }
     lookups['label'] = { status: 'not_found', sections: [] }
     renderDetail()
-    fireEvent.click(await screen.findByRole('button', { name: 'Label and links' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Prescribing information' }))
 
     const panel = await screen.findByRole('dialog')
-    expect(within(panel).getByText('Discontinued')).toBeInTheDocument()
+    expect(within(panel).queryByText('Discontinued')).not.toBeInTheDocument()
     expect(await within(panel).findByText('CIV')).toBeInTheDocument()
     expect(within(panel).getByText('3;TV;150')).toBeInTheDocument()
     expect(await within(panel).findByText(/No FDA label is on file/)).toBeInTheDocument()
@@ -738,24 +742,26 @@ describe('Fill detail', () => {
     fills = [makeFill({ ndc_status: 'unresolved', ndc_10: null, drug: null, drug_as_printed: 'mystery tab', medication: null })]
     renderDetail()
     expect(await screen.findByText(/No FDA listing is stored for this fill/)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Label and links' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Prescribing information' }))
 
     const panel = await screen.findByRole('dialog')
     expect(within(panel).getByText(/No FDA listing is stored for this fill/)).toBeInTheDocument()
     expect(mockGet).not.toHaveBeenCalledWith(expect.stringContaining('/api/ndc/label'))
   })
 
-  it('opens the pharmacy with its details and source documents', async () => {
-    fills = [makeFill({ pharmacy_name: 'EXAMPLE PHARMACY', display: { pharmacy_name: 'Example Pharmacy', pharmacy_location: '#1234, Seattle WA', prescriber_name: 'Dr. A. Smith' }, rx_number: 'RX123', refills_remaining: 2, source_kind: 'receipt', source_document_id: 5, evidence_document_ids: [5, 6] })]
+  it('names the pharmacy and folds its details and source documents away', async () => {
+    fills = [makeFill({ rx_number: 'RX123', refills_remaining: 2, source_kind: 'receipt', source_document_id: 5, evidence_document_ids: [6], pharmacy_location: '#1234, Seattle WA', display: { pharmacy_name: 'Example Pharmacy', pharmacy_location: '#1234, Seattle WA', prescriber_name: 'Dr. A. Smith', directions: null } })]
     renderDetail()
-    fireEvent.click(await screen.findByRole('button', { name: 'Example Pharmacy' }))
 
-    const modal = await screen.findByRole('dialog')
-    expect(within(modal).getByText('#1234, Seattle WA')).toBeInTheDocument()
-    expect(within(modal).getByText('Dr. A. Smith')).toBeInTheDocument()
-    expect(within(modal).getByText('RX123')).toBeInTheDocument()
-    expect(within(modal).getByText('2')).toBeInTheDocument()
-    expect(within(modal).getAllByRole('link')).toHaveLength(2)
+    expect(await screen.findByText('Example Pharmacy')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Example Pharmacy' })).not.toBeInTheDocument()
+    const more = screen.getByText('More details').closest('details') as HTMLDetailsElement
+    expect(more.open).toBe(false)
+    expect(within(more).getByText('#1234, Seattle WA')).toBeInTheDocument()
+    expect(within(more).getByText('RX123')).toBeInTheDocument()
+    expect(within(more).getByText('2')).toBeInTheDocument()
+    expect(within(more).getByText('Source document 5')).toHaveAttribute('href', '/phr/patient/42/documents/5')
+    expect(within(more).getByText('Source document 6')).toBeInTheDocument()
   })
 })
 
@@ -795,8 +801,8 @@ describe('Editing a fill', () => {
     expect(screen.getByLabelText(/^Quantity/)).toHaveValue('90.000')
     expect(screen.getByLabelText('Unit')).toHaveValue('tablet')
     expect(screen.getByLabelText('Paid ($)')).toHaveValue('10.00')
-    expect(screen.getByLabelText('Retail price ($)')).toHaveValue('189.99')
-    expect(screen.getByLabelText('Pharmacy')).toHaveValue('Example Pharmacy')
+    expect(screen.getByLabelText('No insurance price ($)')).toHaveValue('189.99')
+    expect(within(screen.getByRole('dialog')).getByLabelText('Pharmacy')).toHaveValue('Example Pharmacy')
     expect(screen.getByLabelText('Days supply')).toHaveValue('90')
     expect(screen.getByLabelText(/^NDC/)).toHaveValue('0071-0155-23')
     expect(screen.getByLabelText('Drug preview')).toBeInTheDocument()
@@ -840,7 +846,7 @@ describe('Editing a fill', () => {
   it('shows a conflict message instead of overwriting, and reloads the latest', async () => {
     mockPatchRaw.mockResolvedValue(jsonResponse(409, { message: 'This record changed since it was loaded.' }))
     await openEdit()
-    fireEvent.change(screen.getByLabelText('Pharmacy'), { target: { value: 'Other Pharmacy' } })
+    fireEvent.change(within(screen.getByRole('dialog')).getByLabelText('Pharmacy'), { target: { value: 'Other Pharmacy' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
 
     expect(await screen.findByText('This fill changed since you opened it. Reload to see the latest')).toBeInTheDocument()
@@ -849,7 +855,7 @@ describe('Editing a fill', () => {
 
     fills = [makeFill({ pharmacy_name: 'Latest Pharmacy' })]
     fireEvent.click(screen.getByRole('button', { name: 'Reload' }))
-    await waitFor(() => expect(screen.getByLabelText('Pharmacy')).toHaveValue('Latest Pharmacy'))
+    await waitFor(() => expect(within(screen.getByRole('dialog')).getByLabelText('Pharmacy')).toHaveValue('Latest Pharmacy'))
     expect(screen.queryByText('This fill changed since you opened it. Reload to see the latest')).not.toBeInTheDocument()
   })
 })
@@ -901,7 +907,7 @@ describe('Editing a fill: review fixes', () => {
     await openEdit()
 
     await waitFor(() => expect(within(screen.getByRole('combobox', { name: 'Medication' })).getByRole('option', { name: 'Mystery' })).toBeInTheDocument())
-    fireEvent.change(screen.getByLabelText('Pharmacy'), { target: { value: 'Other Pharmacy' } })
+    fireEvent.change(within(screen.getByRole('dialog')).getByLabelText('Pharmacy'), { target: { value: 'Other Pharmacy' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
     await waitFor(() => expect(mockPatchRaw).toHaveBeenCalledTimes(1))
     expect(mockPatchRaw.mock.calls[0]![1]).not.toHaveProperty('medication_id')
@@ -952,7 +958,7 @@ describe('Editing a fill: review fixes', () => {
     mockPatchRaw.mockResolvedValue(jsonResponse(200, { medication_fill: makeFill() }))
     await openEdit()
 
-    fireEvent.change(screen.getByLabelText('Pharmacy'), { target: { value: 'Other Pharmacy' } })
+    fireEvent.change(within(screen.getByRole('dialog')).getByLabelText('Pharmacy'), { target: { value: 'Other Pharmacy' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
 
     await waitFor(() => expect(mockPatchRaw).toHaveBeenCalledTimes(1))
@@ -989,16 +995,48 @@ describe('Editing a fill: review fixes', () => {
     expect(screen.getByText('No FDA match')).toBeInTheDocument()
   })
 
-  it('marks a fill resolved from RxNav history with a Discontinued badge, and only that fill', async () => {
-    fills = [
-      makeFill({ id: 1, ndc_source: 'rxnav', discontinued: true }),
-      makeFill({ id: 2, ndc_source: 'openfda', discontinued: false }),
-      makeFill({ id: 3, ndc_source: 'rxnav', discontinued: false }),
-    ]
+  it('keeps the Discontinued badge off the list', async () => {
+    fills = [makeFill({ id: 1, ndc_source: 'rxnav', discontinued: true })]
     renderPage()
+    await findLoadedFills()
+    expect(screen.queryByText('Discontinued')).not.toBeInTheDocument()
+  })
 
-    expect(await screen.findAllByText('Discontinued')).toHaveLength(1)
-    expect(screen.queryByText('No FDA match')).not.toBeInTheDocument()
+  it('says only the medication\'s detail that the product on its latest fill is off the market', async () => {
+    fills = [makeFill({ id: 1, ndc_source: 'rxnav', discontinued: true })]
+    const { unmount } = render(<MedicationFillHistory patientId={42} medicationId={7} />)
+    expect(await screen.findByText(/^Product no longer listed/)).toBeInTheDocument()
+    unmount()
+
+    fills = [makeFill({ id: 2, discontinued: false }), makeFill({ id: 1, filled_on: '2020-01-01', ndc_source: 'rxnav', discontinued: true })]
+    render(<MedicationFillHistory patientId={42} medicationId={7} />)
+    await screen.findByRole('link', { name: 'atorvastatin calcium fill 2026-10-28' })
+    expect(screen.queryByText(/^Product no longer listed/)).not.toBeInTheDocument()
+  })
+
+  it('shows the NDC as read from its source only in the edit form, when it differs', async () => {
+    fills = [makeFill({ ndc_as_captured: '00071015523' })]
+    const detail = render(<MedicationFillDetail patientId={42} recordId="1" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Prescribing information' }))
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(screen.queryByText(/00071015523/)).not.toBeInTheDocument()
+    detail.unmount()
+
+    await openEdit()
+    expect(await screen.findByText('Read from its source as 00071015523.')).toBeInTheDocument()
+  })
+
+  it('saves which columns show for this person, and applies it at once', async () => {
+    renderPage()
+    const table = await findLoadedFills()
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Prescriber' }))
+    expect(within(table).queryByRole('columnheader', { name: 'Prescriber' })).not.toBeInTheDocument()
+    expect(mockPut).toHaveBeenCalledWith('/api/user/display-preferences', { hidden_fill_columns: ['prescriber'] })
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Prescriber' }))
+    expect(within(table).getByRole('columnheader', { name: 'Prescriber' })).toBeInTheDocument()
+    expect(mockPut).toHaveBeenLastCalledWith('/api/user/display-preferences', { hidden_fill_columns: [] })
+    await act(async () => { await Promise.resolve() })
   })
 
   it('keeps No FDA match for an unresolved fill, with no Discontinued badge', async () => {
