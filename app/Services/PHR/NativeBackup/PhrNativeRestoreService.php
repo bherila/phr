@@ -10,6 +10,7 @@ use App\Models\PhrNativeRestoreAttempt;
 use App\Support\PHR\PhrDocumentSource;
 use App\Support\PHR\PhrDocumentType;
 use App\Support\Storage\PhrStorageKey;
+use App\Support\Storage\StagedChunkAppender;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
@@ -98,31 +99,12 @@ final class PhrNativeRestoreService
                 throw new NativeRestoreException('upload_state_invalid');
             }
 
-            $disk = Storage::disk($current->source_storage_disk);
-            $targetPath = $disk->path($current->source_storage_path);
-            $actualSize = filesize($targetPath);
-            if ($actualSize !== $offset) {
+            $targetPath = Storage::disk($current->source_storage_disk)->path($current->source_storage_path);
+            $outcome = StagedChunkAppender::append($targetPath, (string) $chunk->getRealPath(), $offset, $chunkSize);
+            if ($outcome === StagedChunkAppender::STATE_MISMATCH) {
                 throw new NativeRestoreException('upload_state_invalid');
             }
-            $source = fopen($chunk->getRealPath(), 'rb');
-            $target = fopen($targetPath, 'ab');
-            if (! is_resource($source) || ! is_resource($target)) {
-                if (is_resource($source)) {
-                    fclose($source);
-                }
-                if (is_resource($target)) {
-                    fclose($target);
-                }
-                throw new NativeRestoreException('source_storage_failed');
-            }
-            try {
-                $written = stream_copy_to_stream($source, $target);
-                $flushed = fflush($target);
-            } finally {
-                fclose($source);
-                fclose($target);
-            }
-            if ($written !== $chunkSize || ! $flushed) {
+            if ($outcome === StagedChunkAppender::STORAGE_FAILED) {
                 throw new NativeRestoreException('source_storage_failed');
             }
             $current->update(['uploaded_bytes' => $offset + $chunkSize]);
