@@ -8,6 +8,7 @@ use App\Models\PhrDocument;
 use App\Models\PhrImmunization;
 use App\Models\PhrLabResult;
 use App\Models\PhrMedication;
+use App\Models\PhrNegativeAssertion;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientVital;
@@ -18,6 +19,7 @@ use App\Services\PHR\Import\PhrMyChartZipImporter;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
+use Tests\Support\ImportsCcdaFixtures;
 use Tests\Support\PhrCcdaSyntheticDocument;
 use Tests\TestCase;
 use ZipArchive;
@@ -29,6 +31,8 @@ use ZipArchive;
  */
 final class PhrImportSourceDocumentLinkTest extends TestCase
 {
+    use ImportsCcdaFixtures;
+
     private const string LAB_FIXTURE = 'Fixtures/ccda/lab-reference-ranges.xml';
 
     /** @var list<class-string<Model>> */
@@ -135,6 +139,65 @@ final class PhrImportSourceDocumentLinkTest extends TestCase
         );
     }
 
+    public function test_rows_the_structured_section_readers_write_are_linked(): void
+    {
+        $patient = $this->patient();
+        $document = $this->document($patient);
+        $importer = app(PhrCcdaImporter::class);
+
+        $importer->importXml($this->ccdaFixture('immunizations.xml'), $patient, $patient->owner_user_id, $document);
+        $importer->importXml($this->ccdaFixture('problems.xml'), $patient, $patient->owner_user_id, $document);
+
+        // Read from the structured entries (ids from the entry's own id), not the table.
+        $immunization = PhrImmunization::query()->where('patient_id', $patient->id)->where('external_id', 'ccda-immunization-'.sha1('id|2.25.8001|imm-display'))->sole();
+        $condition = PhrCondition::query()->where('patient_id', $patient->id)->where('external_id', 'ccda-condition-'.sha1('id|2.25.6001|prob-display'))->sole();
+        $this->assertSame([$document->id, $document->id], [$immunization->source_document_id, $condition->source_document_id]);
+        $rows = $this->rows($patient, [PhrImmunization::class, PhrCondition::class, PhrNegativeAssertion::class]);
+        $this->assertGreaterThan(0, PhrNegativeAssertion::query()->where('patient_id', $patient->id)->count(), 'a negated entry is read too');
+        foreach ($rows as $row) {
+            $this->assertSame($document->id, $row->source_document_id, $row::class.' '.$row->getAttribute('external_id'));
+        }
+    }
+
+    public function test_a_row_a_section_reader_adopts_keeps_its_document_link_or_gains_one(): void
+    {
+        $patient = $this->patient();
+        $earlierDocument = $this->document($patient, 'earlier.xml');
+        $linked = $this->earlierLoadSectionRow($patient, 'phr_immunizations', 'synthetic-load:immunization:imm-display', $earlierDocument->id, ['vaccine_name' => 'Synthetic vaccine A', 'administered_on' => '2025-01-01']);
+        $unlinked = $this->earlierLoadSectionRow($patient, 'phr_conditions', 'synthetic-load:condition:2.25.6001|prob-display', null, ['name' => 'Synthetic chronic condition']);
+        $document = $this->document($patient);
+        $importer = app(PhrCcdaImporter::class);
+
+        $importer->importXml($this->ccdaFixture('immunizations.xml'), $patient, $patient->owner_user_id, $document);
+        $importer->importXml($this->ccdaFixture('problems.xml'), $patient, $patient->owner_user_id, $document);
+
+        $kept = PhrImmunization::query()->findOrFail($linked);
+        $this->assertSame(['ccda', 'ccda-immunization-'.sha1('id|2.25.8001|imm-display'), $earlierDocument->id], [$kept->import_source, $kept->external_id, $kept->source_document_id]);
+        $gained = PhrCondition::query()->findOrFail($unlinked);
+        $this->assertSame(['ccda', 'ccda-condition-'.sha1('id|2.25.6001|prob-display'), $document->id], [$gained->import_source, $gained->external_id, $gained->source_document_id]);
+    }
+
+    public function test_rows_the_narrative_reader_made_without_a_document_are_linked_when_a_section_reader_adopts_them(): void
+    {
+        $patient = $this->patient();
+        $importer = app(PhrCcdaImporter::class);
+        $importer->importXml($this->withoutEntries($this->ccdaFixture('immunizations.xml')), $patient, $patient->owner_user_id);
+        $narrativeIds = PhrImmunization::query()->where('patient_id', $patient->id)->pluck('id')->all();
+        $this->assertNotSame([], $narrativeIds);
+        $document = $this->document($patient);
+
+        $importer->importXml($this->ccdaFixture('immunizations.xml'), $patient, $patient->owner_user_id, $document);
+
+        // Rows the narrative reader made of entries the structured reader reads
+        // are adopted; the rest (the planned dose's row) are left as they were.
+        $adopted = PhrImmunization::query()->whereKey($narrativeIds)->where('source_document_id', $document->id)->count();
+        $this->assertGreaterThan(0, $adopted);
+        $added = PhrImmunization::query()->where('patient_id', $patient->id)->whereNotIn('id', $narrativeIds)->get();
+        foreach ($added as $row) {
+            $this->assertSame($document->id, $row->source_document_id);
+        }
+    }
+
     public function test_rows_a_fhir_bundle_writes_are_linked_and_keep_their_link(): void
     {
         $patient = $this->patient();
@@ -216,6 +279,22 @@ final class PhrImportSourceDocumentLinkTest extends TestCase
             'test_name' => 'Synthetic screen',
             'analyte' => 'Synthetic screen',
             'value' => 'earlier',
+            'review_status' => PhrReviewStatus::CONFIRMED,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+
+    /** @param array<string, mixed> $columns */
+    private function earlierLoadSectionRow(PhrPatient $patient, string $table, string $externalId, ?int $documentId, array $columns): int
+    {
+        return DB::table($table)->insertGetId([
+            'patient_id' => $patient->id,
+            'user_id' => $patient->owner_user_id,
+            'import_source' => 'synthetic_load',
+            'external_id' => $externalId,
+            'source_document_id' => $documentId,
+            ...$columns,
             'review_status' => PhrReviewStatus::CONFIRMED,
             'created_at' => now(),
             'updated_at' => now(),
