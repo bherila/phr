@@ -334,6 +334,8 @@ interface FillFormProps {
   onReload?: (() => void) | undefined
   /** Told whenever the form gains or loses unsaved edits. */
   onDirtyChange?: ((dirty: boolean) => void) | undefined
+  /** Told while a save request is in flight. */
+  onSavingChange?: ((saving: boolean) => void) | undefined
 }
 
 /** Add-a-fill entry point: a button that opens the form in a dialog. */
@@ -370,9 +372,12 @@ export function FillFormDialog({ patientId, fill, formKey, onSaved, onClose, onR
   onReload?: (() => void) | undefined
 }) {
   const [dirty, setDirty] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [confirming, setConfirming] = useState(false)
 
   function requestClose(): void {
+    // A save in flight cannot be taken back, so the dialog stays until it ends.
+    if (saving) return
     if (dirty) setConfirming(true)
     else onClose()
   }
@@ -395,6 +400,7 @@ export function FillFormDialog({ patientId, fill, formKey, onSaved, onClose, onR
             onCancel={requestClose}
             onReload={onReload}
             onDirtyChange={setDirty}
+            onSavingChange={setSaving}
           />
         </DialogContent>
       </Dialog>
@@ -414,7 +420,7 @@ export function FillFormDialog({ patientId, fill, formKey, onSaved, onClose, onR
   )
 }
 
-export function FillForm({ patientId, fill, onSaved, onCancel, onReload, onDirtyChange }: FillFormProps) {
+export function FillForm({ patientId, fill, onSaved, onCancel, onReload, onDirtyChange, onSavingChange }: FillFormProps) {
   const editing = fill !== undefined
   const [form, setForm] = useState<FillFormState>(() => (fill ? formFromFill(fill) : EMPTY_FORM))
   const initialNdc = fill ? formFromFill(fill).ndc : ''
@@ -435,6 +441,9 @@ export function FillForm({ patientId, fill, onSaved, onCancel, onReload, onDirty
   useEffect(() => {
     onDirtyChange?.(dirty)
   }, [dirty, onDirtyChange])
+  useEffect(() => {
+    onSavingChange?.(saving)
+  }, [saving, onSavingChange])
 
   const update = (patch: Partial<FillFormState>) => setForm((current) => ({ ...current, ...patch }))
 
