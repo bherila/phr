@@ -11,6 +11,7 @@ use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
 use App\Services\PHR\Import\PhrMultiplePatientsInSource;
 use App\Services\PHR\Import\PhrMyChartZipImporter;
 use App\Support\Storage\PhrStorageKey;
+use App\Support\Storage\StagedChunkAppender;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\UploadedFile;
@@ -209,38 +210,11 @@ final class EhiUploadService
             }
 
             $targetPath = Storage::disk($current->storage_disk)->path($current->storage_path);
-            clearstatcache(true, $targetPath);
-            $staged = @filesize($targetPath);
-            if (is_int($staged) && $staged > $offset) {
-                // Bytes of an append whose row update never committed (a rolled
-                // back or retried transaction). The row is the authority on what
-                // was acknowledged, and its lock is held, so drop them.
-                $this->truncate($targetPath, $offset);
-                clearstatcache(true, $targetPath);
-                $staged = @filesize($targetPath);
-            }
-            if ($staged !== $offset) {
+            $outcome = StagedChunkAppender::append($targetPath, (string) $chunk->getRealPath(), $offset, $chunkSize);
+            if ($outcome === StagedChunkAppender::STATE_MISMATCH) {
                 throw new EhiUploadRefused(EhiUploadRefused::UPLOAD_STATE, 'the staged archive does not match the bytes received');
             }
-            $source = @fopen((string) $chunk->getRealPath(), 'rb');
-            $target = @fopen($targetPath, 'ab');
-            try {
-                if (! is_resource($source) || ! is_resource($target)) {
-                    throw new EhiUploadRefused(EhiUploadRefused::STORAGE_FAILED, 'the chunk could not be stored');
-                }
-                $written = stream_copy_to_stream($source, $target);
-                $flushed = fflush($target);
-            } finally {
-                if (is_resource($source)) {
-                    fclose($source);
-                }
-                if (is_resource($target)) {
-                    fclose($target);
-                }
-            }
-            if ($written !== $chunkSize || ! $flushed) {
-                // Cut back to the acknowledged length so the client can resend.
-                $this->truncate($targetPath, $offset);
+            if ($outcome === StagedChunkAppender::STORAGE_FAILED) {
                 throw new EhiUploadRefused(EhiUploadRefused::STORAGE_FAILED, 'the chunk could not be stored');
             }
             $current->update(['uploaded_bytes' => $offset + $chunkSize]);
@@ -480,15 +454,6 @@ final class EhiUploadService
             ->where('patient_id', $patient->id)
             ->lockForUpdate()
             ->firstOrFail();
-    }
-
-    private function truncate(string $path, int $length): void
-    {
-        $handle = @fopen($path, 'r+b');
-        if (is_resource($handle)) {
-            ftruncate($handle, $length);
-            fclose($handle);
-        }
     }
 
     private function deleteQuietly(string $diskName, string $path): void
