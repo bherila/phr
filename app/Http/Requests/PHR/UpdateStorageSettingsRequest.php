@@ -12,6 +12,7 @@ class UpdateStorageSettingsRequest extends FormRequest
         return $this->user()?->hasRole('admin') === true;
     }
 
+    /** @return array<string, array<int, string>> */
     public function rules(): array
     {
         $limit = ['present', 'nullable', 'integer', 'min:0', 'max:'.BlobStorageQuota::MAX_LIMIT_BYTES];

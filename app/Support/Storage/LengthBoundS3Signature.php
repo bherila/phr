@@ -13,6 +13,7 @@ use Aws\Signature\S3SignatureV4;
  */
 class LengthBoundS3Signature extends S3SignatureV4
 {
+    /** @return array<string, bool> */
     protected function getHeaderBlacklist(): array
     {
         $blacklist = parent::getHeaderBlacklist();
@@ -21,6 +22,7 @@ class LengthBoundS3Signature extends S3SignatureV4
         return $blacklist;
     }
 
+    /** @return array<string, bool> */
     protected function getPresignHeaderDenyList(): array
     {
         $denyList = parent::getPresignHeaderDenyList();
