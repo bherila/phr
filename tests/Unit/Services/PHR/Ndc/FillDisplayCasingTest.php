@@ -76,7 +76,11 @@ final class FillDisplayCasingTest extends TestCase
             'all caps is lowercase' => ['ATORVASTATIN CALCIUM TABLETS', 'atorvastatin calcium tablets'],
             'units keep their case' => ['AMOXICILLIN 250MG/5ML SUSPENSION', 'amoxicillin 250 mg/5 mL suspension'],
             'IU and mEq' => ['VITAMIN D 1000 IU', 'vitamin d 1000 IU'],
-            'brand title case is kept' => ['Lipitor 10 mg', 'Lipitor 10 mg'],
+            'mixed case is lowercased too, like the FDA substance names' => ['Lipitor 10 mg', 'lipitor 10 mg'],
+            'mixed case with run-on units' => ['Lipitor 10MG Tab', 'lipitor 10 mg tab'],
+            'UCUM IU in mixed case' => ['Humalog 100 [iU]/mL', 'humalog 100 IU/mL'],
+            'upper-case mL and mEq units' => ['KCl 20 MEQ/15 ML SOLN', 'kcl 20 mEq/15 mL soln'],
+            'already lowercase stays' => ['ozempic 2 mg/3 mL pen', 'ozempic 2 mg/3 mL pen'],
         ];
     }
 
