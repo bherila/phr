@@ -28,11 +28,14 @@ final class AgentApiReadDao
         ?string $updatedAfter = null,
         ?string $updatedBefore = null,
         string $archived = 'include',
+        ?string $name = null,
+        ?string $birthDate = null,
     ): AgentApiPayload {
-        return $this->page('patients', compact('limit', 'cursor') + [
+        return $this->page('patients', compact('limit', 'cursor', 'name') + [
             'updated_after' => $updatedAfter,
             'updated_before' => $updatedBefore,
             'archived' => $archived,
+            'birth_date' => $birthDate,
         ]);
     }
 
@@ -88,6 +91,7 @@ final class AgentApiReadDao
         ]);
     }
 
+    /** @param array<string, scalar|null> $filters  type-specific filters, such as the fill filters */
     public function clinicalRecords(
         int $patientId,
         string $resource,
@@ -98,13 +102,28 @@ final class AgentApiReadDao
         ?string $importSource = null,
         ?int $sourceDocumentId = null,
         ?string $archived = null,
+        array $filters = [],
     ): AgentApiPayload {
         return $this->page("patients/{$patientId}/{$resource}", [
             'limit' => $limit, 'cursor' => $cursor,
             'updated_after' => $updatedAfter, 'updated_before' => $updatedBefore,
             'import_source' => $importSource, 'source_document_id' => $sourceDocumentId,
             'archived' => $archived,
+            ...$filters,
         ]);
+    }
+
+    public function ndcLookup(string $ndc): AgentApiPayload
+    {
+        return $this->get('ndc/lookup', ['ndc' => $ndc], ['status', 'input', 'selected', 'candidates']);
+    }
+
+    /**
+     * @param  array<string, string|null>  $criteria
+     */
+    public function ndcSearch(array $criteria): AgentApiPayload
+    {
+        return $this->get('ndc/search', $criteria, ['status', 'candidates']);
     }
 
     public function clinicalRecord(int $patientId, string $resource, int $recordId): AgentApiPayload

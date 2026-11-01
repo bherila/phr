@@ -3,8 +3,10 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Contracts\PHR\ClinicalDataRules;
+use App\Contracts\PHR\ClinicalWriteExtension;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\AgentApi\ResolveClinicalRecordsRequest;
+use App\Models\PhrMedicationFill;
 use App\Services\AgentApi\AgentClinicalResolveService;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Support\AgentApi\AgentApiClientIdentity;
@@ -13,6 +15,7 @@ use App\Support\AgentApi\AgentApiUpdateWindow;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use App\Support\PHR\PhrRecordLifecycle;
+use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
@@ -132,6 +135,7 @@ final class AgentClinicalReadController extends Controller
      *     resource: class-string<JsonResource>,
      *     provenance: bool,
      *     write_rules?: class-string<ClinicalDataRules>,
+     *     write_extension?: class-string<ClinicalWriteExtension>,
      *     health_log_aggregates?: bool
      * }
      */
@@ -157,6 +161,13 @@ final class AgentClinicalReadController extends Controller
             'archived' => $resource === 'health-logs'
                 ? ['sometimes', Rule::in(['include', 'exclude', 'only'])]
                 : ['prohibited'],
+            // Prescription-fill filters; refused for every other type.
+            'filled_from' => $resource === 'medication-fills' ? ['sometimes', 'date'] : ['prohibited'],
+            'filled_to' => $resource === 'medication-fills' ? ['sometimes', 'date', 'after_or_equal:filled_from'] : ['prohibited'],
+            'medication_id' => $resource === 'medication-fills' ? ['sometimes', 'integer', 'min:1'] : ['prohibited'],
+            'pharmacy' => $resource === 'medication-fills' ? ['sometimes', 'string', 'max:255'] : ['prohibited'],
+            'review_status' => $resource === 'medication-fills' ? ['sometimes', Rule::in(PhrReviewStatus::ALL)] : ['prohibited'],
+            'ndc_status' => $resource === 'medication-fills' ? ['sometimes', Rule::in(PhrMedicationFill::NDC_STATUSES)] : ['prohibited'],
         ];
     }
 
@@ -172,6 +183,9 @@ final class AgentClinicalReadController extends Controller
         if ($supportsProvenance && isset($validated['source_document_id'])) {
             $query->where('source_document_id', $validated['source_document_id']);
         }
+        if ($resource === 'medication-fills') {
+            $this->applyFillFilters($query, $validated);
+        }
         if ($resource === 'health-logs') {
             $archived = (string) ($validated['archived'] ?? 'include');
             if ($archived === 'exclude') {
@@ -179,6 +193,29 @@ final class AgentClinicalReadController extends Controller
             } elseif ($archived === 'only') {
                 $query->whereNotNull('archived_at');
             }
+        }
+    }
+
+    /**
+     * @param  Builder<Model>  $query
+     * @param  array<string, mixed>  $validated
+     */
+    private function applyFillFilters(Builder $query, array $validated): void
+    {
+        if (isset($validated['filled_from'])) {
+            $query->whereDate('filled_on', '>=', $validated['filled_from']);
+        }
+        if (isset($validated['filled_to'])) {
+            $query->whereDate('filled_on', '<=', $validated['filled_to']);
+        }
+        foreach (['medication_id', 'review_status', 'ndc_status'] as $column) {
+            if (isset($validated[$column])) {
+                $query->where($column, $validated[$column]);
+            }
+        }
+        if (isset($validated['pharmacy'])) {
+            $needle = '%'.str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower((string) $validated['pharmacy'])).'%';
+            $query->whereRaw("LOWER(pharmacy_name) LIKE ? ESCAPE '!'", [$needle]);
         }
     }
 

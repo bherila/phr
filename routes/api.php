@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\UserAiExecutionModeController;
 use App\Http\Controllers\Api\UserAiModelsController;
 use App\Http\Controllers\Api\UserConnectedAppsController;
 use App\Http\Controllers\Api\UserDeviceController;
+use App\Http\Controllers\Api\UserDisplayPreferencesController;
 use App\Http\Controllers\Api\V1\AgentClinicalReadController;
 use App\Http\Controllers\Api\V1\AgentClinicalWriteController;
 use App\Http\Controllers\Api\V1\AgentDicomController;
@@ -17,6 +18,8 @@ use App\Http\Controllers\Api\V1\AgentExportController;
 use App\Http\Controllers\Api\V1\AgentHealthLogController;
 use App\Http\Controllers\Api\V1\AgentImportController;
 use App\Http\Controllers\Api\V1\AgentMcpController;
+use App\Http\Controllers\Api\V1\AgentMedicationFillController;
+use App\Http\Controllers\Api\V1\AgentNdcController;
 use App\Http\Controllers\Api\V1\AgentPatientController;
 use App\Http\Controllers\Api\V1\AgentReconciliationController;
 use App\Http\Controllers\Api\V1\AgentRecordSearchController;
@@ -34,6 +37,8 @@ use App\Http\Controllers\PHR\HealthLogEntryController as PHRHealthLogEntryContro
 use App\Http\Controllers\PHR\ImmunizationController as PHRImmunizationController;
 use App\Http\Controllers\PHR\LabResultController as PHRLabResultController;
 use App\Http\Controllers\PHR\MedicationController as PHRMedicationController;
+use App\Http\Controllers\PHR\MedicationFillController as PHRMedicationFillController;
+use App\Http\Controllers\PHR\NdcController as PHRNdcController;
 use App\Http\Controllers\PHR\OfficeVisitController as PHROfficeVisitController;
 use App\Http\Controllers\PHR\PatientAccessController as PHRPatientAccessController;
 use App\Http\Controllers\PHR\PatientController as PHRPatientController;
@@ -239,6 +244,11 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
         Route::operation('dicom_uploads.cancel', [AgentDicomUploadController::class, 'cancel'])
             ->whereNumber(['patient', 'upload'])->middleware('throttle:agent-api');
 
+        Route::operation('ndc.lookup', [AgentNdcController::class, 'lookup'])
+            ->middleware('throttle:agent-api');
+        Route::operation('ndc.search', [AgentNdcController::class, 'search'])
+            ->middleware('throttle:agent-api');
+
         Route::operation('clinical.list', [AgentClinicalReadController::class, 'index'])
             ->whereNumber('patient')
             ->whereIn('resource', AgentClinicalResourceCatalog::ids())
@@ -251,7 +261,10 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
             ->whereIn('resource', AgentClinicalResourceCatalog::writableIds())
             ->middleware('throttle:agent-api');
         foreach (AgentClinicalResourceCatalog::writableIds() as $writableResource) {
-            Route::operation(AgentClinicalResourceCatalog::upsertOperationId($writableResource), [AgentClinicalWriteController::class, 'upsert'])
+            // A fill resolves its drug from an NDC and attaches a medication, so it has its own controller.
+            Route::operation(AgentClinicalResourceCatalog::upsertOperationId($writableResource), $writableResource === 'medication-fills'
+                ? [AgentMedicationFillController::class, 'upsert']
+                : [AgentClinicalWriteController::class, 'upsert'])
                 ->defaults('resource', $writableResource)
                 ->whereNumber('patient')
                 ->middleware('throttle:agent-api');
@@ -323,6 +336,10 @@ Route::middleware(['web', 'auth'])->group(function (): void {
     Route::post('/user/ai-prefs/models', [UserAiModelsController::class, 'fetch']);
     Route::get('/user/ai-execution-mode', [UserAiExecutionModeController::class, 'show']);
     Route::put('/user/ai-execution-mode', [UserAiExecutionModeController::class, 'update']);
+    Route::get('/ndc/lookup', [PHRNdcController::class, 'lookup'])->name('ndc.lookup');
+    Route::get('/ndc/search', [PHRNdcController::class, 'search'])->name('ndc.search');
+    Route::get('/user/display-preferences', [UserDisplayPreferencesController::class, 'show'])->name('user.display-preferences.show');
+    Route::put('/user/display-preferences', [UserDisplayPreferencesController::class, 'update'])->name('user.display-preferences.update');
 
     // Browser-session management of OAuth consent; writes retain the web CSRF guard.
     Route::middleware(PreventAgentApiResponseCaching::class)->group(function (): void {
@@ -409,6 +426,13 @@ Route::middleware(['web', 'auth'])
         Route::patch('/patients/{patient}/medications/{medication}', [PHRMedicationController::class, 'update'])->whereNumber(['patient', 'medication'])->name('patients.medications.update');
         Route::delete('/patients/{patient}/medications/{medication}', [PHRMedicationController::class, 'destroy'])->whereNumber(['patient', 'medication'])->name('patients.medications.destroy');
         Route::patch('/patients/{patient}/medications/{medication}/review', [PHRMedicationController::class, 'review'])->whereNumber(['patient', 'medication'])->name('patients.medications.review');
+        Route::get('/patients/{patient}/medication-fills', [PHRMedicationFillController::class, 'index'])->whereNumber('patient')->name('patients.medication-fills.index');
+        Route::post('/patients/{patient}/medication-fills', [PHRMedicationFillController::class, 'store'])->whereNumber('patient')->name('patients.medication-fills.store');
+        Route::get('/patients/{patient}/medication-fills/{fill}', [PHRMedicationFillController::class, 'show'])->whereNumber(['patient', 'fill'])->name('patients.medication-fills.show');
+        Route::patch('/patients/{patient}/medication-fills/{fill}', [PHRMedicationFillController::class, 'update'])->whereNumber(['patient', 'fill'])->name('patients.medication-fills.update');
+        Route::delete('/patients/{patient}/medication-fills/{fill}', [PHRMedicationFillController::class, 'destroy'])->whereNumber(['patient', 'fill'])->name('patients.medication-fills.destroy');
+        Route::patch('/patients/{patient}/medication-fills/{fill}/review', [PHRMedicationFillController::class, 'review'])->whereNumber(['patient', 'fill'])->name('patients.medication-fills.review');
+        Route::get('/patients/{patient}/medications/{medication}/fills', [PHRMedicationFillController::class, 'forMedication'])->whereNumber(['patient', 'medication'])->name('patients.medications.fills');
         Route::get('/patients/{patient}/conditions', [PHRConditionController::class, 'index'])->whereNumber('patient')->name('patients.conditions.index');
         Route::post('/patients/{patient}/conditions', [PHRConditionController::class, 'store'])->whereNumber('patient')->name('patients.conditions.store');
         Route::get('/patients/{patient}/conditions/{condition}', [PHRConditionController::class, 'show'])->whereNumber(['patient', 'condition'])->name('patients.conditions.show');

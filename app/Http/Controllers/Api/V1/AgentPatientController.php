@@ -8,11 +8,13 @@ use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Services\PHR\Access\AgentPatientPresenter;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Services\PHR\Fills\PatientNameMatcher;
 use App\Services\PHR\Identity\PhrPublicIds;
 use App\Support\AgentApi\AgentApiCursor;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentApiUpdateWindow;
 use App\Support\AgentApi\OAuthPatientConsents;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -46,6 +48,10 @@ final class AgentPatientController extends Controller
             $query->whereNotNull('archived_at');
         }
 
+        if (isset($validated['name'])) {
+            return $this->byPrintedName($request, $query, $userId, $billingOnly, (string) $validated['name'], isset($validated['birth_date']) ? (string) $validated['birth_date'] : null);
+        }
+
         $limit = (int) ($validated['limit'] ?? 25);
         $page = $query
             ->orderBy('id')
@@ -63,6 +69,39 @@ final class AgentPatientController extends Controller
                 'next_cursor' => $page->nextCursor()?->encode(),
             ],
         ]);
+    }
+
+    /**
+     * The one patient a name printed on a source document refers to. Never
+     * guesses and never creates: with no match, or several, it refuses and tells
+     * the caller to ask the person.
+     *
+     * @param  Builder<PhrPatient>  $query
+     */
+    private function byPrintedName(Request $request, Builder $query, int $userId, bool $billingOnly, string $name, ?string $birthDate): JsonResponse
+    {
+        $result = (new PatientNameMatcher)->match($query->orderBy('id')->get(), $name, $birthDate);
+        if ($result['status'] === PatientNameMatcher::MATCHED) {
+            $patient = $result['patients'][0];
+            $publicIds = $this->publicIds->forPatients(collect([(int) $patient->id]));
+
+            return response()->json([
+                'data' => [$this->presenter->payload($patient, $userId, publicId: $publicIds[(int) $patient->id], billingOnly: $billingOnly)],
+                'pagination' => ['limit' => 1, 'has_more' => false, 'next_cursor' => null],
+            ]);
+        }
+
+        $none = $result['status'] === PatientNameMatcher::NONE;
+        $message = $none
+            ? "No patient you can access matches the name \"{$name}\"".($birthDate !== null ? " with date of birth {$birthDate}" : '').'. Ask the user which patient this belongs to. Do not guess, and do not create a patient.'
+            : 'Several patients match the name "'.$name.'": '.collect($result['patients'])->map(fn (PhrPatient $patient): string => "{$patient->display_name} (id {$patient->id}".($patient->birth_date === null ? '' : ", born {$patient->birth_date->toDateString()}").')')->implode('; ').'. Ask the user which one, or for the date of birth printed on the source. Do not guess.';
+
+        return response()->json([
+            'message' => $message,
+            'code' => $none ? 'patient_match_none' : 'patient_match_ambiguous',
+            'errors' => ['name' => [$message]],
+            'candidates' => collect($result['patients'])->map(fn (PhrPatient $patient): array => ['id' => $patient->id, 'display_name' => $patient->display_name])->values(),
+        ], 422);
     }
 
     public function show(Request $request, int $patient): JsonResponse
@@ -133,6 +172,8 @@ final class AgentPatientController extends Controller
             'updated_after' => $billingOnly ? ['prohibited'] : ['sometimes', 'date'],
             'updated_before' => $billingOnly ? ['prohibited'] : ['sometimes', 'date', 'after_or_equal:updated_after'],
             'archived' => $billingOnly ? ['prohibited'] : ['sometimes', Rule::in(['include', 'exclude', 'only'])],
+            'name' => $billingOnly ? ['prohibited'] : ['sometimes', 'required_with:birth_date', 'string', 'min:1', 'max:255'],
+            'birth_date' => $billingOnly ? ['prohibited'] : ['sometimes', 'date'],
         ];
     }
 

@@ -10,6 +10,7 @@ use App\Models\PhrDocument;
 use App\Models\PhrImmunization;
 use App\Models\PhrLabResult;
 use App\Models\PhrMedication;
+use App\Models\PhrMedicationFill;
 use App\Models\PhrNegativeAssertion;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
@@ -37,6 +38,7 @@ class PhrExportDataService
      *     vitals: Collection<int, PhrPatientVital>,
      *     conditions: Collection<int, PhrCondition>,
      *     medications: Collection<int, PhrMedication>,
+     *     medication_fills: Collection<int, PhrMedicationFill>,
      *     procedures: Collection<int, PhrProcedure>,
      *     immunizations: Collection<int, PhrImmunization>,
      *     allergies: Collection<int, PhrAllergy>,
@@ -58,6 +60,7 @@ class PhrExportDataService
             'vitals' => PhrPatientVital::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderByDesc('observed_at')->orderByDesc('vital_date')->orderByDesc('id')->get(),
             'conditions' => PhrCondition::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderBy('name')->get(),
             'medications' => PhrMedication::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderBy('name')->get(),
+            'medication_fills' => PhrMedicationFill::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderByDesc('filled_on')->orderByDesc('id')->get(),
             'procedures' => PhrProcedure::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderByDesc('performed_at')->orderByDesc('performed_on')->orderByDesc('id')->get(),
             'immunizations' => PhrImmunization::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderByDesc('administered_on')->orderByDesc('id')->get(),
             'allergies' => PhrAllergy::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderBy('substance')->get(),

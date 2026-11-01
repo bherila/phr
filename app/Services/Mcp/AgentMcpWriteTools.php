@@ -71,6 +71,25 @@ final readonly class AgentMcpWriteTools
         };
     }
 
+    /** Like the generic upsert, but the external ID is optional: the server derives one for a fill. */
+    public function medicationFillUpsertHandler(): Closure
+    {
+        return function (
+            #[Schema(minimum: 1)] int $patient_id,
+            #[Schema(minimum: 1)] ?int $source_document_id,
+            #[Schema(pattern: '^[a-f0-9]{64}$')] ?string $expected_version,
+            #[Schema(type: 'object')] array $data,
+            #[Schema(minLength: 1, maxLength: 255, pattern: self::NO_CONTROL_CHARACTERS)] ?string $external_id = null,
+        ): array {
+            return $this->api->medicationFillUpsert($patient_id, array_filter([
+                'external_id' => $external_id,
+                'source_document_id' => $source_document_id,
+                'expected_version' => $expected_version,
+                'data' => $data,
+            ], static fn (mixed $value, string $key): bool => $key === 'source_document_id' || $key === 'expected_version' || $value !== null, ARRAY_FILTER_USE_BOTH))->toArray();
+        };
+    }
+
     public function clinicalUpdateHandler(string $resource): Closure
     {
         $api = $this->api;

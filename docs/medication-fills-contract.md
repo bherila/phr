@@ -5,13 +5,13 @@ This file is the final word on the shapes below; the backend implements them and
 ## Session API (web app), mirroring medications
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/api/patients/{patient}/medication-fills` | Same index envelope and filters as other clinical resources, plus `medication_id`, `from`, `to` (dates), `ndc_status`. Default order `filled_on` desc. |
-| POST | `/api/patients/{patient}/medication-fills` | Manual entry (body below). `source_kind` is forced to `manual`. |
-| GET | `/api/patients/{patient}/medication-fills/{fill}` | |
-| PATCH | `/api/patients/{patient}/medication-fills/{fill}` | Same semantics as the medication update. |
-| DELETE | `/api/patients/{patient}/medication-fills/{fill}` | |
-| PATCH | `/api/patients/{patient}/medication-fills/{fill}/review` | Same review body as the other clinical resources. |
-| GET | `/api/patients/{patient}/medications/{medication}/fills` | Fill history for the medication page, in the same list shape. |
+| GET | `/api/phr/patients/{patient}/medication-fills` | Same index envelope and filters as other clinical resources, plus `medication_id`, `from`, `to` (dates), `ndc_status`. Default order `filled_on` desc. |
+| POST | `/api/phr/patients/{patient}/medication-fills` | Manual entry (body below). `source_kind` is forced to `manual`. |
+| GET | `/api/phr/patients/{patient}/medication-fills/{fill}` | |
+| PATCH | `/api/phr/patients/{patient}/medication-fills/{fill}` | Same semantics as the medication update. |
+| DELETE | `/api/phr/patients/{patient}/medication-fills/{fill}` | |
+| PATCH | `/api/phr/patients/{patient}/medication-fills/{fill}/review` | Same review body as the other clinical resources. |
+| GET | `/api/phr/patients/{patient}/medications/{medication}/fills` | Fill history for the medication page, in the same list shape. |
 | GET | `/api/ndc/lookup?ndc=` | `NdcLookupResult` |
 | GET | `/api/ndc/search?name=&strength=&dosage_form=&route=&labeler=&package=` | `{ "candidates": NdcCandidate[] }` |
 | GET / PUT | `/api/user/display-preferences` | `{ "force_lowercase": boolean }`. Default `false`, stored per user. |
@@ -107,3 +107,17 @@ Where the backend follows phr's existing convention instead of the proposal abov
    - `ndc` unresolved: 422 on `ndc` ("No FDA listing matches this NDC") unless `allow_unresolved: true`, which saves `ndc_status: unresolved` with `drug_as_printed` as the only drug text.
 9. **Display preferences**: `GET/PUT /api/user/display-preferences`, body `{ "force_lowercase": boolean }`. The value is also in `app-initial-data` as `currentUser.force_lowercase_display`.
 10. **`MedicationFill.medication`** is `{ "id", "name" }` or null.
+11. **Paths and route names follow phr's `/api/phr` prefix** (the table above wrote `/api/...`). The real routes are:
+    - `GET|POST /api/phr/patients/{patient}/medication-fills`, `GET|PATCH|DELETE /api/phr/patients/{patient}/medication-fills/{fill}`, `PATCH /api/phr/patients/{patient}/medication-fills/{fill}/review`
+    - `GET /api/phr/patients/{patient}/medications/{medication}/fills`
+    - `GET /api/ndc/lookup?ndc=`, `GET /api/ndc/search?name=&strength=&dosage_form=&route=&labeler=&package=` (outside `/phr`, as written in the table)
+    - `GET|PUT /api/user/display-preferences`
+
+    Route names are `phr.patients.medication-fills.*`, `phr.patients.medications.fills`, `ndc.lookup`, `ndc.search`, and `user.display-preferences.show|update`.
+12. **Page and section ids.** The patient page is `/phr/patient/{id}/medication-fills`, page id `medication-fills`, listed in `PHR_PAGE_IDS` immediately after `medications` (the PHP `PageController::PATIENT_PAGES` already has it in that position, and a navigation test requires the two lists to match). The review summary (`GET /api/phr/patients/{id}/review/summary`) reports fills under section id `medication-fills`, and a pending fill appears in the Review page with `section: "medication-fills"` and `review_segment: "medication-fills"`. There is no fill detail route; a fill opens as a row, and the medication detail page lists its fills.
+13. **`ndc_search` over the web** returns `{ "candidates": NdcCandidate[] }` ranked best first, each with `match_reasons` and `score`. The web `ndc` query for lookup accepts what a person types (hyphens, spaces, an `NDC` prefix).
+14. **Drug text when the NDC does not resolve.** `drug_as_printed` is required whenever `ndc_status` is not `resolved` (including `manual`, where no NDC was given). It is the only drug text a client supplies.
+15. **Medication link.** An explicit `medication_id` must belong to the patient. Otherwise the server links by RxNorm code, then product (NDC labeler + product), then substances + strength + dosage form, and creates a `pending_review` medication when nothing matches. `GET .../medications/{id}/fills` is how the medication page lists the result.
+16. **Optimistic concurrency.** `MedicationFill` carries `version`, the same opaque 64-hex value phr uses for every clinical record (`AgentClinicalRecordVersion`, the one the MCP `*_update` tools take as `expected_version`). `PATCH .../medication-fills/{fill}` accepts an optional `version`; when it is not the record's current version the response is `409 {"message": "..."}` and nothing is changed. The review route keeps its existing `version` behavior.
+17. **`medication_id` on PATCH.** Absent or `null` keeps the current link: an edit never unlinks. If the edit changes the NDC and the current medication no longer fits the new drug (RxNorm code, name and dose, or the other fills linked to it), the server links or creates one. An explicit id relinks to that medication after checking it belongs to the patient (422 on `medication_id` otherwise). On create, `null` means link-or-create.
+18. **Initial data.** `app-initial-data.currentUser.force_lowercase_display` is a boolean, emitted from the same user record that `GET /api/user/display-preferences` reads; the PUT response is `{ "force_lowercase": boolean }`.

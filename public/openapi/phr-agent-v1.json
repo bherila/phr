@@ -327,6 +327,24 @@
                     },
                     {
                         "$ref": "#/components/parameters/Archived"
+                    },
+                    {
+                        "$ref": "#/components/parameters/FilledFrom"
+                    },
+                    {
+                        "$ref": "#/components/parameters/FilledTo"
+                    },
+                    {
+                        "$ref": "#/components/parameters/FillMedicationId"
+                    },
+                    {
+                        "$ref": "#/components/parameters/FillPharmacy"
+                    },
+                    {
+                        "$ref": "#/components/parameters/FillReviewStatus"
+                    },
+                    {
+                        "$ref": "#/components/parameters/FillNdcStatus"
                     }
                 ],
                 "responses": {
@@ -1632,6 +1650,7 @@
                             "enum": [
                                 "document",
                                 "eob",
+                                "medication-fill",
                                 "office-visit",
                                 "procedure"
                             ]
@@ -3234,6 +3253,78 @@
                 }
             }
         },
+        "/patients/{patient}/medication-fills": {
+            "put": {
+                "operationId": "medication_fills.upsert",
+                "summary": "Idempotently create or update a prescription fill",
+                "description": "Send the NDC (ndc) or the package chosen among candidates (ndc_candidate) with the fill, price, pharmacy and source fields; the server resolves the drug, never the agent. Provenance is required: source_kind, and source_document_id unless the source is manual. external_id is optional: when omitted the server derives it from pharmacy name, Rx number and fill date, or else from the source document and source_locator, so a receipt and a label photo of the same fill land on one record. The server links the fill to the patient's matching medication or creates one pending review. Returns the fill, the medication with whether it was created, and the NDC resolution (candidates when ambiguous).",
+                "security": [
+                    {
+                        "oauth2": [
+                            "clinical:write"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/MedicationFillUpsertRequest"
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Existing record updated or desired state already present",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/MedicationFillUpsertResponse"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Record created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/MedicationFillUpsertResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/Conflict"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            }
+        },
         "/patients/{patient}/medications": {
             "put": {
                 "operationId": "medications.upsert",
@@ -3449,6 +3540,113 @@
                     },
                     "404": {
                         "$ref": "#/components/responses/NotFound"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            }
+        },
+        "/ndc/lookup": {
+            "get": {
+                "operationId": "ndc.lookup",
+                "summary": "Resolve an NDC against the openFDA packaging directory",
+                "description": "Server-side and deterministic. An 11-digit billing NDC is read as every 10-digit candidate (a segment starting with 0 may be padding), 10 digits without hyphens as 4-4-2, 5-3-2 and 5-4-1, and each candidate is checked against openFDA packaging.package_ndc. Exactly one listed package is resolved; several are ambiguous and a person must pick; none is unresolved. Returns normalized drug fields. Sends only the NDC to openFDA, never patient data.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "clinical:read"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/NdcInput"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The resolution of the NDC",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/NdcLookupResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            }
+        },
+        "/ndc/search": {
+            "get": {
+                "operationId": "ndc.search",
+                "summary": "Search packages by drug name, strength, form, route, labeler and package size",
+                "description": "For a missing or unreadable NDC. Returns ranked candidate packages with the reasons each matched. It never picks one: show the candidates to the person, then pass the chosen ndc_10 as ndc_candidate when writing the fill.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "clinical:read"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/NdcSearchName"
+                    },
+                    {
+                        "$ref": "#/components/parameters/NdcSearchStrength"
+                    },
+                    {
+                        "$ref": "#/components/parameters/NdcSearchDosageForm"
+                    },
+                    {
+                        "$ref": "#/components/parameters/NdcSearchRoute"
+                    },
+                    {
+                        "$ref": "#/components/parameters/NdcSearchLabeler"
+                    },
+                    {
+                        "$ref": "#/components/parameters/NdcSearchPackageSize"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Ranked candidate packages",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/NdcSearchResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
                     },
                     "429": {
                         "$ref": "#/components/responses/RateLimited"
@@ -3699,6 +3897,12 @@
                     },
                     {
                         "$ref": "#/components/parameters/Archived"
+                    },
+                    {
+                        "$ref": "#/components/parameters/PatientName"
+                    },
+                    {
+                        "$ref": "#/components/parameters/PatientBirthDate"
                     }
                 ],
                 "responses": {
@@ -4551,6 +4755,7 @@
                         "procedures",
                         "immunizations",
                         "medications",
+                        "medication-fills",
                         "conditions",
                         "allergies",
                         "lab-results",
@@ -4570,6 +4775,7 @@
                         "procedures",
                         "immunizations",
                         "medications",
+                        "medication-fills",
                         "conditions",
                         "allergies",
                         "lab-results",
@@ -4628,7 +4834,7 @@
                 "schema": {
                     "type": "array",
                     "minItems": 1,
-                    "maxItems": 9,
+                    "maxItems": 10,
                     "uniqueItems": true,
                     "items": {
                         "type": "string",
@@ -4637,6 +4843,7 @@
                             "procedures",
                             "immunizations",
                             "medications",
+                            "medication-fills",
                             "conditions",
                             "allergies",
                             "lab-results",
@@ -4727,6 +4934,150 @@
                 "schema": {
                     "type": "integer",
                     "minimum": 1
+                }
+            },
+            "FilledFrom": {
+                "name": "filled_from",
+                "in": "query",
+                "description": "Earliest fill date, inclusive. Accepted only for medication-fills.",
+                "schema": {
+                    "type": "string",
+                    "format": "date"
+                }
+            },
+            "FilledTo": {
+                "name": "filled_to",
+                "in": "query",
+                "description": "Latest fill date, inclusive. Accepted only for medication-fills.",
+                "schema": {
+                    "type": "string",
+                    "format": "date"
+                }
+            },
+            "FillMedicationId": {
+                "name": "medication_id",
+                "in": "query",
+                "description": "Medication-list entry the fills are linked to. Accepted only for medication-fills.",
+                "schema": {
+                    "type": "integer",
+                    "minimum": 1
+                }
+            },
+            "FillPharmacy": {
+                "name": "pharmacy",
+                "in": "query",
+                "description": "Case-insensitive pharmacy name substring. Accepted only for medication-fills.",
+                "schema": {
+                    "type": "string",
+                    "maxLength": 255
+                }
+            },
+            "FillReviewStatus": {
+                "name": "review_status",
+                "in": "query",
+                "description": "Exact review status. Accepted only for medication-fills.",
+                "schema": {
+                    "type": "string",
+                    "enum": [
+                        "pending_review",
+                        "confirmed",
+                        "rejected"
+                    ]
+                }
+            },
+            "FillNdcStatus": {
+                "name": "ndc_status",
+                "in": "query",
+                "description": "NDC resolution status. Accepted only for medication-fills.",
+                "schema": {
+                    "type": "string",
+                    "enum": [
+                        "resolved",
+                        "ambiguous",
+                        "unresolved",
+                        "manual"
+                    ]
+                }
+            },
+            "PatientName": {
+                "name": "name",
+                "in": "query",
+                "description": "A name as printed on a source document, matched to the accessible patients ignoring case, spacing and LAST, FIRST order. Exactly one patient must match; otherwise the request fails with 422 and tells the caller to ask the person. Never creates a patient.",
+                "schema": {
+                    "type": "string",
+                    "maxLength": 255
+                }
+            },
+            "PatientBirthDate": {
+                "name": "birth_date",
+                "in": "query",
+                "description": "A date of birth printed on the source, used with name to confirm or narrow the match. Accepted only with name.",
+                "schema": {
+                    "type": "string",
+                    "format": "date"
+                }
+            },
+            "NdcInput": {
+                "name": "ndc",
+                "in": "query",
+                "required": true,
+                "description": "A 10- or 11-digit NDC, with or without hyphens.",
+                "schema": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                }
+            },
+            "NdcSearchName": {
+                "name": "name",
+                "in": "query",
+                "required": true,
+                "description": "Brand or generic drug name.",
+                "schema": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                }
+            },
+            "NdcSearchStrength": {
+                "name": "strength",
+                "in": "query",
+                "schema": {
+                    "type": "string",
+                    "maxLength": 100
+                }
+            },
+            "NdcSearchDosageForm": {
+                "name": "dosage_form",
+                "in": "query",
+                "schema": {
+                    "type": "string",
+                    "maxLength": 100
+                }
+            },
+            "NdcSearchRoute": {
+                "name": "route",
+                "in": "query",
+                "schema": {
+                    "type": "string",
+                    "maxLength": 100
+                }
+            },
+            "NdcSearchLabeler": {
+                "name": "labeler",
+                "in": "query",
+                "schema": {
+                    "type": "string",
+                    "maxLength": 255
+                }
+            },
+            "NdcSearchPackageSize": {
+                "name": "package_size",
+                "in": "query",
+                "description": "The unit count on the package, such as 90.",
+                "schema": {
+                    "type": "string",
+                    "maxLength": 20
                 }
             },
             "Archived": {
@@ -5067,6 +5418,7 @@
                             "procedures",
                             "immunizations",
                             "medications",
+                            "medication-fills",
                             "conditions",
                             "allergies",
                             "lab-results",
@@ -5524,6 +5876,7 @@
                             "procedures",
                             "immunizations",
                             "medications",
+                            "medication-fills",
                             "conditions",
                             "allergies",
                             "lab-results",
@@ -8702,6 +9055,299 @@
                 },
                 "additionalProperties": true
             },
+            "MedicationFillUpsertData": {
+                "type": "object",
+                "properties": {
+                    "ndc": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 64
+                    },
+                    "ndc_candidate": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 16,
+                        "pattern": "^[0-9]+-[0-9]+-[0-9]+$"
+                    },
+                    "allow_unresolved": {
+                        "type": "boolean"
+                    },
+                    "medication_id": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "minimum": 1
+                    },
+                    "drug_as_printed": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255
+                    },
+                    "patient_name_as_printed": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255
+                    },
+                    "filled_on": {
+                        "type": "string",
+                        "format": "date"
+                    },
+                    "quantity": {
+                        "type": [
+                            "number",
+                            "string"
+                        ],
+                        "minimum": 0
+                    },
+                    "quantity_unit": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 50
+                    },
+                    "days_supply": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "minimum": 0
+                    },
+                    "rx_number": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 64
+                    },
+                    "refills_remaining": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "minimum": 0
+                    },
+                    "directions": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 10000
+                    },
+                    "prescriber_name": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255
+                    },
+                    "paid_cents": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "minimum": 0
+                    },
+                    "retail_cents": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "minimum": 0
+                    },
+                    "pharmacy_name": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255
+                    },
+                    "pharmacy_location": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255
+                    },
+                    "source_kind": {
+                        "type": "string",
+                        "enum": [
+                            "label_photo",
+                            "receipt_pdf",
+                            "csv",
+                            "manual"
+                        ]
+                    },
+                    "source_locator": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255
+                    }
+                },
+                "required": [
+                    "filled_on",
+                    "quantity",
+                    "source_kind"
+                ],
+                "additionalProperties": false
+            },
+            "MedicationFillUpsertRequest": {
+                "type": "object",
+                "required": [
+                    "source_document_id",
+                    "expected_version",
+                    "data"
+                ],
+                "description": "review_status is not accepted. external_id is optional: the server derives one from pharmacy, Rx number and fill date, or else from the source document and source_locator.",
+                "properties": {
+                    "external_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 255
+                    },
+                    "source_document_id": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "minimum": 1
+                    },
+                    "expected_version": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/MedicationFillUpsertData"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "MedicationFillUpsertResponse": {
+                "type": "object",
+                "required": [
+                    "resource_type",
+                    "patient_id",
+                    "medication",
+                    "medication_created",
+                    "ndc",
+                    "outcome",
+                    "version",
+                    "data",
+                    "receipt_only"
+                ],
+                "properties": {
+                    "resource_type": {
+                        "type": "string",
+                        "enum": [
+                            "medication-fills"
+                        ]
+                    },
+                    "patient_id": {
+                        "type": "integer"
+                    },
+                    "medication": {
+                        "type": "object",
+                        "description": "The medication-list entry the fill is linked to. Write-only callers receive the id and review status only.",
+                        "required": [
+                            "id"
+                        ],
+                        "properties": {
+                            "id": {
+                                "type": "integer"
+                            },
+                            "review_status": {
+                                "type": "string"
+                            },
+                            "name": {
+                                "type": "string"
+                            },
+                            "dose": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "dose_unit": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "route": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "rxnorm_code": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "status": {
+                                "type": "string"
+                            },
+                            "started_on": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "format": "date"
+                            }
+                        },
+                        "additionalProperties": true
+                    },
+                    "medication_created": {
+                        "type": "boolean",
+                        "description": "True when this request created the medication (pending review); false when it linked an existing one."
+                    },
+                    "ndc": {
+                        "$ref": "#/components/schemas/NdcLookupResponse",
+                        "description": "How the NDC resolved. When ambiguous, candidates lists every match: ask the person which package is on the label and update the fill with that ndc_candidate."
+                    },
+                    "outcome": {
+                        "type": "string",
+                        "enum": [
+                            "created",
+                            "updated",
+                            "unchanged"
+                        ]
+                    },
+                    "version": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$"
+                    },
+                    "data": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/ClinicalRecord"
+                            },
+                            {
+                                "$ref": "#/components/schemas/MutationReceipt"
+                            }
+                        ]
+                    },
+                    "receipt_only": {
+                        "type": "boolean"
+                    }
+                },
+                "additionalProperties": false
+            },
             "MedicationUpsertData": {
                 "type": "object",
                 "required": [
@@ -8983,6 +9629,215 @@
                     },
                     "data": {
                         "$ref": "#/components/schemas/NativeBackupMetadata"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "NdcCandidate": {
+                "type": "object",
+                "required": [
+                    "ndc_10",
+                    "ndc_11",
+                    "product_ndc",
+                    "drug",
+                    "match_reasons",
+                    "fetched_at"
+                ],
+                "properties": {
+                    "ndc_10": {
+                        "type": "string",
+                        "description": "Hyphenated 10-digit package NDC as openFDA lists it."
+                    },
+                    "ndc_11": {
+                        "type": "string",
+                        "pattern": "^[0-9]{11}$"
+                    },
+                    "product_ndc": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "drug": {
+                        "$ref": "#/components/schemas/NdcDrug"
+                    },
+                    "match_reasons": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "fetched_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "score": {
+                        "type": "integer",
+                        "description": "Ranking score; present on ndc_search candidates only."
+                    }
+                },
+                "additionalProperties": false
+            },
+            "NdcDrug": {
+                "type": "object",
+                "description": "Drug fields resolved by the server from the NDC, with ALL-CAPS FDA values converted to appropriate casing (the raw listing is kept server-side). Keys are empty or null when the NDC did not resolve.",
+                "required": [
+                    "substance_names",
+                    "strengths",
+                    "brand_name",
+                    "dosage_form",
+                    "route",
+                    "labeler_name",
+                    "package_description",
+                    "rxcui"
+                ],
+                "properties": {
+                    "substance_names": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "strengths": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "brand_name": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "dosage_form": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "route": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "labeler_name": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "package_description": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "rxcui": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    }
+                },
+                "additionalProperties": false
+            },
+            "NdcLookupResponse": {
+                "type": "object",
+                "required": [
+                    "status",
+                    "input",
+                    "selected",
+                    "candidates",
+                    "reason",
+                    "next_step"
+                ],
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "resolved",
+                            "ambiguous",
+                            "unresolved"
+                        ]
+                    },
+                    "input": {
+                        "type": "string"
+                    },
+                    "selected": {
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/NdcCandidate"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "candidates": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/NdcCandidate"
+                        }
+                    },
+                    "reason": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "enum": [
+                            "invalid_ndc",
+                            "not_found",
+                            "lookup_unavailable",
+                            null
+                        ]
+                    },
+                    "next_step": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    }
+                },
+                "additionalProperties": false
+            },
+            "NdcSearchResponse": {
+                "type": "object",
+                "required": [
+                    "status",
+                    "reason",
+                    "candidates"
+                ],
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "candidates",
+                            "unresolved"
+                        ]
+                    },
+                    "reason": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "enum": [
+                            "invalid_ndc",
+                            "not_found",
+                            "lookup_unavailable",
+                            null
+                        ]
+                    },
+                    "candidates": {
+                        "type": "array",
+                        "maxItems": 25,
+                        "items": {
+                            "$ref": "#/components/schemas/NdcCandidate"
+                        }
+                    },
+                    "next_step": {
+                        "type": "string"
                     }
                 },
                 "additionalProperties": false

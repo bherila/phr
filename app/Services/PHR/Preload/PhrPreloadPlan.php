@@ -16,7 +16,7 @@ final readonly class PhrPreloadPlan
 {
     /** PHR_PAGE_IDS; PageController::PATIENT_PAGES serves the shell for exactly these. */
     private const array PAGES = [
-        'review', 'summary', 'health-log', 'labs', 'vitals', 'office-visits', 'medications', 'conditions',
+        'review', 'summary', 'health-log', 'labs', 'vitals', 'office-visits', 'medications', 'medication-fills', 'conditions',
         'procedures', 'immunizations', 'allergies', 'documents', 'imaging', 'access',
     ];
 
@@ -127,7 +127,7 @@ final readonly class PhrPreloadPlan
             'health-log' => ["{$base}/health-logs"],
             'labs' => ["{$base}/lab-results"],
             'office-visits' => ["{$base}/office-visits", "{$base}/procedures", "{$base}/immunizations"],
-            'medications', 'conditions', 'procedures', 'immunizations', 'allergies', 'vitals', 'documents' => ["{$base}/{$page}"],
+            'medications', 'medication-fills', 'conditions', 'procedures', 'immunizations', 'allergies', 'vitals', 'documents' => ["{$base}/{$page}"],
             'imaging' => ["{$base}/dicom/studies", $base],
             'access' => [$base],
             default => [],

@@ -12,6 +12,7 @@ use App\Http\Controllers\PHR\HealthLogEntryController;
 use App\Http\Controllers\PHR\ImmunizationController;
 use App\Http\Controllers\PHR\LabResultController;
 use App\Http\Controllers\PHR\MedicationController;
+use App\Http\Controllers\PHR\MedicationFillController;
 use App\Http\Controllers\PHR\OfficeVisitController;
 use App\Http\Controllers\PHR\PatientController;
 use App\Http\Controllers\PHR\PhrDataHubController;
@@ -78,6 +79,7 @@ final class PhrPreloadBuilder
         OfficeVisitController::class.'@show',
         MedicationController::class.'@index',
         MedicationController::class.'@show',
+        MedicationFillController::class.'@index',
         ConditionController::class.'@index',
         ConditionController::class.'@show',
         ProcedureController::class.'@index',

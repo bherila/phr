@@ -184,6 +184,10 @@ final class AgentMcpToolCatalog
         // argument, like the REST routes they mirror. Upsert and update stay
         // per type because each carries that type's own data schema.
         $operations[] = $this->read('clinical.list', 'List clinical records', 'List one clinical record type, chosen by resource_type, for an accessible patient.', [$reads, 'clinicalList']);
+        $operations[] = $this->read('ndc.lookup', 'Look up an NDC', 'Resolve a 10- or 11-digit NDC against the openFDA packaging directory on the server. Returns resolved (one package, with its drug fields), ambiguous (every candidate: ask the person which package is on the label) or unresolved. Call this before writing a fill; never call openFDA yourself and never supply drug fields.', [$reads, 'ndcLookup']);
+        $operations[] = $this->read('ndc.search', 'Search drugs by NDC attributes', 'For a missing or unreadable NDC: search packages by drug name (brand or generic), strength, dosage form, route, labeler and package size. Returns ranked candidates with the reasons each matched. It never picks one: show the candidates to the person, then pass the chosen ndc_10 as ndc_candidate when writing the fill.', [$reads, 'ndcSearch']);
+        $operations[] = $this->read('medication_fills.list', 'List prescription fills', 'List a patient\'s prescription fills, filtered by fill date range, medication, pharmacy, review status and NDC status. Read existing fills before writing so a fill is not duplicated.', [$reads, 'medicationFillsList'], 'clinical.list');
+        $operations[] = $this->read('medication_fills.get', 'Get prescription fill', 'Get one prescription fill by its patient-scoped record ID, with its current opaque version.', [$reads, 'medicationFillsGet'], 'clinical.get');
         $operations[] = $this->read('clinical.get', 'Get clinical record', 'Get one clinical record of the given resource_type for an accessible patient.', [$reads, 'clinicalGet']);
         $operations[] = $this->read(
             AgentClinicalResourceCatalog::RESOLVE_OPERATION_ID,
@@ -202,11 +206,14 @@ final class AgentMcpToolCatalog
 
         foreach (AgentClinicalResourceCatalog::writableIds() as $resource) {
             $title = ucwords(str_replace('-', ' ', $resource));
+            $isFill = $resource === 'medication-fills';
             $operations[] = $this->write(
                 AgentClinicalResourceCatalog::upsertOperationId($resource),
                 "Upsert {$title}",
-                "Idempotently create or update one {$title} record through the versioned REST API.",
-                $writes->clinicalUpsertHandler($resource),
+                $isFill
+                    ? 'Idempotently create or update one prescription fill. Send the NDC from ndc_lookup (or the package the person chose among ambiguous candidates as ndc_candidate) with the fill, price, pharmacy and source fields; the server resolves the drug and links or creates the patient\'s medication. Provenance is required: source_kind, and source_document_id (upload the source with documents_upload first) unless manual. external_id is optional; the server derives it from pharmacy, Rx number and fill date so a receipt and a label photo of the same fill merge. Returns the fill, the medication and whether it was created, and the NDC resolution.'
+                    : "Idempotently create or update one {$title} record through the versioned REST API.",
+                $isFill ? $writes->medicationFillUpsertHandler() : $writes->clinicalUpsertHandler($resource),
                 new WriteSafety(idempotencyKey: IdempotencyKey::Argument, expectedVersion: true),
                 effect: Effect::Destructive,
             );

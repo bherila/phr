@@ -25,7 +25,7 @@ class OpenFdaClient
     /**
      * The product listing that contains exactly this hyphenated package NDC.
      *
-     * @return array{product: array<string, mixed>, fetched_at: string}|null  null when openFDA does not list the package
+     * @return array{product: array<string, mixed>, fetched_at: string}|null null when openFDA does not list the package
      *
      * @throws OpenFdaUnavailableException
      */
@@ -76,7 +76,7 @@ class OpenFdaClient
 
     /**
      * @param  array<string, mixed>  $query
-     * @return list<array<string, mixed>>|null  null when openFDA answers 404 "no matches"
+     * @return list<array<string, mixed>>|null null when openFDA answers 404 "no matches"
      *
      * @throws OpenFdaUnavailableException
      */

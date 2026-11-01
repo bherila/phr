@@ -243,6 +243,9 @@ final class AgentMcpServerFactory
         if (isset($available['imports.create'])) {
             $details[] = 'imports.create reads a C-CDA, FHIR, or MyChart or EHI export document with PHR\'s own parsers, not AI: its records land pending review, and an EHI export is reviewed by the patient\'s owner in PHR. Only other documents are queued for AI extraction, in the person\'s AI Agent Inbox or with server-side AI, as they have chosen.';
         }
+        if ($this->hasTools($available, ['ndc.lookup', 'medication_fills.list', 'medication_fills.upsert'])) {
+            $details[] = 'To import prescription fills from a label photo, receipt PDF or CSV: upload the source with documents_upload first; identify the patient from the name printed on it with patients_list (name, and birth_date when printed), and if no patient or several match, ask the user, never guess and never create a patient; read the NDC and call ndc_lookup, or ndc_search by drug name, strength, dosage form, route, labeler and package size when the NDC is missing or unreadable, and never choose among several candidates yourself, ask the user; call medication_fills_list for the patient before writing; then medication_fills_upsert with the NDC or the chosen ndc_candidate, the fill, price, pharmacy and provenance (source_kind, source_document_id, source_locator). Never send drug fields: the server resolves them from the NDC, links or creates the medication pending review, and derives external_id from pharmacy, Rx number and fill date so a receipt and a label of the same fill merge.';
+        }
         if (isset($available['documents.download_access.create'])) {
             $details[] = 'Request document download access only when file contents are explicitly needed.';
         }

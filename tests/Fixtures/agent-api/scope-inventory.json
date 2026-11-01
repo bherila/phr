@@ -301,6 +301,28 @@
             "mcp:use"
         ]
     },
+    "medication_fills.get": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "medication_fills.list": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "medication_fills.update": {
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ],
+        "scope_rule": "all"
+    },
+    "medication_fills.upsert": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
     "medications.update": {
         "scopes": [
             "clinical:read",
@@ -326,6 +348,16 @@
     "native_backups.list": {
         "scopes": [
             "exports:read"
+        ]
+    },
+    "ndc.lookup": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
+    "ndc.search": {
+        "scopes": [
+            "clinical:read"
         ]
     },
     "oauth.consent.revoke": {

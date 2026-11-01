@@ -191,6 +191,14 @@
         "available": true,
         "scope": "clinical:read"
     },
+    "ndc.lookup": {
+        "available": true,
+        "scope": "clinical:read"
+    },
+    "ndc.search": {
+        "available": true,
+        "scope": "clinical:read"
+    },
     "clinical.get": {
         "available": true,
         "scope": "clinical:read"
@@ -216,6 +224,10 @@
         "scope": "clinical:write"
     },
     "medications.upsert": {
+        "available": true,
+        "scope": "clinical:write"
+    },
+    "medication_fills.upsert": {
         "available": true,
         "scope": "clinical:write"
     },

@@ -36,6 +36,16 @@ final readonly class AgentApiWriteDao
         ));
     }
 
+    /** @param array<string, mixed> $payload */
+    public function medicationFillUpsert(int $patientId, array $payload): AgentClinicalUpsertPayload
+    {
+        return AgentClinicalUpsertPayload::from($this->transport->send(
+            'PUT',
+            "patients/{$patientId}/medication-fills",
+            json: $payload,
+        ));
+    }
+
     public function clinicalRetract(int $patientId, string $resource, int $recordId, string $expectedVersion): AgentApiPayload
     {
         return AgentApiPayload::item(

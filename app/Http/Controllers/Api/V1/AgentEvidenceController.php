@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\PhrDocument;
 use App\Models\PhrEob;
 use App\Models\PhrEobLine;
+use App\Models\PhrMedicationFill;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrProcedure;
 use App\Services\PHR\Access\PhrPatientAccessService;
@@ -28,7 +29,7 @@ use Illuminate\Validation\Rule;
 
 final class AgentEvidenceController extends Controller
 {
-    private const array LINKABLE_TYPES = ['document', 'eob', 'office-visit', 'procedure'];
+    private const array LINKABLE_TYPES = ['document', 'eob', 'medication-fill', 'office-visit', 'procedure'];
 
     /**
      * Public ids read in bulk for the page being serialized: [table][record id].
@@ -358,7 +359,7 @@ final class AgentEvidenceController extends Controller
     {
         $model = match ($type) {
             'document' => PhrDocument::class, 'eob' => PhrEob::class,
-            'office-visit' => PhrOfficeVisit::class, 'procedure' => PhrProcedure::class,
+            'medication-fill' => PhrMedicationFill::class, 'office-visit' => PhrOfficeVisit::class, 'procedure' => PhrProcedure::class,
             default => abort(404),
         };
         $model::query()->where('patient_id', $patientId)->findOrFail($id);
@@ -373,6 +374,7 @@ final class AgentEvidenceController extends Controller
         $queries = match ($sourceType) {
             'document' => $this->documentLinkQueries($sourceId, $patientId),
             'eob' => $this->eobLinkQueries($sourceId, $patientId),
+            'medication-fill' => $this->fillLinkQueries($sourceId, $patientId),
             'office-visit' => $this->clinicalLinkQueries('phr_office_visits', 'phr_office_visit_eobs', 'office_visit_id', $sourceId, $patientId),
             'procedure' => $this->clinicalLinkQueries('phr_procedures', 'phr_procedure_eobs', 'procedure_id', $sourceId, $patientId),
             default => abort(404),
@@ -408,6 +410,7 @@ final class AgentEvidenceController extends Controller
             $targetType = match ($resource) {
                 'office-visits' => 'office-visit', 'procedures' => 'procedure',
                 'immunizations' => 'immunization', 'medications' => 'medication',
+                'medication-fills' => 'medication-fill',
                 'conditions' => 'condition', 'allergies' => 'allergy',
                 'lab-results' => 'lab-result', 'vitals' => 'vital',
                 default => abort(500, 'Clinical search catalog is inconsistent.'),
@@ -448,6 +451,22 @@ final class AgentEvidenceController extends Controller
         }
 
         return $queries;
+    }
+
+    /**
+     * A fill links to the document it was read from; it has no EOB pivot.
+     *
+     * @return array<string, \Illuminate\Database\Query\Builder>
+     */
+    private function fillLinkQueries(int $fillId, int $patientId): array
+    {
+        $documentId = DB::table('phr_medication_fills')->where('patient_id', $patientId)->where('id', $fillId)->value('source_document_id');
+        if ($documentId === null) {
+            return [];
+        }
+
+        return ['document' => DB::table('phr_documents')->where('patient_id', $patientId)
+            ->whereNull('deleted_at')->where('id', $documentId)];
     }
 
     /** @return array<string, \Illuminate\Database\Query\Builder> */

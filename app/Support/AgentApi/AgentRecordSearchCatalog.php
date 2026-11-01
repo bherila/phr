@@ -8,6 +8,7 @@ use App\Models\PhrHealthLog;
 use App\Models\PhrImmunization;
 use App\Models\PhrLabResult;
 use App\Models\PhrMedication;
+use App\Models\PhrMedicationFill;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatientVital;
 use App\Models\PhrProcedure;
@@ -61,6 +62,15 @@ final class AgentRecordSearchCatalog
             'summary' => ['name'], 'q' => ['name', 'dose', 'frequency', 'prescriber_name', 'reason_for_use'],
             'provider' => ['prescriber_name'], 'facility' => [],
             'codes' => ['rxnorm_code'], 'code_arrays' => [], 'sources' => ['import_source'], 'review' => ['review_status'],
+            'source_document' => true,
+        ],
+        'medication-fills' => [
+            'model' => PhrMedicationFill::class,
+            'event' => ['filled_on', 'created_at'],
+            'summary' => ['brand_name', 'drug_as_printed'],
+            'q' => ['brand_name', 'drug_as_printed', 'dosage_form', 'labeler_name', 'pharmacy_name', 'rx_number', 'prescriber_name', 'directions'],
+            'provider' => ['prescriber_name'], 'facility' => ['pharmacy_name'],
+            'codes' => ['rxcui', 'ndc_10', 'ndc_11'], 'code_arrays' => [], 'sources' => ['import_source'], 'review' => ['review_status'],
             'source_document' => true,
         ],
         'conditions' => [

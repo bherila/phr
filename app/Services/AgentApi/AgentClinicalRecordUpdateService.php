@@ -27,7 +27,7 @@ final readonly class AgentClinicalRecordUpdateService
         $modelClass = $definition['model'] ?? null;
         abort_unless(is_string($modelClass) && isset($definition['write_rules']), 404);
 
-        return DB::transaction(function () use ($patient, $recordId, $data, $modelClass): ClinicalUpsertResult {
+        return DB::transaction(function () use ($patient, $recordId, $data, $modelClass, $definition): ClinicalUpsertResult {
             /** @var Model $record */
             // A withdrawn record is not editable. Deletion is already excluded by
             // the soft-delete scope; retraction has to be stated, or an agent
@@ -53,7 +53,10 @@ final readonly class AgentClinicalRecordUpdateService
                     ->findOrFail($data->sourceDocumentId);
             }
 
-            $updates = $data->attributes;
+            // Resource-specific preparation, such as resolving a fill's drug from its NDC.
+            $extensionClass = $definition['write_extension'] ?? null;
+            $extension = is_string($extensionClass) ? app($extensionClass) : null;
+            $updates = $extension?->prepareUpdate($patient, $record, $data->attributes) ?? $data->attributes;
             if ($data->sourceDocumentSpecified) {
                 $updates['source_document_id'] = $data->sourceDocumentId;
             }
@@ -68,6 +71,7 @@ final readonly class AgentClinicalRecordUpdateService
             // browser action; this endpoint cannot assert it.
             $record->setAttribute('review_status', PhrReviewStatus::PENDING);
             $record->save();
+            $extension?->afterUpdate($patient, $record);
             $record->refresh();
 
             return new ClinicalUpsertResult(
