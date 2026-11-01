@@ -94,10 +94,15 @@ class MedicationFillController extends Controller
         DB::transaction(function () use ($resolvedPatient, $record, $prepared, $version): void {
             $locked = PhrMedicationFill::query()->whereKey($record->id)->lockForUpdate()->firstOrFail();
             $this->assertCurrent($locked, $version);
+            $before = $locked->medication_id;
             $locked->update($prepared['attributes']);
-            // An edit never unlinks the medication. The link is revisited only when the
-            // NDC changed the drug and the current medication no longer fits it.
-            if ($prepared['drug_changed'] && $prepared['medication_id'] === null) {
+            if ($prepared['medication_id'] !== null) {
+                // An explicit choice goes through the linker too, so the medication this fill
+                // leaves is tidied if it was an unreviewed entry only this fill kept alive.
+                $this->writer->attach($resolvedPatient, $locked, $prepared['medication_id'], $before);
+            } elseif ($prepared['drug_changed']) {
+                // An edit never unlinks the medication. The link is revisited only when the
+                // NDC changed the drug and the current medication no longer fits it.
                 $this->writer->reconcile($resolvedPatient, $locked);
             }
         });
@@ -115,7 +120,15 @@ class MedicationFillController extends Controller
 
     public function destroy(Request $request, int $patient, int $fill): Response
     {
-        return $this->destroyClinicalResource($request, $patient, $fill);
+        $resolvedPatient = $this->accessService->writablePatient($patient, (int) $request->user()?->id);
+        $record = PhrMedicationFill::query()->where('patient_id', $resolvedPatient->id)->findOrFail($fill);
+        DB::transaction(function () use ($record): void {
+            $record->delete();
+            // A medication this fill alone kept alive (an unreviewed, auto-created entry) goes with it.
+            $this->writer->release($record);
+        });
+
+        return response()->noContent();
     }
 
     public function review(ReviewClinicalRecordRequest $request, int $patient, int $fill): JsonResponse

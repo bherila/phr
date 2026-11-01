@@ -42,7 +42,7 @@ final readonly class AgentClinicalRetractionService
         $modelClass = $definition['model'] ?? null;
         abort_unless(is_string($modelClass) && isset($definition['write_rules']), 404);
 
-        return DB::transaction(function () use ($patient, $client, $modelClass, $recordId, $expectedVersion): ClinicalRetractionResult {
+        return DB::transaction(function () use ($patient, $client, $modelClass, $recordId, $expectedVersion, $definition): ClinicalRetractionResult {
             /** @var Model|null $record */
             $record = $modelClass::query()
                 // A deleted record is gone as far as this operation is
@@ -69,6 +69,10 @@ final readonly class AgentClinicalRetractionService
             }
 
             $record->forceFill(['retracted_at' => now()])->save();
+            $extensionClass = $definition['write_extension'] ?? null;
+            if (is_string($extensionClass)) {
+                app($extensionClass)->afterRetract($patient, $record);
+            }
             $record->refresh();
 
             return new ClinicalRetractionResult(

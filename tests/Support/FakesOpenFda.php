@@ -4,6 +4,7 @@ namespace Tests\Support;
 
 use Illuminate\Http\Client\Factory;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -22,16 +23,21 @@ trait FakesOpenFda
     /** @var list<string> every request URL, in order */
     protected array $openFdaRequests = [];
 
+    /** @var list<int> the database transaction depth at each request */
+    protected array $openFdaTransactionLevels = [];
+
     /**
      * @param  list<string>  $listed  package NDCs to list in addition to the recorded ones
      */
     protected function fakeOpenFda(array $listed = [], bool $down = false): void
     {
         $this->openFdaRequests = [];
+        $this->openFdaTransactionLevels = [];
         // A fresh factory, so a second call replaces the first fake instead of queueing behind it.
         Http::swap(new Factory);
         Http::fake(function (Request $request) use ($listed, $down) {
             $this->openFdaRequests[] = $request->url();
+            $this->openFdaTransactionLevels[] = DB::transactionLevel();
             if ($down) {
                 return Http::response(['error' => 'unavailable'], 503);
             }

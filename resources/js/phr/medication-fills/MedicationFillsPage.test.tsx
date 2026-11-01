@@ -459,8 +459,10 @@ describe('Editing a fill', () => {
     await waitFor(() => expect(mockPatchRaw).toHaveBeenCalledTimes(1))
     const [url, body] = mockPatchRaw.mock.calls[0] as [string, Record<string, unknown>]
     expect(url).toBe('/api/phr/patients/42/medication-fills/1')
-    expect(body).toMatchObject({ version: 'v1', paid_cents: 1250, medication_id: 7 })
+    expect(body).toMatchObject({ version: 'v1', paid_cents: 1250 })
     expect(body).not.toHaveProperty('ndc')
+    // The medication link is the server's to keep unless the person picks another.
+    expect(body).not.toHaveProperty('medication_id')
     expect(await screen.findByText('$12.50')).toBeInTheDocument()
     expect(screen.queryByText('Edit Fill')).not.toBeInTheDocument()
   })
@@ -535,5 +537,128 @@ describe('Medication select', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save fill' }))
     await waitFor(() => expect(mockPostRaw).toHaveBeenCalledTimes(2))
     expect(mockPostRaw.mock.calls[1]![1]).toMatchObject({ medication_id: 9 })
+  })
+})
+
+describe('Editing a fill: review fixes', () => {
+  async function openEdit(name = /^Edit atorvastatin calcium fill 26\.10\.28/) {
+    renderPage()
+    await screen.findByRole('table', { name: 'Fills' })
+    fireEvent.click(screen.getByRole('button', { name }))
+    return screen.findByRole('button', { name: 'Save changes' })
+  }
+
+  it('sends medication_id only when the person changed the Medication select', async () => {
+    fills = [makeFill({ version: 'v1' })]
+    mockPatchRaw.mockResolvedValue(jsonResponse(200, { medication_fill: makeFill() }))
+    await openEdit()
+
+    await waitFor(() => expect(within(screen.getByRole('combobox', { name: 'Medication' })).getByRole('option', { name: 'Mystery' })).toBeInTheDocument())
+    fireEvent.change(screen.getByLabelText('Pharmacy'), { target: { value: 'Other Pharmacy' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(mockPatchRaw).toHaveBeenCalledTimes(1))
+    expect(mockPatchRaw.mock.calls[0]![1]).not.toHaveProperty('medication_id')
+
+    fireEvent.click(await screen.findByRole('button', { name: /^Edit atorvastatin calcium fill 26\.10\.28/ }))
+    await waitFor(() => expect(within(screen.getByRole('combobox', { name: 'Medication' })).getByRole('option', { name: 'Mystery' })).toBeInTheDocument())
+    fireEvent.change(screen.getByRole('combobox', { name: 'Medication' }), { target: { value: '9' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(mockPatchRaw).toHaveBeenCalledTimes(2))
+    expect(mockPatchRaw.mock.calls[1]![1]).toMatchObject({ medication_id: 9 })
+  })
+
+  it('does not send medication_id when the NDC changes, so the server can re-link', async () => {
+    lookups['00002-0800-01'] = { status: 'resolved', input: '00002080001', selected: candidate('0002-0800-01'), candidates: [candidate('0002-0800-01')] }
+    mockPatchRaw.mockResolvedValue(jsonResponse(200, { medication_fill: makeFill() }))
+    await openEdit()
+
+    fireEvent.change(screen.getByLabelText(/^NDC/), { target: { value: '00002-0800-01' } })
+    await screen.findByText(/NDC 0002-0800-01/)
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(mockPatchRaw).toHaveBeenCalledTimes(1))
+    const body = mockPatchRaw.mock.calls[0]![1] as Record<string, unknown>
+    expect(body).toMatchObject({ ndc: '00002-0800-01' })
+    expect(body).not.toHaveProperty('medication_id')
+  })
+
+  it('sends ndc: null when the person clears the NDC, and needs a drug name then', async () => {
+    mockPatchRaw.mockResolvedValue(jsonResponse(200, { medication_fill: makeFill({ ndc_status: 'manual' }) }))
+    await openEdit()
+
+    fireEvent.change(screen.getByLabelText(/^NDC/), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    expect(await screen.findByText('Enter an NDC, or the drug name as printed.')).toBeInTheDocument()
+    expect(mockPatchRaw).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByLabelText(/^Drug name as printed/), { target: { value: 'atorvastatin 20mg tab' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(mockPatchRaw).toHaveBeenCalledTimes(1))
+    const body = mockPatchRaw.mock.calls[0]![1] as Record<string, unknown>
+    expect(body).toHaveProperty('ndc', null)
+    expect(body).toMatchObject({ drug_as_printed: 'atorvastatin 20mg tab' })
+  })
+
+  it('accepts a stored NDC with a label and Unicode dashes without checking or re-sending it', async () => {
+    fills = [makeFill({ ndc_as_captured: 'NDC: 0071\u20110155\u201123', version: 'v1' })]
+    mockPatchRaw.mockResolvedValue(jsonResponse(200, { medication_fill: makeFill() }))
+    await openEdit()
+
+    fireEvent.change(screen.getByLabelText('Pharmacy'), { target: { value: 'Other Pharmacy' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(mockPatchRaw).toHaveBeenCalledTimes(1))
+    expect(screen.queryByText('Enter a 10 or 11 digit NDC.')).not.toBeInTheDocument()
+    expect(mockPatchRaw.mock.calls[0]![1]).not.toHaveProperty('ndc')
+    expect(mockGet.mock.calls.some(([url]) => String(url).startsWith('/api/ndc/lookup'))).toBe(false)
+  })
+
+  it('shows the candidate picker for an ambiguous stored fill even though the NDC is unchanged', async () => {
+    const a = candidate('60505-0134-0')
+    const b = candidate('60505-134-00')
+    lookups['60505-0134-00'] = { status: 'ambiguous', input: '60505-0134-00', selected: null, candidates: [a, b] }
+    fills = [makeFill({ id: 1, ndc_status: 'ambiguous', ndc_as_captured: '60505-0134-00', ndc_10: null, drug: null, drug_as_printed: 'cyclosporine 100mg', version: 'v1' })]
+    mockPatchRaw.mockResolvedValue(jsonResponse(200, { medication_fill: makeFill() }))
+    renderPage()
+    expect(await screen.findByText('Ambiguous NDC')).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: /^Edit .* fill 26\.10\.28/ }))
+
+    expect(await screen.findByText('NDC 60505-0134-0')).toBeInTheDocument()
+    expect(screen.getByText('NDC 60505-134-00')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('radio', { name: /60505-134-00/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(mockPatchRaw).toHaveBeenCalledTimes(1))
+    expect(mockPatchRaw.mock.calls[0]![1]).toMatchObject({ ndc: '60505-0134-00', ndc_candidate: '60505-134-00' })
+  })
+
+  it('marks an ambiguous fill in the table beside the no-match badge', async () => {
+    fills = [makeFill({ ndc_status: 'ambiguous', drug: null, drug_as_printed: 'x' }), makeFill({ id: 2, ndc_status: 'unresolved', drug: null, drug_as_printed: 'y' })]
+    renderPage()
+
+    expect(await screen.findByText('Ambiguous NDC')).toBeInTheDocument()
+    expect(screen.getByText('No FDA match')).toBeInTheDocument()
+  })
+})
+
+describe('Fill entry lookups', () => {
+  it('waits for typing to pause and looks each normalised NDC up only once', async () => {
+    lookups['00071-0155-23'] = { status: 'resolved', input: '00071015523', selected: candidate('0071-0155-23'), candidates: [candidate('0071-0155-23')] }
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /add fill/i }))
+    const ndc = screen.getByLabelText(/^NDC/)
+    const lookupCalls = () => mockGet.mock.calls.filter(([url]) => String(url).startsWith('/api/ndc/lookup')).length
+
+    // Typing through valid lengths does not fire per keystroke.
+    for (const typed of ['0007101552', '00071015523', 'NDC: 00071\u20110155\u201123']) fireEvent.change(ndc, { target: { value: typed } })
+    expect(lookupCalls()).toBe(0)
+    await waitFor(() => expect(lookupCalls()).toBe(1))
+    expect(mockGet).toHaveBeenCalledWith('/api/ndc/lookup?ndc=00071-0155-23')
+
+    // Retyping the same NDC another way, or coming back to it, does not ask again.
+    fireEvent.change(ndc, { target: { value: '' } })
+    fireEvent.change(ndc, { target: { value: '00071-0155-23' } })
+    await screen.findByLabelText('Drug preview')
+    expect(lookupCalls()).toBe(1)
   })
 })

@@ -12,6 +12,7 @@ use App\Support\AgentApi\AgentApiScopes;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Laravel\Passport\Client;
 use Laravel\Passport\Passport;
 use Tests\Concerns\ConfiguresPassportKeys;
@@ -613,6 +614,118 @@ final class AgentApiMedicationFillTest extends TestCase
             ->assertOk()
             ->assertJsonPath("resolved.{$created['data']['external_id']}.id", $id)
             ->assertJsonPath('unresolved.0', 'nope');
+    }
+
+    // ---- review fixes ----------------------------------------------------------------------
+
+    public function test_a_birth_date_without_a_name_is_refused_not_ignored(): void
+    {
+        $this->makePatient($this->actor, 'Second Patient', '1990-03-04');
+
+        $this->getJson('/api/v1/patients?birth_date=1980-01-02')
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('name');
+    }
+
+    public function test_the_update_resolves_the_ndc_before_it_opens_its_transaction_and_refuses_a_stale_version_without_calling_openfda(): void
+    {
+        $created = $this->putJson($this->url(), $this->fillPayload($this->document(), ['ndc' => '58151-0155-77']))->assertCreated()->json();
+        $id = $created['data']['id'];
+        $version = $this->getJson($this->recordUrl($id))->json('data.version');
+        $baseline = DB::transactionLevel();
+
+        $this->fakeOpenFda();
+        $this->patchJson($this->recordUrl($id), ['expected_version' => str_repeat('a', 64), 'data' => ['ndc' => '60505-0134-00']])->assertConflict();
+        $this->assertSame([], $this->openFdaRequests, 'a stale version is refused before any network call');
+
+        $this->patchJson($this->recordUrl($id), ['expected_version' => $version, 'data' => ['ndc' => '60505-0134-00']])->assertOk();
+        $this->assertNotEmpty($this->openFdaRequests);
+        $this->assertSame([$baseline], array_values(array_unique($this->openFdaTransactionLevels)), 'openFDA is never called while a transaction holds the row lock');
+    }
+
+    public function test_an_upsert_resolves_the_ndc_outside_its_transaction(): void
+    {
+        $baseline = DB::transactionLevel();
+        $this->fakeOpenFda();
+
+        $this->putJson($this->url(), $this->fillPayload($this->document(), ['ndc' => '58151-0155-77']))->assertCreated();
+
+        $this->assertSame([$baseline], array_values(array_unique($this->openFdaTransactionLevels)));
+    }
+
+    public function test_an_update_with_an_explicit_null_ndc_removes_the_drug_and_needs_the_printed_name(): void
+    {
+        $created = $this->putJson($this->url(), $this->fillPayload($this->document(), ['ndc' => '58151-0155-77']))->assertCreated()->json();
+        $id = $created['data']['id'];
+        $version = $this->getJson($this->recordUrl($id))->json('data.version');
+
+        $this->patchJson($this->recordUrl($id), ['expected_version' => $version, 'data' => ['ndc' => null]])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('ndc');
+
+        $this->patchJson($this->recordUrl($id), ['expected_version' => $version, 'data' => ['ndc' => null, 'drug_as_printed' => 'LIPITOR 10MG']])
+            ->assertOk()
+            ->assertJsonPath('data.ndc_status', 'manual')
+            ->assertJsonPath('data.ndc_10', null)
+            ->assertJsonPath('data.drug.brand_name', null)
+            ->assertJsonPath('data.drug.substance_names', []);
+        $this->assertNull(PhrMedicationFill::query()->findOrFail($id)->fda_snapshot);
+    }
+
+    public function test_an_update_cannot_blank_the_printed_drug_text_of_a_fill_without_a_resolved_drug(): void
+    {
+        $this->putJson($this->url(), $this->fillPayload($this->document(), ['ndc' => '12345-6789-0', 'drug_as_printed' => 'MYSTERY CAPSULES']))->assertCreated();
+        $fill = PhrMedicationFill::query()->firstOrFail();
+        $version = $this->getJson($this->recordUrl($fill->id))->json('data.version');
+
+        $this->patchJson($this->recordUrl($fill->id), ['expected_version' => $version, 'data' => ['drug_as_printed' => null]])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('data.drug_as_printed');
+        $this->putJson($this->url(), [...$this->fillPayload($this->document(), ['ndc' => '12345-6789-0', 'drug_as_printed' => null]), 'expected_version' => $version])
+            ->assertUnprocessable();
+        $this->assertSame('MYSTERY CAPSULES', $fill->fresh()->drug_as_printed);
+    }
+
+    public function test_choosing_a_medication_over_mcp_or_rest_tidies_the_one_it_leaves_and_retraction_withdraws_it(): void
+    {
+        $created = $this->putJson($this->url(), $this->fillPayload($this->document(), ['ndc' => '58151-0155-77']))->assertCreated()->json();
+        $id = $created['data']['id'];
+        $autoId = $created['medication']['id'];
+        $own = $this->medication(['name' => 'Chosen by hand', 'rxnorm_code' => null, 'dose' => null]);
+        $version = $this->getJson($this->recordUrl($id))->json('data.version');
+
+        $moved = $this->patchJson($this->recordUrl($id), ['expected_version' => $version, 'data' => ['medication_id' => $own->id]])
+            ->assertOk()
+            ->assertJsonPath('data.medication_id', $own->id)
+            ->json();
+        $this->assertSoftDeleted('phr_medications', ['id' => $autoId]);
+
+        // A fill that created its medication and is then retracted takes the unreviewed entry with it.
+        $second = $this->putJson($this->url(), $this->fillPayload($this->document(), ['ndc' => '60505-0134-0', 'rx_number' => 'Z9']))->assertCreated()->json();
+        $this->postJson($this->recordUrl($second['data']['id']).'/retract', ['expected_version' => $second['version']])->assertOk();
+        $this->assertSoftDeleted('phr_medications', ['id' => $second['medication']['id']]);
+        $this->assertNotSoftDeleted('phr_medications', ['id' => $own->id]);
+        $this->assertNotNull($moved);
+    }
+
+    public function test_a_retracted_fill_keeps_a_medication_other_fills_still_use(): void
+    {
+        $one = $this->putJson($this->url(), $this->fillPayload($this->document(), ['ndc' => '58151-0155-77', 'rx_number' => 'A']))->assertCreated()->json();
+        $this->putJson($this->url(), $this->fillPayload($this->document(), ['ndc' => '58151-0155-77', 'rx_number' => 'B']))->assertCreated();
+
+        $this->postJson($this->recordUrl($one['data']['id']).'/retract', ['expected_version' => $one['version']])->assertOk();
+
+        $this->assertNotSoftDeleted('phr_medications', ['id' => $one['medication']['id']]);
+    }
+
+    public function test_a_deleted_fills_identity_conflicts_instead_of_erroring(): void
+    {
+        $payload = $this->fillPayload($this->document(), ['ndc' => '58151-0155-77']);
+        $created = $this->putJson($this->url(), $payload)->assertCreated()->json();
+        PhrMedicationFill::query()->findOrFail($created['data']['id'])->delete();
+
+        $this->putJson($this->url(), $payload)->assertConflict();
+        $this->assertSame(1, PhrMedicationFill::withTrashed()->count());
     }
 
     // ---- helpers --------------------------------------------------------------------------

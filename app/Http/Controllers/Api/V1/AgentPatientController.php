@@ -172,7 +172,7 @@ final class AgentPatientController extends Controller
             'updated_after' => $billingOnly ? ['prohibited'] : ['sometimes', 'date'],
             'updated_before' => $billingOnly ? ['prohibited'] : ['sometimes', 'date', 'after_or_equal:updated_after'],
             'archived' => $billingOnly ? ['prohibited'] : ['sometimes', Rule::in(['include', 'exclude', 'only'])],
-            'name' => $billingOnly ? ['prohibited'] : ['sometimes', 'required_with:birth_date', 'string', 'min:1', 'max:255'],
+            'name' => $billingOnly ? ['prohibited'] : ['required_with:birth_date', 'string', 'min:1', 'max:255'],
             'birth_date' => $billingOnly ? ['prohibited'] : ['sometimes', 'date'],
         ];
     }

@@ -337,4 +337,118 @@ final class MedicationFillControllerTest extends TestCase
         $this->assertSame('Lipitor', $fill->fresh()->brand_name);
         $this->assertTrue((bool) $user->fresh()->force_lowercase_display);
     }
+
+    // ---- review fixes ----------------------------------------------------------------------
+
+    public function test_clearing_the_ndc_removes_the_drug_and_needs_the_drug_name(): void
+    {
+        ['owner' => $owner, 'patientId' => $patientId] = $this->patientWithViewer();
+        $created = $this->actingAs($owner)->postJson("/api/phr/patients/{$patientId}/medication-fills", $this->body())->assertCreated()->json('medication_fill');
+        $url = "/api/phr/patients/{$patientId}/medication-fills/{$created['id']}";
+
+        // An explicit null is "remove the NDC", and the fill then needs some other drug text.
+        $this->actingAs($owner)->patchJson($url, ['ndc' => null])->assertUnprocessable()->assertJsonValidationErrors('ndc');
+        $this->assertSame('resolved', PhrMedicationFill::query()->findOrFail($created['id'])->ndc_status);
+
+        $cleared = $this->actingAs($owner)->patchJson($url, ['ndc' => null, 'drug_as_printed' => 'Lipitor 10 mg tablets'])
+            ->assertOk()
+            ->assertJsonPath('medication_fill.ndc_status', 'manual')
+            ->assertJsonPath('medication_fill.ndc_as_captured', null)
+            ->assertJsonPath('medication_fill.ndc_10', null)
+            ->assertJsonPath('medication_fill.drug.brand_name', null)
+            ->assertJsonPath('medication_fill.drug.substance_names', [])
+            ->json('medication_fill');
+        $fill = PhrMedicationFill::query()->findOrFail($created['id']);
+        $this->assertNull($fill->fda_snapshot);
+        $this->assertNull($fill->fda_fetched_at);
+        $this->assertNull($fill->rxcui);
+        $this->assertSame('Lipitor 10 mg tablets', $cleared['medication']['name'], 'the medication no longer fits the drug, so it is re-linked');
+    }
+
+    public function test_an_edit_that_leaves_the_ndc_alone_cannot_blank_the_drug_text_of_an_unresolved_fill(): void
+    {
+        ['owner' => $owner, 'patientId' => $patientId] = $this->patientWithViewer();
+        foreach (['unresolved', 'ambiguous', 'manual'] as $status) {
+            $fill = PhrMedicationFill::factory()->create([
+                'patient_id' => $patientId, 'user_id' => $owner->id, 'ndc_status' => $status, 'ndc_10' => null, 'ndc_11' => null,
+                'substance_names' => null, 'strengths' => null, 'brand_name' => null, 'rxcui' => null,
+                'ndc_as_captured' => $status === 'manual' ? null : '12345-6789-0', 'drug_as_printed' => 'Printed drug',
+            ]);
+            $url = "/api/phr/patients/{$patientId}/medication-fills/{$fill->id}";
+
+            $this->actingAs($owner)->patchJson($url, ['drug_as_printed' => null])->assertUnprocessable()->assertJsonValidationErrors('drug_as_printed');
+            $this->actingAs($owner)->patchJson($url, ['drug_as_printed' => '   '])->assertUnprocessable();
+            $this->actingAs($owner)->patchJson($url, ['quantity' => '5'])->assertOk();
+            $this->assertSame('Printed drug', $fill->fresh()->drug_as_printed, $status);
+        }
+    }
+
+    public function test_choosing_another_medication_withdraws_the_unreviewed_entry_only_this_fill_kept(): void
+    {
+        ['owner' => $owner, 'patientId' => $patientId] = $this->patientWithViewer();
+        $base = "/api/phr/patients/{$patientId}/medication-fills";
+        $mine = PhrMedication::factory()->create(['patient_id' => $patientId, 'user_id' => $owner->id, 'name' => 'My statin', 'rxnorm_code' => null, 'review_status' => PhrReviewStatus::CONFIRMED]);
+        $created = $this->actingAs($owner)->postJson($base, $this->body())->assertCreated()->json('medication_fill');
+        $auto = PhrMedication::query()->findOrFail($created['medication_id']);
+        $this->assertSame(PhrReviewStatus::PENDING, $auto->review_status);
+
+        $this->actingAs($owner)->patchJson("{$base}/{$created['id']}", ['medication_id' => $mine->id])
+            ->assertOk()
+            ->assertJsonPath('medication_fill.medication_id', $mine->id);
+
+        $this->assertSoftDeleted('phr_medications', ['id' => $auto->id]);
+        $this->assertNotSoftDeleted('phr_medications', ['id' => $mine->id]);
+    }
+
+    public function test_a_shared_or_reviewed_auto_created_medication_survives_a_relink(): void
+    {
+        ['owner' => $owner, 'patientId' => $patientId] = $this->patientWithViewer();
+        $base = "/api/phr/patients/{$patientId}/medication-fills";
+        $mine = PhrMedication::factory()->create(['patient_id' => $patientId, 'user_id' => $owner->id, 'name' => 'My statin', 'rxnorm_code' => null]);
+        $one = $this->actingAs($owner)->postJson($base, $this->body())->assertCreated()->json('medication_fill');
+        $two = $this->actingAs($owner)->postJson($base, $this->body(['filled_on' => '2026-11-25']))->assertCreated()->json('medication_fill');
+        $this->assertSame($one['medication_id'], $two['medication_id']);
+
+        $this->actingAs($owner)->patchJson("{$base}/{$one['id']}", ['medication_id' => $mine->id])->assertOk();
+        $this->assertNotSoftDeleted('phr_medications', ['id' => $one['medication_id']]);
+
+        // Once a person confirms the entry, it is theirs.
+        PhrMedication::query()->whereKey($one['medication_id'])->update(['review_status' => PhrReviewStatus::CONFIRMED]);
+        $this->actingAs($owner)->patchJson("{$base}/{$two['id']}", ['medication_id' => $mine->id])->assertOk();
+        $this->assertNotSoftDeleted('phr_medications', ['id' => $one['medication_id']]);
+    }
+
+    public function test_deleting_a_fill_withdraws_the_unreviewed_medication_it_created(): void
+    {
+        ['owner' => $owner, 'patientId' => $patientId] = $this->patientWithViewer();
+        $base = "/api/phr/patients/{$patientId}/medication-fills";
+        $one = $this->actingAs($owner)->postJson($base, $this->body())->assertCreated()->json('medication_fill');
+        $two = $this->actingAs($owner)->postJson($base, $this->body(['filled_on' => '2026-11-25']))->assertCreated()->json('medication_fill');
+
+        $this->actingAs($owner)->deleteJson("{$base}/{$one['id']}")->assertNoContent();
+        $this->assertNotSoftDeleted('phr_medications', ['id' => $one['medication_id']]);
+
+        $this->actingAs($owner)->deleteJson("{$base}/{$two['id']}")->assertNoContent();
+        $this->assertSoftDeleted('phr_medications', ['id' => $two['medication_id']]);
+    }
+
+    public function test_the_ndc_endpoints_are_rate_limited_per_user_and_search_answers_come_from_cache(): void
+    {
+        config(['services.openfda.web_requests_per_minute' => 3]);
+        $user = $this->createUser();
+        $other = $this->createUser();
+
+        foreach (range(1, 3) as $_) {
+            $this->actingAs($user)->getJson('/api/ndc/lookup?ndc=58151-0155-77')->assertOk();
+        }
+        $this->actingAs($user)->getJson('/api/ndc/lookup?ndc=58151-0155-77')->assertStatus(429);
+        $this->actingAs($user)->getJson('/api/ndc/search?name=atorvastatin')->assertStatus(429);
+        $this->actingAs($other)->getJson('/api/ndc/lookup?ndc=58151-0155-77')->assertOk();
+
+        config(['services.openfda.web_requests_per_minute' => 100]);
+        $this->actingAs($other)->getJson('/api/ndc/search?name=atorvastatin')->assertOk();
+        $requests = count($this->openFdaRequests);
+        $this->actingAs($other)->getJson('/api/ndc/search?name=atorvastatin')->assertOk();
+        $this->assertSame($requests, count($this->openFdaRequests), 'a repeated search is served from the short cache');
+    }
 }

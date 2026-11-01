@@ -35,24 +35,29 @@ final class PatientNameMatcher
             return ['status' => self::NONE, 'patients' => []];
         }
 
-        // An exact name beats a name that matches only after dropping middle names.
-        $exact = $patients->filter(fn (PhrPatient $patient): bool => self::tokens((string) $patient->display_name) === $wanted)->values();
-        $named = $exact->isNotEmpty() ? $exact : $patients->filter(
-            fn (PhrPatient $patient): bool => self::firstAndLast(self::tokens((string) $patient->display_name)) === self::firstAndLast($wanted)
-                && self::firstAndLast($wanted) !== null,
-        )->values();
-
         $dob = self::date($birthDate);
-        if ($dob !== null) {
-            // A recorded date of birth that disagrees rules the patient out; a
-            // patient with none recorded cannot confirm, but is not refuted.
-            $named = $named->filter(
+        // A recorded date of birth that disagrees rules the patient out; a patient with
+        // none recorded cannot confirm, but is not refuted. A confirmed one wins over those.
+        $narrow = static function (Collection $candidates) use ($dob): Collection {
+            if ($dob === null) {
+                return $candidates;
+            }
+            $candidates = $candidates->filter(
                 fn (PhrPatient $patient): bool => $patient->birth_date === null || $patient->birth_date->toDateString() === $dob,
             )->values();
-            $confirmed = $named->filter(fn (PhrPatient $patient): bool => $patient->birth_date !== null)->values();
-            if ($confirmed->isNotEmpty()) {
-                $named = $confirmed;
-            }
+            $confirmed = $candidates->filter(fn (PhrPatient $patient): bool => $patient->birth_date !== null)->values();
+
+            return $confirmed->isNotEmpty() ? $confirmed : $candidates;
+        };
+
+        // An exact name beats a name that matches only after dropping middle names, but only
+        // while the date of birth leaves an exact match standing: a birth date that rules out
+        // every exact name can still be consistent with a first-and-last-name match.
+        $named = $narrow($patients->filter(fn (PhrPatient $patient): bool => self::tokens((string) $patient->display_name) === $wanted)->values());
+        if ($named->isEmpty() && self::firstAndLast($wanted) !== null) {
+            $named = $narrow($patients->filter(
+                fn (PhrPatient $patient): bool => self::firstAndLast(self::tokens((string) $patient->display_name)) === self::firstAndLast($wanted),
+            )->values());
         }
 
         /** @var list<PhrPatient> $matches */

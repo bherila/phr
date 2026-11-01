@@ -27,7 +27,25 @@ final readonly class AgentClinicalRecordUpdateService
         $modelClass = $definition['model'] ?? null;
         abort_unless(is_string($modelClass) && isset($definition['write_rules']), 404);
 
-        return DB::transaction(function () use ($patient, $recordId, $data, $modelClass, $definition): ClinicalUpsertResult {
+        // Resource-specific preparation (a fill resolves its drug from openFDA) may call the
+        // network, so it runs before the transaction and its row lock, and a transaction retry
+        // never repeats it. A stale version is refused first, before any network call.
+        $extensionClass = $definition['write_extension'] ?? null;
+        $extension = is_string($extensionClass) ? app($extensionClass) : null;
+        $prepared = null;
+        if ($extension !== null) {
+            /** @var Model $current */
+            $current = $modelClass::query()
+                ->where('patient_id', $patient->id)
+                ->whereNull('retracted_at')
+                ->findOrFail($recordId);
+            if (! hash_equals($this->versions->for($current), $data->expectedVersion)) {
+                throw new ConflictHttpException('The clinical record changed; fetch it and retry with its current version.');
+            }
+            $prepared = $extension->prepareUpdate($patient, $current, $data->attributes);
+        }
+
+        return DB::transaction(function () use ($patient, $recordId, $data, $modelClass, $extension, $prepared): ClinicalUpsertResult {
             /** @var Model $record */
             // A withdrawn record is not editable. Deletion is already excluded by
             // the soft-delete scope; retraction has to be stated, or an agent
@@ -53,10 +71,7 @@ final readonly class AgentClinicalRecordUpdateService
                     ->findOrFail($data->sourceDocumentId);
             }
 
-            // Resource-specific preparation, such as resolving a fill's drug from its NDC.
-            $extensionClass = $definition['write_extension'] ?? null;
-            $extension = is_string($extensionClass) ? app($extensionClass) : null;
-            $updates = $extension?->prepareUpdate($patient, $record, $data->attributes) ?? $data->attributes;
+            $updates = $prepared ?? $data->attributes;
             if ($data->sourceDocumentSpecified) {
                 $updates['source_document_id'] = $data->sourceDocumentId;
             }

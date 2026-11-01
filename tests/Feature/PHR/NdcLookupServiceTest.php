@@ -4,6 +4,7 @@ namespace Tests\Feature\PHR;
 
 use App\Services\PHR\Ndc\NdcLookupService;
 use App\Services\PHR\Ndc\NdcResolution;
+use Illuminate\Http\Client\Factory;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Tests\Support\FakesOpenFda;
@@ -223,5 +224,92 @@ final class NdcLookupServiceTest extends TestCase
 
         $this->assertSame('unresolved', $this->ndc->search(['name' => 'atorvastatin'])['status']);
         $this->assertSame(NdcResolution::REASON_UNAVAILABLE, $this->ndc->search(['name' => 'atorvastatin'])['reason']);
+    }
+
+    public function test_openfda_is_tried_twice_on_a_transient_error_and_never_on_a_miss(): void
+    {
+        Http::fake(['api.fda.gov/*' => Http::sequence()->push(['error' => 'busy'], 503)->push($this->fixture('package-58151-155-77.json'))]);
+
+        $this->assertSame(NdcResolution::RESOLVED, $this->ndc->lookup('58151-155-77')->status);
+        Http::assertSentCount(2);
+
+        Cache::flush();
+        Http::swap(new Factory);
+        Http::fake(['api.fda.gov/*' => Http::response(['error' => 'busy'], 503)]);
+        $this->assertSame(NdcResolution::REASON_UNAVAILABLE, $this->ndc->lookup('58151-155-77')->reason);
+        Http::assertSentCount(2);
+
+        Cache::flush();
+        Http::swap(new Factory);
+        Http::fake(['api.fda.gov/*' => Http::response($this->fixture('not-found.json'), 404)]);
+        $this->assertSame(NdcResolution::REASON_NOT_FOUND, $this->ndc->lookup('58151-155-77')->reason);
+        Http::assertSentCount(1);
+    }
+
+    public function test_search_loosens_step_by_step_from_every_filter_to_name_and_strength_to_name(): void
+    {
+        $seen = [];
+        Http::fake(function ($request) use (&$seen) {
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+            $seen[] = urldecode((string) $query['search']);
+
+            return count($seen) < 3 ? Http::response($this->fixture('not-found.json'), 404) : Http::response($this->fixture('search-atorvastatin.json'));
+        });
+
+        $result = $this->ndc->search(['name' => 'atorvastatin', 'strength' => '10 mg', 'labeler' => 'Viatris', 'dosage_form' => 'TAB']);
+
+        $this->assertSame('candidates', $result['status']);
+        $this->assertCount(3, $seen);
+        $this->assertStringContainsString('labeler_name:"Viatris"', $seen[0]);
+        $this->assertStringContainsString('dosage_form:"TAB"', $seen[0]);
+        $this->assertStringContainsString('active_ingredients.strength', $seen[1]);
+        $this->assertStringNotContainsString('labeler_name', $seen[1]);
+        $this->assertStringNotContainsString('strength', $seen[2]);
+        $this->assertStringContainsString('brand_name:"atorvastatin"', $seen[2]);
+    }
+
+    public function test_search_without_a_strength_loosens_straight_to_the_name_and_stops_at_the_first_hit(): void
+    {
+        $seen = [];
+        Http::fake(function ($request) use (&$seen) {
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+            $seen[] = urldecode((string) $query['search']);
+
+            return count($seen) < 2 ? Http::response($this->fixture('not-found.json'), 404) : Http::response($this->fixture('search-atorvastatin.json'));
+        });
+
+        $this->ndc->search(['name' => 'atorvastatin', 'labeler' => 'Viatris']);
+        $this->assertCount(2, $seen);
+
+        // A name-only search is one request, not two identical ones.
+        $seen = [];
+        Cache::flush();
+        Http::swap(new Factory);
+        Http::fake(function ($request) use (&$seen) {
+            $seen[] = $request->url();
+
+            return Http::response($this->fixture('not-found.json'), 404);
+        });
+        $this->assertSame('unresolved', $this->ndc->search(['name' => 'nothing'])['status']);
+        $this->assertCount(1, $seen);
+    }
+
+    public function test_search_results_are_cached_briefly_but_an_outage_is_not(): void
+    {
+        $this->fakeOpenFda();
+        $criteria = ['name' => 'atorvastatin', 'strength' => '10 mg'];
+
+        $first = $this->ndc->search($criteria);
+        $requests = count($this->openFdaRequests);
+        $this->assertSame($first, $this->ndc->search($criteria));
+        $this->assertSame($requests, count($this->openFdaRequests), 'the repeat came from the cache');
+        $this->ndc->search([...$criteria, 'strength' => '20 mg']);
+        $this->assertGreaterThan($requests, count($this->openFdaRequests), 'other criteria are another search');
+
+        Cache::flush();
+        $this->fakeOpenFda(down: true);
+        $this->ndc->search($criteria);
+        $this->fakeOpenFda();
+        $this->assertSame('candidates', $this->ndc->search($criteria)['status'], 'the outage was not remembered');
     }
 }

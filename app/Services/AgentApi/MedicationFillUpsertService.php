@@ -36,6 +36,7 @@ final readonly class MedicationFillUpsertService
         if ($data->sourceDocumentId !== null) {
             PhrDocument::query()->where('patient_id', $patient->id)->findOrFail($data->sourceDocumentId);
         }
+        /** @var array{patient_id: int, import_source: string, external_id: string} $identity */
         $identity = [
             'patient_id' => $patient->id,
             'import_source' => $client->importSource(),
@@ -48,48 +49,45 @@ final readonly class MedicationFillUpsertService
         $prepared = $this->writer->prepare($patient, $data->attributes, $peek?->deleted_at === null && $peek?->retracted_at === null ? $peek : null, false);
 
         return DB::transaction(function () use ($patient, $data, $identity, $prepared): MedicationFillUpsertResult {
-            $existing = PhrMedicationFill::query()
-                ->withoutGlobalScope(SoftDeletingScope::class)
-                ->where($identity)
-                ->lockForUpdate()
-                ->first();
-            // Identity survives deletion and retraction: reviving a withdrawn fill
-            // would resurrect something a person deleted or the source took back.
-            if ($existing !== null && ($existing->deleted_at !== null || $existing->retracted_at !== null)) {
-                throw new ConflictHttpException('The external identifier is no longer available for this patient.');
-            }
+            // Identity survives deletion and retraction: reviving a withdrawn fill would
+            // resurrect something a person deleted or the source took back. createOrFirst
+            // applies the soft-delete scope and would not see such a row, so the identity row
+            // is checked under a lock first and again if two first writes race.
+            $this->refuseWithdrawnIdentity($identity);
 
             $attributes = $prepared['attributes'];
-            if ($existing === null) {
-                try {
-                    $record = PhrMedicationFill::query()->create([
-                        ...$identity,
-                        'user_id' => $patient->owner_user_id,
-                        'source_document_id' => $data->sourceDocumentId,
-                        // Every agent-created record enters the human review queue.
-                        'review_status' => PhrReviewStatus::PENDING,
-                        ...$attributes,
-                    ]);
-                } catch (UniqueConstraintViolationException) {
-                    // Two first writes raced; the row exists now, so decide as for any retry.
-                    $existing = PhrMedicationFill::query()->where($identity)->lockForUpdate()->firstOrFail();
-                    $record = null;
-                }
-                if ($record instanceof PhrMedicationFill) {
-                    $attached = $this->writer->attach($patient, $record, $prepared['medication_id']);
-                    $record->refresh();
+            try {
+                /** @var PhrMedicationFill $existing */
+                $existing = PhrMedicationFill::query()->createOrFirst($identity, [
+                    'user_id' => $patient->owner_user_id,
+                    'source_document_id' => $data->sourceDocumentId,
+                    // Every agent-created record enters the human review queue.
+                    'review_status' => PhrReviewStatus::PENDING,
+                    ...$attributes,
+                ]);
+            } catch (UniqueConstraintViolationException) {
+                // Two first writes raced. The row exists now; whether it is usable is the
+                // same question as before, asked under a lock.
+                $this->refuseWithdrawnIdentity($identity);
+                $existing = PhrMedicationFill::query()->where($identity)->firstOrFail();
+            }
+            if ($existing->wasRecentlyCreated) {
+                $attached = $this->writer->attach($patient, $existing, $prepared['medication_id']);
+                $existing->refresh();
 
-                    return new MedicationFillUpsertResult(
-                        $record,
-                        ClinicalUpsertResult::CREATED,
-                        $this->versions->for($record),
-                        $attached['medication'],
-                        $attached['created'],
-                        $prepared['resolution'],
-                    );
-                }
+                return new MedicationFillUpsertResult(
+                    $existing,
+                    ClinicalUpsertResult::CREATED,
+                    $this->versions->for($existing),
+                    $attached['medication'],
+                    $attached['created'],
+                    $prepared['resolution'],
+                );
             }
 
+            // Re-read under a row lock before comparing the opaque version.
+            $existing = PhrMedicationFill::query()->where($identity)->lockForUpdate()->firstOrFail();
+            $previousMedicationId = $existing->medication_id;
             $currentVersion = $this->versions->for($existing);
             $existing->fill(['source_document_id' => $data->sourceDocumentId, ...$attributes]);
 
@@ -115,7 +113,8 @@ final readonly class MedicationFillUpsertService
             $medication = $existing->medication;
             $created = false;
             if ($prepared['medication_id'] !== null || $existing->medication_id === null) {
-                $attached = $this->writer->attach($patient, $existing, $prepared['medication_id']);
+                // Every link change goes through the linker so the medication it leaves is tidied.
+                $attached = $this->writer->attach($patient, $existing, $prepared['medication_id'], $previousMedicationId);
                 $medication = $attached['medication'];
                 $created = $attached['created'];
             } elseif ($prepared['drug_changed']) {
@@ -134,5 +133,21 @@ final readonly class MedicationFillUpsertService
                 $prepared['resolution'],
             );
         }, 3);
+    }
+
+    /**
+     * @param  array{patient_id: int, import_source: string, external_id: string}  $identity
+     */
+    private function refuseWithdrawnIdentity(array $identity): void
+    {
+        $existing = PhrMedicationFill::query()
+            ->withoutGlobalScope(SoftDeletingScope::class)
+            ->where($identity)
+            ->lockForUpdate()
+            ->first();
+
+        if ($existing !== null && ($existing->deleted_at !== null || $existing->retracted_at !== null)) {
+            throw new ConflictHttpException('The external identifier is no longer available for this patient.');
+        }
     }
 }

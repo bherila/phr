@@ -3,6 +3,7 @@
 namespace App\Services\PHR\Ndc;
 
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Resolves NDCs and searches drugs through the openFDA packaging directory.
@@ -88,6 +89,27 @@ class NdcLookupService
      */
     public function search(array $criteria): array
     {
+        // A search is open-ended, so its answer is cached briefly (the same form is often
+        // re-submitted while a person narrows a label); an outage is never cached.
+        $key = 'openfda:ndc-search:'.hash('sha256', json_encode($criteria, JSON_THROW_ON_ERROR));
+        $cached = Cache::get($key);
+        if (is_array($cached)) {
+            return $cached;
+        }
+        $result = $this->runSearch($criteria);
+        if ($result['reason'] !== NdcResolution::REASON_UNAVAILABLE) {
+            Cache::put($key, $result, max(1, (int) config('services.openfda.search_cache_ttl_seconds', 600)));
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param  array{name: string, strength?: ?string, dosage_form?: ?string, route?: ?string, labeler?: ?string, package_size?: ?string}  $criteria
+     * @return array{status: string, reason: ?string, candidates: list<array<string, mixed>>}
+     */
+    private function runSearch(array $criteria): array
+    {
         $name = $this->phrase($criteria['name']);
         $strength = $this->strengthPhrase($criteria['strength'] ?? null);
         $form = $this->phrase($criteria['dosage_form'] ?? null);
@@ -108,12 +130,28 @@ class NdcLookupService
             return ['status' => 'unresolved', 'reason' => NdcResolution::REASON_INVALID, 'candidates' => []];
         }
 
+        // Labels are read imperfectly ("TAB" for "tablet"), so an over-constrained search
+        // loosens step by step: every filter, then the name and strength, then the name alone.
+        // Ranking sorts out whatever the looser steps let in.
+        $strengthClause = $strength === null ? null : $this->strengthClause($strength);
+        $steps = [$clauses];
+        if ($strengthClause !== null) {
+            $steps[] = [$nameClause, $strengthClause];
+        }
+        $steps[] = [$nameClause];
         try {
-            $products = $this->client->search(implode(' AND ', $clauses), self::SEARCH_LIMIT * 2);
-            // Labels are read imperfectly ("TAB" for "tablet"), so an over-constrained
-            // search falls back to the name and strength, and ranking sorts out the rest.
-            if ($products === [] && count($clauses) > 2) {
-                $products = $this->client->search($nameClause, self::SEARCH_LIMIT * 2);
+            $products = [];
+            $tried = [];
+            foreach ($steps as $step) {
+                $expression = implode(' AND ', $step);
+                if (in_array($expression, $tried, true)) {
+                    continue;
+                }
+                $tried[] = $expression;
+                $products = $this->client->search($expression, self::SEARCH_LIMIT * 2);
+                if ($products !== []) {
+                    break;
+                }
             }
         } catch (OpenFdaUnavailableException) {
             return ['status' => 'unresolved', 'reason' => NdcResolution::REASON_UNAVAILABLE, 'candidates' => []];

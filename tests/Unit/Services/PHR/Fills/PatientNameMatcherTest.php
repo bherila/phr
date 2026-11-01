@@ -113,4 +113,27 @@ final class PatientNameMatcherTest extends TestCase
 
         $this->assertSame([2], $this->ids((new PatientNameMatcher)->match($patients, 'Jane Doe', '1980-01-02')));
     }
+
+    public function test_a_birth_date_that_rules_out_every_exact_name_still_allows_a_first_and_last_name_match(): void
+    {
+        // "Jane Doe" is the exact name but born on another day; "Jane Quincy Doe" shares the
+        // first and last name and the printed birth date.
+        $patients = $this->patients([['Jane Doe', '1980-01-02'], ['Jane Quincy Doe', '2010-05-06']]);
+        $matcher = new PatientNameMatcher;
+
+        $result = $matcher->match($patients, 'Jane Doe', '2010-05-06');
+
+        $this->assertSame(PatientNameMatcher::MATCHED, $result['status']);
+        $this->assertSame([2], $this->ids($result));
+        // Without a birth date the exact name still wins, and a contradicting one still rules out.
+        $this->assertSame([1], $this->ids($matcher->match($patients, 'Jane Doe')));
+        $this->assertSame(PatientNameMatcher::NONE, $matcher->match($patients, 'Jane Doe', '1999-09-09')['status']);
+    }
+
+    public function test_the_birth_date_filter_applies_to_both_name_tiers_without_changing_ambiguity(): void
+    {
+        $patients = $this->patients([['Jane Quincy Doe', null], ['Jane Mary Doe', null]]);
+
+        $this->assertSame(PatientNameMatcher::AMBIGUOUS, (new PatientNameMatcher)->match($patients, 'Jane Doe', '2010-05-06')['status']);
+    }
 }

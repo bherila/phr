@@ -80,8 +80,14 @@ class MedicationFillWriter
     /**
      * @return array{medication: PhrMedication, created: bool}
      */
-    public function attach(PhrPatient $patient, PhrMedicationFill $fill, ?int $medicationId = null): array
+    public function attach(PhrPatient $patient, PhrMedicationFill $fill, ?int $medicationId = null, ?int $previousMedicationId = null): array
     {
-        return $this->linker->attach($patient, $fill, $medicationId);
+        return $this->linker->attach($patient, $fill, $medicationId, $previousMedicationId);
+    }
+
+    /** The fill was deleted or retracted: withdraw a medication only it kept alive. */
+    public function release(PhrMedicationFill $fill): void
+    {
+        $this->linker->release($fill);
     }
 }

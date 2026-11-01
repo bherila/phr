@@ -121,9 +121,9 @@ class OpenFdaClient
             ->acceptJson()
             ->connectTimeout(3)
             ->timeout(max(1, (int) config('services.openfda.timeout', 5)))
-            // One retry for a dropped connection, a rate limit or a server error. A 404 is an
+            // Two attempts in all (one retry) for a dropped connection, a rate limit or a server error. A 404 is an
             // answer ("no such product"), not a failure, and is never retried.
-            ->retry(1, 100, static fn (\Throwable $e): bool => $e instanceof ConnectionException
+            ->retry(2, 100, static fn (\Throwable $e): bool => $e instanceof ConnectionException
                 || ($e instanceof RequestException && ($e->response->serverError() || $e->response->status() === 429)), throw: false);
     }
 }

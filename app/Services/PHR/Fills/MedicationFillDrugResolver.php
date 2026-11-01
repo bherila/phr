@@ -34,6 +34,12 @@ class MedicationFillDrugResolver
     {
         $touchesNdc = array_key_exists('ndc', $input) || array_key_exists('ndc_candidate', $input);
         if ($existing !== null && ! $touchesNdc) {
+            // The drug is unchanged, but a fill whose drug the server could not resolve is
+            // listed under what the label said, so an edit may not blank that out.
+            if ($existing->ndc_status !== PhrMedicationFill::NDC_RESOLVED && $this->printed($input, $existing) === null) {
+                throw ValidationException::withMessages([$strict ? 'drug_as_printed' : 'data.drug_as_printed' => 'This fill has no resolved drug, so it needs the drug as printed on the label.']);
+            }
+
             return ['attributes' => [], 'resolution' => null];
         }
 

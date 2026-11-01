@@ -70,21 +70,64 @@ type LookupState =
   | { phase: 'error', message: string }
   | { phase: 'done', result: NdcLookupResult }
 
-/** Ten or eleven digits, with or without dashes or spaces. */
-export function isLookupableNdc(value: string): boolean {
-  if (!/^[\d\s-]+$/.test(value.trim())) return false
-  const digits = value.replace(/\D/g, '').length
-  return digits === 10 || digits === 11
+/** Layouts of the segments of a hyphenated NDC: the three ten-digit ones and the eleven-digit 5-4-2. */
+const NDC_LAYOUTS = ['4-4-2', '5-3-2', '5-4-1', '5-4-2']
+
+export interface ParsedNdc {
+  valid: boolean
+  /** The normalised form: no label, ASCII hyphens, no spaces. Two spellings of one NDC share it. */
+  key: string
 }
+
+/**
+ * Mirrors the server's NdcNumber::parse, so the form accepts exactly what the server accepts: an
+ * optional "NDC:" label, Unicode dashes and spaces, then ten or eleven digits (hyphenated only in
+ * an NDC layout). Keep the two in step.
+ */
+export function parseNdc(input: string): ParsedNdc {
+  const invalid: ParsedNdc = { valid: false, key: '' }
+  const text = input
+    .replace(/^\s*NDC\s*[:#]?\s*/i, '')
+    .trim()
+    .replace(/[\u2010-\u2014\u2212]/g, '-')
+    .replace(/\s+/g, '')
+  if (text === '' || !/^[0-9-]+$/.test(text)) return invalid
+  if (text.includes('-')) {
+    const segments = text.split('-')
+    if (segments.length !== 3 || segments.some((segment) => segment === '')) return invalid
+    return NDC_LAYOUTS.includes(segments.map((segment) => segment.length).join('-')) ? { valid: true, key: text } : invalid
+  }
+  return text.length === 10 || text.length === 11 ? { valid: true, key: text } : invalid
+}
+
+/** Whether the server will read this as an NDC. */
+export function isLookupableNdc(value: string): boolean {
+  return parseNdc(value).valid
+}
+
+/** How long typing must pause before the lookup is sent. */
+export const NDC_LOOKUP_DEBOUNCE_MS = 350
 
 const textOrNull = (value: string): string | null => (value.trim() === '' ? null : value.trim())
 const intOrNull = (value: string): number | null => (value.trim() === '' ? null : Number(value))
 
 /** The create body of the contract. Money is typed in dollars and sent as cents; drug fields are never sent. */
-export function buildFillPayload(form: FillFormState, options: { sendNdc?: boolean, version?: string | null } = {}): Record<string, unknown> {
+export function buildFillPayload(
+  form: FillFormState,
+  options: {
+    sendNdc?: boolean
+    version?: string | null
+    /** Editing a fill whose NDC the person cleared: an explicit null removes it. */
+    clearNdc?: boolean
+    /** Whether to send medication_id. A create always does (null means match or create); an edit only when the person chose one. */
+    sendMedication?: boolean
+  } = {},
+): Record<string, unknown> {
   const sendNdc = options.sendNdc ?? true
+  const sendMedication = options.sendMedication ?? true
   return {
     ...(options.version ? { version: options.version } : {}),
+    ...(options.clearNdc ? { ndc: null } : {}),
     ...(sendNdc && form.ndc.trim() ? { ndc: form.ndc.trim() } : {}),
     ...(sendNdc && form.ndcCandidate ? { ndc_candidate: form.ndcCandidate } : {}),
     ...(sendNdc && form.allowUnresolved ? { allow_unresolved: true } : {}),
@@ -101,7 +144,7 @@ export function buildFillPayload(form: FillFormState, options: { sendNdc?: boole
     prescriber_name: textOrNull(form.prescriberName),
     directions: textOrNull(form.directions),
     drug_as_printed: textOrNull(form.drugAsPrinted),
-    medication_id: form.medicationId ? Number(form.medicationId) : null,
+    ...(sendMedication ? { medication_id: form.medicationId ? Number(form.medicationId) : null } : {}),
   }
 }
 
@@ -308,6 +351,7 @@ export function FillForm({ patientId, fill, onSaved, onCancel, onReload }: FillF
   const editing = fill !== undefined
   const [form, setForm] = useState<FillFormState>(() => (fill ? formFromFill(fill) : EMPTY_FORM))
   const initialNdc = fill ? formFromFill(fill).ndc : ''
+  const initialMedicationId = fill ? formFromFill(fill).medicationId : ''
   const [medications, setMedications] = useState<Array<{ id: number, name: string }>>([])
   const [lookup, setLookup] = useState<LookupState>({ phase: 'idle' })
   const [searchOpen, setSearchOpen] = useState(false)
@@ -316,11 +360,16 @@ export function FillForm({ patientId, fill, onSaved, onCancel, onReload }: FillF
   const [saving, setSaving] = useState(false)
   const [conflict, setConflict] = useState(false)
   const lookupSeqRef = useRef(0)
+  // Answers by normalised NDC, so an NDC is looked up once however it is retyped.
+  const lookupCacheRef = useRef(new Map<string, NdcLookupResult>())
 
   const update = (patch: Partial<FillFormState>) => setForm((current) => ({ ...current, ...patch }))
 
   // Editing keeps the stored drug until the NDC itself is changed.
   const ndcUnchanged = editing && form.ndc.trim() === initialNdc.trim()
+  // An agent can save an NDC that matches several packages; its picker stays available on edit.
+  const staleAmbiguous = ndcUnchanged && fill?.ndc_status === 'ambiguous'
+  const lookupKey = (!ndcUnchanged || staleAmbiguous) ? (parseNdc(form.ndc).valid ? parseNdc(form.ndc).key : null) : null
 
   useEffect(() => {
     let cancelled = false
@@ -335,21 +384,37 @@ export function FillForm({ patientId, fill, onSaved, onCancel, onReload }: FillF
     }
   }, [patientId])
 
-  // The lookup runs by itself once the NDC is a plausible 10 or 11 digits.
+  // The lookup runs by itself once the NDC is a plausible 10 or 11 digits and typing has paused,
+  // and only once per normalised NDC.
   useEffect(() => {
-    if (ndcUnchanged || !isLookupableNdc(form.ndc)) {
+    if (lookupKey === null) {
       lookupSeqRef.current += 1
       setLookup({ phase: 'idle' })
       return
     }
     const seq = ++lookupSeqRef.current
+    const known = lookupCacheRef.current.get(lookupKey)
+    if (known) {
+      setLookup({ phase: 'done', result: known })
+      return
+    }
     setLookup({ phase: 'loading' })
-    fetchWrapper.get(`/api/ndc/lookup?ndc=${encodeURIComponent(form.ndc.trim())}`).then((raw: unknown) => {
-      if (seq === lookupSeqRef.current) setLookup({ phase: 'done', result: NdcLookupResultSchema.parse(raw) })
-    }).catch((caught: unknown) => {
-      if (seq === lookupSeqRef.current) setLookup({ phase: 'error', message: errorMessage(caught) })
-    })
-  }, [form.ndc, ndcUnchanged])
+    const timer = setTimeout(() => {
+      fetchWrapper.get(`/api/ndc/lookup?ndc=${encodeURIComponent(lookupKey)}`).then((raw: unknown) => {
+        if (seq !== lookupSeqRef.current) return
+        const parsed = NdcLookupResultSchema.parse(raw)
+        // A miss caused by an outage is not an answer; look again next time.
+        if (parsed.reason !== 'lookup_unavailable') lookupCacheRef.current.set(lookupKey, parsed)
+        setLookup({ phase: 'done', result: parsed })
+      }).catch((caught: unknown) => {
+        if (seq === lookupSeqRef.current) setLookup({ phase: 'error', message: errorMessage(caught) })
+      })
+    }, NDC_LOOKUP_DEBOUNCE_MS)
+    return () => {
+      clearTimeout(timer)
+      lookupSeqRef.current += 1
+    }
+  }, [lookupKey])
 
   function changeNdc(value: string): void {
     update({ ndc: value, ndcCandidate: '', allowUnresolved: false })
@@ -362,8 +427,10 @@ export function FillForm({ patientId, fill, onSaved, onCancel, onReload }: FillF
     setFormError(null)
     setConflict(false)
     const local: FieldErrors = {}
-    if (form.ndc.trim() !== '' && !isLookupableNdc(form.ndc)) local['ndc'] = ['Enter a 10 or 11 digit NDC.']
-    if (!editing && form.ndc.trim() === '' && form.drugAsPrinted.trim() === '') local['drug_as_printed'] = ['Enter an NDC, or the drug name as printed.']
+    // An NDC left as stored is not re-checked: it was accepted when it was saved.
+    if (!ndcUnchanged && form.ndc.trim() !== '' && !isLookupableNdc(form.ndc)) local['ndc'] = ['Enter a 10 or 11 digit NDC.']
+    // Every fill needs a drug: an NDC, or its name as printed (also when an edit clears the NDC).
+    if (form.ndc.trim() === '' && form.drugAsPrinted.trim() === '') local['drug_as_printed'] = ['Enter an NDC, or the drug name as printed.']
     if (!form.filledOn) local['filled_on'] = ['Enter the fill date.']
     if (form.quantity.trim() === '') local['quantity'] = ['Enter the quantity.']
     for (const [field, value] of [['paid_cents', form.paid], ['retail_cents', form.retail]] as const) {
@@ -376,7 +443,15 @@ export function FillForm({ patientId, fill, onSaved, onCancel, onReload }: FillF
 
     setSaving(true)
     try {
-      const payload = buildFillPayload(form, { sendNdc: !ndcUnchanged, version: fill?.version ?? null })
+      const payload = buildFillPayload(form, {
+        // Send the NDC when it changed, or when the person chose a package for an ambiguous one.
+        sendNdc: !ndcUnchanged || form.ndcCandidate !== '' || (staleAmbiguous && result?.status === 'resolved'),
+        version: fill?.version ?? null,
+        clearNdc: editing && initialNdc.trim() !== '' && form.ndc.trim() === '',
+        // An edit leaves the medication to the server unless the person picked one, so a changed
+        // NDC can re-link; a create always says (null means match or create).
+        sendMedication: !editing || (form.medicationId !== '' && form.medicationId !== initialMedicationId),
+      })
       const response = fill
         ? await fetchWrapper.patchRaw(`/api/phr/patients/${patientId}/medication-fills/${fill.id}`, payload)
         : await fetchWrapper.postRaw(`/api/phr/patients/${patientId}/medication-fills`, payload)
@@ -411,9 +486,7 @@ export function FillForm({ patientId, fill, onSaved, onCancel, onReload }: FillF
     }
   }
 
-  const selectedCandidate = ndcUnchanged
-    ? null
-    : result?.status === 'ambiguous'
+  const selectedCandidate = result?.status === 'ambiguous'
     ? result.candidates.find((candidate) => candidate.ndc_10 === form.ndcCandidate) ?? null
     : result?.selected ?? null
 
@@ -431,7 +504,7 @@ export function FillForm({ patientId, fill, onSaved, onCancel, onReload }: FillF
               <Input value={form.drugAsPrinted} onChange={(event) => update({ drugAsPrinted: event.target.value })} placeholder="atorvastatin 20mg tab" />
             </Field>
           )}
-          {ndcUnchanged && fill?.drug && <DrugPreview drug={fill.drug} ndc={fill.ndc_10} />}
+          {ndcUnchanged && !staleAmbiguous && fill?.drug && fill.ndc_status === 'resolved' && <DrugPreview drug={fill.drug} ndc={fill.ndc_10} />}
           {lookup.phase === 'loading' && <p className="text-sm text-muted-foreground">Looking up NDC…</p>}
           {lookup.phase === 'error' && <p role="alert" className="text-sm text-destructive">{lookup.message}</p>}
 

@@ -25,9 +25,11 @@ class MedicationFillMedicationLinker
     /**
      * @return array{medication: PhrMedication, created: bool}
      */
-    public function attach(PhrPatient $patient, PhrMedicationFill $fill, ?int $explicitMedicationId = null): array
+    public function attach(PhrPatient $patient, PhrMedicationFill $fill, ?int $explicitMedicationId = null, ?int $previousMedicationId = null): array
     {
-        $previous = $fill->medication_id === null ? null : PhrMedication::query()->find($fill->medication_id);
+        // A caller that already moved the column (a plain edit) names the medication it left.
+        $previousId = $previousMedicationId ?? $fill->medication_id;
+        $previous = $previousId === null ? null : PhrMedication::query()->find($previousId);
 
         $match = $explicitMedicationId !== null
             ? $this->livePatientMedications($patient)->find($explicitMedicationId)
@@ -46,6 +48,19 @@ class MedicationFillMedicationLinker
         }
 
         return ['medication' => $match, 'created' => $created];
+    }
+
+    /**
+     * A fill left a medication (was deleted, retracted or moved): an entry this
+     * linker created, that nobody reviewed and no live fill uses, goes with it.
+     */
+    public function release(PhrMedicationFill $fill, ?int $medicationId = null): void
+    {
+        $id = $medicationId ?? $fill->medication_id;
+        $medication = $id === null ? null : PhrMedication::query()->find($id);
+        if ($medication !== null) {
+            $this->discardIfOrphan($medication, $fill);
+        }
     }
 
     /**
@@ -223,15 +238,22 @@ class MedicationFillMedicationLinker
         return [implode(' / ', $substances), implode(' / ', $strengths), ''];
     }
 
-    /** An entry this linker made for a fill that no longer points at it, and nothing else uses, goes away. */
-    private function discardIfOrphan(PhrMedication $previous, PhrMedicationFill $fill): void
+    /**
+     * An entry this linker made, still waiting for review, that no live fill uses
+     * any more is withdrawn; anything a person touched or other fills use stays.
+     */
+    private function discardIfOrphan(PhrMedication $medication, PhrMedicationFill $fill): void
     {
-        if ($previous->import_source !== self::IMPORT_SOURCE || ! preg_match('/\Afill:'.$fill->id.'(:[a-z0-9]+)?\z/', (string) $previous->external_id)) {
+        if ($medication->import_source !== self::IMPORT_SOURCE || $medication->review_status !== PhrReviewStatus::PENDING) {
             return;
         }
-        $stillUsed = PhrMedicationFill::query()->where('medication_id', $previous->id)->where('id', '!=', $fill->id)->exists();
-        if (! $stillUsed && $previous->review_status === PhrReviewStatus::PENDING) {
-            $previous->delete();
+        $stillUsed = PhrMedicationFill::query()
+            ->where('medication_id', $medication->id)
+            ->where('id', '!=', $fill->id)
+            ->whereNull('retracted_at')
+            ->exists();
+        if (! $stillUsed) {
+            $medication->delete();
         }
     }
 }
