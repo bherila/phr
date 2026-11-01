@@ -26,6 +26,15 @@ final class NdcStrengthMatchTest extends TestCase
             'mcg is ug' => ['10 mcg', '10 ug/1', true],
             'a different unit is a different strength' => ['10 mg', '10 g/1', false],
             'typed without a space' => ['12.5mg', '12.5 mg/1', true],
+            'USP units' => ['100 USP units', '100 [USP\'U]/1', true],
+            'USP units with a denominator' => ['100 USP units/mL', '100 [USP\'U]/mL', true],
+            'USP units/mL against same spelling' => ['100 USP units/mL', '100 USP units/mL', true],
+            'USP units mixed case' => ['100 usp UNITS/ml', '100 Usp Units/mL', true],
+            'USP units wrong number' => ['10 USP units/mL', '100 USP units/mL', false],
+            'USP units wrong denominator' => ['100 USP units/mL', '100 USP units/1', false],
+            'IU regression' => ['1000 [iU]', '1000 IU/1', true],
+            'mEq regression' => ['20 mEq/15mL', '20 meq/15 mL', true],
+            'mEq wrong number' => ['2 mEq', '20 meq/1', false],
             'not a strength at all' => ['tablet', '10 mg/1', false],
         ];
     }

@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import DocumentsPage from '@/phr/documents/DocumentsPage'
 import type { PhrDocument } from '@/phr/types'
@@ -102,6 +102,64 @@ describe('DocumentsPage', () => {
     const sourceFilter = screen.getAllByLabelText('Source')[0] as HTMLSelectElement
     const values = Array.from(sourceFilter.options).map((option) => option.value)
     expect(values).toEqual(['all', 'manual_upload', 'agent_upload', 'genai_import', 'fhir_import', 'ccda_import', 'mychart_zip', 'ehi_tables'])
+  })
+
+  it('lists a document whose type has no label, showing the stored value', async () => {
+    mockGet.mockResolvedValue({
+      documents: [makeDocument({ document_type: 'some_future_type' })],
+      can_manage: true,
+    })
+
+    render(<DocumentsPage patientId={42} />)
+
+    expect((await screen.findAllByText('January Labs')).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/invalid option/i)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'List view' }))
+
+    expect(screen.getAllByText('some_future_type').some((element) => element.tagName === 'SPAN')).toBe(true)
+  })
+
+  it('offers only the known types as filters', async () => {
+    mockGet.mockResolvedValue({
+      documents: [makeDocument({ document_type: 'some_future_type' })],
+      can_manage: true,
+    })
+
+    render(<DocumentsPage patientId={42} />)
+
+    await screen.findAllByText('January Labs')
+    const typeFilter = screen.getAllByLabelText('Type')[0] as HTMLSelectElement
+    const values = Array.from(typeFilter.options).map((option) => option.value)
+    expect(values).toEqual(['all', 'lab_report', 'office_visit_note', 'clinical_questionnaire', 'patient_symptom_log', 'discharge_summary', 'imaging_report', 'prescription', 'medical_necessity_letter', 'prior_authorization', 'insurance', 'consent', 'care_correspondence', 'other'])
+  })
+
+  it('keeps an unknown stored type on a metadata save, and sends a type the user picks', async () => {
+    const stored = makeDocument({ document_type: 'some_future_type' })
+    mockGet.mockResolvedValue({ documents: [stored], can_manage: true })
+    mockPatch.mockResolvedValue({ document: { ...stored, title: 'Renamed' } })
+
+    render(<DocumentsPage patientId={42} />)
+
+    await screen.findAllByText('January Labs')
+    const metadata = within((await screen.findByRole('heading', { name: 'Metadata' })).parentElement!)
+    expect((metadata.getByLabelText('Type') as HTMLSelectElement).value).toBe('some_future_type')
+
+    fireEvent.change(metadata.getByLabelText('Title'), { target: { value: 'Renamed' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(mockPatch).toHaveBeenCalledTimes(1))
+    const firstPayload = mockPatch.mock.calls[0]![1] as Record<string, unknown>
+    expect(firstPayload.title).toBe('Renamed')
+    expect(firstPayload).not.toHaveProperty('document_type')
+    // The saved document comes back and resets the form; wait for that before the next edit.
+    expect((await screen.findAllByText('Renamed')).length).toBeGreaterThan(0)
+
+    fireEvent.change(metadata.getByLabelText('Type'), { target: { value: 'consent' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(mockPatch).toHaveBeenCalledTimes(2))
+    expect((mockPatch.mock.calls[1]![1] as Record<string, unknown>).document_type).toBe('consent')
   })
 
   it('uses a container query for the internal pane layout', async () => {

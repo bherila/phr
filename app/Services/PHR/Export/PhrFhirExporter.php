@@ -16,6 +16,7 @@ use App\Models\PhrPatient;
 use App\Models\PhrPatientVital;
 use App\Models\PhrPortalMessage;
 use App\Models\PhrProcedure;
+use App\Support\PHR\PhrLabReferenceRangeNotation;
 use Illuminate\Support\Carbon;
 
 class PhrFhirExporter
@@ -143,9 +144,28 @@ class PhrFhirExporter
             'referenceRange' => ($lab->range_min !== null || $lab->range_max !== null || $lab->reference_range_text !== null) ? [[
                 'low' => $lab->range_min !== null ? ['value' => (float) $lab->range_min, 'unit' => $lab->range_unit ?? $lab->unit] : null,
                 'high' => $lab->range_max !== null ? ['value' => (float) $lab->range_max, 'unit' => $lab->range_unit ?? $lab->unit] : null,
-                'text' => $lab->reference_range_text,
+                'text' => $lab->reference_range_text ?? $this->singleBoundText($lab),
             ]] : null,
         ];
+    }
+
+    /**
+     * FHIR defines a reference range's low and high as inclusive, and its
+     * SimpleQuantity bounds carry no comparator. A single bound whose source
+     * said whether it is inclusive therefore also goes out as text ("<5 mg/dL",
+     * "<=5 mg/dL"), so an exclusive one is not read as inclusive and a reader
+     * keeps the comparator. A bound that said nothing is exported as before.
+     */
+    private function singleBoundText(PhrLabResult $lab): ?string
+    {
+        $stated = match (true) {
+            $lab->range_min !== null && $lab->range_max !== null => false,
+            $lab->range_max !== null => $lab->range_max_inclusive !== null,
+            $lab->range_min !== null => $lab->range_min_inclusive !== null,
+            default => false,
+        };
+
+        return $stated ? PhrLabReferenceRangeNotation::fromBounds($lab) : null;
     }
 
     /**

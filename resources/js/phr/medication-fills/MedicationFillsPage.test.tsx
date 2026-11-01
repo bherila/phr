@@ -100,6 +100,8 @@ beforeEach(() => {
       const medication = (id: number, name: string) => ({ id, patient_id: 42, user_id: 7, name, rxnorm_code: null, dose: null, dose_unit: null, route: null, frequency: null, started_on: null, ended_on: null, status: 'active', prescriber_name: null, reason_for_use: null, raw_text: null, created_at: null, updated_at: null })
       return { medications: [medication(7, 'atorvastatin calcium'), medication(9, 'Mystery')], can_manage: true }
     }
+    if (url.endsWith('/drug-detail')) return lookups['detail']
+    if (url.startsWith('/api/ndc/label')) return lookups['label']
     if (url === '/api/phr/patients/42/medication-fills/1') return { medication_fill: fills[0] }
     if (url === '/api/phr/patients/42/medication-fills') return { medication_fills: fills, can_manage: true }
     if (url === '/api/phr/patients/42/medications/7/fills') return { medication_fills: [fills[0]], can_manage: true }
@@ -733,5 +735,135 @@ describe('Fill entry lookups', () => {
     fireEvent.change(ndc, { target: { value: '00071-0155-23' } })
     await screen.findByLabelText('Drug preview')
     expect(lookupCalls()).toBe(1)
+  })
+})
+
+const DETAIL = {
+  drug_detail: {
+    ndc_source: 'openfda',
+    discontinued: false,
+    ndc_10: '0071-0155-23',
+    ingredients: [{ name: 'atorvastatin calcium trihydrate', strength: '20 mg/1' }],
+    dosage_form: 'tablet, film coated',
+    route: 'oral',
+    pharm_class: ['HMG-CoA Reductase Inhibitor [EPC]'],
+    application_number: 'NDA020702',
+    marketing_category: 'NDA',
+    manufacturer: 'Parke-Davis Div of Pfizer Inc',
+    package_description: '90 tablet in 1 bottle',
+    dea_schedule: null,
+    imprint: null,
+    spl_set_id: '52561b3e-c20f-3536-e063-6394a90a6198',
+    links: { dailymed: 'https://dailymed.nlm.nih.gov/dailymed/lookup.cfm?setid=52561b3e-c20f-3536-e063-6394a90a6198', ndc_directory: 'https://api.fda.gov/drug/ndc.json?search=product_ndc%3A%220071-0155%22' },
+  },
+}
+
+describe('Drug detail panel', () => {
+  it('opens from the Name, shows the stored listing and label sections, and links out safely', async () => {
+    lookups['detail'] = DETAIL
+    lookups['label'] = { status: 'found', spl_set_id: DETAIL.drug_detail.spl_set_id, effective_date: '2026-05-21', version: '3', sections: [{ key: 'indications_and_usage', title: 'Indications and usage', text: 'For high cholesterol.' }] }
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: 'atorvastatin calcium' }))
+
+    const panel = await screen.findByRole('dialog')
+    expect(await within(panel).findByText('NDA020702')).toBeInTheDocument()
+    expect(within(panel).getByText('HMG-CoA Reductase Inhibitor [EPC]')).toBeInTheDocument()
+    expect(within(panel).getByText(/atorvastatin calcium trihydrate 20 mg\/1/)).toBeInTheDocument()
+    expect(await within(panel).findByText('Indications and usage')).toBeInTheDocument()
+    expect(within(panel).getByText(/effective 2026-05-21/)).toBeInTheDocument()
+    for (const name of ['DailyMed', 'FDA NDC listing']) {
+      const link = within(panel).getByRole('link', { name })
+      expect(link).toHaveAttribute('target', '_blank')
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    }
+    expect(mockGet).toHaveBeenCalledWith('/api/ndc/label?ndc_10=0071-0155-23')
+  })
+
+  it('shows the Discontinued badge and RxNav extras for an rxnav listing, and says so when there is no label', async () => {
+    fills = [makeFill({ ndc_source: 'rxnav', discontinued: true })]
+    lookups['detail'] = { drug_detail: { ...DETAIL.drug_detail, ndc_source: 'rxnav', discontinued: true, dea_schedule: 'CIV', imprint: '3;TV;150' } }
+    lookups['label'] = { status: 'not_found', sections: [] }
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: 'atorvastatin calcium' }))
+
+    const panel = await screen.findByRole('dialog')
+    expect(within(panel).getByText('Discontinued')).toBeInTheDocument()
+    expect(await within(panel).findByText('CIV')).toBeInTheDocument()
+    expect(within(panel).getByText('3;TV;150')).toBeInTheDocument()
+    expect(await within(panel).findByText(/No FDA label is on file/)).toBeInTheDocument()
+  })
+
+  it('explains an unresolved fill without fetching anything', async () => {
+    fills = [makeFill({ ndc_status: 'unresolved', ndc_10: null, drug: null, drug_as_printed: 'mystery tab', medication: null })]
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: 'mystery tab' }))
+
+    expect(await screen.findByText(/No FDA listing is stored for this fill/)).toBeInTheDocument()
+    expect(mockGet).not.toHaveBeenCalledWith(expect.stringContaining('/api/ndc/label'))
+  })
+})
+
+describe('Pharmacy modal', () => {
+  it('opens from the pharmacy name with its details and source documents', async () => {
+    fills = [makeFill({ pharmacy_name: 'EXAMPLE PHARMACY', display: { pharmacy_name: 'Example Pharmacy', pharmacy_location: '#1234, Seattle WA', prescriber_name: 'Dr. A. Smith' }, rx_number: 'RX123', refills_remaining: 2, source_kind: 'receipt', source_document_id: 5, evidence_document_ids: [5, 6] })]
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: 'Example Pharmacy' }))
+
+    const modal = await screen.findByRole('dialog')
+    expect(within(modal).getByText('#1234, Seattle WA')).toBeInTheDocument()
+    expect(within(modal).getByText('Dr. A. Smith')).toBeInTheDocument()
+    expect(within(modal).getByText('RX123')).toBeInTheDocument()
+    expect(within(modal).getByText('2')).toBeInTheDocument()
+    expect(within(modal).getAllByRole('link')).toHaveLength(2)
+  })
+})
+
+describe('Fill dialog', () => {
+  it('opens Add Fill in a dialog with the NDC focused, and closes without asking when nothing changed', async () => {
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /add fill/i }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Add Fill' })
+    await waitFor(() => expect(within(dialog).getByLabelText(/^NDC/)).toHaveFocus())
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+
+  it('asks before discarding unsaved edits, and keeps the dialog open on Keep editing', async () => {
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /add fill/i }))
+    const dialog = await screen.findByRole('dialog', { name: 'Add Fill' })
+    fireEvent.change(within(dialog).getByLabelText(/^Quantity/), { target: { value: '30' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+
+    expect(await screen.findByText('Discard your changes?')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }))
+    await waitFor(() => expect(screen.queryByText('Discard your changes?')).not.toBeInTheDocument())
+    expect(screen.getByRole('dialog', { name: 'Add Fill' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Discard changes' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+})
+
+describe('Fill dialog while saving', () => {
+  it('does not close on Escape while a save is in flight', async () => {
+    let finish: (value: unknown) => void = () => {}
+    mockPatchRaw.mockReturnValue(new Promise((resolve) => { finish = resolve }))
+    renderPage()
+    await screen.findByRole('table', { name: 'Fills' })
+    fireEvent.click(screen.getByRole('button', { name: /^Edit atorvastatin calcium fill 26\.10\.28/ }))
+    const dialog = await screen.findByRole('dialog', { name: 'Edit Fill' })
+    fireEvent.change(within(dialog).getByLabelText('Pharmacy'), { target: { value: 'Other Pharmacy' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }))
+    await within(dialog).findByRole('button', { name: 'Saving…' })
+
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    expect(screen.getByRole('dialog', { name: 'Edit Fill' })).toBeInTheDocument()
+    expect(screen.queryByText('Discard your changes?')).not.toBeInTheDocument()
+
+    finish(jsonResponse(200, { medication_fill: makeFill({ pharmacy_name: 'Other Pharmacy' }) }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   })
 })

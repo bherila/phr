@@ -52,6 +52,8 @@ final class PhrCcdaLabReferenceRangeTest extends TestCase
             $this->assertSame($min, $this->decimal($row->range_min), "{$extension} range_min");
             $this->assertSame($max, $this->decimal($row->range_max), "{$extension} range_max");
             $this->assertSame($unit, $row->range_unit, "{$extension} range_unit");
+            // The fixture's numeric bounds that state it, "<200" and "<150", are exclusive.
+            $this->assertSame(in_array($extension, ['lab-ivl-no-text', 'lab-interval-value'], true) ? [null, false] : [null, null], [$row->range_min_inclusive, $row->range_max_inclusive], "{$extension} inclusiveness");
             $this->assertDoesNotMatchRegularExpression('/^(.+)\1$/su', (string) $row->reference_range_text, $extension);
         }
     }

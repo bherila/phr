@@ -61,6 +61,9 @@ export function formatLabReferenceBound(value: string | number | null | undefine
 interface LabRangeResult {
   range_min: string | null
   range_max: string | null
+  /** Whether each bound is itself in range; null or absent when the source did not say. */
+  range_min_inclusive?: boolean | null | undefined
+  range_max_inclusive?: boolean | null | undefined
   range_unit: string | null
   reference_range_text: string | null
 }
@@ -68,17 +71,18 @@ interface LabRangeResult {
 const STATED_COMPARATOR = /^\s*(<=|>=|≤|≥|<|>)/
 
 /**
- * The comparator for a range with one bound. The bounds carry no inclusiveness,
- * so a source text that states an inclusive one ("≥60", ">=60") is kept;
- * otherwise the bound reads as exclusive, as labs usually print it ("<200").
+ * The comparator for a range with one bound. A bound whose inclusiveness the
+ * source stated uses it. Otherwise a source text that states an inclusive one
+ * ("≥60", ">=60") is kept, and the bound reads as exclusive, as labs usually
+ * print it ("<200").
  */
-function singleBoundComparator(side: 'low' | 'high', text: string | null): string {
+function singleBoundComparator(side: 'low' | 'high', inclusive: boolean | null | undefined, text: string | null): string {
   const stated = text === null ? null : (STATED_COMPARATOR.exec(text)?.[1] ?? null)
   if (side === 'low') {
-    return stated === '>=' || stated === '≥' ? '≥' : '>'
+    return (inclusive ?? (stated === '>=' || stated === '≥')) ? '≥' : '>'
   }
 
-  return stated === '<=' || stated === '≤' ? '≤' : '<'
+  return (inclusive ?? (stated === '<=' || stated === '≤')) ? '≤' : '<'
 }
 
 /**
@@ -95,10 +99,10 @@ export function formatLabReferenceRange(result: LabRangeResult): string | null {
     return `${min}–${max}${unit}`
   }
   if (max !== null) {
-    return `${singleBoundComparator('high', result.reference_range_text)}${max}${unit}`
+    return `${singleBoundComparator('high', result.range_max_inclusive, result.reference_range_text)}${max}${unit}`
   }
   if (min !== null) {
-    return `${singleBoundComparator('low', result.reference_range_text)}${min}${unit}`
+    return `${singleBoundComparator('low', result.range_min_inclusive, result.reference_range_text)}${min}${unit}`
   }
 
   return result.reference_range_text

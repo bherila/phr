@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Synthetic C-CDA Encounters section. No patient data.
+
+  The narrative table is ordered Date, Type, Department, Care Team,
+  Description, so reading it by position (date, type, provider, chief
+  complaint, assessment) stores the department as the provider and the care
+  team as the chief complaint. The entries carry every field explicitly:
+
+    enc-display      CPT code with a displayName; start and end times; a
+                     performer with a specialty; a service location; an
+                     indication; an encounter diagnosis with an ICD-10-CM
+                     translation
+    enc-original     ActCode whose originalText references the narrative cell;
+                     a date without a time; only an organization performs it
+    enc-code-only    nothing but the CPT code names its type
+    enc-planned      moodCode INT: planned, not happened
+
+  enc-display and enc-original reference their rows.
+-->
+<ClinicalDocument xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <realmCode code="US"/>
+  <typeId root="2.16.840.1.113883.1.3" extension="POCD_HD000040"/>
+  <templateId root="2.16.840.1.113883.10.20.22.1.1"/>
+  <templateId root="2.16.840.1.113883.10.20.22.1.2"/>
+  <id root="2.25.1010"/>
+  <code code="34133-9" codeSystem="2.16.840.1.113883.6.1" displayName="Summarization of Episode Note"/>
+  <title>Synthetic Health Summary</title>
+  <effectiveTime value="20260102030405-0800"/>
+  <confidentialityCode code="N" codeSystem="2.16.840.1.113883.5.25"/>
+  <recordTarget>
+    <patientRole>
+      <id root="2.25.1002" extension="synthetic"/>
+      <patient>
+        <name><given>Synthetic</given><family>Patient</family></name>
+      </patient>
+    </patientRole>
+  </recordTarget>
+  <component>
+    <structuredBody>
+      <component>
+        <section>
+          <templateId root="2.16.840.1.113883.10.20.22.2.22"/>
+          <templateId root="2.16.840.1.113883.10.20.22.2.22.1" extension="2015-08-01"/>
+          <code code="46240-8" codeSystem="2.16.840.1.113883.6.1"/>
+          <title>Encounter Details</title>
+          <text>
+            <table>
+              <thead>
+                <tr><th>Date</th><th>Type</th><th>Department</th><th>Care Team (Latest Contact Info)</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+                <tr ID="enc-row-display"><td>01/02/2026</td><td>Synthetic office visit</td><td>Synthetic Department</td><td>Synthetic Clinician, MD</td><td>Synthetic cough</td></tr>
+                <tr><td>01/03/2026</td><td ID="enc-type-original">Synthetic telehealth</td><td>Synthetic Virtual Clinic</td><td/><td/></tr>
+                <tr><td>01/04/2026</td><td>CPT-4|99214</td><td/><td/><td/></tr>
+                <tr><td>06/01/2026</td><td>Synthetic planned visit</td><td/><td/><td/></tr>
+              </tbody>
+            </table>
+          </text>
+          <entry typeCode="DRIV">
+            <encounter classCode="ENC" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.49" extension="2015-08-01"/>
+              <id root="2.25.10001" extension="enc-display"/>
+              <code code="99213" codeSystem="2.16.840.1.113883.6.12" displayName="Synthetic office visit"/>
+              <text><reference value="#enc-row-display"/></text>
+              <statusCode code="completed"/>
+              <effectiveTime><low value="20260102030405-0800"/><high value="20260102040000-0800"/></effectiveTime>
+              <performer>
+                <assignedEntity>
+                  <id root="2.25.10200"/>
+                  <code code="SYN-SPEC" codeSystem="2.16.840.1.113883.6.101" displayName="Synthetic family medicine"/>
+                  <assignedPerson><name><given>Synthetic</given><family>Clinician</family><suffix>MD</suffix></name></assignedPerson>
+                </assignedEntity>
+              </performer>
+              <participant typeCode="LOC">
+                <participantRole classCode="SDLOC">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.32"/>
+                  <code code="1160-1" codeSystem="2.16.840.1.113883.6.259"/>
+                  <playingEntity classCode="PLC"><name>Synthetic Department</name></playingEntity>
+                </participantRole>
+              </participant>
+              <entryRelationship typeCode="RSON">
+                <observation classCode="OBS" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.19" extension="2014-06-09"/>
+                  <id root="2.25.10300"/>
+                  <code code="404684003" codeSystem="2.16.840.1.113883.6.96"/>
+                  <statusCode code="completed"/>
+                  <value xsi:type="CD" code="SYN-CC" codeSystem="2.25.9" displayName="Synthetic cough"/>
+                </observation>
+              </entryRelationship>
+              <entryRelationship typeCode="COMP">
+                <act classCode="ACT" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.80" extension="2015-08-01"/>
+                  <code code="29308-4" codeSystem="2.16.840.1.113883.6.1"/>
+                  <entryRelationship typeCode="SUBJ">
+                    <observation classCode="OBS" moodCode="EVN">
+                      <templateId root="2.16.840.1.113883.10.20.22.4.4" extension="2015-08-01"/>
+                      <id root="2.25.10400"/>
+                      <code code="282291009" codeSystem="2.16.840.1.113883.6.96"/>
+                      <statusCode code="completed"/>
+                      <value xsi:type="CD" code="9991001" codeSystem="2.16.840.1.113883.6.96" displayName="Synthetic diagnosis">
+                        <translation code="R99.1" codeSystem="2.16.840.1.113883.6.90"/>
+                      </value>
+                    </observation>
+                  </entryRelationship>
+                </act>
+              </entryRelationship>
+            </encounter>
+          </entry>
+          <entry typeCode="DRIV">
+            <encounter classCode="ENC" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.49" extension="2015-08-01"/>
+              <id root="2.25.10001" extension="enc-original"/>
+              <code code="AMB" codeSystem="2.16.840.1.113883.5.4"><originalText><reference value="#enc-type-original"/></originalText></code>
+              <statusCode code="completed"/>
+              <effectiveTime><low value="20260103"/></effectiveTime>
+              <performer>
+                <assignedEntity>
+                  <id root="2.25.10201"/>
+                  <representedOrganization><name>Synthetic Virtual Clinic</name></representedOrganization>
+                </assignedEntity>
+              </performer>
+            </encounter>
+          </entry>
+          <entry typeCode="DRIV">
+            <encounter classCode="ENC" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.49" extension="2015-08-01"/>
+              <id root="2.25.10001" extension="enc-code-only"/>
+              <code code="99214" codeSystem="2.16.840.1.113883.6.12" codeSystemName="CPT-4"/>
+              <statusCode code="completed"/>
+              <effectiveTime value="20260104"/>
+            </encounter>
+          </entry>
+          <entry typeCode="DRIV">
+            <encounter classCode="ENC" moodCode="INT">
+              <templateId root="2.16.840.1.113883.10.20.22.4.49" extension="2015-08-01"/>
+              <id root="2.25.10001" extension="enc-planned"/>
+              <code code="99215" codeSystem="2.16.840.1.113883.6.12" displayName="Synthetic planned visit"/>
+              <statusCode code="completed"/>
+              <effectiveTime value="20260601"/>
+            </encounter>
+          </entry>
+        </section>
+      </component>
+    </structuredBody>
+  </component>
+</ClinicalDocument>

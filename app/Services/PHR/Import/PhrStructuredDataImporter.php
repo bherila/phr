@@ -27,6 +27,16 @@ class PhrStructuredDataImporter
         'negative_assertions' => 'phr_negative_assertion',
     ];
 
+    /**
+     * Provenance a row keeps once it has it: the document it was first read
+     * from, and how. A later import fills it where a row has none (one an earlier
+     * load made, adopted on re-import, say) but never moves or clears it.
+     */
+    private const array KEPT_PROVENANCE = ['source_document_id', 'source'];
+
+    /** @var array{source_document_id: int, source: string}|null */
+    private ?array $sourceDocument = null;
+
     public function __construct(
         private PhrRecordAttributeMapper $attributeMapper,
         private PhrDocumentImporter $documentImporter,
@@ -76,16 +86,41 @@ class PhrStructuredDataImporter
     }
 
     /**
+     * Runs `$import` with every record it writes through importUnreviewed()
+     * linked to `$document`, the stored document the file was read from, and
+     * `$source` (a PhrDocument::SOURCES value naming how it was read) as the
+     * record's source where its model has one. With no document, records are
+     * written as before, unlinked. The link is the server's own: a document id a
+     * parsed record names is never trusted.
+     *
+     * @template TResult
+     *
+     * @param  callable(): TResult  $import
+     * @return TResult
+     */
+    public function fromDocument(?PhrDocument $document, string $source, callable $import): mixed
+    {
+        $previous = $this->sourceDocument;
+        $this->sourceDocument = $document === null ? null : ['source_document_id' => (int) $document->id, 'source' => $source];
+        try {
+            return $import();
+        } finally {
+            $this->sourceDocument = $previous;
+        }
+    }
+
+    /**
      * Records read straight from a file nobody has reviewed (C-CDA, FHIR, MyChart):
      * new rows, and existing rows the file changes, wait for a person's review.
-     * A row the file leaves as it is keeps the review it has.
+     * A row the file leaves as it is keeps the review it has. Inside
+     * fromDocument(), each is linked to that document.
      *
      * @param  array<array-key, mixed>  $payload
      * @param  array{import_source?: string, source?: string, external_id?: string|null, genai_job_id?: int|null, source_document_id?: int|null}  $options
      */
     public function importUnreviewed(PhrPatient $patient, int $actorUserId, string $jobType, array $payload, array $options = []): PhrImportResult
     {
-        return $this->importPayload($patient, $actorUserId, $jobType, $payload, [...$options, 'review_status' => PhrReviewStatus::PENDING]);
+        return $this->importPayload($patient, $actorUserId, $jobType, $payload, [...$options, ...($this->sourceDocument ?? []), 'review_status' => PhrReviewStatus::PENDING]);
     }
 
     /**
@@ -181,7 +216,7 @@ class PhrStructuredDataImporter
             if ($review !== null) {
                 $attributes['review_status'] = $review;
             }
-            $model = $this->upserter->upsert($this->attributeMapper->modelClassFor($jobType), $attributes, $review);
+            $model = $this->upserter->upsert($this->attributeMapper->modelClassFor($jobType), $attributes, $review, self::KEPT_PROVENANCE);
             match (true) {
                 $model->wasRecentlyCreated => $result->addCreated(),
                 $model->wasChanged() => $result->addUpdated(),

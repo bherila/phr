@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Synthetic C-CDA Procedures section. No patient data.
+
+  The narrative table is ordered Procedure, Provider, Date, Comments, so
+  reading it by position (name, date, status) stores the provider as the date
+  and the date as the status. The entries carry every field explicitly:
+
+    proc-display     Procedure Activity Procedure: SNOMED code with a CPT
+                     translation, a time of day, completed, a performer with
+                     a specialty and organization, an indication
+    proc-original    Procedure Activity Observation: CPT code whose
+                     originalText references the narrative cell; a date
+                     without a time; active; a service location
+    proc-act         Procedure Activity Act, aborted
+    proc-code-only   nothing but the CPT code names it
+    proc-planned     moodCode INT: planned, not performed
+    proc-negated     negationInd: not performed
+    proc-unnamed     nothing names it, and its text references its own row
+
+  Every procedure but proc-code-only, proc-planned and proc-negated references
+  its row.
+-->
+<ClinicalDocument xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <realmCode code="US"/>
+  <typeId root="2.16.840.1.113883.1.3" extension="POCD_HD000040"/>
+  <templateId root="2.16.840.1.113883.10.20.22.1.1"/>
+  <templateId root="2.16.840.1.113883.10.20.22.1.2"/>
+  <id root="2.25.1007"/>
+  <code code="34133-9" codeSystem="2.16.840.1.113883.6.1" displayName="Summarization of Episode Note"/>
+  <title>Synthetic Health Summary</title>
+  <effectiveTime value="20260102030405-0800"/>
+  <confidentialityCode code="N" codeSystem="2.16.840.1.113883.5.25"/>
+  <recordTarget>
+    <patientRole>
+      <id root="2.25.1002" extension="synthetic"/>
+      <patient>
+        <name><given>Synthetic</given><family>Patient</family></name>
+      </patient>
+    </patientRole>
+  </recordTarget>
+  <component>
+    <structuredBody>
+      <component>
+        <section>
+          <templateId root="2.16.840.1.113883.10.20.22.2.7"/>
+          <templateId root="2.16.840.1.113883.10.20.22.2.7.1" extension="2014-06-09"/>
+          <code code="47519-4" codeSystem="2.16.840.1.113883.6.1"/>
+          <title>Procedures</title>
+          <text>
+            <table>
+              <thead>
+                <tr><th>Procedure</th><th>Provider</th><th>Date</th><th>Comments</th></tr>
+              </thead>
+              <tbody>
+                <tr ID="proc-row-display"><td>Synthetic repair</td><td>Dr. Synthetic Performer</td><td>01/02/2026</td><td/></tr>
+                <tr><td ID="proc-name-original">Synthetic referenced test</td><td/><td>01/02/2026</td><td/></tr>
+                <tr ID="proc-row-act"><td>Synthetic counseling</td><td/><td>01/02/2026</td><td>Stopped</td></tr>
+                <tr><td>Synthetic coded procedure</td><td/><td>01/02/2026</td><td/></tr>
+                <tr><td>Synthetic planned procedure</td><td/><td>03/01/2026</td><td>Planned</td></tr>
+                <tr><td>Synthetic unnamed procedure</td><td/><td>01/02/2026</td><td><content ID="proc-unnamed"/></td></tr>
+              </tbody>
+            </table>
+          </text>
+          <entry typeCode="DRIV">
+            <procedure classCode="PROC" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.14" extension="2014-06-09"/>
+              <id root="2.25.7001" extension="proc-display"/>
+              <code code="9990201" codeSystem="2.16.840.1.113883.6.96" displayName="Synthetic repair"><translation code="99901" codeSystem="2.16.840.1.113883.6.12"/></code>
+              <text><reference value="#proc-row-display"/></text>
+              <statusCode code="completed"/>
+              <effectiveTime value="20260102030405-0800"/>
+              <performer typeCode="PRF">
+                <assignedEntity>
+                  <id root="2.25.7200"/>
+                  <code code="SYN-SPEC" codeSystem="2.16.840.1.113883.6.101" displayName="Synthetic specialty"/>
+                  <assignedPerson><name><prefix>Dr.</prefix><given>Synthetic</given><family>Performer</family></name></assignedPerson>
+                  <representedOrganization><name>Synthetic Surgical Center</name></representedOrganization>
+                </assignedEntity>
+              </performer>
+              <entryRelationship typeCode="RSON">
+                <observation classCode="OBS" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.19" extension="2014-06-09"/>
+                  <id root="2.25.7300"/>
+                  <code code="404684003" codeSystem="2.16.840.1.113883.6.96"/>
+                  <statusCode code="completed"/>
+                  <value xsi:type="CD" code="SYN-WHY" codeSystem="2.25.9" displayName="Synthetic reason"/>
+                </observation>
+              </entryRelationship>
+            </procedure>
+          </entry>
+          <entry typeCode="DRIV">
+            <observation classCode="OBS" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.13" extension="2014-06-09"/>
+              <id root="2.25.7001" extension="proc-original"/>
+              <code code="99902" codeSystem="2.16.840.1.113883.6.12"><originalText><reference value="#proc-name-original"/></originalText></code>
+              <statusCode code="active"/>
+              <effectiveTime><low value="20260102"/></effectiveTime>
+              <participant typeCode="LOC">
+                <participantRole classCode="SDLOC">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.32"/>
+                  <code code="1160-1" codeSystem="2.16.840.1.113883.6.259"/>
+                  <playingEntity classCode="PLC"><name>Synthetic Clinic</name></playingEntity>
+                </participantRole>
+              </participant>
+            </observation>
+          </entry>
+          <entry typeCode="DRIV">
+            <act classCode="ACT" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.12" extension="2014-06-09"/>
+              <id root="2.25.7001" extension="proc-act"/>
+              <code code="9990203" codeSystem="2.16.840.1.113883.6.96" displayName="Synthetic counseling"/>
+              <text><reference value="#proc-row-act"/></text>
+              <statusCode code="aborted"/>
+              <effectiveTime value="20260102030405-0800"/>
+            </act>
+          </entry>
+          <entry typeCode="DRIV">
+            <procedure classCode="PROC" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.14" extension="2014-06-09"/>
+              <id root="2.25.7001" extension="proc-code-only"/>
+              <code code="99904" codeSystem="2.16.840.1.113883.6.12" codeSystemName="CPT-4"/>
+              <statusCode code="completed"/>
+              <effectiveTime value="20260102030405-0800"/>
+            </procedure>
+          </entry>
+          <entry typeCode="DRIV">
+            <procedure classCode="PROC" moodCode="INT">
+              <templateId root="2.16.840.1.113883.10.20.22.4.14" extension="2014-06-09"/>
+              <id root="2.25.7001" extension="proc-planned"/>
+              <code code="9990205" codeSystem="2.16.840.1.113883.6.96" displayName="Synthetic planned procedure"/>
+              <statusCode code="active"/>
+              <effectiveTime value="20260301"/>
+            </procedure>
+          </entry>
+          <entry typeCode="DRIV">
+            <procedure classCode="PROC" moodCode="EVN" negationInd="true">
+              <templateId root="2.16.840.1.113883.10.20.22.4.14" extension="2014-06-09"/>
+              <id root="2.25.7001" extension="proc-negated"/>
+              <code code="9990206" codeSystem="2.16.840.1.113883.6.96" displayName="Synthetic skipped procedure"/>
+              <statusCode code="completed"/>
+              <effectiveTime value="20260102030405-0800"/>
+            </procedure>
+          </entry>
+          <entry typeCode="DRIV">
+            <procedure classCode="PROC" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.14" extension="2014-06-09"/>
+              <id root="2.25.7001" extension="proc-unnamed"/>
+              <code nullFlavor="UNK"/>
+              <text><reference value="#proc-unnamed"/></text>
+              <statusCode code="completed"/>
+              <effectiveTime value="20260102030405-0800"/>
+            </procedure>
+          </entry>
+        </section>
+      </component>
+    </structuredBody>
+  </component>
+</ClinicalDocument>

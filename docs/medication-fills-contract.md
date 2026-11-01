@@ -13,6 +13,8 @@ This file is the final word on the shapes below; the backend implements them and
 | PATCH | `/api/phr/patients/{patient}/medication-fills/{fill}/review` | Same review body as the other clinical resources. |
 | GET | `/api/phr/patients/{patient}/medications/{medication}/fills` | Fill history for the medication page, in the same list shape. |
 | GET | `/api/ndc/lookup?ndc=` | `NdcLookupResult` |
+| GET | `/api/ndc/label?ndc_10=&spl_set_id=` | FDA label sections (`found`, `not_found`, `unavailable`, `invalid`); cached, `OPENFDA_LABEL_CACHE_TTL_SECONDS` (7 days) |
+| GET | `/api/phr/patients/{patient}/medication-fills/{fill}/drug-detail` | `{ drug_detail }` read from the fill's stored snapshot |
 | GET | `/api/ndc/search?name=&strength=&dosage_form=&route=&labeler=&package=` | `{ "candidates": NdcCandidate[] }` |
 
 Route names follow `patients.medication-fills.*`, `ndc.lookup`, `ndc.search`.

@@ -2,6 +2,7 @@
 
 namespace App\Services\PHR\Import;
 
+use App\Models\PhrDocument;
 use App\Models\PhrPatient;
 use DOMDocument;
 use DOMElement;
@@ -15,9 +16,14 @@ class PhrCcdaImporter
 {
     private const string IMPORT_SOURCE = 'ccda';
 
+    /** The record source for rows read from a stored document, a PhrDocument::SOURCES value. */
+    private const string RECORD_SOURCE = 'ccda_import';
+
     public function __construct(
         private PhrStructuredDataImporter $structuredImporter,
         private PhrCcdaLegacyLabRows $legacyLabRows,
+        private PhrCcdaLegacyRows $legacyRows,
+        private PhrRecordAttributeMapper $attributeMapper,
     ) {}
 
     public function importFile(string $path, PhrPatient $patient, int $actorUserId): PhrImportResult
@@ -29,7 +35,16 @@ class PhrCcdaImporter
         return $this->importXml(File::get($path), $patient, $actorUserId);
     }
 
-    public function importXml(string $xml, PhrPatient $patient, int $actorUserId): PhrImportResult
+    /**
+     * With `$document`, the stored document the XML was read from, every row
+     * written is linked to it (see PhrStructuredDataImporter::fromDocument()).
+     */
+    public function importXml(string $xml, PhrPatient $patient, int $actorUserId, ?PhrDocument $document = null): PhrImportResult
+    {
+        return $this->structuredImporter->fromDocument($document, self::RECORD_SOURCE, fn (): PhrImportResult => $this->readXml($xml, $patient, $actorUserId));
+    }
+
+    private function readXml(string $xml, PhrPatient $patient, int $actorUserId): PhrImportResult
     {
         $document = new DOMDocument;
         $previous = libxml_use_internal_errors(true);
@@ -42,6 +57,7 @@ class PhrCcdaImporter
         }
 
         $xpath = new DOMXPath($document);
+        $readers = $this->readers(new PhrCcdaXml($xpath));
         $result = new PhrImportResult;
 
         foreach ($xpath->query('//*[local-name()="section"]') ?: [] as $section) {
@@ -50,7 +66,11 @@ class PhrCcdaImporter
             }
 
             $title = strtolower($this->sectionTitle($xpath, $section));
-            if ($this->isResultsSection($title)) {
+            // A known template names the section's reader, whatever its title
+            // says: "Laboratory Procedures" is still a Procedures section.
+            $reader = $this->readerByTemplate($readers, $xpath, $section);
+            $results = $reader === null && $this->isResultsSection($title);
+            if ($results) {
                 // Structured Result Observations, when present, are the record;
                 // the narrative table is only their rendering.
                 $observations = (new PhrCcdaResultObservations($xpath))->observations($section);
@@ -76,15 +96,132 @@ class PhrCcdaImporter
                 }
             }
 
+            $reader ??= $results ? null : $this->readerByTitle($readers, $title);
+            if ($reader !== null) {
+                // A section's structured entries, when it has any, are the
+                // record; its narrative table is only their rendering.
+                $entries = $reader->entries($section);
+                if ($entries !== []) {
+                    $result->merge($this->importEntries($patient, $actorUserId, $reader, $entries));
+
+                    continue;
+                }
+            }
+
             $rows = $this->tableRows($xpath, $section);
             if ($rows === []) {
                 continue;
             }
 
-            $result->merge($this->importRows($patient, $actorUserId, $title, $rows));
+            $result->merge($reader === null
+                ? $this->importRows($patient, $actorUserId, $title, $rows)
+                : $this->structuredImporter->importUnreviewed($patient, $actorUserId, $reader->jobType(), array_map($reader->narrativeRecord(...), $rows), $this->options()));
         }
 
         return $result;
+    }
+
+    /**
+     * The section readers, in the order a section's title is matched.
+     *
+     * @return list<PhrCcdaSectionReader>
+     */
+    private function readers(PhrCcdaXml $xml): array
+    {
+        return [
+            new PhrCcdaVitalSignObservations($xml),
+            new PhrCcdaMedicationActivities($xml),
+            new PhrCcdaProblemObservations($xml),
+            new PhrCcdaProcedureActivities($xml),
+            new PhrCcdaImmunizationActivities($xml),
+            new PhrCcdaAllergyObservations($xml),
+            new PhrCcdaEncounterActivities($xml),
+        ];
+    }
+
+    /**
+     * The reader a section's template names, if any.
+     *
+     * @param  list<PhrCcdaSectionReader>  $readers
+     */
+    private function readerByTemplate(array $readers, DOMXPath $xpath, DOMElement $section): ?PhrCcdaSectionReader
+    {
+        $templates = [];
+        foreach ($xpath->query('./*[local-name()="templateId"]/@root', $section) ?: [] as $root) {
+            $templates[] = trim((string) $root->nodeValue);
+        }
+        foreach ($readers as $reader) {
+            if (array_intersect($reader->sectionTemplates(), $templates) !== []) {
+                return $reader;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The reader for a section without a known template, by its title, in the
+     * order the narrative-table reader has always matched titles.
+     *
+     * @param  list<PhrCcdaSectionReader>  $readers
+     */
+    private function readerByTitle(array $readers, string $title): ?PhrCcdaSectionReader
+    {
+        foreach ($readers as $reader) {
+            if ($reader->matchesTitle($title)) {
+                return $reader;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * A section's structured entries. Rows an earlier import made of them under
+     * other ids are moved to theirs first, so they update in place; an entry
+     * nothing names is read from its own table row instead.
+     *
+     * @param  list<PhrCcdaEntry>  $entries
+     */
+    private function importEntries(PhrPatient $patient, int $actorUserId, PhrCcdaSectionReader $reader, array $entries): PhrImportResult
+    {
+        return DB::transaction(function () use ($patient, $actorUserId, $reader, $entries): PhrImportResult {
+            $own = array_values(array_filter($entries, static fn (PhrCcdaEntry $entry): bool => $entry->record !== null && $entry->jobType === $reader->jobType()));
+            $this->legacyRows->adopt($this->attributeMapper->modelClassFor($reader->jobType()), (int) $patient->id, self::IMPORT_SOURCE, $reader->legacyKind(), $own);
+
+            $records = [];
+            $unnamed = [];
+            $skipped = 0;
+            foreach ($entries as $entry) {
+                if ($entry->skip) {
+                    $skipped++;
+                } elseif ($entry->record !== null) {
+                    $records[$entry->jobType][] = $entry->record;
+                } elseif ($entry->narrativeCells !== null) {
+                    $unnamed[] = $reader->narrativeRecord($entry->narrativeCells);
+                } else {
+                    $skipped++;
+                }
+            }
+
+            $result = new PhrImportResult(skipped: $skipped);
+            foreach ($records as $jobType => $typeRecords) {
+                $result->merge($this->structuredImporter->importUnreviewed($patient, $actorUserId, $jobType, $typeRecords, $this->options()));
+            }
+            if ($unnamed !== []) {
+                $result->merge($this->structuredImporter->importUnreviewed($patient, $actorUserId, $reader->jobType(), $unnamed, $this->options()));
+            }
+
+            return $result;
+        });
+    }
+
+    /**
+     * @return array{import_source: string}
+     */
+    private function options(): array
+    {
+        return ['import_source' => self::IMPORT_SOURCE];
     }
 
     /**
@@ -92,97 +229,8 @@ class PhrCcdaImporter
      */
     private function importRows(PhrPatient $patient, int $actorUserId, string $title, array $rows): PhrImportResult
     {
-        if (str_contains($title, 'vital')) {
-            return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_vital', array_map(
-                fn (array $row): array => [
-                    'date' => $row[0] ?? null,
-                    'name' => $row[1] ?? null,
-                    'value' => $row[2] ?? null,
-                    'unit' => $row[3] ?? null,
-                    'external_id' => 'ccda-vital-'.sha1(implode('|', $row)),
-                ],
-                $rows
-            ), ['import_source' => self::IMPORT_SOURCE]);
-        }
-
         if ($this->isResultsSection($title)) {
             return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_lab_result', array_map($this->narrativeLabRecord(...), $rows), ['import_source' => self::IMPORT_SOURCE]);
-        }
-
-        if (str_contains($title, 'medication')) {
-            return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_medication', array_map(
-                fn (array $row): array => [
-                    'name' => $row[0] ?? null,
-                    'dose' => $row[1] ?? null,
-                    'frequency' => $row[2] ?? null,
-                    'status' => $row[3] ?? 'active',
-                    'external_id' => 'ccda-med-'.sha1(implode('|', $row)),
-                ],
-                $rows
-            ), ['import_source' => self::IMPORT_SOURCE]);
-        }
-
-        if (str_contains($title, 'problem') || str_contains($title, 'condition')) {
-            return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_problem_list', array_map(
-                fn (array $row): array => [
-                    'name' => $row[0] ?? null,
-                    'icd10_code' => $row[1] ?? null,
-                    'clinical_status' => $row[2] ?? 'active',
-                    'onset_date' => $row[3] ?? null,
-                    'external_id' => 'ccda-condition-'.sha1(implode('|', $row)),
-                ],
-                $rows
-            ), ['import_source' => self::IMPORT_SOURCE]);
-        }
-
-        if (str_contains($title, 'procedure')) {
-            return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_procedure', array_map(
-                fn (array $row): array => [
-                    'name' => $row[0] ?? null,
-                    'performed_on' => $row[1] ?? null,
-                    'status' => $row[2] ?? 'completed',
-                    'external_id' => 'ccda-procedure-'.sha1(implode('|', $row)),
-                ],
-                $rows
-            ), ['import_source' => self::IMPORT_SOURCE]);
-        }
-
-        if (str_contains($title, 'immunization')) {
-            return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_immunization', array_map(
-                fn (array $row): array => [
-                    'vaccine_name' => $row[0] ?? null,
-                    'administered_on' => $row[1] ?? null,
-                    'lot_number' => $row[2] ?? null,
-                    'external_id' => 'ccda-immunization-'.sha1(implode('|', $row)),
-                ],
-                $rows
-            ), ['import_source' => self::IMPORT_SOURCE]);
-        }
-
-        if (str_contains($title, 'allerg')) {
-            return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_allergy', array_map(
-                fn (array $row): array => [
-                    'substance' => $row[0] ?? null,
-                    'reaction' => $row[1] ?? null,
-                    'severity' => $row[2] ?? null,
-                    'external_id' => 'ccda-allergy-'.sha1(implode('|', $row)),
-                ],
-                $rows
-            ), ['import_source' => self::IMPORT_SOURCE]);
-        }
-
-        if (str_contains($title, 'encounter') || str_contains($title, 'visit')) {
-            return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_office_visit', array_map(
-                fn (array $row): array => [
-                    'visit_date' => $row[0] ?? null,
-                    'visit_type' => $row[1] ?? null,
-                    'provider_name' => $row[2] ?? null,
-                    'chief_complaint' => $row[3] ?? null,
-                    'assessment' => $row[4] ?? null,
-                    'external_id' => 'ccda-visit-'.sha1(implode('|', $row)),
-                ],
-                $rows
-            ), ['import_source' => self::IMPORT_SOURCE]);
         }
 
         return new PhrImportResult(skipped: count($rows));

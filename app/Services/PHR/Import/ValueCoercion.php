@@ -2,8 +2,8 @@
 
 namespace App\Services\PHR\Import;
 
-use App\Models\PhrDocument;
 use App\Support\PHR\PhrDocumentSource;
+use App\Support\PHR\PhrDocumentType;
 use Illuminate\Support\Carbon;
 
 final class ValueCoercion
@@ -50,6 +50,20 @@ final class ValueCoercion
         $normalized = str_replace(',', '', $string);
 
         return is_numeric($normalized) ? $normalized : null;
+    }
+
+    /** A yes/no a source stated, or null when it stated none (or something else). */
+    public static function boolean(mixed $value): ?bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        return match (is_string($value) ? strtolower(trim($value)) : $value) {
+            1, '1', 'true' => true,
+            0, '0', 'false' => false,
+            default => null,
+        };
     }
 
     public static function integer(mixed $value): ?int
@@ -187,8 +201,6 @@ final class ValueCoercion
 
     public static function normalizeDocumentType(mixed $type): string
     {
-        $value = self::string($type);
-
-        return in_array($value, PhrDocument::DOCUMENT_TYPES, true) ? $value : 'other';
+        return PhrDocumentType::normalize(self::string($type));
     }
 }

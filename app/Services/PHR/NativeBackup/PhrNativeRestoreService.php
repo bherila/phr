@@ -8,6 +8,7 @@ use App\Models\PhrDocument;
 use App\Models\PhrNativeRecordIdentity;
 use App\Models\PhrNativeRestoreAttempt;
 use App\Support\PHR\PhrDocumentSource;
+use App\Support\PHR\PhrDocumentType;
 use App\Support\Storage\PhrStorageKey;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\UploadedFile;
@@ -580,8 +581,9 @@ final class PhrNativeRestoreService
     {
         if ($table === 'phr_documents') {
             // This raw insert bypasses the model's guard; the archive has already
-            // mapped a legacy source (PhrNativeDocumentSourceCompatibility).
+            // mapped a legacy source or type (PhrNativeDocumentCompatibility).
             PhrDocumentSource::assertValid($data['source'] ?? null);
+            PhrDocumentType::assertValid($data['document_type'] ?? null);
             $data['genai_job_id'] = null;
             $data['storage_disk'] = PhrDocument::STORAGE_DISK;
             $data['storage_path'] = $artifact === null ? null : PhrStorageKey::document($patientId, $nativeId, 'document.bin');

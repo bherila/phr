@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { fetchWrapper } from '@/fetchWrapper'
 import { isBrowserPreviewableImage } from '@/phr/documents/browserImagePreview'
 import { documentSourceLabel } from '@/phr/documents/documentSource'
+import { documentTypeLabel } from '@/phr/documents/documentType'
 import { usePhrPatients } from '@/phr/patients/usePhrPatients'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
@@ -106,7 +107,7 @@ function DocumentView({ document, patientId }: { document: PhrDocument, patientI
   }
 
   const facts = [
-    formatLabel(document.document_type),
+    documentTypeLabel(document.document_type),
     documentSourceLabel(document.source),
     `Added ${formatDate(document.created_at)}`,
     [formatName(document), numPages ? `${numPages} page${numPages === 1 ? '' : 's'}` : null].filter(Boolean).join(' · '),
@@ -261,6 +262,3 @@ function formatDate(value: string | null): string {
   return value.slice(0, 10)
 }
 
-function formatLabel(value: string): string {
-  return value.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase())
-}

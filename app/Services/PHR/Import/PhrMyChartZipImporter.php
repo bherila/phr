@@ -2,6 +2,7 @@
 
 namespace App\Services\PHR\Import;
 
+use App\Models\PhrDocument;
 use App\Models\PhrPatient;
 use App\Services\PHR\Import\Ehi\EhiExportNotSupportedHere;
 use App\Services\PHR\Import\Ehi\EhiPackageDetector;
@@ -16,7 +17,11 @@ class PhrMyChartZipImporter
         private PhrCcdaImporter $ccdaImporter,
     ) {}
 
-    public function importFile(string $path, PhrPatient $patient, int $actorUserId): PhrImportResult
+    /**
+     * With `$document`, the stored document the ZIP is a copy of, every row its
+     * members write is linked to it.
+     */
+    public function importFile(string $path, PhrPatient $patient, int $actorUserId, ?PhrDocument $document = null): PhrImportResult
     {
         if (! is_file($path) || ! is_readable($path)) {
             throw new InvalidArgumentException("MyChart ZIP is not readable: {$path}");
@@ -76,8 +81,8 @@ class PhrMyChartZipImporter
 
                 try {
                     $result->merge($format === PhrStructuredFormat::FHIR
-                        ? $this->fhirImporter->importBundle((array) $bundle, $patient, $actorUserId)
-                        : $this->ccdaImporter->importXml($contents, $patient, $actorUserId));
+                        ? $this->fhirImporter->importBundle((array) $bundle, $patient, $actorUserId, $document)
+                        : $this->ccdaImporter->importXml($contents, $patient, $actorUserId, $document));
                 } catch (\Throwable $exception) {
                     // Fixed text only: an exception message can carry a server path,
                     // SQL with record values, or other detail that is not for display.
