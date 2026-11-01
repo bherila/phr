@@ -93,7 +93,7 @@ Standard Laravel 422 with `errors`. NDC-specific messages:
   12. package description (NDC `package_description`)
 - Brand name and directions are not table columns; they show in the entry form.
 - Missing values render as "—".
-- With `force_lowercase`, render the text columns (name, strength, dosage form, quantity unit, prescriber, pharmacy, route, manufacturer, package description) in lowercase (CSS `text-transform: lowercase` is fine). This includes strengths (`mL` displays as `ml`), as the owner asked for small case. Apply it on the fills table, the medication fill history and the entry form preview.
+- With `force_lowercase`, render the text columns (name, strength, dosage form, quantity unit, prescriber, pharmacy, route, manufacturer, package description) in lowercase (CSS `text-transform: lowercase` is fine). Units keep their standard case (`mL` stays `mL`, `IU` stays `IU`); the owner asked for this on 2026-11-01. Apply it on the fills table, the medication fill history and the entry form preview.
 
 ## Final shapes and deviations (backend, authoritative over the sections above)
 

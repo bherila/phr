@@ -55,6 +55,29 @@ export function useDisplayPreferences(): DisplayPreferencesValue {
   return useContext(DisplayPreferencesContext)
 }
 
+/** Units whose standard form has capitals. Force-lowercase never changes them (mL stays mL). */
+const CASED_UNIT = /(?<![A-Za-z])(mEq|mL|IU|L)(?![A-Za-z])/g
+
+/**
+ * Text that may sit inside a force-lowercase container, with its units kept as written:
+ * each cased unit is wrapped in a `normal-case` span, which overrides the inherited
+ * lowercase. Harmless when the preference is off.
+ */
+export function KeepUnitCase({ text }: { text: string | null | undefined }): ReactNode {
+  if (!text) return text ?? null
+  const parts: ReactNode[] = []
+  let last = 0
+  for (const match of text.matchAll(CASED_UNIT)) {
+    const index = match.index
+    if (index > last) parts.push(text.slice(last, index))
+    parts.push(<span key={index} className="normal-case">{match[0]}</span>)
+    last = index + match[0].length
+  }
+  if (parts.length === 0) return text
+  if (last < text.length) parts.push(text.slice(last))
+  return parts
+}
+
 /** The CSS class that renders text in small case, or nothing. Display only. */
 export function useLowercaseClass(): string {
   return useDisplayPreferences().forceLowercase ? 'lowercase' : ''
@@ -102,7 +125,7 @@ export default function DisplayPreferencesPanel(): ReactElement {
               Force lowercase display
             </label>
             <p className="text-sm text-muted-foreground">
-              Show prescription fill drug names, pharmacies, prescribers and directions in small case, including units such as mL (shown as ml).
+              Show prescription fill drug names, pharmacies, prescribers and directions in small case. Units such as mL and IU keep their standard case.
             </p>
           </div>
         </div>
