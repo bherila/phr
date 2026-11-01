@@ -25,10 +25,15 @@ class DeltaDentalEobCsvParser
         'You Pay',
     ];
 
-    /** The exact header row of the supported export, for recognising one by its first line. */
-    public static function headerLine(): string
+    /**
+     * Whether a CSV's first line is the supported export's header row, however its fields are
+     * quoted (a spreadsheet and fputcsv() both quote headings that contain spaces).
+     */
+    public static function isHeaderLine(string $line): bool
     {
-        return implode(',', self::HEADERS);
+        $fields = str_getcsv(ltrim($line, "\xEF\xBB\xBF"), ',', '"', '');
+
+        return array_map(trim(...), array_map(strval(...), $fields)) === self::HEADERS;
     }
 
     /**

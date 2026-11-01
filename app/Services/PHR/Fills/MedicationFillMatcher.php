@@ -36,11 +36,14 @@ final class MedicationFillMatcher
 
     private const string UNKNOWN = 'unknown';
 
+    /** The same drug named differently or less completely: worth a person's look, never a silent merge. */
+    private const string PARTIAL = 'partial';
+
     /** Words that say what a pharmacy or a dosage form is, not which one. */
     private const array NOISE = [
         'pharmacy', 'pharmacies', 'inc', 'llc', 'co', 'corp', 'the', 'store', 'drug', 'drugs', 'rx',
-        'tab', 'tabs', 'tablet', 'tablets', 'cap', 'caps', 'capsule', 'capsules', 'film', 'coated', 'oral',
-        'solution', 'suspension', 'and', 'for', 'with', 'hcl', 'hydrochloride',
+        'film', 'coated', 'oral', 'release', 'and', 'for', 'with', 'hcl', 'hydrochloride', 'sodium', 'potassium', 'calcium', 'magnesium',
+        'trihydrate', 'dihydrate', 'monohydrate', 'sulfate', 'phosphate', 'acetate', 'citrate', 'tartrate', 'succinate', 'mesylate', 'maleate',
     ];
 
     /**
@@ -99,6 +102,7 @@ final class MedicationFillMatcher
         $pharmacy = $this->pharmacy($incoming['pharmacy_name'] ?? null, $existing->pharmacy_name);
         $drug = $this->drug($incoming, $existing);
         $quantity = $this->quantity($incoming['quantity'] ?? null, $existing->quantity);
+        $sameDrug = $drug === self::SAME || $drug === self::PARTIAL;
 
         if ($rx === self::SAME) {
             return $pharmacy !== self::DIFFERENT && $drug !== self::DIFFERENT
@@ -112,10 +116,12 @@ final class MedicationFillMatcher
                 ? [self::UNCERTAIN, 'attributes']
                 : [self::NONE, null];
         }
+        // Without an Rx number or an NDC on both sides, a confident match needs the drug named
+        // identically (same words, strengths and form); a fuller or shorter name is a flag.
         if ($drug === self::SAME && $pharmacy === self::SAME && $quantity === self::SAME) {
             return [self::MATCHED, 'attributes'];
         }
-        if ($drug === self::SAME && ! ($pharmacy === self::DIFFERENT && $quantity === self::DIFFERENT)) {
+        if ($sameDrug && ! ($pharmacy === self::DIFFERENT && $quantity === self::DIFFERENT)) {
             return [self::UNCERTAIN, 'attributes'];
         }
 
@@ -158,62 +164,85 @@ final class MedicationFillMatcher
             return $incomingNdc === $existing->ndc_11 ? self::SAME : self::DIFFERENT;
         }
 
-        $mine = $this->drugWords($incoming['drug_as_printed'] ?? null, $incoming['brand_name'] ?? null, $incoming['substance_names'] ?? null);
-        $theirs = $this->drugWords($existing->drug_as_printed, $existing->brand_name, $existing->substance_names);
-        if ($mine === [] || $theirs === []) {
+        $mine = $this->profile($incoming['drug_as_printed'] ?? null, $incoming['brand_name'] ?? null, $incoming['substance_names'] ?? null, $incoming['strengths'] ?? null);
+        $theirs = $this->profile($existing->drug_as_printed, $existing->brand_name, $existing->substance_names, $existing->strengths);
+        if ($mine['names'] === [] || $theirs['names'] === []) {
             return self::UNKNOWN;
         }
-        // A different release formulation is a different product, though its name is a superset.
-        if ($this->qualifiers($incoming['drug_as_printed'] ?? null, $incoming['brand_name'] ?? null, $incoming['substance_names'] ?? null)
-            !== $this->qualifiers($existing->drug_as_printed, $existing->brand_name, $existing->substance_names)) {
+        if (array_intersect($mine['names'], $theirs['names']) === []) {
             return self::DIFFERENT;
         }
-        // Every identifying word of the shorter name must be in the longer one ("atorvastatin
-        // calcium" is "atorvastatin"; "levothyroxine sodium" is not "liothyronine sodium", though
-        // both say sodium). A partial overlap settles nothing, so it is neither a match nor a flag.
-        $shorter = count($mine) <= count($theirs) ? $mine : $theirs;
-        $longer = $shorter === $mine ? $theirs : $mine;
-        if (array_diff($shorter, $longer) !== []) {
-            return array_intersect($mine, $theirs) === [] ? self::DIFFERENT : self::UNKNOWN;
+        // Each of these makes it another product: a release formulation (metformin, metformin ER),
+        // every component's strength and concentration (500 mg/125 mg, 4 mg and 4 mg/ml), the form.
+        if ($mine['qualifiers'] !== $theirs['qualifiers']) {
+            return self::DIFFERENT;
         }
-        $mineStrengths = $this->strengths($incoming['drug_as_printed'] ?? null, $incoming['strengths'] ?? null);
-        $theirStrengths = $this->strengths($existing->drug_as_printed, $existing->strengths);
-        // Every component's strength must agree: 500 mg / 125 mg and 875 mg / 125 mg share 125 mg.
-        sort($mineStrengths);
-        sort($theirStrengths);
-        if ($mineStrengths !== [] && $theirStrengths !== [] && $mineStrengths !== $theirStrengths) {
+        if ($mine['strengths'] !== [] && $theirs['strengths'] !== [] && $mine['strengths'] !== $theirs['strengths']) {
+            return self::DIFFERENT;
+        }
+        if ($mine['forms'] !== [] && $theirs['forms'] !== [] && $mine['forms'] !== $theirs['forms']) {
             return self::DIFFERENT;
         }
 
-        return self::SAME;
+        // The same only if the two names say the same thing; otherwise it is the same drug named
+        // differently or less completely, which a person decides.
+        return $mine === $theirs ? self::SAME : self::PARTIAL;
     }
 
     /**
-     * The release-formulation words a name carries ("extended release", "ER", "XL"): metformin and
-     * metformin ER are not interchangeable.
+     * What a drug name says, in comparable parts.
      *
-     * @return list<string>
+     * @return array{names: list<string>, qualifiers: list<string>, strengths: list<string>, forms: list<string>}
      */
-    private function qualifiers(mixed ...$sources): array
+    private function profile(mixed ...$sources): array
     {
-        $found = [];
+        $names = [];
+        $qualifiers = [];
+        $strengths = [];
+        $forms = [];
         foreach ($sources as $source) {
             foreach (is_array($source) ? $source : [$source] as $text) {
-                foreach (preg_split('/[^a-z0-9]+/', strtolower(is_scalar($text) ? (string) $text : ''), -1, PREG_SPLIT_NO_EMPTY) ?: [] as $word) {
-                    $found[] = match ($word) {
-                        'extended', 'er', 'xr', 'xl', 'sr', 'cr', 'la', 'prolonged' => 'extended',
-                        'delayed', 'dr', 'ec', 'enteric' => 'delayed',
-                        'orally', 'odt', 'disintegrating' => 'disintegrating',
-                        'chewable' => 'chewable',
-                        default => null,
+                if (! is_scalar($text)) {
+                    continue;
+                }
+                $text = strtolower((string) $text);
+                // Strengths first, with the concentration denominator: "4 mg/ml" is not "4 mg".
+                $text = (string) preg_replace_callback(
+                    '/(\d+(?:\.\d+)?)\s*(mg|mcg|ug|g|ml|l|units?|iu|%)(?:\s*\/\s*(\d+(?:\.\d+)?)?\s*(ml|g|mg|l|hr|h|actuation|dose))?/',
+                    static function (array $match) use (&$strengths): string {
+                        $denominator = $match[4] === null ? '' : '/'.($match[3] === null ? '' : (string) (float) $match[3]).$match[4];
+                        $strengths[] = (string) (float) $match[1].$match[2].$denominator;
+
+                        return ' ';
+                    },
+                    $text,
+                    -1,
+                    $count,
+                    PREG_UNMATCHED_AS_NULL,
+                );
+                foreach (preg_split('/[^a-z]+/', $text, -1, PREG_SPLIT_NO_EMPTY) ?: [] as $word) {
+                    match (true) {
+                        in_array($word, ['extended', 'er', 'xr', 'xl', 'sr', 'cr', 'la', 'prolonged'], true) => $qualifiers[] = 'extended',
+                        in_array($word, ['delayed', 'dr', 'ec', 'enteric'], true) => $qualifiers[] = 'delayed',
+                        in_array($word, ['odt', 'disintegrating', 'chewable', 'chew'], true) => $qualifiers[] = 'disintegrating',
+                        in_array($word, ['tablet', 'tablets', 'tab', 'tabs'], true) => $forms[] = 'tablet',
+                        in_array($word, ['capsule', 'capsules', 'cap', 'caps'], true) => $forms[] = 'capsule',
+                        in_array($word, ['injection', 'inj', 'injectable'], true) => $forms[] = 'injection',
+                        in_array($word, ['solution', 'soln', 'suspension', 'syrup', 'liquid', 'cream', 'ointment', 'gel', 'patch', 'inhaler', 'spray', 'drops'], true) => $forms[] = $word === 'soln' ? 'solution' : $word,
+                        in_array($word, self::NOISE, true) || strlen($word) < 3 => null,
+                        default => $names[] = $word,
                     };
                 }
             }
         }
-        $found = array_values(array_unique(array_filter($found)));
-        sort($found);
+        $unique = static function (array $values): array {
+            $values = array_values(array_unique($values));
+            sort($values);
 
-        return $found;
+            return $values;
+        };
+
+        return ['names' => $unique($names), 'qualifiers' => $unique($qualifiers), 'strengths' => $unique($strengths), 'forms' => $unique($forms)];
     }
 
     private function quantity(mixed $a, mixed $b): string
@@ -237,36 +266,5 @@ final class MedicationFillMatcher
     }
 
     /** @return list<string> */
-    private function drugWords(mixed ...$sources): array
-    {
-        $words = [];
-        foreach ($sources as $source) {
-            foreach (is_array($source) ? $source : [$source] as $text) {
-                foreach ($this->words($text) as $word) {
-                    if (preg_match('/^[a-z]{3,}$/', $word) === 1) {
-                        $words[] = $word;
-                    }
-                }
-            }
-        }
-
-        return array_values(array_unique($words));
-    }
-
     /** @return list<string> strengths as "20mg", "2.5ml" */
-    private function strengths(mixed ...$sources): array
-    {
-        $found = [];
-        foreach ($sources as $source) {
-            foreach (is_array($source) ? $source : [$source] as $text) {
-                if (is_scalar($text) && preg_match_all('/(\d+(?:\.\d+)?)\s*(mg|mcg|ug|g|ml|unit|units|iu|%)/i', (string) $text, $matches, PREG_SET_ORDER)) {
-                    foreach ($matches as $match) {
-                        $found[] = (string) (float) $match[1].strtolower($match[2]);
-                    }
-                }
-            }
-        }
-
-        return array_values(array_unique($found));
-    }
 }

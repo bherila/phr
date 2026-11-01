@@ -54,7 +54,7 @@ final class EobDocumentImportService
             return $this->importMeritain($patient, $document, $path);
         }
         $firstLine = strtok(ltrim($prefix, "\xEF\xBB\xBF"), "\r\n");
-        if ($firstLine === DeltaDentalEobCsvParser::headerLine()) {
+        if (is_string($firstLine) && DeltaDentalEobCsvParser::isHeaderLine($firstLine)) {
             return $this->importDelta($patient, $document, $path);
         }
 

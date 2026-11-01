@@ -181,11 +181,16 @@ final class MedicationFillCrossSourceDedupeTest extends TestCase
         $this->fill('statement', $this->document(), [...$base, 'drug_as_printed' => 'Liothyronine sodium 50 mcg tablet', 'source_kind' => 'statement'])
             ->assertCreated()
             ->assertJsonPath('dedupe.status', 'none');
-        // The same drug named more fully on the other source is still the same fill.
+        // The same drug named less completely on another source cannot be settled by the server:
+        // it is flagged for a person, not silently merged.
         $this->fill('label', $this->document(), [...$base, 'drug_as_printed' => 'Levothyroxine 50 mcg', 'source_kind' => 'label_photo'])
+            ->assertCreated()
+            ->assertJsonPath('dedupe.status', 'flagged');
+        // Named the same way, it is the same fill.
+        $this->fill('label', $this->document(), [...$base, 'drug_as_printed' => 'LEVOTHYROXINE SODIUM 50 MCG TABLET', 'source_kind' => 'label_photo'])
             ->assertOk()
             ->assertJsonPath('dedupe.status', 'matched');
-        $this->assertSame(2, PhrMedicationFill::query()->count());
+        $this->assertSame(3, PhrMedicationFill::query()->count());
     }
 
     public function test_combination_drugs_match_only_when_every_component_strength_agrees(): void
@@ -194,8 +199,17 @@ final class MedicationFillCrossSourceDedupeTest extends TestCase
         $this->fill('receipt', $this->document(), [...$base, 'drug_as_printed' => 'Amoxicillin clavulanate 500 mg / 125 mg tablets'])->assertCreated();
         $this->fill('statement', $this->document(), [...$base, 'drug_as_printed' => 'Amoxicillin clavulanate 875 mg / 125 mg tablets', 'source_kind' => 'statement'])
             ->assertCreated()->assertJsonPath('dedupe.status', 'none');
-        $this->fill('label', $this->document(), [...$base, 'drug_as_printed' => 'Amoxicillin clavulanate 500 mg/125 mg', 'source_kind' => 'label_photo'])
+        $this->fill('label', $this->document(), [...$base, 'drug_as_printed' => 'Amoxicillin clavulanate 500 mg/125 mg tablets', 'source_kind' => 'label_photo'])
             ->assertOk()->assertJsonPath('dedupe.status', 'matched');
+        $this->assertSame(2, PhrMedicationFill::query()->count());
+    }
+
+    public function test_a_concentration_is_not_the_same_strength_and_another_form_is_another_drug(): void
+    {
+        $base = ['ndc' => null, 'rx_number' => null, 'quantity' => 1, 'pharmacy_name' => 'Example Pharmacy', 'source_kind' => 'receipt_pdf'];
+        $this->fill('receipt', $this->document(), [...$base, 'drug_as_printed' => 'Dexamethasone 4 mg tablets'])->assertCreated();
+        $this->fill('statement', $this->document(), [...$base, 'drug_as_printed' => 'Dexamethasone 4 mg/ml injection', 'source_kind' => 'statement'])
+            ->assertCreated()->assertJsonPath('dedupe.status', 'none');
         $this->assertSame(2, PhrMedicationFill::query()->count());
     }
 
@@ -205,8 +219,8 @@ final class MedicationFillCrossSourceDedupeTest extends TestCase
         $this->fill('receipt', $this->document(), [...$base, 'drug_as_printed' => 'Metformin 500 mg tablets'])->assertCreated();
         $this->fill('statement', $this->document(), [...$base, 'drug_as_printed' => 'Metformin 500 mg extended release tablets', 'source_kind' => 'statement'])
             ->assertCreated()->assertJsonPath('dedupe.status', 'none');
-        // "ER" and "extended release" are the same formulation.
-        $this->fill('label', $this->document(), [...$base, 'drug_as_printed' => 'Metformin ER 500 mg', 'source_kind' => 'label_photo'])
+        // "ER" and "extended release" are the same formulation, named alike.
+        $this->fill('label', $this->document(), [...$base, 'drug_as_printed' => 'Metformin ER 500 mg tablets', 'source_kind' => 'label_photo'])
             ->assertOk()->assertJsonPath('dedupe.status', 'matched');
         $this->assertSame(2, PhrMedicationFill::query()->count());
 

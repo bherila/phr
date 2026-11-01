@@ -396,6 +396,19 @@ EOB;
         $this->assertSame(1, PhrEob::query()->count());
     }
 
+    public function test_a_delta_dental_csv_with_quoted_headings_is_recognised(): void
+    {
+        $header = ['Claim Number', 'Date of Service', 'Submission Date', 'Member Name', 'Dentist', 'Phone', 'Procedure', 'Procedure Code', 'Accepted Fee', 'Claim Deductible', 'Delta Dental Pays', 'You Pay'];
+        $stream = fopen('php://memory', 'r+');
+        fputcsv($stream, $header, ',', '"', '');
+        fputcsv($stream, ['20300102000009', '2030-01-02', '2030-01-03', 'Synthetic Patient', 'EXAMPLE DENTIST', '(555) 010-0200', 'Periodic oral evaluation established patient', 'D0120', '100.00', '0.00', '80.00', '20.00'], ',', '"', '');
+        rewind($stream);
+        $document = $this->storedDocument('claims.txt', 'text/plain', (string) stream_get_contents($stream));
+
+        $this->postJson("{$this->url()}/import", ['document_id' => $document->id])
+            ->assertCreated()->assertJsonPath('data.format', 'delta_dental');
+    }
+
     public function test_a_delta_dental_csv_is_imported_and_another_source_holding_it_is_unchanged(): void
     {
         $csv = <<<'CSV'
