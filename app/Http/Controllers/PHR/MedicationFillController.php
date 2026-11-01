@@ -4,12 +4,14 @@ namespace App\Http\Controllers\PHR;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\PHR\Concerns\HandlesClinicalResourceRequests;
+use App\Http\Requests\PHR\ResolveFillDuplicateRequest;
 use App\Http\Requests\PHR\ReviewClinicalRecordRequest;
 use App\Http\Requests\PHR\StoreMedicationFillRequest;
 use App\Http\Resources\PHR\MedicationFillResource;
 use App\Models\PhrMedication;
 use App\Models\PhrMedicationFill;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Services\PHR\Fills\MedicationFillDuplicateService;
 use App\Services\PHR\Fills\MedicationFillWriter;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\PHR\PhrRecordLifecycle;
@@ -134,6 +136,31 @@ class MedicationFillController extends Controller
     public function review(ReviewClinicalRecordRequest $request, int $patient, int $fill): JsonResponse
     {
         return $this->reviewClinicalResource($request, $patient, $fill);
+    }
+
+    /**
+     * Same fill: merge into the existing fill and retract this one. Different fill: clear the
+     * flag. Conditional on the version the reviewer saw (409 otherwise).
+     */
+    public function resolveDuplicate(ResolveFillDuplicateRequest $request, int $patient, int $fill): JsonResponse
+    {
+        $resolvedPatient = $this->accessService->writablePatient($patient, (int) $request->user()?->id);
+        $candidate = $request->validated('candidate_fill_id');
+        $result = app(MedicationFillDuplicateService::class)->resolve(
+            $resolvedPatient,
+            $fill,
+            (string) $request->validated('action'),
+            (string) $request->validated('version'),
+            $candidate !== null ? (int) $candidate : null,
+        );
+        $stored = PhrMedicationFill::withTrashed()->with(['medication:id,name', 'evidence'])->whereKey($fill)->firstOrFail();
+
+        return response()->json([
+            'outcome' => $result['outcome'],
+            'merged_into_fill_id' => $result['merged_into_fill_id'],
+            'moved' => $result['moved'],
+            'medication_fill' => $this->resourcePayload($stored),
+        ]);
     }
 
     /**

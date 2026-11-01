@@ -20,7 +20,7 @@ import { pushPhrLocation } from '@/phr/shell/phrLocation'
 import { PHR_PAGES, type PhrListPageProps } from '@/phr/shell/phrPages'
 import { isPhrShellPath, patientPageUrl, type PhrPageId } from '@/phr/shell/phrRoutes'
 
-import { decideReviewItems, getReviewQueue, type ReviewDecision, type ReviewGroup, type ReviewItem, type ReviewQueue, sectionOf } from './reviewApi'
+import { decideReviewItems, type DuplicateAction, type FillDuplicate, type FillSummary, getReviewQueue, resolveFillDuplicate, type ReviewDecision, type ReviewGroup, type ReviewItem, type ReviewQueue, sectionOf } from './reviewApi'
 import { setReviewSummary } from './reviewSummary'
 
 type ChangeKind = 'new' | 'update' | 'duplicate' | 'evidence' | 'kept'
@@ -52,6 +52,8 @@ export interface ReviewRow {
    * it is approved on its own, from the view that shows all of them.
    */
   ai: { view: AiResultView, documentHref: string | null } | null
+  /** A fill that may repeat an existing one: shown beside it, with the merge / keep-both choice. */
+  duplicate: FillDuplicate | null
 }
 
 function joined(parts: (string | null | undefined)[]): string | null {
@@ -65,12 +67,15 @@ export function reviewRow(item: ReviewItem, group: ReviewGroup, patientId: numbe
   if (item.type === 'record') {
     return {
       item, section, source, title: item.title, detail: item.detail, flags: (item.flags ?? []).map((flag) => flag.message),
-      change: item.change,
-      changeDetail: item.change === 'new' ? 'Not in the record yet' : 'Changed by its source since it was added',
-      action: { label: 'Open', href: patientPageUrl(patientId, section, item.id) },
+      change: item.duplicate ? 'duplicate' : item.change,
+      changeDetail: item.duplicate
+        ? 'May be the same fill as one already in PHR; compare them and merge or keep both'
+        : item.change === 'new' ? 'Not in the record yet' : 'Changed by its source since it was added',
+      action: { label: 'Open', href: item.open_path ?? patientPageUrl(patientId, section, item.id) },
       // A flagged record is looked at, not approved in a batch by default.
       checkedByDefault: (item.flags ?? []).length === 0,
       ai: null,
+      duplicate: item.duplicate ?? null,
     }
   }
   if (item.type === 'ai_result') {
@@ -84,6 +89,7 @@ export function reviewRow(item: ReviewItem, group: ReviewGroup, patientId: numbe
       action: null,
       checkedByDefault: false,
       ai: { view, documentHref: group.document_id !== null ? patientPageUrl(patientId, 'documents', group.document_id) : null },
+      duplicate: null,
     }
   }
   const proposal = item.proposal
@@ -102,6 +108,7 @@ export function reviewRow(item: ReviewItem, group: ReviewGroup, patientId: numbe
     action: { label: change === 'new' || change === 'kept' ? 'Open' : 'Compare', href: ehiReviewUrl(patientId, item.package_id) },
     checkedByDefault: change !== 'duplicate',
     ai: null,
+    duplicate: null,
   }
 }
 
@@ -178,6 +185,45 @@ function viewGroups(queue: ReviewQueue, patientId: number, bySection: boolean): 
   }))
 }
 
+const COMPARED: { label: string, value: (fill: FillSummary) => string }[] = [
+  { label: 'Date', value: (fill) => fill.filled_on },
+  { label: 'Name', value: (fill) => fill.name },
+  { label: 'Strength', value: (fill) => fill.strength ?? '—' },
+  { label: 'Quantity', value: (fill) => fill.quantity ?? '—' },
+  { label: 'Pharmacy', value: (fill) => fill.pharmacy ?? '—' },
+  { label: 'Rx number', value: (fill) => fill.rx_number ?? '—' },
+  { label: 'Sources', value: (fill) => fill.sources.join('; ') },
+]
+
+/** A flagged fill beside one existing fill it may repeat; a difference is marked. */
+function FillComparison({ fill, existing }: { fill: FillSummary, existing: FillSummary }): ReactElement {
+  return (
+    <table className="w-full max-w-3xl border-collapse text-sm">
+      <caption className="sr-only">Flagged fill compared with an existing fill</caption>
+      <thead>
+        <tr className="text-left text-xs font-semibold text-muted-foreground">
+          <th scope="col" className="py-1 pr-3"><span className="sr-only">Field</span></th>
+          <th scope="col" className="py-1 pr-3">Flagged fill</th>
+          <th scope="col" className="py-1">Existing fill</th>
+        </tr>
+      </thead>
+      <tbody>
+        {COMPARED.map(({ label, value }) => {
+          const mine = value(fill)
+          const theirs = value(existing)
+          return (
+            <tr key={label} className="border-t border-border align-top">
+              <th scope="row" className="py-1 pr-3 text-left text-xs font-medium text-muted-foreground">{label}</th>
+              <td className={cn('py-1 pr-3', label !== 'Sources' && mine !== theirs && 'font-semibold text-amber-700 dark:text-amber-400')}>{mine}</td>
+              <td className={cn('py-1', label !== 'Sources' && mine !== theirs && 'font-semibold text-amber-700 dark:text-amber-400')}>{theirs}</td>
+            </tr>
+          )
+        })}
+      </tbody>
+    </table>
+  )
+}
+
 interface PendingBatch {
   group: ViewGroup
   decision: ReviewDecision
@@ -190,7 +236,7 @@ function detailsIdOf(row: ReviewRow): string {
 
 /** Enter (or a click outside the row's controls) opens the record, or an AI proposal's view. */
 function openReviewRow(row: ReviewRow, toggleExpanded: (key: string) => void): void {
-  if (row.ai) {
+  if (row.ai || row.duplicate) {
     toggleExpanded(row.item.key)
     return
   }
@@ -257,7 +303,7 @@ function reviewColumns(
               <a href={row.action.href} aria-label={`${row.action.label} ${row.title}`}>{row.action.label}</a>
             </Button>
           )}
-          {row.ai && (
+          {(row.ai || row.duplicate) && (
             <Button type="button" size="sm" variant="outline" aria-expanded={expanded.has(row.item.key)} aria-controls={detailsIdOf(row)} aria-label={`Review ${row.title}`} onClick={() => toggleExpanded(row.item.key)}>
               {expanded.has(row.item.key) ? 'Hide' : 'Review'}
             </Button>
@@ -331,6 +377,25 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
     const failed = Object.keys(outcome.failed).length
     const verb = batch.decision === 'approve' ? 'Approved' : 'Rejected'
     setStatus(`${verb} ${outcome.done.length}.${failed > 0 ? ` ${failed} could not be ${batch.decision === 'approve' ? 'approved' : 'rejected'}; each says why below.` : ''}`)
+    await load()
+    setBusy(false)
+  }
+
+  async function resolveDuplicate(row: ReviewRow, action: DuplicateAction, candidateId?: number): Promise<void> {
+    if (row.item.type !== 'record') return
+    setBusy(true)
+    setStatus(null)
+    try {
+      await resolveFillDuplicate(patientId, row.item.id, action, row.item.version, candidateId)
+      setFailures((previous) => {
+        const next = { ...previous }
+        delete next[row.item.key]
+        return next
+      })
+      setStatus(action === 'same' ? `Merged ${row.title} into the existing fill.` : `Kept ${row.title} as a separate fill.`)
+    } catch (caught) {
+      setFailures((previous) => ({ ...previous, [row.item.key]: ehiFailureText(caught) }))
+    }
     await load()
     setBusy(false)
   }
@@ -470,7 +535,26 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
                   />
                 ) : <span className="sr-only">Select</span>,
               }}
-              renderAfterRow={(row, colSpan) => row.ai && expanded.has(row.item.key) && (
+              renderAfterRow={(row, colSpan) => row.duplicate && expanded.has(row.item.key) ? (
+                <tr id={detailsIdOf(row)} className="bg-muted/20">
+                  <td colSpan={colSpan} className="px-4 pt-1 pb-4 md:px-5">
+                    <div className="flex flex-col gap-4 pl-8">
+                      <p className="text-sm text-muted-foreground">
+                        The server could not tell whether these are the same dispensing. If they are the same fill, merging moves this fill’s documents and EOB lines onto the existing fill and sets this one aside (nothing is deleted). If not, keep both.
+                      </p>
+                      {row.duplicate.candidates.map((existing) => (
+                        <div key={existing.id} className="flex flex-col gap-2">
+                          <FillComparison fill={row.duplicate!.fill} existing={existing} />
+                          <div className="flex flex-wrap gap-2">
+                            <Button type="button" size="sm" disabled={!canManage || busy} aria-label={`Same fill: merge ${row.title} into the existing fill of ${existing.filled_on}`} onClick={() => void resolveDuplicate(row, 'same', existing.id)}>Same fill</Button>
+                            <Button type="button" size="sm" variant="outline" disabled={!canManage || busy} aria-label={`Different fill: keep ${row.title} and clear the flag`} onClick={() => void resolveDuplicate(row, 'different', existing.id)}>Different fill</Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </td>
+                </tr>
+              ) : row.ai && expanded.has(row.item.key) && (
                 <tr id={detailsIdOf(row)} className="bg-muted/20">
                   <td colSpan={colSpan} className="px-4 pt-1 pb-4 md:px-5">
                     <div className="flex flex-col gap-2 pl-8">

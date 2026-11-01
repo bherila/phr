@@ -6,7 +6,7 @@ import { AiImportResultSchema, decideAiResult } from '@/phr/imports/ai/aiImports
 import { type EhiDecision, ehiFailureText, EhiProposalSchema, reviewEhiProposal } from '@/phr/imports/ehi/ehiApi'
 import { isPhrPageId, type PhrPageId } from '@/phr/shell/phrRoutes'
 
-import { ReviewSummarySchema, type ReviewSummaryState } from './reviewSummary'
+import { reviewStateChanged, ReviewSummarySchema, type ReviewSummaryState } from './reviewSummary'
 
 /**
  * The patient's review queue. Reading it is one request; each decision goes to the route
@@ -15,6 +15,23 @@ import { ReviewSummarySchema, type ReviewSummaryState } from './reviewSummary'
  * reject routes, and the EHI proposal review route (with its preview digest).
  */
 const SectionSchema = z.string().refine(isPhrPageId).transform((value) => value as PhrPageId)
+
+/** One fill as a person compares it with another: the fields that tell two fills apart. */
+const FillSummarySchema = z.object({
+  id: z.number(),
+  filled_on: z.string(),
+  name: z.string(),
+  strength: z.string().nullable(),
+  quantity: z.string().nullable(),
+  pharmacy: z.string().nullable(),
+  rx_number: z.string().nullable(),
+  sources: z.array(z.string()),
+  review_status: z.string().optional(),
+})
+export type FillSummary = z.infer<typeof FillSummarySchema>
+
+const DuplicateSchema = z.object({ fill: FillSummarySchema, candidates: z.array(FillSummarySchema) })
+export type FillDuplicate = z.infer<typeof DuplicateSchema>
 
 const RecordItemSchema = z.object({
   type: z.literal('record'),
@@ -26,6 +43,10 @@ const RecordItemSchema = z.object({
   detail: z.string().nullable(),
   /** Why a person should look closely, such as a fill printed for another name. */
   flags: z.array(z.object({ code: z.string(), message: z.string() })).optional(),
+  /** A fill flagged possible_duplicate, beside the existing fills it may repeat. */
+  duplicate: DuplicateSchema.optional(),
+  /** Where to open the record when it has no page of its own under its section (an EOB). */
+  open_path: z.string().optional(),
   change: z.enum(['new', 'update']),
   version: z.string(),
   updated_at: z.string().nullable(),
@@ -150,4 +171,23 @@ export async function decideReviewItems(patientId: number, items: ReviewItem[], 
     }
   }
   return outcome
+}
+
+export type DuplicateAction = 'same' | 'different'
+
+/**
+ * Answer a fill's possible-duplicate flag: `same` merges it into the existing fill (and
+ * retracts it), `different` clears the flag. Conditional on the version listed (a 409
+ * otherwise). Throws the route's refusal.
+ */
+export async function resolveFillDuplicate(patientId: number, fillId: number, action: DuplicateAction, version: string, candidateFillId?: number): Promise<void> {
+  try {
+    await fetchWrapper.post(`/api/phr/patients/${patientId}/medication-fills/${fillId}/resolve-duplicate`, {
+      action,
+      version,
+      ...(candidateFillId !== undefined ? { candidate_fill_id: candidateFillId } : {}),
+    })
+  } finally {
+    void reviewStateChanged(patientId)
+  }
 }

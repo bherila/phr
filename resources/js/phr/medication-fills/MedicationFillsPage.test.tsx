@@ -223,6 +223,19 @@ describe('MedicationFillsPage table', () => {
 
     await waitFor(() => expect(mockPatch).toHaveBeenCalledWith('/api/phr/patients/42/medication-fills/1/review', { review_status: 'confirmed' }))
   })
+
+  it('badges a fill with an open possible-duplicate flag and no other', async () => {
+    fills = [
+      makeFill({ review_status: 'pending_review', review_flags: [{ code: 'possible_duplicate', message: 'May be fill 2', fill_id: 2 }] }),
+      makeFill({ id: 2, filled_on: '2025-03-04', review_flags: [] }),
+    ]
+    renderPage()
+
+    expect(await screen.findAllByText('Possible duplicate')).toHaveLength(1)
+    const row = screen.getByText('26.10.28').closest('tr') as HTMLElement
+    expect(within(row).getByText('Possible duplicate')).toBeInTheDocument()
+    expect(within(screen.getByText('25.03.04').closest('tr') as HTMLElement).queryByText('Possible duplicate')).not.toBeInTheDocument()
+  })
 })
 
 describe('Fill entry form', () => {

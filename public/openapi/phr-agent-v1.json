@@ -3652,6 +3652,79 @@
                 }
             }
         },
+        "/patients/{patient}/medication-fills/{fill}/resolve-duplicate": {
+            "post": {
+                "operationId": "medication_fills.resolve_duplicate",
+                "summary": "Answer a possible-duplicate flag on a fill this connection wrote",
+                "description": "A fill written with review_flags [{code: possible_duplicate, fill_id}] may be the same dispensing as an existing fill. action same merges it into that fill: its evidence (documents, EOB lines, aliases) moves onto the existing fill, blanks there are filled in, and the flagged fill is retracted, not deleted. action different clears the flag and keeps both. Requires the flagged fill's current version (409 if it changed). Repeating a decision with the returned version is unchanged. Ask the person before deciding: a wrong merge hides a real fill. When the fill has more than one open flag, same needs candidate_fill_id.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "clinical:read",
+                            "clinical:write"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FillDuplicateResolutionRequest"
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    },
+                    {
+                        "name": "fill",
+                        "in": "path",
+                        "required": true,
+                        "description": "The ID of the flagged medication fill.",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Fill merged, flag cleared, or decision already recorded",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/FillDuplicateResolutionResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/Conflict"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            }
+        },
         "/patients/{patient}/medication-fills": {
             "put": {
                 "operationId": "medication_fills.upsert",
@@ -9619,6 +9692,113 @@
                             "integer",
                             "null"
                         ]
+                    }
+                },
+                "additionalProperties": false
+            },
+            "FillDuplicateResolution": {
+                "type": "object",
+                "required": [
+                    "fill_id",
+                    "action",
+                    "merged_into_fill_id",
+                    "moved",
+                    "version"
+                ],
+                "properties": {
+                    "fill_id": {
+                        "type": "integer"
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": [
+                            "same",
+                            "different"
+                        ]
+                    },
+                    "merged_into_fill_id": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ]
+                    },
+                    "moved": {
+                        "type": "object",
+                        "required": [
+                            "documents",
+                            "eob_lines"
+                        ],
+                        "properties": {
+                            "documents": {
+                                "type": "integer"
+                            },
+                            "eob_lines": {
+                                "type": "integer"
+                            }
+                        },
+                        "additionalProperties": false
+                    },
+                    "version": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$",
+                        "description": "The flagged fill's version after the decision (a merged fill is retracted)."
+                    }
+                },
+                "additionalProperties": false
+            },
+            "FillDuplicateResolutionRequest": {
+                "type": "object",
+                "required": [
+                    "action",
+                    "expected_version"
+                ],
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": [
+                            "same",
+                            "different"
+                        ],
+                        "description": "same merges the flagged fill into the existing fill and retracts it; different clears the flag and keeps both."
+                    },
+                    "expected_version": {
+                        "type": "string",
+                        "pattern": "^[a-f0-9]{64}$",
+                        "description": "The flagged fill's current version."
+                    },
+                    "candidate_fill_id": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Which existing fill, when the flagged fill has more than one open flag."
+                    }
+                },
+                "additionalProperties": false
+            },
+            "FillDuplicateResolutionResponse": {
+                "type": "object",
+                "required": [
+                    "resource_type",
+                    "patient_id",
+                    "outcome",
+                    "data"
+                ],
+                "properties": {
+                    "resource_type": {
+                        "const": "medication_fill_duplicate_resolution"
+                    },
+                    "patient_id": {
+                        "type": "integer"
+                    },
+                    "outcome": {
+                        "type": "string",
+                        "enum": [
+                            "merged",
+                            "cleared",
+                            "unchanged"
+                        ]
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/FillDuplicateResolution"
                     }
                 },
                 "additionalProperties": false

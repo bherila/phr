@@ -90,6 +90,8 @@ export const MedicationFillSchema = z.object({
   pharmacy_name: nullableString,
   pharmacy_location: nullableString,
   display: FillDisplaySchema.nullable().optional().transform((value) => value ?? null),
+  /** Why a person should look closely: `possible_duplicate` names the existing fill this one may repeat. */
+  review_flags: z.array(z.object({ code: z.string(), message: z.string(), fill_id: z.number().optional() })).nullable().optional().transform((value) => value ?? []),
 })
 export type MedicationFill = z.infer<typeof MedicationFillSchema>
 

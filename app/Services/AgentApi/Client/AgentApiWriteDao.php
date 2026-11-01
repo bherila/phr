@@ -251,4 +251,13 @@ final readonly class AgentApiWriteDao
             json: $payload,
         ));
     }
+
+    public function medicationFillResolveDuplicate(int $patientId, int $fillId, string $action, string $expectedVersion, ?int $candidateFillId): AgentApiPayload
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'POST',
+            "patients/{$patientId}/medication-fills/{$fillId}/resolve-duplicate",
+            json: array_filter(['action' => $action, 'expected_version' => $expectedVersion, 'candidate_fill_id' => $candidateFillId], static fn (mixed $value): bool => $value !== null),
+        ), ['resource_type', 'patient_id', 'outcome', 'data']);
+    }
 }
