@@ -11149,6 +11149,20 @@
                             "null"
                         ]
                     },
+                    "range_min_inclusive": {
+                        "type": [
+                            "boolean",
+                            "null"
+                        ],
+                        "description": "Whether range_min itself is within the range: true for a source's <= or >=, false for < or >, null when the source did not say. Changing range_min without this resets it to null."
+                    },
+                    "range_max_inclusive": {
+                        "type": [
+                            "boolean",
+                            "null"
+                        ],
+                        "description": "Whether range_max itself is within the range: true for a source's <= or >=, false for < or >, null when the source did not say. Changing range_max without this resets it to null."
+                    },
                     "range_unit": {
                         "type": [
                             "string",
