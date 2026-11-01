@@ -3,6 +3,7 @@
 namespace Tests\Feature\PHR;
 
 use App\Models\PhrMedication;
+use App\Support\PHR\PhrReviewStatus;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 final class PhrCcdaMedicationsImportTest extends PhrCcdaSectionImportTestCase
@@ -48,6 +49,38 @@ final class PhrCcdaMedicationsImportTest extends PhrCcdaSectionImportTestCase
 
         $rows = PhrMedication::query()->where('patient_id', $patient->id)->orderBy('id')->get();
         $this->assertSame([['every 12 h', null], ['every 24 h', null], ['every 24 h', 'Synthetic inhaled']], $rows->map(fn (PhrMedication $row): array => [$row->frequency, $row->route])->all());
+    }
+
+    public function test_a_medication_whose_dose_changed_between_exports_updates_in_place(): void
+    {
+        $patient = $this->ccdaPatient();
+        $document = static fn (string $dose): string => <<<XML
+            <templateId root="2.16.840.1.113883.10.20.22.2.1.1" extension="2014-06-09"/><title>Medications</title>
+            <entry>
+              <substanceAdministration classCode="SBADM" moodCode="INT">
+                <templateId root="2.16.840.1.113883.10.20.22.4.16"/>
+                <id root="2.25.5002" extension="med-dose-change"/>
+                <statusCode code="active"/>
+                <effectiveTime xsi:type="IVL_TS"><low value="20260101"/></effectiveTime>
+                <doseQuantity value="{$dose}" unit="mg"/>
+                <consumable><manufacturedProduct><manufacturedMaterial>
+                  <code code="9990092" codeSystem="2.16.840.1.113883.6.88" displayName="Synthetic dose-change medicine"/>
+                </manufacturedMaterial></manufacturedProduct></consumable>
+              </substanceAdministration>
+            </entry>
+            XML;
+        $first = $this->importCcda($this->ccdaSectionDocument($document('5')), $patient);
+        $row = PhrMedication::query()->where('patient_id', $patient->id)->sole();
+        $row->forceFill(['review_status' => PhrReviewStatus::CONFIRMED])->save();
+
+        $second = $this->importCcda($this->ccdaSectionDocument($document('10')), $patient);
+
+        $this->assertSame([1, 0], [$first->created, $first->updated]);
+        $this->assertSame([0, 1], [$second->created, $second->updated]);
+        $again = PhrMedication::query()->where('patient_id', $patient->id)->sole();
+        $this->assertSame($row->id, $again->id);
+        $this->assertSame('10', (string) $again->dose);
+        $this->assertSame(PhrReviewStatus::PENDING, $again->review_status);
     }
 
     /** A dose range is never stored as one of its bounds, as if it were exact. */
