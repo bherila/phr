@@ -17,6 +17,12 @@ use Illuminate\Support\Facades\Schema;
  */
 return new class extends Migration
 {
+    /** The agent-writable table this migration creates; keyed on external_id like the others. */
+    private const string TABLE = 'phr_medication_fills';
+
+    /** Same rule as 2026_08_22_120000_make_agent_external_id_binary: external IDs compare bytewise. */
+    private const string EXTERNAL_ID_COLLATION = 'utf8mb4_bin';
+
     public function up(): void
     {
         if (Schema::hasTable('phr_medication_fills')) {
@@ -90,7 +96,7 @@ return new class extends Migration
         // 2026_08_22_120000_make_agent_external_id_binary). SQLite is already
         // bytewise; only the MySQL family needs the override.
         if (in_array(DB::getDriverName(), ['mysql', 'mariadb'], true)) {
-            DB::statement('ALTER TABLE `phr_medication_fills` MODIFY `external_id` VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL');
+            DB::statement(sprintf('ALTER TABLE `%s` MODIFY `external_id` VARCHAR(255) CHARACTER SET utf8mb4 COLLATE %s NULL', self::TABLE, self::EXTERNAL_ID_COLLATION));
         }
     }
 

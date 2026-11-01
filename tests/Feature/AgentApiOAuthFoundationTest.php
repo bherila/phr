@@ -296,6 +296,8 @@ class AgentApiOAuthFoundationTest extends TestCase
             'eob_lines.list',
             'eob_lines.get',
             'evidence.links',
+            'ndc.lookup',
+            'ndc.search',
             'documents.list',
             'documents.upload',
             'documents.get',
@@ -367,6 +369,10 @@ class AgentApiOAuthFoundationTest extends TestCase
             [AgentApiScopes::IDENTITY_READ],
             $document['paths']['/me']['get']['security'][0]['oauth2'],
         );
+        // NDC lookup and search touch no patient data but stay behind clinical:read, as fill writes stay behind clinical:write.
+        $this->assertSame([AgentApiScopes::CLINICAL_READ], $document['paths']['/ndc/lookup']['get']['security'][0]['oauth2']);
+        $this->assertSame([AgentApiScopes::CLINICAL_READ], $document['paths']['/ndc/search']['get']['security'][0]['oauth2']);
+        $this->assertSame([AgentApiScopes::CLINICAL_WRITE], $document['paths']['/patients/{patient}/medication-fills']['put']['security'][0]['oauth2']);
         $this->assertSame(
             [],
             $document['paths']['/oauth/token']['delete']['security'][0]['oauth2'],

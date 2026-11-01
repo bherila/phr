@@ -651,7 +651,7 @@ final class AgentApiMedicationFillTest extends TestCase
     {
         $this->makePatient($this->actor, 'Second Patient', '1990-03-04');
 
-        $this->getJson('/api/v1/patients?birth_date=1980-01-02')
+        $this->getJson('/api/v1/patients?'.http_build_query(['birth_date' => '1980-01-02']))
             ->assertUnprocessable()
             ->assertJsonValidationErrors('name');
     }
