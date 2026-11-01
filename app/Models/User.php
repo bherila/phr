@@ -139,7 +139,6 @@ class User extends Authenticatable implements OAuthenticatable
             'oauth_security_version' => 'integer',
             'genai_execution_mode' => 'string',
             'genai_execution_mode_chosen_at' => 'datetime',
-            'force_lowercase_display' => 'boolean',
         ];
     }
 

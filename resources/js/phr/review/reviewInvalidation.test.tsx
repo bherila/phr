@@ -182,7 +182,6 @@ describe('review decision paths', () => {
     'config/ConnectedDevicesPanel.tsx': 'account devices, not patient records',
     'config/connectedApps.ts': 'account app consents, not patient records',
     'data-hub/DataHubPage.tsx': 'exports and backups read the record; a deleted patient leaves the list; a native restore creates a new patient, which has nothing cached',
-    'display/DisplayPreferences.tsx': 'a per-user display setting, not patient records',
     'documents/DocumentViewer.tsx': 'sends a document to AI; proposals arrive later, and an AI import is counted when its results are read',
     'imaging/explore3d/pipeline/useVolumePipeline.ts': 'stores a derived volume cache for a series; no study is added',
     'patients/PatientForm.tsx': 'creates a patient, which has nothing cached',

@@ -266,7 +266,6 @@ final class MedicationFillControllerTest extends TestCase
         $this->app['auth']->forgetGuards();
         $this->getJson($base)->assertUnauthorized();
         $this->getJson('/api/ndc/lookup?ndc=58151-0155-77')->assertUnauthorized();
-        $this->getJson('/api/user/display-preferences')->assertUnauthorized();
     }
 
     public function test_fills_of_a_patient_are_not_listed_under_another_patients_medication(): void
@@ -319,23 +318,38 @@ final class MedicationFillControllerTest extends TestCase
         $this->actingAs($user)->getJson('/api/ndc/search')->assertUnprocessable();
     }
 
-    public function test_force_lowercase_is_a_stored_per_user_display_preference(): void
+    public function test_display_casing_is_derived_and_the_stored_text_is_unchanged(): void
     {
-        $user = $this->createUser();
-        $other = $this->createUser();
+        ['owner' => $owner, 'patientId' => $patientId] = $this->patientWithViewer();
+        $fill = PhrMedicationFill::factory()->create([
+            'patient_id' => $patientId,
+            'user_id' => $owner->id,
+            'drug_as_printed' => 'ATORVASTATIN 10MG TAB',
+            'pharmacy_name' => 'CVS PHARMACY #1234',
+            'pharmacy_location' => 'SPRINGFIELD, IL',
+            'prescriber_name' => 'SMITH, JOHN A MD',
+            'directions' => 'TAKE 1 TABLET BY MOUTH DAILY',
+            'brand_name' => 'Lipitor',
+        ]);
 
-        $this->actingAs($user)->getJson('/api/user/display-preferences')->assertOk()->assertExactJson(['force_lowercase' => false]);
-        $this->actingAs($user)->putJson('/api/user/display-preferences', ['force_lowercase' => true])->assertOk()->assertExactJson(['force_lowercase' => true]);
-        $this->actingAs($user)->getJson('/api/user/display-preferences')->assertExactJson(['force_lowercase' => true]);
-        $this->actingAs($other)->getJson('/api/user/display-preferences')->assertExactJson(['force_lowercase' => false]);
-        $this->actingAs($user)->putJson('/api/user/display-preferences', [])->assertUnprocessable();
-        $this->actingAs($user)->putJson('/api/user/display-preferences', ['force_lowercase' => 'yes please'])->assertUnprocessable();
+        $json = $this->actingAs($owner)->getJson("/api/phr/patients/{$patientId}/medication-fills/{$fill->id}")->assertOk()->json('medication_fill');
+        $this->assertSame('ATORVASTATIN 10MG TAB', $json['drug_as_printed']);
+        $this->assertSame('CVS PHARMACY #1234', $json['pharmacy_name']);
+        $this->assertSame('TAKE 1 TABLET BY MOUTH DAILY', $json['directions']);
+        $this->assertSame([
+            'drug_as_printed' => 'atorvastatin 10 mg tab',
+            'pharmacy_name' => 'CVS Pharmacy #1234',
+            'pharmacy_location' => 'Springfield, IL',
+            'prescriber_name' => 'Smith, John A MD',
+            'directions' => 'Take 1 tablet by mouth daily',
+        ], $json['display']);
 
-        // It reaches the page the way other per-user settings do, and changes no stored text.
-        $fill = PhrMedicationFill::factory()->create(['brand_name' => 'Lipitor', 'labeler_name' => 'Viatris Specialty LLC']);
-        $this->actingAs($user)->get('/phr/patients')->assertOk()->assertSee('"force_lowercase_display":true', false);
-        $this->assertSame('Lipitor', $fill->fresh()->brand_name);
-        $this->assertTrue((bool) $user->fresh()->force_lowercase_display);
+        $stored = $fill->fresh();
+        $this->assertSame('ATORVASTATIN 10MG TAB', $stored->drug_as_printed);
+        $this->assertSame('CVS PHARMACY #1234', $stored->pharmacy_name);
+        $this->assertSame('SMITH, JOHN A MD', $stored->prescriber_name);
+        $this->assertSame('TAKE 1 TABLET BY MOUTH DAILY', $stored->directions);
+        $this->assertSame('Lipitor', $stored->brand_name);
     }
 
     // ---- review fixes ----------------------------------------------------------------------
