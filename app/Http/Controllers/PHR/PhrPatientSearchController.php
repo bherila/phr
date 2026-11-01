@@ -9,10 +9,13 @@ use App\Models\PhrDocument;
 use App\Models\PhrImmunization;
 use App\Models\PhrLabResult;
 use App\Models\PhrMedication;
+use App\Models\PhrMedicationFill;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatientVital;
 use App\Models\PhrProcedure;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Support\PHR\PhrRecordLifecycle;
+use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Http\JsonResponse;
@@ -46,6 +49,7 @@ class PhrPatientSearchController extends Controller
             ->concat($this->procedures((int) $resolvedPatient->id, $query, $limit))
             ->concat($this->immunizations((int) $resolvedPatient->id, $query, $limit))
             ->concat($this->medications((int) $resolvedPatient->id, $query, $limit))
+            ->concat($this->medicationFills((int) $resolvedPatient->id, $query, $limit))
             ->concat($this->conditions((int) $resolvedPatient->id, $query, $limit))
             ->concat($this->labs((int) $resolvedPatient->id, $query, $limit))
             ->concat($this->vitals((int) $resolvedPatient->id, $query, $limit))
@@ -122,6 +126,49 @@ class PhrPatientSearchController extends Controller
             'Medication', $medication->id, $medication->name,
             $this->join([$medication->dose, $medication->frequency, $medication->prescriber_name]), $medication->started_on?->toDateString(), 'medication-detail',
         ));
+    }
+
+    /**
+     * Fills match on the printed drug, substances, brand, NDC (10- or 11-digit, with or without
+     * hyphens), Rx number and pharmacy. Retracted and rejected fills are hidden, as on the fills page.
+     *
+     * @return Collection<int, covariant SearchResult>
+     */
+    private function medicationFills(int $patientId, string $query, int $limit): Collection
+    {
+        $fills = PhrMedicationFill::query()->with('medication:id,name')->where('patient_id', $patientId);
+        PhrRecordLifecycle::scopeLive($fills);
+        $fills->where('review_status', '!=', PhrReviewStatus::REJECTED);
+
+        $literal = str_replace(['!', '%', '_'], ['!!', '!%', '!_'], mb_strtolower($query));
+        $needle = "%{$literal}%";
+        $digits = preg_match('/\A[0-9-]+\z/', trim($query)) === 1 ? str_replace('-', '', trim($query)) : '';
+
+        $fills->where(function (Builder $matches) use ($needle, $digits): void {
+            foreach (['drug_as_printed', 'brand_name', 'rx_number', 'pharmacy_name', 'ndc_as_captured'] as $column) {
+                $matches->orWhereRaw("LOWER(COALESCE(phr_medication_fills.{$column}, '')) LIKE ? ESCAPE '!'", [$needle]);
+            }
+            $matches->orWhereRaw("LOWER(COALESCE(CAST(phr_medication_fills.substance_names AS CHAR), '')) LIKE ? ESCAPE '!'", [$needle]);
+            if (strlen($digits) >= 4) {
+                $digitNeedle = "%{$digits}%";
+                $matches->orWhereRaw("REPLACE(COALESCE(phr_medication_fills.ndc_10, ''), '-', '') LIKE ?", [$digitNeedle])
+                    ->orWhereRaw("COALESCE(phr_medication_fills.ndc_11, '') LIKE ?", [$digitNeedle])
+                    ->orWhereRaw("REPLACE(COALESCE(phr_medication_fills.ndc_as_captured, ''), '-', '') LIKE ?", [$digitNeedle]);
+            }
+        });
+
+        return $fills->orderByDesc('filled_on')->orderByDesc('id')->limit($limit)->get()->toBase()->map(function (PhrMedicationFill $fill): array {
+            $name = $this->join([$fill->substance_names === null ? null : implode(' / ', $fill->substance_names)])
+                ?? $fill->medication->name ?? $fill->drug_as_printed ?? 'Prescription fill';
+            $title = implode(' ', array_filter([$name, $fill->strengths === null ? null : implode(' / ', $fill->strengths), $fill->dosage_form]));
+            $quantity = trim(((str_contains($fill->quantity, '.') ? rtrim(rtrim($fill->quantity, '0'), '.') : $fill->quantity) ?: '0').' '.$fill->quantity_unit);
+
+            return $this->result(
+                'Fill', $fill->id, $title,
+                $this->join([$fill->filled_on->format('y.m.d'), $fill->pharmacy_name, "Qty {$quantity}"]),
+                $fill->filled_on->toDateString(), 'medication-fills',
+            );
+        });
     }
 
     /** @return Collection<int, covariant SearchResult> */
