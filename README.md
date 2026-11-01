@@ -92,6 +92,15 @@ Document processing can also produce structured proposals from extracted content
 Those proposals are staged for review before acceptance into the clinical model, so
 source material and interpreted data remain distinguishable.
 
+When a C-CDA, FHIR or MyChart file is imported from a stored document (an agent's
+`imports.create`), every clinical row it writes carries `source_document_id` for that
+document, and labs and vitals carry the format as their `source` (`ccda_import`,
+`fhir_import`). A file imported without a stored document (the browser's direct
+import, the `phr:import:*` commands) writes unlinked rows. A row keeps the document it
+was first linked to: a later import, including one that adopts an earlier load's row,
+fills a missing link or source but never moves or clears one, and filling one alone is
+not a change, so it neither reopens review nor counts as an update.
+
 Long-running document processing, exports, backup/restore operations, and cleanup use
 Laravel queues. Idempotency and source identities allow supported imports and API
 writes to be retried safely.
