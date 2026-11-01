@@ -101,7 +101,7 @@ final readonly class MedicationFillDuplicateService
             $flag = $flags->first();
             $candidate = PhrMedicationFill::query()->where('patient_id', $patient->id)
                 ->whereNull('retracted_at')->whereKeyNot($fill->id)->lockForUpdate()->find((int) $flag->related_fill_id);
-            if ($candidate === null) {
+            if ($candidate === null || $candidate->review_status === PhrReviewStatus::REJECTED) {
                 throw new ConflictHttpException('The fill this may duplicate is no longer in the record. Mark it as a different fill instead.');
             }
 

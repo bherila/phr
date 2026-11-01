@@ -65,6 +65,7 @@ final class MedicationFillDuplicateResolutionTest extends TestCase
     public function test_the_queue_lists_a_flagged_fill_unchecked_beside_the_fill_it_may_repeat(): void
     {
         [$existing, $flagged] = $this->flaggedPair();
+        $this->eobLineFor($flagged);
 
         $queue = $this->actingAs($this->actor)->getJson("/api/phr/patients/{$this->patient->id}/review")->assertOk()->json();
         $item = collect($queue['groups'])->pluck('items')->flatten(1)->firstWhere('id', $flagged->id);
@@ -79,6 +80,7 @@ final class MedicationFillDuplicateResolutionTest extends TestCase
         $this->assertSame('Example Pharmacy', $item['duplicate']['fill']['pharmacy']);
         $this->assertNull($candidate['pharmacy']);
         $this->assertNotEmpty($candidate['sources']);
+        $this->assertContains('EOB line', $item['duplicate']['fill']['sources'], 'evidence beyond the first document is listed');
         $this->assertSame(2, $queue['summary']['sections']['medication-fills']['pending'], 'both fills wait for review');
     }
 
@@ -221,6 +223,22 @@ final class MedicationFillDuplicateResolutionTest extends TestCase
         ]]])->json('result');
         $this->assertTrue($stale['isError'] ?? false);
         unset($otherExisting);
+    }
+
+    public function test_a_retry_of_a_merged_fill_lands_on_the_surviving_fill_and_a_rejected_survivor_refuses_the_merge(): void
+    {
+        [$existing, $flagged, $receipt] = $this->flaggedPair();
+        $this->actingAs($this->actor)->postJson("/api/phr/patients/{$this->patient->id}/medication-fills/{$flagged->id}/resolve-duplicate", ['action' => 'same', 'version' => $this->version($flagged)])->assertOk();
+
+        $this->asClient();
+        $this->write($receipt, ['filled_on' => '2026-10-28', 'ndc' => '58151-0155-77', 'quantity' => 30, 'quantity_unit' => 'tablet', 'rx_number' => null, 'source_kind' => 'receipt_pdf', 'pharmacy_name' => 'Example Pharmacy'])
+            ->assertOk()->assertJsonPath('data.id', $existing->id);
+        $this->assertSame(2, PhrMedicationFill::query()->withoutGlobalScopes()->count());
+
+        [$survivor, $second] = $this->flaggedPair('2026-08-01');
+        $survivor->update(['review_status' => PhrReviewStatus::REJECTED]);
+        $this->actingAs($this->actor)->postJson("/api/phr/patients/{$this->patient->id}/medication-fills/{$second->id}/resolve-duplicate", ['action' => 'same', 'version' => $this->version($second)])->assertConflict();
+        $this->assertNull($second->refresh()->retracted_at);
     }
 
     public function test_an_agent_cannot_resolve_a_fill_another_connection_wrote(): void

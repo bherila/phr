@@ -87,6 +87,25 @@ final class MedicationFillEvidenceService
         ]);
     }
 
+    /**
+     * The fill a connection's own flagged fill was merged into, when a person (or the agent)
+     * decided it was the same fill: the flagged row is retracted but its identity points here.
+     *
+     * @param  array{patient_id: int, import_source: string, external_id: string}  $identity
+     */
+    public function mergedSurvivor(array $identity): ?PhrMedicationFill
+    {
+        $withdrawn = PhrMedicationFill::withoutGlobalScope(SoftDeletingScope::class)->where($identity)
+            ->whereNull('deleted_at')->whereNotNull('retracted_at')->value('id');
+        if ($withdrawn === null) {
+            return null;
+        }
+        $survivorId = PhrMedicationFillEvidence::query()->where('fill_id', $withdrawn)
+            ->where('source_kind', 'duplicate_merged')->value('related_fill_id');
+
+        return $survivorId === null ? null : PhrMedicationFill::query()->whereNull('retracted_at')->whereKey($survivorId)->first();
+    }
+
     /** The fill (live or withdrawn) a connection's identity was merged into, if any. */
     public function findAlias(PhrPatient $patient, string $importSource, string $externalId): ?PhrMedicationFill
     {
