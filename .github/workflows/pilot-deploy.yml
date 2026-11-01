@@ -202,7 +202,7 @@ jobs:
           env-assert: |
             DB_URL=
             DB_SOCKET=
-            DB_CONNECTION=mysql
+            DB_CONNECTION=mariadb
             PILOT_DEPLOYMENT=1
             APP_DEBUG=false
             MAIL_MAILER=log

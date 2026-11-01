@@ -19,7 +19,7 @@ pilot_assert_local_database() {
     # not booted, so nothing connects before the check passes.
     # shellcheck disable=SC2016 # PHP variable names must remain literal.
     (cd "$root" && "$php" -d memory_limit=1G -d display_errors=0 -d log_errors=0 -r '
-$pilot = "mysql";
+$pilot = "mariadb";
 $refused = [];
 try {
     $base = getcwd();
@@ -76,7 +76,7 @@ try {
 } catch (Throwable $error) { exit(1); }
 if ($refused !== []) { fwrite(STDERR, "Refused settings: ".implode(", ", $refused).PHP_EOL); exit(1); }
 ') || {
-        echo 'The resolved candidate configuration must use only the local MySQL server; refusing to migrate.' >&2
+        echo 'The resolved candidate configuration must use only the local MariaDB server; refusing to migrate.' >&2
         exit 1
     }
     echo 'Resolved candidate database configuration uses only the local server.'

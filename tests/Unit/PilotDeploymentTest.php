@@ -9,14 +9,14 @@ use Symfony\Component\Process\Process;
 
 class PilotDeploymentTest extends TestCase
 {
-    private const PILOT_ENV = "PILOT_DEPLOYMENT=1\nAPP_DEBUG=false\nMAIL_MAILER=log\nDB_CONNECTION=mysql\nDB_HOST=127.0.0.1\n";
+    private const PILOT_ENV = "PILOT_DEPLOYMENT=1\nAPP_DEBUG=false\nMAIL_MAILER=log\nDB_CONNECTION=mariadb\nDB_HOST=127.0.0.1\n";
 
     /** Selector keys whose discovery the tests pin, so a regex regression cannot hide one. */
     private const KNOWN_CONNECTION_SELECTORS = ['DB_QUEUE_CONNECTION', 'DB_CACHE_CONNECTION', 'DB_CACHE_LOCK_CONNECTION',
         'SESSION_CONNECTION', 'PASSPORT_CONNECTION', 'PHR_DELEGATED_ACCESS_NONCE_CONNECTION',
         'PHR_DELEGATED_ACCESS_RECEIPT_CONNECTION', 'BHERILA_AUTH_IDENTITY_TOMBSTONE_CONNECTION'];
 
-    /** Keys config/database.php reads that cannot move the pinned mysql connection off the local server. */
+    /** Keys config/database.php reads that cannot move the pinned mariadb connection off the local server. */
     private const NON_DESTINATION_KEYS = ['DB_DATABASE', 'DB_USERNAME', 'DB_PASSWORD', 'DB_CHARSET', 'DB_COLLATION', 'DB_FOREIGN_KEYS',
         'DB_SSLMODE', 'DB_ENCRYPT', 'DB_TRUST_SERVER_CERTIFICATE', 'MYSQL_ATTR_SSL_CA', 'APP_NAME', 'REDIS_CLIENT', 'REDIS_CLUSTER', 'REDIS_PREFIX', 'REDIS_PERSISTENT',
         'REDIS_USERNAME', 'REDIS_PASSWORD', 'REDIS_DB', 'REDIS_CACHE_DB', 'REDIS_MAX_RETRIES', 'REDIS_BACKOFF_ALGORITHM',
@@ -157,7 +157,7 @@ JS;
     {
         preg_match_all("/^        '([a-z]+)' => \[\R            'driver' =>/m", (string) file_get_contents(dirname(__DIR__, 2).'/config/database.php'), $matches);
 
-        return array_values(array_diff($matches[1], ['mysql']));
+        return array_values(array_diff($matches[1], ['mariadb']));
     }
 
     /**
@@ -271,7 +271,7 @@ JS;
     {
         $env = self::PILOT_ENV."DB_URL=\nDB_SOCKET=\nDB_PORT=3306\nREDIS_HOST=127.0.0.1\nDB_DATABASE=synthetic_pilot\n";
         foreach (self::connectionSelectorKeys() as $selector) {
-            $env .= "{$selector}=mysql\n";
+            $env .= "{$selector}=mariadb\n";
         }
         $home = $this->scaffold();
         file_put_contents($home.'/.config/sample/deployment.env', $env);
@@ -293,7 +293,7 @@ JS;
         $unreviewed = array_diff(array_unique($reads[1]), $covered, self::NON_DESTINATION_KEYS);
         $this->assertSame([], array_values($unreviewed), 'Classify each new config/database.php setting.');
         $this->assertContains('sqlite', self::otherConnections());
-        $this->assertContains('mariadb', self::otherConnections());
+        $this->assertContains('mysql', self::otherConnections());
         $this->assertContains('pgsql', self::otherConnections());
         $this->assertContains('sqlsrv', self::otherConnections());
         $selectors = self::connectionSelectorKeys();
@@ -507,7 +507,7 @@ JS;
         $text = file_get_contents($this->root.'/.github/workflows/pilot-deploy.yml');
         $this->assertSame(['DB_URL=', 'DB_SOCKET='], self::block($text, 'env-values'));
         $assertions = self::block($text, 'env-assert');
-        foreach (['DB_URL=', 'DB_SOCKET=', 'DB_CONNECTION=mysql', 'DB_HOST=127.0.0.1', 'PILOT_DEPLOYMENT=1', 'APP_DEBUG=false', 'MAIL_MAILER=log'] as $assertion) {
+        foreach (['DB_URL=', 'DB_SOCKET=', 'DB_CONNECTION=mariadb', 'DB_HOST=127.0.0.1', 'PILOT_DEPLOYMENT=1', 'APP_DEBUG=false', 'MAIL_MAILER=log'] as $assertion) {
             $this->assertContains($assertion, $assertions);
         }
         // The shared action installs and asserts .env, enters the risk boundary, then runs this
@@ -522,7 +522,7 @@ JS;
         $this->assertLessThan($publish, $compose);
         $this->assertContains('scripts', self::block($text, 'paths'), 'The resolved check boots the uploaded candidate.');
         foreach (['prepare-host.sh', 'assert-local-database.sh'] as $script) {
-            $this->assertStringContainsString('$pilot = "mysql";', file_get_contents($this->root.'/scripts/deploy/pilot/'.$script));
+            $this->assertStringContainsString('$pilot = "mariadb";', file_get_contents($this->root.'/scripts/deploy/pilot/'.$script));
         }
     }
 

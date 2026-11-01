@@ -17,7 +17,7 @@ try {
     $env = parse_ini_file($argv[1], false, INI_SCANNER_RAW);
     if (!is_array($env)) { exit(1); }
     // Early refusal only: the pre-migrate hook verifies the resolved configuration.
-    $pilot = "mysql";
+    $pilot = "mariadb";
     $required = ["PILOT_DEPLOYMENT" => "1", "APP_DEBUG" => "false", "MAIL_MAILER" => "log",
         "DB_CONNECTION" => $pilot, "DB_HOST" => "127.0.0.1"];
     foreach ($required as $key => $value) { if (($env[$key] ?? null) !== $value) { exit(1); } }
