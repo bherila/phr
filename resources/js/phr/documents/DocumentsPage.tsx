@@ -21,6 +21,7 @@ import { fetchWrapper } from '@/fetchWrapper'
 import { formatBytes } from '@/lib/utils'
 import { isBrowserPreviewableImage } from '@/phr/documents/browserImagePreview'
 import { DOCUMENT_SOURCE_LABELS, documentSourceLabel } from '@/phr/documents/documentSource'
+import { DOCUMENT_TYPE_LABELS, DOCUMENT_TYPE_OPTIONS, documentTypeLabel, isKnownDocumentType } from '@/phr/documents/documentType'
 import { useExecutionMode } from '@/phr/imports/ai/useExecutionMode'
 import { EhiPendingBanner } from '@/phr/imports/ehi/EhiPendingBanner'
 import { reviewStateChanged } from '@/phr/review/reviewSummary'
@@ -34,14 +35,15 @@ import {
   type PhrDocumentSource,
   PhrDocumentSourceSchema,
   PhrDocumentsResponseSchema,
-  PhrDocumentTypeSchema,
+  type PhrDocumentType,
 } from '@/phr/types'
 
-type DocumentType = PhrDocument['document_type']
+type DocumentType = PhrDocumentType
 type DocumentSource = PhrDocumentSource
 type ViewMode = 'grid' | 'list'
-
-const DOCUMENT_TYPE_OPTIONS: DocumentType[] = [...PhrDocumentTypeSchema.options]
+// The form keeps the stored type even when this build cannot offer it, so it
+// can be shown as the current value and left unchanged on save.
+type EditFormState = Omit<PhrDocumentMetadataFormData, 'document_type'> & { document_type: string }
 
 const DOCUMENT_TAG_SUGGESTIONS = [
   'medical-necessity',
@@ -53,21 +55,6 @@ const DOCUMENT_TAG_SUGGESTIONS = [
 
 const SOURCE_OPTIONS: DocumentSource[] = [...PhrDocumentSourceSchema.options]
 
-const DOCUMENT_TYPE_LABELS: Record<DocumentType, string> = {
-  lab_report: 'Lab Report',
-  office_visit_note: 'Office Visit',
-  clinical_questionnaire: 'Clinical Questionnaire',
-  patient_symptom_log: 'Patient Symptom Log',
-  discharge_summary: 'Discharge',
-  imaging_report: 'Imaging',
-  prescription: 'Prescription',
-  medical_necessity_letter: 'Medical Necessity Letter',
-  prior_authorization: 'Prior Authorization',
-  insurance: 'Insurance',
-  consent: 'Consent',
-  care_correspondence: 'Care Correspondence',
-  other: 'Other',
-}
 
 interface UploadFormState {
   title: string
@@ -111,7 +98,7 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
   const [filters, setFilters] = useState<FilterState>(emptyFilters)
   const [uploadForm, setUploadForm] = useState<UploadFormState>(emptyUploadForm)
   const [uploadFile, setUploadFile] = useState<File | null>(null)
-  const [editForm, setEditForm] = useState<PhrDocumentMetadataFormData | null>(null)
+  const [editForm, setEditForm] = useState<EditFormState | null>(null)
   const [busy, setBusy] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -206,7 +193,11 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
   async function saveMetadata(): Promise<void> {
     if (!selectedDocument || !editForm) return
 
-    const parsed = PhrDocumentMetadataFormSchema.safeParse(editForm)
+    // An unknown stored type is not sent, so the server keeps it as it is.
+    const { document_type: documentType, ...rest } = editForm
+    const parsed = PhrDocumentMetadataFormSchema.safeParse(
+      isKnownDocumentType(documentType) ? { ...rest, document_type: documentType } : rest,
+    )
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? 'Invalid document metadata.')
       return
@@ -423,7 +414,7 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
                       <span className="block truncate text-sm font-medium text-foreground">{displayTitle(document)}</span>
                       {document.summary && <span className="mt-1 block line-clamp-1 text-sm text-muted-foreground">{document.summary}</span>}
                     </span>
-                    <span className="text-sm text-muted-foreground">{DOCUMENT_TYPE_LABELS[document.document_type]}</span>
+                    <span className="text-sm text-muted-foreground">{documentTypeLabel(document.document_type)}</span>
                     <span className="text-sm text-muted-foreground">{documentSourceLabel(document.source)}</span>
                     <span className="text-sm text-muted-foreground">{formatDate(document.observed_at)}</span>
                   </>
@@ -440,7 +431,7 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
                 <div className="min-w-0">
                   <h2 className="truncate text-lg font-semibold text-card-foreground">{displayTitle(selectedDocument)}</h2>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    {[DOCUMENT_TYPE_LABELS[selectedDocument.document_type], formatBytes(selectedDocument.byte_size), formatDate(selectedDocument.observed_at)].filter(Boolean).join(' · ')}
+                    {[documentTypeLabel(selectedDocument.document_type), formatBytes(selectedDocument.byte_size), formatDate(selectedDocument.observed_at)].filter(Boolean).join(' · ')}
                   </p>
                 </div>
                 {canManage && (
@@ -469,7 +460,10 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
               <div className="grid gap-3 border-t border-border pt-4">
                 <h3 className="text-sm font-semibold text-card-foreground">Metadata</h3>
                 <LabeledInput label="Title" value={editForm.title ?? ''} onChange={(value) => setEditForm({ ...editForm, title: value })} />
-                <LabeledSelect label="Type" value={editForm.document_type} onChange={(value) => setEditForm({ ...editForm, document_type: value as DocumentType })}>
+                <LabeledSelect label="Type" value={editForm.document_type} onChange={(value) => setEditForm({ ...editForm, document_type: value })}>
+                  {!isKnownDocumentType(editForm.document_type) && (
+                    <option value={editForm.document_type}>{documentTypeLabel(editForm.document_type)}</option>
+                  )}
                   {DOCUMENT_TYPE_OPTIONS.map((type) => (
                     <option key={type} value={type}>{DOCUMENT_TYPE_LABELS[type]}</option>
                   ))}
@@ -565,7 +559,7 @@ function DocumentCard({ document, selected, onSelect }: DocumentCardProps) {
       <div className="min-w-0">
         <p className="truncate text-sm font-semibold text-card-foreground">{displayTitle(document)}</p>
         <p className="mt-1 text-xs text-muted-foreground">
-          {[DOCUMENT_TYPE_LABELS[document.document_type], formatDate(document.observed_at), formatBytes(document.byte_size)].filter(Boolean).join(' · ')}
+          {[documentTypeLabel(document.document_type), formatDate(document.observed_at), formatBytes(document.byte_size)].filter(Boolean).join(' · ')}
         </p>
         {document.tags.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1">
