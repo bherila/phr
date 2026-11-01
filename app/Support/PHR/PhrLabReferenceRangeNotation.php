@@ -2,8 +2,6 @@
 
 namespace App\Support\PHR;
 
-use App\Models\PhrLabResult;
-
 /**
  * A lab reference range written out from its bounds and their unit, for exports
  * whose reader has only text to go on: "13.6 - 17.5 g/dL", or one side alone as
@@ -15,23 +13,23 @@ use App\Models\PhrLabResult;
 final class PhrLabReferenceRangeNotation
 {
     /** The range, or '' when it has no numeric bound. */
-    public static function fromBounds(PhrLabResult $lab): string
+    public static function fromBounds(object $lab): string
     {
-        $low = self::number($lab->range_min);
-        $high = self::number($lab->range_max);
+        $low = self::number($lab->range_min ?? null);
+        $high = self::number($lab->range_max ?? null);
         $range = match (true) {
             $low !== null && $high !== null => "{$low} - {$high}",
-            $high !== null => ($lab->range_max_inclusive === true ? '<=' : '<').$high,
-            $low !== null => ($lab->range_min_inclusive === true ? '>=' : '>').$low,
+            $high !== null => (($lab->range_max_inclusive ?? null) === true ? '<=' : '<').$high,
+            $low !== null => (($lab->range_min_inclusive ?? null) === true ? '>=' : '>').$low,
             default => '',
         };
-        $unit = is_string($lab->range_unit) ? trim($lab->range_unit) : '';
+        $unit = is_string($lab->range_unit ?? null) ? trim($lab->range_unit) : '';
 
         return $range === '' || $unit === '' ? $range : "{$range} {$unit}";
     }
 
     /** A stored decimal without its padding ("200.0000000000" -> "200"). */
-    private static function number(mixed $value): ?string
+    public static function number(mixed $value): ?string
     {
         if (! is_numeric($value)) {
             return null;
