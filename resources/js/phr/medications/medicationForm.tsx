@@ -78,6 +78,9 @@ export function medicationFormFromMedication(medication: PhrMedication): Medicat
 }
 
 export function medicationPayload(form: MedicationFormState): Record<string, unknown> {
+  // While an end date settles the status, what the form holds is derived, and the person was not
+  // asked. Sending it would overwrite what is stored, which taking the date away should restore.
+  const status = endDateHasArrived(form.endedOn) ? {} : { status: form.status }
   return compactPayload({
     name: form.name,
     dose: form.dose,
@@ -86,7 +89,7 @@ export function medicationPayload(form: MedicationFormState): Record<string, unk
     frequency: form.frequency,
     started_on: form.startedOn,
     ended_on: form.endedOn,
-    status: form.status,
+    ...status,
     prescriber_name: form.prescriberName,
     reason_for_use: form.reasonForUse,
   })

@@ -202,6 +202,23 @@ describe('MedicationsPage', () => {
     expect(screen.getByRole('button', { name: 'Ended 0' })).toBeInTheDocument()
   })
 
+  it('does not write a status the end date only derived, when saving an unrelated change', async () => {
+    mockPatch.mockResolvedValue({ medication: makeMedication({ id: 2, name: 'Amoxicillin', status: 'completed', ended_on: '2026-03-01' }) })
+    render(<MedicationsPage patientId={42} />)
+    await screen.findByText('Metformin')
+    fireEvent.click(screen.getByRole('button', { name: /^Ended/ }))
+    await screen.findByText('Amoxicillin')
+    await pickFromMenu('Amoxicillin', 'Edit')
+    const dialog = await screen.findByRole('dialog', { name: 'Edit Amoxicillin' })
+    fireEvent.change(within(dialog).getByLabelText('Prescriber'), { target: { value: 'Dr. Other' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(mockPatch).toHaveBeenCalled())
+    const body = mockPatch.mock.calls[0]![1] as Record<string, unknown>
+    expect(body).toMatchObject({ prescriber_name: 'Dr. Other', ended_on: '2026-03-01' })
+    expect(body).not.toHaveProperty('status')
+  })
+
   it('does not offer to end a medication now: the end date belongs to Edit', async () => {
     render(<MedicationsPage patientId={42} />)
     await waitFor(() => expect(screen.getByText('Metformin')).toBeInTheDocument())
