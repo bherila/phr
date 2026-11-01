@@ -26,7 +26,8 @@ final class PhrCcdaXml
     public function __construct(public readonly DOMXPath $xpath) {}
 
     /**
-     * Elements carrying any of the templates, anywhere in the section's entries.
+     * Elements carrying any of the templates, anywhere in the section's
+     * entries, in document order. `*` matches an element of any name.
      *
      * @param  list<string>  $templates
      * @return list<DOMElement>
@@ -34,8 +35,9 @@ final class PhrCcdaXml
     public function entryElements(DOMElement $section, string $localName, array $templates): array
     {
         $roots = implode(' or ', array_map(static fn (string $root): string => '@root="'.$root.'"', $templates));
+        $name = $localName === '*' ? '' : '[local-name()="'.$localName.'"]';
         $elements = [];
-        foreach ($this->xpath->query('.//*[local-name()="entry"]//*[local-name()="'.$localName.'"][*[local-name()="templateId"]['.$roots.']]', $section) ?: [] as $element) {
+        foreach ($this->xpath->query('.//*[local-name()="entry"]//*'.$name.'[*[local-name()="templateId"]['.$roots.']]', $section) ?: [] as $element) {
             if ($element instanceof DOMElement) {
                 $elements[] = $element;
             }
@@ -61,8 +63,8 @@ final class PhrCcdaXml
     }
 
     /**
-     * The nearest element under this one (entryRelationship, component, ...)
-     * that carries one of the templates.
+     * The elements this one relates directly, through its entryRelationships,
+     * that carry one of the templates.
      *
      * @param  list<string>  $templates
      * @return list<DOMElement>
