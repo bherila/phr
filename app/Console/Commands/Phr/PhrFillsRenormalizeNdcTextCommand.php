@@ -64,7 +64,8 @@ final class PhrFillsRenormalizeNdcTextCommand extends BasePhrCommand
     private function updatesFor(PhrMedicationFill $fill): array
     {
         $snapshot = $fill->fda_snapshot;
-        if (! is_array($snapshot)) {
+        // Only an openFDA product listing has the shape this derives from; an RxNav snapshot is left as it is.
+        if (! is_array($snapshot) || $fill->ndc_source === PhrMedicationFill::SOURCE_RXNAV) {
             return [];
         }
         $package = null;

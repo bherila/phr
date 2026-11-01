@@ -2,7 +2,7 @@
 
 namespace App\Services\PHR\Ndc;
 
-/** The outcome of resolving a captured NDC against the openFDA packaging directory. */
+/** The outcome of resolving a captured NDC against the openFDA packaging directory, then RxNav's NDC history for discontinued products. */
 final readonly class NdcResolution
 {
     public const string RESOLVED = 'resolved';
@@ -53,8 +53,8 @@ final readonly class NdcResolution
                 self::RESOLVED => null,
                 self::AMBIGUOUS => 'Several packages match this 10-digit NDC, whose layout is unknown. Ask the person which one is on the label, then pass that candidate\'s ndc_10 as ndc_candidate.',
                 default => $this->reason === self::REASON_UNAVAILABLE
-                    ? 'openFDA could not be reached. Try again shortly; do not guess the drug.'
-                    : 'No listed package matches. Re-read the NDC from the source, try ndc_search by drug name, or leave the drug fields for the person to enter.',
+                    ? 'openFDA or RxNav (which covers discontinued products) could not be reached. Try again shortly; do not guess the drug.'
+                    : 'Neither openFDA nor RxNav (which covers discontinued products) lists a package matching this NDC. Re-read the NDC from the source, try ndc_search by drug name, or leave the drug fields for the person to enter.',
             },
         ];
     }

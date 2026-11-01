@@ -259,9 +259,13 @@ final class NdcLookupServiceTest extends TestCase
 
         Cache::flush();
         Http::swap(new Factory);
-        Http::fake(['api.fda.gov/*' => Http::response($this->fixture('not-found.json'), 404)]);
+        Http::fake([
+            'api.fda.gov/*' => Http::response($this->fixture('not-found.json'), 404),
+            // RxNav is asked once, after openFDA's "not listed" (never retried: it answered).
+            'rxnav.nlm.nih.gov/*' => Http::response(json_decode((string) file_get_contents(__DIR__.'/../../Fixtures/rxnav/ndcstatus-unknown.json'), true)),
+        ]);
         $this->assertSame(NdcResolution::REASON_NOT_FOUND, $this->ndc->lookup('58151-155-77')->reason);
-        Http::assertSentCount(1);
+        Http::assertSentCount(2);
     }
 
     public function test_search_loosens_step_by_step_from_every_filter_to_name_and_strength_to_name(): void

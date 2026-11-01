@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 
+import { DiscontinuedBadge } from './DiscontinuedBadge'
 import { fillDrugName, formatCents, formatFillDate, formatQuantity, type MedicationFill, MISSING } from './fillTypes'
 
 export interface FillActions {
@@ -69,6 +70,7 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
             {fill.ndc_status === 'unresolved' && (
               <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">No FDA match</span>
             )}
+            {fill.ndc_status === 'resolved' && fill.discontinued && <DiscontinuedBadge />}
             {fill.ndc_status === 'ambiguous' && (
               <span className="inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">Ambiguous NDC</span>
             )}

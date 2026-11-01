@@ -1,0 +1,67 @@
+{
+  "relatedGroup": {
+    "rxcui": null,
+    "conceptGroup": [
+      {
+        "tty": "DF",
+        "conceptProperties": [
+          {
+            "rxcui": "317541",
+            "name": "Oral Tablet",
+            "synonym": "",
+            "tty": "DF",
+            "language": "ENG",
+            "suppress": "N",
+            "umlscui": ""
+          }
+        ]
+      },
+      {
+        "tty": "IN",
+        "conceptProperties": [
+          {
+            "rxcui": "161",
+            "name": "acetaminophen",
+            "synonym": "",
+            "tty": "IN",
+            "language": "ENG",
+            "suppress": "N",
+            "umlscui": ""
+          },
+          {
+            "rxcui": "2670",
+            "name": "codeine",
+            "synonym": "",
+            "tty": "IN",
+            "language": "ENG",
+            "suppress": "N",
+            "umlscui": ""
+          }
+        ]
+      },
+      {
+        "tty": "SCDC",
+        "conceptProperties": [
+          {
+            "rxcui": "315261",
+            "name": "acetaminophen 300 MG",
+            "synonym": "",
+            "tty": "SCDC",
+            "language": "ENG",
+            "suppress": "N",
+            "umlscui": ""
+          },
+          {
+            "rxcui": "993780",
+            "name": "codeine phosphate 30 MG",
+            "synonym": "",
+            "tty": "SCDC",
+            "language": "ENG",
+            "suppress": "N",
+            "umlscui": ""
+          }
+        ]
+      }
+    ]
+  }
+}

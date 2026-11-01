@@ -1,0 +1,160 @@
+{
+  "ndcPropertyList": {
+    "ndcProperty": [
+      {
+        "ndcItem": "00093015010",
+        "ndc9": "0093-0150",
+        "ndc10": "0093-0150-10",
+        "rxcui": "309462",
+        "splSetIdItem": "a9b11cbf-7585-4532-868f-5686f028679f",
+        "packagingList": {
+          "packaging": [
+            "1000 TABLET in 1 BOTTLE (0093-0150-10)"
+          ]
+        },
+        "propertyConceptList": {
+          "propertyConcept": [
+            {
+              "propName": "ANDA",
+              "propValue": "ANDA088628"
+            },
+            {
+              "propName": "COATING",
+              "propValue": "false"
+            },
+            {
+              "propName": "COLORTEXT",
+              "propValue": "WHITE"
+            },
+            {
+              "propName": "COLOR",
+              "propValue": "C48325"
+            },
+            {
+              "propName": "DCSA",
+              "propValue": "CIII"
+            },
+            {
+              "propName": "IMPRINT_CODE",
+              "propValue": "93;150;3"
+            },
+            {
+              "propName": "LABELER",
+              "propValue": "Teva Pharmaceuticals USA, Inc."
+            },
+            {
+              "propName": "LABEL_TYPE",
+              "propValue": "HUMAN PRESCRIPTION DRUG"
+            },
+            {
+              "propName": "MARKETING_CATEGORY",
+              "propValue": "ANDA"
+            },
+            {
+              "propName": "MARKETING_EFFECTIVE_TIME_HIGH",
+              "propValue": "20230228"
+            },
+            {
+              "propName": "MARKETING_EFFECTIVE_TIME_LOW",
+              "propValue": "19900930"
+            },
+            {
+              "propName": "MARKETING_STATUS",
+              "propValue": "COMPLETED"
+            },
+            {
+              "propName": "SCORE",
+              "propValue": "1"
+            },
+            {
+              "propName": "SHAPE",
+              "propValue": "C48348"
+            },
+            {
+              "propName": "SIZE",
+              "propValue": "10 mm"
+            },
+            {
+              "propName": "SYMBOL",
+              "propValue": "false"
+            }
+          ]
+        },
+        "source": "Hybrid"
+      },
+      {
+        "ndcItem": "00093015010",
+        "ndc9": "0093-0150",
+        "ndc10": "0093-0150-10",
+        "rxcui": "993781",
+        "splSetIdItem": "a9b11cbf-7585-4532-868f-5686f028679f",
+        "packagingList": {
+          "packaging": [
+            "1000 TABLET in 1 BOTTLE (0093-0150-10)"
+          ]
+        },
+        "propertyConceptList": {
+          "propertyConcept": [
+            {
+              "propName": "ANDA",
+              "propValue": "ANDA088628"
+            },
+            {
+              "propName": "COLORTEXT",
+              "propValue": "white"
+            },
+            {
+              "propName": "COLOR",
+              "propValue": "C48325"
+            },
+            {
+              "propName": "DCSA",
+              "propValue": "CIII"
+            },
+            {
+              "propName": "IMPRINT_CODE",
+              "propValue": "3;TV;150"
+            },
+            {
+              "propName": "LABELER",
+              "propValue": "Teva Pharmaceuticals USA, Inc."
+            },
+            {
+              "propName": "LABEL_TYPE",
+              "propValue": "HUMAN PRESCRIPTION DRUG"
+            },
+            {
+              "propName": "MARKETING_CATEGORY",
+              "propValue": "ANDA"
+            },
+            {
+              "propName": "MARKETING_EFFECTIVE_TIME_HIGH",
+              "propValue": "20230228"
+            },
+            {
+              "propName": "MARKETING_EFFECTIVE_TIME_LOW",
+              "propValue": "19900930"
+            },
+            {
+              "propName": "MARKETING_STATUS",
+              "propValue": "COMPLETED"
+            },
+            {
+              "propName": "SCORE",
+              "propValue": "1"
+            },
+            {
+              "propName": "SHAPE",
+              "propValue": "C48348"
+            },
+            {
+              "propName": "SIZE",
+              "propValue": "10 mm"
+            }
+          ]
+        },
+        "source": "Hybrid"
+      }
+    ]
+  }
+}

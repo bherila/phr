@@ -40,6 +40,16 @@ return [
         'negative_cache_ttl_seconds' => (int) env('OPENFDA_NEGATIVE_CACHE_TTL_SECONDS', 21600),
     ],
 
+    // NLM RxNav (RxNorm) NDC history, the fallback for NDCs openFDA no longer lists (discontinued
+    // products). No key is needed; NLM allows 20 requests a second per IP. Only an NDC or an
+    // RxCUI is ever sent.
+    'rxnav' => [
+        'base_url' => env('RXNAV_BASE_URL', 'https://rxnav.nlm.nih.gov/REST'),
+        'timeout' => (int) env('RXNAV_TIMEOUT_SECONDS', 5),
+        'cache_ttl_seconds' => (int) env('RXNAV_CACHE_TTL_SECONDS', 86400),
+        'negative_cache_ttl_seconds' => (int) env('RXNAV_NEGATIVE_CACHE_TTL_SECONDS', 21600),
+    ],
+
     'slack' => [
         'notifications' => [
             'bot_user_oauth_token' => env('SLACK_BOT_USER_OAUTH_TOKEN'),

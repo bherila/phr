@@ -833,6 +833,76 @@ final class AgentApiMedicationFillTest extends TestCase
     /**
      * @param  list<string>  $scopes
      */
+    // ---- discontinued products (RxNav fallback) ---------------------------------------------
+
+    public function test_a_discontinued_ndc_openfda_lacks_resolves_from_rxnav_and_is_marked(): void
+    {
+        $this->getJson('/api/v1/ndc/lookup?ndc=00093015010')
+            ->assertOk()
+            ->assertJsonPath('status', 'resolved')
+            ->assertJsonPath('selected.ndc_10', '0093-0150-10')
+            ->assertJsonPath('selected.ndc_source', 'rxnav')
+            ->assertJsonPath('selected.discontinued', true)
+            ->assertJsonPath('selected.product_ndc', '0093-0150')
+            ->assertJsonPath('selected.drug.labeler_name', 'Teva Pharmaceuticals USA, Inc.');
+
+        $payload = $this->fillPayload($this->document(), ['ndc' => '00093015010', 'rx_number' => '7654321']);
+        $created = $this->putJson($this->url(), $payload)
+            ->assertCreated()
+            ->assertJsonPath('ndc.status', 'resolved')
+            ->assertJsonPath('ndc.selected.ndc_source', 'rxnav')
+            ->assertJsonPath('ndc.selected.discontinued', true)
+            ->assertJsonPath('data.ndc_status', 'resolved')
+            ->assertJsonPath('data.ndc_source', 'rxnav')
+            ->assertJsonPath('data.discontinued', true)
+            ->assertJsonPath('data.ndc_as_captured', '00093015010')
+            ->assertJsonPath('data.ndc_10', '0093-0150-10')
+            ->assertJsonPath('data.drug.substance_names', ['acetaminophen', 'codeine phosphate'])
+            ->assertJsonPath('data.drug.strengths', ['300 mg', '30 mg'])
+            ->assertJsonPath('data.drug.dosage_form', 'tablet')
+            ->assertJsonPath('data.drug.route', 'oral')
+            ->assertJsonPath('data.drug.brand_name', null)
+            ->assertJsonPath('data.drug.rxcui', '993781')
+            ->json();
+
+        $fill = PhrMedicationFill::query()->findOrFail($created['data']['id']);
+        $this->assertSame('rxnav', $fill->ndc_source);
+        $this->assertSame('rxnav', $fill->fda_snapshot['source']);
+        $this->assertSame('3;TV;150', collect($fill->fda_snapshot['ndcproperties']['ndcPropertyList']['ndcProperty'][1]['propertyConceptList']['propertyConcept'])->firstWhere('propName', 'IMPRINT_CODE')['propValue'] ?? null, 'the extra RxNav fields stay in the snapshot');
+        $this->assertTrue($fill->isDiscontinued());
+        $this->assertSame('acetaminophen; codeine phosphate', PhrMedication::query()->findOrFail($fill->medication_id)->name);
+
+        // A retry is unchanged and neither calls the directories again nor loses the mark.
+        $requests = count($this->rxnavRequests);
+        $this->putJson($this->url(), $payload)
+            ->assertOk()
+            ->assertJsonPath('outcome', 'unchanged')
+            ->assertJsonPath('ndc.selected.ndc_source', 'rxnav')
+            ->assertJsonPath('ndc.selected.product_ndc', '0093-0150')
+            ->assertJsonPath('ndc.selected.discontinued', true);
+        $this->assertSame($requests, count($this->rxnavRequests));
+    }
+
+    public function test_an_openfda_fill_is_marked_openfda_and_not_discontinued(): void
+    {
+        $this->putJson($this->url(), $this->fillPayload($this->document(), ['ndc' => '58151-0155-77']))
+            ->assertCreated()
+            ->assertJsonPath('data.ndc_source', 'openfda')
+            ->assertJsonPath('data.discontinued', false)
+            ->assertJsonPath('ndc.selected.ndc_source', 'openfda')
+            ->assertJsonPath('ndc.selected.discontinued', false);
+        $this->assertSame([], $this->rxnavRequests);
+    }
+
+    public function test_an_unresolved_fill_has_no_source_and_is_not_discontinued(): void
+    {
+        $this->putJson($this->url(), $this->fillPayload($this->document(), ['ndc' => '12345-6789-0', 'allow_unresolved' => true, 'drug_as_printed' => 'MYSTERY TAB']))
+            ->assertCreated()
+            ->assertJsonPath('data.ndc_status', 'unresolved')
+            ->assertJsonPath('data.ndc_source', null)
+            ->assertJsonPath('data.discontinued', false);
+    }
+
     private function actingWith(array $scopes): void
     {
         Passport::actingAs($this->actor, $scopes, 'api', $this->client);

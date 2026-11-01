@@ -1096,7 +1096,7 @@
             "description": "Idempotently create or update one prescription fill. Send the NDC from ndc_lookup (or the package the person chose among ambiguous candidates as ndc_candidate) with the fill, price, pharmacy and source fields; the server resolves the drug and links or creates the patient's medication. Provenance is required: source_kind, and source_document_id (upload the source with documents_upload first) unless manual. external_id is optional; the server derives it from pharmacy, Rx number and fill date so a receipt and a label photo of the same fill merge. Returns the fill, the medication and whether it was created, and the NDC resolution.",
             "inputSchema": "sha256:7735647cba7374a441cbef4951bdd0e9c6aaa40e7e7a2deebfefbe460350f052",
             "name": "medication_fills.upsert",
-            "outputSchema": "sha256:01a05eaafc5c30beee7a606f7b430eff339686245b487881dd413157e653d223",
+            "outputSchema": "sha256:b4884f1874eefa3b33bc7a4060914e188011ef17249254bdcc0d211ff097fd5c",
             "title": "Upsert Medication Fills"
         },
         "medications.update": {
@@ -1171,10 +1171,10 @@
                 "idempotentHint": true,
                 "openWorldHint": false
             },
-            "description": "Resolve a 10- or 11-digit NDC against the openFDA packaging directory on the server. An 11-digit NDC is converted to 10 digits by a fixed rule and is never ambiguous; the result always shows the 10-digit NDC (ndc_10). Returns resolved (one package, with its drug fields), ambiguous (only for 10 digits without hyphens: every candidate, ask the person which package is on the label) or unresolved. Call this before writing a fill; never call openFDA yourself and never supply drug fields.",
+            "description": "Resolve a 10- or 11-digit NDC against the openFDA packaging directory on the server; an NDC openFDA no longer lists (a discontinued product) is looked up in NLM RxNav's NDC history instead. An 11-digit NDC is converted to 10 digits by a fixed rule and is never ambiguous; the result always shows the 10-digit NDC (ndc_10). Returns resolved (one package, with its drug fields, ndc_source openfda or rxnav, and discontinued true when RxNav says the product is off the market), ambiguous (only for 10 digits without hyphens: every candidate, ask the person which package is on the label) or unresolved (neither directory lists it). Call this before writing a fill; never call openFDA yourself and never supply drug fields.",
             "inputSchema": "sha256:5904670e2a246a7988f5f8b68decec49192a53aed779e0e42db488769e960b65",
             "name": "ndc.lookup",
-            "outputSchema": "sha256:e0e484cc368af30bf343569bd1f48e047a8e4fa59e825659b164f23cd8f848cc",
+            "outputSchema": "sha256:98c3596e383792f208565c31e86821765a419093ea2236854aa5def1840a7b66",
             "title": "Look up an NDC"
         },
         "ndc.search": {
@@ -1187,7 +1187,7 @@
             "description": "For a missing or unreadable NDC: search packages by drug name (brand or generic), strength, dosage form, route, labeler and package size. Returns ranked candidates with the reasons each matched. It never picks one: show the candidates to the person, then pass the chosen ndc_10 as ndc_candidate when writing the fill.",
             "inputSchema": "sha256:aa88dcb603e7183caed6755035146bc3d9122561d92c5d8ad9de870b2ae7dd6e",
             "name": "ndc.search",
-            "outputSchema": "sha256:a2352757661965942048f38fd209cb86af88965bca964e1ee58a1ed0653767be",
+            "outputSchema": "sha256:0d05ea164a93919cd95e97af58c5f98a45b0852e85c3d53c58f3998d922d8344",
             "title": "Search drugs by NDC attributes"
         },
         "office_visits.update": {

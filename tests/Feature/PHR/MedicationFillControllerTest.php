@@ -4,7 +4,9 @@ namespace Tests\Feature\PHR;
 
 use App\Models\PhrMedication;
 use App\Models\PhrMedicationFill;
+use App\Models\PhrPatient;
 use App\Models\User;
+use App\Services\PHR\Fills\MedicationFillMedicationLinker;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Support\Facades\Cache;
 use Tests\Support\FakesOpenFda;
@@ -111,6 +113,55 @@ final class MedicationFillControllerTest extends TestCase
             ->assertJsonPath('medication_fill.ndc_status', 'unresolved')
             ->assertJsonPath('medication_fill.drug.brand_name', null)
             ->assertJsonPath('medication_fill.medication.name', 'Mystery capsules');
+    }
+
+    public function test_a_discontinued_ndc_resolves_from_rxnav_and_links_by_rxcui_and_product(): void
+    {
+        ['owner' => $owner, 'patientId' => $patientId] = $this->patientWithViewer();
+        $url = "/api/phr/patients/{$patientId}/medication-fills";
+
+        $first = $this->actingAs($owner)->postJson($url, $this->body(['ndc' => '00093015010']))
+            ->assertCreated()
+            ->assertJsonPath('medication_fill.ndc_status', 'resolved')
+            ->assertJsonPath('medication_fill.ndc_source', 'rxnav')
+            ->assertJsonPath('medication_fill.discontinued', true)
+            ->assertJsonPath('medication_fill.ndc_10', '0093-0150-10')
+            ->assertJsonPath('medication_fill.drug.rxcui', '993781')
+            ->assertJsonPath('medication_fill.drug.labeler_name', 'Teva Pharmaceuticals USA, Inc.')
+            ->assertJsonPath('medication_fill.medication.name', 'acetaminophen; codeine phosphate')
+            ->json('medication_fill');
+
+        // The same RxCUI links the same medication.
+        $this->actingAs($owner)->postJson($url, $this->body(['ndc' => '0093-0150-10', 'filled_on' => '2026-11-25']))
+            ->assertCreated()
+            ->assertJsonPath('medication_fill.medication_id', $first['medication_id']);
+
+        // Another package of the same product (other RxCUI, same labeler and product segments) links it too.
+        $sibling = PhrMedicationFill::factory()->create([
+            'patient_id' => $patientId, 'ndc_status' => 'resolved', 'ndc_source' => 'rxnav', 'ndc_10' => '0093-0150-01', 'ndc_11' => '00093015001',
+            'rxcui' => '309462', 'substance_names' => ['acetaminophen', 'codeine phosphate'], 'strengths' => ['300 mg', '30 mg'], 'dosage_form' => 'tablet',
+        ]);
+        $attached = app(MedicationFillMedicationLinker::class)->attach(PhrPatient::query()->findOrFail($patientId), $sibling);
+        $this->assertSame($first['medication_id'], $attached['medication']->id);
+        $this->assertFalse($attached['created']);
+        $this->assertSame(1, PhrMedication::query()->count());
+
+        // The listed product is not marked.
+        $this->actingAs($owner)->postJson($url, $this->body())
+            ->assertCreated()
+            ->assertJsonPath('medication_fill.ndc_source', 'openfda')
+            ->assertJsonPath('medication_fill.discontinued', false);
+    }
+
+    public function test_rxnav_being_down_is_not_reported_as_an_unlisted_ndc(): void
+    {
+        ['owner' => $owner, 'patientId' => $patientId] = $this->patientWithViewer();
+        $this->fakeOpenFda(rxnavDown: true);
+
+        $this->actingAs($owner)->postJson("/api/phr/patients/{$patientId}/medication-fills", $this->body(['ndc' => '00093015010']))
+            ->assertUnprocessable()
+            ->assertJsonPath('errors.ndc.0', fn (string $message): bool => str_contains($message, 'could not be reached'));
+        $this->assertSame(0, PhrMedicationFill::query()->count());
     }
 
     public function test_an_outage_is_not_reported_as_an_unlisted_ndc(): void

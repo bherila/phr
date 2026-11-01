@@ -3949,8 +3949,8 @@
         "/ndc/lookup": {
             "get": {
                 "operationId": "ndc.lookup",
-                "summary": "Resolve an NDC against the openFDA packaging directory",
-                "description": "Server-side and deterministic. An 11-digit billing NDC is converted to 10 digits by a fixed rule (split 5-4-2; drop a leading 0 from the first segment, else from the middle segment, else from the last), then checked against openFDA packaging.package_ndc; it is never ambiguous. 10 digits without hyphens have no known layout and are read as 4-4-2, 5-3-2 and 5-4-1. Exactly one listed package is resolved; several (only possible for unhyphenated 10 digits) are ambiguous and a person must pick; none is unresolved. The answer always shows the 10-digit NDC (ndc_10); ndc_11 is the billing form. Returns normalized drug fields. Sends only the NDC to openFDA, never patient data.",
+                "summary": "Resolve an NDC against the openFDA packaging directory, then RxNav for discontinued products",
+                "description": "Server-side and deterministic. An 11-digit billing NDC is converted to 10 digits by a fixed rule (split 5-4-2; drop a leading 0 from the first segment, else from the middle segment, else from the last), then checked against openFDA packaging.package_ndc; it is never ambiguous. A package openFDA does not list (openFDA answered not-found, not an outage) is looked up in NLM RxNav's NDC history, which still knows discontinued products: that answer is resolved with ndc_source rxnav and discontinued true when the product is off the market. 10 digits without hyphens have no known layout and are read as 4-4-2, 5-3-2 and 5-4-1. Exactly one listed package is resolved; several (only possible for unhyphenated 10 digits) are ambiguous and a person must pick; none is unresolved. The answer always shows the 10-digit NDC (ndc_10); ndc_11 is the billing form. Returns normalized drug fields. Sends only the NDC (and its RxCUI) to openFDA and RxNav, never patient data.",
                 "security": [
                     {
                         "oauth2": [
@@ -11631,13 +11631,15 @@
                     "ndc_11",
                     "product_ndc",
                     "drug",
+                    "ndc_source",
+                    "discontinued",
                     "match_reasons",
                     "fetched_at"
                 ],
                 "properties": {
                     "ndc_10": {
                         "type": "string",
-                        "description": "Hyphenated 10-digit package NDC as openFDA lists it."
+                        "description": "Hyphenated 10-digit package NDC as openFDA (or, for a discontinued product, RxNav) lists it."
                     },
                     "ndc_11": {
                         "type": "string",
@@ -11651,6 +11653,17 @@
                     },
                     "drug": {
                         "$ref": "#/components/schemas/NdcDrug"
+                    },
+                    "ndc_source": {
+                        "enum": [
+                            "openfda",
+                            "rxnav"
+                        ],
+                        "description": "Which directory listed the package: openfda, or rxnav (NLM RxNorm NDC history) for a product openFDA no longer lists."
+                    },
+                    "discontinued": {
+                        "type": "boolean",
+                        "description": "True when RxNav's history says the product is off the market (its SPL marketing status is not active). Always false for openfda."
                     },
                     "match_reasons": {
                         "type": "array",
