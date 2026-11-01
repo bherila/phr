@@ -129,5 +129,7 @@ export function dollarsToCents(input: string): number | null {
 
 export function fillDrugName(fill: MedicationFill): string {
   const substances = fill.drug?.substance_names.join('; ')
-  return substances || fill.medication?.name || fill.display?.drug_as_printed || fill.drug_as_printed || MISSING
+  // A medication created from the printed text carries that text verbatim as its name: show the derived form.
+  const linked = fill.medication?.name === fill.drug_as_printed ? (fill.display?.drug_as_printed ?? fill.medication?.name) : fill.medication?.name
+  return substances || linked || fill.display?.drug_as_printed || fill.drug_as_printed || MISSING
 }

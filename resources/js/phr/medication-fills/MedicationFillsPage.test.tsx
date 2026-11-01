@@ -176,6 +176,19 @@ describe('MedicationFillsPage table', () => {
     expect(document.querySelector('.lowercase')).toBeNull()
   })
 
+  it('shows the derived name for a fill linked to a medication named from the printed text', async () => {
+    fills = [makeFill({
+      drug: null,
+      medication: { id: 9, name: 'ATORVASTATIN 10MG TAB' },
+      drug_as_printed: 'ATORVASTATIN 10MG TAB',
+      display: { drug_as_printed: 'atorvastatin 10 mg tab', pharmacy_name: null, pharmacy_location: null, prescriber_name: null, directions: null },
+    })]
+    renderPage()
+    const table = await screen.findByRole('table', { name: 'Fills' })
+    expect(within(table).getByText('atorvastatin 10 mg tab')).toBeInTheDocument()
+    expect(within(table).queryByText('ATORVASTATIN 10MG TAB')).toBeNull()
+  })
+
   it('explains how fills arrive when there are none', async () => {
     fills = []
     renderPage()
