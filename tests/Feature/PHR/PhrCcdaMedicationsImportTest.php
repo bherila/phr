@@ -20,6 +20,36 @@ final class PhrCcdaMedicationsImportTest extends PhrCcdaSectionImportTestCase
         ];
     }
 
+    public function test_activities_without_ids_that_differ_only_in_regimen_are_two_medications(): void
+    {
+        $patient = $this->ccdaPatient();
+        $activity = static fn (string $regimen): string => <<<XML
+            <entry>
+              <substanceAdministration classCode="SBADM" moodCode="INT">
+                <templateId root="2.16.840.1.113883.10.20.22.4.16"/>
+                <id nullFlavor="NI"/>
+                <statusCode code="active"/>
+                <effectiveTime xsi:type="IVL_TS"><low value="20260101"/></effectiveTime>
+                {$regimen}
+                <doseQuantity value="5" unit="mg"/>
+                <consumable><manufacturedProduct><manufacturedMaterial>
+                  <code code="9990091" codeSystem="2.16.840.1.113883.6.88" displayName="Synthetic regimen medicine"/>
+                </manufacturedMaterial></manufacturedProduct></consumable>
+              </substanceAdministration>
+            </entry>
+            XML;
+
+        $this->importCcda($this->ccdaSectionDocument(
+            '<templateId root="2.16.840.1.113883.10.20.22.2.1.1" extension="2014-06-09"/><title>Medications</title>'
+            .$activity('<effectiveTime xsi:type="PIVL_TS" operator="A"><period value="12" unit="h"/></effectiveTime>')
+            .$activity('<effectiveTime xsi:type="PIVL_TS" operator="A"><period value="24" unit="h"/></effectiveTime>')
+            .$activity('<effectiveTime xsi:type="PIVL_TS" operator="A"><period value="24" unit="h"/></effectiveTime><routeCode code="C38216" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="Synthetic inhaled"/>'),
+        ), $patient);
+
+        $rows = PhrMedication::query()->where('patient_id', $patient->id)->orderBy('id')->get();
+        $this->assertSame([['every 12 h', null], ['every 24 h', null], ['every 24 h', 'Synthetic inhaled']], $rows->map(fn (PhrMedication $row): array => [$row->frequency, $row->route])->all());
+    }
+
     /** A dose range is never stored as one of its bounds, as if it were exact. */
     #[DataProvider('doseRanges')]
     public function test_a_dose_range_keeps_its_bounds(string $bounds, string $dose, ?string $unit): void

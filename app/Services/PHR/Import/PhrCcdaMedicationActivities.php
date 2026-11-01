@@ -91,6 +91,8 @@ final class PhrCcdaMedicationActivities extends PhrCcdaSectionReader
             $doseUnit = $this->xml->codeName($this->xml->child($activity, 'administrationUnitCode')) ?? $doseUnit;
         }
         $route = $this->xml->child($activity, 'routeCode');
+        $routeText = $this->xml->codeName($route) ?? $this->xml->codeLabel($route);
+        $frequency = $this->frequency($activity);
         $indication = $this->xml->related($activity, 'observation', self::INDICATION)[0] ?? null;
         $status = $this->status($this->xml->attribute($this->xml->child($activity, 'statusCode'), 'code'));
 
@@ -99,15 +101,17 @@ final class PhrCcdaMedicationActivities extends PhrCcdaSectionReader
             'rxnorm_code' => $this->xml->codeIn($code, self::RXNORM),
             'dose' => $doseValue,
             'dose_unit' => $doseValue === null ? null : $doseUnit,
-            'route' => $this->xml->codeName($route) ?? $this->xml->codeLabel($route),
-            'frequency' => $this->frequency($activity),
+            'route' => $routeText,
+            'frequency' => $frequency,
             'started_on' => $startedOn,
             'ended_on' => $endedOn,
             'status' => $status,
             'reason_for_use' => $this->xml->codeName($this->xml->child($indication, 'value')),
             // The sig, as the source wrote it.
             'raw_text' => $this->xml->edText($this->xml->child($activity, 'text')),
-            'external_id' => $this->externalId($activity, [$name, $startedOn, $doseValue, $doseUnit]),
+            // Without an id, the whole regimen identifies it: the same medicine
+            // twice a day and once a day are two activities, not one.
+            'external_id' => $this->externalId($activity, [$name, $startedOn, $endedOn, $doseValue, $doseUnit, $routeText, $frequency]),
         ];
     }
 
