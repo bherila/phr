@@ -7,6 +7,7 @@ import { SkeletonBlock } from '@/components/record-list/Skeleton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { formatDate, formatDateTime } from '@/lib/dateFormat'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { classBadge, codeChip, reviewStatusBadge } from '@/phr/clinical/ui'
@@ -107,10 +108,10 @@ function toDatetimeLocal(value: string | null): string {
 
 function displayProcedureDate(procedure: PhrProcedure): string {
   if (procedure.performed_at) {
-    return procedure.performed_at.slice(0, 16)
+    return formatDateTime(procedure.performed_at)
   }
 
-  return procedure.performed_on ?? 'Date not recorded'
+  return formatDate(procedure.performed_on) || 'Date not recorded'
 }
 
 function ProcedureFormFields({ form, onChange }: ProcedureFormFieldsProps) {

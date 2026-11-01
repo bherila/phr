@@ -12,6 +12,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { formatDate } from '@/lib/dateFormat'
+import { displayUnits } from '@/lib/measureUnits'
 import { cn } from '@/lib/utils'
 import { AiResultDetails, type AiResultView,aiResultView } from '@/phr/imports/ai/AiImportReview'
 import { ehiFailureText, ehiImportsUrl,ehiReviewUrl } from '@/phr/imports/ehi/ehiApi'
@@ -20,6 +22,7 @@ import { pushPhrLocation } from '@/phr/shell/phrLocation'
 import { PHR_PAGES, type PhrListPageProps } from '@/phr/shell/phrPages'
 import { isPhrShellPath, patientPageUrl, type PhrPageId } from '@/phr/shell/phrRoutes'
 
+import { RejectedMedications } from './RejectedMedications'
 import { decideReviewItems, type DuplicateAction, type FillDuplicate, type FillSummary, getReviewQueue, resolveFillDuplicate, type ReviewDecision, type ReviewGroup, type ReviewItem, type ReviewQueue, sectionOf } from './reviewApi'
 import { setReviewSummary } from './reviewSummary'
 
@@ -186,9 +189,9 @@ function viewGroups(queue: ReviewQueue, patientId: number, bySection: boolean): 
 }
 
 const COMPARED: { label: string, value: (fill: FillSummary) => string }[] = [
-  { label: 'Date', value: (fill) => fill.filled_on },
-  { label: 'Name', value: (fill) => fill.name },
-  { label: 'Strength', value: (fill) => fill.strength ?? '—' },
+  { label: 'Date', value: (fill) => formatDate(fill.filled_on) },
+  { label: 'Name', value: (fill) => displayUnits(fill.name) },
+  { label: 'Strength', value: (fill) => displayUnits(fill.strength) ?? '—' },
   { label: 'Quantity', value: (fill) => fill.quantity ?? '—' },
   { label: 'Pharmacy', value: (fill) => fill.pharmacy ?? '—' },
   { label: 'Rx number', value: (fill) => fill.rx_number ?? '—' },
@@ -260,8 +263,8 @@ function reviewColumns(
       className: 'px-3 py-3',
       cell: (row) => (
         <>
-          <span className="block font-semibold text-foreground">{row.title}</span>
-          {row.detail && <span className="mt-0.5 block text-xs text-muted-foreground">{row.detail}</span>}
+          <span className="block font-semibold text-foreground">{displayUnits(row.title)}</span>
+          {row.detail && <span className="mt-0.5 block text-xs text-muted-foreground">{displayUnits(row.detail)}</span>}
           {row.flags.map((flag) => <span key={flag} className="mt-1 block text-xs text-amber-700 dark:text-amber-400">{flag}</span>)}
           {failures[row.item.key] && <span role="alert" className="mt-1 block text-xs text-destructive">{failures[row.item.key]}</span>}
         </>
@@ -327,6 +330,7 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
   const [failures, setFailures] = useState<Readonly<Record<string, string>>>({})
   const [status, setStatus] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [rejectedKey, setRejectedKey] = useState(0)
   const [confirming, setConfirming] = useState<PendingBatch | null>(null)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const toggleExpanded = (key: string): void => {
@@ -378,6 +382,7 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
     const verb = batch.decision === 'approve' ? 'Approved' : 'Rejected'
     setStatus(`${verb} ${outcome.done.length}.${failed > 0 ? ` ${failed} could not be ${batch.decision === 'approve' ? 'approved' : 'rejected'}; each says why below.` : ''}`)
     await load()
+    setRejectedKey((key) => key + 1)
     setBusy(false)
   }
 
@@ -546,7 +551,7 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
                         <div key={existing.id} className="flex flex-col gap-2">
                           <FillComparison fill={row.duplicate!.fill} existing={existing} />
                           <div className="flex flex-wrap gap-2">
-                            <Button type="button" size="sm" disabled={!canManage || busy} aria-label={`Same fill: merge ${row.title} into the existing fill of ${existing.filled_on}`} onClick={() => void resolveDuplicate(row, 'same', existing.id)}>Same fill</Button>
+                            <Button type="button" size="sm" disabled={!canManage || busy} aria-label={`Same fill: merge ${row.title} into the existing fill of ${formatDate(existing.filled_on)}`} onClick={() => void resolveDuplicate(row, 'same', existing.id)}>Same fill</Button>
                             <Button type="button" size="sm" variant="outline" disabled={!canManage || busy} aria-label={`Different fill: keep ${row.title} and clear the flag`} onClick={() => void resolveDuplicate(row, 'different', existing.id)}>Different fill</Button>
                           </div>
                         </div>
@@ -582,6 +587,8 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
         )
       })}
 
+      <RejectedMedications patientId={patientId} refreshKey={rejectedKey} onChanged={() => void load()} />
+
       <AlertDialog open={confirming !== null} onOpenChange={(open) => { if (!open) setConfirming(null) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -591,7 +598,7 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
             <AlertDialogDescription>
               {confirming?.decision === 'approve'
                 ? 'They become part of this patient’s record as shown. Anything that changed since this page loaded is left for you to look at again.'
-                : 'Rejected records stay out of the record; a rejected record can still be found on its section’s page.'}
+                : 'Rejected records stay out of the record. A rejected medication or fill is listed at the end of this page; any other is on its section’s page.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

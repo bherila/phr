@@ -47,7 +47,7 @@ describe('EhiReview', () => {
 
     expect(await screen.findByRole('heading', { name: 'Review Synthetic Clinic' })).toBeInTheDocument()
     const duplicates = await screen.findByRole('region', { name: 'Might already be in PHR' })
-    expect(await within(duplicates).findByText('Tdap (entered by you) · Jun 2, 2019')).toBeInTheDocument()
+    expect(await within(duplicates).findByText('Tdap (entered by you) · 2019-06-02')).toBeInTheDocument()
     expect(within(duplicates).getByRole('button', { name: 'Same record, link as evidence: Synthetic Tdap' })).toBeInTheDocument()
 
     const fresh = screen.getByRole('region', { name: 'New records' })

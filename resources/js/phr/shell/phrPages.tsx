@@ -9,7 +9,6 @@ import {
   Image,
   type LucideIcon,
   Pill,
-  PillBottle,
   Scissors,
   Shield,
   Syringe,
@@ -63,6 +62,14 @@ export interface PhrPageMeta {
   keywords: string[]
   icon: LucideIcon
   component: ComponentType<PhrListPageProps>
+  /** The sidebar's name for this page, where a section is named differently from its default view. */
+  navLabel?: string
+  /** A view inside another page's section: it has no sidebar item of its own and marks that page's. */
+  sectionPage?: PhrPageId
+  /** Its list has no breadcrumb: the sidebar names the page, and its tabs say which view. */
+  noListBreadcrumb?: boolean
+  /** The breadcrumb's name for a view inside a section, whose own label may repeat the section's. */
+  crumbLabel?: string
 }
 
 export interface PhrDetailMeta {
@@ -78,8 +85,8 @@ export const PHR_PAGES: Record<PhrPageId, PhrPageMeta> = {
   labs: { label: 'Labs', icon: FlaskConical, keywords: ['labs', 'laboratory', 'results', 'bloodwork'], component: lazy(() => import('@/phr/labs/LabsPage')) },
   vitals: { label: 'Vitals', icon: HeartPulse, keywords: ['vitals', 'blood pressure', 'weight', 'height'], component: lazy(() => import('@/phr/vitals/VitalsPage')) },
   'office-visits': { label: 'Visits', icon: CalendarDays, keywords: ['visits', 'appointments', 'encounters', 'allergy shots', 'injections', 'immunotherapy'], component: lazy(() => import('@/phr/office-visits/OfficeVisitsPage')) },
-  medications: { label: 'Medications', icon: Pill, keywords: ['medications', 'prescriptions', 'drugs', 'rx'], component: lazy(() => import('@/phr/medications/MedicationsPage')) },
-  'medication-fills': { label: 'Fills', icon: PillBottle, keywords: ['fills', 'prescription fills', 'dispensed', 'pharmacy', 'ndc', 'refills', 'receipts'], component: lazy(() => import('@/phr/medication-fills/MedicationFillsPage')) },
+  medications: { label: 'Medications', sectionPage: 'medication-fills', crumbLabel: 'Medication list', noListBreadcrumb: true, icon: Pill, keywords: ['medications', 'prescriptions', 'drugs', 'rx'], component: lazy(() => import('@/phr/medications/MedicationsPage')) },
+  'medication-fills': { label: 'Fills', navLabel: 'Medications', noListBreadcrumb: true, icon: Pill, keywords: ['fills', 'prescription fills', 'dispensed', 'pharmacy', 'ndc', 'refills', 'receipts'], component: lazy(() => import('@/phr/medication-fills/MedicationFillsPage')) },
   conditions: { label: 'Conditions', icon: TriangleAlert, keywords: ['conditions', 'diagnoses', 'problems'], component: lazy(() => import('@/phr/conditions/ConditionsPage')) },
   procedures: { label: 'Procedures', icon: Scissors, keywords: ['procedures', 'surgery', 'treatments'], component: lazy(() => import('@/phr/procedures/ProceduresPage')) },
   immunizations: { label: 'Immunizations', icon: Syringe, keywords: ['immunizations', 'vaccines', 'shots'], component: lazy(() => import('@/phr/immunizations/ImmunizationsPage')) },
@@ -96,6 +103,7 @@ export const PHR_DETAILS: Record<PhrDetailId, PhrDetailMeta> = {
   'imaging-study-detail': { label: 'Study', component: lazy(() => import('@/phr/imaging/ImagingStudyDetail')) },
   'office-visit-detail': { label: 'Visit', component: lazy(() => import('@/phr/office-visits/OfficeVisitDetail')) },
   'medication-detail': { label: 'Medication', component: lazy(() => import('@/phr/medications/MedicationDetail')) },
+  'medication-fill-detail': { label: 'Fill', component: lazy(() => import('@/phr/medication-fills/MedicationFillDetail')) },
   'condition-detail': { label: 'Condition', component: lazy(() => import('@/phr/conditions/ConditionDetail')) },
   'procedure-detail': { label: 'Procedure', component: lazy(() => import('@/phr/procedures/ProcedureDetail')) },
   'immunization-detail': { label: 'Immunization', component: lazy(() => import('@/phr/immunizations/ImmunizationDetail')) },
@@ -104,21 +112,20 @@ export const PHR_DETAILS: Record<PhrDetailId, PhrDetailMeta> = {
   'access-grant-detail': { label: 'Access Grant', component: lazy(() => import('@/phr/access/AccessGrantDetail')) },
 }
 
-export interface PhrNavGroup {
-  title: string
-  pages: PhrPageId[]
-}
-
-/** The patient sidebar, top to bottom. Every page appears exactly once. */
-export const PHR_NAV_GROUPS: PhrNavGroup[] = [
-  { title: 'Overview', pages: ['review', 'summary', 'health-log'] },
-  { title: 'Clinical', pages: ['labs', 'vitals', 'office-visits', 'medications', 'medication-fills', 'conditions', 'procedures', 'immunizations', 'allergies'] },
-  { title: 'Records', pages: ['documents', 'imaging'] },
-  { title: 'Sharing', pages: ['access'] },
+/**
+ * The patient sidebar, top to bottom, in groups set apart by a gap. Every page appears once, or
+ * under its `sectionPage`.
+ */
+export const PHR_NAV_GROUPS: PhrPageId[][] = [
+  ['review', 'summary', 'health-log'],
+  ['labs', 'vitals', 'office-visits', 'medication-fills', 'conditions', 'procedures', 'immunizations', 'allergies'],
+  ['documents', 'imaging'],
+  ['access'],
 ]
 
-export function navGroupOf(page: PhrPageId): string {
-  return PHR_NAV_GROUPS.find((group) => group.pages.includes(page))?.title ?? ''
+/** The page whose sidebar item stands for `page`. */
+export function sidebarPageOf(page: PhrPageId): PhrPageId {
+  return PHR_PAGES[page].sectionPage ?? page
 }
 
 export const PatientsPage = lazy(() => import('@/phr/patients/PatientsPage'))
@@ -129,14 +136,16 @@ const AiProviderSettingsPage = lazy(() => import('@/phr/config/AiProviderSetting
 const ConnectedDevicesPanel = lazy(() => import('@/phr/config/ConnectedDevicesPanel'))
 const ConnectedAppsPage = lazy(() => import('@/phr/config/ConnectedAppsPage'))
 const ApiAccessPanel = lazy(() => import('@/phr/config/ApiAccessPanel'))
+const DisplaySettingsPage = lazy(() => import('@/phr/config/DisplaySettingsPage'))
 
-type ConfigTab = 'ai-providers' | 'devices' | 'connected-apps' | 'api-access'
+type ConfigTab = 'ai-providers' | 'devices' | 'connected-apps' | 'api-access' | 'display'
 
 const CONFIG_TABS: { id: ConfigTab, label: string }[] = [
   { id: 'ai-providers', label: 'AI Provider Settings' },
   { id: 'devices', label: 'Connected Devices' },
   { id: 'connected-apps', label: 'Connected apps' },
   { id: 'api-access', label: 'API Access' },
+  { id: 'display', label: 'Display' },
 ]
 
 export function ConfigPage(): ReactElement {
@@ -164,6 +173,7 @@ export function ConfigPage(): ReactElement {
         {tab === 'devices' ? <ConnectedDevicesPanel /> : null}
         {tab === 'connected-apps' ? <ConnectedAppsPage /> : null}
         {tab === 'api-access' ? <ApiAccessPanel /> : null}
+        {tab === 'display' ? <DisplaySettingsPage /> : null}
       </div>
     </div>
   )

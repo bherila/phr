@@ -63,8 +63,10 @@ final class PhrPreloadTest extends TestCase
             "/office-visits/{$this->ids['visit']}" => ["{$p}/office-visits/{$this->ids['visit']}", ...$lists],
             "/office-visits/procedure/{$this->ids['procedure']}" => ["{$p}/procedures/{$this->ids['procedure']}", ...$lists],
             "/office-visits/immunization/{$this->ids['immunization']}" => ["{$p}/immunizations/{$this->ids['immunization']}", ...$lists],
-            '/medications' => ["{$p}/medications"],
-            "/medications/{$this->ids['medication']}" => ["{$p}/medications/{$this->ids['medication']}", "{$p}/medications"],
+            '/medications' => ["{$p}/medications", "{$p}/medication-fills"],
+            "/medications/{$this->ids['medication']}" => ["{$p}/medications/{$this->ids['medication']}", "{$p}/medications", "{$p}/medication-fills"],
+            '/medication-fills' => ["{$p}/medication-fills", "{$p}/medications"],
+            "/medication-fills/{$this->ids['fill']}" => ["{$p}/medication-fills/{$this->ids['fill']}", "{$p}/medication-fills", "{$p}/medications"],
             '/conditions' => ["{$p}/conditions"],
             "/conditions/{$this->ids['condition']}" => ["{$p}/conditions/{$this->ids['condition']}", "{$p}/conditions"],
             '/procedures' => ["{$p}/procedures"],
@@ -257,6 +259,8 @@ final class PhrPreloadTest extends TestCase
         $this->ids['procedure'] = (int) $this->postJson("{$p}/procedures", ['name' => 'Synthetic procedure'])->assertCreated()->json('procedure.id');
         $this->ids['immunization'] = (int) $this->postJson("{$p}/immunizations", ['vaccine_name' => 'Synthetic vaccine'])->assertCreated()->json('immunization.id');
         $this->ids['medication'] = (int) $this->postJson("{$p}/medications", ['name' => 'Synthetic medication'])->assertCreated()->json('medication.id');
+        $this->ids['fill'] = (int) $this->postJson("{$p}/medication-fills", ['drug_as_printed' => 'Synthetic drug', 'filled_on' => '2026-01-20', 'quantity' => '30'])
+            ->assertCreated()->json('medication_fill.id');
         $this->ids['condition'] = (int) $this->postJson("{$p}/conditions", ['name' => 'Synthetic condition'])->assertCreated()->json('condition.id');
         $this->ids['allergy'] = (int) $this->postJson("{$p}/allergies", ['substance' => 'Synthetic allergen'])->assertCreated()->json('allergy.id');
         $this->ids['log'] = (int) $this->postJson("{$p}/health-logs", ['name' => 'Synthetic journal', 'kind' => 'symptom'])->assertCreated()->json('health_log.id');

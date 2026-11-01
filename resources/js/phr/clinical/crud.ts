@@ -26,6 +26,8 @@ interface UseClinicalCrudOptions<TRecord extends ClinicalRecordBase, TForm> {
   sortRecords?: (records: TRecord[]) => TRecord[]
   /** What the shell already knows, until the list response says otherwise. */
   initialCanManage?: boolean
+  /** A record was changed or removed from this list, for a detail panel showing it. */
+  onRecordChanged?: (recordId: number) => void
 }
 
 export interface ClinicalCrudState<TRecord extends ClinicalRecordBase, TForm> {
@@ -52,6 +54,8 @@ export interface ClinicalCrudState<TRecord extends ClinicalRecordBase, TForm> {
   startDelete: (recordId: number) => void
   cancelDelete: () => void
   isMutating: (key: string) => boolean
+  /** Fetch the list again, keeping the current rows on screen: a detail panel changed one. */
+  reload: () => Promise<void>
 }
 
 export function useClinicalCrud<TRecord extends ClinicalRecordBase, TForm>({
@@ -63,6 +67,7 @@ export function useClinicalCrud<TRecord extends ClinicalRecordBase, TForm>({
   payloadFromForm,
   sortRecords,
   initialCanManage = false,
+  onRecordChanged,
 }: UseClinicalCrudOptions<TRecord, TForm>): ClinicalCrudState<TRecord, TForm> {
   const [records, setRecords] = useState<TRecord[]>([])
   const [canManage, setCanManage] = useState(initialCanManage)
@@ -81,7 +86,9 @@ export function useClinicalCrud<TRecord extends ClinicalRecordBase, TForm>({
   const payloadFromFormRef = useRef(payloadFromForm)
   const formFromRecordRef = useRef(formFromRecord)
   const sortRecordsRef = useRef(sortRecords)
+  const onRecordChangedRef = useRef(onRecordChanged)
   useEffect(() => {
+    onRecordChangedRef.current = onRecordChanged
     parseListRef.current = parseList
     parseItemRef.current = parseItem
     payloadFromFormRef.current = payloadFromForm
@@ -169,6 +176,7 @@ export function useClinicalCrud<TRecord extends ClinicalRecordBase, TForm>({
       const raw: unknown = await fetchWrapper.patch(`${endpoint}/${recordId}`, payload)
       const updatedRecord = parseItemRef.current(raw)
       replaceRecord(updatedRecord)
+      onRecordChangedRef.current?.(recordId)
       return updatedRecord
     } catch (caught) {
       setError(errorMessage(caught))
@@ -194,6 +202,7 @@ export function useClinicalCrud<TRecord extends ClinicalRecordBase, TForm>({
       } else {
         replaceRecord(updatedRecord)
       }
+      onRecordChangedRef.current?.(recordId)
 
       return updatedRecord
     } catch (caught) {
@@ -220,6 +229,7 @@ export function useClinicalCrud<TRecord extends ClinicalRecordBase, TForm>({
     try {
       await fetchWrapper.delete(`${endpoint}/${recordId}`, {})
       countsChanged()
+      onRecordChangedRef.current?.(recordId)
       setRecords((current) => current.filter((record) => record.id !== recordId))
       setDeletingId(null)
       if (editingId === recordId) {
@@ -263,5 +273,6 @@ export function useClinicalCrud<TRecord extends ClinicalRecordBase, TForm>({
     startDelete,
     cancelDelete,
     isMutating,
+    reload: load,
   }
 }

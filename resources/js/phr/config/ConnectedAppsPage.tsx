@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
+import { formatInstant } from '@/lib/dateFormat'
 import { errorMessage } from '@/phr/shared'
 
 import { type ConnectedApp, type ConnectedAppsResult, listConnectedApps, revokeConnectedApp } from './connectedApps'
@@ -27,7 +28,7 @@ function grantDate(value: string | null): string {
   if (value === null) return 'Unknown'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return 'Unknown'
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(date)
+  return formatInstant(value)
 }
 
 function resourceLabel(resource: string): string {

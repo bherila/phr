@@ -8,11 +8,14 @@ import { ConfigPage, PHR_DETAILS, PHR_NAV_GROUPS, PHR_PAGES } from './phrPages'
 import { PHR_DETAIL_ROUTES, PHR_PAGE_IDS } from './phrRoutes'
 
 describe('phrPages', () => {
-  it('lists every patient page in the sidebar exactly once', () => {
-    const listed = PHR_NAV_GROUPS.flatMap((group) => group.pages)
-    expect([...listed].sort()).toEqual([...PHR_PAGE_IDS].sort())
+  it('lists every patient page in the sidebar exactly once, or under its section', () => {
+    const listed = PHR_NAV_GROUPS.flat()
+    expect([...listed].sort()).toEqual(PHR_PAGE_IDS.filter((page) => !PHR_PAGES[page].sectionPage).sort())
     expect(new Set(listed).size).toBe(listed.length)
-    expect(PHR_NAV_GROUPS.map((group) => group.title)).toEqual(['Overview', 'Clinical', 'Records', 'Sharing'])
+    for (const page of PHR_PAGE_IDS) {
+      const home = PHR_PAGES[page].sectionPage
+      if (home) expect(listed).toContain(home)
+    }
   })
 
   it('has a component and label for every page and detail the URL model can name', () => {

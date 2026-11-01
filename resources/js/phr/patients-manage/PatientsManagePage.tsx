@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
+import { formatDate } from '@/lib/dateFormat'
 import { usePhrPatients } from '@/phr/patients/usePhrPatients'
 import { compactPayload, errorMessage } from '@/phr/shared'
 import {
@@ -247,7 +248,7 @@ export default function PatientsManagePage() {
                     <p className="text-xs text-muted-foreground">{patient.relationship}</p>
                   )}
                   {patient.birth_date && (
-                    <p className="text-xs text-muted-foreground">DOB: {patient.birth_date}</p>
+                    <p className="text-xs text-muted-foreground">DOB: {formatDate(patient.birth_date)}</p>
                   )}
                 </div>
               </div>

@@ -21,6 +21,7 @@
           'user_role' => auth()->user()->user_role,
           'last_login_date' => optional(auth()->user()->last_login_date)->toDateTimeString(),
           'genai_execution_mode' => auth()->user()->genAiExecutionMode(),
+          'display_preferences' => auth()->user()->displayPreferences(),
         ] : null,
         // Rendered per request from the session rather than compiled into the bundle, so the
         // set of sibling applications is visible only to someone who is actually signed in.
@@ -42,7 +43,7 @@
     @vite(['resources/css/app.css'])
     @stack('head')
   </head>
-  <body class="phr-shell min-h-screen flex flex-col">
+  <body class="phr-shell min-h-dvh flex flex-col">
     <main class="flex-1">
       @yield('content')
     </main>

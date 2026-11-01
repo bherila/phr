@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { DetailSkeleton } from '@/components/record-list/Skeleton'
+import { formatDate, formatDateTime } from '@/lib/dateFormat'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import { type PhrCondition, PhrConditionResponseSchema } from '@/phr/types'
@@ -90,11 +91,11 @@ export default function ConditionDetail({ patientId, recordId }: ConditionDetail
             </div>
             <div>
               <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Onset date</dt>
-              <dd className="text-card-foreground">{detailValue(condition.onset_date)}</dd>
+              <dd className="text-card-foreground">{detailValue(formatDate(condition.onset_date) || null)}</dd>
             </div>
             <div>
               <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Abated date</dt>
-              <dd className="text-card-foreground">{detailValue(condition.abated_date)}</dd>
+              <dd className="text-card-foreground">{detailValue(formatDate(condition.abated_date) || null)}</dd>
             </div>
             <div>
               <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">ICD-10</dt>
@@ -106,7 +107,7 @@ export default function ConditionDetail({ patientId, recordId }: ConditionDetail
             </div>
             <div>
               <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Last updated</dt>
-              <dd className="text-card-foreground">{detailValue(condition.updated_at)}</dd>
+              <dd className="text-card-foreground">{detailValue(formatDateTime(condition.updated_at) || null)}</dd>
             </div>
           </dl>
           <div className="mt-4 border-t border-border pt-4">

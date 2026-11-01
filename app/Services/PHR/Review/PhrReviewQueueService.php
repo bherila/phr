@@ -29,6 +29,7 @@ use App\Services\PHR\Import\Ehi\EhiImportPresenter;
 use App\Services\PHR\Import\PhrImportJobDao;
 use App\Services\PHR\Import\PhrImportJobPresenter;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
+use App\Support\PHR\DisplayPreferences;
 use App\Support\PHR\PhrRecordLifecycle;
 use App\Support\PHR\PhrReviewStatus;
 use Carbon\Carbon;
@@ -388,6 +389,28 @@ final readonly class PhrReviewQueueService
     }
 
     /**
+     * Rejected medications and fills, newest first. Their lists leave rejected records out, so
+     * this is where a person finds one again and approves it after all, through its own review
+     * route. All of them: nowhere else reaches an older one, and it is read only when opened.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function rejectedMedications(PhrPatient $patient): array
+    {
+        $items = [];
+        foreach (['medication-fills', 'medications'] as $page) {
+            $model = self::CLINICAL[$page];
+            $query = $model::query()->where('patient_id', $patient->id)->where('review_status', PhrReviewStatus::REJECTED);
+            PhrRecordLifecycle::scopeLive($query);
+            foreach ($query->orderByDesc('updated_at')->orderByDesc('id')->get() as $record) {
+                $items[] = $this->recordItem($page, $record, $patient, []);
+            }
+        }
+
+        return $items;
+    }
+
+    /**
      * @param  array<int, string>  $mismatched
      * @param  array<int, array<string, mixed>>  $duplicates  open possible-duplicate detail by fill id
      * @return array<string, mixed>
@@ -735,7 +758,7 @@ final readonly class PhrReviewQueueService
 
     private function date(mixed $value): ?string
     {
-        return $value instanceof CarbonInterface ? $value->format('M j, Y') : null;
+        return $value instanceof CarbonInterface ? DisplayPreferences::writeDate($value, auth()->user()) : null;
     }
 
     /** @param  list<mixed>  $parts */

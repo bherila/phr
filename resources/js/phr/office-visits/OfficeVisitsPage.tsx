@@ -7,6 +7,7 @@ import { SkeletonBlock } from '@/components/record-list/Skeleton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
+import { formatDate, formatDateTime } from '@/lib/dateFormat'
 import { ShowRejectedToggle } from '@/phr/clinical/review'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
@@ -86,7 +87,7 @@ function intervalLabel(days: number, filter: VisitFilter): string {
 
 function displayDate(value: string | null): string {
   if (!value) return 'Date not recorded'
-  return value.includes('T') ? value.replace('T', ' ').slice(0, 16) : value.slice(0, 10)
+  return value.includes('T') ? formatDateTime(value) : formatDate(value)
 }
 
 function allergyShotLabel(procedure: PhrProcedure): string {

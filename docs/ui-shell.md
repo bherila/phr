@@ -51,16 +51,19 @@ text; they move to the dot as each page is revisited. **(planned)**
 
 At most three panes. Nothing stacks beyond them. **(shipped)**
 
-- **Top bar.** The PHR wordmark, ⌘K search, the top-level sections with the current one
+- **Top bar.** (On a phone, see Phone.) The PHR wordmark, ⌘K search, the top-level sections with the current one
   marked, and the account menu. There is no link out of PHR. Inside a patient's record the
   Patients link is marked as the current location (`aria-current="true"`), because the
   sidebar item carries `aria-current="page"`. **(shipped)**
 - **Sidebar.** Shown only in a patient's context. It holds the patient switcher, which keeps
   the page you are on when you switch, then: **(shipped)**
-  - **Overview:** Review, Summary, Health Log
-  - **Clinical:** Labs, Vitals, Visits, Medications, Conditions, Procedures, Immunizations, Allergies
-  - **Records:** Documents, Imaging
-  - **Sharing:** Access
+  - Review, Summary, Health Log
+  - Labs, Vitals, Visits, Medications, Conditions, Procedures, Immunizations, Allergies
+  - Documents, Imaging
+  - Access
+
+  The groups have no headers, only a gap between them. The labels they once had said nothing
+  the items did not. Medications opens on Fills; see Medications and fills.
 
   Each item is a real link with an icon and a label. The current item uses `--accent` with
   `--accent-foreground` and `aria-current="page"`. **(shipped)**
@@ -74,14 +77,14 @@ At most three panes. Nothing stacks beyond them. **(shipped)**
     whose records land there (Immunizations, Documents). AI proposals are not records of any
     section yet, so they count only toward Review.
   - The count and the dot are hidden from assistive technology and said in the item's name
-    instead, after its visible label ("Medications, 12 records, 2 waiting for review").
+    instead, after its visible label ("Conditions, 12 records, 2 waiting for review").
   - Every decision path (a section's review buttons, the Review page, the Imports page's AI
     and EHI reviews) fetches the summary again, so the counts follow without a reload. The
     Review page's own listing carries the summary, so opening it costs no second request.
 
   Section pages (Imports, Data Hub, Config, Manage Patients, Patients) have no patient
   sidebar. **(shipped)**
-- **Page.** A breadcrumb (`Patient / Group / Section [/ Item]`), then the page's own title and
+- **Page.** A breadcrumb (`Patient / Section [/ Item]`), then the page's own title and
   actions, and the content. Page content (breadcrumb, header, toolbar, list) stops at 1280px
   (`max-w-[80rem]`), aligned to the start beside the sidebar rather than centered, so wide
   screens do not stretch it. Full-width viewers (document, imaging study, vitals trend, the 3D
@@ -109,6 +112,28 @@ At most three panes. Nothing stacks beyond them. **(shipped)**
     lines up with the other numbers.
   - The review status sits on the row's line as a dot and a label (beside the review actions,
     or after the name), not as a pill under the name.
+  - **A list changes shape with its own width, and nothing is cut off.** Medications and Fills
+    do this; other sections move over as they are revisited. **(planned)** The list's box is a
+    size container (`showFrom` on a column), because a detail panel narrows the list without
+    changing the window, so a viewport breakpoint would give the wrong answer. Text wraps and
+    is never clipped, and the box should not need to scroll sideways. **(shipped)**
+
+    | List width | Shape |
+    |---|---|
+    | 960px and up | All columns, with the row's actions at the end |
+    | 560–960px | Secondary columns go, and so do the row's actions: they are in the detail |
+    | Under 560px | Rows of two lines, name then what matters, that open the record's own page |
+
+    Whatever a column loses at a width must still be reachable: on a line under the name (the
+    `RECORD_ONLY_*` classes), or in the record's detail. Only short values get `fit`: a column
+    that cannot wrap takes its width from the name column, which is how a Medications details
+    column once squeezed names to five lines. A value that should not break at a narrow width
+    (a dose, a prescriber) gets a minimum width instead.
+  - A row's actions are the review buttons and a ⋯ menu (`RowActionsMenu`) with Edit and Delete.
+    The same actions are in the record's detail, with
+    Approve and Reject in a bar (`RecordReviewBar`). **(shipped)** A list and its detail load
+    their own copies of a record, so each says when it changed one (`recordChanges.ts`) and the
+    other reloads. **(shipped)**
 - **Loading.** Nothing moves when data arrives. **(shipped)**
   - On the first load a record list renders skeleton rows in its real columns and row classes
     (8, or the expected count), with `aria-busy="true"` on the region, one visually hidden live
@@ -161,7 +186,8 @@ No view needs more than nav, content and detail. **(shipped)**
   - The preview and the side column ("Records from this document", links to the records the
     document produced) start at the same height.
 - **Cross-section jumps** (Conditions or Immunizations → Documents, Imaging → Imports, Allergy
-  detail → Allergies) are ordinary navigation, each with its own history entry.
+  detail → Allergies, Medication → one of its fills) are ordinary navigation, each with its own
+  history entry.
 
 ## URLs
 
@@ -172,7 +198,7 @@ Every view has a real path, so browser Back and Forward, reloads and shared link
 |---|---|
 | `/phr/patients`, `/phr/patients/manage`, `/phr/imports`, `/phr/data-hub`, `/phr/config` | Top-level sections. Their query string is part of the view, e.g. `/phr/imports?patient_id={id}` preselects a patient |
 | `/phr/patient/{patientId}` | The patient's Summary |
-| `/phr/patient/{patientId}/{section}` | A record section. The segment is the section's id: `review`, `summary`, `health-log`, `labs`, `vitals`, `office-visits` (Visits), `medications`, `conditions`, `procedures`, `immunizations`, `allergies`, `documents`, `imaging`, `access` |
+| `/phr/patient/{patientId}/{section}` | A record section. The segment is the section's id: `review`, `summary`, `health-log`, `labs`, `vitals`, `office-visits` (Visits), `medications`, `medication-fills` (Fills), `conditions`, `procedures`, `immunizations`, `allergies`, `documents`, `imaging`, `access` |
 | `/phr/patient/{patientId}/{section}/{recordId}` | That section with one of its own records open |
 | `/phr/patient/{patientId}/{section}/{kind}/{recordId}` | A record the section shows although it is another type: `office-visits/procedure/{id}`, `office-visits/immunization/{id}`, `vitals/trend/{metric}` |
 | `/phr/patient/{patientId}/office-visits/{visitId}/imaging/{studyId}` | A visit's linked imaging study, in place of the visit |
@@ -231,16 +257,74 @@ waiting for its own round trips. **(shipped)**
   - Someone without access to the patient gets the same 404 page as before, with no preload.
   - An entry that would take the map past 256 KB is left out and loads from the network.
 
+## Medications and fills
+
+One section with one sidebar item, opening on Fills. A fill is one dispensing, and a server-side
+link groups fills under a medication, but a medication is not only its fills. It carries a
+schedule, dates, a status and a reason, and it can have no fills at all (typed in, or imported
+from a C-CDA). So both records stay, and they share a section: **(shipped)**
+
+- One header row holds the tabs and the view's Add, with no breadcrumb or visible title, because
+  the sidebar names the section. Someone who hides the Medications list has no tabs and keeps the title.
+- `/medication-fills` is the Fills view, where the sidebar leads. `/medications` is the Medications
+  view, every medication with its last fill, filtered by Active (which includes on hold), Ended and
+  All. `?status=ended` and `?status=all` keep the filter in the address.
+- Fills has a text search that matches anywhere in the name, From and To dates, and checkboxes for
+  No insurance, Prescriber and Pharmacy, which are saved on the logged-in user. On a phone the dates
+  and the pharmacy choice are in a sheet, and the fill's own page has the rest.
+- A fill's panel names the pharmacy and folds its location, the Rx number, refills and source
+  documents under More details. Manufacturer and package are in the drug dialog, and the NDC as
+  captured is in the edit form when it differs from the normalized one.
+- A medication's detail lists its newest five fills, and "Show these fills" opens Fills narrowed to
+  it. It says "Product no longer listed" when the product on its latest fill is off the market. That
+  is a fact about the product, not the medication: on a medication, "discontinued" means the person
+  stopped it.
+- Rejected medications and fills are not on these lists. The Review page lists them at its end, read
+  when opened, where each can be opened or approved after all.
+- A pending record has a dot beside its name with a tooltip, rather than a column saying so. Its name
+  says the same to a screen reader, and on a phone the record's own page says it in words.
+- The sidebar counts fills, and its dot covers both fills and medications waiting for review.
+- G then F goes to Fills, and G then M to the Medications view.
+
+**Display settings** live on the logged-in user, never the patient, under Config. They reach the
+page in its initial data, change only what that person sees, and never change an API response or
+export. Hide the Medications list removes the tabs from Fills, and a link to a medication still
+opens. Never merge columns gives a fill's strength, form and route their own columns on a wide list,
+and separate prescriber and pharmacy columns, where by default they share cells to save space, and the list may then scroll in its own box;
+below 960px the list's shape is the same either way. The saved Fills columns are the other setting.
+The date format (YYYY-MM-DD by default) goes through `lib/dateFormat`: a stored date is sliced, never
+parsed, so no timezone moves it to another day, and a moment in time shows on the viewer's own day.
+Native date inputs follow the browser and stored or exchanged dates stay ISO. Few things are settings on purpose: a setting is for
+two people who want different everyday screens, and each one is another state to test.
+
+**Micrograms read as µg** everywhere a measure is shown, through `lib/measureUnits`, whether stored as `ug`, `mcg` or the Greek-mu spelling. Display only: stored values, API responses and exports keep what they have, because `ug` is the code C-CDA and FHIR exchange, edit forms show the stored text, and FDA label text stays as published. **(shipped)**
+
+**An end date settles the status.** `PhrMedication::status` reads as `completed` once `ended_on`
+has arrived, if what is stored is `active` or `on_hold`, for every writer: forms, imports and
+agents. `discontinued` is kept. It applies on read, so a date still ahead (the last day of a
+course) takes effect by itself and removing the date restores the stored status. The form shows
+the status as settled rather than asking. There is no quick End now: ending a medication means
+giving its date, in Edit. **(shipped)**
+
 ## Phone
 
-- The sidebar becomes a menu button in the top bar that opens a sheet with the patient
-  switcher and the sections. The sheet closes once you go somewhere. The top-level links stay
-  in the top bar, which wraps. **(shipped)**
+- The top bar is one row: the menu button, where you are (the patient, or the section), search
+  and the account menu, each a 44px target. The sidebar and the top-level links move into the
+  menu, a sheet that also opens on section pages and closes once you go somewhere. A list page
+  drops its breadcrumb, because the bar and the page title already say the same. **(shipped)**
+- The shell is exactly the height of the visible screen, so the page behind it never scrolls and
+  the bar stays put; only the panes scroll. **(shipped)**
 - A record opens as its own page, with the breadcrumb and a close link back to its section.
   **(shipped)**
-- Tables become lists of tappable cards. Filter tabs scroll sideways. **(planned)**
-- Approve and Reject sit in a full-width bar on a record's page. **(planned)**
-- Every tap target is at least 44px. **(planned)**
+- On Fills and the Medications view a table becomes two-line rows that open the record's own page, and
+  a pending row is marked by its dot alone, named for a screen reader, so rows stay two lines.
+  Fills' dates collapse to a button that opens them in a sheet, beside the search. **(shipped)** Other sections'
+  tables still scroll inside their own box. **(planned)**
+- Approve and Reject sit in a full-width bar held at the bottom of the screen on a medication's
+  or a fill's page. **(shipped)** Other records keep their inline buttons. **(planned)**
+- Tap targets on those pages are at least 44px: Add, the tabs, the filter sheet, the review
+  bar, a detail's Edit, ⋯ and close, and the top bar. **(shipped)** Other sections' controls are
+  not there yet. **(planned)**
 
 ## Review
 

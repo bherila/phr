@@ -34,8 +34,10 @@ interface PhrNavbarProps {
    * (`aria-current="true"`) rather than the current page, which is the sidebar's.
    */
   inPatient?: boolean
-  /** Rendered before the wordmark, e.g. the button that opens the sidebar on small screens. */
+  /** Rendered before the wordmark: the button that opens the menu on a phone. */
   leading?: ReactNode
+  /** Where you are, in place of the wordmark on a phone: the patient, or the section. */
+  title?: string
   className?: string
   searchLabel?: string
   onSectionChange?: (section: PhrSection) => void
@@ -57,10 +59,39 @@ const SECTION_LINKS: SectionLink[] = [
   { section: 'config', label: 'Config', icon: Settings },
 ]
 
+export function sectionLabel(section: PhrSection): string {
+  return SECTION_LINKS.find((link) => link.section === section)?.label ?? 'PHR'
+}
+
+/** The top-level sections as a plain list, for the phone menu. */
+export function PhrSectionLinks({ activeSection, inPatient = false, className }: Pick<PhrNavbarProps, 'activeSection' | 'inPatient' | 'className'>) {
+  const { patients } = usePhrPatients()
+  const canManageAnyPatient = patients.some((patient) => patient.can_manage)
+  const current = inPatient ? 'patients' : activeSection
+  return (
+    <nav aria-label="Sections" className={cn('flex flex-col gap-0.5', className)}>
+      {SECTION_LINKS.filter((link) => link.section !== 'manage-patients' || canManageAnyPatient).map((link) => (
+        <a
+          key={link.section}
+          href={phrSectionUrl(link.section)}
+          {...(current === link.section ? { 'aria-current': inPatient ? 'true' as const : 'page' as const } : {})}
+          className={cn(
+            'flex min-h-11 items-center rounded-md px-2.5 text-sm transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            !inPatient && current === link.section ? 'bg-accent font-semibold text-accent-foreground' : 'text-foreground',
+          )}
+        >
+          {link.label}
+        </a>
+      ))}
+    </nav>
+  )
+}
+
 export default function PhrNavbar({
   activeSection,
   inPatient = false,
   leading,
+  title,
   className,
   searchLabel = 'Search…',
   onSectionChange,
@@ -113,29 +144,31 @@ export default function PhrNavbar({
 
   return (
     <header className={cn('w-full shrink-0 border-b border-border bg-background', className)}>
-      <div className="flex min-h-12 flex-wrap items-center gap-2 px-3 py-1.5 md:px-4">
+      {/* One row on a phone: menu, where you are, search, account. The sections are in the menu. */}
+      <div className="flex min-h-14 items-center gap-1 px-1.5 py-1 md:min-h-12 md:flex-wrap md:gap-2 md:px-4 md:py-1.5">
           {leading}
           <span
-            className="select-none text-xs font-bold uppercase tracking-widest text-foreground"
+            className={cn('select-none text-xs font-bold uppercase tracking-widest text-foreground', title !== undefined && 'max-md:hidden')}
             aria-label="PHR section"
           >
             PHR
           </span>
+          {title !== undefined && <span className="min-w-0 flex-1 truncate text-sm font-semibold text-foreground md:hidden">{title}</span>}
 
           {onSearch && (
             <Button
               type="button"
               variant="outline"
-              className="ml-1 h-8 min-w-0 flex-[0_1_320px] justify-start gap-2 text-muted-foreground"
+              className="h-8 min-w-0 justify-start gap-2 text-muted-foreground max-md:size-11 max-md:shrink-0 max-md:justify-center max-md:border-0 max-md:bg-transparent max-md:px-0 max-md:shadow-none md:ml-1 md:flex-[0_1_320px]"
               onClick={onSearch}
             >
               <Search className="size-4" aria-hidden="true" />
-              <span className="flex-1 truncate text-left">{searchLabel}</span>
-              <span className="hidden items-center gap-0.5 text-xs sm:flex" aria-hidden="true"><Command className="size-3" />K</span>
+              <span className="flex-1 truncate text-left max-md:sr-only">{searchLabel}</span>
+              <span className="hidden items-center gap-0.5 text-xs md:flex" aria-hidden="true"><Command className="size-3" />K</span>
             </Button>
           )}
 
-          <NavigationMenu viewport={false} aria-label="Sections" className="ml-auto flex-none">
+          <NavigationMenu viewport={false} aria-label="Sections" className="ml-auto flex-none max-md:hidden">
             <NavigationMenuList className="flex-wrap justify-end">
               {SECTION_LINKS.filter((link) => link.section !== 'manage-patients' || canManageAnyPatient).map((link) => {
                 const anchor = (
@@ -169,7 +202,7 @@ export default function PhrNavbar({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8 text-muted-foreground"
+                  className="h-8 w-8 text-muted-foreground max-md:size-11 max-md:shrink-0"
                   aria-label="Account"
                 >
                   <UserRound className="h-4 w-4" />

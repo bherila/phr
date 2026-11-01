@@ -5,6 +5,7 @@ import PdfViewer from '@/components/phr/PdfViewer'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { fetchWrapper } from '@/fetchWrapper'
+import { formatDate as displayDate } from '@/lib/dateFormat'
 import { isBrowserPreviewableImage } from '@/phr/documents/browserImagePreview'
 import { documentSourceLabel } from '@/phr/documents/documentSource'
 import { documentTypeLabel } from '@/phr/documents/documentType'
@@ -258,7 +259,6 @@ function isTextLike(document: PhrDocument): boolean {
 }
 
 function formatDate(value: string | null): string {
-  if (!value) return 'Unknown'
-  return value.slice(0, 10)
+  return displayDate(value) || 'Unknown'
 }
 

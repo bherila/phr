@@ -5,6 +5,7 @@ import { RecordList } from '@/components/record-list/RecordList'
 import { SkeletonBlock } from '@/components/record-list/Skeleton'
 import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
+import { formatDate } from '@/lib/dateFormat'
 import { cn, formatBytes } from '@/lib/utils'
 import { errorMessage } from '@/phr/shared'
 import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
@@ -97,7 +98,7 @@ export default function ImagingPage({ patientId, onDrill, openRecord }: PhrListP
               <div className="min-w-0">
                 <p className="break-words font-medium text-card-foreground">{study.description || 'DICOM Study'}</p>
                 <p className="mt-1 break-words text-xs text-muted-foreground">
-                  {[study.study_date, study.modalities, `${study.series_count} series`, `${study.instance_count} images`, formatBytes(study.file_size_bytes)].filter(Boolean).join(' · ')}
+                  {[formatDate(study.study_date), study.modalities, `${study.series_count} series`, `${study.instance_count} images`, formatBytes(study.file_size_bytes)].filter(Boolean).join(' · ')}
                 </p>
               </div>
               <div className="flex shrink-0 flex-wrap gap-2">

@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { formatInstant } from '@/lib/dateFormat'
 
 import { HealthLogEntryForm } from './HealthLogEntryForm'
 import type { HealthLog, HealthLogEntry } from './healthLogSchemas'
@@ -23,10 +24,7 @@ function formatOccurredAt(value: string): string {
     return value
   }
 
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(date)
+  return formatInstant(value)
 }
 
 function detailValue(value: unknown): string {

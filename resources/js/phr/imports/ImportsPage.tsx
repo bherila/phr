@@ -3,6 +3,7 @@ import type { DragEvent, ReactElement } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { formatInstantDate } from '@/lib/dateFormat'
 import { phrSectionUrl } from '@/lib/phrRouteBuilder'
 import { formatBytes } from '@/lib/utils'
 import { usePhrPatients } from '@/phr/patients/usePhrPatients'
@@ -62,9 +63,7 @@ const STRUCTURED_TITLES: Record<StructuredImport['format'], string> = {
 }
 
 function formatReceived(value: string | null): string {
-  if (!value) return ''
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? '' : new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(date)
+  return formatInstantDate(value)
 }
 
 /** Where a package stands, in a few words, and whether its review can open. */

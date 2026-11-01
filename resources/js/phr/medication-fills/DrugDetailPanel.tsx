@@ -3,9 +3,10 @@ import { useEffect, useState } from 'react'
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { fetchWrapper } from '@/fetchWrapper'
+import { formatDate } from '@/lib/dateFormat'
+import { displayUnits } from '@/lib/measureUnits'
 import { errorMessage } from '@/phr/shared'
 
-import { DiscontinuedBadge } from './DiscontinuedBadge'
 import {
   type DrugDetail,
   DrugDetailResponseSchema,
@@ -68,7 +69,7 @@ function LabelSections({ state, onRetry }: { state: Loaded<NdcLabel>, onRetry: (
   return (
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground">
-        As published by the FDA (openFDA drug label){label.effective_date ? `, effective ${label.effective_date}` : ''}{label.version ? `, version ${label.version}` : ''}. General labeling, not advice for you.
+        As published by the FDA (openFDA drug label){label.effective_date ? `, effective ${formatDate(label.effective_date)}` : ''}{label.version ? `, version ${label.version}` : ''}. General labeling, not advice for you.
       </p>
       {label.sections.map((section) => (
         <details key={section.key} className="rounded-md border border-border">
@@ -132,14 +133,8 @@ export function DrugDetailPanel({ patientId, fill, onClose }: { patientId: numbe
     <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent className="top-0 right-0 left-auto h-dvh max-h-none w-full max-w-full translate-x-0 translate-y-0 content-start rounded-none sm:max-w-xl" aria-label={`${name} details`}>
         <DialogHeader>
-          <DialogTitle className="flex flex-wrap items-center gap-2 pr-6">
-            {name}
-            {fill.ndc_status === 'resolved' && fill.discontinued && <DiscontinuedBadge />}
-          </DialogTitle>
-          <DialogDescription>
-            {fill.ndc_10 ? `NDC ${fill.ndc_10}` : fill.ndc_as_captured ? `NDC as captured ${fill.ndc_as_captured}` : 'No NDC on this fill'}
-            {fill.ndc_as_captured && fill.ndc_10 && fill.ndc_as_captured !== fill.ndc_10 ? ` (captured as ${fill.ndc_as_captured})` : ''}
-          </DialogDescription>
+          <DialogTitle className="pr-6">{name}</DialogTitle>
+          <DialogDescription>{fill.ndc_10 ? `NDC ${fill.ndc_10}` : 'No FDA-listed NDC on this fill'}</DialogDescription>
         </DialogHeader>
 
         {!resolved ? (
@@ -153,7 +148,7 @@ export function DrugDetailPanel({ patientId, fill, onClose }: { patientId: numbe
               {detail.phase === 'loading' && <p className="text-sm text-muted-foreground">Loading drug details…</p>}
               {detail.phase === 'error' && <p role="alert" className="text-sm text-destructive">{detail.message}</p>}
               <Facts rows={[
-                ['Ingredients', ingredients],
+                ['Ingredients', displayUnits(ingredients)],
                 ['Brand', drug?.brand_name ?? null],
                 ['Dosage form', info?.dosage_form ?? drug?.dosage_form ?? null],
                 ['Route', info?.route ?? drug?.route ?? null],
@@ -165,7 +160,7 @@ export function DrugDetailPanel({ patientId, fill, onClose }: { patientId: numbe
                 ['Color', info?.color ?? null],
                 ['Shape', info?.shape ?? null],
                 ['Manufacturer', info?.manufacturer ?? drug?.labeler_name ?? null],
-                ['Package', info?.package_description ?? drug?.package_description ?? null],
+                ['Package', displayUnits(info?.package_description ?? drug?.package_description ?? null) ?? null],
                 ['Listing source', fill.ndc_source === 'rxnav' ? 'NLM RxNav NDC history (no longer in the FDA directory)' : fill.ndc_source === 'openfda' ? 'FDA NDC Directory (openFDA)' : null],
               ]} />
               {(dailymed || ndcDirectory) && (

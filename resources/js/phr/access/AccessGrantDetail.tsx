@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { DetailSkeleton } from '@/components/record-list/Skeleton'
+import { formatDateTime } from '@/lib/dateFormat'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import { type PhrAccessGrant, PhrAccessGrantDetailResponseSchema, PhrPatientResponseSchema } from '@/phr/types'
@@ -104,7 +105,7 @@ export default function AccessGrantDetail({ patientId, recordId }: AccessGrantDe
             </div>
             <div>
               <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Granted at</dt>
-              <dd className="text-card-foreground">{detailValue(grant.granted_at)}</dd>
+              <dd className="text-card-foreground">{detailValue(formatDateTime(grant.granted_at) || null)}</dd>
             </div>
             <div>
               <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Expiry</dt>

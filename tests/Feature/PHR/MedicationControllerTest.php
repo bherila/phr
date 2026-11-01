@@ -72,6 +72,34 @@ class MedicationControllerTest extends TestCase
             ->assertNotFound();
     }
 
+    public function test_an_end_date_that_has_arrived_ends_the_medication_whatever_status_was_sent(): void
+    {
+        ['owner' => $owner, 'patientId' => $patientId] = $this->createPatientWithAccess();
+        $url = "/api/phr/patients/{$patientId}/medications";
+        $today = now()->toDateString();
+        $past = now()->subDay()->toDateString();
+        $ahead = now()->addDay()->toDateString();
+
+        foreach ([
+            'active, ended' => ['active', $past, 'completed'],
+            'active, ends today' => ['active', $today, 'completed'],
+            'on hold, ended' => ['on_hold', $past, 'completed'],
+            'a finer ended status is kept' => ['discontinued', $past, 'discontinued'],
+            'still running until a later date' => ['active', $ahead, 'active'],
+            'no end date' => ['on_hold', null, 'on_hold'],
+        ] as $case => [$sent, $endedOn, $expected]) {
+            $this->actingAs($owner)->postJson($url, ['name' => "Synthetic {$case}", 'status' => $sent, 'ended_on' => $endedOn])
+                ->assertCreated()
+                ->assertJsonPath('medication.status', $expected);
+        }
+
+        // Taking the date away restores what was stored; a date that passes takes effect by itself.
+        $id = (int) $this->actingAs($owner)->postJson($url, ['name' => 'Synthetic course', 'ended_on' => $ahead])->json('medication.id');
+        $this->travel(2)->days();
+        $this->actingAs($owner)->getJson("{$url}/{$id}")->assertOk()->assertJsonPath('medication.status', 'completed');
+        $this->actingAs($owner)->patchJson("{$url}/{$id}", ['ended_on' => null])->assertOk()->assertJsonPath('medication.status', 'active');
+    }
+
     public function test_index_only_returns_medications_for_requested_patient(): void
     {
         ['owner' => $owner, 'patientId' => $patientId] = $this->createPatientWithAccess();

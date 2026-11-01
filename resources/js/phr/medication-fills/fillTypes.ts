@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { formatDate } from '@/lib/dateFormat'
+import { displayUnits } from '@/lib/measureUnits'
 import { PhrReviewStatusSchema } from '@/phr/types'
 
 /**
@@ -136,6 +138,7 @@ export type NdcLabel = z.infer<typeof NdcLabelSchema>
 
 export const MedicationFillResponseSchema = z.object({
   medication_fill: MedicationFillSchema,
+  can_manage: z.boolean().default(false),
 })
 
 export const MedicationFillsResponseSchema = z.object({
@@ -145,10 +148,9 @@ export const MedicationFillsResponseSchema = z.object({
 
 export const MISSING = '—'
 
-/** 2026-10-28 (or an ISO timestamp) becomes 26.10.28. Sliced, never parsed: no timezone shift. */
+/** A date or ISO timestamp in this person's format. Sliced, never parsed: no timezone shift. */
 export function formatFillDate(value: string | null | undefined): string {
-  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value ?? '')
-  return match ? `${match[1]!.slice(2)}.${match[2]}.${match[3]}` : MISSING
+  return value && /^\d{4}-\d{2}-\d{2}/.test(value) ? formatDate(value) : MISSING
 }
 
 /** Integer cents to $X.XX. Zero is a real price ($0.00); only null is missing. */
@@ -160,10 +162,10 @@ export function formatCents(cents: number | null | undefined): string {
 }
 
 /** The decimal string without trailing zeros: "90.000" is 90. */
-export function formatQuantity(quantity: string | null, unit: string | null): string {
+export function formatQuantity(quantity: string | null, unit: string | null = null): string {
   if (quantity === null || quantity.trim() === '') return MISSING
   const trimmed = quantity.includes('.') ? quantity.replace(/\.?0+$/, '') : quantity
-  return [trimmed || '0', unit].filter(Boolean).join(' ')
+  return [trimmed || '0', displayUnits(unit)].filter(Boolean).join(' ')
 }
 
 /** Dollars typed by a person ("18.99", "$1,000") to integer cents; null when blank, NaN when invalid. */
@@ -178,5 +180,5 @@ export function fillDrugName(fill: MedicationFill): string {
   const substances = fill.drug?.substance_names.join('; ')
   // A medication created from the printed text carries that text verbatim as its name: show the derived form.
   const linked = fill.medication?.name === fill.drug_as_printed ? (fill.display?.drug_as_printed ?? fill.medication?.name) : fill.medication?.name
-  return substances || linked || fill.display?.drug_as_printed || fill.drug_as_printed || MISSING
+  return displayUnits(substances || linked || fill.display?.drug_as_printed || fill.drug_as_printed) || MISSING
 }

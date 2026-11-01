@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { RecordList } from '@/components/record-list/RecordList'
 import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
+import { formatDate } from '@/lib/dateFormat'
 import { usePhrPatientListActions } from '@/phr/patients/usePhrPatients'
 import { errorMessage } from '@/phr/shared'
 import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
@@ -208,7 +209,7 @@ export default function AccessPage({ patientId, onDrill, openRecord }: PhrListPa
                     </p>
                     <p className="truncate text-xs text-muted-foreground">
                       {access.user_email}
-                      {access.granted_at && ` · granted ${access.granted_at.slice(0, 10)}`}
+                      {access.granted_at && ` · granted ${formatDate(access.granted_at)}`}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">

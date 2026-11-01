@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Traits\SerializesDatesAsLocal;
 use Database\Factories\PhrMedicationFactory;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -72,6 +73,24 @@ class PhrMedication extends Model
             'started_on' => 'date',
             'ended_on' => 'date',
         ];
+    }
+
+    /**
+     * An end date that has arrived means the medication has ended, whoever wrote the record and
+     * whatever status they sent: a form, an import or an agent. It is applied on read so that a
+     * date still ahead, such as the last day of a course, takes effect by itself. The stored
+     * value is untouched, so taking the date away restores it. "completed" is also the FHIR code.
+     *
+     * @return Attribute<string|null, never>
+     */
+    protected function status(): Attribute
+    {
+        return Attribute::get(function (?string $value): ?string {
+            $endedOn = $this->ended_on;
+            $stillRunning = $value === null || in_array($value, ['active', 'on_hold'], true);
+
+            return $stillRunning && $endedOn !== null && ! $endedOn->isFuture() ? 'completed' : $value;
+        });
     }
 
     /** @return BelongsTo<PhrPatient, $this> */
