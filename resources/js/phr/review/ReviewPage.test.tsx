@@ -339,7 +339,7 @@ describe('ReviewPage possible duplicates and EOBs', () => {
     const rejectedFill = { type: 'record', key: 'record:medication-fills:9', id: 9, section: 'medication-fills', review_segment: 'medication-fills', title: 'Rejected fill', detail: '2026-01-02', flags: [], change: 'new', version: 'v1', updated_at: null }
     let listed = [rejectedFill]
     mockGet.mockImplementation(async (url: string) => {
-      if (url === '/api/phr/patients/2/review/rejected') return { items: listed, truncated: false, can_manage: true }
+      if (url === '/api/phr/patients/2/review/rejected') return { items: listed, can_manage: true }
       return queue([])
     })
     mockPatch.mockImplementation(async () => {

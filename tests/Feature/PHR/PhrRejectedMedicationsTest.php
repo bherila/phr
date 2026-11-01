@@ -2,7 +2,9 @@
 
 namespace Tests\Feature\PHR;
 
+use App\Models\PhrMedication;
 use App\Models\User;
+use App\Services\PHR\Review\PhrReviewQueueService;
 use Tests\TestCase;
 
 class PhrRejectedMedicationsTest extends TestCase
@@ -20,7 +22,7 @@ class PhrRejectedMedicationsTest extends TestCase
         $this->patchJson("{$base}/medication-fills/{$rejectedFill}/review", ['review_status' => 'rejected'])->assertOk();
         $this->patchJson("{$base}/medications/{$kept}/review", ['review_status' => 'confirmed'])->assertOk();
 
-        $response = $this->getJson("{$base}/review/rejected")->assertOk()->assertJsonPath('can_manage', true)->assertJsonPath('truncated', false);
+        $response = $this->getJson("{$base}/review/rejected")->assertOk()->assertJsonPath('can_manage', true);
         $this->assertEqualsCanonicalizing(
             ["record:medications:{$rejectedMedication}", "record:medication-fills:{$rejectedFill}"],
             array_column($response->json('items'), 'key'),
@@ -30,6 +32,16 @@ class PhrRejectedMedicationsTest extends TestCase
         $item = collect($response->json('items'))->firstWhere('key', "record:medication-fills:{$rejectedFill}");
         $this->patchJson("{$base}/medication-fills/{$rejectedFill}/review", ['review_status' => 'confirmed', 'version' => $item['version']])->assertOk();
         $this->assertSame(["record:medications:{$rejectedMedication}"], array_column($this->getJson("{$base}/review/rejected")->json('items'), 'key'));
+    }
+
+    public function test_it_reaches_every_rejected_record_however_many_there_are(): void
+    {
+        $owner = User::factory()->create();
+        $patientId = (int) $this->actingAs($owner)->postJson('/api/phr/patients', ['display_name' => 'Synthetic patient', 'relationship' => 'self'])->assertCreated()->json('patient.id');
+        $count = PhrReviewQueueService::ITEM_LIMIT + 1;
+        PhrMedication::factory()->count($count)->create(['patient_id' => $patientId, 'user_id' => $owner->id, 'review_status' => 'rejected']);
+
+        $this->getJson("/api/phr/patients/{$patientId}/review/rejected")->assertOk()->assertJsonCount($count, 'items');
     }
 
     public function test_only_someone_with_access_to_the_patient_can_read_it(): void

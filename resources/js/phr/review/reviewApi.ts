@@ -160,7 +160,7 @@ export interface BatchOutcome {
  * (a record changed since the page loaded, a proposal already decided) never stops the
  * rest; it is reported against its own row.
  */
-const RejectedSchema = z.object({ items: z.array(RecordItemSchema), truncated: z.boolean(), can_manage: z.boolean() })
+const RejectedSchema = z.object({ items: z.array(RecordItemSchema), can_manage: z.boolean() })
 export type RejectedMedications = z.infer<typeof RejectedSchema>
 
 /** Rejected medications and fills, which their own lists leave out. */

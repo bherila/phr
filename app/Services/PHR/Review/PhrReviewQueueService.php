@@ -390,26 +390,24 @@ final readonly class PhrReviewQueueService
 
     /**
      * Rejected medications and fills, newest first. Their lists leave rejected records out, so
-     * this is where a person finds one again and approves it after all, through its own review route.
+     * this is where a person finds one again and approves it after all, through its own review
+     * route. All of them: nowhere else reaches an older one, and it is read only when opened.
      *
-     * @return array{items: list<array<string, mixed>>, truncated: bool}
+     * @return list<array<string, mixed>>
      */
     public function rejectedMedications(PhrPatient $patient): array
     {
         $items = [];
-        $truncated = false;
         foreach (['medication-fills', 'medications'] as $page) {
             $model = self::CLINICAL[$page];
             $query = $model::query()->where('patient_id', $patient->id)->where('review_status', PhrReviewStatus::REJECTED);
             PhrRecordLifecycle::scopeLive($query);
-            $records = $query->orderByDesc('updated_at')->orderByDesc('id')->limit(self::ITEM_LIMIT + 1)->get();
-            $truncated = $truncated || $records->count() > self::ITEM_LIMIT;
-            foreach ($records->take(self::ITEM_LIMIT) as $record) {
+            foreach ($query->orderByDesc('updated_at')->orderByDesc('id')->get() as $record) {
                 $items[] = $this->recordItem($page, $record, $patient, []);
             }
         }
 
-        return ['items' => $items, 'truncated' => $truncated];
+        return $items;
     }
 
     /**

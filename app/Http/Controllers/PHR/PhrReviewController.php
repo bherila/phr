@@ -56,7 +56,7 @@ final class PhrReviewController extends Controller
         $patientModel = $this->access->accessiblePatient($patient, $userId);
 
         return $this->privateJson([
-            ...$this->queue->rejectedMedications($patientModel),
+            'items' => $this->queue->rejectedMedications($patientModel),
             'can_manage' => $this->access->canWrite($patientModel, $userId),
         ]);
     }

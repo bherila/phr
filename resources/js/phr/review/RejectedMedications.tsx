@@ -72,7 +72,6 @@ export function RejectedMedications({ patientId, refreshKey, onChanged }: { pati
             </li>
           ))}
         </ul>
-        {rejected?.truncated && <p className="border-t border-border px-4 py-2 text-xs text-muted-foreground md:px-5">Showing the most recent.</p>}
       </div>
     </details>
   )
