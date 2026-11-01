@@ -29,6 +29,7 @@ use App\Services\PHR\Import\Ehi\EhiImportPresenter;
 use App\Services\PHR\Import\PhrImportJobDao;
 use App\Services\PHR\Import\PhrImportJobPresenter;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
+use App\Support\PHR\DisplayPreferences;
 use App\Support\PHR\PhrRecordLifecycle;
 use App\Support\PHR\PhrReviewStatus;
 use Carbon\Carbon;
@@ -759,7 +760,7 @@ final readonly class PhrReviewQueueService
 
     private function date(mixed $value): ?string
     {
-        return $value instanceof CarbonInterface ? $value->format('M j, Y') : null;
+        return $value instanceof CarbonInterface ? DisplayPreferences::writeDate($value, auth()->user()) : null;
     }
 
     /** @param  list<mixed>  $parts */

@@ -12,6 +12,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { formatDate } from '@/lib/dateFormat'
 import { cn } from '@/lib/utils'
 import { AiResultDetails, type AiResultView,aiResultView } from '@/phr/imports/ai/AiImportReview'
 import { ehiFailureText, ehiImportsUrl,ehiReviewUrl } from '@/phr/imports/ehi/ehiApi'
@@ -187,7 +188,7 @@ function viewGroups(queue: ReviewQueue, patientId: number, bySection: boolean): 
 }
 
 const COMPARED: { label: string, value: (fill: FillSummary) => string }[] = [
-  { label: 'Date', value: (fill) => fill.filled_on },
+  { label: 'Date', value: (fill) => formatDate(fill.filled_on) },
   { label: 'Name', value: (fill) => fill.name },
   { label: 'Strength', value: (fill) => fill.strength ?? '—' },
   { label: 'Quantity', value: (fill) => fill.quantity ?? '—' },
@@ -549,7 +550,7 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
                         <div key={existing.id} className="flex flex-col gap-2">
                           <FillComparison fill={row.duplicate!.fill} existing={existing} />
                           <div className="flex flex-wrap gap-2">
-                            <Button type="button" size="sm" disabled={!canManage || busy} aria-label={`Same fill: merge ${row.title} into the existing fill of ${existing.filled_on}`} onClick={() => void resolveDuplicate(row, 'same', existing.id)}>Same fill</Button>
+                            <Button type="button" size="sm" disabled={!canManage || busy} aria-label={`Same fill: merge ${row.title} into the existing fill of ${formatDate(existing.filled_on)}`} onClick={() => void resolveDuplicate(row, 'same', existing.id)}>Same fill</Button>
                             <Button type="button" size="sm" variant="outline" disabled={!canManage || busy} aria-label={`Different fill: keep ${row.title} and clear the flag`} onClick={() => void resolveDuplicate(row, 'different', existing.id)}>Different fill</Button>
                           </div>
                         </div>

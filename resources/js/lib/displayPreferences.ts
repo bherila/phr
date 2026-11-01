@@ -6,18 +6,23 @@ import { displayPreferencesFromPage } from './appShell'
 
 export type FillColumn = 'no_insurance' | 'prescriber' | 'pharmacy'
 
+export type DateFormat = 'YYYY-MM-DD' | 'MM/DD/YYYY' | 'DD/MM/YYYY' | 'MMM D, YYYY'
+
 export interface DisplayPreferences {
+  date_format: DateFormat
   hide_medication_list: boolean
   separate_columns: boolean
   hidden_fill_columns: FillColumn[]
 }
 
 const FILL_COLUMNS: readonly FillColumn[] = ['no_insurance', 'prescriber', 'pharmacy']
+const DATE_FORMAT_VALUES: readonly DateFormat[] = ['YYYY-MM-DD', 'MM/DD/YYYY', 'DD/MM/YYYY', 'MMM D, YYYY']
 
 function normalize(raw: unknown): DisplayPreferences {
   const value = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
   const hidden = Array.isArray(value.hidden_fill_columns) ? value.hidden_fill_columns : []
   return {
+    date_format: DATE_FORMAT_VALUES.includes(value.date_format as DateFormat) ? value.date_format as DateFormat : 'YYYY-MM-DD',
     hide_medication_list: value.hide_medication_list === true,
     separate_columns: value.separate_columns === true,
     hidden_fill_columns: FILL_COLUMNS.filter((column) => hidden.includes(column)),
@@ -28,7 +33,7 @@ let current: DisplayPreferences | null = null
 const listeners = new Set<() => void>()
 
 function read(): DisplayPreferences {
-  current ??= normalize(displayPreferencesFromPage())
+  current ??= normalize(typeof document === 'undefined' ? null : displayPreferencesFromPage())
   return current
 }
 
@@ -42,6 +47,11 @@ function subscribe(listener: () => void): () => void {
   return () => {
     listeners.delete(listener)
   }
+}
+
+/** The settings as they are now, for code outside a component, such as formatting a date. */
+export function getDisplayPreferences(): DisplayPreferences {
+  return read()
 }
 
 /** This person's display settings, from the page's initial data, following changes made here. */

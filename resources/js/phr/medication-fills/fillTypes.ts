@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { formatDate } from '@/lib/dateFormat'
 import { PhrReviewStatusSchema } from '@/phr/types'
 
 /**
@@ -146,10 +147,9 @@ export const MedicationFillsResponseSchema = z.object({
 
 export const MISSING = '—'
 
-/** A date or ISO timestamp as YYYY-MM-DD. Sliced, never parsed: no timezone shift. */
+/** A date or ISO timestamp in this person's format. Sliced, never parsed: no timezone shift. */
 export function formatFillDate(value: string | null | undefined): string {
-  const match = /^\d{4}-\d{2}-\d{2}/.exec(value ?? '')
-  return match ? match[0] : MISSING
+  return value && /^\d{4}-\d{2}-\d{2}/.test(value) ? formatDate(value) : MISSING
 }
 
 /** Integer cents to $X.XX. Zero is a real price ($0.00); only null is missing. */

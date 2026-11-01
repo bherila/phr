@@ -134,7 +134,7 @@ class PhrPatientSearchTest extends TestCase
                 ->assertJsonPath('results.0.category', 'Fill')
                 ->assertJsonPath('results.0.module_id', 'medication-fills')
                 ->assertJsonPath('results.0.label', 'atorvastatin calcium 20 mg tablet')
-                ->assertJsonPath('results.0.description', '2026-10-28 · Example Pharmacy · Qty 90 tablet')
+                ->assertJsonPath('results.0.description', 'Example Pharmacy · Qty 90 tablet')
                 ->assertJsonPath('results.0.date', '2026-10-28');
         }
     }

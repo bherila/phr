@@ -11,6 +11,7 @@ import {
   CommandList,
 } from '@/components/ui/command'
 import { fetchWrapper } from '@/fetchWrapper'
+import { formatDate } from '@/lib/dateFormat'
 import { errorMessage } from '@/phr/shared'
 import type { PhrModuleId, PhrNavTarget } from '@/phr/shell/phrRoutes'
 import { PhrPatientSearchResponseSchema, type PhrPatientSearchResult } from '@/phr/types'
@@ -93,8 +94,7 @@ export function PhrPatientSearchPalette({ open, patientId, onClose, onDrill }: P
                 {result.category === 'Document' ? <FileText className="size-4" /> : <Search className="size-4" />}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium">{result.label}</span>
-                  {/* A fill's description already leads with its date. */}
-                  {(result.description || result.date) && <span className="block truncate text-xs text-muted-foreground">{result.category === 'Fill' ? result.description : [result.description, result.date].filter(Boolean).join(' · ')}</span>}
+                  {(result.description || result.date) && <span className="block truncate text-xs text-muted-foreground">{[result.description, formatDate(result.date)].filter(Boolean).join(' · ')}</span>}
                 </span>
               </CommandItem>
             ))}

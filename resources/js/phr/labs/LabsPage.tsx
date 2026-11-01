@@ -7,6 +7,7 @@ import { SkeletonBlock } from '@/components/record-list/Skeleton'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
+import { formatDate } from '@/lib/dateFormat'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { reviewStatusBadge, reviewStatusNeedsAttention } from '@/phr/clinical/ui'
@@ -174,7 +175,7 @@ function LabResultsTable({ label, loading = false, results, showPanelColumn, onD
       fit: true,
       headerClassName: HEAD,
       className: 'px-3 py-2 text-muted-foreground',
-      cell: (result) => (result.result_datetime ?? result.collection_datetime ?? '').slice(0, 10) || '—',
+      cell: (result) => formatDate(result.result_datetime ?? result.collection_datetime) || '—',
     },
     {
       id: 'review',

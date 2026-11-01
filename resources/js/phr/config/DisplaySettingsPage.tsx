@@ -1,6 +1,7 @@
 import { type ReactElement, useState } from 'react'
 
-import { type DisplayPreferences, saveDisplayPreferences, useDisplayPreferences } from '@/lib/displayPreferences'
+import { DATE_FORMATS } from '@/lib/dateFormat'
+import { type DateFormat, type DisplayPreferences, saveDisplayPreferences, useDisplayPreferences } from '@/lib/displayPreferences'
 import { errorMessage } from '@/phr/shared'
 
 /** Settings that follow the logged-in user across patients and change only what they see. */
@@ -20,6 +21,16 @@ export default function DisplaySettingsPage(): ReactElement {
         <p className="text-sm text-muted-foreground">These apply to you on every patient you can see. They change what you see, not what is stored.</p>
       </div>
       {error && <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
+      <section aria-label="Dates" className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4">
+        <h2 className="text-sm font-semibold text-card-foreground">Dates</h2>
+        <label className="flex max-w-xs flex-col gap-1 text-sm text-foreground">
+          Date format
+          <select className="flex h-9 w-full rounded-md border border-input bg-transparent px-2 text-sm shadow-xs max-md:h-11" value={preferences.date_format} onChange={(event) => save({ date_format: event.target.value as DateFormat })}>
+            {DATE_FORMATS.map((format) => <option key={format.value} value={format.value}>{format.value} ({format.example})</option>)}
+          </select>
+        </label>
+        <p className="text-xs text-muted-foreground">Date fields in forms follow your browser&apos;s own format.</p>
+      </section>
       <section aria-label="Medications" className="flex flex-col gap-1 rounded-lg border border-border bg-card p-4">
         <h2 className="text-sm font-semibold text-card-foreground">Medications</h2>
         <label className="flex min-h-11 items-start gap-2.5 py-1.5 text-sm text-foreground">

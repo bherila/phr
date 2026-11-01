@@ -111,6 +111,25 @@ test.describe('Record lists never cut anything off', () => {
     expect((await layoutOf(page, 'Fills')).columns).not.toContain('Strength')
   })
 
+  test('A date format is a setting that every list follows', async ({ page }) => {
+    await page.goto('/phr/config')
+    await page.getByRole('tab', { name: 'Display' }).click()
+    const saved = page.waitForResponse((response) => response.url().endsWith('/api/user/display-preferences') && response.ok())
+    await page.getByLabel('Date format').selectOption('MM/DD/YYYY')
+    await saved
+
+    await page.goto(await patientUrl(page, 'medication-fills'))
+    await expect(page.getByRole('table', { name: 'Fills' }).getByText('10/28/2026').first()).toBeVisible()
+    await page.goto(await patientUrl(page, 'medications'))
+    await expect(page.getByRole('table', { name: 'Medications' }).getByText('08/12/2021')).toBeVisible()
+
+    await page.goto('/phr/config')
+    await page.getByRole('tab', { name: 'Display' }).click()
+    const reset = page.waitForResponse((response) => response.url().endsWith('/api/user/display-preferences') && response.ok())
+    await page.getByLabel('Date format').selectOption('YYYY-MM-DD')
+    await reset
+  })
+
   test('Hiding the Medications list is a setting that follows the person', async ({ page }) => {
     await page.goto('/phr/config')
     await page.getByRole('tab', { name: 'Display' }).click()

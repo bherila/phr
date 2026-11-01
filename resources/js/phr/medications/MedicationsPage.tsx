@@ -5,6 +5,7 @@ import { RECORD_ONLY_BELOW_MEDIUM, RECORD_ONLY_BELOW_WIDE, type RecordColumn, Re
 import { RowActionsMenu } from '@/components/record-list/RowActionsMenu'
 import { StatusDot } from '@/components/record-list/StatusDot'
 import { Button } from '@/components/ui/button'
+import { formatDate } from '@/lib/dateFormat'
 import { cn } from '@/lib/utils'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { recordChanged, useRecordChanges } from '@/phr/clinical/recordChanges'
@@ -135,7 +136,7 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
             <div className={cn('mt-0.5 text-xs text-muted-foreground empty:hidden', RECORD_ONLY_BELOW_WIDE)}>{regimen(medication)}</div>
             {(showsEnded || lastFillOf(medication)) && (
               <div className={cn('mt-0.5 text-xs text-muted-foreground', RECORD_ONLY_BELOW_MEDIUM)}>
-                {[showsEnded ? medicationStatusLabel(medication.status) : null, lastFillOf(medication) ? `Last fill ${lastFillOf(medication)!.lastFilledOn}` : null].filter(Boolean).join(' · ')}
+                {[showsEnded ? medicationStatusLabel(medication.status) : null, lastFillOf(medication) ? `Last fill ${formatDate(lastFillOf(medication)!.lastFilledOn)}` : null].filter(Boolean).join(' · ')}
               </div>
             )}
           </div>
@@ -145,9 +146,9 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
     { id: 'dose', header: 'Dose', showFrom: 'wide', headerClassName: HEAD, className: CELL, cell: (medication) => <span className="inline-block min-w-22">{doseText(medication) || '—'}</span> },
     { id: 'route', header: 'Route', showFrom: 'wide', headerClassName: HEAD, className: cn(CELL, 'text-muted-foreground'), cell: (medication) => medication.route ?? '—' },
     { id: 'schedule', header: 'Schedule', showFrom: 'wide', headerClassName: cn(HEAD, 'w-[22%]'), className: cn(CELL, 'text-muted-foreground'), cell: (medication) => medication.frequency ?? '—' },
-    { id: 'started', header: 'Started', fit: true, showFrom: 'medium', headerClassName: HEAD, className: cn(CELL, 'tabular-nums'), cell: (medication) => medication.started_on ?? '—' },
+    { id: 'started', header: 'Started', fit: true, showFrom: 'medium', headerClassName: HEAD, className: cn(CELL, 'tabular-nums'), cell: (medication) => formatDate(medication.started_on) || '—' },
     ...(showsEnded
-      ? [{ id: 'ended', header: 'Ended', fit: true, showFrom: 'medium', headerClassName: HEAD, className: cn(CELL, 'tabular-nums'), cell: (medication) => medication.ended_on ?? '—' } satisfies RecordColumn<PhrMedication>]
+      ? [{ id: 'ended', header: 'Ended', fit: true, showFrom: 'medium', headerClassName: HEAD, className: cn(CELL, 'tabular-nums'), cell: (medication) => formatDate(medication.ended_on) || '—' } satisfies RecordColumn<PhrMedication>]
       : []),
     {
       id: 'last-fill',
@@ -161,7 +162,7 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
         if (!summary) return '—'
         return (
           <>
-            {summary.lastFilledOn}
+            {formatDate(summary.lastFilledOn)}
             <span className="block text-xs text-muted-foreground">{summary.count} {summary.count === 1 ? 'fill' : 'fills'}</span>
           </>
         )

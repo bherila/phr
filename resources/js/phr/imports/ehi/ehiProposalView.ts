@@ -1,3 +1,5 @@
+import { formatDate } from '@/lib/dateFormat'
+
 import type { EhiDecision, EhiProposal } from './ehiApi'
 
 /** How a proposal reads on the review screen. Pure, so the screen stays declarative. */
@@ -95,12 +97,9 @@ export function formatSourceDate(value: unknown): string | null {
     return raw
   }
   const [, year, month, day] = match
-  const date = new Date(Date.UTC(Number(year), Number(month) - 1, day ? Number(day) : 1))
-  const options: Intl.DateTimeFormatOptions = day
-    ? { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' }
-    : { year: 'numeric', month: 'short', timeZone: 'UTC' }
-
-  return new Intl.DateTimeFormat('en-US', options).format(date)
+  if (day) return formatDate(raw)
+  // A month with no day, as some sources give it, has no place in a day-precise format.
+  return new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(Number(year), Number(month) - 1, 1)))
 }
 
 /** The record attributes of a proposal: a document mapping nests them under `attributes`. */

@@ -14,6 +14,7 @@ final readonly class UserDisplayPreferencesController
     public function update(Request $request): JsonResponse
     {
         $validated = $request->validate([
+            'date_format' => ['sometimes', 'string', Rule::in(array_keys(DisplayPreferences::DATE_FORMATS))],
             'hide_medication_list' => ['sometimes', 'boolean:strict'],
             'separate_columns' => ['sometimes', 'boolean:strict'],
             'hidden_fill_columns' => ['sometimes', 'array'],

@@ -6,6 +6,7 @@ import { DetailSkeleton } from '@/components/record-list/Skeleton'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
+import { formatDate } from '@/lib/dateFormat'
 import { recordChanged, useRecordChanges } from '@/phr/clinical/recordChanges'
 import { DETAIL_ICON_BUTTON, DetailFacts, RecordReviewBar } from '@/phr/clinical/RecordDetailParts'
 import type { PhrReviewDecision } from '@/phr/clinical/review'
@@ -118,8 +119,8 @@ export default function MedicationDetail({ patientId, recordId, onDrill }: PhrDe
     { label: 'Dose', value: [medication.dose, medication.dose_unit].filter(Boolean).join(' ') },
     { label: 'Route', value: medication.route },
     { label: 'Schedule', value: medication.frequency },
-    { label: 'Started', value: medication.started_on },
-    { label: 'Ended', value: medication.ended_on },
+    { label: 'Started', value: formatDate(medication.started_on) },
+    { label: 'Ended', value: formatDate(medication.ended_on) },
     { label: 'Prescriber', value: medication.prescriber_name },
     { label: 'RxNorm', value: medication.rxnorm_code },
   ]

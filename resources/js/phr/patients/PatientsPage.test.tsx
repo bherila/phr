@@ -51,7 +51,7 @@ describe('PatientsPage', () => {
     expect(own).toHaveAttribute('href', '/phr/patient/1')
     expect(within(own).getByText('You')).toBeInTheDocument()
     expect(await within(own).findByText('142')).toBeInTheDocument()
-    expect(within(own).getByText('Mar 2, 2026')).toBeInTheDocument()
+    expect(within(own).getByText('2026-03-02')).toBeInTheDocument()
     expect(within(own).getByText('9 waiting for review')).toBeInTheDocument()
 
     const family = screen.getAllByText('Family Member')[0]!.closest('a')!

@@ -292,7 +292,9 @@ export. Hide the Medications list removes the tabs from Fills, and a link to a m
 opens. Never merge columns gives a fill's strength, form and route their own columns on a wide list,
 and separate prescriber and pharmacy columns, where by default they share cells to save space, and the list may then scroll in its own box;
 below 960px the list's shape is the same either way. The saved Fills columns are the other setting.
-Few things are settings on purpose: a setting is for
+The date format (YYYY-MM-DD by default) goes through `lib/dateFormat`: a stored date is sliced, never
+parsed, so no timezone moves it to another day, and a moment in time shows on the viewer's own day.
+Native date inputs follow the browser and stored or exchanged dates stay ISO. Few things are settings on purpose: a setting is for
 two people who want different everyday screens, and each one is another state to test.
 
 **An end date settles the status.** `PhrMedication::status` reads as `completed` once `ended_on`

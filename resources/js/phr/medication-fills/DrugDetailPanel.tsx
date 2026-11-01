@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { fetchWrapper } from '@/fetchWrapper'
+import { formatDate } from '@/lib/dateFormat'
 import { errorMessage } from '@/phr/shared'
 
 import {
@@ -67,7 +68,7 @@ function LabelSections({ state, onRetry }: { state: Loaded<NdcLabel>, onRetry: (
   return (
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground">
-        As published by the FDA (openFDA drug label){label.effective_date ? `, effective ${label.effective_date}` : ''}{label.version ? `, version ${label.version}` : ''}. General labeling, not advice for you.
+        As published by the FDA (openFDA drug label){label.effective_date ? `, effective ${formatDate(label.effective_date)}` : ''}{label.version ? `, version ${label.version}` : ''}. General labeling, not advice for you.
       </p>
       {label.sections.map((section) => (
         <details key={section.key} className="rounded-md border border-border">

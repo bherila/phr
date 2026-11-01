@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
+import { formatDate } from '@/lib/dateFormat'
 import { type ReviewSummary, useReviewSummary } from '@/phr/review/reviewSummary'
 import { errorMessage } from '@/phr/shared'
 import { patientPageUrl } from '@/phr/shell/phrRoutes'
@@ -261,7 +262,7 @@ export default function SummaryPage({ patientId }: { patientId: number }) {
                 </span>
               )}
               {recentLabs[0]?.collection_datetime && (
-                <p className="mt-1 text-xs">Most recent: {recentLabs[0].collection_datetime.slice(0, 10)}</p>
+                <p className="mt-1 text-xs">Most recent: {formatDate(recentLabs[0].collection_datetime)}</p>
               )}
             </>
           )}
@@ -287,7 +288,7 @@ export default function SummaryPage({ patientId }: { patientId: number }) {
             <>
               <span className="font-medium text-foreground">{studies.length}</span> stud{studies.length === 1 ? 'y' : 'ies'}
               {recentStudyDate && (
-                <p className="mt-1 text-xs">Most recent: {recentStudyDate}</p>
+                <p className="mt-1 text-xs">Most recent: {formatDate(recentStudyDate)}</p>
               )}
             </>
           )}

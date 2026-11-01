@@ -6,6 +6,7 @@ import { type RecordColumn, RecordTable } from '@/components/record-list/RecordT
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { formatDate } from '@/lib/dateFormat'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { classBadge, codeChip, labelize, reviewStatusBadge } from '@/phr/clinical/ui'
@@ -323,8 +324,8 @@ function ConditionsTable({
       className: 'px-4 py-3 text-muted-foreground',
       cell: (condition) => (
         <>
-          <div>{condition.onset_date ? `Onset ${condition.onset_date}` : 'No onset date'}</div>
-          {condition.abated_date && <div>Abated {condition.abated_date}</div>}
+          <div>{condition.onset_date ? `Onset ${formatDate(condition.onset_date)}` : 'No onset date'}</div>
+          {condition.abated_date && <div>Abated {formatDate(condition.abated_date)}</div>}
         </>
       ),
     },

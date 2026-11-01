@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { RECORD_FIT_CLASS, RECORD_NUMERIC_CLASS } from '@/components/record-list/RecordTable'
 import { DetailSkeleton } from '@/components/record-list/Skeleton'
+import { formatDate } from '@/lib/dateFormat'
 import { formatLabReferenceRange, formatLabValue, isNumericLabValue } from '@/phr/labs/formatLabResult'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
@@ -82,7 +83,7 @@ export default function LabPanelDetail({ patientId, recordId }: LabPanelDetailPr
           <div className="space-y-2">
             <h2 className="text-lg font-semibold text-foreground">{panel.panel_name ?? 'Lab Panel'}</h2>
             <div className="grid gap-1 text-sm text-muted-foreground">
-              <p>Collected: {(panel.collection_datetime ?? '').slice(0, 10) || '—'}</p>
+              <p>Collected: {formatDate(panel.collection_datetime) || '—'}</p>
               <p>Ordering provider: {panel.ordering_provider ?? '—'}</p>
               <p>Lab/source: {[panel.resulting_lab, panel.source].filter(Boolean).join(' · ') || '—'}</p>
               {panel.source_document_url && (

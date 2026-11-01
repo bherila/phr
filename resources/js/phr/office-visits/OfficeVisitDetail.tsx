@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 
 import { DetailSkeleton } from '@/components/record-list/Skeleton'
 import { Button } from '@/components/ui/button'
+import { formatDate } from '@/lib/dateFormat'
 import EncounterEobLinks from '@/phr/clinical/EncounterEobLinks'
 import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
 import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
@@ -47,8 +48,8 @@ function serviceLabel(service: PhrOfficeVisitRelatedService): string {
 function serviceDateLabel(service: PhrOfficeVisitRelatedService): string | null {
   if (!service.service_start) return null
   return service.service_end && service.service_end !== service.service_start
-    ? `${service.service_start}–${service.service_end}`
-    : service.service_start
+    ? `${formatDate(service.service_start)}–${formatDate(service.service_end)}`
+    : formatDate(service.service_start)
 }
 
 export default function OfficeVisitDetail({ patientId, recordId, onDrill }: OfficeVisitDetailProps) {

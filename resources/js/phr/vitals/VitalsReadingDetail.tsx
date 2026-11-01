@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 
+import { formatDateTime } from '@/lib/dateFormat'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import { type PhrVital, PhrVitalReadingDetailResponseSchema } from '@/phr/types'
@@ -82,7 +83,7 @@ export default function VitalsReadingDetail({ patientId, recordId }: VitalsReadi
       <div>
         <h2 className="text-lg font-semibold text-foreground">{vital.vital_name ?? 'Vital reading'}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
-          Captured {vital.observed_at ?? vital.vital_date ?? 'unknown date'}
+          Captured {formatDateTime(vital.observed_at ?? vital.vital_date) || 'unknown date'}
           {vital.source ? ` · ${vital.source}` : ''}
         </p>
       </div>

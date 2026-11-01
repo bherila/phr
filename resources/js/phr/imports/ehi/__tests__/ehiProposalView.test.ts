@@ -3,9 +3,9 @@ import { makeEhiProposal } from './ehiFixtures'
 
 describe('ehiProposalView', () => {
   it('reads an immunization from its flat fields and a document from its attributes', () => {
-    expect(proposalView(makeEhiProposal())).toMatchObject({ domain: 'Immunization', title: 'Synthetic Vaccine A', date: 'Sep 20, 2024', detail: 'given' })
+    expect(proposalView(makeEhiProposal())).toMatchObject({ domain: 'Immunization', title: 'Synthetic Vaccine A', date: '2024-09-20', detail: 'given' })
     const document = makeEhiProposal({ mapping: 'document', proposed: { attributes: { title: 'Progress note', observed_at: '2025-10-14 09:30:00', document_type: 'clinical_note' } } })
-    expect(proposalView(document)).toMatchObject({ domain: 'Document', title: 'Progress note', date: 'Oct 14, 2025', detail: 'clinical_note' })
+    expect(proposalView(document)).toMatchObject({ domain: 'Document', title: 'Progress note', date: '2025-10-14', detail: 'clinical_note' })
   })
 
   it('shows a month-precision date without a day', () => {

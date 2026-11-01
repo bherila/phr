@@ -166,7 +166,7 @@ class PhrPatientSearchController extends Controller
 
             return $this->result(
                 'Fill', $fill->id, $title,
-                $this->join([$fill->filled_on->format('Y-m-d'), FillDisplayCasing::pharmacyName($fill->pharmacy_name), "Qty {$quantity}"]),
+                $this->join([FillDisplayCasing::pharmacyName($fill->pharmacy_name), "Qty {$quantity}"]),
                 $fill->filled_on->toDateString(), 'medication-fills',
             );
         });

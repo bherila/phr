@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
+import { formatDate } from '@/lib/dateFormat'
 import { errorMessage } from '@/phr/shared'
 import {
   PhrEobLinkResponseSchema,
@@ -29,9 +30,9 @@ function eobLabel(eob: PhrEobSummary): string {
 function serviceDateLabel(eob: PhrEobSummary): string {
   if (!eob.service_start) return 'Service date not recorded'
   if (eob.service_end && eob.service_end !== eob.service_start) {
-    return `${eob.service_start}–${eob.service_end}`
+    return `${formatDate(eob.service_start)}–${formatDate(eob.service_end)}`
   }
-  return eob.service_start
+  return formatDate(eob.service_start)
 }
 
 export default function EncounterEobLinks({
