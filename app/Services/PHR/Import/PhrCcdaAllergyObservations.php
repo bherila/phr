@@ -76,7 +76,9 @@ final class PhrCcdaAllergyObservations extends PhrCcdaSectionReader
 
             if ($this->negated($observation)) {
                 $statement = $this->xml->edText($this->xml->child($observation, 'text')) ?? ($substance === null ? 'No known allergies' : "No allergy to {$substance}");
-                $entries[] = $this->negation($observation, 'allergy_absence', 'allergies', $statement, $onset);
+                // allergy_absence is "no known allergies", and exports as such;
+                // a denial of one substance must not read as a denial of all.
+                $entries[] = $this->negation($observation, $substance === null ? 'allergy_absence' : 'other', 'allergies', $statement, $onset);
 
                 continue;
             }

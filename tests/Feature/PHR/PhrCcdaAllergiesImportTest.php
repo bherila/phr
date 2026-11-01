@@ -3,9 +3,39 @@
 namespace Tests\Feature\PHR;
 
 use App\Models\PhrAllergy;
+use App\Models\PhrNegativeAssertion;
 
 final class PhrCcdaAllergiesImportTest extends PhrCcdaSectionImportTestCase
 {
+    public function test_a_negation_of_one_substance_is_not_a_no_known_allergies_assertion(): void
+    {
+        $patient = $this->ccdaPatient();
+
+        $this->importCcda($this->ccdaSectionDocument(<<<'XML'
+            <templateId root="2.16.840.1.113883.10.20.22.2.6.1" extension="2015-08-01"/>
+            <title>Allergies</title>
+            <entry>
+              <act classCode="ACT" moodCode="EVN">
+                <templateId root="2.16.840.1.113883.10.20.22.4.30"/>
+                <statusCode code="active"/>
+                <entryRelationship typeCode="SUBJ">
+                  <observation classCode="OBS" moodCode="EVN" negationInd="true">
+                    <templateId root="2.16.840.1.113883.10.20.22.4.7"/>
+                    <id root="2.25.9003" extension="alg-not-allergic"/>
+                    <participant typeCode="CSM"><participantRole><playingEntity>
+                      <code code="9990320" codeSystem="2.16.840.1.113883.6.88" displayName="Synthetic tolerated substance"/>
+                    </playingEntity></participantRole></participant>
+                  </observation>
+                </entryRelationship>
+              </act>
+            </entry>
+            XML), $patient);
+
+        $assertion = PhrNegativeAssertion::query()->where('patient_id', $patient->id)->sole();
+        $this->assertSame(['other', 'allergies', 'No allergy to Synthetic tolerated substance'], [$assertion->assertion_type, $assertion->scope, $assertion->statement]);
+        $this->assertSame(0, PhrAllergy::query()->where('patient_id', $patient->id)->count());
+    }
+
     public function test_a_coded_reaction_without_display_text_is_kept_by_its_code(): void
     {
         $patient = $this->ccdaPatient();
