@@ -75,7 +75,7 @@ final class PhrCcdaProblemObservations extends PhrCcdaSectionReader
                 'snomed_code' => $this->xml->codeIn($value, self::SNOMED),
                 'onset_date' => $onset,
                 'abated_date' => $abated,
-                'clinical_status' => $this->clinicalStatus($observation, $abated),
+                'clinical_status' => $this->clinicalStatus($observation, $abated, self::STATUS, self::CONCERN),
                 'severity' => $this->severity($this->xml->related($observation, 'observation', self::SEVERITY)[0] ?? null),
                 'external_id' => $this->externalId($observation, [$name, $onset]),
             ];
@@ -94,36 +94,5 @@ final class PhrCcdaProblemObservations extends PhrCcdaSectionReader
             'onset_date' => $cells[3] ?? null,
             'external_id' => $this->narrativeId($cells),
         ];
-    }
-
-    /**
-     * The problem's own status observation (SNOMED active, inactive, resolved)
-     * when it has one; else resolved once it has abated; else its concern's
-     * status: a completed concern is resolved, a suspended one inactive.
-     */
-    private function clinicalStatus(DOMElement $observation, ?string $abated): string
-    {
-        $status = $this->xml->attribute($this->xml->child($this->xml->related($observation, 'observation', self::STATUS)[0] ?? null, 'value'), 'code');
-        $mapped = match ($status) {
-            '55561003' => 'active',
-            '73425007' => 'inactive',
-            '413322009' => 'resolved',
-            default => null,
-        };
-        if ($mapped !== null) {
-            return $mapped;
-        }
-        if ($abated !== null) {
-            return 'resolved';
-        }
-
-        $concern = $this->xml->first('ancestor::*[local-name()="act"][1]', $observation);
-        $concern = $concern !== null && $this->xml->hasTemplate($concern, self::CONCERN) ? $concern : null;
-
-        return match ($this->xml->attribute($this->xml->child($concern, 'statusCode'), 'code')) {
-            'completed' => 'resolved',
-            'suspended' => 'inactive',
-            default => 'active',
-        };
     }
 }

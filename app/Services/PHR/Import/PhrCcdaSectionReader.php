@@ -156,4 +156,39 @@ abstract class PhrCcdaSectionReader
 
         return in_array($name, ['mild', 'moderate', 'severe'], true) ? $name : null;
     }
+
+    /**
+     * A problem's or allergy's clinical status: its own status observation
+     * (SNOMED active, inactive, resolved) when it has one; else resolved once it
+     * has ended; else its concern act's status, where a completed concern is
+     * resolved and a suspended one inactive.
+     *
+     * @param  list<string>  $statusTemplates
+     * @param  list<string>  $concernTemplates
+     */
+    protected function clinicalStatus(DOMElement $observation, ?string $ended, array $statusTemplates, array $concernTemplates): string
+    {
+        $status = $this->xml->attribute($this->xml->child($this->xml->related($observation, 'observation', $statusTemplates)[0] ?? null, 'value'), 'code');
+        $mapped = match ($status) {
+            '55561003' => 'active',
+            '73425007' => 'inactive',
+            '413322009' => 'resolved',
+            default => null,
+        };
+        if ($mapped !== null) {
+            return $mapped;
+        }
+        if ($ended !== null) {
+            return 'resolved';
+        }
+
+        $concern = $this->xml->first('ancestor::*[local-name()="act"][1]', $observation);
+        $concern = $concern !== null && $this->xml->hasTemplate($concern, $concernTemplates) ? $concern : null;
+
+        return match ($this->xml->attribute($this->xml->child($concern, 'statusCode'), 'code')) {
+            'completed' => 'resolved',
+            'suspended' => 'inactive',
+            default => 'active',
+        };
+    }
 }

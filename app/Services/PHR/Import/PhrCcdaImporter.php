@@ -117,6 +117,7 @@ class PhrCcdaImporter
             new PhrCcdaProblemObservations($xml),
             new PhrCcdaProcedureActivities($xml),
             new PhrCcdaImmunizationActivities($xml),
+            new PhrCcdaAllergyObservations($xml),
         ];
     }
 
@@ -199,18 +200,6 @@ class PhrCcdaImporter
     {
         if ($this->isResultsSection($title)) {
             return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_lab_result', array_map($this->narrativeLabRecord(...), $rows), ['import_source' => self::IMPORT_SOURCE]);
-        }
-
-        if (str_contains($title, 'allerg')) {
-            return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_allergy', array_map(
-                fn (array $row): array => [
-                    'substance' => $row[0] ?? null,
-                    'reaction' => $row[1] ?? null,
-                    'severity' => $row[2] ?? null,
-                    'external_id' => 'ccda-allergy-'.sha1(implode('|', $row)),
-                ],
-                $rows
-            ), ['import_source' => self::IMPORT_SOURCE]);
         }
 
         if (str_contains($title, 'encounter') || str_contains($title, 'visit')) {
