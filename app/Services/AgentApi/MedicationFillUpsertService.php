@@ -136,6 +136,12 @@ final readonly class MedicationFillUpsertService
         // resurrect something a person deleted or the source took back. createOrFirst
         // applies the soft-delete scope and would not see such a row, so the identity row
         // is checked under a lock first and again if two first writes race.
+        // A flagged fill a person resolved as the same fill is retracted but not withdrawn by its
+        // source: a retry of its identity belongs to the fill it was merged into.
+        $survivor = $this->evidence->mergedSurvivor($identity);
+        if ($survivor !== null) {
+            return $this->mergeInto($patient, $survivor, $prepared, 'external_id');
+        }
         $this->refuseWithdrawnIdentity($identity);
 
         $attributes = $prepared['attributes'];

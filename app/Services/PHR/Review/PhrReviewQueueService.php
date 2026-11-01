@@ -504,8 +504,9 @@ final readonly class PhrReviewQueueService
             return [];
         }
         $candidates = PhrMedicationFill::query()->where('patient_id', $patient->id)->whereNull('retracted_at')
+            ->where('review_status', '!=', PhrReviewStatus::REJECTED)
             ->whereIn('id', $flags->pluck('related_fill_id')->unique()->values())->get()->keyBy('id');
-        $all = collect($fills)->only($flags->pluck('fill_id')->all())->merge($candidates);
+        $all = collect($fills)->only($flags->pluck('fill_id')->all())->union($candidates->all());
         $evidence = PhrMedicationFillEvidence::query()->where('patient_id', $patient->id)->whereIn('fill_id', $all->keys())
             ->where(fn (Builder $query) => $query->whereNotNull('document_id')->orWhereNotNull('eob_line_id'))
             ->get()->groupBy('fill_id');
