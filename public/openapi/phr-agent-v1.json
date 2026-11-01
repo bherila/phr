@@ -10463,6 +10463,20 @@
                         ],
                         "minimum": 1
                     },
+                    "dose_amount": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 32
+                    },
+                    "dose_unit": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 32
+                    },
                     "site": {
                         "type": [
                             "string",

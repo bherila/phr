@@ -25,9 +25,6 @@ final class PhrCcdaResultObservations
 
     private const string RESULT_OBSERVATION = '2.16.840.1.113883.10.20.22.4.2';
 
-    /** Narrative elements whose children are separate lines, not one run of text. */
-    private const array BLOCK_ELEMENTS = ['paragraph', 'br', 'item', 'list', 'tr', 'td', 'th', 'table', 'tbody', 'thead'];
-
     private readonly PhrCcdaXml $xml;
 
     public function __construct(private DOMXPath $xpath)
