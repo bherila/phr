@@ -2,8 +2,6 @@ import '@testing-library/jest-dom'
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
-import { DisplayPreferencesProvider } from '@/phr/display/DisplayPreferences'
-
 import { PhrPatientSearchPalette } from './PhrPatientSearchPalette'
 
 const mockGet = jest.fn()
@@ -66,18 +64,5 @@ describe('prescription fills', () => {
 
     fireEvent.click(option)
     expect(onDrill).toHaveBeenCalledWith({ id: 'medication-fills', instance: '9' })
-  })
-
-  it('applies the force-lowercase display preference', async () => {
-    mockGet.mockImplementation((url: string) => Promise.resolve(url.includes('display-preferences') ? { force_lowercase: true } : fillResponse))
-    render(
-      <DisplayPreferencesProvider>
-        <PhrPatientSearchPalette open patientId={42} onClose={jest.fn()} onDrill={jest.fn()} />
-      </DisplayPreferencesProvider>,
-    )
-
-    fireEvent.change(screen.getByPlaceholderText(/search visits/i), { target: { value: 'atorva' } })
-    const option = await screen.findByRole('option', { name: /atorvastatin calcium/i })
-    await waitFor(() => expect(option.querySelector('.lowercase')).not.toBeNull())
   })
 })

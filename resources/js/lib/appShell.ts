@@ -8,7 +8,6 @@ interface AppInitialData {
     name?: string
     email?: string
     genai_execution_mode?: unknown
-    force_lowercase_display?: unknown
   } | null
   // Deliberately `unknown`: this is untrusted JSON from the page, not a validated
   // list. `relyingApplicationsFrom` is what turns it into one.
@@ -42,12 +41,6 @@ export function currentUser(): { name: string; email: string } | null {
 
 export function genAiExecutionMode(): 'api' | 'external' {
   return readInitialData().currentUser?.genai_execution_mode === 'external' ? 'external' : 'api'
-}
-
-/** The saved force-lowercase display preference, or null when the page did not carry it. */
-export function forceLowercaseDisplay(): boolean | null {
-  const value = readInitialData().currentUser?.force_lowercase_display
-  return typeof value === 'boolean' ? value : null
 }
 
 /**

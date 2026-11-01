@@ -3,14 +3,15 @@
 namespace App\Http\Resources\PHR;
 
 use App\Models\PhrMedicationFill;
+use App\Services\PHR\Ndc\FillDisplayCasing;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * A prescription fill as the web and agent APIs return it. Stored casing is
- * returned as is: "force lowercase" is a display preference applied when the
- * interface renders, never here.
+ * A prescription fill as the web and agent APIs return it. Stored values are
+ * returned as is; `display` carries the same captured text with default display
+ * casing applied (FillDisplayCasing), for clients to render.
  */
 class MedicationFillResource extends JsonResource
 {
@@ -63,6 +64,7 @@ class MedicationFillResource extends JsonResource
             'retail_cents' => $fill->retail_cents,
             'pharmacy_name' => $fill->pharmacy_name,
             'pharmacy_location' => $fill->pharmacy_location,
+            'display' => FillDisplayCasing::forFill($fill),
             'version' => app(AgentClinicalRecordVersion::class)->for($fill),
             'created_at' => $fill->created_at?->toDateTimeString(),
             'updated_at' => $fill->updated_at?->toDateTimeString(),

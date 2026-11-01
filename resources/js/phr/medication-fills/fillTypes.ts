@@ -46,6 +46,16 @@ export const NdcSearchResultSchema = z.object({
   candidates: z.array(NdcCandidateSchema),
 })
 
+/** Captured text with default display casing, derived by the server. Render these, never the raw fields. */
+export const FillDisplaySchema = z.object({
+  drug_as_printed: nullableString,
+  pharmacy_name: nullableString,
+  pharmacy_location: nullableString,
+  prescriber_name: nullableString,
+  directions: nullableString,
+})
+export type FillDisplay = z.infer<typeof FillDisplaySchema>
+
 export const MedicationFillSchema = z.object({
   id: z.number(),
   patient_id: z.number(),
@@ -73,6 +83,7 @@ export const MedicationFillSchema = z.object({
   retail_cents: nullableNumber,
   pharmacy_name: nullableString,
   pharmacy_location: nullableString,
+  display: FillDisplaySchema.nullable().optional().transform((value) => value ?? null),
 })
 export type MedicationFill = z.infer<typeof MedicationFillSchema>
 
@@ -83,10 +94,6 @@ export const MedicationFillResponseSchema = z.object({
 export const MedicationFillsResponseSchema = z.object({
   medication_fills: z.array(MedicationFillSchema),
   can_manage: z.boolean().default(false),
-})
-
-export const DisplayPreferencesSchema = z.object({
-  force_lowercase: z.boolean().default(false),
 })
 
 export const MISSING = '—'
@@ -122,5 +129,5 @@ export function dollarsToCents(input: string): number | null {
 
 export function fillDrugName(fill: MedicationFill): string {
   const substances = fill.drug?.substance_names.join('; ')
-  return substances || fill.medication?.name || fill.drug_as_printed || MISSING
+  return substances || fill.medication?.name || fill.display?.drug_as_printed || fill.drug_as_printed || MISSING
 }

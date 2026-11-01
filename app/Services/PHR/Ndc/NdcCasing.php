@@ -33,6 +33,24 @@ final class NdcCasing
         'SE' => 'SE', 'GMBH' => 'GmbH', 'RX' => 'Rx', 'CVS' => 'CVS', 'ST' => 'St.', 'MT' => 'Mt.', 'DR' => 'Dr.',
     ];
 
+    /** Credential suffixes and chain names with a fixed written form, used for pharmacy and prescriber names. */
+    private const array NAME_WORDS = [
+        'MD' => 'MD', 'DO' => 'DO', 'PA' => 'PA', 'PA-C' => 'PA-C', 'NP' => 'NP', 'NP-C' => 'NP-C', 'FNP' => 'FNP',
+        'FNP-C' => 'FNP-C', 'ANP' => 'ANP', 'AGNP' => 'AGNP', 'APRN' => 'APRN', 'CRNP' => 'CRNP', 'ARNP' => 'ARNP',
+        'DNP' => 'DNP', 'CNM' => 'CNM', 'CNP' => 'CNP', 'RN' => 'RN', 'LPN' => 'LPN', 'OD' => 'OD', 'DPM' => 'DPM',
+        'DDS' => 'DDS', 'DMD' => 'DMD', 'DC' => 'DC', 'RPH' => 'RPh', 'PHARMD' => 'PharmD', 'DPH' => 'DPh',
+        'PHD' => 'PhD', 'MPH' => 'MPH', 'MBA' => 'MBA', 'MS' => 'MS', 'MSN' => 'MSN', 'BSN' => 'BSN', 'FACP' => 'FACP',
+        'FACS' => 'FACS', 'FAAP' => 'FAAP', 'JR' => 'Jr.', 'SR' => 'Sr.', 'II' => 'II', 'III' => 'III', 'IV' => 'IV',
+        'HEB' => 'HEB', 'CVS' => 'CVS', 'VA' => 'VA', 'KP' => 'KP', 'UCSF' => 'UCSF', 'UCLA' => 'UCLA', 'UPMC' => 'UPMC',
+        'HCA' => 'HCA', 'ER' => 'ER', 'ED' => 'ED', 'ICU' => 'ICU', 'WIC' => 'WIC',
+    ];
+
+    private const array US_STATES = [
+        'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'DC', 'FL', 'GA', 'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA',
+        'ME', 'MD', 'MA', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY', 'NC', 'ND', 'OH', 'OK', 'OR',
+        'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY', 'PR',
+    ];
+
     private const array LABELER_LOWERCASE = ['of', 'and', 'the', 'for', 'de', 'la', 'et'];
 
     /** Generic and substance names, dosage forms and routes: lowercase. */
@@ -67,24 +85,54 @@ final class NdcCasing
             return $value;
         }
 
-        return self::titleCase($value, static function (string $word, bool $first): ?string {
-            if (isset(self::LABELER_WORDS[$word])) {
-                return self::LABELER_WORDS[$word];
-            }
-            // Dotted initialisms (L.P., U.S.A.) keep their capitals.
-            if (preg_match('/\A([A-Z]\.){2,}\z/', $word) === 1) {
-                return $word;
-            }
-            if (! $first && in_array(strtolower($word), self::LABELER_LOWERCASE, true)) {
-                return strtolower($word);
-            }
-            // A short run of consonants is an initialism (KVK, HEB), not a word.
-            if (strlen($word) <= 4 && preg_match('/\A[B-DF-HJ-NP-TV-Z]+\z/', $word) === 1) {
-                return $word;
-            }
+        return self::titleCase($value, static fn (string $word, bool $first): ?string => self::labelerWord($word, $first, false));
+    }
 
-            return null;
-        });
+    /**
+     * Pharmacy, prescriber and place names as captured from a label or receipt. All-caps text gets
+     * proper-name casing (labeler rules plus credentials such as MD, PA-C, RPh and Mc names; with
+     * `$place`, US state codes); text that is not all caps is returned as written.
+     */
+    public static function properName(?string $value, bool $place = false): ?string
+    {
+        $value = self::clean($value);
+        if ($value === null || ! self::isAllCaps($value, false)) {
+            return $value;
+        }
+
+        return self::titleCase($value, static fn (string $word, bool $first): ?string => self::labelerWord($word, $first, true, $place));
+    }
+
+    private static function labelerWord(string $word, bool $first, bool $names, bool $place = false): ?string
+    {
+        if ($names) {
+            if ($place && in_array($word, self::US_STATES, true)) {
+                return $word;
+            }
+            if (isset(self::NAME_WORDS[$word])) {
+                return self::NAME_WORDS[$word];
+            }
+            // Mc names: MCDONALD is McDonald.
+            if (preg_match('/\AMC([A-Z]{3,})\z/', $word, $mc) === 1) {
+                return 'Mc'.ucfirst(strtolower($mc[1]));
+            }
+        }
+        if (isset(self::LABELER_WORDS[$word])) {
+            return self::LABELER_WORDS[$word];
+        }
+        // Dotted initialisms (L.P., U.S.A.) keep their capitals.
+        if (preg_match('/\A([A-Z]\.){2,}\z/', $word) === 1) {
+            return $word;
+        }
+        if (! $first && in_array(strtolower($word), self::LABELER_LOWERCASE, true)) {
+            return strtolower($word);
+        }
+        // A short run of consonants is an initialism (KVK, HEB), not a word.
+        if (strlen($word) <= 4 && preg_match('/\A[B-DF-HJ-NP-TV-Z]+\z/', $word) === 1) {
+            return $word;
+        }
+
+        return null;
     }
 
     /**
@@ -231,9 +279,14 @@ final class NdcCasing
         // keeps a possessive lowercase (Mary's) while a name prefix is cased (O'Brien).
         $parts = preg_split('/([-\/])/', $core, -1, PREG_SPLIT_DELIM_CAPTURE) ?: [$core];
         $cased = [];
-        foreach ($parts as $part) {
+        foreach ($parts as $position => $part) {
             if ($part === '-' || $part === '/') {
                 $cased[] = $part;
+
+                continue;
+            }
+            if (count($parts) > 1 && $part !== '' && ($fixedPart = $special($part, $first && $position === 0)) !== null) {
+                $cased[] = $fixedPart;
 
                 continue;
             }
@@ -244,7 +297,10 @@ final class NdcCasing
 
                 continue;
             }
-            $cased[] = $apostrophe !== false ? mb_convert_case($lower, MB_CASE_TITLE) : mb_strtoupper(mb_substr($lower, 0, 1)).mb_substr($lower, 1);
+            $cased[] = implode("'", array_map(
+                static fn (string $piece): string => mb_strtoupper(mb_substr($piece, 0, 1)).mb_substr($piece, 1),
+                explode("'", $lower),
+            ));
         }
 
         return $lead.implode('', $cased).$trail;

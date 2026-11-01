@@ -129,16 +129,14 @@ const AiProviderSettingsPage = lazy(() => import('@/phr/config/AiProviderSetting
 const ConnectedDevicesPanel = lazy(() => import('@/phr/config/ConnectedDevicesPanel'))
 const ConnectedAppsPage = lazy(() => import('@/phr/config/ConnectedAppsPage'))
 const ApiAccessPanel = lazy(() => import('@/phr/config/ApiAccessPanel'))
-const DisplayPreferencesPanel = lazy(() => import('@/phr/display/DisplayPreferences'))
 
-type ConfigTab = 'ai-providers' | 'devices' | 'connected-apps' | 'api-access' | 'display'
+type ConfigTab = 'ai-providers' | 'devices' | 'connected-apps' | 'api-access'
 
 const CONFIG_TABS: { id: ConfigTab, label: string }[] = [
   { id: 'ai-providers', label: 'AI Provider Settings' },
   { id: 'devices', label: 'Connected Devices' },
   { id: 'connected-apps', label: 'Connected apps' },
   { id: 'api-access', label: 'API Access' },
-  { id: 'display', label: 'Display' },
 ]
 
 export function ConfigPage(): ReactElement {
@@ -166,7 +164,6 @@ export function ConfigPage(): ReactElement {
         {tab === 'devices' ? <ConnectedDevicesPanel /> : null}
         {tab === 'connected-apps' ? <ConnectedAppsPage /> : null}
         {tab === 'api-access' ? <ApiAccessPanel /> : null}
-        {tab === 'display' ? <DisplayPreferencesPanel /> : null}
       </div>
     </div>
   )
