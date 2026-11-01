@@ -281,13 +281,18 @@ from a C-CDA). So both records stay, and they share a section: **(shipped)**
   stopped it.
 - Rejected medications and fills are not on these lists. The Review page lists them at its end, read
   when opened, where each can be opened or approved after all.
+- A pending record has a dot beside its name with a tooltip, rather than a column saying so. Its name
+  says the same to a screen reader, and on a phone the record's own page says it in words.
 - The sidebar counts fills, and its dot covers both fills and medications waiting for review.
 - G then F goes to Fills, and G then M to the Medications view.
 
 **Display settings** live on the logged-in user, never the patient, under Config. They reach the
 page in its initial data, change only what that person sees, and never change an API response or
 export. Hide the Medications list removes the tabs from Fills, and a link to a medication still
-opens. The saved columns are the other setting. Few things are settings on purpose: a setting is for
+opens. Never merge columns gives a fill's strength, form and route their own columns on a wide list,
+and separate prescriber and pharmacy columns, where by default they share cells to save space, and the list may then scroll in its own box;
+below 960px the list's shape is the same either way. The saved Fills columns are the other setting.
+Few things are settings on purpose: a setting is for
 two people who want different everyday screens, and each one is another state to test.
 
 **An end date settles the status.** `PhrMedication::status` reads as `completed` once `ended_on`

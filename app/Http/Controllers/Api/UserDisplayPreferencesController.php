@@ -15,6 +15,7 @@ final readonly class UserDisplayPreferencesController
     {
         $validated = $request->validate([
             'hide_medication_list' => ['sometimes', 'boolean:strict'],
+            'separate_columns' => ['sometimes', 'boolean:strict'],
             'hidden_fill_columns' => ['sometimes', 'array'],
             'hidden_fill_columns.*' => ['string', Rule::in(DisplayPreferences::FILL_COLUMNS)],
         ]);

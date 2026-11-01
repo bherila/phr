@@ -1,12 +1,12 @@
 import type { ReactNode } from 'react'
 
-import { RECORD_ONLY_BELOW_MEDIUM, RECORD_ONLY_WIDE_INLINE, type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
+import { RECORD_ONLY_BELOW_MEDIUM, RECORD_ONLY_BELOW_WIDE, RECORD_ONLY_WIDE_BLOCK, RECORD_ONLY_WIDE_INLINE, type RecordColumn, RecordTable } from '@/components/record-list/RecordTable'
 import { RowActionsMenu } from '@/components/record-list/RowActionsMenu'
 import { Button } from '@/components/ui/button'
 import type { FillColumn } from '@/lib/displayPreferences'
 import { cn } from '@/lib/utils'
 import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
-import { reviewStatusBadge, reviewStatusNeedsAttention } from '@/phr/clinical/ui'
+import { ReviewDot } from '@/phr/clinical/ReviewDot'
 import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
 
 import { FillFlags, fillRouteAndForm, fillStrength } from './FillFlags'
@@ -34,20 +34,26 @@ interface FillsTableProps {
   openRowId?: string | null | undefined
   /** Columns this person has chosen not to see. */
   hiddenColumns?: readonly FillColumn[] | undefined
+  /** Strength, form and route get their own columns on a wide list, instead of sitting beside the name. */
+  separateColumns?: boolean | undefined
 }
 
 const HEAD = 'px-3 py-2.5 font-medium'
 const CELL = 'px-3 py-2.5'
 
-/** A review status where the Review column has no room: the dot alone, named for a screen reader. */
-function ReviewDot({ fill }: { fill: MedicationFill }) {
-  if (!reviewStatusNeedsAttention(fill.review_status)) return null
-  const pending = fill.review_status === 'pending_review'
-  return <span role="img" aria-label={pending ? 'Pending review' : 'Rejected'} className={cn('block size-2 rounded-full', pending ? 'bg-warning' : 'bg-muted-foreground')} />
-}
-
 function pharmacyName(fill: MedicationFill): string | null {
   return fill.display?.pharmacy_name ?? fill.pharmacy_name
+}
+
+function prescriberName(fill: MedicationFill): string | null {
+  return fill.display?.prescriber_name ?? fill.prescriber_name
+}
+
+interface PersonColumn {
+  id: string
+  header: string
+  showFrom: 'medium' | 'wide'
+  cell: (fill: MedicationFill) => string | null
 }
 
 /**
@@ -56,7 +62,7 @@ function pharmacyName(fill: MedicationFill): string | null {
  * Below 960px the prescriber, the no-insurance price and the row's actions move to the detail, and below 560px each row
  * is two lines that open the record's own page.
  */
-export function FillsTable({ label, rows, loading = false, empty, actions, onEdit, onDrill, openRowId, hiddenColumns = [] }: FillsTableProps) {
+export function FillsTable({ label, rows, loading = false, empty, actions, onEdit, onDrill, openRowId, hiddenColumns = [], separateColumns = false }: FillsTableProps) {
   const shows = (column: FillColumn): boolean => !hiddenColumns.includes(column)
   const columns: RecordColumn<MedicationFill>[] = [
     {
@@ -72,21 +78,21 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
       id: 'medication',
       header: 'Medication',
       // The name column takes the room; the other wrapping columns get what is left.
-      headerClassName: cn(HEAD, 'w-[38%]'),
+      headerClassName: cn(HEAD, separateColumns ? undefined : 'w-[38%]'),
       className: CELL,
       cell: (fill) => {
         const strength = fillStrength(fill)
         const routeAndForm = fillRouteAndForm(fill)
         return (
           <div className="flex gap-2">
-            <span className={cn('w-2 shrink-0 pt-1.5', RECORD_ONLY_BELOW_MEDIUM)}><ReviewDot fill={fill} /></span>
+            <span className="w-2 shrink-0 pt-1.5"><ReviewDot status={fill.review_status} /></span>
             <div className="min-w-0">
               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
                 <span className="font-medium text-card-foreground">{fillDrugName(fill)}</span>
                 {strength && (
-                  <span className="text-muted-foreground">
+                  <span className={cn('text-muted-foreground', separateColumns && RECORD_ONLY_BELOW_WIDE)}>
                     {strength}
-                    {routeAndForm && <span className={RECORD_ONLY_WIDE_INLINE}> · {routeAndForm}</span>}
+                    {routeAndForm && !separateColumns && <span className={RECORD_ONLY_WIDE_INLINE}> · {routeAndForm}</span>}
                   </span>
                 )}
                 <FillFlags fill={fill} />
@@ -99,6 +105,11 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
         )
       },
     },
+    ...(separateColumns ? [
+      { id: 'strength', header: 'Strength', cell: (fill: MedicationFill) => fillStrength(fill) || MISSING },
+      { id: 'form', header: 'Form', cell: (fill: MedicationFill) => fill.drug?.dosage_form ?? MISSING },
+      { id: 'route', header: 'Route', cell: (fill: MedicationFill) => fill.drug?.route ?? MISSING },
+    ].map((column) => ({ ...column, showFrom: 'wide', headerClassName: HEAD, className: cn(CELL, 'text-muted-foreground') } satisfies RecordColumn<MedicationFill>)) : []),
     {
       id: 'quantity',
       header: 'Qty',
@@ -129,32 +140,33 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
       className: cn(CELL, 'text-muted-foreground'),
       cell: (fill) => formatCents(fill.retail_cents),
     } satisfies RecordColumn<MedicationFill>] : []),
-    ...(shows('prescriber') ? [{
-      id: 'prescriber',
-      header: 'Prescriber',
-      showFrom: 'wide',
+    ...(separateColumns ? [
+      ...(shows('prescriber') ? [{ id: 'prescriber', header: 'Prescriber', showFrom: 'wide', cell: prescriberName } satisfies PersonColumn] : []),
+      ...(shows('pharmacy') ? [{ id: 'pharmacy', header: 'Pharmacy', showFrom: 'medium', cell: pharmacyName } satisfies PersonColumn] : []),
+    ].map(({ id, header, showFrom, cell }) => ({
+      id,
+      header,
+      showFrom,
       headerClassName: HEAD,
       className: cn(CELL, 'text-muted-foreground'),
-      cell: (fill) => <span className="inline-block min-w-24">{(fill.display?.prescriber_name ?? fill.prescriber_name) ?? MISSING}</span>,
-    } satisfies RecordColumn<MedicationFill>] : []),
-    ...(shows('pharmacy') ? [{
+      cell: (fill: MedicationFill) => cell(fill) ?? MISSING,
+    } satisfies RecordColumn<MedicationFill>)) : []),
+    ...(!separateColumns && (shows('pharmacy') || shows('prescriber')) ? [{
+      // Who dispensed it and who prescribed it share a column, so the name keeps the room.
       id: 'pharmacy',
-      header: 'Pharmacy',
-      showFrom: 'medium',
-      headerClassName: cn(HEAD, 'w-[20%]'),
+      header: shows('pharmacy') && shows('prescriber')
+        ? <>Pharmacy<span className={RECORD_ONLY_WIDE_INLINE}> and prescriber</span></>
+        : shows('pharmacy') ? 'Pharmacy' : 'Prescriber',
+      showFrom: shows('pharmacy') ? 'medium' : 'wide',
+      headerClassName: cn(HEAD, 'w-[24%]'),
       className: cn(CELL, 'text-muted-foreground'),
-      cell: (fill) => pharmacyName(fill) ?? MISSING,
+      cell: (fill) => (
+        <>
+          {shows('pharmacy') ? (pharmacyName(fill) ?? MISSING) : (prescriberName(fill) ?? MISSING)}
+          {shows('pharmacy') && shows('prescriber') && prescriberName(fill) && <span className={cn('mt-0.5 text-xs', RECORD_ONLY_WIDE_BLOCK)}>{prescriberName(fill)}</span>}
+        </>
+      ),
     } satisfies RecordColumn<MedicationFill>] : []),
-    {
-      id: 'review',
-      header: 'Review',
-      fit: true,
-      showFrom: 'medium',
-      showWhenAnyRow: (fill) => reviewStatusNeedsAttention(fill.review_status),
-      headerClassName: HEAD,
-      className: CELL,
-      cell: (fill) => reviewStatusBadge(fill.review_status),
-    },
   ]
 
   if (actions || onEdit) {

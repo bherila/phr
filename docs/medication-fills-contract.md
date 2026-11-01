@@ -85,14 +85,14 @@ Standard Laravel 422 with `errors`. NDC-specific messages:
 ## Display rules (UI)
 - Fills table columns, left to right. Facts of the drug itself repeat on every fill of it, so the table keeps what differs from fill to fill and the fill's own detail (`/phr/patient/{id}/medication-fills/{fill}`) holds the rest. Which columns show depends on the list's width; see the record lists in `docs/ui-shell.md`:
   1. date (YYYY-MM-DD)
-  2. medication: name (NDC `substance_names`; falls back to the linked medication, then `drug_as_printed`), then strength (NDC `strengths`), then route and dosage form (NDC `route`, `dosage_form`) at the widest
+  2. medication: name (NDC `substance_names`; falls back to the linked medication, then `drug_as_printed`), then strength (NDC `strengths`), then route and dosage form (NDC `route`, `dosage_form`) at the widest; those three get their own columns for someone who chose never to merge columns
   3. quantity, the number alone (the unit is in the detail)
   4. paid ($X.XX)
   5. no insurance (`retail_cents`, $X.XX), at the widest
-  6. prescriber, at the widest
-  7. pharmacy
-  8. review status, while a listed fill is pending
-  9. actions
+  6. pharmacy, with the prescriber under it at the widest; both get their own column for someone who chose never to merge columns
+  7. actions
+
+  A pending fill has a dot beside its name, named "Pending review" for a screen reader and in a tooltip.
 
   No insurance, prescriber and pharmacy can be hidden per user (`hidden_fill_columns`, saved through `PUT /api/user/display-preferences`). Rejected fills are not listed; the Review page lists them (`GET /api/phr/patients/{id}/review/rejected`).
 - The fill's detail also holds what is not in the table: no-insurance price, days supply, directions, the pharmacy's name, dosage form, route, brand, NDC, and, folded under More details, the pharmacy's location, Rx number, refills left and source documents. The drug dialog adds manufacturer (NDC `labeler_name`), package description (NDC `package_description`) and prescribing information. The NDC as captured shows only in the edit form, when it differs from `ndc_10`.

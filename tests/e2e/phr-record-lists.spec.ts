@@ -62,7 +62,7 @@ test.describe('Record lists never cut anything off', () => {
     await expect(page.getByRole('table', { name: 'Fills' }).getByRole('row').nth(1)).toBeVisible()
 
     const { columns, overflow } = await layoutOf(page, 'Fills')
-    expect(columns).toEqual(['Date', 'Medication', 'Qty', 'Paid', 'No insurance', 'Prescriber', 'Pharmacy', 'Review', 'Actions'])
+    expect(columns).toEqual(['Date', 'Medication', 'Qty', 'Paid', 'No insurance', 'Pharmacy and prescriber', 'Actions'])
     expect(overflow).toBeLessThanOrEqual(0)
     await expectNoPageOverflow(page)
     await expectInViewport(page, /^More actions for /)
@@ -84,12 +84,31 @@ test.describe('Record lists never cut anything off', () => {
     await page.getByRole('searchbox', { name: 'Search by name' }).fill('')
 
     await page.getByRole('checkbox', { name: 'Prescriber' }).uncheck()
-    await expect.poll(async () => (await layoutOf(page, 'Fills')).columns).not.toContain('Prescriber')
+    await expect.poll(async () => (await layoutOf(page, 'Fills')).columns).toContain('Pharmacy')
     await page.reload()
     await expect(table.getByText('mometasone furoate').first()).toBeVisible()
-    expect((await layoutOf(page, 'Fills')).columns).not.toContain('Prescriber')
+    expect((await layoutOf(page, 'Fills')).columns).toContain('Pharmacy')
     await page.getByRole('checkbox', { name: 'Prescriber' }).check()
-    await expect.poll(async () => (await layoutOf(page, 'Fills')).columns).toContain('Prescriber')
+    await expect.poll(async () => (await layoutOf(page, 'Fills')).columns).toContain('Pharmacy and prescriber')
+  })
+
+  test('Never merging columns is a setting: wide lists separate them and everything stays reachable', async ({ page }) => {
+    await page.goto('/phr/config')
+    await page.getByRole('tab', { name: 'Display' }).click()
+    await page.getByRole('checkbox', { name: /^Never merge columns/ }).check()
+
+    await page.goto(await patientUrl(page, 'medication-fills'))
+    await expect(page.getByRole('table', { name: 'Fills' }).getByRole('row').nth(1)).toBeVisible()
+    expect((await layoutOf(page, 'Fills')).columns).toEqual(['Date', 'Medication', 'Strength', 'Form', 'Route', 'Qty', 'Paid', 'No insurance', 'Prescriber', 'Pharmacy', 'Actions'])
+    // The table may scroll in its own box, as this setting says; the page never does.
+    await expectNoPageOverflow(page)
+
+    await page.goto('/phr/config')
+    await page.getByRole('tab', { name: 'Display' }).click()
+    await page.getByRole('checkbox', { name: /^Never merge columns/ }).uncheck()
+    await page.goto(await patientUrl(page, 'medication-fills'))
+    await expect(page.getByRole('table', { name: 'Fills' }).getByRole('row').nth(1)).toBeVisible()
+    expect((await layoutOf(page, 'Fills')).columns).not.toContain('Strength')
   })
 
   test('Hiding the Medications list is a setting that follows the person', async ({ page }) => {
@@ -129,7 +148,7 @@ test.describe('Record lists never cut anything off', () => {
     await expect(page).toHaveURL(/medication-fills\/\d+$/)
 
     const { columns, overflow } = await layoutOf(page, 'Fills')
-    expect(columns).toEqual(['Date', 'Medication', 'Qty', 'Paid', 'Pharmacy', 'Review'])
+    expect(columns).toEqual(['Date', 'Medication', 'Qty', 'Paid', 'Pharmacy and prescriber'])
     expect(overflow).toBeLessThanOrEqual(0)
     await expectNoPageOverflow(page)
 
@@ -142,10 +161,10 @@ test.describe('Record lists never cut anything off', () => {
     await expect(panel.getByText('Rx number')).toBeVisible()
 
     // A decision in the panel reaches the row beside it without a reload.
-    const pendingBefore = await page.getByRole('table', { name: 'Fills' }).getByText('Pending review').count()
+    const pendingBefore = await page.getByRole('table', { name: 'Fills' }).getByRole('img', { name: 'Pending review' }).count()
     await panel.getByRole('button', { name: /^Approve/ }).click()
     await expect(panel.getByTestId('record-review-bar')).toHaveCount(0)
-    await expect(page.getByRole('table', { name: 'Fills' }).getByText('Pending review')).toHaveCount(pendingBefore - 1)
+    await expect(page.getByRole('table', { name: 'Fills' }).getByRole('img', { name: 'Pending review' })).toHaveCount(pendingBefore - 1)
   })
 
   test('Medications at full width and beside the panel', async ({ page }) => {

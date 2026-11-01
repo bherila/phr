@@ -151,7 +151,7 @@ class User extends Authenticatable implements OAuthenticatable
      * only when a user who never chose saves a usable key
      * (PhrGenAiExecutionModeService::adoptDefault), which also moves their jobs.
      */
-    /** @return array{hide_medication_list: bool, hidden_fill_columns: list<string>} */
+    /** @return array{hide_medication_list: bool, separate_columns: bool, hidden_fill_columns: list<string>} */
     public function displayPreferences(): array
     {
         return DisplayPreferences::normalize($this->display_preferences);

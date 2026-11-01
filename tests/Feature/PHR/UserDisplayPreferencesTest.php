@@ -11,7 +11,7 @@ class UserDisplayPreferencesTest extends TestCase
 
     public function test_everything_shows_until_a_person_chooses_otherwise(): void
     {
-        $this->assertSame(['hide_medication_list' => false, 'hidden_fill_columns' => []], User::factory()->create()->displayPreferences());
+        $this->assertSame(['hide_medication_list' => false, 'separate_columns' => false, 'hidden_fill_columns' => []], User::factory()->create()->displayPreferences());
     }
 
     public function test_a_change_saves_on_the_logged_in_user_and_leaves_other_settings_and_other_people_alone(): void
@@ -28,6 +28,10 @@ class UserDisplayPreferencesTest extends TestCase
         $this->assertTrue($person->refresh()->displayPreferences()['hide_medication_list']);
         $this->assertFalse($other->refresh()->displayPreferences()['hide_medication_list']);
 
+        $this->actingAs($person)->putJson(self::URL, ['separate_columns' => true])->assertOk()
+            ->assertJsonPath('display_preferences.separate_columns', true)
+            ->assertJsonPath('display_preferences.hide_medication_list', true);
+
         $this->actingAs($person)->putJson(self::URL, ['hidden_fill_columns' => []])->assertOk()
             ->assertJsonPath('display_preferences.hidden_fill_columns', []);
     }
@@ -40,7 +44,7 @@ class UserDisplayPreferencesTest extends TestCase
         $this->actingAs($person)->putJson(self::URL, ['hide_medication_list' => 'yes'])->assertUnprocessable();
         $this->actingAs($person)->putJson(self::URL, ['user_role' => 'admin', 'hide_medication_list' => true])->assertOk();
 
-        $this->assertSame(['hide_medication_list', 'hidden_fill_columns'], array_keys($person->refresh()->display_preferences));
+        $this->assertSame(['hide_medication_list', 'separate_columns', 'hidden_fill_columns'], array_keys($person->refresh()->display_preferences));
         $this->assertNotSame('admin', $person->user_role);
     }
 

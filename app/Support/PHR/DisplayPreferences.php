@@ -15,7 +15,7 @@ final class DisplayPreferences
     /**
      * What is stored, with defaults filled in and anything unknown dropped.
      *
-     * @return array{hide_medication_list: bool, hidden_fill_columns: list<string>}
+     * @return array{hide_medication_list: bool, separate_columns: bool, hidden_fill_columns: list<string>}
      */
     public static function normalize(mixed $stored): array
     {
@@ -24,6 +24,7 @@ final class DisplayPreferences
 
         return [
             'hide_medication_list' => ($stored['hide_medication_list'] ?? false) === true,
+            'separate_columns' => ($stored['separate_columns'] ?? false) === true,
             'hidden_fill_columns' => array_values(array_intersect(self::FILL_COLUMNS, $hidden)),
         ];
     }

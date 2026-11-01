@@ -48,7 +48,7 @@ export default function MedicationFillsPage({ patientId, onDrill, openRecord }: 
   })
   useRecordChanges('medication-fills', patientId, 'detail', () => void crud.reload())
   const firstLoad = crud.busy && crud.records.length === 0
-  const { hide_medication_list: hideMedicationList, hidden_fill_columns: hiddenColumns } = useDisplayPreferences()
+  const { hide_medication_list: hideMedicationList, separate_columns: separateColumns, hidden_fill_columns: hiddenColumns } = useDisplayPreferences()
   const medicationCount = useMedicationCount(patientId, !hideMedicationList)
 
   const medicationName = useMemo(
@@ -146,6 +146,7 @@ export default function MedicationFillsPage({ patientId, onDrill, openRecord }: 
             loading={firstLoad}
             empty={<div className="px-4 py-8 text-sm text-muted-foreground">No fills match these filters.</div>}
             hiddenColumns={hiddenColumns}
+            separateColumns={separateColumns}
             onDrill={onDrill}
             openRowId={openRowId}
             onEdit={crud.canManage ? setEditing : undefined}

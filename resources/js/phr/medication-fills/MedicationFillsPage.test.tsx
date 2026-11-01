@@ -148,6 +148,25 @@ describe('MedicationFillsPage table', () => {
     resetDisplayPreferences()
   })
 
+  it('merges strength, form and route beside the name by default, and never for someone who chose separate columns', async () => {
+    const initial = document.createElement('script')
+    initial.id = 'app-initial-data'
+    initial.type = 'application/json'
+    initial.textContent = JSON.stringify({ currentUser: { name: 'Example', display_preferences: { separate_columns: true } } })
+    document.body.append(initial)
+    resetDisplayPreferences()
+    renderPage()
+    const table = await findLoadedFills()
+    expect(within(table).getAllByRole('columnheader').map((header) => header.textContent)).toEqual(['Date', 'Medication', 'Strength', 'Form', 'Route', 'Qty', 'Paid', 'No insurance', 'Prescriber', 'Pharmacy', 'Actions'])
+    const cells = within(within(table).getAllByRole('row')[1]!).getAllByRole('cell')
+    expect(cells[2]).toHaveTextContent(/^20 mg\/1$/)
+    expect(cells[3]).toHaveTextContent(/^tablet, film coated$/)
+    expect(cells[4]).toHaveTextContent(/^oral$/)
+    expect(cells[1]).not.toHaveTextContent('film coated')
+    initial.remove()
+    resetDisplayPreferences()
+  })
+
   it('sits under the Medications title, on the section\'s Fills tab with every tab counted', async () => {
     renderPage()
     expect(await screen.findByRole('heading', { name: 'Medications', level: 1 })).toHaveClass('sr-only')
@@ -163,7 +182,7 @@ describe('MedicationFillsPage table', () => {
 
     const table = await findLoadedFills()
     const headers = within(table).getAllByRole('columnheader').map((header) => header.textContent)
-    expect(headers).toEqual(['Date', 'Medication', 'Qty', 'Paid', 'No insurance', 'Prescriber', 'Pharmacy', 'Actions'])
+    expect(headers).toEqual(['Date', 'Medication', 'Qty', 'Paid', 'No insurance', 'Pharmacy and prescriber', 'Actions'])
 
     const row = within(table).getAllByRole('row')[1]!
     const cells = within(row).getAllByRole('cell')
@@ -174,8 +193,7 @@ describe('MedicationFillsPage table', () => {
     expect(cells[2]).toHaveTextContent(/^90$/)
     expect(cells[3]).toHaveTextContent(/^\$10\.00$/)
     expect(cells[4]).toHaveTextContent(/^\$189\.99$/)
-    expect(cells[5]).toHaveTextContent(/^Dr\. A\. Smith$/)
-    expect(cells[6]).toHaveTextContent(/^Example Pharmacy$/)
+    expect(cells[5]).toHaveTextContent(/^Example PharmacyDr\. A\. Smith$/)
     // Facts of the drug itself moved to the fill's detail.
     expect(within(table).queryByText(/Parke-Davis/)).not.toBeInTheDocument()
     expect(within(table).queryByText(/in 1 bottle/)).not.toBeInTheDocument()
@@ -186,8 +204,7 @@ describe('MedicationFillsPage table', () => {
     const table = await findLoadedFills()
     const tier = (name: string) => within(table).getByRole('columnheader', { name })
     expect(tier('Date')).toHaveClass('hidden', '@[560px]/record-list:table-cell')
-    expect(tier('Pharmacy')).toHaveClass('hidden', '@[560px]/record-list:table-cell')
-    expect(tier('Prescriber')).toHaveClass('hidden', '@[960px]/record-list:table-cell')
+    expect(tier('Pharmacy and prescriber')).toHaveClass('hidden', '@[560px]/record-list:table-cell')
     expect(tier('No insurance')).toHaveClass('hidden', '@[960px]/record-list:table-cell')
     expect(tier('Actions')).toHaveClass('hidden', '@[960px]/record-list:table-cell')
     expect(tier('Medication')).not.toHaveClass('hidden')
@@ -197,10 +214,11 @@ describe('MedicationFillsPage table', () => {
     expect(line).toHaveClass('@[560px]/record-list:hidden')
   })
 
-  it('shows a dot alone for the review status where the Review column has no room', async () => {
+  it('shows the review status as a dot, named for a screen reader, with no column of its own', async () => {
     fills = [makeFill({ review_status: 'pending_review' })]
     renderPage()
-    expect((await screen.findByRole('img', { name: 'Pending review' })).parentElement).toHaveClass('@[560px]/record-list:hidden')
+    expect(await screen.findByRole('img', { name: 'Pending review' })).toBeInTheDocument()
+    expect(screen.queryByRole('columnheader', { name: 'Review' })).not.toBeInTheDocument()
   })
 
   it('shows a retail price only on a fill that has one', async () => {
@@ -348,7 +366,7 @@ describe('MedicationFillsPage table', () => {
     mockPatch.mockResolvedValue({ medication_fill: makeFill({ review_status: 'confirmed' }) })
     renderPage()
 
-    expect(await screen.findByText('Pending review')).toBeInTheDocument()
+    expect(await screen.findByRole('img', { name: 'Pending review' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /^Confirm/ }))
 
     await waitFor(() => expect(mockPatch).toHaveBeenCalledWith('/api/phr/patients/42/medication-fills/1/review', { review_status: 'confirmed' }))
@@ -1030,12 +1048,14 @@ describe('Editing a fill: review fixes', () => {
   it('saves which columns show for this person, and applies it at once', async () => {
     renderPage()
     const table = await findLoadedFills()
+    expect(within(table).getByRole('columnheader', { name: 'Pharmacy and prescriber' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('checkbox', { name: 'Prescriber' }))
-    expect(within(table).queryByRole('columnheader', { name: 'Prescriber' })).not.toBeInTheDocument()
+    expect(within(table).getByRole('columnheader', { name: 'Pharmacy' })).toBeInTheDocument()
+    expect(within(table).queryByText('Dr. A. Smith')).not.toBeInTheDocument()
     expect(mockPut).toHaveBeenCalledWith('/api/user/display-preferences', { hidden_fill_columns: ['prescriber'] })
 
     fireEvent.click(screen.getByRole('checkbox', { name: 'Prescriber' }))
-    expect(within(table).getByRole('columnheader', { name: 'Prescriber' })).toBeInTheDocument()
+    expect(within(table).getByRole('columnheader', { name: 'Pharmacy and prescriber' })).toBeInTheDocument()
     expect(mockPut).toHaveBeenLastCalledWith('/api/user/display-preferences', { hidden_fill_columns: [] })
     await act(async () => { await Promise.resolve() })
   })

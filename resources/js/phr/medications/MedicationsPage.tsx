@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { recordChanged, useRecordChanges } from '@/phr/clinical/recordChanges'
 import { ReviewActions } from '@/phr/clinical/review'
-import { reviewStatusNeedsAttention } from '@/phr/clinical/ui'
+import { ReviewDot } from '@/phr/clinical/ReviewDot'
 import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { replacePhrLocation } from '@/phr/shell/phrLocation'
 import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
@@ -55,23 +55,8 @@ function regimen(medication: PhrMedication): string {
   return [doseText(medication), medication.route, medication.frequency].filter(Boolean).join(' · ')
 }
 
-function statusAndReview(medication: PhrMedication): string {
-  const status = medicationStatusLabel(medication.status)
-  if (medication.review_status === 'pending_review') return `${status} · pending`
-  return medication.review_status === 'rejected' ? `${status} · rejected` : status
-}
-
-/** A review status where the column has no room: the dot alone, named for a screen reader. */
-function ReviewDot({ medication }: { medication: PhrMedication }) {
-  if (!reviewStatusNeedsAttention(medication.review_status)) return null
-  const pending = medication.review_status === 'pending_review'
-  return <span role="img" aria-label={pending ? 'Pending review' : 'Rejected'} className={cn('block size-2 rounded-full', pending ? 'bg-warning' : 'bg-muted-foreground')} />
-}
-
 function StatusCell({ medication }: { medication: PhrMedication }) {
-  const pending = medication.review_status === 'pending_review'
-  const tone = pending ? 'warning' : medication.status === 'active' ? 'success' : 'neutral'
-  return <StatusDot tone={tone} label={statusAndReview(medication)} />
+  return <StatusDot tone={medication.status === 'active' ? 'success' : 'neutral'} label={medicationStatusLabel(medication.status)} />
 }
 
 export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrListPageProps) {
@@ -144,7 +129,7 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
       className: CELL,
       cell: (medication) => (
         <div className="flex gap-2">
-          <span className={cn('w-2 shrink-0 pt-1.5', RECORD_ONLY_BELOW_MEDIUM)}><ReviewDot medication={medication} /></span>
+          <span className="w-2 shrink-0 pt-1.5"><ReviewDot status={medication.review_status} /></span>
           <div className="min-w-0">
             <div className="font-medium text-card-foreground">{medication.name}</div>
             <div className={cn('mt-0.5 text-xs text-muted-foreground empty:hidden', RECORD_ONLY_BELOW_WIDE)}>{regimen(medication)}</div>

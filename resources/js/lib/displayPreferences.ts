@@ -8,6 +8,7 @@ export type FillColumn = 'no_insurance' | 'prescriber' | 'pharmacy'
 
 export interface DisplayPreferences {
   hide_medication_list: boolean
+  separate_columns: boolean
   hidden_fill_columns: FillColumn[]
 }
 
@@ -18,6 +19,7 @@ function normalize(raw: unknown): DisplayPreferences {
   const hidden = Array.isArray(value.hidden_fill_columns) ? value.hidden_fill_columns : []
   return {
     hide_medication_list: value.hide_medication_list === true,
+    separate_columns: value.separate_columns === true,
     hidden_fill_columns: FILL_COLUMNS.filter((column) => hidden.includes(column)),
   }
 }
