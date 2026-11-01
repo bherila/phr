@@ -62,7 +62,7 @@ class MedicationFillWriter
             'attributes' => $attributes,
             'resolution' => $drug['resolution'],
             'medication_id' => $medicationId,
-            'drug_changed' => $drug['attributes'] !== [],
+            'drug_changed' => $drug['attributes'] !== [] || $this->printedNameChanged($data, $existing),
         ];
     }
 
@@ -89,5 +89,22 @@ class MedicationFillWriter
     public function release(PhrMedicationFill $fill): void
     {
         $this->linker->release($fill);
+    }
+
+    /**
+     * A fill whose drug the server could not resolve is known only by what the label
+     * said, so correcting that text changes the drug and the medication link must be
+     * checked against it. A resolved fill's drug comes from its NDC; its printed text is
+     * only a note.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function printedNameChanged(array $data, ?PhrMedicationFill $existing): bool
+    {
+        if ($existing === null || $existing->ndc_status === PhrMedicationFill::NDC_RESOLVED || ! array_key_exists('drug_as_printed', $data)) {
+            return false;
+        }
+
+        return trim((string) $data['drug_as_printed']) !== trim((string) $existing->drug_as_printed);
     }
 }

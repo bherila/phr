@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\PHR;
 
+use App\Models\PhrMedication;
 use App\Models\PhrMedicationFill;
 use App\Models\PhrPatient;
 use App\Models\User;
@@ -61,5 +62,50 @@ final class MedicationFillLinkerTest extends TestCase
         $result = $linker->reconcile($this->patient, $first);
 
         $this->assertTrue($result['created']);
+    }
+
+    public function test_fills_of_different_dosage_forms_do_not_merge_through_name_and_dose(): void
+    {
+        $linker = app(MedicationFillMedicationLinker::class);
+        $tablet = $this->fill(['ndc_11' => '11111111101', 'substance_names' => ['alpha'], 'strengths' => ['10 mg/1'], 'dosage_form' => 'tablet']);
+        $capsule = $this->fill(['ndc_11' => '22222222201', 'substance_names' => ['alpha'], 'strengths' => ['10 mg/1'], 'dosage_form' => 'capsule']);
+        $sameTablet = $this->fill(['ndc_11' => '33333333301', 'substance_names' => ['alpha'], 'strengths' => ['10 mg/1'], 'dosage_form' => 'tablet']);
+
+        $one = $linker->attach($this->patient, $tablet);
+        $two = $linker->attach($this->patient, $capsule);
+        $three = $linker->attach($this->patient, $sameTablet);
+
+        $this->assertTrue($two['created'], 'a capsule is not the tablet medication');
+        $this->assertNotSame($one['medication']->id, $two['medication']->id);
+        $this->assertFalse($three['created']);
+        $this->assertSame($one['medication']->id, $three['medication']->id, 'the same formulation still joins');
+    }
+
+    public function test_an_edit_does_not_keep_a_medication_other_fills_show_to_be_another_formulation(): void
+    {
+        $linker = app(MedicationFillMedicationLinker::class);
+        $tablet = $this->fill(['ndc_11' => '11111111101', 'substance_names' => ['alpha'], 'strengths' => ['10 mg/1'], 'dosage_form' => 'tablet']);
+        $medication = $linker->attach($this->patient, $tablet)['medication'];
+        $capsule = $this->fill(['ndc_11' => '22222222201', 'substance_names' => ['alpha'], 'strengths' => ['10 mg/1'], 'dosage_form' => 'capsule', 'medication_id' => $medication->id]);
+
+        $result = $linker->reconcile($this->patient, $capsule);
+
+        $this->assertTrue($result['created'], 'name and dose cannot vouch for an entry that tablet fills already describe');
+        $this->assertNotSame($medication->id, $result['medication']->id);
+    }
+
+    public function test_a_hand_entered_medication_without_fills_still_matches_by_name_and_dose(): void
+    {
+        $linker = app(MedicationFillMedicationLinker::class);
+        $entered = PhrMedication::factory()->create(['patient_id' => $this->patient->id, 'user_id' => $this->owner->id, 'name' => 'alpha', 'dose' => '10', 'dose_unit' => 'mg', 'rxnorm_code' => null]);
+        $fill = $this->fill(['ndc_11' => '11111111101', 'substance_names' => ['alpha'], 'strengths' => ['10 mg/1'], 'dosage_form' => 'capsule']);
+
+        $result = $linker->attach($this->patient, $fill);
+
+        $this->assertFalse($result['created']);
+        $this->assertSame($entered->id, $result['medication']->id);
+        // Once a fill describes it, a different dosage form no longer joins it.
+        $other = $this->fill(['ndc_11' => '22222222201', 'substance_names' => ['alpha'], 'strengths' => ['10 mg/1'], 'dosage_form' => 'tablet']);
+        $this->assertTrue($linker->attach($this->patient, $other)['created']);
     }
 }

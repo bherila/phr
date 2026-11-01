@@ -56,7 +56,7 @@ final class PatientNameMatcher
         $named = $narrow($patients->filter(fn (PhrPatient $patient): bool => self::tokens((string) $patient->display_name) === $wanted)->values());
         if ($named->isEmpty() && self::firstAndLast($wanted) !== null) {
             $named = $narrow($patients->filter(
-                fn (PhrPatient $patient): bool => self::firstAndLast(self::tokens((string) $patient->display_name)) === self::firstAndLast($wanted),
+                fn (PhrPatient $patient): bool => self::compatible($wanted, self::tokens((string) $patient->display_name)),
             )->values());
         }
 
@@ -89,6 +89,33 @@ final class PatientNameMatcher
         $name = strtolower((string) preg_replace('/[^A-Za-z0-9]+/', ' ', $name));
 
         return array_values(array_filter(explode(' ', $name), static fn (string $token): bool => $token !== ''));
+    }
+
+    /**
+     * Whether two names can be one person: the same first and last name, and middle
+     * names that do not contradict. A missing middle name is compatible, and so is an
+     * initial of the other's middle name (Q and Quincy); Quincy and Mary are not.
+     *
+     * @param  list<string>  $left
+     * @param  list<string>  $right
+     */
+    private static function compatible(array $left, array $right): bool
+    {
+        if (count($left) < 2 || count($right) < 2
+            || $left[0] !== $right[0] || $left[array_key_last($left)] !== $right[array_key_last($right)]) {
+            return false;
+        }
+        $leftMiddle = array_slice($left, 1, -1);
+        $rightMiddle = array_slice($right, 1, -1);
+        foreach (array_slice(array_keys($leftMiddle), 0, min(count($leftMiddle), count($rightMiddle))) as $index) {
+            [$a, $b] = [$leftMiddle[$index], $rightMiddle[$index]];
+            $initial = strlen($a) === 1 || strlen($b) === 1;
+            if ($a !== $b && ! ($initial && $a[0] === $b[0])) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /** @param list<string> $tokens */
