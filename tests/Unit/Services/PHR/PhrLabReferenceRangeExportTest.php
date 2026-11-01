@@ -27,6 +27,13 @@ class PhrLabReferenceRangeExportTest extends TestCase
             $this->lab(4, 'Synthetic text', ['range_max' => '165.0000000000', 'range_unit' => 'IU/mL', 'reference_range_text' => '<165 IU/mL']),
             $this->lab(5, 'Synthetic none', ['range_unit' => 'g/dL']),
             $this->lab(6, 'Synthetic unitless', ['range_min' => '4', 'range_max' => '14']),
+            // A bound the source called inclusive or exclusive reads that way.
+            $this->lab(7, 'Synthetic at most', ['range_max' => '5.0000000000', 'range_max_inclusive' => true, 'range_unit' => 'mg/dL']),
+            $this->lab(8, 'Synthetic at least', ['range_min' => '60.0000000000', 'range_min_inclusive' => true, 'range_unit' => 'mL/min']),
+            $this->lab(9, 'Synthetic strictly below', ['range_max' => '5.0000000000', 'range_max_inclusive' => false, 'range_unit' => 'mg/dL']),
+            $this->lab(10, 'Synthetic strictly above', ['range_min' => '60.0000000000', 'range_min_inclusive' => false]),
+            // Two bounds read as a span either way.
+            $this->lab(11, 'Synthetic inclusive span', ['range_min' => '1', 'range_min_inclusive' => true, 'range_max' => '9', 'range_max_inclusive' => false]),
         ]));
 
         $this->assertSame([
@@ -37,6 +44,11 @@ class PhrLabReferenceRangeExportTest extends TestCase
             'Synthetic text' => '<165 IU/mL',
             'Synthetic none' => '',
             'Synthetic unitless' => '4 - 14',
+            'Synthetic at most' => '<=5 mg/dL',
+            'Synthetic at least' => '>=60 mL/min',
+            'Synthetic strictly below' => '<5 mg/dL',
+            'Synthetic strictly above' => '>60',
+            'Synthetic inclusive span' => '1 - 9',
         ], $this->narrativeRanges($xml));
     }
 
@@ -62,7 +74,7 @@ class PhrLabReferenceRangeExportTest extends TestCase
     }
 
     /**
-     * @param  array<string, string>  $attributes
+     * @param  array<string, string|bool>  $attributes
      */
     private function lab(int $id, string $analyte, array $attributes): PhrLabResult
     {

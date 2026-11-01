@@ -892,6 +892,73 @@ final class PhrNativeRestoreTest extends TestCase
         $this->assertSame(1, $plan['tables']['phr_lab_results']['skip'] ?? 0);
     }
 
+    public function test_lab_bound_inclusiveness_survives_a_round_trip_and_an_older_archive_restores_without_it(): void
+    {
+        $owner = User::factory()->create(['user_role' => 'user']);
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        foreach (['Synthetic at most' => [null, true], 'Synthetic above' => [false, null], 'Synthetic unstated' => [null, null]] as $analyte => [$minInclusive, $maxInclusive]) {
+            DB::table('phr_lab_results')->insert([
+                'patient_id' => $patient->id,
+                'user_id' => $owner->id,
+                'analyte' => $analyte,
+                'value' => '3',
+                'range_min' => $minInclusive === null ? null : '1',
+                'range_max' => $maxInclusive === null ? null : '5',
+                'range_min_inclusive' => $minInclusive,
+                'range_max_inclusive' => $maxInclusive,
+                'review_status' => PhrReviewStatus::CONFIRMED,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+        $flags = fn (int $patientId): array => DB::table('phr_lab_results')->where('patient_id', $patientId)->orderBy('analyte')->get()
+            ->mapWithKeys(static fn (object $row): array => [$row->analyte => [
+                $row->range_min_inclusive === null ? null : (bool) $row->range_min_inclusive,
+                $row->range_max_inclusive === null ? null : (bool) $row->range_max_inclusive,
+            ]])->all();
+
+        $current = $this->archiveCopy($patient, (int) $owner->id);
+        $older = $this->archiveCopy($patient, (int) $owner->id);
+        // An archive downloaded before the attributes existed has none.
+        $this->mutateTableRecords($older, 'phr_lab_results', static function (array $record): array {
+            unset($record['attributes']['range_min_inclusive'], $record['attributes']['range_max_inclusive']);
+
+            return $record;
+        });
+
+        DB::table('phr_patients')->where('id', $patient->id)->delete();
+        $attempt = $this->readyAttempt($current, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $attempt->status, (string) $attempt->failure_category);
+        app(PhrNativeRestoreService::class)->apply($attempt->refresh(), (int) $owner->id);
+        $target = (int) $attempt->refresh()->target_patient_root_id;
+        $this->assertSame([
+            'Synthetic above' => [false, null],
+            'Synthetic at most' => [null, true],
+            'Synthetic unstated' => [null, null],
+        ], $flags($target));
+
+        // Against the restored rows, the older archive's records match the one
+        // whose bounds said nothing and conflict with the two that now say more.
+        $plan = $this->readyAttempt($older, (int) $owner->id)->refresh()->plan_counts_json;
+        $this->assertIsArray($plan);
+        $this->assertSame(['block' => 2, 'skip' => 1], [
+            'block' => $plan['tables']['phr_lab_results']['block'] ?? -1,
+            'skip' => $plan['tables']['phr_lab_results']['skip'] ?? -1,
+        ]);
+
+        DB::table('phr_patients')->where('id', $target)->delete();
+        $olderAttempt = $this->readyAttempt($older, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $olderAttempt->status, (string) $olderAttempt->failure_category);
+        app(PhrNativeRestoreService::class)->apply($olderAttempt->refresh(), (int) $owner->id);
+        $this->assertSame([
+            'Synthetic above' => [null, null],
+            'Synthetic at most' => [null, null],
+            'Synthetic unstated' => [null, null],
+        ], $flags((int) $olderAttempt->refresh()->target_patient_root_id));
+        @unlink($current);
+        @unlink($older);
+    }
+
     public function test_an_ehi_package_restores_with_its_bytes_at_the_new_content_address(): void
     {
         $owner = $this->createUser();

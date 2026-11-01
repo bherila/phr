@@ -60,6 +60,8 @@ class LabResultController extends Controller
                     'unit' => $result->unit,
                     'range_min' => $result->range_min,
                     'range_max' => $result->range_max,
+                    'range_min_inclusive' => $result->range_min_inclusive,
+                    'range_max_inclusive' => $result->range_max_inclusive,
                     'range_unit' => $result->range_unit,
                     'reference_range_text' => $result->reference_range_text,
                     'abnormal_flag' => $result->abnormal_flag,
