@@ -222,7 +222,8 @@ test.describe('Record lists never cut anything off', () => {
     layout = await layoutOf(page, 'Medications')
     expect(layout.columns).toEqual(['Medication', 'Started', 'Last fill', 'Status'])
     expect(layout.overflow).toBeLessThanOrEqual(0)
-    await expect(table.getByText('50 ug · nasal · daily')).toBeVisible()
+    // Micrograms read as µg, whatever is stored.
+    await expect(table.getByText('50 µg · nasal · daily')).toBeVisible()
     expect((await layoutOf(page, 'Fill history')).overflow).toBeLessThanOrEqual(0)
     await expectNoPageOverflow(page)
 

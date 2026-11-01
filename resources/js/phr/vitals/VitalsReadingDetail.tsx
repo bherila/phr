@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { formatDateTime } from '@/lib/dateFormat'
+import { displayUnits } from '@/lib/measureUnits'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import { type PhrVital, PhrVitalReadingDetailResponseSchema } from '@/phr/types'
@@ -73,7 +74,7 @@ export default function VitalsReadingDetail({ patientId, recordId }: VitalsReadi
     { label: 'Value', value: vital.vital_value ?? '—' },
     { label: 'Primary numeric', value: vital.value_numeric ?? '—' },
     { label: 'Secondary numeric', value: vital.value_numeric_secondary ?? '—' },
-    { label: 'Unit', value: vital.unit ?? '—' },
+    { label: 'Unit', value: displayUnits(vital.unit) ?? '—' },
     { label: 'Secondary unit', value: vital.secondary_unit ?? '—' },
     { label: 'Body site', value: vital.body_site ?? '—' },
   ]

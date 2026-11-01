@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { fetchWrapper } from '@/fetchWrapper'
+import { displayUnits } from '@/lib/measureUnits'
 import { cn } from '@/lib/utils'
 import { reviewStateChanged } from '@/phr/review/reviewSummary'
 import { errorMessage } from '@/phr/shared'
@@ -199,11 +200,11 @@ export function DrugPreview({ drug, ndc, discontinued = false }: { drug: NdcDrug
   const name = drug.substance_names.join('; ')
   const rows: Array<[string, string | null]> = [
     ['Brand', drug.brand_name],
-    ['Strength', drug.strengths.join('; ') || null],
+    ['Strength', displayUnits(drug.strengths.join('; ')) || null],
     ['Form', drug.dosage_form],
     ['Route', drug.route],
     ['Manufacturer', drug.labeler_name],
-    ['Package', drug.package_description],
+    ['Package', displayUnits(drug.package_description) ?? null],
  ]
   return (
     <div className={'rounded-md border border-border bg-muted/30 p-3 text-sm'} aria-label="Drug preview">
@@ -253,7 +254,7 @@ function CandidateList({ candidates, name, selected, onSelect, action }: {
               {candidate.drug?.package_description && <span>{candidate.drug.package_description}</span>}
               {candidate.drug?.labeler_name && <span className="text-muted-foreground">{candidate.drug.labeler_name}</span>}
               {candidate.drug && (candidate.drug.substance_names.length > 0 || candidate.drug.strengths.length > 0) && (
-                <span className="text-muted-foreground">{[candidate.drug.substance_names.join('; '), candidate.drug.strengths.join('; ')].filter(Boolean).join(' ')}</span>
+                <span className="text-muted-foreground">{[displayUnits(candidate.drug.substance_names.join('; ')), displayUnits(candidate.drug.strengths.join('; '))].filter(Boolean).join(' ')}</span>
               )}
               {candidate.match_reasons.length > 0 && (
                 <span className="text-xs text-muted-foreground">Matched: {candidate.match_reasons.join(', ')}</span>

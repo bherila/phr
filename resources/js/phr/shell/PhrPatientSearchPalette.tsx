@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/command'
 import { fetchWrapper } from '@/fetchWrapper'
 import { formatDate } from '@/lib/dateFormat'
+import { displayUnits } from '@/lib/measureUnits'
 import { errorMessage } from '@/phr/shared'
 import type { PhrModuleId, PhrNavTarget } from '@/phr/shell/phrRoutes'
 import { PhrPatientSearchResponseSchema, type PhrPatientSearchResult } from '@/phr/types'
@@ -93,8 +94,8 @@ export function PhrPatientSearchPalette({ open, patientId, onClose, onDrill }: P
               <CommandItem key={`${result.module_id}-${result.id}`} value={`${result.module_id}-${result.id}`} onSelect={() => select(result)}>
                 {result.category === 'Document' ? <FileText className="size-4" /> : <Search className="size-4" />}
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate font-medium">{result.label}</span>
-                  {(result.description || result.date) && <span className="block truncate text-xs text-muted-foreground">{[result.description, formatDate(result.date)].filter(Boolean).join(' · ')}</span>}
+                  <span className="block truncate font-medium">{displayUnits(result.label)}</span>
+                  {(result.description || result.date) && <span className="block truncate text-xs text-muted-foreground">{[displayUnits(result.description), formatDate(result.date)].filter(Boolean).join(' · ')}</span>}
                 </span>
               </CommandItem>
             ))}

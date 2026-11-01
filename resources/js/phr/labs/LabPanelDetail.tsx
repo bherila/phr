@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { RECORD_FIT_CLASS, RECORD_NUMERIC_CLASS } from '@/components/record-list/RecordTable'
 import { DetailSkeleton } from '@/components/record-list/Skeleton'
 import { formatDate } from '@/lib/dateFormat'
+import { displayUnits } from '@/lib/measureUnits'
 import { formatLabReferenceRange, formatLabValue, isNumericLabValue } from '@/phr/labs/formatLabResult'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
@@ -109,7 +110,7 @@ export default function LabPanelDetail({ patientId, recordId }: LabPanelDetailPr
                   <span className="min-w-0 font-medium text-foreground">{row.analyte ?? '—'}</span>
                   <span className={`shrink-0 whitespace-nowrap ${isNumericLabValue(row) ? 'tabular-nums' : ''} ${flagClass(row.abnormal_flag)}`}>
                     {formatLabValue(row) ?? '—'}
-                    {row.unit && <span className="ml-1 text-xs text-muted-foreground">{row.unit}</span>}
+                    {row.unit && <span className="ml-1 text-xs text-muted-foreground">{displayUnits(row.unit)}</span>}
                   </span>
                 </div>
                 <div className="flex items-baseline justify-between gap-3 text-xs text-muted-foreground">
@@ -140,7 +141,7 @@ export default function LabPanelDetail({ patientId, recordId }: LabPanelDetailPr
                     <td className="px-3 py-2 font-medium text-foreground">{row.analyte ?? '—'}</td>
                     <td className={`px-3 py-2 ${RECORD_FIT_CLASS} ${isNumericLabValue(row) ? RECORD_NUMERIC_CLASS : ''} ${flagClass(row.abnormal_flag)}`}>
                       {formatLabValue(row) ?? '—'}
-                      {row.unit && <span className="ml-1 text-xs text-muted-foreground">{row.unit}</span>}
+                      {row.unit && <span className="ml-1 text-xs text-muted-foreground">{displayUnits(row.unit)}</span>}
                     </td>
                     <td className={`px-3 py-2 text-muted-foreground ${RECORD_FIT_CLASS}`}>{formatLabReferenceRange(row) ?? '—'}</td>
                     <td className={`px-3 py-2 text-center font-semibold ${RECORD_FIT_CLASS} ${flagClass(row.abnormal_flag)}`}>

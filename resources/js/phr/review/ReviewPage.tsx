@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { formatDate } from '@/lib/dateFormat'
+import { displayUnits } from '@/lib/measureUnits'
 import { cn } from '@/lib/utils'
 import { AiResultDetails, type AiResultView,aiResultView } from '@/phr/imports/ai/AiImportReview'
 import { ehiFailureText, ehiImportsUrl,ehiReviewUrl } from '@/phr/imports/ehi/ehiApi'
@@ -189,8 +190,8 @@ function viewGroups(queue: ReviewQueue, patientId: number, bySection: boolean): 
 
 const COMPARED: { label: string, value: (fill: FillSummary) => string }[] = [
   { label: 'Date', value: (fill) => formatDate(fill.filled_on) },
-  { label: 'Name', value: (fill) => fill.name },
-  { label: 'Strength', value: (fill) => fill.strength ?? '—' },
+  { label: 'Name', value: (fill) => displayUnits(fill.name) },
+  { label: 'Strength', value: (fill) => displayUnits(fill.strength) ?? '—' },
   { label: 'Quantity', value: (fill) => fill.quantity ?? '—' },
   { label: 'Pharmacy', value: (fill) => fill.pharmacy ?? '—' },
   { label: 'Rx number', value: (fill) => fill.rx_number ?? '—' },
@@ -262,8 +263,8 @@ function reviewColumns(
       className: 'px-3 py-3',
       cell: (row) => (
         <>
-          <span className="block font-semibold text-foreground">{row.title}</span>
-          {row.detail && <span className="mt-0.5 block text-xs text-muted-foreground">{row.detail}</span>}
+          <span className="block font-semibold text-foreground">{displayUnits(row.title)}</span>
+          {row.detail && <span className="mt-0.5 block text-xs text-muted-foreground">{displayUnits(row.detail)}</span>}
           {row.flags.map((flag) => <span key={flag} className="mt-1 block text-xs text-amber-700 dark:text-amber-400">{flag}</span>)}
           {failures[row.item.key] && <span role="alert" className="mt-1 block text-xs text-destructive">{failures[row.item.key]}</span>}
         </>

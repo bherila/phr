@@ -1,5 +1,7 @@
 import type { ReactElement } from 'react'
 
+import { displayUnits } from '@/lib/measureUnits'
+
 import type { MedicationFill } from './fillTypes'
 
 const CHIP = 'inline-flex rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground'
@@ -20,7 +22,7 @@ export function FillFlags({ fill }: { fill: MedicationFill }): ReactElement | nu
 }
 
 export function fillStrength(fill: MedicationFill): string {
-  return fill.drug?.strengths.join('; ') ?? ''
+  return displayUnits(fill.drug?.strengths.join('; ') ?? '')
 }
 
 export function fillRouteAndForm(fill: MedicationFill): string {

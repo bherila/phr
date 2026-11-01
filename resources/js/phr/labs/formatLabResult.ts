@@ -1,3 +1,4 @@
+import { displayUnits } from '@/lib/measureUnits'
 const INFINITY_PLACEHOLDER_THRESHOLD = 99999
 const DECIMAL_NUMBER_PATTERN = /^([+-]?)(?:(\d+)(?:\.(\d*))?|\.(\d+))$/
 
@@ -96,16 +97,16 @@ export function formatLabReferenceRange(result: LabRangeResult): string | null {
   const unit = result.range_unit ? ` ${result.range_unit}` : ''
 
   if (min !== null && max !== null) {
-    return `${min}–${max}${unit}`
+    return displayUnits(`${min}–${max}${unit}`)
   }
   if (max !== null) {
-    return `${singleBoundComparator('high', result.range_max_inclusive, result.reference_range_text)}${max}${unit}`
+    return displayUnits(`${singleBoundComparator('high', result.range_max_inclusive, result.reference_range_text)}${max}${unit}`)
   }
   if (min !== null) {
-    return `${singleBoundComparator('low', result.range_min_inclusive, result.reference_range_text)}${min}${unit}`
+    return displayUnits(`${singleBoundComparator('low', result.range_min_inclusive, result.reference_range_text)}${min}${unit}`)
   }
 
-  return result.reference_range_text
+  return displayUnits(result.reference_range_text) ?? null
 }
 
 interface LabValueResult {

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { displayUnits } from '@/lib/measureUnits'
 import { ehiFailureText } from '@/phr/imports/ehi/ehiApi'
 import { fieldLabel, formatSourceDate } from '@/phr/imports/ehi/ehiProposalView'
 
@@ -33,7 +34,7 @@ function display(value: unknown): string | null {
   if (value === null || value === undefined || value === '') return null
   // Shown as a date only when the whole value is one, so text that begins with a
   // date keeps the rest of what it says.
-  if (typeof value === 'string') return WHOLE_DATE.test(value) ? formatSourceDate(value) : value.length > 160 ? `${value.slice(0, 157)}…` : value
+  if (typeof value === 'string') return WHOLE_DATE.test(value) ? formatSourceDate(value) : displayUnits(value.length > 160 ? `${value.slice(0, 157)}…` : value)
   if (typeof value === 'number' || typeof value === 'boolean') return String(value)
   return null
 }

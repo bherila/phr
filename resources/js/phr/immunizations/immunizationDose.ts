@@ -1,3 +1,4 @@
+import { displayUnits } from '@/lib/measureUnits'
 import type { PhrImmunization } from '@/phr/types'
 
 type DoseFields = Pick<PhrImmunization, 'dose_amount' | 'dose_unit' | 'dose_number' | 'series_doses'>
@@ -13,7 +14,7 @@ export function doseAmountLabel(immunization: DoseFields): string | null {
   if (amount === null) return null
 
   const unit = present(immunization.dose_unit)
-  return unit === null ? amount : `${amount} ${unit}`
+  return displayUnits(unit === null ? amount : `${amount} ${unit}`)
 }
 
 /** The position in the series (e.g. "2 / 3"), or null when no dose number is recorded. */

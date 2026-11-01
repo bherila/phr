@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { formatDate } from '@/lib/dateFormat'
+import { displayUnits } from '@/lib/measureUnits'
 import { PhrReviewStatusSchema } from '@/phr/types'
 
 /**
@@ -164,7 +165,7 @@ export function formatCents(cents: number | null | undefined): string {
 export function formatQuantity(quantity: string | null, unit: string | null = null): string {
   if (quantity === null || quantity.trim() === '') return MISSING
   const trimmed = quantity.includes('.') ? quantity.replace(/\.?0+$/, '') : quantity
-  return [trimmed || '0', unit].filter(Boolean).join(' ')
+  return [trimmed || '0', displayUnits(unit)].filter(Boolean).join(' ')
 }
 
 /** Dollars typed by a person ("18.99", "$1,000") to integer cents; null when blank, NaN when invalid. */
@@ -179,5 +180,5 @@ export function fillDrugName(fill: MedicationFill): string {
   const substances = fill.drug?.substance_names.join('; ')
   // A medication created from the printed text carries that text verbatim as its name: show the derived form.
   const linked = fill.medication?.name === fill.drug_as_printed ? (fill.display?.drug_as_printed ?? fill.medication?.name) : fill.medication?.name
-  return substances || linked || fill.display?.drug_as_printed || fill.drug_as_printed || MISSING
+  return displayUnits(substances || linked || fill.display?.drug_as_printed || fill.drug_as_printed) || MISSING
 }

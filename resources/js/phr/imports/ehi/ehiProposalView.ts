@@ -1,4 +1,5 @@
 import { formatDate } from '@/lib/dateFormat'
+import { displayUnits } from '@/lib/measureUnits'
 
 import type { EhiDecision, EhiProposal } from './ehiApi'
 
@@ -122,8 +123,8 @@ function changesOf(proposal: EhiProposal, attributes: Record<string, unknown>): 
 
   return fields.filter((field) => !HIDDEN_FIELDS.has(field)).map((field) => ({
     field: fieldLabel(field),
-    before: text(before[field]) ?? 'Not recorded',
-    after: text(attributes[field]) ?? 'Not recorded',
+    before: displayUnits(text(before[field])) ?? 'Not recorded',
+    after: displayUnits(text(attributes[field])) ?? 'Not recorded',
   }))
 }
 

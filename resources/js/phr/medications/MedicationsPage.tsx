@@ -6,6 +6,7 @@ import { RowActionsMenu } from '@/components/record-list/RowActionsMenu'
 import { StatusDot } from '@/components/record-list/StatusDot'
 import { Button } from '@/components/ui/button'
 import { formatDate } from '@/lib/dateFormat'
+import { displayUnits } from '@/lib/measureUnits'
 import { cn } from '@/lib/utils'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { recordChanged, useRecordChanges } from '@/phr/clinical/recordChanges'
@@ -49,7 +50,7 @@ const HEAD = 'px-3 py-2.5 font-medium'
 const CELL = 'px-3 py-2.5'
 
 function doseText(medication: PhrMedication): string {
-  return [medication.dose, medication.dose_unit].filter(Boolean).join(' ')
+  return displayUnits([medication.dose, medication.dose_unit].filter(Boolean).join(' '))
 }
 
 function regimen(medication: PhrMedication): string {
@@ -132,7 +133,7 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
         <div className="flex gap-2">
           <span className="w-2 shrink-0 pt-1.5"><ReviewDot status={medication.review_status} /></span>
           <div className="min-w-0">
-            <div className="font-medium text-card-foreground">{medication.name}</div>
+            <div className="font-medium text-card-foreground">{displayUnits(medication.name)}</div>
             <div className={cn('mt-0.5 text-xs text-muted-foreground empty:hidden', RECORD_ONLY_BELOW_WIDE)}>{regimen(medication)}</div>
             {(showsEnded || lastFillOf(medication)) && (
               <div className={cn('mt-0.5 text-xs text-muted-foreground', RECORD_ONLY_BELOW_MEDIUM)}>

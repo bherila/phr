@@ -7,6 +7,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
 import { formatDate } from '@/lib/dateFormat'
+import { displayUnits } from '@/lib/measureUnits'
 import { recordChanged, useRecordChanges } from '@/phr/clinical/recordChanges'
 import { DETAIL_ICON_BUTTON, DetailFacts, RecordReviewBar } from '@/phr/clinical/RecordDetailParts'
 import type { PhrReviewDecision } from '@/phr/clinical/review'
@@ -116,7 +117,7 @@ export default function MedicationDetail({ patientId, recordId, onDrill }: PhrDe
   if (notFound) return <PhrRecordNotFound />
 
   const facts = medication === null ? [] : [
-    { label: 'Dose', value: [medication.dose, medication.dose_unit].filter(Boolean).join(' ') },
+    { label: 'Dose', value: displayUnits([medication.dose, medication.dose_unit].filter(Boolean).join(' ')) },
     { label: 'Route', value: medication.route },
     { label: 'Schedule', value: medication.frequency },
     { label: 'Started', value: formatDate(medication.started_on) },
@@ -139,7 +140,7 @@ export default function MedicationDetail({ patientId, recordId, onDrill }: PhrDe
           <div className="flex items-start gap-1">
             <div className="min-w-0 flex-1">
               <p className="text-xs text-muted-foreground">{medicationStatusLabel(medication.status)}</p>
-              <h2 className="text-lg font-semibold text-card-foreground">{medication.name}</h2>
+              <h2 className="text-lg font-semibold text-card-foreground">{displayUnits(medication.name)}</h2>
               <div className="mt-1 flex flex-wrap items-center gap-2 empty:hidden lg:hidden">{reviewStatusBadge(medication.review_status)}</div>
             </div>
             {canManage && (

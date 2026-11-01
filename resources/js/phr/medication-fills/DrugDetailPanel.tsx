@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { fetchWrapper } from '@/fetchWrapper'
 import { formatDate } from '@/lib/dateFormat'
+import { displayUnits } from '@/lib/measureUnits'
 import { errorMessage } from '@/phr/shared'
 
 import {
@@ -147,7 +148,7 @@ export function DrugDetailPanel({ patientId, fill, onClose }: { patientId: numbe
               {detail.phase === 'loading' && <p className="text-sm text-muted-foreground">Loading drug details…</p>}
               {detail.phase === 'error' && <p role="alert" className="text-sm text-destructive">{detail.message}</p>}
               <Facts rows={[
-                ['Ingredients', ingredients],
+                ['Ingredients', displayUnits(ingredients)],
                 ['Brand', drug?.brand_name ?? null],
                 ['Dosage form', info?.dosage_form ?? drug?.dosage_form ?? null],
                 ['Route', info?.route ?? drug?.route ?? null],
@@ -159,7 +160,7 @@ export function DrugDetailPanel({ patientId, fill, onClose }: { patientId: numbe
                 ['Color', info?.color ?? null],
                 ['Shape', info?.shape ?? null],
                 ['Manufacturer', info?.manufacturer ?? drug?.labeler_name ?? null],
-                ['Package', info?.package_description ?? drug?.package_description ?? null],
+                ['Package', displayUnits(info?.package_description ?? drug?.package_description ?? null) ?? null],
                 ['Listing source', fill.ndc_source === 'rxnav' ? 'NLM RxNav NDC history (no longer in the FDA directory)' : fill.ndc_source === 'openfda' ? 'FDA NDC Directory (openFDA)' : null],
               ]} />
               {(dailymed || ndcDirectory) && (

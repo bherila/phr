@@ -326,6 +326,14 @@ describe('MedicationFillsPage table', () => {
     expect(screen.getByText(/add one by hand with its NDC/)).toHaveTextContent(/label.*receipt.*CSV.*MCP/)
   })
 
+  it('writes micrograms as µg, keeping the stored value for editing', async () => {
+    fills = [makeFill({ drug: { ...DRUG, strengths: ['50 ug/1'] } })]
+    renderPage()
+    const table = await findLoadedFills()
+    expect(within(table).getByText(/50 µg\/1/)).toBeInTheDocument()
+    expect(within(table).queryByText(/50 ug/)).not.toBeInTheDocument()
+  })
+
   it('can leave a medication filter whose last fill is gone', async () => {
     window.history.pushState(null, '', '/phr/patient/42/medication-fills?medication_id=999')
     try {

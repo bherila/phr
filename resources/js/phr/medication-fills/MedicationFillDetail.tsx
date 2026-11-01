@@ -6,6 +6,7 @@ import { DetailSkeleton } from '@/components/record-list/Skeleton'
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
+import { displayUnits } from '@/lib/measureUnits'
 import { recordChanged, useRecordChanges } from '@/phr/clinical/recordChanges'
 import { DETAIL_ICON_BUTTON, DetailFacts, RecordReviewBar } from '@/phr/clinical/RecordDetailParts'
 import type { PhrReviewDecision } from '@/phr/clinical/review'
@@ -181,7 +182,7 @@ export default function MedicationFillDetail({ patientId, recordId, onDrill }: P
             {fill.medication && (
               <p className="text-sm">
                 <span className="text-xs text-muted-foreground">On the medication list as </span>
-                <a href={patientPageUrl(patientId, 'medications', fill.medication.id)} className="text-primary underline-offset-2 hover:underline">{fill.medication.name}</a>
+                <a href={patientPageUrl(patientId, 'medications', fill.medication.id)} className="text-primary underline-offset-2 hover:underline">{displayUnits(fill.medication.name)}</a>
               </p>
             )}
           </section>

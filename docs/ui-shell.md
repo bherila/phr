@@ -297,6 +297,8 @@ parsed, so no timezone moves it to another day, and a moment in time shows on th
 Native date inputs follow the browser and stored or exchanged dates stay ISO. Few things are settings on purpose: a setting is for
 two people who want different everyday screens, and each one is another state to test.
 
+**Micrograms read as µg** everywhere a measure is shown, through `lib/measureUnits`, whether stored as `ug`, `mcg` or the Greek-mu spelling. Display only: stored values, API responses and exports keep what they have, because `ug` is the code C-CDA and FHIR exchange, edit forms show the stored text, and FDA label text stays as published. **(shipped)**
+
 **An end date settles the status.** `PhrMedication::status` reads as `completed` once `ended_on`
 has arrived, if what is stored is `active` or `on_hold`, for every writer: forms, imports and
 agents. `discontinued` is kept. It applies on read, so a date still ahead (the last day of a

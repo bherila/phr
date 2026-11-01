@@ -1,6 +1,7 @@
 import { type ReactElement, useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { displayUnits } from '@/lib/measureUnits'
 import { ehiFailureText } from '@/phr/imports/ehi/ehiApi'
 import { PHR_PAGES } from '@/phr/shell/phrPages'
 import { patientPageUrl } from '@/phr/shell/phrRoutes'
@@ -58,8 +59,8 @@ export function RejectedMedications({ patientId, refreshKey, onChanged }: { pati
           {rejected?.items.map((item) => (
             <li key={item.key} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 text-sm md:px-5">
               <div className="min-w-0 flex-[1_1_240px]">
-                <span className="block font-medium text-foreground">{item.title}</span>
-                <span className="block text-xs text-muted-foreground">{[PHR_PAGES[item.section].label, item.detail].filter(Boolean).join(' · ')}</span>
+                <span className="block font-medium text-foreground">{displayUnits(item.title)}</span>
+                <span className="block text-xs text-muted-foreground">{[PHR_PAGES[item.section].label, displayUnits(item.detail)].filter(Boolean).join(' · ')}</span>
                 {failures[item.key] && <span role="alert" className="mt-1 block text-xs text-destructive">{failures[item.key]}</span>}
               </div>
               <Button asChild size="sm" variant="outline" className="max-md:h-11">

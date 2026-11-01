@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
 import { formatDate } from '@/lib/dateFormat'
+import { displayUnits } from '@/lib/measureUnits'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { reviewStatusBadge, reviewStatusNeedsAttention } from '@/phr/clinical/ui'
@@ -229,7 +230,7 @@ export default function VitalsPage({ patientId, onDrill, openRecord }: PhrListPa
       cell: (v) => v.vital_name ?? '—',
     },
     { id: 'value', header: 'Value', fit: true, numeric: true, headerClassName: head, className: 'px-3 py-2 font-semibold text-foreground', cell: displayValue },
-    { id: 'unit', header: 'Unit', fit: true, headerClassName: head, className: 'px-3 py-2 text-muted-foreground', cell: (v) => v.unit ?? (v.secondary_unit ?? '—') },
+    { id: 'unit', header: 'Unit', fit: true, headerClassName: head, className: 'px-3 py-2 text-muted-foreground', cell: (v) => displayUnits(v.unit ?? (v.secondary_unit ?? '—')) },
     { id: 'site', header: 'Body Site', fit: true, headerClassName: head, className: 'px-3 py-2 text-muted-foreground', cell: (v) => v.body_site ?? '—' },
     { id: 'date', header: 'Date', fit: true, headerClassName: head, className: 'px-3 py-2 text-muted-foreground', cell: (v) => formatDate(vitalDate(v)) || '—' },
     {
