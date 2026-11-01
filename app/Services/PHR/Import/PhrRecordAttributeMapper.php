@@ -177,6 +177,8 @@ class PhrRecordAttributeMapper
                 'administered_on' => ValueCoercion::date($record['administered_on'] ?? $record['date'] ?? null),
                 'dose_number' => ValueCoercion::integer($record['dose_number'] ?? null),
                 'series_doses' => ValueCoercion::integer($record['series_doses'] ?? null),
+                'dose_amount' => ValueCoercion::string($record['dose_amount'] ?? null),
+                'dose_unit' => ValueCoercion::string($record['dose_unit'] ?? null),
                 'site' => ValueCoercion::string($record['site'] ?? null),
                 'route' => ValueCoercion::string($record['route'] ?? null),
                 'administered_by' => ValueCoercion::string($record['administered_by'] ?? null),
