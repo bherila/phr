@@ -518,6 +518,7 @@ use synthetic data.
 ## Additional documentation
 
 - [C-CDA conformance notes](docs/ccda-conformance.md)
+- [C-CDA import: structured entries, fallback, re-import](docs/ccda-import.md)
 - [Agent API security model](docs/agent-api-security.md)
 - [Delegated access operations](docs/delegated-access.md)
 - [Patient authorization capability matrix and call-site inventory](docs/patient-authorization-inventory.md)

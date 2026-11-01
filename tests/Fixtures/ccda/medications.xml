@@ -1,0 +1,230 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Synthetic C-CDA Medications section. No patient data.
+
+  The narrative table is ordered Medication, Sig, Dispense Quantity, Last
+  Filled, Start Date, End Date, Status, so reading it by position (name, dose,
+  frequency, status) stores the sig as the dose and the last-fill date as the
+  status. The entries carry every field explicitly:
+
+    med-display      RxNorm code with a displayName; a dose of "1" counted in
+                     the administration unit; route; start and end; every 12 h;
+                     completed; an indication; a sig that references its cell
+    med-original     code whose originalText references the narrative cell; a
+                     dose in mg; an event-related time (at bedtime); active
+    med-translation  code with nullFlavor whose RxNorm translation names it;
+                     aborted
+    med-name         no code at all: the product's <name>; suspended
+    med-code-only    nothing but the RxNorm code names it
+    med-negated      negationInd with "drug or medicament": no known medications
+    med-not-taking   negationInd with a named product
+    med-unnamed      nothing names it, and its sig references its own row
+
+  Every activity is an intent (moodCode INT), as medication lists usually are.
+  Every activity but med-code-only and the negated ones references its row.
+-->
+<ClinicalDocument xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <realmCode code="US"/>
+  <typeId root="2.16.840.1.113883.1.3" extension="POCD_HD000040"/>
+  <templateId root="2.16.840.1.113883.10.20.22.1.1"/>
+  <templateId root="2.16.840.1.113883.10.20.22.1.2"/>
+  <id root="2.25.1005"/>
+  <code code="34133-9" codeSystem="2.16.840.1.113883.6.1" displayName="Summarization of Episode Note"/>
+  <title>Synthetic Health Summary</title>
+  <effectiveTime value="20260102030405-0800"/>
+  <confidentialityCode code="N" codeSystem="2.16.840.1.113883.5.25"/>
+  <recordTarget>
+    <patientRole>
+      <id root="2.25.1002" extension="synthetic"/>
+      <patient>
+        <name><given>Synthetic</given><family>Patient</family></name>
+      </patient>
+    </patientRole>
+  </recordTarget>
+  <component>
+    <structuredBody>
+      <component>
+        <section>
+          <templateId root="2.16.840.1.113883.10.20.22.2.1"/>
+          <templateId root="2.16.840.1.113883.10.20.22.2.1.1" extension="2014-06-09"/>
+          <code code="10160-0" codeSystem="2.16.840.1.113883.6.1"/>
+          <title>Medications</title>
+          <text>
+            <table>
+              <thead>
+                <tr><th>Medication</th><th>Sig</th><th>Dispense Quantity</th><th>Last Filled</th><th>Start Date</th><th>End Date</th><th>Status</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Synthetic tablet medicine 10 mg</td><td ID="med-sig-display">Take 1 tablet by mouth every 12 hours</td><td>60 tablet</td><td>01/15/2026</td><td>01/01/2026</td><td>03/01/2026</td><td>Completed</td></tr>
+                <tr><td ID="med-name-original">Synthetic bedtime medicine</td><td>Take 5 mg at bedtime</td><td>30 tablet</td><td/><td>01/01/2026</td><td/><td>Active</td></tr>
+                <tr ID="med-row-translation"><td>Synthetic translated medicine</td><td>Use as directed</td><td/><td/><td>01/01/2026</td><td/><td>Discontinued</td></tr>
+                <tr ID="med-row-name"><td>Synthetic named product</td><td/><td/><td/><td>01/01/2026</td><td/><td>On hold</td></tr>
+                <tr><td>Synthetic coded medicine</td><td/><td/><td/><td/><td/><td>Active</td></tr>
+                <tr><td>Synthetic unnamed medicine</td><td ID="med-sig-unnamed">Take 2 daily</td><td/><td/><td/><td/><td>Active</td></tr>
+              </tbody>
+            </table>
+            <paragraph ID="med-none">Synthetic patient reports taking no medications</paragraph>
+          </text>
+
+          <entry typeCode="DRIV">
+            <substanceAdministration classCode="SBADM" moodCode="INT">
+              <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+              <id root="2.25.5001" extension="med-display"/>
+              <text><reference value="#med-sig-display"/></text>
+              <statusCode code="completed"/>
+              <effectiveTime xsi:type="IVL_TS"><low value="20260101"/><high value="20260301"/></effectiveTime>
+              <effectiveTime xsi:type="PIVL_TS" institutionSpecified="true" operator="A"><period value="12" unit="h"/></effectiveTime>
+              <routeCode code="C38288" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="Synthetic oral"/>
+              <doseQuantity value="1" unit="1"/>
+              <administrationUnitCode code="C48542" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="Synthetic tablet"/>
+              <consumable>
+                <manufacturedProduct classCode="MANU">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.23" extension="2014-06-09"/>
+                  <manufacturedMaterial>
+                    <code code="9990010" codeSystem="2.16.840.1.113883.6.88" displayName="Synthetic tablet medicine 10 mg"/>
+                  </manufacturedMaterial>
+                </manufacturedProduct>
+              </consumable>
+              <entryRelationship typeCode="RSON">
+                <observation classCode="OBS" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.19" extension="2014-06-09"/>
+                  <id root="2.25.5101"/>
+                  <code code="404684003" codeSystem="2.16.840.1.113883.6.96"/>
+                  <statusCode code="completed"/>
+                  <value xsi:type="CD" code="SYN-IND" codeSystem="2.25.9" displayName="Synthetic indication"/>
+                </observation>
+              </entryRelationship>
+            </substanceAdministration>
+          </entry>
+
+          <entry typeCode="DRIV">
+            <substanceAdministration classCode="SBADM" moodCode="INT">
+              <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+              <id root="2.25.5001" extension="med-original"/>
+              <statusCode code="active"/>
+              <effectiveTime xsi:type="IVL_TS"><low value="20260101"/></effectiveTime>
+              <effectiveTime xsi:type="EIVL_TS" operator="A"><event code="HS" codeSystem="2.16.840.1.113883.5.139" displayName="Synthetic bedtime"/></effectiveTime>
+              <doseQuantity value="5" unit="mg"/>
+              <consumable>
+                <manufacturedProduct classCode="MANU">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.23" extension="2014-06-09"/>
+                  <manufacturedMaterial>
+                    <code code="9990020" codeSystem="2.16.840.1.113883.6.88">
+                      <originalText><reference value="#med-name-original"/></originalText>
+                    </code>
+                  </manufacturedMaterial>
+                </manufacturedProduct>
+              </consumable>
+            </substanceAdministration>
+          </entry>
+
+          <entry typeCode="DRIV">
+            <substanceAdministration classCode="SBADM" moodCode="INT">
+              <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+              <id root="2.25.5001" extension="med-translation"/>
+              <text><reference value="#med-row-translation"/></text>
+              <statusCode code="aborted"/>
+              <effectiveTime xsi:type="IVL_TS"><low value="20260101"/></effectiveTime>
+              <consumable>
+                <manufacturedProduct classCode="MANU">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.23" extension="2014-06-09"/>
+                  <manufacturedMaterial>
+                    <code nullFlavor="OTH">
+                      <translation code="9990030" codeSystem="2.16.840.1.113883.6.88" displayName="Synthetic translated medicine"/>
+                    </code>
+                  </manufacturedMaterial>
+                </manufacturedProduct>
+              </consumable>
+            </substanceAdministration>
+          </entry>
+
+          <entry typeCode="DRIV">
+            <substanceAdministration classCode="SBADM" moodCode="INT">
+              <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+              <id root="2.25.5001" extension="med-name"/>
+              <text><reference value="#med-row-name"/></text>
+              <statusCode code="suspended"/>
+              <effectiveTime xsi:type="IVL_TS"><low value="20260101"/></effectiveTime>
+              <consumable>
+                <manufacturedProduct classCode="MANU">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.23" extension="2014-06-09"/>
+                  <manufacturedMaterial>
+                    <code nullFlavor="UNK"/>
+                    <name>Synthetic named product</name>
+                  </manufacturedMaterial>
+                </manufacturedProduct>
+              </consumable>
+            </substanceAdministration>
+          </entry>
+
+          <entry typeCode="DRIV">
+            <substanceAdministration classCode="SBADM" moodCode="INT">
+              <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+              <id root="2.25.5001" extension="med-code-only"/>
+              <statusCode code="active"/>
+              <consumable>
+                <manufacturedProduct classCode="MANU">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.23" extension="2014-06-09"/>
+                  <manufacturedMaterial>
+                    <code code="9990050" codeSystem="2.16.840.1.113883.6.88" codeSystemName="RxNorm"/>
+                  </manufacturedMaterial>
+                </manufacturedProduct>
+              </consumable>
+            </substanceAdministration>
+          </entry>
+
+          <entry typeCode="DRIV">
+            <substanceAdministration classCode="SBADM" moodCode="INT" negationInd="true">
+              <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+              <id root="2.25.5001" extension="med-negated"/>
+              <text><reference value="#med-none"/></text>
+              <statusCode code="active"/>
+              <effectiveTime xsi:type="IVL_TS"><low value="20260102"/></effectiveTime>
+              <consumable>
+                <manufacturedProduct classCode="MANU">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.23" extension="2014-06-09"/>
+                  <manufacturedMaterial>
+                    <code code="410942007" codeSystem="2.16.840.1.113883.6.96" displayName="Drug or medicament"/>
+                  </manufacturedMaterial>
+                </manufacturedProduct>
+              </consumable>
+            </substanceAdministration>
+          </entry>
+
+          <entry typeCode="DRIV">
+            <substanceAdministration classCode="SBADM" moodCode="INT" negationInd="true">
+              <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+              <id root="2.25.5001" extension="med-not-taking"/>
+              <statusCode code="active"/>
+              <consumable>
+                <manufacturedProduct classCode="MANU">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.23" extension="2014-06-09"/>
+                  <manufacturedMaterial>
+                    <code code="9990070" codeSystem="2.16.840.1.113883.6.88" displayName="Synthetic declined medicine"/>
+                  </manufacturedMaterial>
+                </manufacturedProduct>
+              </consumable>
+            </substanceAdministration>
+          </entry>
+
+          <entry typeCode="DRIV">
+            <substanceAdministration classCode="SBADM" moodCode="INT">
+              <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+              <id root="2.25.5001" extension="med-unnamed"/>
+              <text><reference value="#med-sig-unnamed"/></text>
+              <statusCode code="active"/>
+              <consumable>
+                <manufacturedProduct classCode="MANU">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.23" extension="2014-06-09"/>
+                  <manufacturedMaterial>
+                    <code nullFlavor="UNK"/>
+                  </manufacturedMaterial>
+                </manufacturedProduct>
+              </consumable>
+            </substanceAdministration>
+          </entry>
+        </section>
+      </component>
+    </structuredBody>
+  </component>
+</ClinicalDocument>
