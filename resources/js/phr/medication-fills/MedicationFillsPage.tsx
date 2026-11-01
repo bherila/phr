@@ -9,7 +9,7 @@ import { ShowRejectedToggle } from '@/phr/clinical/review'
 import { errorMessage } from '@/phr/shared'
 import type { PhrListPageProps } from '@/phr/shell/phrPages'
 
-import { FillEntryForm, FillForm } from './FillEntryForm'
+import { FillEntryForm, FillFormDialog } from './FillEntryForm'
 import { FillsTable } from './FillsTable'
 import {
   type MedicationFill,
@@ -129,16 +129,14 @@ export default function MedicationFillsPage({ patientId }: PhrListPageProps) {
       )}
 
       {editing && (
-        <div className="mb-6">
-          <FillForm
-            key={`${editing.id}:${editKey}`}
-            patientId={patientId}
-            fill={editing}
-            onSaved={saved}
-            onCancel={() => setEditing(null)}
-            onReload={() => void reloadEditing()}
-          />
-        </div>
+        <FillFormDialog
+          patientId={patientId}
+          fill={editing}
+          formKey={`${editing.id}:${editKey}`}
+          onSaved={saved}
+          onClose={() => setEditing(null)}
+          onReload={() => void reloadEditing()}
+        />
       )}
 
       {!crud.busy && crud.records.length === 0 ? (
@@ -151,6 +149,7 @@ export default function MedicationFillsPage({ patientId }: PhrListPageProps) {
       ) : (
         <section className="rounded-lg border border-border bg-card">
           <FillsTable
+            patientId={patientId}
             label="Fills"
             rows={rows}
             loading={firstLoad}

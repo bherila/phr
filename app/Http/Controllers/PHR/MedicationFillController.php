@@ -13,6 +13,7 @@ use App\Models\PhrMedicationFill;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\Fills\MedicationFillDuplicateService;
 use App\Services\PHR\Fills\MedicationFillWriter;
+use App\Services\PHR\Ndc\NdcDrugDetail;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\PHR\PhrRecordLifecycle;
 use App\Support\PHR\PhrReviewStatus;
@@ -80,6 +81,15 @@ class MedicationFillController extends Controller
     public function show(Request $request, int $patient, int $fill): JsonResponse
     {
         return $this->showClinicalResource($request, $patient, $fill);
+    }
+
+    /** The drug detail kept in a fill's stored FDA/RxNav snapshot, for the fill's detail panel. */
+    public function drugDetail(Request $request, int $patient, int $fill): JsonResponse
+    {
+        $resolvedPatient = $this->accessService->accessiblePatient($patient, (int) $request->user()?->id);
+        $record = PhrMedicationFill::query()->where('patient_id', $resolvedPatient->id)->findOrFail($fill);
+
+        return response()->json(['drug_detail' => NdcDrugDetail::forFill($record)]);
     }
 
     public function update(StoreMedicationFillRequest $request, int $patient, int $fill): JsonResponse

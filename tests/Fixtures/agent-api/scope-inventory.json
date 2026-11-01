@@ -389,6 +389,11 @@
             "exports:read"
         ]
     },
+    "ndc.label": {
+        "scopes": [
+            "clinical:read"
+        ]
+    },
     "ndc.lookup": {
         "scopes": [
             "clinical:read"

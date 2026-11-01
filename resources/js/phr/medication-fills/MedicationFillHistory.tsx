@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { fetchWrapper } from '@/fetchWrapper'
 import { errorMessage } from '@/phr/shared'
 
-import { FillForm } from './FillEntryForm'
+import { FillFormDialog } from './FillEntryForm'
 import { FillsTable } from './FillsTable'
 import { type MedicationFill, MedicationFillsResponseSchema } from './fillTypes'
 
@@ -44,18 +44,17 @@ export function MedicationFillHistory({ patientId, medicationId }: { patientId: 
       </div>
       {error && <div className="px-4 py-3 text-sm text-destructive">{error}</div>}
       {editing && (
-        <div className="p-4">
-          <FillForm
-            key={`${editing.id}:${editing.version ?? ''}:${reloadKey}`}
-            patientId={patientId}
-            fill={editing}
-            onSaved={() => { setEditing(null); reload() }}
-            onCancel={() => setEditing(null)}
-            onReload={reload}
-          />
-        </div>
+        <FillFormDialog
+          patientId={patientId}
+          fill={editing}
+          formKey={`${editing.id}:${editing.version ?? ''}:${reloadKey}`}
+          onSaved={() => { setEditing(null); reload() }}
+          onClose={() => setEditing(null)}
+          onReload={reload}
+        />
       )}
       <FillsTable
+        patientId={patientId}
         onEdit={canManage ? setEditing : undefined}
         label="Fill history"
         rows={fills}
