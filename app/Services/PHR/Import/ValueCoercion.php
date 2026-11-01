@@ -2,8 +2,8 @@
 
 namespace App\Services\PHR\Import;
 
-use App\Models\PhrDocument;
 use App\Support\PHR\PhrDocumentSource;
+use App\Support\PHR\PhrDocumentType;
 use Illuminate\Support\Carbon;
 
 final class ValueCoercion
@@ -187,8 +187,6 @@ final class ValueCoercion
 
     public static function normalizeDocumentType(mixed $type): string
     {
-        $value = self::string($type);
-
-        return in_array($value, PhrDocument::DOCUMENT_TYPES, true) ? $value : 'other';
+        return PhrDocumentType::normalize(self::string($type));
     }
 }

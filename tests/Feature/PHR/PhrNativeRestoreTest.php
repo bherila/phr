@@ -833,6 +833,60 @@ final class PhrNativeRestoreTest extends TestCase
         $this->assertSame(1, $plan['tables']['phr_documents']['skip'] ?? 0);
     }
 
+    public function test_an_archived_legacy_document_type_restores_as_an_allowed_type(): void
+    {
+        $owner = User::factory()->create(['user_role' => 'user']);
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        foreach (['Synthetic legacy general', 'Synthetic legacy spaced'] as $title) {
+            $this->metadataOnlyDocument($patient, (int) $owner->id, $title);
+        }
+
+        $archivePath = $this->archiveCopy($patient, (int) $owner->id);
+        // A raw insert that omitted the column stored the old `general`
+        // default; restore writes rows the same raw way, so it must map the
+        // value rather than bring it back or refuse the archive.
+        $this->mutateTableRecords($archivePath, 'phr_documents', static function (array $record): array {
+            $record['attributes']['document_type'] = $record['attributes']['title'] === 'Synthetic legacy spaced'
+                ? 'Lab Report'
+                : 'general';
+
+            return $record;
+        });
+
+        DB::table('phr_patients')->where('id', $patient->id)->delete();
+
+        $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $attempt->status, (string) $attempt->failure_category);
+
+        app(PhrNativeRestoreService::class)->apply($attempt->refresh());
+
+        $this->assertSame(
+            ['Synthetic legacy general' => 'other', 'Synthetic legacy spaced' => 'lab_report'],
+            DB::table('phr_documents')->orderBy('title')->pluck('document_type', 'title')->all(),
+        );
+    }
+
+    public function test_an_archived_legacy_document_type_matches_its_mapped_row_instead_of_conflicting(): void
+    {
+        $owner = User::factory()->create(['user_role' => 'user']);
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        $this->metadataOnlyDocument($patient, (int) $owner->id, 'Synthetic mapped type');
+        $this->assertSame('other', DB::table('phr_documents')->value('document_type'));
+
+        $archivePath = $this->archiveCopy($patient, (int) $owner->id);
+        $this->mutateTableRecords($archivePath, 'phr_documents', static function (array $record): array {
+            $record['attributes']['document_type'] = 'general';
+
+            return $record;
+        });
+
+        $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
+        $plan = $attempt->refresh()->plan_counts_json;
+        $this->assertIsArray($plan);
+        $this->assertSame(0, $plan['tables']['phr_documents']['block'] ?? -1);
+        $this->assertSame(1, $plan['tables']['phr_documents']['skip'] ?? 0);
+    }
+
     public function test_an_archived_doubled_lab_reference_range_restores_once(): void
     {
         $owner = User::factory()->create(['user_role' => 'user']);

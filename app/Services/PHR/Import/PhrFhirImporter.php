@@ -121,7 +121,7 @@ class PhrFhirImporter
             'DocumentReference' => $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_document', [
                 'external_id' => $externalId,
                 'title' => $resource['description'] ?? data_get($resource, 'content.0.attachment.title'),
-                'document_type' => $this->codeableText($resource['type'] ?? null) ?? 'document_reference',
+                'document_type' => $this->codeableText($resource['type'] ?? null) ?? 'other',
                 'original_filename' => data_get($resource, 'content.0.attachment.title'),
                 'mime_type' => data_get($resource, 'content.0.attachment.contentType'),
                 'summary' => $resource['description'] ?? null,

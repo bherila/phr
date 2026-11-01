@@ -62,7 +62,7 @@ final class PhrNativeRestoreArchive
                 }
                 yield PhrNativeLabReferenceRangeCompatibility::normalize(
                     $table,
-                    PhrNativeDocumentSourceCompatibility::normalize(
+                    PhrNativeDocumentCompatibility::normalize(
                         $table,
                         PhrNativeLifecycleCompatibility::normalize($table, $decoded),
                     ),

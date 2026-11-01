@@ -15,7 +15,7 @@ use App\Support\PHR\PhrLabReferenceRangeText;
  * the archived record would no longer hash like the row the migration produced
  * from it, reading as a conflict against the very row it came from.
  *
- * Like PhrNativeDocumentSourceCompatibility, the value is repaired *after* the
+ * Like PhrNativeDocumentCompatibility, the value is repaired *after* the
  * reader has verified the stored content hash against what was written, and
  * the hash is re-derived so the planner compares like with like.
  */
