@@ -15,10 +15,28 @@ php=$3
 "$php" -d memory_limit=1G -d display_errors=0 -d log_errors=0 -r '
 try {
     $env = parse_ini_file($argv[1], false, INI_SCANNER_RAW);
-    if (!is_array($env) || ($env["PILOT_DEPLOYMENT"] ?? "") !== "1"
-        || ($env["APP_DEBUG"] ?? "") !== "false" || ($env["MAIL_MAILER"] ?? "") !== "log"
-        || ($env["DB_HOST"] ?? "") !== "127.0.0.1"
-        || ($env["DB_URL"] ?? "") !== "") { exit(1); }
+    if (!is_array($env)) { exit(1); }
+    // Early refusal only: the pre-migrate hook verifies the resolved configuration.
+    $pilot = "mariadb";
+    $required = ["PILOT_DEPLOYMENT" => "1", "APP_DEBUG" => "false", "MAIL_MAILER" => "log",
+        "DB_CONNECTION" => $pilot, "DB_HOST" => "127.0.0.1"];
+    foreach ($required as $key => $value) { if (($env[$key] ?? null) !== $value) { exit(1); } }
+    $optional = ["DB_URL" => [""], "DB_SOCKET" => [""], "DB_PORT" => ["3306"],
+        "REDIS_URL" => [""]];
+    foreach ($optional as $key => $values) {
+        if (array_key_exists($key, $env) && !in_array($env[$key], $values, true)) { exit(1); }
+    }
+    // Redis is local over an absolute Unix socket (port 0 or empty) or on 127.0.0.1:6379.
+    $redisHost = $env["REDIS_HOST"] ?? "127.0.0.1";
+    $redisPort = array_key_exists("REDIS_PORT", $env) ? $env["REDIS_PORT"] : "6379";
+    $socket = is_string($redisHost) && str_starts_with($redisHost, "/") && !in_array("..", explode("/", $redisHost), true);
+    if (!(($socket && in_array($redisPort, ["0", ""], true)) || ($redisHost === "127.0.0.1" && $redisPort === "6379"))) { exit(1); }
+    // Any *_CONNECTION key naming another database connection, with or without a Laravel
+    // ::read or ::write suffix, selects it for some subsystem.
+    $others = array_diff(["sqlite", "mysql", "mariadb", "pgsql", "sqlsrv"], [$pilot]);
+    foreach ($env as $key => $value) {
+        if (preg_match("/(^|_)CONNECTION\$/", (string) $key) === 1 && in_array(explode("::", (string) $value, 2)[0], $others, true)) { exit(1); }
+    }
 } catch (Throwable $error) { exit(1); }
 ' "$HOME/$env_source" || { echo 'Private target does not have the required pilot-only configuration.' >&2; exit 1; }
 stable="$HOME/$app"

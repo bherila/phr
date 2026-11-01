@@ -2,12 +2,26 @@
 
 namespace Tests\Unit;
 
+use PHPUnit\Framework\Assert;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Process\Process;
 
 class PilotDeploymentTest extends TestCase
 {
+    private const PILOT_ENV = "PILOT_DEPLOYMENT=1\nAPP_DEBUG=false\nMAIL_MAILER=log\nDB_CONNECTION=mariadb\nDB_HOST=127.0.0.1\n";
+
+    /** Selector keys whose discovery the tests pin, so a regex regression cannot hide one. */
+    private const KNOWN_CONNECTION_SELECTORS = ['DB_QUEUE_CONNECTION', 'DB_CACHE_CONNECTION', 'DB_CACHE_LOCK_CONNECTION',
+        'SESSION_CONNECTION', 'PASSPORT_CONNECTION', 'PHR_DELEGATED_ACCESS_NONCE_CONNECTION',
+        'PHR_DELEGATED_ACCESS_RECEIPT_CONNECTION', 'BHERILA_AUTH_IDENTITY_TOMBSTONE_CONNECTION'];
+
+    /** Keys config/database.php reads that cannot move the pinned mariadb connection off the local server. */
+    private const NON_DESTINATION_KEYS = ['DB_DATABASE', 'DB_USERNAME', 'DB_PASSWORD', 'DB_CHARSET', 'DB_COLLATION', 'DB_FOREIGN_KEYS',
+        'DB_SSLMODE', 'DB_ENCRYPT', 'DB_TRUST_SERVER_CERTIFICATE', 'MYSQL_ATTR_SSL_CA', 'APP_NAME', 'REDIS_CLIENT', 'REDIS_CLUSTER', 'REDIS_PREFIX', 'REDIS_PERSISTENT',
+        'REDIS_USERNAME', 'REDIS_PASSWORD', 'REDIS_DB', 'REDIS_CACHE_DB', 'REDIS_MAX_RETRIES', 'REDIS_BACKOFF_ALGORITHM',
+        'REDIS_BACKOFF_BASE', 'REDIS_BACKOFF_CAP'];
+
     private string $root;
 
     private string $temporary;
@@ -101,7 +115,7 @@ JS;
         foreach (['.config/sample', '.deployments/sample-app/shared/storage', 'sample-app/public', 'sample-app/bootstrap/cache'] as $path) {
             mkdir($home.'/'.$path, 0700, true);
         }
-        $env = "PILOT_DEPLOYMENT=1\nAPP_DEBUG=false\nMAIL_MAILER=log\nDB_HOST=127.0.0.1\n";
+        $env = self::PILOT_ENV;
         file_put_contents($home.'/.config/sample/deployment.env', $env);
         file_put_contents($home.'/sample-app/.env', $env);
         symlink($home.'/.deployments/sample-app/shared/storage', $home.'/sample-app/storage');
@@ -138,29 +152,241 @@ JS;
         $this->assertDirectoryDoesNotExist($home.'/.deployments/sample-app/prepared-root');
     }
 
-    /** @return array<string, array{string}> */
-    public static function databaseUrlOverrides(): array
+    /** @return list<string> */
+    private static function otherConnections(): array
     {
-        return [
-            'remote URL overrides localhost' => ['mysql://synthetic:synthetic@database.example.test/app'],
-            'local URL overrides isolated credentials' => ['mysql://synthetic:synthetic@127.0.0.1/another_app'],
-        ];
+        preg_match_all("/^        '([a-z]+)' => \[\R            'driver' =>/m", (string) file_get_contents(dirname(__DIR__, 2).'/config/database.php'), $matches);
+
+        return array_values(array_diff($matches[1], ['mariadb']));
     }
 
-    #[DataProvider('databaseUrlOverrides')]
-    public function test_database_url_cannot_override_the_isolated_local_configuration(string $url): void
+    /**
+     * Every environment key feeding a database-connection selector, in the published configuration
+     * or in a package default that providers merge at registration. REDIS_* keys name Redis
+     * connections, which are checked by destination instead.
+     *
+     * @return list<string>
+     */
+    private static function connectionSelectorKeys(): array
+    {
+        $root = dirname(__DIR__, 2);
+        $pattern = "/'([a-z_]*connection|database)' => env\('([A-Z0-9_]+)'(?:, env\('([A-Z0-9_]+)'\))?/";
+        $keys = [];
+        $published = [];
+        foreach (glob($root.'/config/*.php') as $file) {
+            $published[basename($file)] = (string) file_get_contents($file);
+            preg_match_all($pattern, $published[basename($file)], $matches, PREG_SET_ORDER);
+            foreach ($matches as $match) {
+                array_push($keys, ...array_slice($match, 2));
+            }
+        }
+        foreach (glob($root.'/vendor/*/*/config/*.php') as $file) {
+            preg_match_all($pattern, (string) file_get_contents($file), $matches, PREG_SET_ORDER);
+            foreach ($matches as $match) {
+                // A setting the published file also defines replaces the package default.
+                if (! str_contains($published[basename($file)] ?? '', "'{$match[1]}' =>")) {
+                    array_push($keys, ...array_slice($match, 2));
+                }
+            }
+        }
+        $keys = array_filter(array_unique($keys), fn (string $key): bool => $key !== ''
+            && ! str_starts_with($key, 'REDIS_') && ! in_array($key, ['DB_CONNECTION', 'DB_DATABASE'], true));
+        sort($keys);
+
+        return array_values($keys);
+    }
+
+    /**
+     * Every setting that can move the effective database destination off the local server.
+     * A leading "-" removes the key instead of assigning it.
+     *
+     * @return array<string, array{string}>
+     */
+    public static function databaseOverrides(): array
+    {
+        $cases = [
+            'remote URL overrides localhost' => ['DB_URL=mysql://synthetic:synthetic@database.example.test/app'],
+            'local URL overrides isolated credentials' => ['DB_URL=mysql://synthetic:synthetic@127.0.0.1/another_app'],
+            'socket bypasses the host' => ['DB_SOCKET=/tmp/synthetic-mysql.sock'],
+            'remote host' => ['DB_HOST=database.example.test'],
+            'forwarded local port' => ['DB_PORT=13306'],
+            'missing connection falls back to sqlite' => ['-DB_CONNECTION'],
+            'empty connection' => ['DB_CONNECTION='],
+            'remote redis URL' => ['REDIS_URL=redis://cache.example.test:6379'],
+            'remote redis host' => ['REDIS_HOST=cache.example.test'],
+            'forwarded redis port' => ['REDIS_PORT=16379'],
+            'other redis address' => ['REDIS_HOST=192.0.2.10'],
+            'relative redis socket' => ["REDIS_HOST=run/redis-sample/redis.sock\nREDIS_PORT=0"],
+            'redis socket path escapes with dot-dot' => ["REDIS_HOST=/run/../tmp/redis.sock\nREDIS_PORT=0"],
+            'redis socket with a TCP port' => ["REDIS_HOST=/run/redis-sample/redis.sock\nREDIS_PORT=6379"],
+            'redis socket with the default port' => ['REDIS_HOST=/run/redis-sample/redis.sock'],
+        ];
+        foreach (self::otherConnections() as $connection) {
+            $cases["default connection {$connection}"] = ["DB_CONNECTION={$connection}"];
+        }
+        foreach (self::connectionSelectorKeys() as $selector) {
+            $cases["{$selector} selects sqlite"] = ["{$selector}=sqlite"];
+            $cases["{$selector} selects sqlite for writes"] = ["{$selector}=sqlite::write"];
+        }
+        // Laravel splits a suffixed name at its first "::", so only the leading segment names the connection.
+        $cases['selector picks sqlite for reads'] = ['PHR_DELEGATED_ACCESS_RECEIPT_CONNECTION=sqlite::read'];
+        $cases['selector hides sqlite behind a nested suffix'] = ['PHR_DELEGATED_ACCESS_RECEIPT_CONNECTION=sqlite::other::write'];
+
+        return $cases;
+    }
+
+    /** Apply one assignment per line; a line starting with "-" removes that key instead. */
+    private static function override(string $env, string $override): string
+    {
+        foreach (explode("\n", $override) as $line) {
+            $key = ltrim(explode('=', $line, 2)[0], '-');
+            $env = (string) preg_replace('/^'.preg_quote($key, '/').'=.*\R/m', '', $env);
+            $env = str_starts_with($line, '-') ? $env : $env.$line."\n";
+        }
+
+        return $env;
+    }
+
+    #[DataProvider('databaseOverrides')]
+    public function test_private_target_settings_cannot_move_the_database_off_the_local_server(string $override): void
     {
         $home = $this->scaffold();
-        file_put_contents($home.'/.config/sample/deployment.env', 'DB_URL='.$url."\n", FILE_APPEND);
+        file_put_contents($home.'/.config/sample/deployment.env', self::override(self::PILOT_ENV, $override));
         $this->assertFalse($this->prepare($home)->isSuccessful());
         $this->assertDirectoryExists($home.'/sample-app');
     }
 
-    public function test_empty_database_url_preserves_the_isolated_local_configuration(): void
+    #[DataProvider('databaseOverrides')]
+    public function test_resolved_candidate_configuration_refuses_each_database_override(string $override): void
     {
+        $result = $this->assertLocalDatabase(self::override(self::PILOT_ENV, $override));
+        $this->assertFalse($result->isSuccessful(), $result->getOutput());
+        $this->assertStringContainsString('refusing to migrate', $result->getErrorOutput());
+        $this->assertStringNotContainsString('example.test', $result->getOutput().$result->getErrorOutput());
+    }
+
+    /** @return array<string, array{string}> */
+    public static function processEnvironmentOverrides(): array
+    {
+        return array_filter(self::databaseOverrides(), fn (array $case): bool => ! str_starts_with($case[0], '-'));
+    }
+
+    #[DataProvider('processEnvironmentOverrides')]
+    public function test_process_environment_cannot_override_the_resolved_candidate_database(string $override): void
+    {
+        $processEnv = [];
+        foreach (explode("\n", $override) as $line) {
+            [$key, $value] = explode('=', $line, 2);
+            $processEnv[$key] = $value;
+        }
+        $result = $this->assertLocalDatabase(self::PILOT_ENV, $processEnv);
+        $this->assertFalse($result->isSuccessful(), $result->getOutput());
+        $this->assertStringContainsString('refusing to migrate', $result->getErrorOutput());
+    }
+
+    public function test_local_pilot_configuration_is_accepted_by_every_database_guard(): void
+    {
+        $env = self::PILOT_ENV."DB_URL=\nDB_SOCKET=\nDB_PORT=3306\nREDIS_HOST=127.0.0.1\nDB_DATABASE=synthetic_pilot\n";
+        foreach (self::connectionSelectorKeys() as $selector) {
+            $env .= "{$selector}=mariadb\n";
+        }
         $home = $this->scaffold();
-        file_put_contents($home.'/.config/sample/deployment.env', "DB_URL=\n", FILE_APPEND);
-        $this->assertTrue($this->prepare($home)->isSuccessful());
+        file_put_contents($home.'/.config/sample/deployment.env', $env);
+        $prepare = $this->prepare($home);
+        $this->assertTrue($prepare->isSuccessful(), $prepare->getErrorOutput());
+        foreach ([self::PILOT_ENV, $env] as $candidate) {
+            $result = $this->assertLocalDatabase($candidate);
+            $this->assertTrue($result->isSuccessful(), $result->getErrorOutput());
+        }
+    }
+
+    public function test_read_write_suffix_on_the_pilot_connection_is_still_accepted(): void
+    {
+        $env = self::PILOT_ENV."PHR_DELEGATED_ACCESS_RECEIPT_CONNECTION=mariadb::write\nPHR_DELEGATED_ACCESS_NONCE_CONNECTION=mariadb::read\n";
+        $home = $this->scaffold();
+        file_put_contents($home.'/.config/sample/deployment.env', $env);
+        $prepare = $this->prepare($home);
+        $this->assertTrue($prepare->isSuccessful(), $prepare->getErrorOutput());
+        $result = $this->assertLocalDatabase($env);
+        $this->assertTrue($result->isSuccessful(), $result->getErrorOutput());
+    }
+
+    public function test_pilot_shape_with_a_per_application_redis_socket_is_accepted(): void
+    {
+        $redis = ['REDIS_CLIENT' => 'phpredis', 'REDIS_HOST' => '/run/redis-phr/redis.sock', 'REDIS_PORT' => '0'];
+        $env = self::PILOT_ENV."DB_PORT=3306\n";
+        foreach ($redis as $key => $value) {
+            $env .= "{$key}={$value}\n";
+        }
+        $home = $this->scaffold();
+        file_put_contents($home.'/.config/sample/deployment.env', $env);
+        $prepare = $this->prepare($home);
+        $this->assertTrue($prepare->isSuccessful(), $prepare->getErrorOutput());
+        $installed = $this->assertLocalDatabase($env);
+        $this->assertTrue($installed->isSuccessful(), $installed->getErrorOutput());
+        $process = $this->assertLocalDatabase(self::PILOT_ENV, $redis);
+        $this->assertTrue($process->isSuccessful(), $process->getErrorOutput());
+    }
+
+    public function test_database_override_cases_enumerate_every_destination_setting(): void
+    {
+        $covered = [];
+        foreach (self::databaseOverrides() as [$override]) {
+            foreach (explode("\n", $override) as $line) {
+                $covered[] = ltrim(explode('=', $line, 2)[0], '-');
+            }
+        }
+        preg_match_all("/env\('([A-Z0-9_]+)'/", (string) file_get_contents($this->root.'/config/database.php'), $reads);
+        $unreviewed = array_diff(array_unique($reads[1]), $covered, self::NON_DESTINATION_KEYS);
+        $this->assertSame([], array_values($unreviewed), 'Classify each new config/database.php setting.');
+        $this->assertContains('sqlite', self::otherConnections());
+        $this->assertContains('mysql', self::otherConnections());
+        $this->assertContains('pgsql', self::otherConnections());
+        $this->assertContains('sqlsrv', self::otherConnections());
+        $selectors = self::connectionSelectorKeys();
+        foreach (self::KNOWN_CONNECTION_SELECTORS as $selector) {
+            $this->assertContains($selector, $selectors);
+        }
+        // Shadowed package defaults are not read, so they are not override sites.
+        $this->assertNotContains('DELEGATED_ACCESS_NONCE_CONNECTION', $selectors);
+    }
+
+    /** @param array<string, string> $processEnv */
+    private function assertLocalDatabase(string $env, array $processEnv = [], ?string $script = null): Process
+    {
+        $home = $this->temporary.'/candidate-home';
+        $relative = '.deployments/sample-app/releases/release';
+        $candidate = $home.'/'.$relative;
+        if (! is_dir($candidate)) {
+            mkdir($candidate.'/bootstrap/cache', 0700, true);
+            foreach (['vendor', 'config', 'scripts'] as $path) {
+                symlink($this->root.'/'.$path, $candidate.'/'.$path);
+            }
+            // Real copies: the application base path derives from bootstrap/app.php's own directory.
+            foreach (['app.php', 'providers.php'] as $file) {
+                copy($this->root.'/bootstrap/'.$file, $candidate.'/bootstrap/'.$file);
+            }
+        }
+        file_put_contents($candidate.'/.env', $env);
+        $process = new Process(['bash', $script ?? $this->root.'/scripts/deploy/pilot/assert-local-database.sh',
+            $relative, PHP_BINARY, 'sample-app'], null, $this->isolatedEnvironment(['HOME' => $home] + $processEnv));
+        $process->run();
+
+        return $process;
+    }
+
+    /**
+     * The test runner forces its own database settings; hosts do not.
+     *
+     * @param  array<string, string>  $env
+     * @return array<string, string|false>
+     */
+    private function isolatedEnvironment(array $env): array
+    {
+        $inherited = array_filter(array_keys(getenv() + $_ENV + $_SERVER), 'is_string');
+        $cleared = array_fill_keys(array_diff($inherited, ['PATH', 'TMPDIR']), false);
+
+        return array_replace($cleared, $env);
     }
 
     public function test_pilot_opt_in_cannot_be_written_by_the_bootstrap_to_admit_a_wrong_target(): void
@@ -295,7 +521,6 @@ JS;
         $this->assertSame(1, preg_match('/^      - name: Stage managed OHIF assets for the first installation\R(.*?)(?=^      - |\z)/ms', $text, $staging));
         $this->assertStringContainsString("steps.prepare.outputs.bootstrap == 'true'", $staging[1]);
         $this->assertMatchesRegularExpression('/^          persistent-paths: \|\R            storage\R            public\/ohif$/m', $text);
-        $this->assertMatchesRegularExpression('/^          pre-migrate-script: \.github\/scripts\/provision-phr-candidate-secrets\.sh$/m', $text);
         $verify = file_get_contents($this->root.'/scripts/deploy/pilot/verify-live.sh');
         $this->assertStringContainsString('OHIF_LOCK_OWNER="$DEPLOY_RELEASE_ID"', $verify);
         $this->assertStringContainsString('verify-phr-ohif-artifact.sh', $verify);
@@ -303,14 +528,67 @@ JS;
         $this->assertStringNotContainsString('verify-phr-finalized.sh', $verify);
     }
 
-    public function test_workflows_clear_and_assert_the_database_url_before_migration(): void
+    /** @return list<string> */
+    private static function block(string $text, string $input): array
     {
-        foreach (glob($this->root.'/.github/workflows/pilot*.yml') as $file) {
-            $text = file_get_contents($file);
-            $this->assertMatchesRegularExpression('/^          env-values: DB_URL=$/m', $text);
-            $this->assertMatchesRegularExpression('/^          env-assert: \|\R            DB_URL=$/m', $text);
-            $this->assertStringContainsString('            DB_HOST=127.0.0.1', $text);
+        if (preg_match('/^          '.preg_quote($input, '/').': ([^|\r\n]+)$/m', $text, $inline) === 1) {
+            return [trim($inline[1])];
         }
+        Assert::assertSame(1, preg_match('/^          '.preg_quote($input, '/').': \|\R((?:            [^\r\n]+(?:\R|$))+)/m', $text, $matches));
+
+        return array_map('trim', explode("\n", trim($matches[1])));
+    }
+
+    /** @return list<string> */
+    private function composedPreMigrateSources(string $text): array
+    {
+        $this->assertSame(1, preg_match('/^      - name: Compose the pilot pre-migrate hook\R(.*?)(?=^      - |\z)/ms', $text, $step));
+        $this->assertSame(1, preg_match('/^          cat ((?:[A-Za-z0-9._\/-]+ )+)> "\$RUNNER_TEMP\/pilot-pre-migrate\.sh"$/m', $step[1], $cat));
+        $this->assertStringContainsString('set -euo pipefail', $step[1]);
+
+        return explode(' ', trim($cat[1]));
+    }
+
+    public function test_workflow_clears_and_asserts_every_database_destination_key_before_migration(): void
+    {
+        $text = file_get_contents($this->root.'/.github/workflows/pilot-deploy.yml');
+        $this->assertSame(['DB_URL=', 'DB_SOCKET='], self::block($text, 'env-values'));
+        $assertions = self::block($text, 'env-assert');
+        foreach (['DB_URL=', 'DB_SOCKET=', 'DB_CONNECTION=mariadb', 'DB_HOST=127.0.0.1', 'PILOT_DEPLOYMENT=1', 'APP_DEBUG=false', 'MAIL_MAILER=log'] as $assertion) {
+            $this->assertContains($assertion, $assertions);
+        }
+        // The shared action installs and asserts .env, enters the risk boundary, then runs this
+        // hook immediately before config:clear and migrate; the resolved check must come first.
+        $this->assertSame(['${{ runner.temp }}/pilot-pre-migrate.sh'], self::block($text, 'pre-migrate-script'));
+        $this->assertSame(['scripts/deploy/pilot/assert-local-database.sh', '.github/scripts/provision-phr-candidate-secrets.sh'],
+            $this->composedPreMigrateSources($text));
+        $compose = strpos($text, '      - name: Compose the pilot pre-migrate hook');
+        $publish = strpos($text, '      - name: Publish the isolated native PHP release');
+        $this->assertNotFalse($compose);
+        $this->assertNotFalse($publish);
+        $this->assertLessThan($publish, $compose);
+        $this->assertContains('scripts', self::block($text, 'paths'), 'The resolved check boots the uploaded candidate.');
+        foreach (['prepare-host.sh', 'assert-local-database.sh'] as $script) {
+            $this->assertStringContainsString('$pilot = "mariadb";', file_get_contents($this->root.'/scripts/deploy/pilot/'.$script));
+        }
+    }
+
+    public function test_composed_pre_migrate_hook_provisions_secrets_only_after_the_database_check_passes(): void
+    {
+        $text = file_get_contents($this->root.'/.github/workflows/pilot-deploy.yml');
+        $hook = $this->temporary.'/pilot-pre-migrate.sh';
+        file_put_contents($hook, implode('', array_map(fn (string $path): string => file_get_contents($this->root.'/'.$path),
+            $this->composedPreMigrateSources($text))));
+        $candidateEnv = $this->temporary.'/candidate-home/.deployments/sample-app/releases/release/.env';
+
+        $refused = $this->assertLocalDatabase(self::PILOT_ENV."DB_SOCKET=/tmp/synthetic-mysql.sock\n", [], $hook);
+        $this->assertFalse($refused->isSuccessful());
+        $this->assertStringNotContainsString('AGENT_API_MUTATION_DIGEST_KEY', file_get_contents($candidateEnv));
+
+        $accepted = $this->assertLocalDatabase(self::PILOT_ENV, [], $hook);
+        $this->assertTrue($accepted->isSuccessful(), $accepted->getErrorOutput());
+        $this->assertStringContainsString('Candidate-local agent mutation digest key is configured.', $accepted->getOutput());
+        $this->assertMatchesRegularExpression('/^AGENT_API_MUTATION_DIGEST_KEY=base64:/m', file_get_contents($candidateEnv));
     }
 
     public function test_candidate_upload_preserves_standard_paths_and_the_secret_installer(): void
