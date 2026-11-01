@@ -38,7 +38,7 @@ describe('aiResultView', () => {
   it('titles a proposal by its naming field and hides provenance', () => {
     const view = aiResultView({ id: 1, status: 'pending_review', result_index: 0, data: { analyte: 'Synthetic sodium', value: '140', collected_at: '2026-01-15', external_id: 'x', raw_text: 'raw' } })
     expect(view.title).toBe('Synthetic sodium')
-    expect(view.fields).toEqual([{ key: 'value', label: 'value', value: '140' }, { key: 'collected_at', label: 'collected at', value: 'Jan 15, 2026' }])
+    expect(view.fields).toEqual([{ key: 'value', label: 'value', value: '140' }, { key: 'collected_at', label: 'collected at', value: '2026-01-15' }])
   })
 
   it('formats only whole dates, keeping text that merely begins with one', () => {
@@ -49,7 +49,7 @@ describe('aiResultView', () => {
     } })
     expect(view.fields).toEqual([
       { key: 'note', label: 'note', value: '2023-10-01 follow-up for an abnormal synthetic result' },
-      { key: 'seen_at', label: 'seen at', value: 'Oct 1, 2023' },
+      { key: 'seen_at', label: 'seen at', value: '2023-10-01' },
     ])
   })
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { DetailSkeleton } from '@/components/record-list/Skeleton'
+import { formatDate, formatDateTime } from '@/lib/dateFormat'
 import EncounterEobLinks from '@/phr/clinical/EncounterEobLinks'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
@@ -84,11 +85,11 @@ export default function ProcedureDetail({ patientId, recordId }: ProcedureDetail
             <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
               <div>
                 <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Performed at</dt>
-                <dd className="text-card-foreground">{detailValue(procedure.performed_at)}</dd>
+                <dd className="text-card-foreground">{detailValue(formatDateTime(procedure.performed_at) || null)}</dd>
               </div>
               <div>
                 <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Performed on</dt>
-                <dd className="text-card-foreground">{detailValue(procedure.performed_on)}</dd>
+                <dd className="text-card-foreground">{detailValue(formatDate(procedure.performed_on) || null)}</dd>
               </div>
               <div>
                 <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Provider</dt>

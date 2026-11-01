@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
 import { genAiExecutionMode } from '@/lib/appShell'
+import { formatInstantDate } from '@/lib/dateFormat'
 import { errorMessage } from '@/phr/shared'
 
 import {
@@ -571,7 +572,7 @@ export default function AiProviderSettingsPage(): ReactElement {
                   <dd className="font-mono text-foreground">{configuration.masked_key}</dd>
                   {configuration.region ? <><dt className="text-muted-foreground">Region</dt><dd>{configuration.region}</dd></> : null}
                   <dt className="text-muted-foreground">Expires</dt>
-                  <dd>{configuration.expires_at ? new Date(configuration.expires_at).toLocaleDateString() : 'No expiry'}</dd>
+                  <dd>{configuration.expires_at ? formatInstantDate(configuration.expires_at) : 'No expiry'}</dd>
                   <dt className="text-muted-foreground">This month</dt>
                   <dd>{tokenCount(configuration.usage.this_month.input_tokens + configuration.usage.this_month.output_tokens)} tokens</dd>
                   <dt className="text-muted-foreground">All time</dt>

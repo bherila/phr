@@ -3,6 +3,7 @@ import { type ReactElement, useState } from 'react'
 
 import { RecordList } from './RecordList'
 import { type RecordColumn, RecordTable } from './RecordTable'
+import { RowActionsMenu } from './RowActionsMenu'
 import { StatusDot } from './StatusDot'
 import type { RecordOpenOptions } from './useRecordNavigation'
 
@@ -587,5 +588,65 @@ describe('RecordTable conditional columns', () => {
     render(<RecordTable label="Things" columns={columns} rows={rows.map((row) => ({ ...row, attention: false }))} rowId={(row) => row.id} />)
     expect(screen.queryByRole('columnheader', { name: 'Review' })).not.toBeInTheDocument()
     expect(screen.getAllByRole('row')[1]?.children).toHaveLength(1)
+  })
+})
+
+describe('RecordTable columns by list width', () => {
+  const rows = [{ id: 'a', name: 'Alpha' }]
+  const columns: RecordColumn<(typeof rows)[number]>[] = [
+    { id: 'name', header: 'Name', cell: (row) => row.name },
+    { id: 'date', header: 'Date', showFrom: 'medium', fit: true, cell: () => 'today' },
+    { id: 'source', header: 'Source', showFrom: 'wide', cell: () => 'import' },
+  ]
+
+  it('hides a column until the list itself is wide enough, on its header, cells and skeleton', () => {
+    const { rerender } = render(<RecordTable label="Things" columns={columns} rows={rows} rowId={(row) => row.id} />)
+    expect(screen.getByRole('columnheader', { name: 'Name' })).not.toHaveClass('hidden')
+    expect(screen.getByRole('columnheader', { name: 'Date' })).toHaveClass('hidden', '@[560px]/record-list:table-cell', 'w-[1%]')
+    expect(screen.getByRole('columnheader', { name: 'Source' })).toHaveClass('hidden', '@[960px]/record-list:table-cell')
+    expect(screen.getByText('today').closest('td')).toHaveClass('hidden', '@[560px]/record-list:table-cell')
+    expect(screen.getByText('import').closest('td')).toHaveClass('hidden', '@[960px]/record-list:table-cell')
+
+    rerender(<RecordTable label="Things" columns={columns} rows={[]} rowId={(row) => row.id} loading skeletonRows={1} />)
+    const skeletonCells = document.querySelector('[data-skeleton-row]')!.children
+    expect(skeletonCells[1]).toHaveClass('hidden', '@[560px]/record-list:table-cell')
+    expect(skeletonCells[2]).toHaveClass('hidden', '@[960px]/record-list:table-cell')
+  })
+
+  it('makes the box a container only for a list that changes shape', () => {
+    const { rerender } = render(<RecordTable label="Things" columns={columns} rows={rows} rowId={(row) => row.id} />)
+    expect(screen.getByRole('table').parentElement).toHaveClass('@container/record-list', 'overflow-x-auto')
+    rerender(<RecordTable label="Things" columns={[columns[0]!]} rows={rows} rowId={(row) => row.id} />)
+    expect(screen.getByRole('table').parentElement).not.toHaveClass('@container/record-list')
+  })
+})
+
+describe('RowActionsMenu in a row', () => {
+  const rows = [{ id: 'a', name: 'Alpha' }]
+
+  it('picks an item without opening the row, and names the trigger for the row', async () => {
+    const onOpen = jest.fn()
+    const onSelect = jest.fn()
+    render(
+      <RecordTable
+        label="Things"
+        rows={rows}
+        rowId={(row) => row.id}
+        onOpen={onOpen}
+        columns={[
+          { id: 'name', header: 'Name', cell: (row) => row.name },
+          { id: 'actions', header: 'Actions', cell: (row) => <RowActionsMenu label={row.name} actions={[{ label: 'Edit', onSelect }]} /> },
+        ]}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for Alpha' }))
+    expect(onOpen).not.toHaveBeenCalled()
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Edit' }))
+    expect(onSelect).toHaveBeenCalledTimes(1)
+    expect(onOpen).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByText('Alpha'))
+    expect(onOpen).toHaveBeenCalledTimes(1)
   })
 })

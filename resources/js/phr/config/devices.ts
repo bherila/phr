@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { formatInstant } from '@/lib/dateFormat'
+
 /**
  * Mirrors UserDeviceController@index's `['id', 'device_id', 'name', 'created_at',
  * 'last_used_at', 'expires_at', 'revoked_at']` column list exactly. `.strict()` is
@@ -41,5 +43,5 @@ export function deviceStatus(device: DeviceKey, now: Date = new Date()): DeviceS
 
 export function friendlyDate(value: string | null, fallback = 'Never'): string {
   if (value === null) return fallback
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+  return formatInstant(value)
 }

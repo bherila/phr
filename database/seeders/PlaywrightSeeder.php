@@ -2,6 +2,8 @@
 
 namespace Database\Seeders;
 
+use App\Models\PhrMedication;
+use App\Models\PhrMedicationFill;
 use App\Models\PhrPatient;
 use App\Models\User;
 use App\Support\AgentApi\AgentApiScopes;
@@ -54,7 +56,62 @@ class PlaywrightSeeder extends Seeder
         // Realistic-looking synthetic labs and conditions for layout checks and screenshots.
         PhrSyntheticChartFixture::seed(2);
 
+        $this->createMedicationLists();
         $this->createConnectedApps();
+    }
+
+    /**
+     * A patient whose medications and fills have the long names, wordy packages and pending
+     * reviews that real pharmacy data has, for the record list layout checks.
+     */
+    private function createMedicationLists(): void
+    {
+        $patient = PhrPatient::query()->create([
+            'owner_user_id' => 2,
+            'display_name' => 'Synthetic Medication Patient',
+            'relationship' => 'self',
+        ]);
+        $owned = ['patient_id' => $patient->id, 'user_id' => 2];
+
+        $medications = [];
+        foreach ([
+            ['fluticasone propionate and salmeterol xinafoate (Advair Diskus)', '250-50', 'ug', 'respiratory (inhalation)', 'twice daily', '2024-11-27', null, 'active', 'confirmed', 'Ana Rivera'],
+            ['hydrochlorothiazide-lisinopril (Zestoretic)', '12.5-20', 'mg', 'oral', 'daily', '2024-11-27', null, 'active', 'confirmed', null],
+            ['mometasone furoate', '50', 'ug', 'nasal', 'daily', '2021-08-12', null, 'active', 'pending_review', 'Ana Rivera'],
+            ['alcohol swabs', null, null, null, null, '2021-10-15', null, 'active', 'pending_review', null],
+            ['lisinopril', '10', 'mg', 'oral', 'take one tablet by mouth every morning with food', '2021-10-15', null, 'active', 'pending_review', 'Marcus Chen'],
+            ['omeprazole', '20', 'mg', 'oral', 'daily', '2022-01-18', null, 'active', 'confirmed', null],
+            ['amoxicillin-clavulanate (Augmentin)', '875-125', 'mg', 'oral', 'twice daily', '2023-02-01', '2023-02-11', 'completed', 'confirmed', 'Marcus Chen'],
+            ['loratadine', '10', 'mg', 'oral', 'daily', '2020-04-01', '2020-09-11', 'discontinued', 'confirmed', null],
+            ['sertraline', '50', 'mg', 'oral', 'daily', '2021-03-08', null, 'on_hold', 'pending_review', 'Marcus Chen'],
+        ] as [$name, $dose, $unit, $route, $frequency, $started, $ended, $status, $review, $prescriber]) {
+            $medications[$name] = PhrMedication::query()->create([...$owned,
+                'name' => $name, 'dose' => $dose, 'dose_unit' => $unit, 'route' => $route, 'frequency' => $frequency,
+                'started_on' => $started, 'ended_on' => $ended, 'status' => $status, 'review_status' => $review, 'prescriber_name' => $prescriber,
+            ]);
+        }
+
+        $drugs = [
+            ['mometasone furoate', '50 ug/1', 'spray, metered', 'nasal', 'Example Pharmaceutical Manufacturing Company, Incorporated', '1 bottle, pump in 1 carton (00000-0000-01) / 120 spray, metered in 1 bottle, pump'],
+            ['lisinopril', '10 mg/1', 'tablet', 'oral', 'Example Generics LLC', '90 tablet in 1 bottle (00000-0000-02)'],
+            ['fluticasone propionate and salmeterol xinafoate (Advair Diskus)', '250 ug/1; 50 ug/1', 'powder, metered', 'respiratory (inhalation)', 'Example Pharmaceutical Manufacturing Company, Incorporated', '1 inhaler in 1 carton (00000-0000-03) / 60 blister pack in 1 inhaler'],
+        ];
+        $pharmacies = ['Northside Community Pharmacy and Compounding Center #061', 'Lakeview Drug', 'Harbor Specialty Pharmacy Mail Order Services'];
+        for ($index = 0; $index < 30; $index++) {
+            [$substance, $strength, $form, $route, $labeler, $package] = $drugs[$index % 3];
+            PhrMedicationFill::query()->create([...$owned,
+                'medication_id' => $medications[$index % 3 === 0 ? 'mometasone furoate' : ($index % 3 === 1 ? 'lisinopril' : 'fluticasone propionate and salmeterol xinafoate (Advair Diskus)')]->id,
+                'review_status' => $index % 2 === 0 ? 'pending_review' : 'confirmed',
+                'ndc_status' => 'resolved', 'ndc_10' => '0000-0000-'.str_pad((string) ($index % 3 + 1), 2, '0', STR_PAD_LEFT), 'ndc_source' => 'openfda',
+                'substance_names' => [$substance], 'strengths' => [$strength], 'dosage_form' => $form, 'route' => $route,
+                'labeler_name' => $labeler, 'package_description' => $package,
+                'filled_on' => now()->setDate(2026, 10, 28)->subDays($index * 11)->toDateString(),
+                'quantity' => '90.000', 'quantity_unit' => 'tablet', 'days_supply' => 90, 'rx_number' => 'RX'.(1000 + $index), 'refills_remaining' => $index % 4,
+                'directions' => 'Take as directed by your prescriber.', 'prescriber_name' => $index % 2 === 0 ? 'Rivera, Ana Maria, MD' : 'Chen, Marcus',
+                'paid_cents' => 1250 + $index * 100, 'retail_cents' => $index % 5 === 0 ? 18999 : null,
+                'pharmacy_name' => $pharmacies[$index % 3], 'source_kind' => 'receipt',
+            ]);
+        }
     }
 
     private function createConnectedApps(): void

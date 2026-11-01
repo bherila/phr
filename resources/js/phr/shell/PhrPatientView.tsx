@@ -5,7 +5,7 @@ import { DetailSkeleton, PageSkeleton } from '@/components/record-list/Skeleton'
 import { cn } from '@/lib/utils'
 
 import { replacePhrLocation } from './phrLocation'
-import { navGroupOf, PHR_DETAILS, PHR_PAGES, type PhrDrillOptions } from './phrPages'
+import { PHR_DETAILS, PHR_PAGES, type PhrDrillOptions, sidebarPageOf } from './phrPages'
 import { detailPresentation, type PhrNavTarget, type PhrView, phrViewUrl, resolveNavTarget } from './phrRoutes'
 import { navigateToView } from './usePhrView'
 
@@ -67,10 +67,13 @@ function listView(view: PatientView): PatientView {
 }
 
 function pageCrumbs(view: PatientView, patientName: string): Crumb[] {
-  const page = PHR_PAGES[view.page]
   const crumbs: Crumb[] = [{ label: patientName, href: phrViewUrl({ kind: 'patient', patientId: view.patientId, page: 'summary' }) }]
-  if (view.page !== 'summary') {
-    crumbs.push({ label: navGroupOf(view.page) }, { label: page.label, href: phrViewUrl(listView(view)) })
+  if (view.page === 'summary') return crumbs
+  const home = sidebarPageOf(view.page)
+  const meta = PHR_PAGES[home]
+  crumbs.push({ label: meta.navLabel ?? meta.label, href: phrViewUrl({ kind: 'patient', patientId: view.patientId, page: home }) })
+  if (home !== view.page) {
+    crumbs.push({ label: PHR_PAGES[view.page].crumbLabel ?? PHR_PAGES[view.page].label, href: phrViewUrl(listView(view)) })
   }
   return crumbs
 }
@@ -121,8 +124,9 @@ export function PhrPatientView({ view, patientName }: PhrPatientViewProps): Reac
         data-pane="list"
       >
         <div className={cn('flex flex-col gap-4 px-4 py-6 md:px-8', PAGE_CONTENT_MAX_WIDTH)} data-testid="page-content">
-          <Breadcrumb crumbs={crumbs} />
-          <Suspense fallback={pageFallback(page.label)}>
+          {/* On a phone the bar names the patient and the page's title follows; a record's page keeps its trail. */}
+          {!page.noListBreadcrumb && <Breadcrumb crumbs={crumbs} className="max-md:hidden" />}
+          <Suspense fallback={pageFallback(PHR_PAGES[sidebarPageOf(view.page)].navLabel ?? page.label)}>
             <ListPage key={`${view.patientId}-${view.page}`} patientId={view.patientId} onDrill={fromList} openRecord={view.parent ?? view.detail} />
           </Suspense>
         </div>
@@ -165,13 +169,13 @@ function DetailPanel({ view, closeUrl, crumbs, children }: { view: PatientView, 
           <a
             href={closeUrl}
             aria-label="Close detail"
-            className="ml-auto flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="ml-auto flex size-8 items-center justify-center rounded-md text-muted-foreground max-lg:size-11 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <X className="size-4" aria-hidden="true" />
           </a>
         </div>
       </div>
-      <div className="p-4">{children}</div>
+      <div className="flex flex-1 flex-col p-4">{children}</div>
     </aside>
   )
 }

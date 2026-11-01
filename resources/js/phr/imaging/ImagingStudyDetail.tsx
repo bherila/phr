@@ -2,6 +2,7 @@ import { Box, ExternalLink, Film, Loader2 } from 'lucide-react'
 import { useCallback, useEffect, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
+import { formatDate } from '@/lib/dateFormat'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import {
@@ -101,7 +102,7 @@ export default function ImagingStudyDetail({ patientId, recordId }: ImagingStudy
   const metaRows: { label: string; value: string | null | undefined }[] = [
     { label: 'Description', value: study.description },
     { label: 'Modality', value: study.modalities },
-    { label: 'Study Date', value: study.study_date },
+    { label: 'Study Date', value: formatDate(study.study_date) },
     { label: 'Accession #', value: study.accession_number },
     { label: 'Series', value: String(series.length) },
     { label: 'Images', value: String(series.reduce((sum, s) => sum + s.instances.length, 0)) },

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { DetailSkeleton } from '@/components/record-list/Skeleton'
+import { formatDate } from '@/lib/dateFormat'
 import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
 import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
@@ -109,7 +110,7 @@ export default function ImmunizationDetail({ patientId, recordId }: Immunization
           <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
             <div>
               <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Administered on</dt>
-              <dd className="text-card-foreground">{detailValue(immunization.administered_on)}</dd>
+              <dd className="text-card-foreground">{detailValue(formatDate(immunization.administered_on) || null)}</dd>
             </div>
             {administrationStatusLabel(immunization.administration_status) !== null && (
               <div>

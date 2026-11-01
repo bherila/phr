@@ -6,6 +6,7 @@ import { type RecordColumn, RecordTable } from '@/components/record-list/RecordT
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import { formatDate } from '@/lib/dateFormat'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { codeChip, reviewStatusBadge } from '@/phr/clinical/ui'
@@ -251,7 +252,7 @@ export default function ImmunizationsPage({ patientId, onDrill, openRecord }: Ph
         </>
       ),
     },
-    { id: 'administered', header: 'Administered', fit: true, headerClassName: 'px-4 py-3 font-medium', className: 'px-4 py-3 text-muted-foreground', cell: (immunization) => immunization.administered_on ?? 'Not recorded' },
+    { id: 'administered', header: 'Administered', fit: true, headerClassName: 'px-4 py-3 font-medium', className: 'px-4 py-3 text-muted-foreground', cell: (immunization) => formatDate(immunization.administered_on) || 'Not recorded' },
     {
       id: 'dose',
       header: 'Dose',

@@ -12,7 +12,7 @@ When a shortcut changes, change this document and the bindings together.
 ## Lists and tables
 
 **(shipped)** Every list of records behaves the same way: the tables on Labs, Vitals,
-Medications, Conditions, Immunizations, Allergies and Review, and the lists on Visits,
+Medications, Fills, Conditions, Immunizations, Allergies and Review, and the lists on Visits,
 Procedures, Documents (list view), Imaging and Access. The behavior lives in the shared record table and
 list (`resources/js/components/record-list`), not in each page.
 
@@ -40,6 +40,12 @@ list (`resources/js/components/record-list`), not in each page.
   content changes. So Tab goes: active row → its buttons in visual order → the next region of
   the page. Inline edit and delete rows under a table row are not part of the row and stay in
   the Tab order while they are open.
+- **A list narrower than 960px has no buttons on its rows.** The row's actions are in the record's
+  detail, so Tab goes from the row to the next region, and on to the panel beside it. Enter
+  opens the record, as ever. See [the interface shell](ui-shell.md) for the widths.
+- **A row's ⋯ menu keeps its own keys.** Enter or Space on it opens the menu. While it is open,
+  the arrow keys move through its items and Esc closes only the menu, not the panel behind it.
+  Choosing an item never opens the row.
 - **Arrow keys always move rows.** Pressing ↑ or ↓ (or J, K, Home, End) while one of the row's
   buttons has focus moves the active row and puts focus on the new row, not on the same button
   in the next row. Esc from a button goes back to its row. Keys typed into a field inside a row
@@ -48,7 +54,7 @@ list (`resources/js/components/record-list`), not in each page.
   on a row, makes it the active row. A click on a row opens it unless it lands on a button,
   link or field in the row.
 - **Buttons are named for their row**, e.g. "Resolve Seasonal allergic rhinitis", "Edit
-  Metformin", "End now: Metformin", "Remove" with the person's name, so a screen reader says
+  Metformin", "Remove" with the person's name, so a screen reader says
   what will change.
 - **The detail panel follows the active row.** While the panel is open, moving the active row
   opens that record in the panel after the keys have settled for 150ms, and the URL is updated
@@ -123,5 +129,7 @@ handled on its own.
   while a dialog is open; the G sequence, including a timeout and an invalid second key; `[`
   toggles the sidebar mode; `/` focuses the filter; the `?` dialog lists exactly the registry's
   bindings
+- `tests/e2e/phr-record-lists.spec.ts`: in a browser at real widths, the columns each width
+  shows, that nothing overflows, and that Esc in a row's menu leaves the panel open
 - `tests/e2e/phr.spec.ts`: arrows through the Conditions table in a browser, opens a condition
   with Enter, closes it with Esc and checks that focus is back on the row

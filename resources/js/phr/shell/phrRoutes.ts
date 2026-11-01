@@ -43,6 +43,7 @@ export type PhrDetailId =
   | 'imaging-study-detail'
   | 'office-visit-detail'
   | 'medication-detail'
+  | 'medication-fill-detail'
   | 'condition-detail'
   | 'procedure-detail'
   | 'immunization-detail'
@@ -122,6 +123,7 @@ export const PHR_DETAIL_ROUTES: Record<PhrDetailId, DetailRoute> = {
   'imaging-study-detail': { home: 'imaging', presentation: 'page' },
   'office-visit-detail': { home: 'office-visits', presentation: 'panel' },
   'medication-detail': { home: 'medications', presentation: 'panel' },
+  'medication-fill-detail': { home: 'medication-fills', presentation: 'panel' },
   'condition-detail': { home: 'conditions', presentation: 'panel' },
   'procedure-detail': { home: 'procedures', presentation: 'panel' },
   'immunization-detail': { home: 'immunizations', presentation: 'panel' },

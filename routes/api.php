@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\UserAiExecutionModeController;
 use App\Http\Controllers\Api\UserAiModelsController;
 use App\Http\Controllers\Api\UserConnectedAppsController;
 use App\Http\Controllers\Api\UserDeviceController;
+use App\Http\Controllers\Api\UserDisplayPreferencesController;
 use App\Http\Controllers\Api\V1\AgentClinicalReadController;
 use App\Http\Controllers\Api\V1\AgentClinicalWriteController;
 use App\Http\Controllers\Api\V1\AgentDicomController;
@@ -373,6 +374,7 @@ Route::middleware(['web', 'auth'])->group(function (): void {
     Route::post('/user/ai-prefs/models', [UserAiModelsController::class, 'fetch']);
     Route::get('/user/ai-execution-mode', [UserAiExecutionModeController::class, 'show']);
     Route::put('/user/ai-execution-mode', [UserAiExecutionModeController::class, 'update']);
+    Route::put('/user/display-preferences', [UserDisplayPreferencesController::class, 'update']);
     Route::get('/ndc/lookup', [PHRNdcController::class, 'lookup'])->middleware('throttle:phr-ndc')->name('ndc.lookup');
     Route::get('/ndc/search', [PHRNdcController::class, 'search'])->middleware('throttle:phr-ndc')->name('ndc.search');
     Route::get('/ndc/label', [PHRNdcController::class, 'label'])->middleware('throttle:phr-ndc')->name('ndc.label');
@@ -425,6 +427,7 @@ Route::middleware(['web', 'auth'])
         Route::get('/patients/{patient}/search', [PhrPatientSearchController::class, 'index'])->whereNumber('patient')->name('patients.search');
         Route::get('/patients/{patient}/review', [PhrReviewController::class, 'index'])->whereNumber('patient')->name('patients.review.index');
         Route::get('/patients/{patient}/review/summary', [PhrReviewController::class, 'summary'])->whereNumber('patient')->name('patients.review.summary');
+        Route::get('/patients/{patient}/review/rejected', [PhrReviewController::class, 'rejected'])->whereNumber('patient')->name('patients.review.rejected');
         Route::patch('/patients/{patient}', [PHRPatientController::class, 'update'])->whereNumber('patient')->name('patients.update');
         Route::delete('/patients/{patient}', [PHRPatientController::class, 'destroy'])->whereNumber('patient')->name('patients.destroy');
         Route::get('/patients/{patient}/lab-results', [PHRLabResultController::class, 'index'])->whereNumber('patient')->name('patients.lab-results.index');

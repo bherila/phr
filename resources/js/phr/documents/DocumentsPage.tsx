@@ -18,6 +18,7 @@ import { LoadingMessage, SkeletonBlock } from '@/components/record-list/Skeleton
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
+import { formatDate } from '@/lib/dateFormat'
 import { formatBytes } from '@/lib/utils'
 import { isBrowserPreviewableImage } from '@/phr/documents/browserImagePreview'
 import { DOCUMENT_SOURCE_LABELS, documentSourceLabel } from '@/phr/documents/documentSource'
@@ -647,11 +648,6 @@ function isImage(document: PhrDocument): boolean {
 
 function isTextLike(document: PhrDocument): boolean {
   return ['text/plain', 'text/html'].includes(document.mime_type ?? '')
-}
-
-function formatDate(value: string | null): string {
-  if (!value) return ''
-  return value.slice(0, 10)
 }
 
 function toInputDateTime(value: string | null): string {

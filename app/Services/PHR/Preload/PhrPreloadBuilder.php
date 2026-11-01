@@ -80,6 +80,7 @@ final class PhrPreloadBuilder
         MedicationController::class.'@index',
         MedicationController::class.'@show',
         MedicationFillController::class.'@index',
+        MedicationFillController::class.'@show',
         ConditionController::class.'@index',
         ConditionController::class.'@show',
         ProcedureController::class.'@index',

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
+import { formatInstant } from '@/lib/dateFormat'
 import { usePhrPatientListActions } from '@/phr/patients/usePhrPatients'
 import { errorMessage } from '@/phr/shared'
 import { type PhrExport, PhrExportResponseSchema, PhrExportsResponseSchema } from '@/phr/types'
@@ -97,7 +98,7 @@ function formatBytes(bytes: number): string {
 
 function formatDate(value: string | null): string {
   if (!value) return 'No recorded changes'
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+  return formatInstant(value)
 }
 
 function countRows(patient: OwnedPatientInventory, keys: DataHubCategoryKey[]): ReactElement {

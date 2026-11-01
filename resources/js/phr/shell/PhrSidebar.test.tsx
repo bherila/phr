@@ -6,7 +6,8 @@ import { fetchWrapper } from '@/fetchWrapper'
 import { PhrPatientsProvider } from '@/phr/patients/usePhrPatients'
 import { resetReviewSummaries,reviewStateChanged } from '@/phr/review/reviewSummary'
 
-import { PhrSidebar } from './PhrSidebar'
+import { PHR_NAV_GROUPS, PHR_PAGES, sidebarPageOf } from './phrPages'
+import { PhrSidebar, sidebarAmounts } from './PhrSidebar'
 
 jest.mock('@/fetchWrapper', () => ({ fetchWrapper: { get: jest.fn() } }))
 
@@ -14,7 +15,7 @@ const get = fetchWrapper.get as jest.Mock
 
 function summary(medications: { pending: number, records: number }) {
   return {
-    summary: { total: medications.pending + 1, ai_results: 1, sections: { medications, labs: { pending: 0, records: 6 } } },
+    summary: { total: medications.pending + 1, ai_results: 1, sections: { 'medication-fills': medications, labs: { pending: 0, records: 6 } } },
     can_manage: true,
   }
 }
@@ -39,6 +40,15 @@ beforeEach(() => {
 })
 
 describe('PhrSidebar review counts', () => {
+  it('has one Medications item that opens on Fills, counts fills, and has a dot covering both lists', () => {
+    const summary = { total: 5, ai_results: 0, sections: { medications: { records: 12, pending: 1 }, 'medication-fills': { records: 40, pending: 3 } } }
+    expect(sidebarAmounts('medication-fills', summary)).toEqual({ count: 40, pending: 4 })
+    expect(PHR_NAV_GROUPS.flat()).toContain('medication-fills')
+    expect(PHR_NAV_GROUPS.flat()).not.toContain('medications')
+    expect(PHR_PAGES['medication-fills'].navLabel).toBe('Medications')
+    expect(sidebarPageOf('medications')).toBe('medication-fills')
+  })
+
   it('shows each section’s record count and a dot where records wait, from one shared request', async () => {
     renderSidebars()
     const [expanded, rail] = screen.getAllByRole('complementary', { name: 'Patient record' })
