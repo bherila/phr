@@ -754,7 +754,7 @@ const DETAIL = {
     dea_schedule: null,
     imprint: null,
     spl_set_id: '52561b3e-c20f-3536-e063-6394a90a6198',
-    links: { dailymed: 'https://dailymed.nlm.nih.gov/dailymed/lookup.cfm?setid=52561b3e-c20f-3536-e063-6394a90a6198', ndc_directory: 'https://www.accessdata.fda.gov/scripts/cder/ndc/dsp_searchresult.cfm?q=0071-0155' },
+    links: { dailymed: 'https://dailymed.nlm.nih.gov/dailymed/lookup.cfm?setid=52561b3e-c20f-3536-e063-6394a90a6198', ndc_directory: 'https://api.fda.gov/drug/ndc.json?search=product_ndc%3A%220071-0155%22' },
   },
 }
 
@@ -771,7 +771,7 @@ describe('Drug detail panel', () => {
     expect(within(panel).getByText(/atorvastatin calcium trihydrate 20 mg\/1/)).toBeInTheDocument()
     expect(await within(panel).findByText('Indications and usage')).toBeInTheDocument()
     expect(within(panel).getByText(/effective 2026-05-21/)).toBeInTheDocument()
-    for (const name of ['DailyMed', 'FDA NDC Directory']) {
+    for (const name of ['DailyMed', 'FDA NDC listing']) {
       const link = within(panel).getByRole('link', { name })
       expect(link).toHaveAttribute('target', '_blank')
       expect(link).toHaveAttribute('rel', 'noopener noreferrer')

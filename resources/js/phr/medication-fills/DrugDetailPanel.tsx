@@ -120,6 +120,8 @@ export function DrugDetailPanel({ patientId, fill, onClose }: { patientId: numbe
   const info = detail.phase === 'done' ? detail.value : null
   const links = info?.links ?? { dailymed: null, ndc_directory: null }
   const labelSetId = label.phase === 'done' ? label.value.spl_set_id : null
+  // openFDA only holds current listings; a discontinued (RxNav) NDC would 404 there.
+  const ndcDirectory = fill.ndc_source === 'rxnav' ? null : links.ndc_directory
   const dailymed = links.dailymed ?? (labelSetId ? `https://dailymed.nlm.nih.gov/dailymed/lookup.cfm?setid=${encodeURIComponent(labelSetId)}` : null)
   const drug = fill.drug
   const ingredients = info?.ingredients.length
@@ -166,10 +168,10 @@ export function DrugDetailPanel({ patientId, fill, onClose }: { patientId: numbe
                 ['Package', info?.package_description ?? drug?.package_description ?? null],
                 ['Listing source', fill.ndc_source === 'rxnav' ? 'NLM RxNav NDC history (no longer in the FDA directory)' : fill.ndc_source === 'openfda' ? 'FDA NDC Directory (openFDA)' : null],
               ]} />
-              {(dailymed || links.ndc_directory) && (
+              {(dailymed || ndcDirectory) && (
                 <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
                   {dailymed && <ExternalLinkItem href={dailymed}>DailyMed</ExternalLinkItem>}
-                  {links.ndc_directory && <ExternalLinkItem href={links.ndc_directory}>FDA NDC Directory</ExternalLinkItem>}
+                  {ndcDirectory && <ExternalLinkItem href={ndcDirectory}>FDA NDC listing</ExternalLinkItem>}
                 </p>
               )}
             </section>
