@@ -1004,7 +1004,7 @@
             "description": "Idempotently create or update one prescription fill. Send the NDC from ndc_lookup (or the package the person chose among ambiguous candidates as ndc_candidate) with the fill, price, pharmacy and source fields; the server resolves the drug and links or creates the patient's medication. Provenance is required: source_kind, and source_document_id (upload the source with documents_upload first) unless manual. external_id is optional; the server derives it from pharmacy, Rx number and fill date so a receipt and a label photo of the same fill merge. Returns the fill, the medication and whether it was created, and the NDC resolution.",
             "inputSchema": "sha256:f33e2a2f8a9bf22e11702b738a2f59263e8f5b648cc5aec0e016999d972fcd0a",
             "name": "medication_fills.upsert",
-            "outputSchema": "sha256:9678fcc46857bd49c9e351d3302eeaff515555dc1e525f014aa052ad5aa8a6ca",
+            "outputSchema": "sha256:d1a94100884094e193b27520e1cc021d0de649809881eebb458949cc7a571853",
             "title": "Upsert Medication Fills"
         },
         "medications.update": {

@@ -55,7 +55,8 @@ final class AgentMedicationFillController extends Controller
                             : ['id' => $medication->id, 'review_status' => $medication->review_status])
                         : null,
                     'medication_created' => $result->medicationCreated,
-                    'ndc' => $this->ndcBlock($result->record, $result->resolution),
+                    // Stored NDC and drug detail is clinical content: a write-only caller gets none of it.
+                    'ndc' => $readable ? $this->ndcBlock($result->record, $result->resolution) : null,
                 ],
             ),
             $result->outcome === ClinicalUpsertResult::CREATED ? 201 : 200,

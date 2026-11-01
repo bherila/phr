@@ -5,6 +5,8 @@ namespace Tests\Feature\PHR;
 use App\Jobs\PHR\ApplyPhrNativeRestoreJob;
 use App\Jobs\PHR\PreviewPhrNativeRestoreJob;
 use App\Models\PhrDocument;
+use App\Models\PhrMedication;
+use App\Models\PhrMedicationFill;
 use App\Models\PhrNativeRecordIdentity;
 use App\Models\PhrNativeRestoreAttempt;
 use App\Models\PhrPatient;
@@ -1019,6 +1021,7 @@ final class PhrNativeRestoreTest extends TestCase
         $this->removeTables($archivePath, [
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['ehi_tables'],
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['ehi_evidence'],
+            ...PhrNativeTableCompatibility::LATER_GENERATIONS['medication_fills'],
         ]);
         DB::table('phr_patients')->where('id', $patient->id)->delete();
 
@@ -1053,7 +1056,10 @@ final class PhrNativeRestoreTest extends TestCase
         // Forge the M1-era shape: EHI preservation tables present, but no
         // evidence/proposal tables and no immunization provenance columns, with
         // record hashes taken over that smaller attribute set.
-        $this->removeTables($archivePath, PhrNativeTableCompatibility::LATER_GENERATIONS['ehi_evidence']);
+        $this->removeTables($archivePath, [
+            ...PhrNativeTableCompatibility::LATER_GENERATIONS['ehi_evidence'],
+            ...PhrNativeTableCompatibility::LATER_GENERATIONS['medication_fills'],
+        ]);
         $this->mutateTableRecords($archivePath, 'phr_immunizations', static function (array $record): array {
             foreach (PhrNativeLifecycleCompatibility::TABLE_COLUMNS['phr_immunizations'] as $column) {
                 unset($record['attributes'][$column]);
@@ -1082,6 +1088,43 @@ final class PhrNativeRestoreTest extends TestCase
         }
         $this->assertSame(1, DB::table('phr_ehi_packages')->where('patient_id', $attempt->target_patient_root_id)->count());
         $this->assertSame(0, DB::table('phr_ehi_proposals')->count());
+        @unlink($archivePath);
+    }
+
+    public function test_an_archive_written_before_prescription_fills_still_restores_and_a_current_one_carries_them(): void
+    {
+        $owner = User::factory()->create(['user_role' => 'user']);
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        $medication = PhrMedication::factory()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'name' => 'Synthetic pre-fills medication']);
+        PhrMedicationFill::factory()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'medication_id' => $medication->id, 'external_id' => 'fill-1', 'import_source' => 'synthetic']);
+
+        // A current archive round-trips the fill.
+        $current = $this->archiveCopy($patient, (int) $owner->id);
+        DB::table('phr_patients')->where('id', $patient->id)->delete();
+        $currentAttempt = $this->readyAttempt($current, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $currentAttempt->status, (string) $currentAttempt->failure_category);
+        app(PhrNativeRestoreService::class)->apply($currentAttempt->refresh());
+        $restoredFill = DB::table('phr_medication_fills')->where('patient_id', $currentAttempt->refresh()->target_patient_root_id)->sole();
+        $this->assertSame('fill-1', $restoredFill->external_id);
+        $this->assertNotNull($restoredFill->medication_id, 'the link to the restored medication survives');
+
+        // One downloaded before fills existed has no entry or record file for them.
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        PhrMedication::factory()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'name' => 'Synthetic older medication']);
+        $archivePath = $this->archiveCopy($patient, (int) $owner->id);
+        $this->removeTables($archivePath, PhrNativeTableCompatibility::LATER_GENERATIONS['medication_fills']);
+        DB::table('phr_patients')->where('id', $patient->id)->delete();
+
+        $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $attempt->status, (string) $attempt->failure_category);
+        $this->assertSame([], $attempt->plan_counts_json['blockers']);
+        $this->assertSame(['create' => 0, 'skip' => 0, 'block' => 0], $attempt->plan_counts_json['tables']['phr_medication_fills']);
+        app(PhrNativeRestoreService::class)->apply($attempt->refresh());
+
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_COMPLETED, $attempt->refresh()->status);
+        $this->assertDatabaseHas('phr_medications', ['patient_id' => $attempt->target_patient_root_id, 'name' => 'Synthetic older medication']);
+        $this->assertSame(0, DB::table('phr_medication_fills')->where('patient_id', $attempt->target_patient_root_id)->count());
+        @unlink($current);
         @unlink($archivePath);
     }
 

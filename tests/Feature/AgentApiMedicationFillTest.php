@@ -447,6 +447,35 @@ final class AgentApiMedicationFillTest extends TestCase
             ->json();
 
         $this->assertSame(['id', 'review_status'], array_keys($response['medication']));
+        $this->assertNull($response['ndc'], 'no stored NDC or drug detail for a caller who cannot read');
+        $this->assertStringNotContainsString('58151', json_encode($response, JSON_THROW_ON_ERROR));
+        $this->assertStringNotContainsString('Lipitor', json_encode($response, JSON_THROW_ON_ERROR));
+    }
+
+    public function test_a_write_only_retry_and_an_ambiguous_fill_disclose_no_ndc_candidates_or_drug_detail(): void
+    {
+        $this->fakeOpenFda(['00002-0800-1']);
+        $this->actingWith([AgentApiScopes::CLINICAL_WRITE]);
+        $resolved = $this->fillPayload($this->document(), ['ndc' => '58151-0155-77']);
+        $ambiguous = $this->fillPayload($this->document(), ['ndc' => '00002080001', 'rx_number' => 'AMB', 'drug_as_printed' => 'DILUENT']);
+
+        foreach ([$resolved, $resolved, $ambiguous, $ambiguous] as $payload) {
+            $body = $this->putJson($this->url(), $payload)->assertSuccessful()->assertJsonPath('receipt_only', true)->json();
+            $this->assertNull($body['ndc']);
+            $this->assertSame(['id', 'patient_id', 'review_status'], array_keys($body['data']));
+            $this->assertStringNotContainsString('0002-0800', json_encode($body, JSON_THROW_ON_ERROR));
+            $this->assertStringNotContainsString('candidates', json_encode($body, JSON_THROW_ON_ERROR));
+        }
+    }
+
+    public function test_updating_a_fill_needs_clinical_read_so_a_write_only_token_cannot_reach_stored_detail(): void
+    {
+        $created = $this->putJson($this->url(), $this->fillPayload($this->document(), ['ndc' => '58151-0155-77']))->assertCreated()->json();
+        $this->actingWith([AgentApiScopes::CLINICAL_WRITE]);
+
+        $this->patchJson($this->recordUrl($created['data']['id']), ['expected_version' => $created['version'], 'data' => ['quantity' => 30]])
+            ->assertForbidden()
+            ->assertJsonPath('reason', 'missing_scope');
     }
 
     public function test_a_writer_without_a_patient_grant_is_refused(): void

@@ -41,6 +41,10 @@ final class PhrNativeTableCompatibility
             'phr_ehi_proposal_decisions',
             'phr_ehi_record_links',
         ],
+        // Prescription fills (phr#265). Archives downloaded before they existed have none.
+        'medication_fills' => [
+            'phr_medication_fills',
+        ],
     ];
 
     /**

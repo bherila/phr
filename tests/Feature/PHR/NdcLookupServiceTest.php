@@ -312,4 +312,37 @@ final class NdcLookupServiceTest extends TestCase
         $this->fakeOpenFda();
         $this->assertSame('candidates', $this->ndc->search($criteria)['status'], 'the outage was not remembered');
     }
+
+    public function test_name_only_fallback_never_ranks_25_mg_or_5_mg_per_ml_as_a_strength_match(): void
+    {
+        $product = fn (string $ndc, string $strength): array => [
+            'product_ndc' => $ndc, 'brand_name' => 'Synthetic', 'generic_name' => 'synthetic', 'labeler_name' => 'Example Labs',
+            'dosage_form' => 'TABLET', 'route' => ['ORAL'], 'active_ingredients' => [['name' => 'SYNTHETIC', 'strength' => $strength]],
+            'packaging' => [['package_ndc' => $ndc.'-1', 'description' => '30 TABLET in 1 BOTTLE ('.$ndc.'-1)']], 'openfda' => [],
+        ];
+        // Only the name-only step finds anything, as when the strength filter is too strict.
+        Http::fake(function ($request) use ($product) {
+            parse_str((string) parse_url($request->url(), PHP_URL_QUERY), $query);
+            if (str_contains((string) $query['search'], 'strength')) {
+                return Http::response($this->fixture('not-found.json'), 404);
+            }
+
+            return Http::response(['meta' => [], 'results' => [
+                $product('11111-111', '25 mg/1'), $product('22222-222', '2.5 mg/1'),
+                $product('33333-333', '5 mg/mL'), $product('44444-444', '0.5 mg/mL'),
+            ]]);
+        });
+
+        $small = $this->ndc->search(['name' => 'synthetic', 'strength' => '2.5 mg'])['candidates'];
+        $byNdc = array_column($small, null, 'ndc_10');
+        $this->assertContains('strength matches', $byNdc['22222-222-1']['match_reasons']);
+        $this->assertNotContains('strength matches', $byNdc['11111-111-1']['match_reasons']);
+        $this->assertSame('22222-222-1', $small[0]['ndc_10'], 'the real 2.5 mg ranks first');
+
+        $liquid = $this->ndc->search(['name' => 'synthetic', 'strength' => '0.5 mg/mL'])['candidates'];
+        $byNdc = array_column($liquid, null, 'ndc_10');
+        $this->assertContains('strength matches', $byNdc['44444-444-1']['match_reasons']);
+        $this->assertNotContains('strength matches', $byNdc['33333-333-1']['match_reasons']);
+        $this->assertSame('44444-444-1', $liquid[0]['ndc_10']);
+    }
 }

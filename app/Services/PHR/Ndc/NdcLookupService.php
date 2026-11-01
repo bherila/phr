@@ -215,11 +215,10 @@ class NdcLookupService
             $reasons[] = 'drug name partly matches';
         }
 
-        $strength = $norm($this->strengthPhrase($criteria['strength'] ?? null));
-        if ($strength !== '') {
+        $strength = $this->strengthPhrase($criteria['strength'] ?? null);
+        if ($strength !== null) {
             foreach ((array) ($drug['strengths'] ?? []) as $listed) {
-                $listed = $norm(preg_replace('#/1$#', '', (string) $listed));
-                if ($listed === $strength || str_starts_with($listed, $strength)) {
+                if (is_string($listed) && self::strengthsMatch($strength, $listed)) {
                     $score += 25;
                     $reasons[] = 'strength matches';
                     break;
@@ -259,6 +258,49 @@ class NdcLookupService
         }
 
         return [$score, $reasons];
+    }
+
+    /**
+     * Whether a strength a person typed ("2.5 mg") is one openFDA lists ("2.5 mg/1").
+     * The number is compared exactly, as a number, and the unit by its standard
+     * spelling, so "2.5 mg" never matches "25 mg" and "0.5 mg/mL" never matches
+     * "5 mg/mL". A typed strength without a denominator accepts any listed one.
+     */
+    public static function strengthsMatch(string $wanted, string $listed): bool
+    {
+        $want = self::parseStrength($wanted);
+        $have = self::parseStrength($listed);
+        if ($want === null || $have === null || $want['number'] !== $have['number']) {
+            return false;
+        }
+        [$wantUnit, $wantPer] = $want['unit'];
+        [$haveUnit, $havePer] = $have['unit'];
+        if ($wantUnit !== $haveUnit) {
+            return false;
+        }
+
+        return $wantPer === null || $wantPer === $havePer || ($wantPer === '1' && $havePer === null);
+    }
+
+    /**
+     * @return array{number: string, unit: array{0: string, 1: string|null}}|null
+     */
+    private static function parseStrength(string $text): ?array
+    {
+        if (preg_match('#^\s*(\d+(?:\.\d+)?)\s*([^\s/]*)\s*(?:/\s*(\d*(?:\.\d+)?\s*[^\s]*))?#u', $text, $m) !== 1) {
+            return null;
+        }
+        $number = $m[1];
+        if (str_contains($number, '.')) {
+            $number = rtrim(rtrim($number, '0'), '.');
+        }
+        $number = ltrim($number, '0');
+        $number = $number === '' || $number[0] === '.' ? '0'.$number : $number;
+        $units = ['ug' => 'mcg', 'µg' => 'mcg', 'mcg' => 'mcg', 'mg' => 'mg', 'g' => 'g', 'ml' => 'ml', 'l' => 'l', 'iu' => 'iu', '[iu]' => 'iu', 'unt' => 'unit', 'units' => 'unit', 'meq' => 'meq', '%' => '%'];
+        $unit = mb_strtolower($m[2]);
+        $per = isset($m[3]) && trim($m[3]) !== '' ? mb_strtolower(preg_replace('/\s+/', '', $m[3]) ?? '') : null;
+
+        return ['number' => $number, 'unit' => [$units[$unit] ?? $unit, $per === null ? null : ($units[$per] ?? $per)]];
     }
 
     /**

@@ -3257,7 +3257,7 @@
             "put": {
                 "operationId": "medication_fills.upsert",
                 "summary": "Idempotently create or update a prescription fill",
-                "description": "Send the NDC (ndc) or the package chosen among candidates (ndc_candidate) with the fill, price, pharmacy and source fields; the server resolves the drug, never the agent. Provenance is required: source_kind, and source_document_id unless the source is manual. external_id is optional: when omitted the server derives it from pharmacy name, Rx number and fill date, or else from the source document and source_locator, so a receipt and a label photo of the same fill land on one record. The server links the fill to the patient's matching medication or creates one pending review. Returns the fill, the medication with whether it was created, and the NDC resolution (candidates when ambiguous).",
+                "description": "Send the NDC (ndc) or the package chosen among candidates (ndc_candidate) with the fill, price, pharmacy and source fields; the server resolves the drug, never the agent. Provenance is required: source_kind, and source_document_id unless the source is manual. external_id is optional: when omitted the server derives it from pharmacy name, Rx number and fill date, or else from the source document and source_locator, so a receipt and a label photo of the same fill land on one record. The server links the fill to the patient's matching medication or creates one pending review. Returns the fill, the medication with whether it was created, and the NDC resolution (candidates when ambiguous). A caller without clinical:read receives receipts only, with no stored NDC or drug detail.",
                 "security": [
                     {
                         "oauth2": [
@@ -9317,8 +9317,15 @@
                         "description": "True when this request created the medication (pending review); false when it linked an existing one."
                     },
                     "ndc": {
-                        "$ref": "#/components/schemas/NdcLookupResponse",
-                        "description": "How the NDC resolved. When ambiguous, candidates lists every match: ask the person which package is on the label and update the fill with that ndc_candidate."
+                        "oneOf": [
+                            {
+                                "$ref": "#/components/schemas/NdcLookupResponse"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "How the NDC resolved; null for a caller without clinical:read, who receives no stored NDC or drug detail. When ambiguous, candidates lists every match: ask the person which package is on the label and update the fill with that ndc_candidate."
                     },
                     "outcome": {
                         "type": "string",
