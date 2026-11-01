@@ -20,6 +20,7 @@ use App\Services\PHR\Import\PhrStructuredDocumentImport;
 use App\Services\PHR\Import\PhrStructuredDocumentImporter;
 use App\Support\AgentApi\AgentApiCursor;
 use App\Support\AgentApi\AgentApiScopes;
+use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -97,29 +98,31 @@ final class AgentImportController extends Controller
 
     /**
      * A document PHR's own parsers read (C-CDA, FHIR, or a MyChart or EHI export
-     * ZIP) is imported by them, as in the browser; anything else is queued for AI
-     * extraction. Either way one call per document, and a repeat returns it.
+     * ZIP) is imported by them, as in the browser. Any other document is not queued
+     * for AI: the connected client has its own AI and extracts the records itself,
+     * so the answer names the write tools to use (client_extraction_required). A
+     * document the person already sent to AI from the browser keeps that import, and
+     * a repeat returns it as it stands. Browser uploads and the browser's "send to
+     * AI" do not come through here.
      */
     public function store(StoreAgentImportRequest $request, int $patient): JsonResponse
     {
         $resolved = $this->writablePatient($request, $patient);
         $actor = (int) $request->user('api')?->id;
         $document = PhrDocument::query()->where('patient_id', $resolved->id)->findOrFail((int) $request->validated('document_id'));
-        // A document already sent to AI keeps that import: one import per
-        // document, and its proposals are not doubled by a direct import.
-        $structured = $document->genai_job_id === null ? $this->structured->import($resolved, $actor, $document) : null;
-        if ($structured !== null) {
-            return response()->json(
-                $this->structuredPayload($resolved, $document, $structured),
-                $structured->outcome === PhrStructuredDocumentImport::QUEUED ? 202 : 200,
-            );
+        if ($document->genai_job_id === null) {
+            $structured = $this->structured->import($resolved, $actor, $document);
+            if ($structured !== null) {
+                return response()->json(
+                    $this->structuredPayload($resolved, $document, $structured),
+                    $structured->outcome === PhrStructuredDocumentImport::QUEUED ? 202 : 200,
+                );
+            }
+
+            return response()->json($this->clientExtractionPayload($resolved, $document));
         }
 
-        $result = $this->processing->create(
-            $resolved,
-            (int) $request->user('api')?->id,
-            (int) $request->validated('document_id'),
-        );
+        $result = $this->processing->create($resolved, $actor, (int) $document->id);
 
         return response()->json($this->jobMutationPayload($resolved, $result), $result->wasQueued() ? 202 : 200);
     }
@@ -222,6 +225,21 @@ final class AgentImportController extends Controller
                     'failure_reason' => $upload->failure_reason,
                     'package_id' => $upload->package_id,
                 ],
+            ],
+        ];
+    }
+
+    /** @return array<string, mixed> */
+    private function clientExtractionPayload(PhrPatient $patient, PhrDocument $document): array
+    {
+        return [
+            'resource_type' => 'client_extraction',
+            'patient_id' => $patient->id,
+            'outcome' => 'client_extraction_required',
+            'data' => [
+                'document_id' => (int) $document->id,
+                'write_tools' => [...AgentClinicalResourceCatalog::upsertOperationIds(), 'eobs.upsert'],
+                'next_step' => 'PHR does not extract this document for a connected client. Read it (documents.download_access.create) and write what it shows with the upsert tools, passing this document as source_document_id. A prescription label, receipt or statement is medication_fills.upsert; an EOB is eobs.import first, then eobs.upsert if that reports unrecognised_format.',
             ],
         ];
     }

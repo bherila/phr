@@ -83,6 +83,16 @@ final class AgentOperationRegistryTest extends TestCase
                 continue;
             }
             $middleware = $route->gatherMiddleware();
+            if ($route->getName() === 'agent-api.v1.document-uploads.receive') {
+                // The one deliberate exception: the PUT of a signed upload. Its URL is the
+                // credential (signed, short-lived, single use) because the sandbox holding the
+                // file rarely holds the OAuth token; it only stages bytes, and documents.upload_finalize
+                // (an ordinary gated operation) is what creates the document.
+                $this->assertContains('signed', $middleware, $route->uri());
+                $this->assertSame(['PUT'], array_values(array_diff($route->methods(), ['OPTIONS'])), $route->uri());
+
+                continue;
+            }
             $this->assertNotEmpty(array_filter($middleware, static fn (string $item): bool => str_starts_with($item, GateOperation::class.':')), $route->uri());
             $this->assertSame([], array_values(array_filter($middleware, static fn (string $item): bool => str_starts_with($item, CheckToken::class))), $route->uri());
         }

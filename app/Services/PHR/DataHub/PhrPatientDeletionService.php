@@ -4,6 +4,7 @@ namespace App\Services\PHR\DataHub;
 
 use App\Jobs\PHR\CleanupDeletedPhrPatientArtifactsJob;
 use App\Models\PhrDicomUpload;
+use App\Models\PhrDocument;
 use App\Models\PhrEhiPackage;
 use App\Models\PhrExport;
 use App\Models\PhrNativeBackup;
@@ -235,6 +236,8 @@ final class PhrPatientDeletionService
             ->orderBy('id')->each(fn ($row) => $collect((string) $row->storage_disk, (string) $row->storage_path, (int) $row->byte_size));
         DB::table('phr_ehi_uploads')->where('patient_id', $patientId)->whereNotNull('storage_path')
             ->orderBy('id')->each(fn ($row) => $collect((string) $row->storage_disk, (string) $row->storage_path, null));
+        DB::table('phr_document_uploads')->where('patient_id', $patientId)->whereNotNull('staging_path')
+            ->orderBy('id')->each(fn ($row) => $collect(PhrDocument::STORAGE_DISK, (string) $row->staging_path, null));
         DB::table('phr_exports')->where('patient_id', $patientId)->whereNotNull('storage_path')
             ->orderBy('id')->each(fn ($row) => $collect((string) $row->storage_disk, (string) $row->storage_path, is_numeric($row->file_size_bytes) ? (int) $row->file_size_bytes : null));
         DB::table('phr_native_backups')->where('patient_id', $patientId)->whereNotNull('storage_path')
@@ -263,6 +266,10 @@ final class PhrPatientDeletionService
             ->where('patient_id', '<>', $patientId)->where('storage_disk', $disk)->where('storage_path', $key)->exists()
             || DB::table('phr_ehi_uploads')->where('patient_id', '<>', $patientId)
                 ->where('storage_disk', $disk)->where('storage_path', $key)->exists()) {
+            return true;
+        }
+        if ($disk === PhrDocument::STORAGE_DISK && DB::table('phr_document_uploads')
+            ->where('patient_id', '<>', $patientId)->where('staging_path', $key)->exists()) {
             return true;
         }
         if (DB::table('phr_exports')

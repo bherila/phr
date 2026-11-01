@@ -15,6 +15,7 @@ use App\Support\AgentApi\AgentApiCursor;
 use App\Support\AgentApi\AgentApiExternalId;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentApiUpdateWindow;
+use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use App\Support\AgentApi\AgentEvidenceCursor;
 use App\Support\AgentApi\OAuthPatientConsents;
@@ -29,7 +30,7 @@ use Illuminate\Validation\Rule;
 
 final class AgentEvidenceController extends Controller
 {
-    private const array LINKABLE_TYPES = ['document', 'eob', 'medication-fill', 'office-visit', 'procedure'];
+    private const array LINKABLE_TYPES = ['document', 'eob', 'eob-line', 'medication-fill', 'office-visit', 'procedure'];
 
     /**
      * Public ids read in bulk for the page being serialized: [table][record id].
@@ -37,6 +38,13 @@ final class AgentEvidenceController extends Controller
      * @var array<string, array<int, string>>
      */
     private array $publicIdCache = [];
+
+    /**
+     * The live fills each EOB line of the page adjudicated: [line id] => fill ids.
+     *
+     * @var array<int, list<int>>
+     */
+    private array $fillIdsByLine = [];
 
     public function __construct(
         private PhrPatientAccessService $accessService,
@@ -96,6 +104,7 @@ final class AgentEvidenceController extends Controller
         return $this->modelPage(
             $request, $patientId, 'eob-line', $query, $validated,
             fn (PhrEobLine $line): array => $this->linePayload($line),
+            fn (Collection $lines) => $this->primeLineFills($lines->pluck('id')->all()),
         );
     }
 
@@ -107,6 +116,7 @@ final class AgentEvidenceController extends Controller
             ->where('patient_id', $patientId)
             ->where('eob_id', $eob)
             ->findOrFail($line);
+        $this->primeLineFills([$resolved->id]);
 
         return response()->json(['resource_type' => 'eob-line', 'patient_id' => $patientId, 'data' => $this->linePayload($resolved)]);
     }
@@ -254,6 +264,25 @@ final class AgentEvidenceController extends Controller
         return $this->publicIdCache[$table][$recordId];
     }
 
+    /**
+     * One EOB as the clinical projection serializes it, for the write responses.
+     *
+     * @return array<string, mixed>
+     */
+    public function eobResource(PhrEob $eob): array
+    {
+        return $this->eobPayload($eob);
+    }
+
+    /** The record's version over its stored columns only, not the lines_count a list read adds. */
+    private function eobVersion(PhrEob $eob): string
+    {
+        $stored = new PhrEob;
+        $stored->setRawAttributes(array_diff_key($eob->getAttributes(), ['lines_count' => true]));
+
+        return app(AgentClinicalRecordVersion::class)->for($stored);
+    }
+
     /** @return array<string, mixed> */
     private function eobPayload(PhrEob $eob): array
     {
@@ -267,6 +296,8 @@ final class AgentEvidenceController extends Controller
             'source_document_public_id' => $this->publicId($patientId, PhrPublicIds::DOCUMENTS, $eob->source_document_id),
             'import_source' => $eob->import_source,
             'external_id' => AgentApiExternalId::withoutDocumentHash($eob->external_id),
+            'review_status' => $eob->review_status,
+            'version' => $this->eobVersion($eob),
             'claim_number' => $eob->claim_number, 'claim_type' => $eob->claim_type,
             'administrator' => $eob->administrator, 'carrier' => $eob->carrier, 'plan_name' => $eob->plan_name,
             'provider_name' => $eob->provider_name,
@@ -329,6 +360,25 @@ final class AgentEvidenceController extends Controller
         return is_string($value) && $value !== '' ? Carbon::parse($value)->toDateString() : null;
     }
 
+    /** @param  list<int>  $lineIds */
+    private function primeLineFills(array $lineIds): void
+    {
+        $this->fillIdsByLine = [];
+        if ($lineIds === []) {
+            return;
+        }
+        $rows = DB::table('phr_medication_fill_evidence as evidence')
+            ->join('phr_medication_fills as fills', 'fills.id', '=', 'evidence.fill_id')
+            ->whereIn('evidence.eob_line_id', $lineIds)
+            ->whereNull('fills.deleted_at')
+            ->whereNull('fills.retracted_at')
+            ->orderBy('evidence.fill_id')
+            ->get(['evidence.eob_line_id', 'evidence.fill_id']);
+        foreach ($rows as $row) {
+            $this->fillIdsByLine[(int) $row->eob_line_id][] = (int) $row->fill_id;
+        }
+    }
+
     /** @return array<string, mixed> */
     private function linePayload(PhrEobLine $line): array
     {
@@ -343,6 +393,8 @@ final class AgentEvidenceController extends Controller
             'deductible_applied' => $line->deductible_applied, 'copay_applied' => $line->copay_applied,
             'benefit_percent' => $line->benefit_percent, 'carrier_payment' => $line->carrier_payment,
             'plan_payment' => $line->plan_payment, 'patient_responsibility' => $line->patient_responsibility,
+            // The prescription fills this line adjudicated (a pharmacy claim's lines).
+            'medication_fill_ids' => $this->fillIdsByLine[(int) $line->id] ?? [],
             'created_at' => $line->created_at?->toIso8601String(), 'updated_at' => $line->updated_at?->toIso8601String(),
         ];
     }
@@ -358,7 +410,7 @@ final class AgentEvidenceController extends Controller
     private function assertSourceExists(string $type, int $id, int $patientId): void
     {
         $model = match ($type) {
-            'document' => PhrDocument::class, 'eob' => PhrEob::class,
+            'document' => PhrDocument::class, 'eob' => PhrEob::class, 'eob-line' => PhrEobLine::class,
             'medication-fill' => PhrMedicationFill::class, 'office-visit' => PhrOfficeVisit::class, 'procedure' => PhrProcedure::class,
             default => abort(404),
         };
@@ -374,6 +426,7 @@ final class AgentEvidenceController extends Controller
         $queries = match ($sourceType) {
             'document' => $this->documentLinkQueries($sourceId, $patientId),
             'eob' => $this->eobLinkQueries($sourceId, $patientId),
+            'eob-line' => $this->eobLineLinkQueries($sourceId, $patientId),
             'medication-fill' => $this->fillLinkQueries($sourceId, $patientId),
             'office-visit' => $this->clinicalLinkQueries('phr_office_visits', 'phr_office_visit_eobs', 'office_visit_id', $sourceId, $patientId),
             'procedure' => $this->clinicalLinkQueries('phr_procedures', 'phr_procedure_eobs', 'procedure_id', $sourceId, $patientId),
@@ -424,6 +477,16 @@ final class AgentEvidenceController extends Controller
                 ->whereNull('retracted_at')
                 ->where('source_document_id', $documentId);
         }
+        // A fill first read from another document is also shown by this one, as evidence.
+        $queries['medication-fill'] = DB::table('phr_medication_fills')
+            ->where('patient_id', $patientId)
+            ->whereNull('deleted_at')
+            ->whereNull('retracted_at')
+            ->where(fn ($fills) => $fills->where('source_document_id', $documentId)->orWhereIn(
+                'id',
+                fn ($evidence) => $evidence->select('fill_id')->from('phr_medication_fill_evidence')
+                    ->where('patient_id', $patientId)->where('document_id', $documentId),
+            ));
 
         return $queries;
     }
@@ -444,6 +507,8 @@ final class AgentEvidenceController extends Controller
                     ->where('patient_id', $patientId)->where('eob_id', $eobId)
                     ->whereColumn('procedure_id', 'phr_procedures.id')),
         ];
+        $queries['medication-fill'] = $this->fillsAdjudicatedBy($patientId, fn ($lines) => $lines->select('id')->from('phr_eob_lines')
+            ->where('patient_id', $patientId)->where('eob_id', $eobId));
         $documentId = PhrEob::query()->where('patient_id', $patientId)->whereKey($eobId)->value('source_document_id');
         if ($documentId !== null) {
             $queries['document'] = DB::table('phr_documents')->where('patient_id', $patientId)
@@ -454,19 +519,52 @@ final class AgentEvidenceController extends Controller
     }
 
     /**
-     * A fill links to the document it was read from; it has no EOB pivot.
+     * An EOB line links to its claim and to the fills it adjudicated.
+     *
+     * @return array<string, \Illuminate\Database\Query\Builder>
+     */
+    private function eobLineLinkQueries(int $lineId, int $patientId): array
+    {
+        $eobId = DB::table('phr_eob_lines')->where('patient_id', $patientId)->where('id', $lineId)->value('eob_id');
+
+        return [
+            'eob' => DB::table('phr_eobs')->where('patient_id', $patientId)->where('id', $eobId),
+            'medication-fill' => $this->fillsAdjudicatedBy($patientId, fn ($lines) => $lines->select('id')->from('phr_eob_lines')
+                ->where('patient_id', $patientId)->where('id', $lineId)),
+        ];
+    }
+
+    /** @param  callable(\Illuminate\Database\Query\Builder): mixed  $lines  selects the line ids */
+    private function fillsAdjudicatedBy(int $patientId, callable $lines): \Illuminate\Database\Query\Builder
+    {
+        return DB::table('phr_medication_fills')
+            ->where('patient_id', $patientId)
+            ->whereNull('deleted_at')
+            ->whereNull('retracted_at')
+            ->whereIn('id', fn ($evidence) => $evidence->select('fill_id')->from('phr_medication_fill_evidence')
+                ->where('patient_id', $patientId)
+                ->whereIn('eob_line_id', $lines));
+    }
+
+    /**
+     * A fill links to the document it was first read from, to any other document
+     * that shows the same dispensing, and to the EOB lines that adjudicated it.
      *
      * @return array<string, \Illuminate\Database\Query\Builder>
      */
     private function fillLinkQueries(int $fillId, int $patientId): array
     {
         $documentId = DB::table('phr_medication_fills')->where('patient_id', $patientId)->where('id', $fillId)->value('source_document_id');
-        if ($documentId === null) {
-            return [];
-        }
+        $evidence = fn () => DB::table('phr_medication_fill_evidence')->where('patient_id', $patientId)->where('fill_id', $fillId);
 
-        return ['document' => DB::table('phr_documents')->where('patient_id', $patientId)
-            ->whereNull('deleted_at')->where('id', $documentId)];
+        return [
+            'document' => DB::table('phr_documents')->where('patient_id', $patientId)
+                ->whereNull('deleted_at')
+                ->where(fn ($documents) => $documents->where('id', $documentId ?? 0)
+                    ->orWhereIn('id', $evidence()->whereNotNull('document_id')->select('document_id'))),
+            'eob-line' => DB::table('phr_eob_lines')->where('patient_id', $patientId)
+                ->whereIn('id', $evidence()->whereNotNull('eob_line_id')->select('eob_line_id')),
+        ];
     }
 
     /** @return array<string, \Illuminate\Database\Query\Builder> */

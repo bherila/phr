@@ -143,7 +143,7 @@ final readonly class AgentApiWriteDao
             'POST',
             "patients/{$patientId}/imports",
             json: ['document_id' => $documentId],
-        ), 'import_job', 'structured_import');
+        ), 'import_job', 'structured_import', 'client_extraction');
     }
 
     public function importRetry(int $patientId, int $importId): AgentImportPayload
@@ -195,5 +195,60 @@ final readonly class AgentApiWriteDao
             "patients/{$patientId}/respiratory-events/batch",
             json: $data->toRequestPayload(),
         ), ['resource_type', 'patient_id', 'results']);
+    }
+
+    /** @param array{kind: string, filename: string, content_type: string, byte_size: int, sha256: string|null} $declared */
+    public function documentUploadAccessCreate(int $patientId, array $declared): AgentApiPayload
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'POST',
+            "patients/{$patientId}/documents/upload-access",
+            json: array_filter($declared, static fn (mixed $value): bool => $value !== null),
+        ), ['resource_type', 'patient_id', 'data']);
+    }
+
+    public function documentUploadFinalize(int $patientId, string $uploadId): AgentApiPayload
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'POST',
+            "patients/{$patientId}/documents/uploads/{$uploadId}/finalize",
+        ), ['resource_type', 'patient_id', 'outcome', 'data']);
+    }
+
+    public function documentUploadCancel(int $patientId, string $uploadId): AgentApiPayload
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'POST',
+            "patients/{$patientId}/documents/uploads/{$uploadId}/cancel",
+        ), ['resource_type', 'patient_id', 'data']);
+    }
+
+    public function eobImport(int $patientId, int $documentId): AgentApiPayload
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'POST',
+            "patients/{$patientId}/eobs/import",
+            json: ['document_id' => $documentId],
+        ), ['resource_type', 'patient_id', 'outcome', 'data']);
+    }
+
+    /** @param array<string, mixed> $payload */
+    public function eobUpsert(int $patientId, array $payload): AgentClinicalUpsertPayload
+    {
+        return AgentClinicalUpsertPayload::from($this->transport->send(
+            'PUT',
+            "patients/{$patientId}/eobs",
+            json: $payload,
+        ));
+    }
+
+    /** @param array<string, mixed> $payload */
+    public function eobUpdate(int $patientId, int $eobId, array $payload): AgentClinicalUpsertPayload
+    {
+        return AgentClinicalUpsertPayload::from($this->transport->send(
+            'PATCH',
+            "patients/{$patientId}/eobs/{$eobId}",
+            json: $payload,
+        ));
     }
 }

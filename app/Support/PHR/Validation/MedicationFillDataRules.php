@@ -19,6 +19,11 @@ final class MedicationFillDataRules implements ClinicalDataRules
         $required = $partial ? 'sometimes' : 'required';
 
         return [
+            ...($partial ? [] : [
+                // The EOB line that adjudicated the fill. It is evidence, not a column: the
+                // server records it beside the fill's other sources (see MedicationFillEvidenceService).
+                'eob_line_id' => ['nullable', 'integer', 'min:1'],
+            ]),
             'ndc' => ['nullable', 'string', 'max:64', 'regex:/\A[0-9A-Za-z \x{2010}-\x{2015}\x{2212}:#-]+\z/u'],
             'ndc_candidate' => ['nullable', 'string', 'max:16', 'regex:/\A[0-9]+-[0-9]+-[0-9]+\z/'],
             'allow_unresolved' => ['sometimes', 'boolean'],
@@ -45,6 +50,7 @@ final class MedicationFillDataRules implements ClinicalDataRules
     public static function jsonSchema(): array
     {
         return ClinicalJsonSchema::object([
+            'eob_line_id' => ['type' => ['integer', 'null'], 'minimum' => 1],
             'ndc' => ClinicalJsonSchema::nullableString(maxLength: 64),
             'ndc_candidate' => ['type' => ['string', 'null'], 'maxLength' => 16, 'pattern' => '^[0-9]+-[0-9]+-[0-9]+$'],
             'allow_unresolved' => ['type' => 'boolean'],
