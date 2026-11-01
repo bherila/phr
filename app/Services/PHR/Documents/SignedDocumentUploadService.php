@@ -8,6 +8,7 @@ use App\Models\PhrDocument;
 use App\Models\PhrDocumentUpload;
 use App\Models\PhrPatient;
 use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
+use App\Services\PHR\Storage\BlobStorageQuota;
 use App\Support\Storage\PhrStorageKey;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -28,7 +29,7 @@ use Throwable;
  *
  *  1. open: a session that names the file (kind, filename, content type, size,
  *     optional SHA-256) and returns a short-lived signed URL;
- *  2. PUT: the bytes go to that URL, once. The URL is a bearer capability (the
+ *  2. PUT: the bytes go to that short-lived URL. The URL is a bearer capability (the
  *     caller's sandbox rarely holds the OAuth token), so it can do exactly one
  *     thing: stage bytes of the declared type and size for this session. Nothing
  *     is visible, and no document exists, until finalize;
@@ -53,12 +54,24 @@ final readonly class SignedDocumentUploadService
     public function __construct(
         private PhrPatientArtifactWriteGuard $guard,
         private PhrDocumentUploadService $documents,
+        private BlobStorageQuota $quota,
+        private UploadUrlSigner $signer,
     ) {}
 
     /** @param array{kind: string, filename: string, content_type: string, byte_size: int, sha256?: string|null} $declared */
     public function open(PhrPatient $patient, int $actorUserId, string $importSource, array $declared): PhrDocumentUpload
     {
+        $this->quota->assertForPatient($patient, $declared['byte_size']);
+        $driver = config('filesystems.disks.phr_uploads.driver', 'local');
+        if (! in_array($driver, ['local', 's3'], true)) {
+            throw new HttpException(503, 'The upload storage driver is not supported.');
+        }
+        $direct = $driver === 's3';
+
         return PhrDocumentUpload::query()->create([
+            'storage_disk' => $direct ? 'phr_uploads' : PhrDocument::STORAGE_DISK,
+            'transport' => $direct ? 's3' : 'local',
+            'staging_path' => $direct ? PhrStorageKey::documentUploadStaging((int) $patient->id, Str::uuid()->toString()) : null,
             'public_id' => (string) Str::ulid(),
             'patient_id' => $patient->id,
             'actor_user_id' => $actorUserId,
@@ -75,7 +88,20 @@ final readonly class SignedDocumentUploadService
 
     public function url(PhrDocumentUpload $upload): string
     {
-        return URL::temporarySignedRoute('agent-api.v1.document-uploads.receive', $upload->expires_at, ['upload' => $upload->public_id]);
+        return $this->authorization($upload)['url'];
+    }
+
+    /** @return array{url: string, headers: array<string, string>} */
+    public function authorization(PhrDocumentUpload $upload): array
+    {
+        if ($upload->transport === 's3') {
+            return $this->signer->sign($upload->storage_disk, (string) $upload->staging_path, $upload->content_type, (int) $upload->byte_size, $upload->expires_at);
+        }
+
+        return [
+            'url' => URL::temporarySignedRoute('agent-api.v1.document-uploads.receive', $upload->expires_at, ['upload' => $upload->public_id]),
+            'headers' => ['Content-Type' => $upload->content_type],
+        ];
     }
 
     /**
@@ -86,6 +112,9 @@ final readonly class SignedDocumentUploadService
     {
         $upload = PhrDocumentUpload::query()->where('public_id', $publicId)->firstOrFail();
         $this->refuseUnusable($upload, PhrDocumentUpload::PENDING);
+        if ($upload->transport === 's3') {
+            throw new ConflictHttpException('PUT this file to its object storage upload URL.');
+        }
 
         $type = strtolower(trim(explode(';', (string) $request->headers->get('Content-Type'))[0]));
         if ($type !== $upload->content_type) {
@@ -115,7 +144,7 @@ final readonly class SignedDocumentUploadService
 
             $path = PhrStorageKey::documentUploadStaging((int) $upload->patient_id, Str::uuid()->toString());
             $this->guard->run((int) $upload->patient_id, function () use ($upload, $buffer, $path, $received, &$staged): void {
-                if (! Storage::disk(PhrDocument::STORAGE_DISK)->writeStream($path, $buffer)) {
+                if (! Storage::disk($upload->storage_disk)->writeStream($path, $buffer)) {
                     throw new HttpException(500, 'The uploaded file could not be stored.');
                 }
                 $staged = $path;
@@ -136,7 +165,7 @@ final readonly class SignedDocumentUploadService
             fclose($buffer);
         } catch (Throwable $exception) {
             if (is_string($staged)) {
-                $this->deleteBlob($staged);
+                $this->deleteBlob($staged, $upload->storage_disk);
             }
             PhrDocumentUpload::query()->whereKey($upload->id)->where('status', PhrDocumentUpload::RECEIVING)
                 ->update(['status' => PhrDocumentUpload::PENDING]);
@@ -156,78 +185,107 @@ final readonly class SignedDocumentUploadService
      */
     public function finalize(PhrPatient $patient, string $importSource, string $publicId): array
     {
-        return DB::transaction(function () use ($patient, $importSource, $publicId): array {
-            $upload = $this->session($patient, $importSource, $publicId, lock: true);
+        $temporary = null;
+        try {
+            return DB::transaction(function () use ($patient, $importSource, $publicId, &$temporary): array {
+                $upload = $this->session($patient, $importSource, $publicId, lock: true);
 
-            if ($upload->status === PhrDocumentUpload::FINALIZED && $upload->document !== null) {
-                return ['upload' => $upload, 'document' => $upload->document, 'outcome' => 'unchanged'];
-            }
-            $this->refuseUnusable($upload, PhrDocumentUpload::UPLOADED);
-
-            $path = (string) $upload->staging_path;
-            $disk = Storage::disk(PhrDocument::STORAGE_DISK);
-            if (! $disk->exists($path) || $disk->size($path) !== $upload->byte_size) {
-                throw new UnprocessableEntityHttpException('The uploaded file is not the declared byte_size.');
-            }
-            $hash = $this->hashStored($path);
-            if ($hash !== $upload->received_sha256 || ($upload->sha256 !== null && $hash !== $upload->sha256)) {
-                throw new UnprocessableEntityHttpException('The uploaded file does not match the declared sha256.');
-            }
-
-            $file = new UploadedFile($disk->path($path), $upload->filename, $upload->content_type, null, true);
-            $rules = (new StorePhrDocumentRequest)->rules()['file'];
-            if ($upload->content_type === 'text/plain') {
-                // A .txt that holds a CSV (a Delta Dental claim export, for eobs.import) sniffs as
-                // text/csv; as plain text it is within the allowlist.
-                $rules = array_map(static fn (mixed $rule): mixed => is_string($rule) && str_starts_with($rule, 'mimes:') ? $rule.',csv' : $rule, $rules);
-            }
-            Validator::make(['file' => $file], ['file' => $rules])->validate();
-
-            // The declared type is the agent's word; the bytes must agree with it.
-            $sniffed = (string) $file->getMimeType();
-            $agrees = $sniffed === $upload->content_type
-                || (str_starts_with($upload->content_type, 'text/') && str_starts_with($sniffed, 'text/'))
-                || ($upload->content_type === 'image/jpeg' && $sniffed === 'image/jpg');
-            if (! $agrees) {
-                throw new UnprocessableEntityHttpException('The uploaded file is not the declared content type.');
-            }
-
-            $outcome = 'created';
-            try {
-                $result = $this->documents->upload($patient, (int) $upload->actor_user_id, DocumentUploadData::fromValidated(
-                    $file,
-                    [
-                        'title' => pathinfo($upload->filename, PATHINFO_FILENAME),
-                        'document_type' => self::DOCUMENT_TYPES[$upload->kind] ?? 'other',
-                        'tags' => [str_replace('_', '-', $upload->kind)],
-                    ],
-                    source: 'agent_upload',
-                    importSource: $upload->import_source,
-                    externalId: 'upload:'.$upload->public_id,
-                ));
-                $document = $result->document;
-            } catch (ConflictHttpException $conflict) {
-                $document = PhrDocument::query()
-                    ->where('patient_id', $patient->id)
-                    ->where('import_source', $upload->import_source)
-                    ->where('file_hash', $hash)
-                    ->first();
-                if (! $document instanceof PhrDocument) {
-                    throw $conflict;
+                if ($upload->status === PhrDocumentUpload::FINALIZED && $upload->document !== null) {
+                    return ['upload' => $upload, 'document' => $upload->document, 'outcome' => 'unchanged'];
                 }
-                $outcome = 'duplicate';
+                $direct = $upload->transport === 's3';
+                $this->refuseUnusable($upload, $direct ? PhrDocumentUpload::PENDING : PhrDocumentUpload::UPLOADED);
+                $path = (string) $upload->staging_path;
+                $disk = Storage::disk($upload->storage_disk);
+                if (! $disk->exists($path) || $disk->size($path) !== $upload->byte_size) {
+                    throw new UnprocessableEntityHttpException('The uploaded file is not the declared byte_size.');
+                }
+                if ($direct) {
+                    // Snapshot remote bytes: an outstanding URL can overwrite staging.
+                    $temporary = tmpfile();
+                    $stream = $disk->readStream($path);
+                    if (! is_resource($temporary) || ! is_resource($stream)) {
+                        if (is_resource($stream)) {
+                            fclose($stream);
+                        }
+                        throw new HttpException(500, 'The uploaded file could not be read.');
+                    }
+                    try {
+                        $copied = stream_copy_to_stream($stream, $temporary, (int) $upload->byte_size + 1);
+                    } finally {
+                        fclose($stream);
+                    }
+                    if ($copied !== (int) $upload->byte_size) {
+                        throw new UnprocessableEntityHttpException('The uploaded file is not the declared byte_size.');
+                    }
+                    $localPath = stream_get_meta_data($temporary)['uri'];
+                } else {
+                    $localPath = $disk->path($path);
+                }
+                $hash = hash_file('sha256', $localPath);
+                if ((! $direct && $hash !== $upload->received_sha256) || ($upload->sha256 !== null && $hash !== $upload->sha256)) {
+                    throw new UnprocessableEntityHttpException('The uploaded file does not match the declared sha256.');
+                }
+
+                $file = new UploadedFile($localPath, $upload->filename, $upload->content_type, null, true);
+                $rules = (new StorePhrDocumentRequest)->rules()['file'];
+                if ($upload->content_type === 'text/plain') {
+                    // A .txt that holds a CSV (a Delta Dental claim export, for eobs.import) sniffs as
+                    // text/csv; as plain text it is within the allowlist.
+                    $rules = array_map(static fn (mixed $rule): mixed => is_string($rule) && str_starts_with($rule, 'mimes:') ? $rule.',csv' : $rule, $rules);
+                }
+                Validator::make(['file' => $file], ['file' => $rules])->validate();
+
+                // The declared type is the agent's word; the bytes must agree with it.
+                $sniffed = (string) $file->getMimeType();
+                $agrees = $sniffed === $upload->content_type
+                    || (str_starts_with($upload->content_type, 'text/') && str_starts_with($sniffed, 'text/'))
+                    || ($upload->content_type === 'image/jpeg' && $sniffed === 'image/jpg');
+                if (! $agrees) {
+                    throw new UnprocessableEntityHttpException('The uploaded file is not the declared content type.');
+                }
+
+                $outcome = 'created';
+                try {
+                    $result = $this->documents->upload($patient, (int) $upload->actor_user_id, DocumentUploadData::fromValidated(
+                        $file,
+                        [
+                            'title' => pathinfo($upload->filename, PATHINFO_FILENAME),
+                            'document_type' => self::DOCUMENT_TYPES[$upload->kind] ?? 'other',
+                            'tags' => [str_replace('_', '-', $upload->kind)],
+                        ],
+                        source: 'agent_upload',
+                        importSource: $upload->import_source,
+                        externalId: 'upload:'.$upload->public_id,
+                    ), admitted: true);
+                    $document = $result->document;
+                } catch (ConflictHttpException $conflict) {
+                    $document = PhrDocument::query()
+                        ->where('patient_id', $patient->id)
+                        ->where('import_source', $upload->import_source)
+                        ->where('file_hash', $hash)
+                        ->first();
+                    if (! $document instanceof PhrDocument) {
+                        throw $conflict;
+                    }
+                    $outcome = 'duplicate';
+                }
+
+                $upload->forceFill([
+                    'status' => PhrDocumentUpload::FINALIZED,
+                    'finalized_at' => now(),
+                    'document_id' => $document->id,
+                    'staging_path' => $direct ? $path : null,
+                ])->save();
+                $this->deleteBlob($path, $upload->storage_disk);
+
+                return ['upload' => $upload, 'document' => $document, 'outcome' => $outcome];
+            });
+        } finally {
+            if (is_resource($temporary)) {
+                fclose($temporary);
             }
-
-            $upload->forceFill([
-                'status' => PhrDocumentUpload::FINALIZED,
-                'finalized_at' => now(),
-                'document_id' => $document->id,
-                'staging_path' => null,
-            ])->save();
-            $this->deleteBlob($path);
-
-            return ['upload' => $upload, 'document' => $document, 'outcome' => $outcome];
-        });
+        }
     }
 
     public function cancel(PhrPatient $patient, string $importSource, string $publicId): PhrDocumentUpload
@@ -268,9 +326,24 @@ final readonly class SignedDocumentUploadService
                 $expired++;
             });
 
+        // A presigned S3 PUT remains usable until expiry, including after finalize or cancel.
+        // Keep the staging key and retry its cleanup after that window closes.
+        PhrDocumentUpload::query()->where('transport', 's3')->where('expires_at', '<', now())
+            ->whereNotNull('staging_path')->whereIn('status', [PhrDocumentUpload::FINALIZED, PhrDocumentUpload::CANCELLED, PhrDocumentUpload::EXPIRED])
+            ->each(function (PhrDocumentUpload $upload): void {
+                try {
+                    $disk = Storage::disk($upload->storage_disk);
+                    if ($disk->delete($upload->staging_path)) {
+                        $upload->update(['staging_path' => null]);
+                    }
+                } catch (Throwable) {
+                    // Keep the exact key for retry without stopping cleanup of other sessions.
+                }
+            });
+
         PhrDocumentUpload::query()
             ->whereIn('status', [PhrDocumentUpload::FINALIZED, PhrDocumentUpload::CANCELLED, PhrDocumentUpload::EXPIRED])
-            ->where('updated_at', '<', now()->subDays(7))
+            ->whereNull('staging_path')->where('updated_at', '<', now()->subDays(7))
             ->delete();
 
         return $expired;
@@ -315,17 +388,17 @@ final readonly class SignedDocumentUploadService
             ->whereKey($upload->id)
             ->whereIn('status', [PhrDocumentUpload::PENDING, PhrDocumentUpload::RECEIVING, PhrDocumentUpload::UPLOADED])
             ->when($status === PhrDocumentUpload::EXPIRED, fn ($query) => $query->where('expires_at', '<', now()))
-            ->update(['status' => $status, 'staging_path' => null, 'updated_at' => now()]);
+            ->update(['status' => $status, 'staging_path' => $upload->transport === 's3' ? $upload->staging_path : null, 'updated_at' => now()]);
         if ($closed === 1 && is_string($upload->staging_path)) {
-            $this->deleteBlob($upload->staging_path);
+            $this->deleteBlob($upload->staging_path, $upload->storage_disk);
         }
         $upload->refresh();
     }
 
-    private function deleteBlob(string $path): void
+    private function deleteBlob(string $path, string $disk): void
     {
         try {
-            Storage::disk(PhrDocument::STORAGE_DISK)->delete($path);
+            Storage::disk($disk)->delete($path);
         } catch (Throwable) {
             // The row no longer references it, so storage:prune reclaims it.
         }
@@ -357,21 +430,5 @@ final readonly class SignedDocumentUploadService
         }
 
         return ['size' => $size, 'sha256' => $sha256];
-    }
-
-    private function hashStored(string $path): string
-    {
-        $stream = Storage::disk(PhrDocument::STORAGE_DISK)->readStream($path);
-        if (! is_resource($stream)) {
-            throw new UnprocessableEntityHttpException('The uploaded file could not be read.');
-        }
-        try {
-            $context = hash_init('sha256');
-            hash_update_stream($context, $stream);
-
-            return hash_final($context);
-        } finally {
-            fclose($stream);
-        }
     }
 }

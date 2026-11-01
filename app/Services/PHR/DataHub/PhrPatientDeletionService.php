@@ -4,7 +4,6 @@ namespace App\Services\PHR\DataHub;
 
 use App\Jobs\PHR\CleanupDeletedPhrPatientArtifactsJob;
 use App\Models\PhrDicomUpload;
-use App\Models\PhrDocument;
 use App\Models\PhrEhiPackage;
 use App\Models\PhrExport;
 use App\Models\PhrNativeBackup;
@@ -28,7 +27,7 @@ final class PhrPatientDeletionService
     private const int ACTIVE_ARTIFACT_LEASE_MINUTES = 15;
 
     /** @var list<string> */
-    private const array ALLOWED_DISKS = ['phr_documents', 'phr_dicom', 'phr_exports'];
+    private const array ALLOWED_DISKS = ['phr_documents', 'phr_dicom', 'phr_exports', 'phr_uploads'];
 
     public function preview(PhrPatient $patient): PhrPatientDeletionPlan
     {
@@ -171,6 +170,12 @@ final class PhrPatientDeletionService
             $blockers[] = 'ehi_intake_in_progress';
         }
 
+        if (DB::table('phr_document_uploads')->where('patient_id', $patientId)
+            ->where(fn ($query) => $query->where('status', 'receiving')->orWhere(fn ($query) => $query
+                ->where('transport', 's3')->where('expires_at', '>', now())))->exists()) {
+            $blockers[] = 'document_upload_in_progress';
+        }
+
         $artifacts = $this->artifacts($patientId, $blockers);
         usort($artifacts, static fn (array $left, array $right): int => [$left['disk'], $left['key']] <=> [$right['disk'], $right['key']]);
         $artifactBytes = array_sum(array_map(static fn (array $artifact): int => $artifact['bytes'] ?? 0, $artifacts));
@@ -237,7 +242,7 @@ final class PhrPatientDeletionService
         DB::table('phr_ehi_uploads')->where('patient_id', $patientId)->whereNotNull('storage_path')
             ->orderBy('id')->each(fn ($row) => $collect((string) $row->storage_disk, (string) $row->storage_path, null));
         DB::table('phr_document_uploads')->where('patient_id', $patientId)->whereNotNull('staging_path')
-            ->orderBy('id')->each(fn ($row) => $collect(PhrDocument::STORAGE_DISK, (string) $row->staging_path, null));
+            ->orderBy('id')->each(fn ($row) => $collect((string) $row->storage_disk, (string) $row->staging_path, null));
         DB::table('phr_exports')->where('patient_id', $patientId)->whereNotNull('storage_path')
             ->orderBy('id')->each(fn ($row) => $collect((string) $row->storage_disk, (string) $row->storage_path, is_numeric($row->file_size_bytes) ? (int) $row->file_size_bytes : null));
         DB::table('phr_native_backups')->where('patient_id', $patientId)->whereNotNull('storage_path')
@@ -268,7 +273,7 @@ final class PhrPatientDeletionService
                 ->where('storage_disk', $disk)->where('storage_path', $key)->exists()) {
             return true;
         }
-        if ($disk === PhrDocument::STORAGE_DISK && DB::table('phr_document_uploads')
+        if (DB::table('phr_document_uploads')->where('storage_disk', $disk)
             ->where('patient_id', '<>', $patientId)->where('staging_path', $key)->exists()) {
             return true;
         }

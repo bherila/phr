@@ -538,3 +538,36 @@ use synthetic data.
 
 Production ordering, supersession records, OHIF publication proof, and intentional
 rollback procedures are described in [.github/deployment-policy.md](.github/deployment-policy.md).
+
+### Blob storage limits and signed document uploads
+
+Admins can set the global cap, default per-user cap, and individual overrides in
+**Config → Storage limits**. Limits are bytes in the API and MiB in the UI. Blank
+means unlimited (inherit for a user override); zero prevents new uploads. A user's
+unlimited override still respects the global cap. Uploads shared into a patient's
+record count against its owner. Existing files remain readable when over quota.
+
+Admission checks cover signed document URLs, direct document uploads, DICOM files,
+EHI/MyChart archive staging, and native restore uploads. Usage estimates come from
+stored size metadata cached for 60 seconds, with outstanding signed authorizations
+included immediately, including cancelled S3 URLs until they expire. This is a best-effort capacity guard, not filesystem billing:
+concurrent uploads, generated artifacts, archive expansion, caches, and retained or
+unreferenced bytes can exceed a cap. No directory walk or object listing is needed
+on the upload path.
+
+MCP `documents_upload_access_create` returns a short-lived PUT URL and required
+headers, followed by `documents_upload_finalize`. The default is a signed local
+application endpoint. To stage directly on any S3-compatible store, set
+`PHR_UPLOADS_DISK_DRIVER=s3` and the `PHR_UPLOADS_*` credentials, region, bucket, and
+endpoint from `.env.example`. This changes staging only; durable document storage
+keeps its own configuration. Configure bucket CORS for PUT from the intended
+browser origin if browser clients will use these URLs; MCP server-side clients do
+not require CORS. Credentials need PutObject, GetObject/HeadObject, DeleteObject,
+and ListBucket for scheduled orphan cleanup on the staging prefix.
+
+Direct PUTs sign exact Content-Length and Content-Type. Finalization checks size,
+optional SHA-256, and content type against a bounded local snapshot, then publishes
+a separate immutable document. An S3 URL can be reused until expiry, so it never
+points at the final document. Cancel cannot revoke an issued S3 URL; staging keys
+are retained for a second cleanup after expiry. Existing garbage collection and
+patient deletion include this disk. Never log upload URLs or credentials.

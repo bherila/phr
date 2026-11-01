@@ -49,7 +49,7 @@ For photos and PDFs prefer a signed upload: `documents.upload_access_create`
 (`kind` is `eob`, `pharmacy_receipt`, `rx_label`, `statement` or `other`, plus
 `filename`, `content_type`, the exact `byte_size`, and `sha256` if you have it),
 then PUT the raw file to the returned `url` with the returned headers and no
-Authorization header (it is single-use and expires in minutes), then
+Authorization header (it expires in minutes), then
 `documents.upload_finalize`, which verifies size and hash and returns
 `document_id`. Use `documents.upload` only for small files. PHR runs no AI on a
 document for you: you read every label, receipt, statement and every EOB that

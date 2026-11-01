@@ -7,6 +7,7 @@ use App\Jobs\PHR\PreviewPhrNativeRestoreJob;
 use App\Models\PhrDocument;
 use App\Models\PhrNativeRecordIdentity;
 use App\Models\PhrNativeRestoreAttempt;
+use App\Services\PHR\Storage\BlobStorageQuota;
 use App\Support\PHR\PhrDocumentSource;
 use App\Support\PHR\PhrDocumentType;
 use App\Support\Storage\PhrStorageKey;
@@ -45,6 +46,7 @@ final class PhrNativeRestoreService
         if ($size < 1 || $size > $maxBytes) {
             throw new NativeRestoreException('size_limit');
         }
+        app(BlobStorageQuota::class)->assertForOwner($actorUserId, $size);
         $storageDisk = 'phr_exports';
         $storagePath = PhrStorageKey::nativeRestoreSource((string) Str::uuid());
         try {

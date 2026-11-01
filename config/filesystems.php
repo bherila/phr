@@ -121,6 +121,21 @@ return [
             'report' => false,
         ],
 
+        // Optional direct upload staging. Durable documents keep their own disk.
+        'phr_uploads' => [
+            'driver' => env('PHR_UPLOADS_DISK_DRIVER', 'local'),
+            'root' => env('PHR_UPLOADS_DISK_DRIVER', 'local') === 'local' ? storage_path('app/private/phr-uploads') : '',
+            'key' => env('PHR_UPLOADS_ACCESS_KEY_ID'),
+            'secret' => env('PHR_UPLOADS_SECRET_ACCESS_KEY'),
+            'region' => env('PHR_UPLOADS_REGION', 'auto'),
+            'bucket' => env('PHR_UPLOADS_BUCKET'),
+            'endpoint' => env('PHR_UPLOADS_ENDPOINT'),
+            'use_path_style_endpoint' => env('PHR_UPLOADS_USE_PATH_STYLE_ENDPOINT', false),
+            'request_checksum_calculation' => 'when_required',
+            'response_checksum_validation' => 'when_required',
+            'throw' => true,
+        ],
+
         'phr_documents' => [
             'driver' => 'local',
             'root' => env('PHR_DOCUMENTS_DISK_ROOT', storage_path('app/private/phr-documents')),

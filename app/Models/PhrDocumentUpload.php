@@ -8,8 +8,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 
 /**
- * One signed document upload session: the bytes an agent PUT to a short-lived,
- * single-use URL, waiting for it to finalize them into a document.
+ * One signed document upload session: bytes staged through a short-lived URL,
+ * waiting for the agent to finalize them into a document.
  *
  * @property int $id
  * @property string $public_id
@@ -22,6 +22,8 @@ use Illuminate\Support\Carbon;
  * @property int $byte_size
  * @property string|null $sha256
  * @property string $status
+ * @property string $storage_disk
+ * @property string $transport
  * @property string|null $staging_path
  * @property int|null $received_size
  * @property string|null $received_sha256
@@ -52,7 +54,7 @@ class PhrDocumentUpload extends Model
     protected $fillable = [
         'public_id', 'patient_id', 'actor_user_id', 'import_source', 'kind', 'filename', 'content_type',
         'byte_size', 'sha256', 'status', 'staging_path', 'received_size', 'received_sha256',
-        'expires_at', 'uploaded_at', 'finalized_at', 'document_id',
+        'expires_at', 'uploaded_at', 'finalized_at', 'document_id', 'storage_disk', 'transport',
     ];
 
     protected function casts(): array

@@ -13,7 +13,7 @@ use Throwable;
 final class PhrPatientDeletionCleanupService
 {
     /** @var list<string> */
-    private const array ALLOWED_DISKS = ['phr_documents', 'phr_dicom', 'phr_exports'];
+    private const array ALLOWED_DISKS = ['phr_documents', 'phr_dicom', 'phr_exports', 'phr_uploads'];
 
     public function cleanup(int $deletionId): void
     {
@@ -115,7 +115,7 @@ final class PhrPatientDeletionCleanupService
             ->where('storage_disk', $disk)->where('storage_path', $key)->exists()
             || DB::table('phr_ehi_blobs')->where('storage_disk', $disk)->where('storage_path', $key)->exists()
             || DB::table('phr_ehi_uploads')->where('storage_disk', $disk)->where('storage_path', $key)->exists()
-            || DB::table('phr_document_uploads')->where('staging_path', $key)->exists()) {
+            || DB::table('phr_document_uploads')->where('storage_disk', $disk)->where('staging_path', $key)->exists()) {
             return true;
         }
         if ($disk === 'phr_dicom') {

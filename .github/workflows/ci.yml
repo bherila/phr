@@ -585,6 +585,7 @@ jobs:
           excludes: |
             ohif
             phr-documents
+            phr-uploads
             phr-exports
             phr-dicom
             s3-blobs
