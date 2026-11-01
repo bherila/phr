@@ -108,6 +108,19 @@ test.describe('Record lists never cut anything off', () => {
     await expect(page.getByRole('tablist', { name: 'Medications views' })).toBeVisible()
   })
 
+  test('The section has one header row, and the list starts high on the page', async ({ page }) => {
+    await page.goto(await patientUrl(page, 'medication-fills'))
+    await expect(page.getByRole('table', { name: 'Fills' }).getByRole('row').nth(1)).toBeVisible()
+    await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toHaveCount(0)
+
+    const tabs = (await page.getByRole('tablist', { name: 'Medications views' }).boundingBox())!
+    const add = (await page.getByRole('button', { name: 'Add fill' }).boundingBox())!
+    expect(add.y).toBeLessThan(tabs.y + tabs.height)
+    expect(add.y + add.height).toBeGreaterThan(tabs.y)
+    // Tabs, then filters: the table was 245px down with the title and breadcrumb above it.
+    expect((await page.getByRole('table', { name: 'Fills' }).boundingBox())!.y).toBeLessThan(190)
+  })
+
   test('Fills beside the panel: the list drops secondary columns and the panel holds the rest', async ({ page }) => {
     await page.goto(await patientUrl(page, 'medication-fills'))
     await page.getByRole('table', { name: 'Fills' }).getByText('mometasone furoate').first().click()

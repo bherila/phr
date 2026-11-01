@@ -4,7 +4,7 @@ import { fetchWrapper } from '@/fetchWrapper'
 import { type FillColumn, saveDisplayPreferences, useDisplayPreferences } from '@/lib/displayPreferences'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { recordChanged, useRecordChanges } from '@/phr/clinical/recordChanges'
-import { MedicationSectionTabs, useMedicationCount } from '@/phr/medications/medicationSection'
+import { MedicationSectionHeader, useMedicationCount } from '@/phr/medications/medicationSection'
 import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { errorMessage } from '@/phr/shared'
 import type { PhrListPageProps } from '@/phr/shell/phrPages'
@@ -98,12 +98,12 @@ export default function MedicationFillsPage({ patientId, onDrill, openRecord }: 
 
   return (
     <div className="@container/fills-page flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <h1 className="text-2xl font-semibold text-foreground">Medications</h1>
-        {crud.canManage && <div className="ml-auto"><FillEntryForm patientId={patientId} onCreated={created} /></div>}
-      </div>
-
-      <MedicationSectionTabs patientId={patientId} value="fills" counts={{ fills: firstLoad ? null : crud.records.length, medications: medicationCount }} />
+      <MedicationSectionHeader
+        patientId={patientId}
+        value="fills"
+        counts={{ fills: firstLoad ? null : crud.records.length, medications: medicationCount }}
+        action={crud.canManage ? <FillEntryForm patientId={patientId} onCreated={created} /> : undefined}
+      />
 
       <FillFilters
         values={filters}

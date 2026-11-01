@@ -125,7 +125,7 @@ export function PhrPatientView({ view, patientName }: PhrPatientViewProps): Reac
       >
         <div className={cn('flex flex-col gap-4 px-4 py-6 md:px-8', PAGE_CONTENT_MAX_WIDTH)} data-testid="page-content">
           {/* On a phone the bar names the patient and the page's title follows; a record's page keeps its trail. */}
-          <Breadcrumb crumbs={crumbs} className="max-md:hidden" />
+          {!page.noListBreadcrumb && <Breadcrumb crumbs={crumbs} className="max-md:hidden" />}
           <Suspense fallback={pageFallback(PHR_PAGES[sidebarPageOf(view.page)].navLabel ?? page.label)}>
             <ListPage key={`${view.patientId}-${view.page}`} patientId={view.patientId} onDrill={fromList} openRecord={view.parent ?? view.detail} />
           </Suspense>

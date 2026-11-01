@@ -1,5 +1,5 @@
 import { Tabs } from '@base-ui/react/tabs'
-import { type ReactElement, useCallback, useEffect, useState } from 'react'
+import { type ReactElement, type ReactNode, useCallback, useEffect, useState } from 'react'
 
 import { fetchWrapper } from '@/fetchWrapper'
 import { useDisplayPreferences } from '@/lib/displayPreferences'
@@ -50,34 +50,44 @@ export function initialMedicationStatus(): MedicationStatusFilter {
   return status === 'ended' || status === 'all' ? status : 'active'
 }
 
-export function MedicationSectionTabs({ patientId, value, counts }: {
+/**
+ * The section's one header row: the tabs and the current view's Add. The sidebar already names the
+ * section, so the title is for assistive technology, and it shows only when there are no tabs.
+ */
+export function MedicationSectionHeader({ patientId, value, counts, action }: {
   patientId: number
   value: MedicationSectionTab
   counts: MedicationSectionCounts
-}): ReactElement | null {
+  action?: ReactNode
+}): ReactElement {
   const { hide_medication_list: hideMedicationList } = useDisplayPreferences()
   // Someone who hides the list and follows a link to it still gets the way back.
-  if (hideMedicationList && value === 'fills') return null
+  const showsTabs = !hideMedicationList || value !== 'fills'
 
   function select(next: MedicationSectionTab): void {
     const tab = TABS.find((candidate) => candidate.value === next)
     if (tab && next !== value) pushPhrLocation(patientPageUrl(patientId, tab.page))
   }
+
   return (
-    <div className="border-b border-border">
-      <Tabs.Root value={value} onValueChange={select} className="max-w-full">
-        <Tabs.List aria-label="Medications views" className="flex gap-1 overflow-x-auto">
-          {TABS.map((tab) => (
-            <Tabs.Tab
-              key={tab.value}
-              value={tab.value}
-              className="-mb-px h-9 whitespace-nowrap border-b-2 border-transparent px-3 text-sm font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[active]:border-primary data-[active]:text-foreground max-md:h-11 max-md:px-2"
-            >
-              {tab.label} <span className="font-normal text-muted-foreground">{counts[tab.value] ?? ''}</span>
-            </Tabs.Tab>
-          ))}
-        </Tabs.List>
-      </Tabs.Root>
+    <div className="flex items-end gap-2 border-b border-border pb-px">
+      <h1 className={showsTabs ? 'sr-only' : 'pb-2 text-2xl font-semibold text-foreground'}>Medications</h1>
+      {showsTabs && (
+        <Tabs.Root value={value} onValueChange={select} className="min-w-0">
+          <Tabs.List aria-label="Medications views" className="flex gap-1 overflow-x-auto">
+            {TABS.map((tab) => (
+              <Tabs.Tab
+                key={tab.value}
+                value={tab.value}
+                className="-mb-px h-11 whitespace-nowrap border-b-2 border-transparent px-3 text-base font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring data-[active]:border-primary data-[active]:text-foreground max-md:px-2"
+              >
+                {tab.label} <span className="text-sm font-normal text-muted-foreground">{counts[tab.value] ?? ''}</span>
+              </Tabs.Tab>
+            ))}
+          </Tabs.List>
+        </Tabs.Root>
+      )}
+      {action && <div className="ml-auto shrink-0 pb-1.5">{action}</div>}
     </div>
   )
 }

@@ -142,6 +142,7 @@ describe('MedicationFillsPage table', () => {
     renderPage()
     await findLoadedFills()
     expect(screen.queryByRole('tablist', { name: 'Medications views' })).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Medications', level: 1 })).not.toHaveClass('sr-only')
     expect(mockGet).not.toHaveBeenCalledWith('/api/phr/patients/42/medications')
     initial.remove()
     resetDisplayPreferences()
@@ -149,7 +150,7 @@ describe('MedicationFillsPage table', () => {
 
   it('sits under the Medications title, on the section\'s Fills tab with every tab counted', async () => {
     renderPage()
-    expect(await screen.findByRole('heading', { name: 'Medications' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Medications', level: 1 })).toHaveClass('sr-only')
     expect(await screen.findByRole('tab', { name: /^Fills \d+$/ })).toHaveAttribute('aria-selected', 'true')
     const medications = await screen.findByRole('tab', { name: /^Medications \d+$/ })
     fireEvent.click(medications)

@@ -264,6 +264,8 @@ link groups fills under a medication, but a medication is not only its fills. It
 schedule, dates, a status and a reason, and it can have no fills at all (typed in, or imported
 from a C-CDA). So both records stay, and they share a section: **(shipped)**
 
+- One header row holds the tabs and the view's Add, with no breadcrumb or visible title, because
+  the sidebar names the section. Someone who hides the Medications list has no tabs and keeps the title.
 - `/medication-fills` is the Fills view, where the sidebar leads. `/medications` is the Medications
   view, every medication with its last fill, filtered by Active (which includes on hold), Ended and
   All. `?status=ended` and `?status=all` keep the filter in the address.

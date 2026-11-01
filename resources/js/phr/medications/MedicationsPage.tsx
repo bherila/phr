@@ -31,7 +31,7 @@ import {
 import {
   initialMedicationStatus,
   matchesMedicationStatus,
-  MedicationSectionTabs,
+  MedicationSectionHeader,
   medicationStatusCounts,
   type MedicationStatusFilter,
   MedicationStatusFilters,
@@ -219,17 +219,17 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <h1 className="text-2xl font-semibold text-foreground">Medications</h1>
-        {crud.canManage && (
-          <Button aria-label="Add medication" className="ml-auto max-md:size-11 max-md:px-0" onClick={() => setAddForm(EMPTY_MEDICATION_FORM)}>
+      <MedicationSectionHeader
+        patientId={patientId}
+        value="medications"
+        counts={{ fills: fills?.total ?? null, medications: firstLoad ? null : crud.records.length }}
+        action={crud.canManage ? (
+          <Button aria-label="Add medication" className="max-md:size-11 max-md:px-0" onClick={() => setAddForm(EMPTY_MEDICATION_FORM)}>
             <Plus className="size-4" aria-hidden="true" />
             <span className="max-md:hidden">Add medication</span>
           </Button>
-        )}
-      </div>
-
-      <MedicationSectionTabs patientId={patientId} value="medications" counts={{ fills: fills?.total ?? null, medications: firstLoad ? null : crud.records.length }} />
+        ) : undefined}
+      />
 
       <MedicationStatusFilters value={statusFilter} counts={firstLoad ? null : counts} onSelect={selectStatus} />
 
