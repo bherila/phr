@@ -87,7 +87,10 @@ class NdcLabelService
     {
         return [
             'dailymed' => $splSetId === null ? null : 'https://dailymed.nlm.nih.gov/dailymed/lookup.cfm?setid='.rawurlencode($splSetId),
-            'ndc_directory' => $productNdc === null || $productNdc === '' ? null : 'https://www.accessdata.fda.gov/scripts/cder/ndc/dsp_searchresult.cfm?q='.rawurlencode($productNdc),
+            // The FDA NDC Directory web search only accepts form POSTs, so a GET
+            // link lands on its error page. openFDA's NDC endpoint serves the same
+            // directory record at a stable GET URL.
+            'ndc_directory' => $productNdc === null || $productNdc === '' ? null : 'https://api.fda.gov/drug/ndc.json?search='.rawurlencode('product_ndc:"'.$productNdc.'"'),
         ];
     }
 

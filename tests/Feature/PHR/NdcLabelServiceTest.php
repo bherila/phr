@@ -84,7 +84,7 @@ final class NdcLabelServiceTest extends TestCase
         $this->assertSame(['HMG-CoA Reductase Inhibitor [EPC]'], $detail['pharm_class']);
         $this->assertSame('atorvastatin calcium trihydrate', $detail['ingredients'][0]['name']);
         $this->assertSame(self::SET_ID, $detail['spl_set_id']);
-        $this->assertStringContainsString('67046-1677', (string) $detail['links']['ndc_directory']);
+        $this->assertSame('https://api.fda.gov/drug/ndc.json?search=product_ndc%3A%2267046-1677%22', $detail['links']['ndc_directory']);
         $this->assertFalse($detail['discontinued']);
     }
 }
