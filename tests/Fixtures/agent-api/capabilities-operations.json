@@ -235,6 +235,10 @@
         "available": true,
         "scope": "clinical:read"
     },
+    "ndc.label": {
+        "available": true,
+        "scope": "clinical:read"
+    },
     "clinical.get": {
         "available": true,
         "scope": "clinical:read"

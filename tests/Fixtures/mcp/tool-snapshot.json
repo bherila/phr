@@ -53,6 +53,7 @@
                 "identity.get",
                 "medication_fills.get",
                 "medication_fills.list",
+                "ndc.label",
                 "ndc.lookup",
                 "ndc.search",
                 "patients.get",
@@ -116,6 +117,7 @@
                 "medication_fills.upsert",
                 "medications.update",
                 "medications.upsert",
+                "ndc.label",
                 "ndc.lookup",
                 "ndc.search",
                 "office_visits.update",
@@ -173,6 +175,7 @@
                 "imports.review",
                 "medication_fills.get",
                 "medication_fills.list",
+                "ndc.label",
                 "ndc.lookup",
                 "ndc.search",
                 "patients.get",
@@ -338,6 +341,7 @@
                 "native_backups.create",
                 "native_backups.download_access.create",
                 "native_backups.list",
+                "ndc.label",
                 "ndc.lookup",
                 "ndc.search",
                 "office_visits.update",
@@ -1178,6 +1182,19 @@
             "name": "native_backups.list",
             "outputSchema": "sha256:7409e40acf6b99168b91d589fab54fefb10a1adb107d41769fe4013733ae9305",
             "title": "List native backups"
+        },
+        "ndc.label": {
+            "annotations": {
+                "readOnlyHint": true,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+            },
+            "description": "Get the FDA drug label (prescribing information) sections for a drug: indications and usage, dosage and administration, dosage forms and strengths, contraindications, boxed warning, warnings and precautions, adverse reactions, how supplied and storage. Give the ndc_10 from ndc_lookup, or an SPL set id. The server reads openFDA's drug label endpoint (cached) and sends only the NDC or set id, never patient data. The text is the FDA's as published; status not_found means no label is listed (typical for a discontinued product) and unavailable means openFDA could not be reached. Use it to explain what a drug is and how it is labeled to be taken; it is general labeling, not advice for the patient.",
+            "inputSchema": "sha256:10bd28c418a7a9ab5331ec2dac6c5b34f1cf185874fcee094850ca57de6c7946",
+            "name": "ndc.label",
+            "outputSchema": "sha256:6af967ce814d2c300581fdd30277c66e1d40ed4c50828c61d3deab97d0714f66",
+            "title": "Get an FDA drug label"
         },
         "ndc.lookup": {
             "annotations": {

@@ -1,7 +1,9 @@
 import { Plus, Search } from 'lucide-react'
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { fetchWrapper } from '@/fetchWrapper'
@@ -330,29 +332,89 @@ interface FillFormProps {
   onCancel: () => void
   /** Called when the fill changed elsewhere and the person asks to reload it. */
   onReload?: (() => void) | undefined
+  /** Told whenever the form gains or loses unsaved edits. */
+  onDirtyChange?: ((dirty: boolean) => void) | undefined
 }
 
-/** Add-a-fill entry point: a button that opens the form. */
+/** Add-a-fill entry point: a button that opens the form in a dialog. */
 export function FillEntryForm({ patientId, onCreated }: { patientId: number, onCreated: (fill: MedicationFill) => void }) {
   const [open, setOpen] = useState(false)
-  if (!open) {
-    return (
+  return (
+    <>
       <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
         <Plus className="size-4" />
         Add Fill
       </Button>
-    )
-  }
-  return (
-    <FillForm
-      patientId={patientId}
-      onSaved={(fill) => { onCreated(fill); setOpen(false) }}
-      onCancel={() => setOpen(false)}
-    />
+      {open && (
+        <FillFormDialog
+          patientId={patientId}
+          onSaved={(fill) => { onCreated(fill); setOpen(false) }}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </>
   )
 }
 
-export function FillForm({ patientId, fill, onSaved, onCancel, onReload }: FillFormProps) {
+/**
+ * The fill form in a modal dialog: the body scrolls, the header and the Save/Cancel footer stay
+ * in view, and closing with unsaved edits asks first. Full screen on a phone.
+ */
+export function FillFormDialog({ patientId, fill, formKey, onSaved, onClose, onReload }: {
+  patientId: number
+  fill?: MedicationFill | undefined
+  /** Changing it remounts the form (after a reload) without closing the dialog. */
+  formKey?: string | number
+  onSaved: (fill: MedicationFill) => void
+  onClose: () => void
+  onReload?: (() => void) | undefined
+}) {
+  const [dirty, setDirty] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+
+  function requestClose(): void {
+    if (dirty) setConfirming(true)
+    else onClose()
+  }
+
+  return (
+    <>
+      <Dialog open onOpenChange={(open) => { if (!open) requestClose() }}>
+        <DialogContent
+          className="flex h-[min(54rem,calc(100dvh-2rem))] flex-col gap-0 overflow-hidden p-0 max-sm:top-0 max-sm:left-0 max-sm:h-dvh max-sm:max-h-none max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none sm:max-w-3xl"
+        >
+          <DialogHeader className="border-b border-border px-6 py-4">
+            <DialogTitle>{fill ? 'Edit Fill' : 'Add Fill'}</DialogTitle>
+            <DialogDescription className="sr-only">{fill ? 'Change the details of this prescription fill.' : 'Record a prescription fill.'}</DialogDescription>
+          </DialogHeader>
+          <FillForm
+            key={formKey}
+            patientId={patientId}
+            fill={fill}
+            onSaved={onSaved}
+            onCancel={requestClose}
+            onReload={onReload}
+            onDirtyChange={setDirty}
+          />
+        </DialogContent>
+      </Dialog>
+      <AlertDialog open={confirming} onOpenChange={setConfirming}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard your changes?</AlertDialogTitle>
+            <AlertDialogDescription>This fill has unsaved edits. Closing now loses them.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <AlertDialogAction onClick={onClose}>Discard changes</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  )
+}
+
+export function FillForm({ patientId, fill, onSaved, onCancel, onReload, onDirtyChange }: FillFormProps) {
   const editing = fill !== undefined
   const [form, setForm] = useState<FillFormState>(() => (fill ? formFromFill(fill) : EMPTY_FORM))
   const initialNdc = fill ? formFromFill(fill).ndc : ''
@@ -367,6 +429,12 @@ export function FillForm({ patientId, fill, onSaved, onCancel, onReload }: FillF
   const lookupSeqRef = useRef(0)
   // Answers by normalised NDC, so an NDC is looked up once however it is retyped.
   const lookupCacheRef = useRef(new Map<string, NdcLookupResult>())
+
+  const [initialSerialized] = useState(() => JSON.stringify(fill ? formFromFill(fill) : EMPTY_FORM))
+  const dirty = JSON.stringify(form) !== initialSerialized
+  useEffect(() => {
+    onDirtyChange?.(dirty)
+  }, [dirty, onDirtyChange])
 
   const update = (patch: Partial<FillFormState>) => setForm((current) => ({ ...current, ...patch }))
 
@@ -496,9 +564,8 @@ export function FillForm({ patientId, fill, onSaved, onCancel, onReload }: FillF
     : result?.selected ?? null
 
   return (
-    <div className="w-full rounded-lg border border-border bg-card p-4">
-      <h2 className="mb-3 text-sm font-semibold text-card-foreground">{editing ? 'Edit Fill' : 'Add Fill'}</h2>
-      <form onSubmit={(event) => void submit(event)} className="space-y-4" noValidate>
+    <form onSubmit={(event) => void submit(event)} className="flex min-h-0 flex-1 flex-col" noValidate>
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
         <div className="space-y-2">
           <Field label="NDC *" field="ndc" errors={errors}>
             <Input value={form.ndc} onChange={(event) => changeNdc(event.target.value)} placeholder="00071-0155-23" inputMode="numeric" />
@@ -613,6 +680,8 @@ export function FillForm({ patientId, fill, onSaved, onCancel, onReload }: FillF
           </Field>
         </div>
 
+      </div>
+      <div className="shrink-0 space-y-2 border-t border-border bg-background px-6 py-3">
         {conflict && (
           <div role="alert" className="flex flex-wrap items-center gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
             <span>{FILL_CONFLICT_MESSAGE}</span>
@@ -624,7 +693,7 @@ export function FillForm({ patientId, fill, onSaved, onCancel, onReload }: FillF
           <Button type="submit" size="sm" disabled={saving}>{saving ? 'Saving…' : editing ? 'Save changes' : 'Save fill'}</Button>
           <Button type="button" variant="outline" size="sm" disabled={saving} onClick={onCancel}>Cancel</Button>
         </div>
-      </form>
-    </div>
+      </div>
+    </form>
   )
 }

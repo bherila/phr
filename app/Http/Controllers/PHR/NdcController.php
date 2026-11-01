@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\PHR;
 
 use App\Http\Controllers\Controller;
+use App\Services\PHR\Ndc\NdcLabelService;
 use App\Services\PHR\Ndc\NdcLookupService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -10,7 +11,7 @@ use Illuminate\Http\Request;
 /** NDC autofill for the manual entry form. The browser never calls openFDA itself. */
 class NdcController extends Controller
 {
-    public function __construct(private NdcLookupService $ndc) {}
+    public function __construct(private NdcLookupService $ndc, private NdcLabelService $labels) {}
 
     public function lookup(Request $request): JsonResponse
     {
@@ -33,5 +34,16 @@ class NdcController extends Controller
         unset($validated['package']);
 
         return response()->json(['candidates' => $this->ndc->search($validated)['candidates']]);
+    }
+
+    /** The FDA drug label sections for a package NDC or SPL set id (the fill's drug panel). */
+    public function label(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'ndc_10' => ['required_without:spl_set_id', 'nullable', 'string', 'max:64'],
+            'spl_set_id' => ['required_without:ndc_10', 'nullable', 'string', 'max:64'],
+        ]);
+
+        return response()->json($this->labels->label($validated['ndc_10'] ?? null, $validated['spl_set_id'] ?? null));
     }
 }

@@ -4019,6 +4019,55 @@
                 }
             }
         },
+        "/ndc/label": {
+            "get": {
+                "operationId": "ndc.label",
+                "summary": "The FDA drug label sections for a package NDC or SPL set id",
+                "description": "Reads the FDA drug label (prescribing information) from openFDA's drug label endpoint on the server and caches it. Give the 10-digit package NDC (ndc_10) or an SPL set id. Returns the label sections that exist (boxed warning, indications and usage, dosage and administration, dosage forms and strengths, contraindications, warnings and precautions, warnings, adverse reactions, how supplied, storage and handling) as published, the label's effective date and version, and DailyMed / FDA NDC Directory links. status is found, not_found (no label is listed, typical for a discontinued product), unavailable (openFDA could not be reached) or invalid. Sends only the NDC or set id, never patient data.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "clinical:read"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/NdcLabelNdc10"
+                    },
+                    {
+                        "$ref": "#/components/parameters/NdcLabelSplSetId"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The label sections, or the reason there are none",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/NdcLabelResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            }
+        },
         "/ndc/lookup": {
             "get": {
                 "operationId": "ndc.lookup",
@@ -5497,6 +5546,24 @@
                 "schema": {
                     "type": "string",
                     "minLength": 1,
+                    "maxLength": 64
+                }
+            },
+            "NdcLabelNdc10": {
+                "name": "ndc_10",
+                "in": "query",
+                "description": "The 10-digit package NDC (ndc_10 from ndc.lookup). Required unless spl_set_id is given.",
+                "schema": {
+                    "type": "string",
+                    "maxLength": 64
+                }
+            },
+            "NdcLabelSplSetId": {
+                "name": "spl_set_id",
+                "in": "query",
+                "description": "The SPL set id of the label. Required unless ndc_10 is given.",
+                "schema": {
+                    "type": "string",
                     "maxLength": 64
                 }
             },
@@ -11923,6 +11990,108 @@
                             "string",
                             "null"
                         ]
+                    }
+                },
+                "additionalProperties": false
+            },
+            "NdcLabelResponse": {
+                "type": "object",
+                "required": [
+                    "status",
+                    "ndc_10",
+                    "spl_set_id",
+                    "effective_date",
+                    "version",
+                    "source",
+                    "sections",
+                    "links"
+                ],
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "found",
+                            "not_found",
+                            "unavailable",
+                            "invalid"
+                        ]
+                    },
+                    "ndc_10": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "spl_set_id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "effective_date": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date"
+                    },
+                    "version": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "source": {
+                        "type": "string"
+                    },
+                    "sections": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "required": [
+                                "key",
+                                "title",
+                                "text",
+                                "truncated"
+                            ],
+                            "properties": {
+                                "key": {
+                                    "type": "string"
+                                },
+                                "title": {
+                                    "type": "string"
+                                },
+                                "text": {
+                                    "type": "string"
+                                },
+                                "truncated": {
+                                    "type": "boolean"
+                                }
+                            },
+                            "additionalProperties": false
+                        }
+                    },
+                    "links": {
+                        "type": "object",
+                        "required": [
+                            "dailymed",
+                            "ndc_directory"
+                        ],
+                        "properties": {
+                            "dailymed": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "ndc_directory": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            }
+                        },
+                        "additionalProperties": false
                     }
                 },
                 "additionalProperties": false

@@ -126,6 +126,11 @@ final class AgentApiReadDao
         return $this->get('ndc/search', $criteria, ['status', 'candidates']);
     }
 
+    public function ndcLabel(?string $ndc10, ?string $splSetId): AgentApiPayload
+    {
+        return $this->get('ndc/label', array_filter(['ndc_10' => $ndc10, 'spl_set_id' => $splSetId], static fn (?string $v): bool => $v !== null), ['status', 'sections']);
+    }
+
     public function clinicalRecord(int $patientId, string $resource, int $recordId): AgentApiPayload
     {
         return $this->item("patients/{$patientId}/{$resource}/{$recordId}", ['resource_type', 'patient_id', 'data']);
