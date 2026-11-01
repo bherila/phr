@@ -254,23 +254,42 @@ final class PhrCcdaResultEntries
     }
 
     /**
-     * A number the importer accepts (".5", "1,234", "1e3") as the plain decimal a PQ's
-     * value is, or null when the text is not a number.
+     * A number the importer accepts (".5", "1,234", "1e3", "2.5E-11") as the plain decimal a
+     * PQ's value is, or null when the text is not a number or cannot be written exactly.
+     * Exponents are expanded on the digits themselves, never through a float, so no digit of
+     * the value is rounded or lost; an exponent too large to expand sensibly stays an ST.
      */
     private function plainNumber(string $text): ?string
     {
         $number = str_replace(',', '', trim($text));
-        if (! is_numeric($number)) {
+        if (! is_numeric($number)
+            || preg_match('/^([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/', $number, $m) !== 1) {
             return null;
         }
-        if (preg_match('/^([+-]?)(\d*)(?:\.(\d+))?$/', $number, $m) === 1) {
-            return ($m[1] === '-' ? '-' : '').($m[2] === '' ? '0' : $m[2]).(($m[3] ?? '') === '' ? '' : '.'.$m[3]);
+
+        $exponent = (int) ($m[4] ?? 0);
+        if (abs($exponent) > 64) {
+            return null;
         }
 
-        // An exponent or a trailing point.
-        $plain = rtrim(rtrim(sprintf('%.10F', (float) $number), '0'), '.');
+        $digits = $m[2].($m[3] ?? '');
+        $point = strlen($m[2]) + $exponent;
+        if ($point <= 0) {
+            $integer = '0';
+            $fraction = str_repeat('0', -$point).$digits;
+        } elseif ($point >= strlen($digits)) {
+            $integer = $digits.str_repeat('0', $point - strlen($digits));
+            $fraction = '';
+        } else {
+            $integer = substr($digits, 0, $point);
+            $fraction = substr($digits, $point);
+        }
 
-        return $plain === '' || $plain === '-' ? '0' : $plain;
+        // Digits as written, trailing zeros included: "5.20" states a precision "5.2" does not.
+        $integer = ltrim($integer, '0');
+        $negative = $m[1] === '-' && trim($integer.$fraction, '0') !== '';
+
+        return ($negative ? '-' : '').($integer === '' ? '0' : $integer).($fraction === '' ? '' : '.'.$fraction);
     }
 
     private function interpretation(XMLWriter $xml, ?string $flag): void

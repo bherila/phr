@@ -106,6 +106,11 @@ class PhrCcdaResultEntriesTest extends TestCase
             $this->lab(8, 'Synthetic bare point', ['value' => '.5', 'unit' => 'mg/dL']),
             $this->lab(9, 'Synthetic thousands', ['value' => '1,234', 'unit' => 'mg/dL']),
             $this->lab(10, 'Synthetic exponent', ['value' => '1e3', 'unit' => 'mg/dL']),
+            $this->lab(12, 'Synthetic tiny', ['value' => '1e-12', 'unit' => 'mg/dL']),
+            $this->lab(13, 'Synthetic tiny decimal', ['value' => '2.5E-11', 'unit' => 'mg/dL']),
+            $this->lab(14, 'Synthetic large', ['value' => '3e5', 'unit' => 'mg/dL']),
+            $this->lab(15, 'Synthetic shifted point', ['value' => '-12.5e1', 'unit' => 'mg/dL']),
+            $this->lab(16, 'Synthetic too large', ['value' => '1e100', 'unit' => 'mg/dL']),
             $this->lab(11, 'Synthetic below point', ['value' => '<.5', 'unit' => 'mg/dL']),
             $this->lab(7, 'Synthetic numeric only', ['value' => null, 'value_numeric' => '3.1000000000', 'unit' => 'g/L']),
         ]);
@@ -135,10 +140,16 @@ class PhrCcdaResultEntriesTest extends TestCase
         $this->assertSame('5.2', $this->one($xpath, 'c:translation/@value', $odd)->nodeValue);
         $this->assertSame('thousand per uL', $this->one($xpath, 'c:translation/c:originalText', $odd)->textContent);
 
-        foreach (['Synthetic bare point' => '0.5', 'Synthetic thousands' => '1234', 'Synthetic exponent' => '1000'] as $analyte => $plain) {
+        foreach (['Synthetic bare point' => '0.5', 'Synthetic thousands' => '1234', 'Synthetic exponent' => '1000',
+            // Expanded on the digits, so nothing is rounded to a fixed precision.
+            'Synthetic tiny' => '0.000000000001', 'Synthetic tiny decimal' => '0.000000000025', 'Synthetic large' => '300000', 'Synthetic shifted point' => '-125',
+        ] as $analyte => $plain) {
             $quantity = $value($analyte);
             $this->assertSame(['PQ', $plain, 'mg/dL'], [$quantity->getAttribute('xsi:type'), $quantity->getAttribute('value'), $quantity->getAttribute('unit')], $analyte);
         }
+        // An exponent that cannot be expanded sensibly keeps the original string.
+        $tooLarge = $value('Synthetic too large');
+        $this->assertSame(['ST', '1e100', false], [$tooLarge->getAttribute('xsi:type'), $tooLarge->textContent, $tooLarge->hasAttribute('unit')]);
         $belowPoint = $this->el($xpath, 'c:high', $value('Synthetic below point'));
         $this->assertSame(['0.5', 'false'], [$belowPoint->getAttribute('value'), $belowPoint->getAttribute('inclusive')]);
 
