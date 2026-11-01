@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
+import { resetDisplayPreferences } from '@/lib/displayPreferences'
 import { recordChanged } from '@/phr/clinical/recordChanges'
 import MedicationFillDetail from '@/phr/medication-fills/MedicationFillDetail'
 import { MedicationFillHistory } from '@/phr/medication-fills/MedicationFillHistory'
@@ -131,6 +132,21 @@ beforeEach(() => {
 })
 
 describe('MedicationFillsPage table', () => {
+  it('has no tabs for someone who hides the Medications list, and asks for no list it will not show', async () => {
+    const initial = document.createElement('script')
+    initial.id = 'app-initial-data'
+    initial.type = 'application/json'
+    initial.textContent = JSON.stringify({ currentUser: { name: 'Example', display_preferences: { hide_medication_list: true } } })
+    document.body.append(initial)
+    resetDisplayPreferences()
+    renderPage()
+    await findLoadedFills()
+    expect(screen.queryByRole('tablist', { name: 'Medications views' })).not.toBeInTheDocument()
+    expect(mockGet).not.toHaveBeenCalledWith('/api/phr/patients/42/medications')
+    initial.remove()
+    resetDisplayPreferences()
+  })
+
   it('sits under the Medications title, on the section\'s Fills tab with every tab counted', async () => {
     renderPage()
     expect(await screen.findByRole('heading', { name: 'Medications' })).toBeInTheDocument()

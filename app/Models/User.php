@@ -5,6 +5,7 @@ namespace App\Models;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\GenAiProcessor\Models\GenAiImportJob;
 use App\Support\AgentApi\OAuthCredentialRevoker;
+use App\Support\PHR\DisplayPreferences;
 use App\Traits\SerializesDatesAsLocal;
 use Bherila\GenAiLaravel\Clients\AnthropicClient;
 use Bherila\GenAiLaravel\Clients\BedrockClient;
@@ -134,6 +135,7 @@ class User extends Authenticatable implements OAuthenticatable
             'password' => 'hashed',
             'last_login_date' => 'datetime',
             'genai_daily_quota_limit' => 'integer',
+            'display_preferences' => 'array',
             'mcp_api_key_expires_at' => 'datetime',
             'mcp_api_key_last_used_at' => 'datetime',
             'oauth_security_version' => 'integer',
@@ -149,6 +151,12 @@ class User extends Authenticatable implements OAuthenticatable
      * only when a user who never chose saves a usable key
      * (PhrGenAiExecutionModeService::adoptDefault), which also moves their jobs.
      */
+    /** @return array{hide_medication_list: bool, hidden_fill_columns: list<string>} */
+    public function displayPreferences(): array
+    {
+        return DisplayPreferences::normalize($this->display_preferences);
+    }
+
     public function genAiExecutionMode(): string
     {
         $mode = $this->attributes['genai_execution_mode'] ?? null;

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 
 import { fetchWrapper } from '@/fetchWrapper'
+import { useDisplayPreferences } from '@/lib/displayPreferences'
 import { useClinicalCrud } from '@/phr/clinical/crud'
 import { recordChanged, useRecordChanges } from '@/phr/clinical/recordChanges'
 import { MedicationSectionTabs, useMedicationCount } from '@/phr/medications/medicationSection'
@@ -46,7 +47,8 @@ export default function MedicationFillsPage({ patientId, onDrill, openRecord }: 
   })
   useRecordChanges('medication-fills', patientId, 'detail', () => void crud.reload())
   const firstLoad = crud.busy && crud.records.length === 0
-  const medicationCount = useMedicationCount(patientId)
+  const { hide_medication_list: hideMedicationList } = useDisplayPreferences()
+  const medicationCount = useMedicationCount(patientId, !hideMedicationList)
 
   const medications = useMemo(() => {
     const byId = new Map<number, string>()

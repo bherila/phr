@@ -2,6 +2,7 @@ import { Tabs } from '@base-ui/react/tabs'
 import { type ReactElement, useCallback, useEffect, useState } from 'react'
 
 import { fetchWrapper } from '@/fetchWrapper'
+import { useDisplayPreferences } from '@/lib/displayPreferences'
 import { useRecordChanges } from '@/phr/clinical/recordChanges'
 import { MedicationFillsResponseSchema } from '@/phr/medication-fills/fillTypes'
 import { pushPhrLocation } from '@/phr/shell/phrLocation'
@@ -53,7 +54,11 @@ export function MedicationSectionTabs({ patientId, value, counts }: {
   patientId: number
   value: MedicationSectionTab
   counts: MedicationSectionCounts
-}): ReactElement {
+}): ReactElement | null {
+  const { hide_medication_list: hideMedicationList } = useDisplayPreferences()
+  // Someone who hides the list and follows a link to it still gets the way back.
+  if (hideMedicationList && value === 'fills') return null
+
   function select(next: MedicationSectionTab): void {
     const tab = TABS.find((candidate) => candidate.value === next)
     if (tab && next !== value) pushPhrLocation(patientPageUrl(patientId, tab.page))
@@ -100,9 +105,10 @@ export function MedicationStatusFilters({ value, counts, onSelect }: {
 }
 
 /** A list the other tab reads for what it shows; it follows changes to its records. */
-function useSiblingList<T>(url: string, resource: string, patientId: number, parse: (raw: unknown) => T | null): T | null {
+function useSiblingList<T>(url: string | null, resource: string, patientId: number, parse: (raw: unknown) => T | null): T | null {
   const [value, setValue] = useState<T | null>(null)
   const load = useCallback(() => {
+    if (url === null) return
     fetchWrapper.get(url).then((raw: unknown) => setValue(parse(raw))).catch(() => setValue(null))
   }, [url, parse])
   useEffect(() => load(), [load])
@@ -148,6 +154,6 @@ function parseMedicationCount(raw: unknown): number | null {
 }
 
 /** How many medications the patient has, for the Fills list's tabs. */
-export function useMedicationCount(patientId: number): number | null {
-  return useSiblingList(`/api/phr/patients/${patientId}/medications`, 'medications', patientId, parseMedicationCount)
+export function useMedicationCount(patientId: number, wanted: boolean): number | null {
+  return useSiblingList(wanted ? `/api/phr/patients/${patientId}/medications` : null, 'medications', patientId, parseMedicationCount)
 }

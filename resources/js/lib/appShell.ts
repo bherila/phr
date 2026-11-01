@@ -8,6 +8,7 @@ interface AppInitialData {
     name?: string
     email?: string
     genai_execution_mode?: unknown
+    display_preferences?: unknown
   } | null
   // Deliberately `unknown`: this is untrusted JSON from the page, not a validated
   // list. `relyingApplicationsFrom` is what turns it into one.
@@ -41,6 +42,11 @@ export function currentUser(): { name: string; email: string } | null {
 
 export function genAiExecutionMode(): 'api' | 'external' {
   return readInitialData().currentUser?.genai_execution_mode === 'external' ? 'external' : 'api'
+}
+
+/** Untrusted JSON from the page; `lib/displayPreferences` turns it into settings. */
+export function displayPreferencesFromPage(): unknown {
+  return readInitialData().currentUser?.display_preferences
 }
 
 /**
