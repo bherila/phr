@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
-import { useLowercaseClass } from '@/phr/display/DisplayPreferences'
+import { KeepUnitCase, useLowercaseClass } from '@/phr/display/DisplayPreferences'
 
 import { fillDrugName, formatCents, formatFillDate, formatQuantity, type MedicationFill, MISSING } from './fillTypes'
 
@@ -48,7 +48,7 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
     className: cn(cellClass, extra),
     cell: (fill) => {
       const text = value(fill)
-      return text ? <span className={lc}>{text}</span> : <Missing />
+      return text ? <span className={lc}><KeepUnitCase text={text} /></span> : <Missing />
     },
   })
 
@@ -81,7 +81,7 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
         </div>
       ),
     },
-    textColumn('strength', 'Strength', (fill) => fill.drug?.strengths.join(' / ')),
+    textColumn('strength', 'Strength', (fill) => fill.drug?.strengths.join('; ')),
     textColumn('dosage_form', 'Dosage form', (fill) => fill.drug?.dosage_form),
     {
       id: 'quantity',
@@ -89,7 +89,7 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
       fit: true,
       headerClassName: head,
       className: cn(cellClass, 'whitespace-nowrap'),
-      cell: (fill) => <span className={lc}>{formatQuantity(fill.quantity, fill.quantity_unit)}</span>,
+      cell: (fill) => <span className={lc}><KeepUnitCase text={formatQuantity(fill.quantity, fill.quantity_unit)} /></span>,
     },
     {
       id: 'paid',
@@ -109,6 +109,7 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
       className: cellClass,
       cell: (fill) => formatCents(fill.retail_cents),
     },
+    textColumn('prescriber', 'Prescriber', (fill) => fill.prescriber_name),
     textColumn('pharmacy', 'Pharmacy', (fill) => fill.pharmacy_name),
     textColumn('route', 'Route', (fill) => fill.drug?.route, 'text-muted-foreground'),
     textColumn('manufacturer', 'Manufacturer', (fill) => fill.drug?.labeler_name, 'text-muted-foreground'),

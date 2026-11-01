@@ -120,4 +120,22 @@ final class MedicationFillLinkerTest extends TestCase
         $other = $this->fill(['ndc_11' => '22222222201', 'substance_names' => ['alpha'], 'strengths' => ['10 mg/1'], 'dosage_form' => 'tablet']);
         $this->assertTrue($linker->attach($this->patient, $other)['created']);
     }
+
+    public function test_a_medication_named_with_the_old_slash_delimiter_still_matches_a_combination_fill(): void
+    {
+        $linker = app(MedicationFillMedicationLinker::class);
+        $legacy = PhrMedication::factory()->create([
+            'patient_id' => $this->patient->id, 'user_id' => $this->owner->id,
+            'name' => 'amoxicillin / clavulanate potassium', 'dose' => '600 mg/5 mL / 42.9 mg/5 mL', 'dose_unit' => null, 'rxnorm_code' => null,
+        ]);
+        $fill = $this->fill([
+            'ndc_11' => '33333333301', 'substance_names' => ['amoxicillin', 'clavulanate potassium'],
+            'strengths' => ['600 mg/5 mL', '42.9 mg/5 mL'], 'dosage_form' => 'powder, for suspension',
+        ]);
+
+        $result = $linker->attach($this->patient, $fill);
+
+        $this->assertFalse($result['created']);
+        $this->assertSame($legacy->id, $result['medication']->id);
+    }
 }
