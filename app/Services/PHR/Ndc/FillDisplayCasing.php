@@ -20,16 +20,34 @@ final class FillDisplayCasing
         'SL', 'PR', 'OD', 'OS', 'OU', 'GT', 'GTT', 'NG', 'ER', 'XR', 'EC', 'DR', 'OTC', 'CPAP', 'BP', 'INR', 'HbA1c', 'NPO', 'ASAP', 'USP',
     ];
 
-    /** The drug name as printed: lowercase when all caps, units in their standard case. Brand-case text is left alone. */
+    /**
+     * The drug name as printed, shown in the Name column when a fill has no FDA match.
+     * Always lowercase, like the FDA substance names in that column, with units in
+     * their standard case ("Lipitor 10MG tab" becomes "lipitor 10 mg tab").
+     */
     public static function drugAsPrinted(?string $value): ?string
     {
         $value = self::clean($value);
-        if ($value === null || ! NdcCasing::isAllCaps($value, true)) {
-            return $value;
-        }
 
-        return NdcCasing::measureText($value);
+        if ($value === null) {
+            return null;
+        }
+        // Normalize the units first (5MG -> 5 mg, [iU] -> IU), then lowercase every
+        // word except the units whose standard form has capitals.
+        $measured = (string) NdcCasing::measureText($value);
+
+        $lowered = (string) preg_replace_callback(
+            '/\p{L}+/u',
+            static fn (array $word): string => in_array($word[0], self::CASED_UNITS, true) ? $word[0] : mb_strtolower($word[0]),
+            $measured,
+        );
+
+        // Mixed-case input ("10MG") is only spaced and unit-cased once it is lowercase.
+        return (string) NdcCasing::measureText($lowered);
     }
+
+    /** Units whose standard written form has capitals; kept as written in lowercased drug text. */
+    private const array CASED_UNITS = ['mL', 'L', 'IU', 'mEq', 'dL', 'mU'];
 
     public static function pharmacyName(?string $value): ?string
     {
