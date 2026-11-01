@@ -28,8 +28,6 @@ use XMLWriter;
  */
 final class PhrCcdaResultEntries
 {
-    private const string LOINC = '2.16.840.1.113883.6.1';
-
     private const string OBSERVATION_INTERPRETATION = '2.16.840.1.113883.5.83';
 
     /** Namespace of the stable ids this exporter derives for results. */
