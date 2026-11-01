@@ -1143,7 +1143,9 @@ final class PhrNativeRestoreTest extends TestCase
         $document = PhrDocument::query()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'uploaded_by_user_id' => $owner->id, 'document_type' => 'other', 'source' => 'manual_upload', 'storage_disk' => PhrDocument::STORAGE_DISK, 'byte_size' => 0]);
         $eob = PhrEob::query()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'import_source' => 'synthetic', 'external_id' => 'eob-1', 'claim_type' => 'pharmacy', 'review_status' => 'pending_review']);
         $line = PhrEobLine::query()->create(['eob_id' => $eob->id, 'patient_id' => $patient->id, 'line_number' => 1, 'procedure_code' => 'X']);
-        $fill = PhrMedicationFill::factory()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'external_id' => 'fill-1', 'import_source' => 'synthetic', 'review_flags' => [['code' => 'possible_duplicate', 'message' => 'Synthetic', 'fill_id' => 1]]]);
+        $fill = PhrMedicationFill::factory()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'external_id' => 'fill-1', 'import_source' => 'synthetic']);
+        $twin = PhrMedicationFill::factory()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'external_id' => 'fill-2', 'import_source' => 'synthetic']);
+        PhrMedicationFillEvidence::query()->create(['patient_id' => $patient->id, 'fill_id' => $twin->id, 'related_fill_id' => $fill->id, 'source_kind' => 'possible_duplicate', 'evidence_key' => str_repeat('b', 40)]);
         PhrMedicationFillEvidence::query()->create(['patient_id' => $patient->id, 'fill_id' => $fill->id, 'document_id' => $document->id, 'eob_line_id' => $line->id, 'source_kind' => 'eob', 'evidence_key' => str_repeat('a', 40)]);
 
         $current = $this->archiveCopy($patient, (int) $owner->id);
@@ -1155,20 +1157,22 @@ final class PhrNativeRestoreTest extends TestCase
         $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $attempt->status, (string) $attempt->failure_category);
         app(PhrNativeRestoreService::class)->apply($attempt->refresh());
         $target = $attempt->refresh()->target_patient_root_id;
-        $restoredFill = DB::table('phr_medication_fills')->where('patient_id', $target)->sole();
-        $evidence = DB::table('phr_medication_fill_evidence')->where('patient_id', $target)->sole();
+        $restoredFill = DB::table('phr_medication_fills')->where('patient_id', $target)->where('external_id', 'fill-1')->sole();
+        $evidence = DB::table('phr_medication_fill_evidence')->where('patient_id', $target)->where('source_kind', 'eob')->sole();
         $this->assertSame($restoredFill->id, $evidence->fill_id);
         $this->assertSame(DB::table('phr_eob_lines')->where('patient_id', $target)->value('id'), $evidence->eob_line_id);
         $this->assertSame($document->file_hash, DB::table('phr_documents')->where('id', $evidence->document_id)->value('file_hash'));
         $this->assertSame('pending_review', DB::table('phr_eobs')->where('patient_id', $target)->value('review_status'));
-        $this->assertNull($restoredFill->review_flags, 'a flag names another fill by an ID that restore changes, so it is not archived');
+        $flag = DB::table('phr_medication_fill_evidence')->where('patient_id', $target)->where('source_kind', 'possible_duplicate')->sole();
+        $this->assertSame($restoredFill->id, $flag->related_fill_id, 'a possible-duplicate flag points at the restored fill, not the old ID');
+        $this->assertNotSame($flag->fill_id, $flag->related_fill_id);
 
         // An archive downloaded before fill evidence existed has no such table, and restores.
         DB::table('phr_patients')->where('id', $target)->delete();
         $olderAttempt = $this->readyAttempt($older, (int) $owner->id);
         $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $olderAttempt->status, (string) $olderAttempt->failure_category);
         app(PhrNativeRestoreService::class)->apply($olderAttempt->refresh());
-        $this->assertSame(1, DB::table('phr_medication_fills')->where('patient_id', $olderAttempt->refresh()->target_patient_root_id)->count());
+        $this->assertSame(2, DB::table('phr_medication_fills')->where('patient_id', $olderAttempt->refresh()->target_patient_root_id)->count());
         $this->assertSame(0, DB::table('phr_medication_fill_evidence')->where('patient_id', $olderAttempt->target_patient_root_id)->count());
         @unlink($current);
         @unlink($older);

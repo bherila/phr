@@ -53,7 +53,6 @@ use Illuminate\Support\Carbon;
  * @property string|null $pharmacy_location
  * @property string $source_kind
  * @property string|null $source_locator
- * @property list<array{code: string, message: string, fill_id?: int}>|null $review_flags
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -119,7 +118,6 @@ class PhrMedicationFill extends Model
         'pharmacy_location',
         'source_kind',
         'source_locator',
-        'review_flags',
     ];
 
     protected function casts(): array
@@ -140,7 +138,6 @@ class PhrMedicationFill extends Model
             'refills_remaining' => 'integer',
             'paid_cents' => 'integer',
             'retail_cents' => 'integer',
-            'review_flags' => 'array',
         ];
     }
 

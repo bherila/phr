@@ -11,8 +11,9 @@ use Illuminate\Support\Facades\Schema;
  * one fill with several pieces of evidence. A row points at a document, at the
  * EOB line that adjudicated the fill, or both.
  *
- * Also adds `review_flags` to fills, where a write that could not be sure it
- * was not a duplicate says so for the reviewer.
+ * A row may also say that its fill may duplicate another (`related_fill_id`):
+ * a write that could not be sure it was not a duplicate flags itself for the
+ * reviewer, and a native restore remaps the reference like any relationship.
  *
  * Additive only.
  */
@@ -39,6 +40,7 @@ return new class extends Migration
                 // it from recreating the fill if a person deleted it.
                 $table->string('import_source', 50)->nullable();
                 $table->string('external_id')->nullable();
+                $table->unsignedBigInteger('related_fill_id')->nullable()->index();
                 $table->timestamps();
 
                 $table->unique(['fill_id', 'evidence_key'], 'phr_fill_evidence_uid');
@@ -47,6 +49,7 @@ return new class extends Migration
                 $table->foreign('fill_id')->references('id')->on('phr_medication_fills')->cascadeOnDelete();
                 $table->foreign('document_id')->references('id')->on('phr_documents')->nullOnDelete();
                 $table->foreign('eob_line_id')->references('id')->on('phr_eob_lines')->nullOnDelete();
+                $table->foreign('related_fill_id')->references('id')->on('phr_medication_fills')->nullOnDelete();
             });
         }
 
@@ -55,21 +58,10 @@ return new class extends Migration
         if (Schema::hasTable(self::TABLE) && in_array(DB::getDriverName(), ['mysql', 'mariadb'], true)) {
             DB::statement(sprintf('ALTER TABLE `%s` MODIFY `external_id` VARCHAR(255) CHARACTER SET utf8mb4 COLLATE %s NULL', self::TABLE, self::EXTERNAL_ID_COLLATION));
         }
-
-        if (! Schema::hasColumn('phr_medication_fills', 'review_flags')) {
-            Schema::table('phr_medication_fills', function (Blueprint $table): void {
-                $table->json('review_flags')->nullable();
-            });
-        }
     }
 
     public function down(): void
     {
         Schema::dropIfExists('phr_medication_fill_evidence');
-        if (Schema::hasColumn('phr_medication_fills', 'review_flags')) {
-            Schema::table('phr_medication_fills', function (Blueprint $table): void {
-                $table->dropColumn('review_flags');
-            });
-        }
     }
 };

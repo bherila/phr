@@ -144,9 +144,6 @@ final class PhrNativeBackupCatalog
             'phr_medication_fills' => [
                 'patient_column' => 'patient_id',
                 'relationships' => [...$clinical(), 'medication_id' => self::record('phr_medications', true)],
-                'excluded_columns' => [
-                    'review_flags' => 'IDs change on restore.',
-                ],
             ],
             'phr_medication_fill_evidence' => [
                 'patient_column' => 'patient_id',
@@ -154,6 +151,7 @@ final class PhrNativeBackupCatalog
                     'fill_id' => self::record('phr_medication_fills', false),
                     'document_id' => self::record('phr_documents', true),
                     'eob_line_id' => self::record('phr_eob_lines', true),
+                    'related_fill_id' => self::record('phr_medication_fills', true),
                 ],
             ],
             'phr_conditions' => ['patient_column' => 'patient_id', 'relationships' => $clinical()],

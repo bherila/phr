@@ -23,7 +23,7 @@ class PhrMedicationFillEvidence extends Model
 {
     protected $table = 'phr_medication_fill_evidence';
 
-    protected $fillable = ['patient_id', 'fill_id', 'document_id', 'eob_line_id', 'source_kind', 'source_locator', 'evidence_key', 'import_source', 'external_id'];
+    protected $fillable = ['patient_id', 'fill_id', 'document_id', 'eob_line_id', 'source_kind', 'source_locator', 'evidence_key', 'import_source', 'external_id', 'related_fill_id'];
 
     protected function casts(): array
     {
@@ -32,6 +32,7 @@ class PhrMedicationFillEvidence extends Model
             'fill_id' => 'integer',
             'document_id' => 'integer',
             'eob_line_id' => 'integer',
+            'related_fill_id' => 'integer',
         ];
     }
 

@@ -140,6 +140,7 @@ final readonly class MedicationFillUpsertService
 
         $attributes = $prepared['attributes'];
         $dedupe = ['status' => 'none', 'matched_by' => null, 'matched_fill_id' => null];
+        $flagged = null;
         if (! PhrMedicationFill::query()->where($identity)->exists()) {
             // An identity this connection already merged into another fill stays there: a retry
             // lands on it again, and if a person deleted that fill it is not recreated.
@@ -156,11 +157,7 @@ final readonly class MedicationFillUpsertService
                 return $this->mergeInto($patient, $match['fill'], $prepared, (string) $match['by']);
             }
             if ($match['status'] === MedicationFillMatcher::UNCERTAIN && $match['fill'] !== null) {
-                $attributes['review_flags'] = [[
-                    'code' => 'possible_duplicate',
-                    'message' => "This may be the same fill as fill {$match['fill']->id}: it matches on the fill date and drug, but the pharmacy, quantity or Rx number do not settle it. Keep one and reject the other if they are the same.",
-                    'fill_id' => (int) $match['fill']->id,
-                ]];
+                $flagged = $match['fill'];
                 $dedupe = ['status' => 'flagged', 'matched_by' => $match['by'], 'matched_fill_id' => (int) $match['fill']->id];
             }
         }
@@ -181,6 +178,9 @@ final readonly class MedicationFillUpsertService
             $existing = PhrMedicationFill::query()->where($identity)->firstOrFail();
         }
         if ($existing->wasRecentlyCreated) {
+            if ($flagged !== null) {
+                $this->evidence->flagPossibleDuplicate($patient, $existing, $flagged);
+            }
             $attached = $this->writer->attach($patient, $existing, $prepared['medication_id']);
             $existing->refresh();
 
@@ -261,7 +261,7 @@ final readonly class MedicationFillUpsertService
     private function mergeInto(PhrPatient $patient, PhrMedicationFill $existing, array $prepared, string $by): MedicationFillUpsertResult
     {
         $incoming = $prepared['attributes'];
-        $skip = ['source_kind', 'source_locator', 'medication_id', 'review_flags', ...MedicationFillDrugResolver::DRUG_COLUMNS];
+        $skip = ['source_kind', 'source_locator', 'medication_id', ...MedicationFillDrugResolver::DRUG_COLUMNS];
         foreach ($incoming as $column => $value) {
             if (in_array($column, $skip, true) || $value === null || $value === '') {
                 continue;

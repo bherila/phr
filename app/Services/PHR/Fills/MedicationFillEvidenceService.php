@@ -74,6 +74,19 @@ final class MedicationFillEvidenceService
         ]);
     }
 
+    /** Flags a fill for the reviewer: it may duplicate another fill of the patient. */
+    public function flagPossibleDuplicate(PhrPatient $patient, PhrMedicationFill $fill, PhrMedicationFill $candidate): void
+    {
+        PhrMedicationFillEvidence::query()->firstOrCreate([
+            'fill_id' => $fill->id,
+            'evidence_key' => substr(hash('sha256', 'possible_duplicate|'.$candidate->id), 0, 40),
+        ], [
+            'patient_id' => $patient->id,
+            'source_kind' => 'possible_duplicate',
+            'related_fill_id' => $candidate->id,
+        ]);
+    }
+
     /** The fill (live or withdrawn) a connection's identity was merged into, if any. */
     public function findAlias(PhrPatient $patient, string $importSource, string $externalId): ?PhrMedicationFill
     {

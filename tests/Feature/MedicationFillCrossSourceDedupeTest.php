@@ -90,7 +90,7 @@ final class MedicationFillCrossSourceDedupeTest extends TestCase
         $this->assertSame([$lineId], $this->readFill($fillId)['eob_line_ids']);
         $this->assertEqualsCanonicalizing([$receipt->id, $eob->id], $this->readFill($fillId)['evidence_document_ids']);
         $this->assertSame($label->id, $this->readFill($fillId)['source_document_id'], 'the first source stays the provenance');
-        $this->assertSame([], PhrMedicationFill::query()->findOrFail($fillId)->review_flags ?? []);
+        $this->assertSame([], $this->readFill($fillId)['review_flags']);
 
         // Reading the same EOB again changes nothing.
         $this->putJson($this->eobUrl(), $this->claim($eob, [['ndc' => '58151-0155-77', 'rx_number' => '1234567', 'quantity' => 90, 'pharmacy_name' => 'Example Pharmacy']]))
