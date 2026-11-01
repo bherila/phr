@@ -24,7 +24,7 @@ const COLUMN_CHOICES: ReadonlyArray<{ column: FillColumn, label: string }> = [
 interface FillFiltersProps {
   values: FillFilterValues
   onChange: (values: FillFilterValues) => void
-  /** The medication a link narrowed the list to, by name, while it does. */
+  /** The name of the medication a link narrowed the list to, when a loaded fill still names it. */
   medicationName: string | null
   shownCount: number
   hiddenColumns: readonly FillColumn[]
@@ -75,9 +75,10 @@ export function FillFilters({ values, onChange, medicationName, shownCount, hidd
           {datesSet && <Button type="button" size="sm" variant="ghost" onClick={() => onChange({ ...values, from: '', to: '' })}>Clear dates</Button>}
         </div>
 
-        {medicationName !== null && (
-          <Button type="button" size="sm" variant="secondary" className="max-w-full max-md:h-11" aria-label={`Show all fills, not only ${medicationName}`} onClick={() => onChange({ ...values, medicationId: '' })}>
-            <span className="truncate">Only {medicationName}</span>
+        {/* Shown for any narrowed list: its last fill may be gone, and with it the name. */}
+        {values.medicationId !== '' && (
+          <Button type="button" size="sm" variant="secondary" className="max-w-full max-md:h-11" aria-label={`Show all fills, not only ${medicationName ?? 'this medication'}`} onClick={() => onChange({ ...values, medicationId: '' })}>
+            <span className="truncate">Only {medicationName ?? 'this medication'}</span>
             <X className="size-3.5" aria-hidden="true" />
           </Button>
         )}

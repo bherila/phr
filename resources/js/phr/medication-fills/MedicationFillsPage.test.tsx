@@ -326,6 +326,18 @@ describe('MedicationFillsPage table', () => {
     expect(screen.getByText(/add one by hand with its NDC/)).toHaveTextContent(/label.*receipt.*CSV.*MCP/)
   })
 
+  it('can leave a medication filter whose last fill is gone', async () => {
+    window.history.pushState(null, '', '/phr/patient/42/medication-fills?medication_id=999')
+    try {
+      renderPage()
+      expect(await screen.findByText('No fills match these filters.')).toBeInTheDocument()
+      fireEvent.click(screen.getByRole('button', { name: 'Show all fills, not only this medication' }))
+      expect(await screen.findByText('2026-10-28')).toBeInTheDocument()
+    } finally {
+      window.history.pushState(null, '', '/')
+    }
+  })
+
   it('searches anywhere in the name, ignoring case, and filters by dates', async () => {
     renderPage()
     await findLoadedFills()
