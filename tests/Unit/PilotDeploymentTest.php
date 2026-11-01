@@ -215,6 +215,11 @@ JS;
             'remote redis URL' => ['REDIS_URL=redis://cache.example.test:6379'],
             'remote redis host' => ['REDIS_HOST=cache.example.test'],
             'forwarded redis port' => ['REDIS_PORT=16379'],
+            'other redis address' => ['REDIS_HOST=192.0.2.10'],
+            'relative redis socket' => ["REDIS_HOST=run/redis-sample/redis.sock\nREDIS_PORT=0"],
+            'redis socket path escapes with dot-dot' => ["REDIS_HOST=/run/../tmp/redis.sock\nREDIS_PORT=0"],
+            'redis socket with a TCP port' => ["REDIS_HOST=/run/redis-sample/redis.sock\nREDIS_PORT=6379"],
+            'redis socket with the default port' => ['REDIS_HOST=/run/redis-sample/redis.sock'],
         ];
         foreach (self::otherConnections() as $connection) {
             $cases["default connection {$connection}"] = ["DB_CONNECTION={$connection}"];
@@ -226,12 +231,16 @@ JS;
         return $cases;
     }
 
+    /** Apply one assignment per line; a line starting with "-" removes that key instead. */
     private static function override(string $env, string $override): string
     {
-        $key = ltrim(explode('=', $override, 2)[0], '-');
-        $env = (string) preg_replace('/^'.preg_quote($key, '/').'=.*\R/m', '', $env);
+        foreach (explode("\n", $override) as $line) {
+            $key = ltrim(explode('=', $line, 2)[0], '-');
+            $env = (string) preg_replace('/^'.preg_quote($key, '/').'=.*\R/m', '', $env);
+            $env = str_starts_with($line, '-') ? $env : $env.$line."\n";
+        }
 
-        return str_starts_with($override, '-') ? $env : $env.$override."\n";
+        return $env;
     }
 
     #[DataProvider('databaseOverrides')]
@@ -261,8 +270,12 @@ JS;
     #[DataProvider('processEnvironmentOverrides')]
     public function test_process_environment_cannot_override_the_resolved_candidate_database(string $override): void
     {
-        [$key, $value] = explode('=', $override, 2);
-        $result = $this->assertLocalDatabase(self::PILOT_ENV, [$key => $value]);
+        $processEnv = [];
+        foreach (explode("\n", $override) as $line) {
+            [$key, $value] = explode('=', $line, 2);
+            $processEnv[$key] = $value;
+        }
+        $result = $this->assertLocalDatabase(self::PILOT_ENV, $processEnv);
         $this->assertFalse($result->isSuccessful(), $result->getOutput());
         $this->assertStringContainsString('refusing to migrate', $result->getErrorOutput());
     }
@@ -283,11 +296,30 @@ JS;
         }
     }
 
+    public function test_pilot_shape_with_a_per_application_redis_socket_is_accepted(): void
+    {
+        $redis = ['REDIS_CLIENT' => 'phpredis', 'REDIS_HOST' => '/run/redis-phr/redis.sock', 'REDIS_PORT' => '0'];
+        $env = self::PILOT_ENV."DB_PORT=3306\n";
+        foreach ($redis as $key => $value) {
+            $env .= "{$key}={$value}\n";
+        }
+        $home = $this->scaffold();
+        file_put_contents($home.'/.config/sample/deployment.env', $env);
+        $prepare = $this->prepare($home);
+        $this->assertTrue($prepare->isSuccessful(), $prepare->getErrorOutput());
+        $installed = $this->assertLocalDatabase($env);
+        $this->assertTrue($installed->isSuccessful(), $installed->getErrorOutput());
+        $process = $this->assertLocalDatabase(self::PILOT_ENV, $redis);
+        $this->assertTrue($process->isSuccessful(), $process->getErrorOutput());
+    }
+
     public function test_database_override_cases_enumerate_every_destination_setting(): void
     {
         $covered = [];
         foreach (self::databaseOverrides() as [$override]) {
-            $covered[] = ltrim(explode('=', $override, 2)[0], '-');
+            foreach (explode("\n", $override) as $line) {
+                $covered[] = ltrim(explode('=', $line, 2)[0], '-');
+            }
         }
         preg_match_all("/env\('([A-Z0-9_]+)'/", (string) file_get_contents($this->root.'/config/database.php'), $reads);
         $unreviewed = array_diff(array_unique($reads[1]), $covered, self::NON_DESTINATION_KEYS);

@@ -66,10 +66,17 @@ try {
         }
     };
     $selectors($config->all(), "");
+    // Redis is local over an absolute Unix socket (port 0 or empty) or on 127.0.0.1:6379.
+    $localRedis = static function ($host, $port): bool {
+        $socket = is_string($host) && str_starts_with($host, "/") && !in_array("..", explode("/", $host), true);
+
+        return ($socket && in_array($port, [0, "0", "", null], true))
+            || ($host === "127.0.0.1" && in_array($port, [6379, "6379"], true));
+    };
     foreach ((array) $config->get("database.redis", []) as $name => $redis) {
         if ($name === "client" || $name === "options") { continue; }
         if (!is_array($redis) || $name === "clusters" || !in_array($redis["url"] ?? null, [null, ""], true)
-            || ($redis["host"] ?? null) !== "127.0.0.1" || !in_array($redis["port"] ?? null, ["6379", 6379], true)) {
+            || !$localRedis($redis["host"] ?? null, $redis["port"] ?? null)) {
             $refused[] = "database.redis.".$name;
         }
     }
