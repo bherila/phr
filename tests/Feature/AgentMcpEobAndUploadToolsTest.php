@@ -100,6 +100,27 @@ final class AgentMcpEobAndUploadToolsTest extends TestCase
         $this->assertContains('eob-line', $tools['evidence.links']['inputSchema']['properties']['resource_type']['enum']);
     }
 
+    public function test_a_signed_upload_url_points_at_the_host_the_client_connected_to(): void
+    {
+        config(['agent_api.mcp_allowed_hosts' => ['phr.example.test']]);
+
+        $response = $this->postJson('https://phr.example.test/api/v1/mcp', [
+            'jsonrpc' => '2.0', 'id' => ++$this->nextId, 'method' => 'tools/call', 'params' => [
+                'name' => 'documents.upload_access_create',
+                'arguments' => [
+                    'patient_id' => $this->patient->id, 'kind' => 'eob', 'filename' => 'eob.pdf', 'content_type' => 'application/pdf',
+                    'byte_size' => strlen(self::PDF), 'sha256' => hash('sha256', self::PDF),
+                ],
+            ],
+        ], ['Mcp-Protocol-Version' => '2025-06-18', 'Mcp-Session-Id' => $this->session])->assertOk();
+
+        $this->assertFalse($response->json('result.isError') ?? false, $response->getContent());
+        $url = $response->json('result.structuredContent.data.url');
+        $this->assertStringStartsWith('https://phr.example.test/api/v1/document-uploads/', $url);
+
+        $this->call('PUT', $url, [], [], [], ['CONTENT_TYPE' => 'application/pdf'], self::PDF)->assertOk();
+    }
+
     public function test_an_agent_uploads_an_eob_and_writes_it_with_its_fills_over_mcp(): void
     {
         $patientId = $this->patient->id;
