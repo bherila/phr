@@ -32,7 +32,7 @@ trait UsesObjectStoreDisks
     protected function useObjectStoreDisks(): void
     {
         $this->objectStoreRun = 'run-'.Str::lower((string) Str::ulid());
-        $this->objectStoreDirectory = sys_get_temp_dir().'/phr-object-store-'.$this->objectStoreRun;
+        $this->objectStoreDirectory = sys_get_temp_dir().'/phr-test-disks-'.$this->objectStoreRun;
         mkdir($this->objectStoreDirectory, 0700, true);
         Storage::fake(StagedUpload::SPOOL_DISK);
 
