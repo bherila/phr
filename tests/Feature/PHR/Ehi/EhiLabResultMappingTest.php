@@ -214,6 +214,55 @@ class EhiLabResultMappingTest extends TestCase
         }
     }
 
+    public function test_a_missing_supporting_table_never_turns_a_row_with_no_content_into_a_new_result(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $empty = ['ORDER_PROC_ID' => '8102', 'ORD_DATE_REAL' => '66001', 'LINE' => '20', 'COMPONENT_ID_NAME' => 'SYNTHETIC EMPTY', 'RESULT_STATUS_C_NAME' => 'Final'];
+        $package = $this->previewed(
+            EhiClinicalPackage::withLabs()->adding('ORDER_RESULTS', $empty)->build()
+                ->without('ORDER_NARRATIVE.tsv')->without('docs/ORDER_NARRATIVE.htm')
+                ->without('ORDER_RES_COMMENT.tsv')->without('docs/ORDER_RES_COMMENT.htm'),
+            $owner,
+            $patient,
+        );
+
+        $proposal = $this->proposal($package, '8102', '66001', '20');
+        self::assertSame(PhrEhiProposal::KIND_RETAIN, $proposal->kind);
+        self::assertSame('no_result_value', $proposal->proposed_json['retain_reason']);
+        try {
+            app(EhiProposalService::class)->review($proposal, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $proposal->preview_digest);
+            self::fail('a row with no content cannot be accepted as a result');
+        } catch (EhiReviewRefused $refused) {
+            self::assertSame(EhiReviewRefused::DECISION_NOT_ALLOWED, $refused->reason);
+        }
+        self::assertSame(0, PhrLabResult::query()->where('analyte', 'SYNTHETIC EMPTY')->count());
+    }
+
+    public function test_a_result_that_lost_its_value_can_still_be_reconciled_when_a_supporting_table_is_missing(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $key = ['ORDER_PROC_ID' => '8102', 'ORD_DATE_REAL' => '66001', 'LINE' => '1'];
+        $package = $this->previewed(EhiClinicalPackage::withLabs()->build(), $owner, $patient);
+        $this->accept($this->proposal($package, '8102', '66001', '1'), $owner);
+        $record = PhrLabResult::query()->where('external_id', 'ORDER_RESULTS:8102:66001:1')->sole();
+
+        $second = $this->previewed(
+            EhiClinicalPackage::withLabs()->changing('ORDER_RESULTS', $key, ['ORD_VALUE' => ''])->build()
+                ->without('ORDER_NARRATIVE.tsv')->without('docs/ORDER_NARRATIVE.htm')
+                ->without('ORDER_RES_COMMENT.tsv')->without('docs/ORDER_RES_COMMENT.htm'),
+            $owner,
+            $patient,
+            'package-2',
+            PhrEhiSource::query()->sole()->id,
+        );
+
+        // The exception is for an existing record: a person sees it, and nothing changes unseen.
+        $update = $this->proposal($second, '8102', '66001', '1');
+        self::assertSame(PhrEhiProposal::KIND_UPDATE, $update->kind);
+        self::assertSame(['value'], $update->proposed_json['changed']);
+        self::assertSame('No growth', $record->refresh()->value);
+    }
+
     public function test_a_value_the_columns_cannot_hold_is_retained_not_cut(): void
     {
         [$owner, $patient] = $this->ownerAndPatient();

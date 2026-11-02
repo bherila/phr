@@ -118,6 +118,9 @@ final class EhiLabResultMapping implements EhiMapping
 
     public const string TIMEZONE_UNSPECIFIED = 'unspecified';
 
+    /** Neither a value, a comment, nor a narrative: nothing a result could assert. */
+    public const string RETAIN_NO_CONTENT = 'no_result_value';
+
     public const string FINDING_ORPHAN = 'orphan_lab_result';
 
     public const string FINDING_FOREIGN_PATIENT = 'foreign_patient_lab_result';
@@ -414,6 +417,12 @@ final class EhiLabResultMapping implements EhiMapping
         if ($target['state'] === 'retain') {
             return $this->retain($subject, $revisionIds, $built['proposed'], $target['reason']);
         }
+        // A missing table never makes a row with nothing in it a new result.
+        if ($target['state'] === 'none' && $built['no_content']) {
+            $context->finding(self::RETAIN_NO_CONTENT, $revision, ['severity' => 'info']);
+
+            return $this->retain($subject, $revisionIds, $built['proposed'], self::RETAIN_NO_CONTENT);
+        }
 
         // Guarded before any target is reconciled: a withdrawn order or an
         // unfinished status never updates a record, which would stay active
@@ -541,7 +550,7 @@ final class EhiLabResultMapping implements EhiMapping
      * @param  list<string>  $via
      * @param  list<int>  $revisionIds
      * @param  array<string, true>  $unavailable  fields the package cannot vouch for
-     * @return array{fields: array<string, string|null>, proposed: array<string, mixed>, issue: array{code: string, detail: array<string, int|string|bool|null>}|null, analytes: list<string>, number: string|null}
+     * @return array{fields: array<string, string|null>, proposed: array<string, mixed>, issue: array{code: string, detail: array<string, int|string|bool|null>}|null, no_content: bool, analytes: list<string>, number: string|null}
      */
     private function build(EhiMappingContext $context, EhiLabEvidence $evidence, PhrEhiRevision $revision, ?array $order, string $orderProcId, string $contact, string $line, array $narrativeOwners, string $importSource, string $externalId, array $via, array &$revisionIds, array $unavailable): array
     {
@@ -640,8 +649,11 @@ final class EhiLabResultMapping implements EhiMapping
                 $raise(self::FINDING_VALUE_TOO_LONG, ['field' => $field, 'limit' => $limit]);
             }
         }
-        if ($issue === null && $value === null && $comment['text'] === null && $notes['text'] === null && $unavailable === []) {
-            $issue = ['code' => 'no_result_value', 'detail' => ['severity' => 'info']];
+        $noContent = $value === null && $comment['text'] === null && $notes['text'] === null;
+        // A supporting table the package could not vouch for leaves this open only for an
+        // existing record, which draft() decides once it knows there is one.
+        if ($issue === null && $noContent && $unavailable === []) {
+            $issue = ['code' => self::RETAIN_NO_CONTENT, 'detail' => ['severity' => 'info']];
         }
 
         return [
@@ -676,6 +688,7 @@ final class EhiLabResultMapping implements EhiMapping
                 ],
             ],
             'issue' => $issue,
+            'no_content' => $noContent,
             'analytes' => array_values(array_unique(array_filter([EhiLabRecordIndex::fold($analyte), EhiLabRecordIndex::fold($loincName)]))),
             'number' => $parsed['number'],
         ];

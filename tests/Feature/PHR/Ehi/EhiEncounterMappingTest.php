@@ -409,6 +409,21 @@ class EhiEncounterMappingTest extends TestCase
         self::assertNull($visit->refresh()->encounter_diagnoses);
     }
 
+    public function test_a_missing_diagnosis_table_never_turns_an_undated_encounter_into_a_new_visit(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $package = $this->previewed(
+            EhiClinicalPackage::withEncounters()->changing('PAT_ENC', ['PAT_ENC_CSN_ID' => '7101'], ['CONTACT_DATE' => '', 'EFFECTIVE_DATE_DTTM' => ''])->build()
+                ->without('PAT_ENC_DX.tsv')->without('docs/PAT_ENC_DX.htm'),
+            $owner,
+            $patient,
+        );
+
+        $proposal = $this->proposal($package, '7101');
+        self::assertSame(PhrEhiProposal::KIND_RETAIN, $proposal->kind);
+        self::assertSame(EhiEncounterMapping::FINDING_MISSING_DATE, $proposal->proposed_json['retain_reason']);
+    }
+
     public function test_a_first_import_of_an_encounter_says_when_its_diagnoses_are_unavailable(): void
     {
         [$owner, $patient] = $this->ownerAndPatient();
