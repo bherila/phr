@@ -580,6 +580,73 @@ final class FillEobLinkerTest extends TestCase
         $this->assertNotNull($this->linkOf($other), 'the claim went to the only fill left');
     }
 
+    public function test_after_rejecting_a_person_can_choose_another_free_claim_from_that_day(): void
+    {
+        $this->learn('alpha', '100.00', ['2026-01-01']);
+        $this->learn('beta', '200.00', ['2026-01-02']);
+        $fill = $this->fill('2026-02-01', 'alpha');
+        $held = $this->fill('2026-02-01', 'beta');
+        $wrong = $this->claim('C-A', '2026-02-01', '100.00');
+        $heldClaim = $this->claim('C-B', '2026-02-01', '200.00');
+        $right = $this->claim('C-C', '2026-02-01', '300.00');
+        $otherDay = $this->claim('C-D', '2026-02-02', '300.00');
+        $this->assertNotNull($this->linkOf($fill));
+        $this->assertNotNull($this->linkOf($held));
+        $this->actingAs($this->actor);
+        $url = "/api/phr/patients/{$this->patient->id}/medication-fills/{$fill->id}/eob-link";
+        $this->getJson($url)->assertOk()->assertJsonCount(0, 'on_offer');
+
+        $this->postJson($url, ['action' => 'reject', 'eob_id' => $wrong->id])->assertOk();
+
+        $offered = collect($this->getJson($url)->assertOk()->json('on_offer'))->pluck('eob_id')->all();
+        $this->assertEqualsCanonicalizing([(int) $wrong->id, (int) $right->id], $offered, 'free that day: not a claim another fill holds, nor another day');
+        $this->assertNotContains((int) $heldClaim->id, $offered);
+        $this->assertNotContains((int) $otherDay->id, $offered);
+        $this->postJson($url, ['action' => 'link', 'eob_id' => $heldClaim->id])->assertConflict();
+        $this->postJson($url, ['action' => 'link', 'eob_id' => $otherDay->id])->assertConflict();
+
+        $this->postJson($url, ['action' => 'link', 'eob_id' => $right->id])->assertOk()->assertJsonPath('outcome', 'linked');
+
+        $read = $this->getJson($url)->assertOk();
+        $read->assertJsonPath('dismissed', false)->assertJsonPath('claims.0.eob_id', (int) $right->id)->assertJsonPath('claims.0.automatic', false);
+        $read->assertJsonCount(0, 'on_offer');
+        $this->rerun();
+        $this->assertNotNull($this->getJson($url)->json('claims.0'), 'a recompute keeps a person\'s choice');
+    }
+
+    public function test_choosing_a_claim_after_a_rejection_reaches_the_changes_feed(): void
+    {
+        $fill = $this->fill('2026-01-05', 'alpha', ['review_status' => PhrReviewStatus::CONFIRMED]);
+        $claim = $this->claim('C-1', '2026-01-05', '100.00');
+        $url = "/api/phr/patients/{$this->patient->id}/medication-fills/{$fill->id}/eob-link";
+        $this->actingAs($this->actor)->postJson($url, ['action' => 'reject'])->assertOk();
+        $version = app(AgentClinicalRecordVersion::class)->for($fill->fresh());
+        $this->travel(1)->hours();
+        $after = now()->toIso8601String();
+        $this->travel(1)->hours();
+
+        $this->actingAs($this->actor)->postJson($url, ['action' => 'link', 'eob_id' => $claim->id])->assertOk();
+
+        $this->actAsClient();
+        $changed = collect($this->getJson("/api/v1/patients/{$this->patient->id}/changes?".http_build_query(['updated_after' => $after, 'resource_type' => ['medication-fills']]))->assertOk()->json('data'))->pluck('id')->all();
+        $this->assertContains($fill->id, $changed);
+        $this->assertSame($version, app(AgentClinicalRecordVersion::class)->for($fill->fresh()), 'a link never refuses a client\'s write');
+        $this->assertSame(PhrReviewStatus::CONFIRMED, $fill->fresh()->review_status);
+    }
+
+    public function test_a_read_only_person_is_offered_claims_but_cannot_take_one(): void
+    {
+        $fill = $this->fill('2026-01-05', 'alpha');
+        $claim = $this->claim('C-1', '2026-01-05', '100.00');
+        $viewer = User::factory()->create(['user_role' => 'user']);
+        DB::table('phr_patient_user_access')->insert(['patient_id' => $this->patient->id, 'user_id' => $viewer->id, 'access_level' => 'viewer', 'created_at' => now(), 'updated_at' => now()]);
+        $url = "/api/phr/patients/{$this->patient->id}/medication-fills/{$fill->id}/eob-link";
+        $this->actingAs($this->actor)->postJson($url, ['action' => 'reject'])->assertOk();
+
+        $this->actingAs($viewer)->postJson($url, ['action' => 'link', 'eob_id' => $claim->id])->assertForbidden();
+        $this->assertNull($this->linkOf($fill));
+    }
+
     public function test_a_rejection_naming_a_claim_the_fill_has_moved_off_is_refused(): void
     {
         $fill = $this->fill('2026-01-05', 'alpha');

@@ -74,13 +74,15 @@ final readonly class FillEobLinkDecisionService
         if ($recorded) {
             return self::UNCHANGED;
         }
-        $onOffer = array_column($this->linker->candidates((int) $patient->id)[(int) $fill->id] ?? [], 'eob_id');
+        $onOffer = array_column($this->linker->claimsOnOfferTo((int) $patient->id, (int) $fill->id), 'eob_id');
         if (! in_array((int) $eob->id, $onOffer, true)) {
             throw new ConflictHttpException('This claim is no longer on offer for this fill. Reload and choose again.');
         }
         foreach ($lines as $lineId) {
             $this->evidence->record($patient, $fill, null, $lineId, 'eob', null);
         }
+        // The person has now said which claim it is, so an earlier "not automatically" is answered.
+        $this->dismissal($fill)->first()?->delete();
 
         return self::LINKED;
     }

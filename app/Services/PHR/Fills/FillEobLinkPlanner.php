@@ -63,6 +63,7 @@ final class FillEobLinkPlanner
      * @return array{
      *     links: array<int, array{claim_id: int, rule: string}>,
      *     open: array<int, array{reason: string, claim_ids: list<int>}>,
+     *     free: array<string, list<int>>,
      *     counts: array<string, int>,
      * }
      */
@@ -109,6 +110,10 @@ final class FillEobLinkPlanner
         $this->lastPairLinks($fillsByDay, $claimsByDay, $settled, $taken, $seen, $links);
 
         $open = [];
+        $free = [];
+        foreach ($claimsByDay as $day => $dayClaims) {
+            $free[(string) $day] = array_column($this->openClaims($dayClaims, $taken, $links), 'id');
+        }
         $noCandidate = 0;
         foreach ($fillsByDay as $day => $dayFills) {
             $openFills = $this->openFills($dayFills, $settled, $links);
@@ -131,6 +136,8 @@ final class FillEobLinkPlanner
         return [
             'links' => $links,
             'open' => $open,
+            // Each day's live claims that no fill holds, for a person choosing one by hand.
+            'free' => $free,
             'counts' => [
                 'fills' => count($fills),
                 'pharmacy_claims' => count($claims),

@@ -74,21 +74,48 @@ class FillEobLinker
         $plan = $this->plan($snapshot);
         $found = [];
         foreach ($plan['open'] as $fillId => $open) {
-            $found[$fillId] = array_map(static function (int $claimId) use ($snapshot): array {
-                $claim = $snapshot['claims'][$claimId];
-
-                return [
-                    'eob_id' => $claimId,
-                    'claim_number' => $claim['claim_number'],
-                    'service_date' => $claim['day'],
-                    'processed_date' => $claim['processed_date'],
-                    'total_charges' => $claim['total_charges'],
-                    'provider_name' => $claim['provider_name'],
-                ];
-            }, $open['claim_ids']);
+            $found[$fillId] = array_map(static fn (int $claimId): array => self::offered($snapshot['claims'][$claimId]), $open['claim_ids']);
         }
 
         return $found;
+    }
+
+    /**
+     * What a person may put one fill on by hand: the claims on offer if it is flagged, or if they
+     * said not to match it automatically, that day's claims no fill holds.
+     *
+     * @return list<array{eob_id: int, claim_number: ?string, service_date: ?string, processed_date: ?string, total_charges: ?string, provider_name: ?string}>
+     */
+    public function claimsOnOfferTo(int $patientId, int $fillId): array
+    {
+        $snapshot = $this->snapshot($patientId);
+        $plan = $this->plan($snapshot);
+        $claimIds = $plan['open'][$fillId]['claim_ids'] ?? null;
+        if ($claimIds === null && in_array($fillId, $snapshot['dismissed'], true)) {
+            foreach ($snapshot['fills'] as $fill) {
+                if ($fill['id'] === $fillId) {
+                    $claimIds = $plan['free'][$fill['day']] ?? [];
+                }
+            }
+        }
+
+        return array_map(static fn (int $claimId): array => self::offered($snapshot['claims'][$claimId]), $claimIds ?? []);
+    }
+
+    /**
+     * @param  array{id: int, day: ?string, claim_number: ?string, processed_date: ?string, total_charges: ?string, provider_name: ?string}  $claim
+     * @return array{eob_id: int, claim_number: ?string, service_date: ?string, processed_date: ?string, total_charges: ?string, provider_name: ?string}
+     */
+    private static function offered(array $claim): array
+    {
+        return [
+            'eob_id' => $claim['id'],
+            'claim_number' => $claim['claim_number'],
+            'service_date' => $claim['day'],
+            'processed_date' => $claim['processed_date'],
+            'total_charges' => $claim['total_charges'],
+            'provider_name' => $claim['provider_name'],
+        ];
     }
 
     /**
@@ -215,7 +242,7 @@ class FillEobLinker
 
     /**
      * @param  array<string, mixed>  $snapshot
-     * @return array{links: array<int, array{claim_id: int, rule: string}>, open: array<int, array{reason: string, claim_ids: list<int>}>, counts: array<string, int>}
+     * @return array{links: array<int, array{claim_id: int, rule: string}>, open: array<int, array{reason: string, claim_ids: list<int>}>, free: array<string, list<int>>, counts: array<string, int>}
      */
     private function plan(array $snapshot): array
     {
@@ -231,7 +258,7 @@ class FillEobLinker
      * What differs between the rows there are and the rows the plan calls for.
      *
      * @param  array<string, mixed>  $snapshot
-     * @param  array{links: array<int, array{claim_id: int, rule: string}>, open: array<int, array{reason: string, claim_ids: list<int>}>, counts: array<string, int>}  $plan
+     * @param  array{links: array<int, array{claim_id: int, rule: string}>, open: array<int, array{reason: string, claim_ids: list<int>}>, free: array<string, list<int>>, counts: array<string, int>}  $plan
      * @return array<string, mixed>
      */
     private function diff(array $snapshot, array $plan): array
