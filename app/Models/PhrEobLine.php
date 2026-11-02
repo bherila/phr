@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\PHR\Fills\FillEobLinkTrigger;
 use App\Traits\SerializesDatesAsLocal;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -45,6 +46,16 @@ class PhrEobLine extends Model
         'parsed_data',
         'raw_text',
     ];
+
+    protected static function booted(): void
+    {
+        static::saved(static function (self $line): void {
+            if ($line->wasRecentlyCreated || $line->wasChanged()) {
+                FillEobLinkTrigger::scheduleForLine($line);
+            }
+        });
+        static::deleted(static fn (self $line) => FillEobLinkTrigger::scheduleForLine($line));
+    }
 
     protected function casts(): array
     {

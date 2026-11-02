@@ -406,6 +406,19 @@ describe('MedicationFillsPage table', () => {
   })
 })
 
+describe('Fill claim flag', () => {
+  it('badges a fill with an insurance claim to match, and only that fill', async () => {
+    fills = [
+      makeFill({ review_flags: [{ code: 'eob_link_open', message: 'A pharmacy claim on this date may belong to this fill.' }] }),
+      makeFill({ id: 2, filled_on: '2025-03-04', review_flags: [] }),
+    ]
+    renderPage()
+
+    expect(await screen.findAllByText('Claim to match')).toHaveLength(1)
+    expect(within(screen.getByText('2026-10-28').closest('tr') as HTMLElement).getByText('Claim to match')).toBeInTheDocument()
+  })
+})
+
 describe('Fill entry form', () => {
   async function openForm() {
     renderPage()

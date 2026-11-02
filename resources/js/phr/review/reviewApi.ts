@@ -33,6 +33,17 @@ export type FillSummary = z.infer<typeof FillSummarySchema>
 const DuplicateSchema = z.object({ fill: FillSummarySchema, candidates: z.array(FillSummarySchema) })
 export type FillDuplicate = z.infer<typeof DuplicateSchema>
 
+/** A pharmacy claim on the fill's date that the server would not decide on. */
+const EobCandidateSchema = z.object({
+  eob_id: z.number(),
+  claim_number: z.string().nullable(),
+  service_date: z.string().nullable(),
+  processed_date: z.string().nullable(),
+  total_charges: z.string().nullable(),
+  provider_name: z.string().nullable(),
+})
+export type EobCandidate = z.infer<typeof EobCandidateSchema>
+
 export const RecordItemSchema = z.object({
   type: z.literal('record'),
   key: z.string(),
@@ -45,6 +56,10 @@ export const RecordItemSchema = z.object({
   flags: z.array(z.object({ code: z.string(), message: z.string() })).optional(),
   /** A fill flagged possible_duplicate, beside the existing fills it may repeat. */
   duplicate: DuplicateSchema.optional(),
+  /** The pharmacy claims a person may choose from for a fill flagged eob_link_open. */
+  eob_candidates: z.array(EobCandidateSchema).optional(),
+  /** A fill's own status: a confirmed one is listed only because its claim is unsettled. */
+  review_status: z.string().optional(),
   /** Where to open the record when it has no page of its own under its section (an EOB). */
   open_path: z.string().optional(),
   change: z.enum(['new', 'update']),
@@ -195,6 +210,20 @@ export async function resolveFillDuplicate(patientId: number, fillId: number, ac
       version,
       ...(candidateFillId !== undefined ? { candidate_fill_id: candidateFillId } : {}),
     })
+  } finally {
+    void reviewStateChanged(patientId)
+  }
+}
+
+export type EobLinkAnswer = { action: 'link', eobId: number } | { action: 'none' }
+
+/**
+ * Answer a fill's claim flag: this claim, or none of them. Evidence only, so it does not touch
+ * the fill's review. Throws the route's refusal, such as a claim no longer on offer (409).
+ */
+export async function answerFillEobLink(patientId: number, fillId: number, answer: EobLinkAnswer): Promise<void> {
+  try {
+    await fetchWrapper.post(`/api/phr/patients/${patientId}/medication-fills/${fillId}/eob-link`, answer.action === 'link' ? { action: 'link', eob_id: answer.eobId } : { action: 'none' })
   } finally {
     void reviewStateChanged(patientId)
   }

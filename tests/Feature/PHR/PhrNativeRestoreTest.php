@@ -15,6 +15,8 @@ use App\Models\PhrNativeRestoreAttempt;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Models\User;
+use App\Services\PHR\Fills\FillEobLinker;
+use App\Services\PHR\Fills\FillEobLinkPlanner;
 use App\Services\PHR\NativeBackup\NativeRestoreException;
 use App\Services\PHR\NativeBackup\PhrNativeBackupService;
 use App\Services\PHR\NativeBackup\PhrNativeLifecycleCompatibility;
@@ -1323,6 +1325,71 @@ final class PhrNativeRestoreTest extends TestCase
         $this->assertSame(0, DB::table('phr_medication_fills')->where('patient_id', $attempt->target_patient_root_id)->count());
         @unlink($current);
         @unlink($archivePath);
+    }
+
+    public function test_automatic_fill_links_flags_and_a_persons_dismissal_survive_a_round_trip_and_a_rerun_changes_nothing(): void
+    {
+        $owner = User::factory()->create(['user_role' => 'user']);
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        $claim = static function (string $number, string $day, string $charge) use ($owner, $patient): PhrEob {
+            $eob = PhrEob::query()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'import_source' => 'synthetic', 'external_id' => "eob-{$number}", 'claim_number' => $number, 'claim_type' => 'pharmacy', 'total_charges' => $charge, 'processed_date' => $day, 'review_status' => 'pending_review']);
+            foreach ([1, 2] as $line) {
+                PhrEobLine::query()->create(['eob_id' => $eob->id, 'patient_id' => $patient->id, 'line_number' => $line, 'procedure_code' => "L{$line}", 'service_start' => $day, 'service_end' => $day]);
+            }
+
+            return $eob;
+        };
+        $fill = static fn (string $id, string $day, string $drug) => PhrMedicationFill::factory()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'external_id' => $id, 'import_source' => 'synthetic', 'filled_on' => $day, 'ndc_11' => null, 'drug_as_printed' => $drug, 'review_status' => 'confirmed']);
+
+        // One automatic link on two lines, one fill flagged, and one a person dismissed.
+        $fill('linked', '2026-01-05', 'Synthetic alpha');
+        $claim('C-1', '2026-01-05', '100.00');
+        $fill('flagged', '2026-01-06', 'Synthetic alpha');
+        $fill('dismissed', '2026-01-06', 'Synthetic beta');
+        $fill('other', '2026-01-06', 'Synthetic gamma');
+        $claim('C-2', '2026-01-06', '200.00');
+        $claim('C-3', '2026-01-06', '300.00');
+        $claim('C-4', '2026-01-06', '400.00');
+        $dismissed = PhrMedicationFill::query()->where('external_id', 'dismissed')->sole();
+        PhrMedicationFillEvidence::query()->create(['patient_id' => $patient->id, 'fill_id' => $dismissed->id, 'source_kind' => PhrMedicationFillEvidence::KIND_EOB_LINK_DISMISSED, 'evidence_key' => str_repeat('d', 40)]);
+        app(FillEobLinker::class)->recompute((int) $patient->id);
+
+        $describe = static function (int $patientId): array {
+            return DB::table('phr_medication_fill_evidence as evidence')
+                ->join('phr_medication_fills as fills', 'fills.id', '=', 'evidence.fill_id')
+                ->leftJoin('phr_eob_lines as lines', 'lines.id', '=', 'evidence.eob_line_id')
+                ->leftJoin('phr_eobs as eobs', 'eobs.id', '=', 'lines.eob_id')
+                ->where('evidence.patient_id', $patientId)
+                ->orderBy('fills.external_id')->orderBy('eobs.claim_number')->orderBy('lines.line_number')
+                ->get(['fills.external_id as fill', 'evidence.source_kind as kind', 'evidence.source_locator as locator', 'eobs.claim_number as claim', 'lines.line_number as line'])
+                ->map(static fn (object $row): array => (array) $row)->all();
+        };
+        $before = $describe((int) $patient->id);
+        $this->assertSame([
+            ['fill' => 'dismissed', 'kind' => 'eob_link_dismissed', 'locator' => null, 'claim' => null, 'line' => null],
+            ['fill' => 'flagged', 'kind' => 'eob_link_open', 'locator' => FillEobLinkPlanner::REASON_UNDECIDED, 'claim' => null, 'line' => null],
+            ['fill' => 'linked', 'kind' => 'auto_eob_link', 'locator' => FillEobLinkPlanner::RULE_SOLE_PAIR, 'claim' => 'C-1', 'line' => 1],
+            ['fill' => 'linked', 'kind' => 'auto_eob_link', 'locator' => FillEobLinkPlanner::RULE_SOLE_PAIR, 'claim' => 'C-1', 'line' => 2],
+            ['fill' => 'other', 'kind' => 'eob_link_open', 'locator' => FillEobLinkPlanner::REASON_UNDECIDED, 'claim' => null, 'line' => null],
+        ], $before);
+
+        $archive = $this->archiveCopy($patient, (int) $owner->id);
+        DB::table('phr_patients')->where('id', $patient->id)->delete();
+        $attempt = $this->readyAttempt($archive, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $attempt->status, (string) $attempt->failure_category);
+        app(PhrNativeRestoreService::class)->apply($attempt->refresh());
+        $target = (int) $attempt->refresh()->target_patient_root_id;
+
+        $this->assertSame($before, $describe($target));
+
+        // The rows keep an evidence_key derived from the old ids. A rerun must recognise them, not add twins.
+        $rows = DB::table('phr_medication_fill_evidence')->where('patient_id', $target)->orderBy('id')->get()->all();
+        $counts = app(FillEobLinker::class)->recompute($target);
+        $this->assertEquals($rows, DB::table('phr_medication_fill_evidence')->where('patient_id', $target)->orderBy('id')->get()->all());
+        foreach (['links_added', 'links_removed', 'links_relabelled', 'flags_added', 'flags_removed', 'flags_relabelled'] as $name) {
+            $this->assertSame(0, $counts[$name], $name);
+        }
+        @unlink($archive);
     }
 
     public function test_fill_evidence_and_the_eob_review_status_survive_a_round_trip_and_an_older_archive_restores_without_them(): void

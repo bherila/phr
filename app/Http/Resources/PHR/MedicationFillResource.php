@@ -3,6 +3,7 @@
 namespace App\Http\Resources\PHR;
 
 use App\Models\PhrMedicationFill;
+use App\Models\PhrMedicationFillEvidence;
 use App\Services\PHR\Ndc\FillDisplayCasing;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
 use Illuminate\Http\Request;
@@ -15,6 +16,8 @@ use Illuminate\Http\Resources\Json\JsonResource;
  */
 class MedicationFillResource extends JsonResource
 {
+    public const string EOB_LINK_OPEN_MESSAGE = 'A pharmacy claim on this date may belong to this fill, but the date and charge do not settle which. Choose the claim or say none of them.';
+
     /**
      * @return array<string, mixed>
      */
@@ -68,16 +71,29 @@ class MedicationFillResource extends JsonResource
             'retail_cents' => $fill->retail_cents,
             'pharmacy_name' => $fill->pharmacy_name,
             'pharmacy_location' => $fill->pharmacy_location,
-            // Why a person should look closely, beyond the fill being new: it may duplicate another.
-            'review_flags' => $fill->evidence->where('source_kind', 'possible_duplicate')->whereNotNull('related_fill_id')->map(
-                static fn ($flag): array => [
-                    'code' => 'possible_duplicate',
-                    'message' => "This may be the same fill as fill {$flag->related_fill_id}: it matches on the fill date and drug, but the pharmacy, quantity or Rx number do not settle it. Keep one and reject the other if they are the same.",
-                    'fill_id' => (int) $flag->related_fill_id,
-                ],
-            )->values()->all(),
+            // Why a person should look closely, beyond the fill being new: it may duplicate another,
+            // or have an insurance claim the server would not decide on.
+            'review_flags' => [
+                ...$fill->evidence->where('source_kind', 'possible_duplicate')->whereNotNull('related_fill_id')->map(
+                    static fn ($flag): array => [
+                        'code' => 'possible_duplicate',
+                        'message' => "This may be the same fill as fill {$flag->related_fill_id}: it matches on the fill date and drug, but the pharmacy, quantity or Rx number do not settle it. Keep one and reject the other if they are the same.",
+                        'fill_id' => (int) $flag->related_fill_id,
+                    ],
+                )->values()->all(),
+                ...$fill->evidence->where('source_kind', PhrMedicationFillEvidence::KIND_EOB_LINK_OPEN)->map(
+                    static fn (): array => ['code' => PhrMedicationFillEvidence::KIND_EOB_LINK_OPEN, 'message' => self::EOB_LINK_OPEN_MESSAGE],
+                )->values()->all(),
+            ],
             // The EOB lines that adjudicated this fill, and the other documents that show it.
             'eob_line_ids' => $fill->evidence->whereNotNull('eob_line_id')->pluck('eob_line_id')->map(fn ($id): int => (int) $id)->values()->all(),
+            // The same lines, saying which the server inferred: an automatic link is a reasoned guess
+            // from the date and the charge, not something the claim or a person stated.
+            'eob_links' => $fill->evidence->whereNotNull('eob_line_id')->map(static fn ($evidence): array => [
+                'eob_line_id' => (int) $evidence->eob_line_id,
+                'automatic' => $evidence->source_kind === PhrMedicationFillEvidence::KIND_AUTO_EOB_LINK,
+                'rule' => $evidence->source_kind === PhrMedicationFillEvidence::KIND_AUTO_EOB_LINK ? $evidence->source_locator : null,
+            ])->values()->all(),
             'evidence_document_ids' => $fill->evidence->whereNotNull('document_id')->pluck('document_id')->map(fn ($id): int => (int) $id)->unique()->values()->all(),
             'display' => FillDisplayCasing::forFill($fill),
             'version' => app(AgentClinicalRecordVersion::class)->for($fill),

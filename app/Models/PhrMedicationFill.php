@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\PHR\Fills\FillEobLinkTrigger;
 use App\Services\PHR\Ndc\RxNavListing;
 use App\Traits\SerializesDatesAsLocal;
 use Database\Factories\PhrMedicationFillFactory;
@@ -138,6 +139,18 @@ class PhrMedicationFill extends Model
         'source_kind',
         'source_locator',
     ];
+
+    protected static function booted(): void
+    {
+        $changed = static fn (self $fill) => FillEobLinkTrigger::schedule((int) $fill->patient_id);
+        // A save that changed nothing (a repeated review decision) has nothing to recompute.
+        static::saved(static function (self $fill) use ($changed): void {
+            if ($fill->wasRecentlyCreated || $fill->wasChanged()) {
+                $changed($fill);
+            }
+        });
+        static::deleted($changed);
+    }
 
     protected function casts(): array
     {

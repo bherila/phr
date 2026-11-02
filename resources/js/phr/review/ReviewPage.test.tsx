@@ -360,3 +360,79 @@ describe('ReviewPage possible duplicates and EOBs', () => {
     expect(await screen.findByText('None rejected.')).toBeInTheDocument()
   })
 })
+
+const claims = [
+  { eob_id: 71, claim_number: 'CLM-1', service_date: '2026-01-05', processed_date: '2026-01-06', total_charges: '100.00', provider_name: 'Example Plan' },
+  { eob_id: 72, claim_number: 'CLM-2', service_date: '2026-01-05', processed_date: '2026-01-07', total_charges: '200.00', provider_name: null },
+]
+const claimFlag = { code: 'eob_link_open', message: 'A pharmacy claim on this date may belong to this fill.' }
+const confirmedFill = {
+  ...record(81, 'medication-fills', 'Synthetic confirmed fill'),
+  review_status: 'confirmed', flags: [claimFlag], eob_candidates: claims,
+}
+const pendingFill = {
+  ...record(82, 'medication-fills', 'Synthetic pending fill'),
+  review_status: 'pending_review', flags: [claimFlag], eob_candidates: claims,
+}
+
+describe('ReviewPage claims to match', () => {
+  it('offers a confirmed fill only its claim, never approval or rejection', async () => {
+    mockGet.mockResolvedValue(queue([group('records:claims-to-match', 'records', 'Insurance claims to match', [confirmedFill])]))
+    render(<ReviewPage patientId={PATIENT} />)
+
+    const section = await screen.findByRole('region', { name: 'Insurance claims to match' })
+    expect(within(section).getByText('A pharmacy claim on this date may belong to this fill.')).toBeInTheDocument()
+    expect(within(section).getByText('Confirmed; only its insurance claim is unsettled')).toBeInTheDocument()
+    expect(within(section).queryByRole('button', { name: 'Reject all' })).not.toBeInTheDocument()
+    expect(within(section).queryByRole('button', { name: /^Approve/ })).not.toBeInTheDocument()
+  })
+
+  it('links the chosen claim and reloads, without touching the review route', async () => {
+    mockGet.mockResolvedValue(queue([group('records:claims-to-match', 'records', 'Insurance claims to match', [confirmedFill])]))
+    mockPost.mockResolvedValue({ outcome: 'linked' })
+    render(<ReviewPage patientId={PATIENT} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Review Synthetic confirmed fill' }))
+    expect(screen.getByText(/Claim CLM-1/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'This claim: link Synthetic confirmed fill to claim CLM-2' }))
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith(`/api/phr/patients/${PATIENT}/medication-fills/81/eob-link`, { action: 'link', eob_id: 72 }))
+    expect(mockPatch).not.toHaveBeenCalled()
+    await screen.findByText('Linked Synthetic confirmed fill to the claim.')
+  })
+
+  it('says none of these and shows a refusal against the row', async () => {
+    mockGet.mockResolvedValue(queue([group('records:claims-to-match', 'records', 'Insurance claims to match', [confirmedFill])]))
+    mockPost.mockRejectedValue(new Error('This fill has no claim waiting for an answer.'))
+    render(<ReviewPage patientId={PATIENT} />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Review Synthetic confirmed fill' }))
+    fireEvent.click(screen.getByRole('button', { name: 'None of these claims is Synthetic confirmed fill' }))
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith(`/api/phr/patients/${PATIENT}/medication-fills/81/eob-link`, { action: 'none' }))
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+  })
+
+  it('keeps a pending fill approvable by hand while it waits for its claim', async () => {
+    mockGet.mockResolvedValue(queue([group('records:agent:', 'records', 'From a connected app', [pendingFill])]))
+    render(<ReviewPage patientId={PATIENT} />)
+
+    const section = await screen.findByRole('region', { name: 'From a connected app' })
+    expect(within(section).getByRole('button', { name: 'Reject all' })).toBeInTheDocument()
+    expect(within(section).getByRole('button', { name: 'Approve 0 selected' })).toBeDisabled()
+    expect(within(section).getByRole('button', { name: 'Review Synthetic pending fill' })).toBeInTheDocument()
+  })
+
+  it('leaves the confirmed fill out of a batch in a group shared with a pending one', async () => {
+    mockGet.mockResolvedValue(queue([group('records:agent:', 'records', 'From a connected app', [record(83, 'conditions', 'Synthetic condition'), confirmedFill])]))
+    mockPatch.mockResolvedValue({})
+    render(<ReviewPage patientId={PATIENT} />)
+
+    const section = await screen.findByRole('region', { name: 'From a connected app' })
+    fireEvent.click(within(section).getByRole('button', { name: 'Reject all' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Reject 1' }))
+
+    await waitFor(() => expect(mockPatch).toHaveBeenCalledTimes(1))
+    expect(mockPatch.mock.calls[0][0]).toContain('/conditions/83')
+  })
+})

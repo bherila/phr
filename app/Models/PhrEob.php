@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\PHR\Fills\FillEobLinkTrigger;
 use App\Traits\HasPublicId;
 use App\Traits\SerializesDatesAsLocal;
 use Illuminate\Database\Eloquent\Collection;
@@ -73,6 +74,22 @@ class PhrEob extends Model
         'review_status',
         'lines_digest',
     ];
+
+    protected static function booted(): void
+    {
+        // A pharmacy claim changed, or one stopped being a pharmacy claim. Other claims never concern the linker.
+        $changed = static function (self $eob): void {
+            if ($eob->claim_type === 'pharmacy' || $eob->getOriginal('claim_type') === 'pharmacy') {
+                FillEobLinkTrigger::schedule((int) $eob->patient_id);
+            }
+        };
+        static::saved(static function (self $eob) use ($changed): void {
+            if ($eob->wasRecentlyCreated || $eob->wasChanged()) {
+                $changed($eob);
+            }
+        });
+        static::deleted($changed);
+    }
 
     protected function casts(): array
     {
