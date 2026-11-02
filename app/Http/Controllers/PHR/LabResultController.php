@@ -57,6 +57,7 @@ class LabResultController extends Controller
                     'analyte' => $result->analyte,
                     'value' => $result->value,
                     'value_numeric' => $result->value_numeric,
+                    'value_comparator' => $result->value_comparator,
                     'unit' => $result->unit,
                     'range_min' => $result->range_min,
                     'range_max' => $result->range_max,

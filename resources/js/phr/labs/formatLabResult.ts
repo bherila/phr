@@ -112,6 +112,7 @@ export function formatLabReferenceRange(result: LabRangeResult): string | null {
 interface LabValueResult {
   value: string | null
   value_numeric: string | null
+  value_comparator?: string | null | undefined
 }
 
 /** Whether the result is a number (right-aligned) rather than a word such as "Not Detected". */
@@ -119,6 +120,13 @@ export function isNumericLabValue(result: LabValueResult): boolean {
   return formatLabValueNumber(result.value_numeric) !== null
 }
 
+/** The value as the source wrote it, with an inequality it stated only beside the value. */
 export function formatLabValue(result: LabValueResult): string | null {
-  return result.value ?? formatLabValueNumber(result.value_numeric)
+  const value = result.value ?? formatLabValueNumber(result.value_numeric)
+  const comparator = result.value_comparator
+  if (value === null || !comparator || value.trimStart().startsWith(comparator)) {
+    return value
+  }
+
+  return `${comparator}${value}`
 }

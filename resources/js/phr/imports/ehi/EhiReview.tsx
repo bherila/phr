@@ -5,8 +5,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
+import { formatLabValue } from '@/phr/labs/formatLabResult'
 import { errorMessage } from '@/phr/shared'
-import { PhrDocumentResponseSchema, PhrImmunizationResponseSchema } from '@/phr/types'
+import { PhrDocumentResponseSchema, PhrImmunizationResponseSchema, PhrLabResultResponseSchema } from '@/phr/types'
 
 import { type EhiDecision, ehiFailureText, type EhiProposal, listAllEhiProposals, reviewEhiProposal } from './ehiApi'
 import { decisionActions, formatSourceDate, proposalView, retainReason, REVIEW_GROUPS, reviewGroupOf, STATUS_LABELS } from './ehiProposalView'
@@ -35,6 +36,10 @@ function CandidateRecord({ patientId, mapping, recordId }: { patientId: number, 
           const { document } = PhrDocumentResponseSchema.parse(await fetchWrapper.get(`/api/phr/patients/${patientId}/documents/${recordId}`))
           const date = formatSourceDate(document.observed_at)
           if (!cancelled) setSummary([document.title ?? 'Untitled document', date].filter(Boolean).join(' · '))
+        } else if (mapping === 'lab_result') {
+          const { lab_result: lab } = PhrLabResultResponseSchema.parse(await fetchWrapper.get(`/api/phr/patients/${patientId}/lab-results/${recordId}`))
+          const date = formatSourceDate(lab.result_datetime ?? lab.collection_datetime)
+          if (!cancelled) setSummary([lab.analyte ?? lab.test_name ?? 'Lab result', [formatLabValue(lab), lab.unit].filter(Boolean).join(' '), date].filter(Boolean).join(' · '))
         }
       } catch {
         if (!cancelled) setSummary(null)
@@ -77,6 +82,7 @@ function ProposalCard({ patientId, proposal, busy, error, onDecide }: ProposalCa
             <span className="text-sm text-muted-foreground">{[view.date, view.detail].filter(Boolean).join(' · ')}</span>
           )}
           {why && <span className="text-sm text-muted-foreground">{why}</span>}
+          {view.notice && <span className="text-sm text-foreground">{view.notice}</span>}
         </div>
         {decided && <Badge variant="secondary">{STATUS_LABELS[proposal.status]}</Badge>}
       </div>
