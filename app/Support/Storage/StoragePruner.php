@@ -15,7 +15,7 @@ use Throwable;
  * undone instead of a restore-from-backup away.
  *
  * Quarantine matters more, not less, if this storage ever moves back to an object store —
- * web1's hourly host snapshots would no longer be underneath it, leaving the holding
+ * the host's hourly snapshots would no longer be underneath it, leaving the holding
  * period as the only safety net.
  */
 class StoragePruner

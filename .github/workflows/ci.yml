@@ -311,10 +311,23 @@ jobs:
           PHR_TEST_PGSQL_PASSWORD: synthetic-ci-password
           PGOPTIONS: -c lock_timeout=60s -c statement_timeout=120s
           PHR_TEST_TRACE_DIR: ${{ runner.temp }}
-        run: >-
-          php -d memory_limit=1G vendor/bin/paratest
-          --processes="$(nproc)"
-          --fail-on-empty-test-suite
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          # A normal run takes about 5 minutes. If this one is still going after 7, record what
+          # each worker and database session is doing while they're still doing it.
+          (
+            sleep 420
+            echo "::group::Still running after 7 minutes"
+            ps -eo pid,etimes,stat,wchan:24,pcpu,rss,cmd | grep -E '[p]aratest|[p]hpunit' | cut -c1-160
+            docker exec "$POSTGRES_CONTAINER" psql -U postgres -xc "SELECT datname, pid, state, wait_event_type, wait_event, now() - query_start AS running_for, left(query, 500) AS query FROM pg_stat_activity WHERE datname LIKE 'phr_test%' AND state <> 'idle'"
+            tail -n 1 "$PHR_TEST_TRACE_DIR"/phr-test-worker-*.log
+            echo "::endgroup::"
+          ) &
+          watchdog=$!
+          status=0
+          php -d memory_limit=1G vendor/bin/paratest --processes="$(nproc)" --fail-on-empty-test-suite || status=$?
+          kill "$watchdog" 2>/dev/null || true
+          exit "$status"
 
       - name: Show what each worker last started
         if: ${{ failure() }}
