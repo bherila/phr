@@ -11,8 +11,10 @@ use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
 use App\Services\PHR\Import\PhrMultiplePatientsInSource;
 use App\Services\PHR\Import\PhrMyChartZipImporter;
 use App\Services\PHR\Storage\BlobStorageQuota;
+use App\Support\Storage\LocalObjectFile;
 use App\Support\Storage\PhrStorageKey;
 use App\Support\Storage\StagedChunkAppender;
+use App\Support\Storage\StagedUpload;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\UploadedFile;
@@ -28,9 +30,11 @@ use Throwable;
  *
  * The staged archive is written only under the patient artifact guard, so patient
  * deletion either sees the row (and deletes the archive) or the write fails on the
- * missing patient. Intake preserves each member as its own blob, so the archive is
- * deleted once intake completes or refuses the package. A failed intake keeps it
- * until expiry so intake can be queued again, and a retry resumes.
+ * missing patient. On an object store the chunks wait in a local spool (StagedUpload)
+ * that the job publishes first; that one write can take too long to hold the lock for,
+ * so the job checks afterward instead. Intake preserves each member as its own blob, so
+ * the archive is deleted once intake completes or refuses the package. A failed intake
+ * keeps it until expiry so intake can be queued again, and a retry resumes.
  *
  * A ZIP intake refuses as not EHI is tried as a MyChart record ZIP, so one upload
  * path serves both kinds of export.
@@ -64,9 +68,8 @@ final class EhiUploadService
             $this->ensureWritable($locked, $actorUserId);
             app(BlobStorageQuota::class)->assertForPatient($locked, $size);
             $path = PhrStorageKey::ehiUpload((int) $locked->id, (string) Str::uuid());
-            $disk = Storage::disk($diskName);
             try {
-                if (! $disk->put($path, '')) {
+                if (! StagedUpload::create($diskName, $path)) {
                     throw new EhiUploadRefused(EhiUploadRefused::STORAGE_FAILED, 'the staged archive could not be created');
                 }
 
@@ -165,16 +168,16 @@ final class EhiUploadService
 
     /**
      * Put a document's bytes at a staging key. Documents are immutable, so on the
-     * same local disk a hard link stages a multi-gigabyte export at once, without
-     * copying it while the patient lock is held; removing the staging key later
-     * leaves the document intact. Elsewhere the bytes are streamed across.
+     * same disk a hard link or server-side copy stages a multi-gigabyte export at once,
+     * without moving it through PHP while the patient lock is held; removing the staging
+     * key later leaves the document intact. Elsewhere the bytes are streamed across.
      */
     private function linkOrCopy(PhrDocument $document, string $diskName, string $path): bool
     {
         $from = Storage::disk(PhrDocument::STORAGE_DISK);
         $to = Storage::disk($diskName);
-        if ($diskName === PhrDocument::STORAGE_DISK && $to->makeDirectory(dirname($path))
-            && @link($from->path((string) $document->storage_path), $to->path($path))) {
+        if ($diskName === PhrDocument::STORAGE_DISK
+            && LocalObjectFile::duplicateWithinDisk($diskName, (string) $document->storage_path, $path)) {
             return true;
         }
         $source = $from->readStream((string) $document->storage_path);
@@ -212,8 +215,7 @@ final class EhiUploadService
                 throw new EhiUploadRefused(EhiUploadRefused::UPLOAD_STATE, 'the chunk does not continue the upload');
             }
 
-            $targetPath = Storage::disk($current->storage_disk)->path($current->storage_path);
-            $outcome = StagedChunkAppender::append($targetPath, (string) $chunk->getRealPath(), $offset, $chunkSize);
+            $outcome = StagedUpload::append($current->storage_disk, $current->storage_path, (string) $chunk->getRealPath(), $offset, $chunkSize);
             if ($outcome === StagedChunkAppender::STATE_MISMATCH) {
                 throw new EhiUploadRefused(EhiUploadRefused::UPLOAD_STATE, 'the staged archive does not match the bytes received');
             }
@@ -292,16 +294,74 @@ final class EhiUploadService
 
             return;
         }
+        if (! $this->publishSpool($upload)) {
+            return;
+        }
         if ($upload->storage_path === null || ! Storage::disk($upload->storage_disk)->exists($upload->storage_path)) {
             $this->finish($upload, PhrEhiUpload::STATUS_FAILED, EhiUploadRefused::EXPIRED);
 
             return;
         }
 
+        try {
+            $archive = LocalObjectFile::open($upload->storage_disk, $upload->storage_path);
+        } catch (Throwable $failure) {
+            Log::warning('EHI upload could not be read from storage.', ['upload_id' => $upload->id, 'exception' => $failure::class]);
+            $this->finish($upload, PhrEhiUpload::STATUS_FAILED, EhiIntakeFailed::STORAGE_FAILED);
+
+            return;
+        }
+        try {
+            $this->intakeArchive($upload, $patient, $archive->path);
+        } finally {
+            $archive->release();
+        }
+    }
+
+    /**
+     * Turn a spooled upload into the object intake reads. This runs outside the patient
+     * lock, because it can move gigabytes, so the row is checked afterward: if patient
+     * deletion or the purge let go of the upload meanwhile, nothing would ever delete the
+     * object written here.
+     *
+     * @return bool whether intake should carry on
+     */
+    private function publishSpool(PhrEhiUpload $upload): bool
+    {
+        if ($upload->storage_path === null) {
+            return true;
+        }
+        try {
+            if (! StagedUpload::publish($upload->storage_disk, $upload->storage_path, $upload->file_size_bytes)) {
+                return true;
+            }
+        } catch (Throwable $failure) {
+            Log::warning('EHI upload could not be published to storage.', ['upload_id' => $upload->id, 'exception' => $failure::class]);
+            $this->finish($upload, PhrEhiUpload::STATUS_FAILED, EhiIntakeFailed::STORAGE_FAILED);
+
+            return false;
+        }
+
+        try {
+            $current = $this->writeGuard->run($upload->patient_id, fn (): bool => PhrEhiUpload::query()
+                ->whereKey($upload->id)->where('storage_path', $upload->storage_path)->exists());
+        } catch (ModelNotFoundException) {
+            $current = false;
+        }
+        if (! $current) {
+            $this->deleteQuietly($upload->storage_disk, $upload->storage_path);
+        }
+
+        return $current;
+    }
+
+    private function intakeArchive(PhrEhiUpload $upload, PhrPatient $patient, string $path): void
+    {
+        $actorUserId = (int) $upload->actor_user_id;
         $source = null;
         try {
-            $source = new EhiZipSource(Storage::disk($upload->storage_disk)->path($upload->storage_path));
-            $result = $this->intake->intake($source, $patient, $upload->actor_user_id);
+            $source = new EhiZipSource($path);
+            $result = $this->intake->intake($source, $patient, $actorUserId);
         } catch (EhiPackageRejected $rejected) {
             if ($rejected->reason !== EhiPackageRejected::NOT_EHI) {
                 $this->finish($upload, PhrEhiUpload::STATUS_REJECTED, $rejected->reason);
@@ -329,7 +389,7 @@ final class EhiUploadService
 
         if ($result === null) {
             // Not an EHI Tables export; the source is closed, so read it again as MyChart.
-            $this->importMyChart($upload, $patient);
+            $this->importMyChart($upload, $patient, $path);
 
             return;
         }
@@ -346,9 +406,8 @@ final class EhiUploadService
      * and C-CDA files are imported directly by the importer `phr:import:mychart-zip`
      * uses, landing pending review. A ZIP with neither is refused.
      */
-    private function importMyChart(PhrEhiUpload $upload, PhrPatient $patient): void
+    private function importMyChart(PhrEhiUpload $upload, PhrPatient $patient, string $path): void
     {
-        $path = Storage::disk($upload->storage_disk)->path((string) $upload->storage_path);
         if (! $this->myChart->recognizes($path)) {
             $this->finish($upload, PhrEhiUpload::STATUS_REJECTED, EhiUploadRefused::UNRECOGNIZED_EXPORT);
 
@@ -417,7 +476,8 @@ final class EhiUploadService
         }
         try {
             $disk = Storage::disk($upload->storage_disk);
-            if ($disk->exists($upload->storage_path) && ! $disk->delete($upload->storage_path)) {
+            if (! StagedUpload::discard($upload->storage_path)
+                || ($disk->exists($upload->storage_path) && ! $disk->delete($upload->storage_path))) {
                 return false;
             }
         } catch (Throwable) {
@@ -462,6 +522,7 @@ final class EhiUploadService
     private function deleteQuietly(string $diskName, string $path): void
     {
         try {
+            StagedUpload::discard($path);
             Storage::disk($diskName)->delete($path);
         } catch (Throwable) {
             // Unreferenced; the storage pruner reclaims it.

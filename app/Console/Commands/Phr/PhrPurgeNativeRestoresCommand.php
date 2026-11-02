@@ -4,6 +4,7 @@ namespace App\Console\Commands\Phr;
 
 use App\Models\PhrNativeRestoreAttempt;
 use App\Services\PHR\NativeBackup\PhrNativeRestoreService;
+use App\Support\Storage\StagedUpload;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Support\Facades\Storage;
@@ -41,7 +42,8 @@ final class PhrPurgeNativeRestoresCommand extends BasePhrCommand
                             }
                             $attempt->refresh();
                         }
-                        if (! Storage::disk($attempt->source_storage_disk)->delete((string) $attempt->source_storage_path)) {
+                        if (! StagedUpload::discard((string) $attempt->source_storage_path)
+                            || ! Storage::disk($attempt->source_storage_disk)->delete((string) $attempt->source_storage_path)) {
                             $failed++;
 
                             continue;

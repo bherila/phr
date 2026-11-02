@@ -9,6 +9,7 @@ use App\Models\PhrDocumentUpload;
 use App\Models\PhrPatient;
 use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
 use App\Services\PHR\Storage\BlobStorageQuota;
+use App\Support\Storage\LocalObjectFile;
 use App\Support\Storage\PhrStorageKey;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -200,8 +201,9 @@ final readonly class SignedDocumentUploadService
                 if (! $disk->exists($path) || $disk->size($path) !== $upload->byte_size) {
                     throw new UnprocessableEntityHttpException('The uploaded file is not the declared byte_size.');
                 }
-                if ($direct) {
-                    // Snapshot remote bytes: an outstanding URL can overwrite staging.
+                if ($direct || ! LocalObjectFile::isLocal($disk)) {
+                    // Snapshot remote bytes: an outstanding URL can overwrite staging, and
+                    // the checks below need a file on this machine.
                     $temporary = tmpfile();
                     $stream = $disk->readStream($path);
                     if (! is_resource($temporary) || ! is_resource($stream)) {
@@ -220,7 +222,7 @@ final readonly class SignedDocumentUploadService
                     }
                     $localPath = stream_get_meta_data($temporary)['uri'];
                 } else {
-                    $localPath = $disk->path($path);
+                    $localPath = LocalObjectFile::open($upload->storage_disk, $path)->path;
                 }
                 $hash = hash_file('sha256', $localPath);
                 if ((! $direct && $hash !== $upload->received_sha256) || ($upload->sha256 !== null && $hash !== $upload->sha256)) {

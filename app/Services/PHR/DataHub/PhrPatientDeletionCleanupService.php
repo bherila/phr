@@ -4,6 +4,7 @@ namespace App\Services\PHR\DataHub;
 
 use App\Models\PhrPatientDeletion;
 use App\Models\PhrPatientDeletionArtifact;
+use App\Support\Storage\StagedUpload;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -13,7 +14,7 @@ use Throwable;
 final class PhrPatientDeletionCleanupService
 {
     /** @var list<string> */
-    private const array ALLOWED_DISKS = ['phr_documents', 'phr_dicom', 'phr_exports', 'phr_uploads'];
+    private const array ALLOWED_DISKS = ['phr_documents', 'phr_dicom', 'phr_exports', 'phr_uploads', StagedUpload::SPOOL_DISK];
 
     public function cleanup(int $deletionId): void
     {
