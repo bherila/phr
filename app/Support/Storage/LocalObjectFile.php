@@ -39,7 +39,7 @@ final class LocalObjectFile
             return new self($disk->path($key), false);
         }
 
-        $temporary = tempnam(sys_get_temp_dir(), 'phr-object-');
+        $temporary = tempnam((string) (config('phr.object_temp_dir') ?: sys_get_temp_dir()), 'phr-object-');
         if ($temporary === false) {
             throw new RuntimeException('No temporary file could be created for a stored object.');
         }

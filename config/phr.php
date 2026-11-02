@@ -20,6 +20,8 @@ return [
     'native_max_record_stream_bytes' => max(1, (int) env('PHR_NATIVE_MAX_RECORD_STREAM_BYTES', 32 * 1024 * 1024)),
     'native_max_artifacts' => max(1, (int) env('PHR_NATIVE_MAX_ARTIFACTS', 2000)),
     'native_page_bytes' => max(1024, (int) env('PHR_NATIVE_PAGE_BYTES', 4 * 1024 * 1024)),
+    // Where a stored object is copied for code that needs a seekable local file. It must fit the largest package.
+    'object_temp_dir' => env('PHR_OBJECT_TEMP_DIR'),
     'ehi_preview_max_seconds' => max(1, (int) env('PHR_EHI_PREVIEW_MAX_SECONDS', 240)),
     'ehi_preview_max_rows' => max(1, (int) env('PHR_EHI_PREVIEW_MAX_ROWS', 10000)),
     'ehi_preview_max_bytes' => max(1024, (int) env('PHR_EHI_PREVIEW_MAX_BYTES', 8 * 1024 * 1024)),
