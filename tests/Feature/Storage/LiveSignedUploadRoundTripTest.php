@@ -38,8 +38,8 @@ class LiveSignedUploadRoundTripTest extends TestCase
         }
         Cache::flush();
         Storage::fake('phr_documents');
-        LiveObjectStore::useDisk('phr_uploads', '');
-        config(['filesystems.disks.phr_uploads.root' => '', 'filesystems.disks.phr_uploads.throw' => true]);
+        LiveObjectStore::useDisk('phr_uploads', 'phr-uploads');
+        config(['filesystems.disks.phr_uploads.throw' => true]);
         Storage::forgetDisk('phr_uploads');
         $this->owner = User::factory()->create();
         $this->patient = PhrPatient::query()->create(['owner_user_id' => $this->owner->id, 'display_name' => 'Synthetic Patient', 'relationship' => 'self']);
@@ -71,6 +71,17 @@ class LiveSignedUploadRoundTripTest extends TestCase
         $result = $this->service->finalize($this->patient, 'synthetic-live', $upload->public_id);
 
         $this->assertSame(self::BYTES, Storage::disk('phr_documents')->get($result['document']->storage_path));
+    }
+
+    public function test_a_signed_put_on_a_disk_with_no_root_lands_where_the_disk_reads(): void
+    {
+        config(['filesystems.disks.phr_uploads.root' => '']);
+        Storage::forgetDisk('phr_uploads');
+        [$upload, $authorization] = $this->open();
+        $this->assertTrue($this->putSigned($authorization, self::BYTES)->successful());
+
+        $this->assertSame(self::BYTES, Storage::disk('phr_uploads')->get($upload->staging_path));
+        Storage::disk('phr_uploads')->delete($upload->staging_path);
     }
 
     public function test_the_store_refuses_a_put_of_any_other_length(): void
