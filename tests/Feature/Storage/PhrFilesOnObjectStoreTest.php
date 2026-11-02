@@ -221,7 +221,8 @@ CSV;
     public function test_a_stored_ehi_export_is_staged_and_taken_in_through_a_local_temporary_copy(): void
     {
         Queue::fake();
-        $document = $this->storedDocument('ehi.zip', 'application/zip', (string) file_get_contents($this->ehiZip()));
+        $archive = (string) file_get_contents($this->ehiZip());
+        $document = $this->storedDocument('ehi.zip', 'application/zip', $archive);
 
         $import = app(PhrStructuredDocumentImporter::class)->import($this->patient, (int) $this->owner->id, $document);
 
@@ -229,7 +230,6 @@ CSV;
         $upload = PhrEhiUpload::query()->where('source_document_id', $document->id)->sole();
         $staged = (string) $upload->storage_path;
         $this->assertTrue($this->documents()->exists($staged), 'staged on the store, not locally');
-        $temporary = glob(sys_get_temp_dir().'/phr-object-*') ?: [];
 
         $this->runIntake($upload);
 
@@ -242,7 +242,9 @@ CSV;
         foreach (PhrEhiBlob::query()->where('patient_id', $this->patient->id)->get() as $blob) {
             $this->assertTrue($this->documents()->exists($blob->storage_path), 'each member lands on the store');
         }
-        $this->assertSame($temporary, glob(sys_get_temp_dir().'/phr-object-*') ?: [], 'and the temporary copy is gone');
+        // By content, not by counting: parallel workers make and remove temporary copies of their own.
+        $copies = array_filter(glob(sys_get_temp_dir().'/phr-object-*') ?: [], static fn (string $file): bool => @hash_file('sha256', $file) === hash('sha256', $archive));
+        $this->assertSame([], $copies, 'and the temporary copy is gone');
     }
 
     public function test_a_stored_mychart_export_is_recognized_and_imported(): void
