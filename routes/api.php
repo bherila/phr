@@ -476,7 +476,7 @@ Route::middleware(['web', 'auth'])
         Route::delete('/patients/{patient}/medication-fills/{fill}', [PHRMedicationFillController::class, 'destroy'])->whereNumber(['patient', 'fill'])->name('patients.medication-fills.destroy');
         Route::patch('/patients/{patient}/medication-fills/{fill}/review', [PHRMedicationFillController::class, 'review'])->whereNumber(['patient', 'fill'])->name('patients.medication-fills.review');
         Route::post('/patients/{patient}/medication-fills/{fill}/resolve-duplicate', [PHRMedicationFillController::class, 'resolveDuplicate'])->whereNumber(['patient', 'fill'])->name('patients.medication-fills.resolve-duplicate');
-        Route::get('/patients/{patient}/medication-fills/{fill}/eob-link', [PHRMedicationFillController::class, 'eobLinks'])->whereNumber(['patient', 'fill'])->name('patients.medication-fills.eob-link');
+        Route::get('/patients/{patient}/medication-fills/{fill}/eob-link', [PHRMedicationFillController::class, 'eobLinks'])->whereNumber(['patient', 'fill'])->name('patients.medication-fills.eob-link.show');
         Route::post('/patients/{patient}/medication-fills/{fill}/eob-link', [PHRMedicationFillController::class, 'linkEob'])->whereNumber(['patient', 'fill'])->name('patients.medication-fills.eob-link');
         Route::get('/patients/{patient}/medications/{medication}/fills', [PHRMedicationFillController::class, 'forMedication'])->whereNumber(['patient', 'medication'])->name('patients.medications.fills');
         Route::get('/patients/{patient}/conditions', [PHRConditionController::class, 'index'])->whereNumber('patient')->name('patients.conditions.index');
