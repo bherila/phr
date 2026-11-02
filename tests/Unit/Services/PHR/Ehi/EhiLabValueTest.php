@@ -76,6 +76,22 @@ class EhiLabValueTest extends TestCase
         self::assertNull(EhiLabValue::exactBound(null));
     }
 
+    public function test_two_values_agree_only_when_their_inequalities_do(): void
+    {
+        self::assertTrue(EhiLabValue::agree('50', null, '50', '50.0', null, '50.0'));
+        self::assertTrue(EhiLabValue::agree('<50', '<', null, '<50', null, null));
+        self::assertTrue(EhiLabValue::agree('50', '<', null, '<50', null, null), 'beside the value or in it');
+        self::assertTrue(EhiLabValue::agree('≤50', null, null, '<=50', null, null), 'one spelling of the same bound');
+        self::assertTrue(EhiLabValue::agree('No Growth', null, null, 'no growth', null, null));
+        self::assertTrue(EhiLabValue::agree(null, null, null, '50', null, '50'), 'no value cannot disagree');
+
+        self::assertFalse(EhiLabValue::agree('50', '<', null, '50', null, '50'));
+        self::assertFalse(EhiLabValue::agree('50', null, '50', '>=50', null, null));
+        self::assertFalse(EhiLabValue::agree('<50', '<', null, '>50', null, null));
+        self::assertFalse(EhiLabValue::agree('<50', '<', null, '<60', null, null));
+        self::assertFalse(EhiLabValue::agree('Positive', null, null, 'Negative', null, null));
+    }
+
     public function test_numerically_equal_values_compare_equal_and_text_folds(): void
     {
         self::assertSame(EhiLabValue::canonical('5'), EhiLabValue::canonical('5.0000000000'));

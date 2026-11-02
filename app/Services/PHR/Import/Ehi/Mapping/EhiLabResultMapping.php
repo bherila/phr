@@ -886,7 +886,7 @@ final class EhiLabResultMapping implements EhiMapping
      * What a matched source-ID bridge rule proposes. Only a single live record with
      * agreeing clinical values corroborates; anything else is a person's decision.
      *
-     * @param  non-empty-list<array{id: int, source: string|null, analyte: string|null, value: string|null, number: string|null, unit: string|null, dates: list<string>, live: bool}>  $bridged
+     * @param  non-empty-list<array{id: int, source: string|null, analyte: string|null, value: string|null, number: string|null, comparator: string|null, unit: string|null, dates: list<string>, live: bool}>  $bridged
      * @param  list<int>  $revisionIds
      * @param  array<string, mixed>  $proposed
      * @param  array<string, string|null>  $fields
@@ -925,21 +925,20 @@ final class EhiLabResultMapping implements EhiMapping
     }
 
     /**
-     * @param  array{value: string|null, number: string|null, unit: string|null, dates: list<string>}  $record
+     * @param  array{value: string|null, number: string|null, comparator: string|null, unit: string|null, dates: list<string>}  $record
      * @param  array<string, string|null>  $fields
      * @return list<string> from BRIDGE_COMPARED
      */
     private function bridgeConflicts(array $record, array $fields): array
     {
         $conflicts = [];
-        $number = EhiLabValue::canonical($fields['value_numeric']);
-        $value = EhiLabRecordIndex::fold($fields['value']);
         $unit = EhiLabRecordIndex::fold($fields['unit']);
-        $valueAgrees = $value === null
-            || ($record['value'] === null && $record['number'] === null)
-            || $record['value'] === $value
-            || ($record['unit'] !== null && $record['value'] === $value.' '.$record['unit'])
-            || ($number !== null && $record['number'] === $number);
+        // An earlier import may have stored "value unit" as its value text.
+        $recordValue = $record['value'];
+        if ($recordValue !== null && $record['unit'] !== null && str_ends_with($recordValue, ' '.$record['unit'])) {
+            $recordValue = substr($recordValue, 0, -strlen(' '.$record['unit']));
+        }
+        $valueAgrees = EhiLabValue::agree($fields['value'], $fields['value_comparator'], $fields['value_numeric'], $recordValue, $record['comparator'], $record['number']);
         if (! $valueAgrees) {
             $conflicts[] = 'value';
         }

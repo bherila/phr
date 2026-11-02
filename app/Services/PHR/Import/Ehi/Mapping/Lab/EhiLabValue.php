@@ -65,6 +65,42 @@ final class EhiLabValue
         ];
     }
 
+    /**
+     * Whether two values say the same thing, comparing the inequality each states as
+     * well as its number or text: "<50" is not the measurement 50. Each side is a
+     * value's text, the comparator stated beside it, and its numeric column. A side
+     * with no value cannot disagree.
+     */
+    public static function agree(?string $value, ?string $comparator, ?string $numeric, ?string $otherValue, ?string $otherComparator, ?string $otherNumeric): bool
+    {
+        [$comparator, $number] = self::stated($value, $comparator, $numeric);
+        [$otherComparator, $otherNumber] = self::stated($otherValue, $otherComparator, $otherNumeric);
+        if (($value === null && $number === null) || ($otherValue === null && $otherNumber === null)) {
+            return true;
+        }
+        if ($comparator !== $otherComparator) {
+            return false;
+        }
+
+        return $number !== null && $otherNumber !== null
+            ? $number === $otherNumber
+            : self::canonical($value) === self::canonical($otherValue);
+    }
+
+    /** @return array{0: string|null, 1: string|null} the comparator as one spelling, and the number by value */
+    private static function stated(?string $value, ?string $comparator, ?string $numeric): array
+    {
+        [$textComparator, $textNumber] = self::fromText($value);
+        $comparator = match ($comparator ?? $textComparator) {
+            '≤' => '<=',
+            '≥' => '>=',
+            '=' => null,
+            default => $comparator ?? $textComparator,
+        };
+
+        return [$comparator, self::canonical($textNumber ?? $numeric)];
+    }
+
     /** A bound the decimal range columns hold exactly, as written; anything else stays text. */
     public static function exactBound(?string $bound): ?string
     {

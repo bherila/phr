@@ -347,6 +347,55 @@ class EhiLabResultMappingTest extends TestCase
         self::assertSame($digest, EhiTargetDigest::of($earlier->refresh()));
     }
 
+    public function test_a_comparator_is_part_of_the_value_a_compatible_identifier_must_agree_on(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        // The source says "below 95", in VALUE_NORMALIZED only. The earlier record says exactly 95.
+        $exact = $this->legacy($owner, $patient, ['import_source' => 'ccda', 'external_id' => '8101', 'analyte' => 'SYNTHETIC GLUCOSE', 'value' => '95', 'value_numeric' => '95', 'unit' => 'mg/dL', 'result_datetime' => '2024-03-05 10:00:00']);
+        $digest = EhiTargetDigest::of($exact->refresh());
+        // And an earlier record that states the same bound, for the result that says "<50".
+        $bound = $this->legacy($owner, $patient, ['import_source' => 'ccda', 'external_id' => '1.2.3|8101', 'analyte' => 'SYNTHETIC LDL', 'value' => '<50', 'unit' => 'mg/dL', 'result_datetime' => '2024-03-05 10:00:00']);
+        $package = $this->previewed(
+            EhiClinicalPackage::withLabs()->changing('ORDER_RESULTS', ['ORDER_PROC_ID' => '8101', 'ORD_DATE_REAL' => '66000.01', 'LINE' => '2'], ['ORD_VALUE' => '95', 'VALUE_NORMALIZED' => "<\x1095"])->build(),
+            $owner,
+            $patient,
+        );
+
+        $conflict = $this->proposal($package, '8101', '66000.01', '2');
+        self::assertSame(PhrEhiProposal::KIND_POSSIBLE_DUPLICATE, $conflict->kind, 'an upper bound is not the measurement it bounds');
+        self::assertSame(['value'], $conflict->proposed_json['bridge']['conflicts']);
+        self::assertSame([$exact->id], $conflict->candidate_ids_json);
+
+        // Accepting it adds the bound as its own result, never as evidence for the exact one.
+        $this->accept($conflict, $owner);
+        self::assertSame(0, PhrEhiRecordLink::query()->where('lab_result_id', $exact->id)->count());
+        self::assertSame($digest, EhiTargetDigest::of($exact->refresh()));
+        $added = PhrLabResult::query()->where('external_id', 'ORDER_RESULTS:8101:66000.01:2')->sole();
+        self::assertSame('<95', $added->valueWithComparator());
+
+        // Both sides stating the same bound still corroborate, however each wrote it.
+        $agreed = $this->proposal($package, '8101', '66000.01', '1');
+        self::assertSame(PhrEhiProposal::KIND_CORROBORATE, $agreed->kind);
+        self::assertSame($bound->id, $agreed->target_id);
+    }
+
+    public function test_a_stated_bound_does_not_corroborate_an_earlier_exact_value_either_way_round(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        // The earlier record states a bound the source reports as an exact value.
+        $bound = $this->legacy($owner, $patient, ['import_source' => 'ccda', 'external_id' => '8102', 'analyte' => 'SYNTHETIC EXACT', 'value' => '>=7', 'result_datetime' => '2024-03-06 10:00:00']);
+        $package = $this->previewed(
+            EhiClinicalPackage::withLabs()->changing('ORDER_RESULTS', ['ORDER_PROC_ID' => '8102', 'LINE' => '1'], ['COMPONENT_ID_NAME' => 'SYNTHETIC EXACT', 'ORD_VALUE' => '7'])->build(),
+            $owner,
+            $patient,
+        );
+
+        $conflict = $this->proposal($package, '8102', '66001', '1');
+        self::assertSame(PhrEhiProposal::KIND_POSSIBLE_DUPLICATE, $conflict->kind);
+        self::assertSame(['value'], $conflict->proposed_json['bridge']['conflicts']);
+        self::assertSame([$bound->id], $conflict->candidate_ids_json);
+    }
+
     public function test_an_identifier_is_compared_exactly_and_another_installations_keys_mean_nothing(): void
     {
         [$owner, $patient] = $this->ownerAndPatient();
