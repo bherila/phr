@@ -24,6 +24,8 @@ final class FakeObjectStoreUploads extends UploadUrlSigner
 
     public bool $failAborts = false;
 
+    public bool $failLists = false;
+
     public function directUploadsEnabled(): bool
     {
         return true;
@@ -49,6 +51,10 @@ final class FakeObjectStoreUploads extends UploadUrlSigner
 
     public function listParts(string $disk, string $path, string $uploadId): array
     {
+        if ($this->failLists) {
+            throw new RuntimeException('The store refused the listing.');
+        }
+
         return array_map(static fn (array $part): array => ['etag' => $part['etag'], 'bytes' => $part['bytes']], $this->uploads[$uploadId]['parts'] ?? []);
     }
 

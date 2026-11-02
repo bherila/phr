@@ -24,6 +24,52 @@ beforeEach(() => {
 })
 
 describe('EhiImportFlow', () => {
+  it('offers to finish a direct upload whose last request failed, with nothing to send again', async () => {
+    let queued = false
+    mockGet.mockImplementation(() => Promise.resolve({
+      upload: makeEhiUpload({ transport: 's3', part_size_bytes: 4, file_size_bytes: 10, uploaded_bytes: 10, status: queued ? 'queued' : 'uploading' }),
+    }))
+    mockPost.mockImplementation(() => {
+      queued = true
+      return Promise.resolve({ upload: makeEhiUpload({ transport: 's3', status: 'queued', uploaded_bytes: 10, file_size_bytes: 10 }) })
+    })
+    const job = {
+      id: 'job', patientId: EHI_PATIENT_ID, fileName: 'export.zip', fileSizeBytes: 10, uploadId: 5, bytesSent: 10,
+      phase: 'failed' as const, cancellable: false, error: 'The connection dropped.',
+    }
+
+    render(<EhiImportFlow patientId={EHI_PATIENT_ID} canBind job={job} onReview={jest.fn()} />)
+
+    expect(await screen.findByRole('button', { name: 'Start the import' })).toBeInTheDocument()
+    expect(screen.getByText('The connection dropped.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Start the import' }))
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith(`${uploadUrl}/intake`, {}))
+    await waitFor(() => expect(screen.queryByText('The connection dropped.')).not.toBeInTheDocument())
+  })
+
+  it('keeps a chunked upload’s failure on screen as it always has', async () => {
+    mockGet.mockResolvedValue({ upload: makeEhiUpload({ file_size_bytes: 10, uploaded_bytes: 10, status: 'queued' }) })
+    const job = {
+      id: 'job', patientId: EHI_PATIENT_ID, fileName: 'export.zip', fileSizeBytes: 10, uploadId: 5, bytesSent: 10,
+      phase: 'failed' as const, cancellable: false, error: 'The connection dropped.',
+    }
+
+    render(<EhiImportFlow patientId={EHI_PATIENT_ID} canBind job={job} onReview={jest.fn()} />)
+
+    await waitFor(() => expect(mockGet).toHaveBeenCalled())
+    expect(await screen.findByText('The connection dropped.')).toBeInTheDocument()
+  })
+
+  it('says a direct upload stopped short when the store does not hold every part', async () => {
+    mockGet.mockResolvedValue({ upload: makeEhiUpload({ transport: 's3', part_size_bytes: 4, file_size_bytes: 10, uploaded_bytes: 4 }) })
+
+    render(<EhiImportFlow patientId={EHI_PATIENT_ID} canBind uploadId={5} onReview={jest.fn()} />)
+
+    expect(await screen.findByText(/Choose the file again to start over/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Start the import' })).not.toBeInTheDocument()
+  })
+
   it('starts the import of an upload whose bytes all arrived but whose intake never started', async () => {
     mockGet.mockResolvedValue({ upload: makeEhiUpload({ uploaded_bytes: 10, file_size_bytes: 10 }) })
     mockPost.mockResolvedValue({ upload: makeEhiUpload({ status: 'queued', uploaded_bytes: 10, file_size_bytes: 10 }) })

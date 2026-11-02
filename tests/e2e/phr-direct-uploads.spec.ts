@@ -185,6 +185,46 @@ test.describe('Uploads on this backend, from the Imports page', () => {
   })
 })
 
+test.describe('Finishing a direct upload whose last request failed, against a real store', () => {
+  test.skip(liveStore === null, 'Only a store has parts to finish from.')
+
+  test.beforeEach(async ({ page }) => {
+    await signIn(page)
+  })
+
+  for (const reload of [false, true]) {
+    test(`every part arrived and the finish failed: finishing needs no new upload${reload ? ', even after a reload' : ''}`, async ({ page }) => {
+      const { patientName } = await importsPageForNewPatient(page)
+      const puts: Request[] = []
+      page.on('request', (request) => {
+        if (isStoreRequest(request, liveStore ?? '')) puts.push(request)
+      })
+      await page.route('**/ehi/uploads/*/intake', (route) => route.abort('failed'))
+
+      await page.getByLabel('File to import').setInputFiles(syntheticEhiZip(9 * 1024 * 1024))
+      await page.getByLabel(`This file belongs to ${patientName}`).check()
+      await page.getByRole('button', { name: 'Start import' }).click()
+
+      const finish = page.getByRole('button', { name: 'Start the import' })
+      await expect(finish).toBeVisible({ timeout: 60_000 })
+      expect(puts).toHaveLength(2)
+      await page.unroute('**/ehi/uploads/*/intake')
+
+      if (reload) {
+        await page.reload()
+        await page.getByRole('row', { name: /Upload not finished/ }).getByRole('button', { name: 'View' }).click()
+        await expect(finish).toBeVisible()
+      }
+      const intake = page.waitForRequest((request) => request.url().endsWith('/intake') && request.method() === 'POST')
+      await finish.click()
+      expect((await intake).postDataJSON()).toEqual({})
+
+      await expect(page.getByText('Every row accounted for')).toBeVisible({ timeout: 60_000 })
+      expect(puts, 'nothing was sent again').toHaveLength(2)
+    })
+  }
+})
+
 test.describe('A bucket with the wrong CORS rule, in a real browser against a real store', () => {
   test.skip(liveStore === null, 'Only a real store answers with its own CORS rules.')
   test.describe.configure({ mode: 'serial' })
@@ -312,14 +352,18 @@ test.describe('The s3 transport, in a browser, with the store played by routes',
     }
   }
 
-  async function playEhiApi(page: Page, patientId: number): Promise<{ signed: number[], intake: unknown[] }> {
+  async function playEhiApi(page: Page, patientId: number, options: { failedIntakes?: number } = {}): Promise<{ signed: number[], intake: unknown[] }> {
     const base = `/api/phr/patients/${patientId}/ehi/uploads`
     const signed: number[] = []
     const intake: unknown[] = []
     let size = 0
+    let failures = options.failedIntakes ?? 0
+    let queued = false
+    /** What the server answers: while the upload is open, it says what the store holds. */
+    const current = (): Record<string, unknown> => ehiUpload(patientId, { status: queued ? 'queued' : 'uploading', file_size_bytes: size, uploaded_bytes: size })
     await page.route(`**${base}`, async (route) => {
       if (route.request().method() !== 'POST') {
-        await fulfillJson(route, { uploads: [] })
+        await fulfillJson(route, { uploads: size > 0 ? [current()] : [] })
         return
       }
       size = (route.request().postDataJSON() as { file_size_bytes: number }).file_size_bytes
@@ -332,9 +376,15 @@ test.describe('The s3 transport, in a browser, with the store played by routes',
     })
     await page.route(`**${base}/601/intake`, async (route) => {
       intake.push(route.request().postDataJSON())
-      await fulfillJson(route, { upload: ehiUpload(patientId, { status: 'queued', file_size_bytes: size, uploaded_bytes: size }) }, 202)
+      if (failures > 0) {
+        failures -= 1
+        await route.abort('failed')
+        return
+      }
+      queued = true
+      await fulfillJson(route, { upload: current() }, 202)
     })
-    await page.route(`**${base}/601`, (route) => fulfillJson(route, { upload: ehiUpload(patientId, { status: 'queued', file_size_bytes: size, uploaded_bytes: size }) }))
+    await page.route(`**${base}/601`, (route) => fulfillJson(route, { upload: current() }))
 
     return { signed, intake }
   }
@@ -401,6 +451,49 @@ test.describe('The s3 transport, in a browser, with the store played by routes',
     expect(api.intake[0]).toEqual({
       parts: received.map((_, index) => ({ part_number: index + 1, etag: `"synthetic-${index + 1}"` })),
     })
+  })
+
+  test('when the finish fails after every part arrived, it can be retried with nothing sent again', async ({ page }) => {
+    const { patientId, patientName } = await importsPageForNewPatient(page)
+    const received = await playStore(page)
+    const api = await playEhiApi(page, patientId, { failedIntakes: 1 })
+
+    await page.getByLabel('File to import').setInputFiles(syntheticEhiZip(0))
+    await page.getByLabel(`This file belongs to ${patientName}`).check()
+    await page.getByRole('button', { name: 'Start import' }).click()
+
+    const finish = page.getByRole('button', { name: 'Start the import' })
+    await expect(finish).toBeVisible()
+    const sent = received.length
+    expect(api.intake).toHaveLength(1)
+    expect((api.intake[0] as { parts: unknown[] }).parts).toHaveLength(sent)
+
+    await finish.click()
+
+    await expect.poll(() => api.intake.length).toBe(2)
+    expect(api.intake[1]).toEqual({})
+    expect(received, 'nothing was sent again').toHaveLength(sent)
+    await expect(finish).toBeHidden()
+  })
+
+  test('after a reload, the upload can still be finished from Recent imports', async ({ page }) => {
+    const { patientId, patientName } = await importsPageForNewPatient(page)
+    const received = await playStore(page)
+    const api = await playEhiApi(page, patientId, { failedIntakes: 1 })
+
+    await page.getByLabel('File to import').setInputFiles(syntheticEhiZip(0))
+    await page.getByLabel(`This file belongs to ${patientName}`).check()
+    await page.getByRole('button', { name: 'Start import' }).click()
+    await expect(page.getByRole('button', { name: 'Start the import' })).toBeVisible()
+    const sent = received.length
+
+    await page.reload()
+    await page.getByRole('row', { name: /Upload not finished/ }).getByRole('button', { name: 'View' }).click()
+    await page.getByRole('button', { name: 'Start the import' }).click()
+
+    await expect.poll(() => api.intake.length).toBe(2)
+    expect(api.intake[1]).toEqual({})
+    expect(received, 'nothing was sent again').toHaveLength(sent)
   })
 
   test('when the bucket hides ETag, the upload stops at once and says so', async ({ page }) => {

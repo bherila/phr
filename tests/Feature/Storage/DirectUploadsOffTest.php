@@ -62,6 +62,11 @@ class DirectUploadsOffTest extends TestCase
                 throw new LogicException('Nothing may open a multipart upload here.');
             }
 
+            public function listParts(string $disk, string $path, string $uploadId): array
+            {
+                throw new LogicException('Nothing may list parts here.');
+            }
+
             public function abortMultipartUpload(string $disk, string $path, string $uploadId): void
             {
                 throw new LogicException('Nothing may abort a multipart upload here.');
@@ -100,6 +105,7 @@ class DirectUploadsOffTest extends TestCase
         ])->assertOk()->assertJsonPath('upload.uploaded_bytes', 4);
 
         $this->actingAs($this->owner)->postJson("{$this->ehi()}/{$upload['id']}/parts", ['part_number' => 1])->assertStatus(409);
+        $this->actingAs($this->owner)->getJson("{$this->ehi()}/{$upload['id']}")->assertOk()->assertJsonPath('upload.uploaded_bytes', 4);
         $row = PhrEhiUpload::query()->findOrFail($upload['id']);
         $this->assertNull($row->multipart_upload_id);
         $this->assertSame('abcd', Storage::disk('phr_documents')->get((string) $row->storage_path));

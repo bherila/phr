@@ -290,7 +290,9 @@ export function EhiImportFlow({ patientId, canBind, job, uploadId, packageId, on
   // ---- stage 1: keep the original
   const preserved = pkg !== null && pkg.preservation_status === 'preserved'
   const rejected = upload?.status === 'rejected'
-  const uploadFailed = job?.phase === 'failed' || upload?.status === 'failed'
+  // A direct upload can be finished again from here, after which this tab's failure is old news.
+  const jobFailed = job?.phase === 'failed' && !(upload?.transport === 's3' && upload.status !== 'uploading')
+  const uploadFailed = jobFailed || upload?.status === 'failed'
   // The server still holds an unfinished upload and nothing in this tab is sending it:
   // the transfer stopped, or every byte arrived and only queueing intake failed.
   const stranded = !transferring && upload?.status === 'uploading'
@@ -322,7 +324,7 @@ export function EhiImportFlow({ patientId, canBind, job, uploadId, packageId, on
               <Progress value={totalBytes > 0 ? (uploadedBytes / totalBytes) * 100 : 0} aria-label="Upload progress" />
             </>
           )}
-          {job?.phase === 'failed' && <span className="text-sm text-destructive">{job.error}</span>}
+          {jobFailed && <span className="text-sm text-destructive">{job.error}</span>}
           {job?.phase === 'cancelled' && <span className="text-sm text-muted-foreground">Upload cancelled.</span>}
           {allBytesArrived && (
             <span className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
