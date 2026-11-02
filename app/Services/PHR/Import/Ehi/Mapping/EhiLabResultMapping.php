@@ -65,6 +65,10 @@ use Illuminate\Database\UniqueConstraintViolationException;
  *   COMP_ANL_INST_TM (Local), else RESULT_DATE (no zone), else RESULT_TIME (Local,
  *     ORDER_PROC) -> result_datetime, resulted_at_*
  *
+ * Comments and a narrative are only as good as the rows behind them: if a table was
+ * withheld or absent, or a row could not be read or was quarantined, the package cannot
+ * say what they are, so an update leaves what the record holds alone.
+ *
  * Dates: the datetime columns hold the source's wall clock as written, never
  * shifted through any timezone, and *_timezone says what the spec documents it as.
  * A date with no time reads as midnight with precision "date". Exports state no
@@ -285,17 +289,21 @@ final class EhiLabResultMapping implements EhiMapping
         $importSource = self::importSource($context->source->id);
         $records = new EhiLabRecordIndex($context, $importSource, self::TABLE_RESULTS, self::NAME);
         $narrativeOwners = $this->narrativeOwners($context);
+        $gaps = [
+            'comments' => $context->incompleteRows(self::TABLE_COMMENTS, 'ORDER_ID'),
+            'narrative' => $context->incompleteRows(self::TABLE_NARRATIVE, 'ORDER_PROC_ID'),
+        ];
 
         $group = [];
         foreach ($context->lazyRevisions(self::TABLE_RESULTS, withEntity: true) as $revision) {
             if ($group !== [] && $group[0]->entity_id !== $revision->entity_id) {
-                yield $this->draft($context, $evidence, $records, $group, $importSource, $narrativeOwners);
+                yield $this->draft($context, $evidence, $records, $group, $importSource, $narrativeOwners, $gaps);
                 $group = [];
             }
             $group[] = $revision;
         }
         if ($group !== []) {
-            yield $this->draft($context, $evidence, $records, $group, $importSource, $narrativeOwners);
+            yield $this->draft($context, $evidence, $records, $group, $importSource, $narrativeOwners, $gaps);
         }
 
         foreach ([
@@ -354,8 +362,9 @@ final class EhiLabResultMapping implements EhiMapping
     /**
      * @param  non-empty-list<PhrEhiRevision>  $revisions  every revision of one entity this package supplied
      * @param  array<string, string>  $narrativeOwners
+     * @param  array{comments: array{all: bool, keys: array<string, true>}, narrative: array{all: bool, keys: array<string, true>}}  $gaps
      */
-    private function draft(EhiMappingContext $context, EhiLabEvidence $evidence, EhiLabRecordIndex $records, array $revisions, string $importSource, array $narrativeOwners): EhiProposalDraft
+    private function draft(EhiMappingContext $context, EhiLabEvidence $evidence, EhiLabRecordIndex $records, array $revisions, string $importSource, array $narrativeOwners, array $gaps): EhiProposalDraft
     {
         $context->budget->checkpoint();
         $revision = $revisions[0];
@@ -386,7 +395,14 @@ final class EhiLabResultMapping implements EhiMapping
             return $this->retain($subject, $revisionIds, null, $ownership['verdict']);
         }
 
-        $built = $this->build($context, $evidence, $revision, $order, $orderProcId, $contact, $line, $narrativeOwners, $importSource, $externalId, $ownership['via'], $revisionIds);
+        $unavailable = [];
+        if ($gaps['comments']['all'] || isset($gaps['comments']['keys'][$orderProcId])) {
+            $unavailable['result_comment'] = true;
+        }
+        if ($gaps['narrative']['all'] || isset($gaps['narrative']['keys'][$orderProcId])) {
+            $unavailable['notes'] = true;
+        }
+        $built = $this->build($context, $evidence, $revision, $order, $orderProcId, $contact, $line, $narrativeOwners, $importSource, $externalId, $ownership['via'], $revisionIds, $unavailable);
         if ($built['issue'] !== null) {
             $context->finding($built['issue']['code'], $revision, $built['issue']['detail']);
 
@@ -414,7 +430,7 @@ final class EhiLabResultMapping implements EhiMapping
         }
 
         if ($target['state'] === 'target') {
-            return $this->reconcile($subject, $revisionIds, $built['proposed'], $fields, $target['record'], $target['previous'], $target['same_revision']);
+            return $this->reconcile($subject, $revisionIds, $built['proposed'], $fields, $target['record'], $target['previous'], $target['same_revision'], $unavailable);
         }
 
         $analytes = $built['analytes'];
@@ -524,9 +540,10 @@ final class EhiLabResultMapping implements EhiMapping
      * @param  array<string, string>  $narrativeOwners
      * @param  list<string>  $via
      * @param  list<int>  $revisionIds
+     * @param  array<string, true>  $unavailable  fields the package cannot vouch for
      * @return array{fields: array<string, string|null>, proposed: array<string, mixed>, issue: array{code: string, detail: array<string, int|string|bool|null>}|null, analytes: list<string>, number: string|null}
      */
-    private function build(EhiMappingContext $context, EhiLabEvidence $evidence, PhrEhiRevision $revision, ?array $order, string $orderProcId, string $contact, string $line, array $narrativeOwners, string $importSource, string $externalId, array $via, array &$revisionIds): array
+    private function build(EhiMappingContext $context, EhiLabEvidence $evidence, PhrEhiRevision $revision, ?array $order, string $orderProcId, string $contact, string $line, array $narrativeOwners, string $importSource, string $externalId, array $via, array &$revisionIds, array $unavailable): array
     {
         $issue = null;
         $raise = static function (string $code, array $detail = []) use (&$issue): void {
@@ -623,7 +640,7 @@ final class EhiLabResultMapping implements EhiMapping
                 $raise(self::FINDING_VALUE_TOO_LONG, ['field' => $field, 'limit' => $limit]);
             }
         }
-        if ($issue === null && $value === null && $comment['text'] === null && $notes['text'] === null) {
+        if ($issue === null && $value === null && $comment['text'] === null && $notes['text'] === null && $unavailable === []) {
             $issue = ['code' => 'no_result_value', 'detail' => ['severity' => 'info']];
         }
 
@@ -652,6 +669,8 @@ final class EhiLabResultMapping implements EhiMapping
                     'comment_truncated' => $comment['truncated'],
                     'narrative_lines' => count($narrativeLines['lines'] ?? []),
                     'narrative_truncated' => $notes['truncated'],
+                    'comments_unavailable' => isset($unavailable['result_comment']),
+                    'narrative_unavailable' => isset($unavailable['notes']),
                 ],
             ],
             'issue' => $issue,
@@ -855,13 +874,17 @@ final class EhiLabResultMapping implements EhiMapping
      * @param  array<string, mixed>  $proposed
      * @param  array<string, string|null>  $fields
      * @param  array<string, string|null>|null  $previous
+     * @param  array<string, true>  $unavailable  fields the package cannot vouch for
      */
-    private function reconcile(string $subject, array $revisionIds, array $proposed, array $fields, PhrLabResult $record, ?array $previous, bool $sameRevision): EhiProposalDraft
+    private function reconcile(string $subject, array $revisionIds, array $proposed, array $fields, PhrLabResult $record, ?array $previous, bool $sameRevision, array $unavailable): EhiProposalDraft
     {
         $current = $this->currentFields($record);
         $changed = [];
         $before = [];
         foreach (self::MAPPED_FIELDS as $field) {
+            if (isset($unavailable[$field])) {
+                continue;
+            }
             $next = $this->comparable($field, $fields[$field]);
             $sourceChanged = $previous === null ? ! $sameRevision : $this->comparable($field, $previous[$field] ?? null) !== $next;
             if ($sourceChanged && $this->comparable($field, $current[$field]) !== $next) {

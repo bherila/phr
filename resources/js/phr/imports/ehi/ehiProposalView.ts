@@ -276,6 +276,12 @@ function noticeOf(proposal: EhiProposal): string | null {
   if (ehi !== null && typeof ehi === 'object' && !Array.isArray(ehi) && (ehi as Record<string, unknown>)['diagnoses_unavailable'] === true) {
     return 'This export could not vouch for this encounter\'s diagnoses, so they are not part of this proposal and a visit in PHR keeps the ones it has.'
   }
+  if (ehi !== null && typeof ehi === 'object' && !Array.isArray(ehi)) {
+    const unreadable = ehi as Record<string, unknown>
+    if (unreadable['comments_unavailable'] === true || unreadable['narrative_unavailable'] === true) {
+      return 'This export could not vouch for this result\'s comments or narrative, so a record in PHR keeps the ones it has.'
+    }
+  }
   if (proposed['withdrawn_match'] === true) {
     return 'A matching record was deleted, retracted, or rejected earlier. Adding this one is your choice; that record stays as it is.'
   }

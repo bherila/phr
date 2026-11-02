@@ -578,6 +578,35 @@ class EhiLabResultMappingTest extends TestCase
         self::assertSame(PhrEhiProposal::KIND_CORROBORATE, $this->proposal($third, '8101', '66000.01', '1')->kind);
     }
 
+    public function test_comments_and_a_narrative_a_package_cannot_vouch_for_survive_an_approved_update(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $key = ['ORDER_PROC_ID' => '8101', 'ORD_DATE_REAL' => '66000.01', 'LINE' => '1'];
+        $package = $this->previewed(EhiClinicalPackage::withLabs()->build(), $owner, $patient);
+        $this->accept($this->proposal($package, '8101', '66000.01', '1'), $owner);
+        $record = PhrLabResult::query()->where('external_id', 'ORDER_RESULTS:8101:66000.01:1')->sole();
+        $comment = $record->result_comment;
+        $notes = $record->notes;
+        self::assertNotNull($notes);
+
+        // The comment table's key disagrees with its dictionary, and there is no narrative table.
+        $changed = EhiClinicalPackage::withLabs()->changing('ORDER_RESULTS', $key, ['ORD_VALUE' => '<60', 'VALUE_NORMALIZED' => "<\x1060"])
+            ->buildWithDocumentedKey('ORDER_RES_COMMENT', ['ORDER_ID'])
+            ->without('ORDER_NARRATIVE.tsv')->without('docs/ORDER_NARRATIVE.htm');
+        $second = $this->previewed($changed, $owner, $patient, 'package-2', PhrEhiSource::query()->sole()->id);
+
+        $update = $this->proposal($second, '8101', '66000.01', '1');
+        self::assertSame(['value'], $update->proposed_json['changed'], 'what the package could not read is no correction');
+        self::assertTrue($update->proposed_json['ehi']['comments_unavailable']);
+        self::assertTrue($update->proposed_json['ehi']['narrative_unavailable']);
+        app(EhiProposalService::class)->review($update, PhrEhiProposal::DECISION_APPROVE_UPDATE, $owner->id, $update->preview_digest);
+
+        $record->refresh();
+        self::assertSame('<60', $record->value);
+        self::assertSame($comment, $record->result_comment);
+        self::assertSame($notes, $record->notes);
+    }
+
     public function test_an_update_is_refused_if_the_record_changed_since_the_preview(): void
     {
         [$owner, $patient] = $this->ownerAndPatient();

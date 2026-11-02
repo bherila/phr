@@ -123,6 +123,11 @@ describe('ehiProposalView', () => {
     expect(proposalView(makeEhiProposal({ mapping: 'encounter', proposed: { attributes: { visit_type: 'Office Visit' }, ehi: { diagnoses_unavailable: false } } })).notice).toBeNull()
   })
 
+  it('says when a lab result\'s comments or narrative could not be read', () => {
+    const proposal = makeEhiProposal({ mapping: 'lab_result', proposed: { attributes: { analyte: 'Synthetic LDL' }, ehi: { comments_unavailable: true, narrative_unavailable: false } } })
+    expect(proposalView(proposal).notice).toMatch(/could not vouch.*comments or narrative/)
+  })
+
   it('shows a month-precision date without a day', () => {
     expect(formatSourceDate('2004-08')).toBe('Aug 2004')
     expect(formatSourceDate(null)).toBeNull()

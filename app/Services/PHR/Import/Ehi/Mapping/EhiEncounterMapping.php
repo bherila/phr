@@ -3,12 +3,10 @@
 namespace App\Services\PHR\Import\Ehi\Mapping;
 
 use App\Models\PhrEhiEntity;
-use App\Models\PhrEhiOccurrence;
 use App\Models\PhrEhiPackage;
 use App\Models\PhrEhiProposal;
 use App\Models\PhrEhiRecordLink;
 use App\Models\PhrEhiRevision;
-use App\Models\PhrEhiTableAccount;
 use App\Models\PhrOfficeVisit;
 use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentValues;
 use App\Services\PHR\Import\Ehi\Mapping\Encounter\EhiEncounterApplyRefused;
@@ -208,7 +206,7 @@ final class EhiEncounterMapping implements EhiMapping
     public function propose(EhiMappingContext $context): iterable
     {
         $diagnoses = $this->diagnoses($context);
-        $gaps = $this->diagnosisGaps($context);
+        $gaps = $context->incompleteRows(self::TABLE_DIAGNOSES, 'PAT_ENC_CSN_ID');
         if ($gaps['all']) {
             $context->finding(self::FINDING_DIAGNOSES_UNAVAILABLE, null, ['scope' => 'table', 'severity' => 'info']);
         }
@@ -295,52 +293,9 @@ final class EhiEncounterMapping implements EhiMapping
     }
 
     /**
-     * Where this package's diagnosis rows do not add up to a complete list: every
-     * encounter, when the table supplied nothing or held a row with no usable key, or
-     * only the encounters whose rows were quarantined.
-     *
-     * @return array{all: bool, csns: array<string, true>}
-     */
-    private function diagnosisGaps(EhiMappingContext $context): array
-    {
-        $everything = ['all' => true, 'csns' => []];
-        if ($context->withheld(self::TABLE_DIAGNOSES)) {
-            return $everything;
-        }
-        $account = PhrEhiTableAccount::query()->where('package_id', $context->package->id)->whereNotNull('member_id')->get()
-            ->first(static fn (PhrEhiTableAccount $row): bool => strtoupper($row->table_name) === self::TABLE_DIAGNOSES);
-        if ($account === null || $account->malformed_row_count > 0) {
-            return $everything;
-        }
-        $quarantined = (int) ($account->disposition_counts_json[PhrEhiOccurrence::DISPOSITION_QUARANTINED] ?? 0);
-        if ($quarantined === 0) {
-            return ['all' => false, 'csns' => []];
-        }
-        $rows = PhrEhiRevision::query()
-            ->join('phr_ehi_occurrences', 'phr_ehi_occurrences.revision_id', '=', 'phr_ehi_revisions.id')
-            ->where('phr_ehi_occurrences.member_id', $account->member_id)
-            ->where('phr_ehi_occurrences.disposition', PhrEhiOccurrence::DISPOSITION_QUARANTINED)
-            ->select('phr_ehi_revisions.*', 'phr_ehi_occurrences.id as ehi_occurrence_id')
-            ->get();
-        if ($rows->count() < $quarantined) {
-            // A row quarantined with no key could have belonged to any encounter.
-            return $everything;
-        }
-        $csns = [];
-        foreach ($rows as $row) {
-            $csn = EhiDocumentValues::cell($row, 'PAT_ENC_CSN_ID');
-            if ($csn !== null) {
-                $csns[$csn] = true;
-            }
-        }
-
-        return ['all' => false, 'csns' => $csns];
-    }
-
-    /**
      * @param  non-empty-list<PhrEhiRevision>  $revisions
      * @param  array<string, list<array{id: int, ambiguous: bool, line: string, entry: array<string, string|bool|null>}>>  $diagnoses
-     * @param  array{all: bool, csns: array<string, true>}  $gaps
+     * @param  array{all: bool, keys: array<string, true>}  $gaps
      * @param  array<string, true>  $used
      */
     private function draft(EhiMappingContext $context, EhiEncounterRecordIndex $records, array $revisions, array $diagnoses, array $gaps, array &$used, string $importSource): EhiProposalDraft
@@ -382,7 +337,7 @@ final class EhiEncounterMapping implements EhiMapping
             return $this->retain($subject, $revisionIds, null, self::FINDING_FOREIGN_PATIENT);
         }
 
-        $diagnosesAvailable = ! $gaps['all'] && ! isset($gaps['csns'][$csn]);
+        $diagnosesAvailable = ! $gaps['all'] && ! isset($gaps['keys'][$csn]);
         if (! $gaps['all'] && ! $diagnosesAvailable) {
             $context->finding(self::FINDING_DIAGNOSES_UNAVAILABLE, $revision, ['scope' => 'encounter', 'severity' => 'info']);
         }
