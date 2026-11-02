@@ -1,6 +1,7 @@
 <?php
 
 use App\Services\PHR\Import\Ehi\Mapping\EhiDocumentMapping;
+use App\Services\PHR\Import\Ehi\Mapping\EhiEncounterMapping;
 use App\Services\PHR\Import\Ehi\Mapping\EhiImmunizationMapping;
 use App\Services\PHR\Import\Ehi\Mapping\EhiLabResultMapping;
 
@@ -59,6 +60,7 @@ return [
         EhiImmunizationMapping::class,
         EhiDocumentMapping::class,
         EhiLabResultMapping::class,
+        EhiEncounterMapping::class,
     ],
     'documents_retention_days' => (int) env('PHR_DOCUMENTS_RETENTION_DAYS', 30),
     // A migrated reference keeps its verified legacy object until a separate,

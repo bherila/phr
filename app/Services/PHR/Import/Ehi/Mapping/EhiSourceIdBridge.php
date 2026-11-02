@@ -31,6 +31,22 @@ final class EhiSourceIdBridge
      */
     public const string RULE_CCDA_ORDER_EXTENSION = 'ccda_order_extension';
 
+    /** An earlier C-CDA import kept the encounter's id extension, and it equals the CSN. */
+    public const string RULE_CCDA_ENCOUNTER_EXTENSION = 'ccda_encounter_extension';
+
+    /**
+     * An earlier FHIR import stored the Encounter resource, and one of its
+     * `identifier` values equals the CSN. FHIR resource ids are opaque, so that is
+     * the only place a FHIR encounter can state one.
+     */
+    public const string RULE_FHIR_ENCOUNTER_IDENTIFIER = 'fhir_encounter_identifier';
+
+    /** PhrFhirImporter's import_source. */
+    private const string FHIR_IMPORT_SOURCE = 'fhir';
+
+    /** A stored FHIR resource larger than this is not read for identifiers. */
+    private const int MAX_FHIR_RESOURCE_BYTES = 1024 * 1024;
+
     /** PhrCcdaImporter's import_source. */
     private const string CCDA_IMPORT_SOURCE = 'ccda';
 
@@ -50,6 +66,32 @@ final class EhiSourceIdBridge
         $extension = $separator === false ? $externalId : substr($externalId, $separator + 1);
 
         return $extension === '' ? null : $extension;
+    }
+
+    /**
+     * The identifier values an earlier FHIR import's stored resource states.
+     *
+     * @return list<string>
+     */
+    public static function fhirIdentifiers(?string $importSource, ?string $rawResource): array
+    {
+        if ($importSource !== self::FHIR_IMPORT_SOURCE || $rawResource === null || strlen($rawResource) > self::MAX_FHIR_RESOURCE_BYTES) {
+            return [];
+        }
+        $resource = json_decode($rawResource, true);
+        $identifiers = is_array($resource) ? ($resource['identifier'] ?? null) : null;
+        if (! is_array($identifiers)) {
+            return [];
+        }
+        $values = [];
+        foreach ($identifiers as $identifier) {
+            $value = is_array($identifier) ? ($identifier['value'] ?? null) : null;
+            if (is_string($value) && $value !== '') {
+                $values[] = $value;
+            }
+        }
+
+        return $values;
     }
 
     /** @return array{version: string, rule: string} */
