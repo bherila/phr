@@ -71,18 +71,11 @@ final readonly class PhrPatientListService
 
     private function byteLength(string $column): string
     {
-        return self::byteLengthExpression((new PhrPatient)->getConnection()->getDriverName(), $column);
-    }
-
-    /** PostgreSQL has a native JSON type that takes neither an empty string nor OCTET_LENGTH, so it measures text. */
-    public static function byteLengthExpression(string $driver, string $column): string
-    {
         $value = "COALESCE({$column}, '')";
 
-        return match ($driver) {
+        return match ((new PhrPatient)->getConnection()->getDriverName()) {
             'sqlite' => "LENGTH(CAST({$value} AS BLOB))",
             'sqlsrv' => "DATALENGTH({$value})",
-            'pgsql' => "OCTET_LENGTH(COALESCE(CAST({$column} AS TEXT), ''))",
             default => "OCTET_LENGTH({$value})",
         };
     }
