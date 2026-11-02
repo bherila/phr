@@ -4,6 +4,7 @@ namespace App\Services\PHR\Review;
 
 use App\GenAiProcessor\Models\GenAiImportJob;
 use App\GenAiProcessor\Models\GenAiImportResult;
+use App\Http\Resources\PHR\MedicationFillResource;
 use App\Models\PassportClient;
 use App\Models\PhrAllergy;
 use App\Models\PhrCondition;
@@ -24,6 +25,7 @@ use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientVital;
 use App\Models\PhrProcedure;
+use App\Services\PHR\Fills\FillEobLinker;
 use App\Services\PHR\Fills\PatientNameMatcher;
 use App\Services\PHR\Import\Ehi\EhiImportPresenter;
 use App\Services\PHR\Import\PhrImportJobDao;
@@ -91,24 +93,44 @@ final readonly class PhrReviewQueueService
         private EhiImportPresenter $ehiPresenter,
         private AgentClinicalRecordVersion $versions,
         private PatientNameMatcher $names,
+        private FillEobLinker $eobLinker,
     ) {}
 
     /**
      * Pending counts per section and in all, with each section's record count,
-     * in three queries.
+     * in four queries. A confirmed fill still needing its claim settled counts toward the
+     * total: it is listed, and nothing else would bring a person to it.
      *
-     * @return array{total: int, sections: array<string, array{pending: int, records: int}>, ai_results: int}
+     * @return array{total: int, sections: array<string, array{pending: int, records: int}>, ai_results: int, claims_to_match: int}
      */
     public function summary(PhrPatient $patient): array
     {
         $sections = $this->sectionCounts([(int) $patient->id])[(int) $patient->id] ?? [];
         $aiResults = $this->pendingAiResultQuery($patient)->count();
-        $total = $aiResults;
+        $claimsToMatch = $this->confirmedFillsToMatch($patient)->count();
+        $total = $aiResults + $claimsToMatch;
         foreach ($sections as $counts) {
             $total += $counts['pending'];
         }
 
-        return ['total' => $total, 'sections' => $sections, 'ai_results' => $aiResults];
+        return ['total' => $total, 'sections' => $sections, 'ai_results' => $aiResults, 'claims_to_match' => $claimsToMatch];
+    }
+
+    /**
+     * Confirmed fills flagged because their pharmacy claim was left for a person. Approving a
+     * fill settles its facts and not its claim, and review is not reopened for one, so these
+     * are listed beside what is pending instead of being lost.
+     *
+     * @return Builder<PhrMedicationFill>
+     */
+    private function confirmedFillsToMatch(PhrPatient $patient): Builder
+    {
+        $query = PhrMedicationFill::query()->where('patient_id', $patient->id)->where('review_status', PhrReviewStatus::CONFIRMED)
+            ->whereIn('id', fn ($flags) => $flags->select('fill_id')->from('phr_medication_fill_evidence')
+                ->where('patient_id', $patient->id)->where('source_kind', PhrMedicationFillEvidence::KIND_EOB_LINK_OPEN));
+        PhrRecordLifecycle::scopeLive($query);
+
+        return $query;
     }
 
     /**
@@ -325,6 +347,10 @@ final readonly class PhrReviewQueueService
                 $rows[] = [$page, null];
             }
         }
+        $claimsToMatch = $this->confirmedFillsToMatch($patient)->orderByDesc('filled_on')->orderByDesc('id')->limit(self::ITEM_LIMIT)->get();
+        foreach ($claimsToMatch as $fill) {
+            $rows[] = ['medication-fills', $fill];
+        }
         // EOBs wait for review like records but are not a clinical section; they list with documents.
         $eobs = PhrEob::query()->where('patient_id', $patient->id)->where('review_status', PhrReviewStatus::PENDING)
             ->orderByDesc('updated_at')->orderByDesc('id')->limit(self::ITEM_LIMIT + 1)->get();
@@ -349,6 +375,7 @@ final readonly class PhrReviewQueueService
 
         $mismatched = $this->medicationsFromMismatchedFills($patient, $rows);
         $duplicates = $this->openDuplicates($patient, $rows);
+        $eobCandidates = $this->eobCandidates($patient, $rows);
         $groups = [];
         $truncated = [];
         foreach ($rows as [$page, $record]) {
@@ -361,6 +388,23 @@ final readonly class PhrReviewQueueService
             $documentId = $record->getAttribute('source_document_id');
             $key = 'records:'.($source ?? '').':'.($documentId ?? '');
             $clientId = self::agentClientId($source);
+            // An already confirmed fill is not a proposal from its source; it waits for a claim.
+            if ($page === 'medication-fills' && $record->getAttribute('review_status') === PhrReviewStatus::CONFIRMED) {
+                $groups['records:claims-to-match'] ??= [
+                    'key' => 'records:claims-to-match',
+                    'origin' => 'records',
+                    'label' => 'Insurance claims to match',
+                    'name' => null,
+                    'parsed_by_phr' => true,
+                    'ai_read' => false,
+                    'document_id' => null,
+                    'date' => null,
+                    'items' => [],
+                ];
+                $groups['records:claims-to-match']['items'][] = $this->recordItem($page, $record, $patient, $mismatched, $duplicates, $eobCandidates);
+
+                continue;
+            }
             $groups[$key] ??= [
                 'key' => $key,
                 'origin' => 'records',
@@ -376,7 +420,7 @@ final readonly class PhrReviewQueueService
             if ($updated instanceof CarbonInterface && ($groups[$key]['date'] === null || $updated->toIso8601String() > $groups[$key]['date'])) {
                 $groups[$key]['date'] = $updated->toIso8601String();
             }
-            $groups[$key]['items'][] = $this->recordItem($page, $record, $patient, $mismatched, $duplicates);
+            $groups[$key]['items'][] = $this->recordItem($page, $record, $patient, $mismatched, $duplicates, $eobCandidates);
         }
 
         return array_map(static fn (array $group): array => [
@@ -413,15 +457,17 @@ final readonly class PhrReviewQueueService
     /**
      * @param  array<int, string>  $mismatched
      * @param  array<int, array<string, mixed>>  $duplicates  open possible-duplicate detail by fill id
+     * @param  array<int, list<array<string, mixed>>>  $eobCandidates  claims on offer by flagged fill id
      * @return array<string, mixed>
      */
-    private function recordItem(string $page, Model $record, PhrPatient $patient, array $mismatched, array $duplicates = []): array
+    private function recordItem(string $page, Model $record, PhrPatient $patient, array $mismatched, array $duplicates = [], array $eobCandidates = []): array
     {
         [$title, $detail] = $this->describe($page, $record);
         $created = $record->getAttribute('created_at');
         $updated = $record->getAttribute('updated_at');
 
         $duplicate = $page === 'medication-fills' ? ($duplicates[(int) $record->getKey()] ?? null) : null;
+        $candidates = $page === 'medication-fills' ? ($eobCandidates[(int) $record->getKey()] ?? null) : null;
 
         return [
             'type' => 'record',
@@ -436,8 +482,11 @@ final readonly class PhrReviewQueueService
             'flags' => [
                 ...$this->flags($page, $record, $patient, $mismatched),
                 ...($duplicate === null ? [] : [['code' => 'possible_duplicate', 'message' => 'Possible duplicate of a fill already in the record. Compare them, then merge or keep both.']]),
+                ...($candidates === null ? [] : [['code' => PhrMedicationFillEvidence::KIND_EOB_LINK_OPEN, 'message' => MedicationFillResource::EOB_LINK_OPEN_MESSAGE]]),
             ],
             ...($duplicate === null ? [] : ['duplicate' => $duplicate]),
+            ...($candidates === null ? [] : ['eob_candidates' => $candidates]),
+            ...($page === 'medication-fills' ? ['review_status' => $record->getAttribute('review_status')] : []),
             // A record changed after it was added was updated by its source (or an
             // agent), which reopened its review. Earlier values are not kept, so
             // there is no field-level difference to show.
@@ -553,6 +602,33 @@ final readonly class PhrReviewQueueService
     }
 
     /**
+     * The pharmacy claims on offer for each listed fill carrying the flag. A fixed number of
+     * queries for the whole page, and none when no listed fill is flagged.
+     *
+     * @param  list<array{0: string, 1: Model|null}>  $rows
+     * @return array<int, list<array<string, mixed>>>
+     */
+    private function eobCandidates(PhrPatient $patient, array $rows): array
+    {
+        $fillIds = [];
+        foreach ($rows as [$page, $record]) {
+            if ($page === 'medication-fills' && $record !== null) {
+                $fillIds[] = (int) $record->getKey();
+            }
+        }
+        if ($fillIds === []) {
+            return [];
+        }
+        $flagged = PhrMedicationFillEvidence::query()->where('patient_id', $patient->id)->whereIn('fill_id', $fillIds)
+            ->where('source_kind', PhrMedicationFillEvidence::KIND_EOB_LINK_OPEN)->pluck('fill_id')->map(static fn (mixed $id): int => (int) $id)->all();
+        if ($flagged === []) {
+            return [];
+        }
+
+        return array_intersect_key($this->eobLinker->candidates((int) $patient->id), array_flip($flagged));
+    }
+
+    /**
      * What a person compares to tell two fills apart.
      *
      * @param  Collection<int, PhrMedicationFillEvidence>  $evidence
@@ -566,7 +642,7 @@ final readonly class PhrReviewQueueService
         $sources[] = $this->join([$label((string) $fill->source_kind), $fill->source_document_id !== null ? $titles->get((int) $fill->source_document_id) : null]) ?? 'Entered by hand';
         foreach ($evidence as $item) {
             $sources[] = $item->eob_line_id !== null
-                ? 'EOB line'
+                ? ($item->source_kind === PhrMedicationFillEvidence::KIND_AUTO_EOB_LINK ? 'EOB line (matched automatically)' : 'EOB line')
                 : ($this->join([$label((string) $item->source_kind), $item->document_id !== null ? $titles->get((int) $item->document_id) : null]) ?? 'Document');
         }
         $quantity = rtrim(rtrim((string) $fill->quantity, '0'), '.');

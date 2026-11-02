@@ -903,6 +903,195 @@ EOB;
         $this->assertNull($this->linkOf($existing));
     }
 
+    // ---- The Review queue -----------------------------------------------------------------
+
+    public function test_a_pending_leftover_shows_its_flag_and_candidate_claims_in_the_queue_and_in_its_own_flags(): void
+    {
+        $fill = $this->fill('2026-01-05', 'alpha');
+        $this->fill('2026-01-05', 'beta');
+        $this->claim('C-1', '2026-01-05', '100.00', ['processed_date' => '2026-01-06', 'provider_name' => 'Example Pharmacy Plan']);
+        $this->claim('C-2', '2026-01-05', '200.00', ['processed_date' => '2026-01-07']);
+
+        $item = $this->queueItem($fill);
+        $this->assertSame(PhrMedicationFillEvidence::KIND_EOB_LINK_OPEN, $item['flags'][0]['code']);
+        $this->assertSame('pending_review', $item['review_status']);
+        $this->assertSame(['C-1', 'C-2'], array_column($item['eob_candidates'], 'claim_number'), 'in a stable order');
+        $this->assertSame(['eob_id', 'claim_number', 'service_date', 'processed_date', 'total_charges', 'provider_name'], array_keys($item['eob_candidates'][0]));
+        $this->assertSame('2026-01-05', $item['eob_candidates'][0]['service_date']);
+        $this->assertSame('100.00', $item['eob_candidates'][0]['total_charges']);
+
+        $this->actingAs($this->actor);
+        $resource = $this->getJson("/api/phr/patients/{$this->patient->id}/medication-fills/{$fill->id}")->assertOk()->json('medication_fill');
+        $this->assertSame([PhrMedicationFillEvidence::KIND_EOB_LINK_OPEN], array_column($resource['review_flags'], 'code'));
+        $this->assertSame([], $resource['eob_line_ids'], 'a flag does not read as a link');
+    }
+
+    public function test_a_confirmed_leftover_is_listed_too_without_reopening_review_and_counts_toward_the_total(): void
+    {
+        $fill = $this->fill('2026-01-05', 'alpha', ['review_status' => PhrReviewStatus::CONFIRMED]);
+        $this->fill('2026-01-05', 'beta', ['review_status' => PhrReviewStatus::CONFIRMED]);
+        $this->claim('C-1', '2026-01-05', '100.00', ['review_status' => PhrReviewStatus::CONFIRMED]);
+        $this->claim('C-2', '2026-01-05', '200.00', ['review_status' => PhrReviewStatus::CONFIRMED]);
+
+        $this->actingAs($this->actor);
+        $queue = $this->getJson("/api/phr/patients/{$this->patient->id}/review")->assertOk()->json();
+        $group = collect($queue['groups'])->firstWhere('key', 'records:claims-to-match');
+        $this->assertNotNull($group);
+        $item = collect($group['items'])->firstWhere('id', $fill->id);
+        $this->assertSame(PhrReviewStatus::CONFIRMED, $item['review_status']);
+        $this->assertSame(['C-1', 'C-2'], array_column($item['eob_candidates'], 'claim_number'));
+        $this->assertSame(2, $queue['summary']['claims_to_match']);
+        $this->assertSame(2, $queue['summary']['total']);
+        $this->assertSame(0, $queue['summary']['sections']['medication-fills']['pending'], 'still not pending');
+        $this->assertSame(PhrReviewStatus::CONFIRMED, $fill->fresh()->review_status);
+    }
+
+    public function test_a_fill_with_no_same_day_claim_gets_no_flag_and_stays_out_of_the_queue(): void
+    {
+        $cash = $this->fill('2026-01-05', 'alpha', ['review_status' => PhrReviewStatus::CONFIRMED]);
+        $this->claim('C-1', '2026-01-06', '100.00');
+
+        $this->assertFalse($this->flagged($cash));
+        $this->actingAs($this->actor);
+        $queue = $this->getJson("/api/phr/patients/{$this->patient->id}/review")->assertOk()->json();
+        $this->assertNull(collect($queue['groups'])->firstWhere('key', 'records:claims-to-match'));
+        $this->assertSame(0, $queue['summary']['claims_to_match']);
+    }
+
+    public function test_a_flag_goes_away_when_the_fill_is_linked_or_its_claim_goes_away(): void
+    {
+        $fill = $this->fill('2026-01-05', 'alpha');
+        $beta = $this->fill('2026-01-05', 'beta');
+        $first = $this->claim('C-1', '2026-01-05', '100.00');
+        $this->claim('C-2', '2026-01-05', '200.00');
+        $this->assertTrue($this->flagged($fill));
+
+        app(MedicationFillEvidenceService::class)->record($this->patient, $beta, null, $first->lines()->orderBy('id')->first()->id, 'eob', null);
+        $this->assertFalse($this->flagged($fill), 'one fill and one claim are left');
+        $this->assertSame(['C-2', FillEobLinkPlanner::RULE_LAST_PAIR], $this->linkOf($fill));
+
+        // A fill rejected with its flag open loses the flag.
+        $lone = $this->fill('2026-02-05', 'alpha');
+        $this->fill('2026-02-05', 'gamma');
+        $this->claim('C-3', '2026-02-05', '300.00');
+        $this->claim('C-4', '2026-02-05', '400.00');
+        $this->assertTrue($this->flagged($lone));
+        $lone->update(['review_status' => PhrReviewStatus::REJECTED]);
+        $this->assertFalse($this->flagged($lone));
+    }
+
+    public function test_the_queue_reads_candidates_with_a_fixed_number_of_queries(): void
+    {
+        $count = function (): int {
+            $this->actingAs($this->actor);
+            DB::enableQueryLog();
+            DB::flushQueryLog();
+            $this->getJson("/api/phr/patients/{$this->patient->id}/review")->assertOk();
+            $queries = count(DB::getQueryLog());
+            DB::disableQueryLog();
+
+            return $queries;
+        };
+        $this->fill('2026-01-05', 'alpha');
+        $this->fill('2026-01-05', 'beta');
+        $this->claim('C-1', '2026-01-05', '100.00');
+        $this->claim('C-2', '2026-01-05', '200.00');
+        $few = $count();
+
+        foreach (range(1, 9) as $day) {
+            $date = sprintf('2026-03-%02d', $day);
+            $this->fill($date, 'alpha');
+            $this->fill($date, 'beta');
+            $this->claim("C-a-{$day}", $date, '100.00');
+            $this->claim("C-b-{$day}", $date, '200.00');
+        }
+
+        $this->assertSame($few, $count());
+    }
+
+    // ---- A person's answer ----------------------------------------------------------------
+
+    public function test_a_person_choosing_a_claim_links_all_its_lines_as_their_own_and_nothing_else_changes(): void
+    {
+        $fill = $this->fill('2026-01-05', 'alpha', ['review_status' => PhrReviewStatus::CONFIRMED]);
+        $beta = $this->fill('2026-01-05', 'beta');
+        $chosen = $this->claim('C-1', '2026-01-05', '100.00');
+        $this->claim('C-2', '2026-01-05', '200.00');
+        $version = app(AgentClinicalRecordVersion::class)->for($fill->fresh());
+
+        $this->actingAs($this->actor);
+        $url = "/api/phr/patients/{$this->patient->id}/medication-fills/{$fill->id}/eob-link";
+        $response = $this->postJson($url, ['action' => 'link', 'eob_id' => $chosen->id])->assertOk()->assertJsonPath('outcome', 'linked')->json('medication_fill');
+
+        $this->assertCount(2, $response['eob_line_ids']);
+        $this->assertSame([false, false], array_column($response['eob_links'], 'automatic'));
+        $this->assertSame($version, app(AgentClinicalRecordVersion::class)->for($fill->fresh()));
+        $this->assertSame(PhrReviewStatus::CONFIRMED, $fill->fresh()->review_status);
+        $this->assertSame(['C-2', FillEobLinkPlanner::RULE_LAST_PAIR], $this->linkOf($beta), 'the rest is decided around the answer');
+        $this->rerun();
+        $this->assertCount(2, PhrMedicationFillEvidence::query()->where('fill_id', $fill->id)->where('source_kind', 'eob')->get());
+
+        // The same answer again is unchanged.
+        $this->postJson($url, ['action' => 'link', 'eob_id' => $chosen->id])->assertOk()->assertJsonPath('outcome', 'unchanged');
+    }
+
+    public function test_a_person_saying_none_of_these_clears_the_flag_for_good_and_stops_automatic_links(): void
+    {
+        $fill = $this->fill('2026-01-05', 'alpha');
+        $this->fill('2026-01-05', 'beta');
+        $this->claim('C-1', '2026-01-05', '100.00');
+        $this->claim('C-2', '2026-01-05', '200.00');
+
+        $this->actingAs($this->actor);
+        $url = "/api/phr/patients/{$this->patient->id}/medication-fills/{$fill->id}/eob-link";
+        $this->postJson($url, ['action' => 'none'])->assertOk()->assertJsonPath('outcome', 'dismissed');
+        $this->assertFalse($this->flagged($fill));
+
+        // A learned charge that would now point straight at it changes nothing.
+        $this->learn('alpha', '100.00', ['2026-02-01']);
+        $this->rerun();
+        $this->assertNull($this->linkOf($fill));
+        $this->assertFalse($this->flagged($fill));
+        $this->postJson($url, ['action' => 'none'])->assertOk()->assertJsonPath('outcome', 'unchanged');
+    }
+
+    public function test_a_stale_or_foreign_answer_is_refused_and_writes_nothing(): void
+    {
+        $fill = $this->fill('2026-01-05', 'alpha');
+        $this->fill('2026-01-05', 'beta');
+        $this->claim('C-1', '2026-01-05', '100.00');
+        $this->claim('C-2', '2026-01-05', '200.00');
+        $reversed = $this->claim('C-3', '2026-01-05', '300.00', ['processed_date' => '2026-01-06']);
+        $this->claim('C-3R', '2026-01-05', '-300.00', ['processed_date' => '2026-01-07']);
+        $otherDay = $this->claim('C-4', '2026-01-09', '100.00');
+        $medical = $this->claim('M-1', '2026-01-05', '100.00', ['claim_type' => 'medical']);
+        $otherPatient = $this->newPatient();
+        $theirs = $this->load($otherPatient, ['claim', 'theirs', '2026-01-05', '100.00', '2026-01-06']);
+        $theirFill = $this->load($otherPatient, ['fill', 'tf', '2026-01-05', 'alpha']);
+        $before = PhrMedicationFillEvidence::query()->count();
+
+        $this->actingAs($this->actor);
+        $url = "/api/phr/patients/{$this->patient->id}/medication-fills/{$fill->id}/eob-link";
+        $this->postJson($url, ['action' => 'link', 'eob_id' => $reversed->id])->assertConflict();
+        $this->postJson($url, ['action' => 'link', 'eob_id' => $otherDay->id])->assertConflict();
+        $this->postJson($url, ['action' => 'link', 'eob_id' => $medical->id])->assertNotFound();
+        $this->postJson($url, ['action' => 'link', 'eob_id' => $theirs->id])->assertNotFound();
+        $this->postJson($url, ['action' => 'link'])->assertUnprocessable();
+        $this->postJson($url, ['action' => 'other'])->assertUnprocessable();
+        $this->postJson("/api/phr/patients/{$this->patient->id}/medication-fills/{$theirFill->id}/eob-link", ['action' => 'none'])->assertNotFound();
+        $stranger = User::factory()->create(['user_role' => 'user']);
+        $this->actingAs($stranger)->postJson($url, ['action' => 'none'])->assertNotFound();
+
+        $this->assertSame($before, PhrMedicationFillEvidence::query()->count());
+    }
+
+    public function test_none_of_these_is_refused_when_there_was_nothing_to_answer(): void
+    {
+        $fill = $this->fill('2026-01-05', 'alpha');
+        $this->actingAs($this->actor);
+        $this->postJson("/api/phr/patients/{$this->patient->id}/medication-fills/{$fill->id}/eob-link", ['action' => 'none'])->assertConflict();
+    }
+
     // ---- The backfill ---------------------------------------------------------------------
 
     public function test_the_backfill_dry_run_counts_what_it_would_do_writes_nothing_and_prints_no_clinical_value(): void
@@ -1070,6 +1259,15 @@ EOB;
     private function flagReasons(PhrMedicationFill $fill): array
     {
         return PhrMedicationFillEvidence::query()->where('fill_id', $fill->id)->where('source_kind', PhrMedicationFillEvidence::KIND_EOB_LINK_OPEN)->pluck('source_locator')->all();
+    }
+
+    /** @return array<string, mixed> */
+    private function queueItem(PhrMedicationFill $fill): array
+    {
+        $this->actingAs($this->actor);
+        $queue = $this->getJson("/api/phr/patients/{$this->patient->id}/review")->assertOk()->json();
+
+        return collect($queue['groups'])->pluck('items')->flatten(1)->first(static fn (array $item): bool => $item['id'] === $fill->id && $item['section'] === 'medication-fills');
     }
 
     private function rerun(): void

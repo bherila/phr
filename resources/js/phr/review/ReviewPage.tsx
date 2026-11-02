@@ -23,7 +23,7 @@ import { PHR_PAGES, type PhrListPageProps } from '@/phr/shell/phrPages'
 import { isPhrShellPath, patientPageUrl, type PhrPageId } from '@/phr/shell/phrRoutes'
 
 import { RejectedMedications } from './RejectedMedications'
-import { decideReviewItems, type DuplicateAction, type FillDuplicate, type FillSummary, getReviewQueue, resolveFillDuplicate, type ReviewDecision, type ReviewGroup, type ReviewItem, type ReviewQueue, sectionOf } from './reviewApi'
+import { answerFillEobLink, decideReviewItems, type DuplicateAction, type EobCandidate, type EobLinkAnswer, type FillDuplicate, type FillSummary, getReviewQueue, resolveFillDuplicate, type ReviewDecision, type ReviewGroup, type ReviewItem, type ReviewQueue, sectionOf } from './reviewApi'
 import { setReviewSummary } from './reviewSummary'
 
 type ChangeKind = 'new' | 'update' | 'duplicate' | 'evidence' | 'kept'
@@ -57,6 +57,10 @@ export interface ReviewRow {
   ai: { view: AiResultView, documentHref: string | null } | null
   /** A fill that may repeat an existing one: shown beside it, with the merge / keep-both choice. */
   duplicate: FillDuplicate | null
+  /** A fill with a same-day pharmacy claim the server would not decide on: the claims to choose from. */
+  eobCandidates: EobCandidate[] | null
+  /** A confirmed fill, listed only for its claim: there is nothing to approve or reject. */
+  claimOnly: boolean
 }
 
 function joined(parts: (string | null | undefined)[]): string | null {
@@ -68,17 +72,21 @@ export function reviewRow(item: ReviewItem, group: ReviewGroup, patientId: numbe
   const section = sectionOf(item)
   const source = joined([group.label, group.name]) ?? group.label
   if (item.type === 'record') {
+    const claimOnly = item.review_status === 'confirmed'
     return {
       item, section, source, title: item.title, detail: item.detail, flags: (item.flags ?? []).map((flag) => flag.message),
-      change: item.duplicate ? 'duplicate' : item.change,
+      change: item.duplicate ? 'duplicate' : claimOnly ? 'evidence' : item.change,
       changeDetail: item.duplicate
         ? 'May be the same fill as one already in PHR; compare them and merge or keep both'
-        : item.change === 'new' ? 'Not in the record yet' : 'Changed by its source since it was added',
+        : claimOnly ? 'Confirmed; only its insurance claim is unsettled'
+          : item.change === 'new' ? 'Not in the record yet' : 'Changed by its source since it was added',
       action: { label: 'Open', href: item.open_path ?? patientPageUrl(patientId, section, item.id) },
       // A flagged record is looked at, not approved in a batch by default.
       checkedByDefault: (item.flags ?? []).length === 0,
       ai: null,
       duplicate: item.duplicate ?? null,
+      eobCandidates: item.eob_candidates ?? null,
+      claimOnly,
     }
   }
   if (item.type === 'ai_result') {
@@ -93,6 +101,8 @@ export function reviewRow(item: ReviewItem, group: ReviewGroup, patientId: numbe
       checkedByDefault: false,
       ai: { view, documentHref: group.document_id !== null ? patientPageUrl(patientId, 'documents', group.document_id) : null },
       duplicate: null,
+      eobCandidates: null,
+      claimOnly: false,
     }
   }
   const proposal = item.proposal
@@ -112,6 +122,8 @@ export function reviewRow(item: ReviewItem, group: ReviewGroup, patientId: numbe
     checkedByDefault: change !== 'duplicate',
     ai: null,
     duplicate: null,
+    eobCandidates: null,
+    claimOnly: false,
   }
 }
 
@@ -239,7 +251,7 @@ function detailsIdOf(row: ReviewRow): string {
 
 /** Enter (or a click outside the row's controls) opens the record, or an AI proposal's view. */
 function openReviewRow(row: ReviewRow, toggleExpanded: (key: string) => void): void {
-  if (row.ai || row.duplicate) {
+  if (row.ai || row.duplicate || row.eobCandidates) {
     toggleExpanded(row.item.key)
     return
   }
@@ -306,7 +318,7 @@ function reviewColumns(
               <a href={row.action.href} aria-label={`${row.action.label} ${row.title}`}>{row.action.label}</a>
             </Button>
           )}
-          {(row.ai || row.duplicate) && (
+          {(row.ai || row.duplicate || row.eobCandidates) && (
             <Button type="button" size="sm" variant="outline" aria-expanded={expanded.has(row.item.key)} aria-controls={detailsIdOf(row)} aria-label={`Review ${row.title}`} onClick={() => toggleExpanded(row.item.key)}>
               {expanded.has(row.item.key) ? 'Hide' : 'Review'}
             </Button>
@@ -405,6 +417,25 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
     setBusy(false)
   }
 
+  async function answerEobLink(row: ReviewRow, answer: EobLinkAnswer): Promise<void> {
+    if (row.item.type !== 'record') return
+    setBusy(true)
+    setStatus(null)
+    try {
+      await answerFillEobLink(patientId, row.item.id, answer)
+      setFailures((previous) => {
+        const next = { ...previous }
+        delete next[row.item.key]
+        return next
+      })
+      setStatus(answer.action === 'link' ? `Linked ${row.title} to the claim.` : `Noted that ${row.title} is on none of these claims.`)
+    } catch (caught) {
+      setFailures((previous) => ({ ...previous, [row.item.key]: ehiFailureText(caught) }))
+    }
+    await load()
+    setBusy(false)
+  }
+
   const total = queue?.state.summary.total ?? 0
   const sources = queue?.groups.length ?? 0
 
@@ -477,7 +508,8 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
       )}
 
       {groups.map((group) => {
-        const batchable = group.rows.filter((row) => row.ai === null)
+        const batchable = group.rows.filter((row) => row.ai === null && !row.claimOnly)
+        const rejectable = group.rows.filter((row) => !row.claimOnly)
         const selected = batchable.filter(isChecked)
         const headingId = `review-group-${group.key.replaceAll(/[^a-z0-9]+/gi, '-')}`
         const allChecked = batchable.length > 0 && selected.length === batchable.length
@@ -501,9 +533,11 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
                   <span>Open each one and approve it on its own.</span>
                 </span>
               )}
-              <Button type="button" variant="outline" disabled={!canManage || busy} onClick={() => setConfirming({ group, decision: 'reject', rows: group.rows })}>
-                Reject all
-              </Button>
+              {rejectable.length > 0 && (
+                <Button type="button" variant="outline" disabled={!canManage || busy} onClick={() => setConfirming({ group, decision: 'reject', rows: rejectable })}>
+                  Reject all
+                </Button>
+              )}
               {batchable.length > 0 && (
                 <Button type="button" disabled={!canManage || busy || selected.length === 0} onClick={() => setConfirming({ group, decision: 'approve', rows: selected })}>
                   Approve {selected.length} selected
@@ -523,7 +557,7 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
               selection={{
                 isSelected: (key) => { const row = group.rows.find((candidate) => candidate.item.key === key); return row !== undefined && isChecked(row) },
                 onToggle: (key) => { const row = group.rows.find((candidate) => candidate.item.key === key); if (row) setRowChecked([key], !isChecked(row)) },
-                isSelectable: (key) => group.rows.find((candidate) => candidate.item.key === key)?.ai === null,
+                isSelectable: (key) => { const row = group.rows.find((candidate) => candidate.item.key === key); return row?.ai === null && !row.claimOnly },
                 disabled: !canManage || busy,
               }}
               selectionColumn={{
@@ -556,6 +590,28 @@ export default function ReviewPage({ patientId }: PhrListPageProps): ReactElemen
                           </div>
                         </div>
                       ))}
+                    </div>
+                  </td>
+                </tr>
+              ) : row.eobCandidates && expanded.has(row.item.key) ? (
+                <tr id={detailsIdOf(row)} className="bg-muted/20">
+                  <td colSpan={colSpan} className="px-4 pt-1 pb-4 md:px-5">
+                    <div className="flex flex-col gap-3 pl-8">
+                      <p className="text-sm text-muted-foreground">
+                        These claims have no drug on them, and the date and charge did not settle which is this fill’s. Your answer is kept as evidence; it does not change the fill or its review.
+                      </p>
+                      <ul className="flex flex-col gap-2">
+                        {row.eobCandidates.map((claim) => (
+                          <li key={claim.eob_id} className="flex flex-wrap items-center gap-3 text-sm">
+                            <span>{joined([claim.claim_number ? `Claim ${claim.claim_number}` : 'Claim', claim.service_date ? formatDate(claim.service_date) : null, claim.total_charges ? `$${claim.total_charges}` : null, claim.provider_name])}</span>
+                            <a href={`/phr/patient/${patientId}/eobs/${claim.eob_id}`} className="font-medium text-primary hover:underline">Open</a>
+                            <Button type="button" size="sm" disabled={!canManage || busy} aria-label={`This claim: link ${row.title} to claim ${claim.claim_number ?? claim.eob_id}`} onClick={() => void answerEobLink(row, { action: 'link', eobId: claim.eob_id })}>This claim</Button>
+                          </li>
+                        ))}
+                      </ul>
+                      <div>
+                        <Button type="button" size="sm" variant="outline" disabled={!canManage || busy} aria-label={`None of these claims is ${row.title}`} onClick={() => void answerEobLink(row, { action: 'none' })}>None of these</Button>
+                      </div>
                     </div>
                   </td>
                 </tr>

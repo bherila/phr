@@ -61,6 +61,41 @@ class FillEobLinker
     }
 
     /**
+     * Fills a person should settle, with the claims on offer for each: fill id => claims in a
+     * stable order.
+     *
+     * @return array<int, list<array{eob_id: int, claim_number: ?string, service_date: ?string, processed_date: ?string, total_charges: ?string, provider_name: ?string}>>
+     */
+    public function candidates(int $patientId): array
+    {
+        $snapshot = $this->snapshot($patientId);
+        $plan = $this->plan($snapshot);
+        $found = [];
+        foreach ($plan['open'] as $fillId => $open) {
+            $found[$fillId] = array_map(static function (int $claimId) use ($snapshot): array {
+                $claim = $snapshot['claims'][$claimId];
+
+                return [
+                    'eob_id' => $claimId,
+                    'claim_number' => $claim['claim_number'],
+                    'service_date' => $claim['day'],
+                    'processed_date' => $claim['processed_date'],
+                    'total_charges' => $claim['total_charges'],
+                    'provider_name' => $claim['provider_name'],
+                ];
+            }, $open['claim_ids']);
+        }
+
+        return $found;
+    }
+
+    /** @return list<int> the lines of one of this patient's pharmacy claims */
+    public function linesOfClaim(int $patientId, int $eobId): array
+    {
+        return array_map('intval', DB::table('phr_eob_lines')->where('patient_id', $patientId)->where('eob_id', $eobId)->orderBy('line_number')->pluck('id')->all());
+    }
+
+    /**
      * @return array{
      *     fills: list<array{id: int, day: string, drug: ?string}>,
      *     claims: array<int, array{id: int, day: ?string, charge: ?int, sort: string, line_ids: list<int>, claim_number: ?string, processed_date: ?string, total_charges: ?string, provider_name: ?string}>,

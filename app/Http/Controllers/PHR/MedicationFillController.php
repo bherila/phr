@@ -11,6 +11,7 @@ use App\Http\Resources\PHR\MedicationFillResource;
 use App\Models\PhrMedication;
 use App\Models\PhrMedicationFill;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Services\PHR\Fills\FillEobLinkDecisionService;
 use App\Services\PHR\Fills\MedicationFillDuplicateService;
 use App\Services\PHR\Fills\MedicationFillWriter;
 use App\Services\PHR\Ndc\NdcDrugDetail;
@@ -171,6 +172,23 @@ class MedicationFillController extends Controller
             'moved' => $result['moved'],
             'medication_fill' => $this->resourcePayload($stored),
         ]);
+    }
+
+    /**
+     * A person's answer to a fill flagged for its pharmacy claim: this claim, or none of them.
+     * Evidence only, so it changes neither the fill's review status nor its version, and takes
+     * no version of its own: the claim must still be on offer for the fill (409 otherwise).
+     */
+    public function linkEob(Request $request, int $patient, int $fill): JsonResponse
+    {
+        $resolvedPatient = $this->accessService->writablePatient($patient, (int) $request->user()?->id);
+        $validated = $request->validate([
+            'action' => ['required', Rule::in([FillEobLinkDecisionService::LINK, FillEobLinkDecisionService::NONE])],
+            'eob_id' => ['required_if:action,'.FillEobLinkDecisionService::LINK, 'integer', 'min:1'],
+        ]);
+        $outcome = app(FillEobLinkDecisionService::class)->decide($resolvedPatient, $fill, (string) $validated['action'], isset($validated['eob_id']) ? (int) $validated['eob_id'] : null);
+
+        return response()->json(['outcome' => $outcome, 'medication_fill' => $this->resourcePayload($this->readClinicalResource($resolvedPatient, $fill))]);
     }
 
     /**

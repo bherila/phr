@@ -210,7 +210,7 @@ class PhrReviewQueueTest extends TestCase
         $many = $this->queriesFor(fn () => $this->actingAs($owner)->getJson($this->url($patient))->assertOk()->assertJsonPath('summary.total', 21));
 
         self::assertSame($few, $many, 'listing more pending items must not issue more queries');
-        self::assertLessThanOrEqual(25, $many);
+        self::assertLessThanOrEqual(26, $many);
         self::assertLessThanOrEqual(8, $this->queriesFor(fn () => $this->actingAs($owner)->getJson($this->url($patient).'/summary')->assertOk()));
     }
 
