@@ -42,7 +42,7 @@ function file(): File {
 function chunkOffsets(): string[] {
   return mockPost.mock.calls
     .filter(([url]) => String(url).endsWith('/chunks'))
-    .map(([, body]) => String((body as FormData).get('offset')))
+    .map(([, body]) => (body as FormData).get('offset') as string)
 }
 
 beforeEach(() => {

@@ -216,7 +216,7 @@ export default function VitalsPage({ patientId, onDrill, openRecord }: PhrListPa
   // Skeleton rows on the first load only; a refetch keeps the current rows on screen.
   const firstLoad = busy && vitals.length === 0
   const vitalNames = useMemo(
-    () => Array.from(new Set(vitals.map((v) => v.vital_name).filter(Boolean))).sort(),
+    () => Array.from(new Set(vitals.map((v) => v.vital_name).filter((name): name is string => Boolean(name)))).sort((a, b) => a.localeCompare(b)),
     [vitals],
   )
 
