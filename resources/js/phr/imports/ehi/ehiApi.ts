@@ -41,6 +41,8 @@ export const EhiUploadSchema = z.object({
   file_size_bytes: z.number(),
   uploaded_bytes: z.number(),
   chunk_size_bytes: z.number(),
+  /** The size of each part but the last, when the transport is `s3`. */
+  part_size_bytes: z.number().nullable().optional(),
   package_id: z.number().nullable(),
   replayed: z.boolean().nullable(),
   resumed: z.boolean().nullable(),
@@ -184,8 +186,28 @@ export async function appendEhiChunk(patientId: number, uploadId: number, chunk:
   return z.object({ upload: EhiUploadSchema }).parse(data).upload
 }
 
-export async function queueEhiIntake(patientId: number, uploadId: number): Promise<EhiUpload> {
-  const data: unknown = await fetchWrapper.post(`${base(patientId)}/uploads/${uploadId}/intake`, {})
+const EhiSignedPartSchema = z.object({
+  part_number: z.number(),
+  byte_size: z.number(),
+  url: z.string(),
+  headers: z.record(z.string(), z.string()),
+})
+export type EhiSignedPart = z.infer<typeof EhiSignedPartSchema>
+
+/** A signed URL for one part of a direct upload. The URL is a credential: never log or show it. */
+export async function signEhiPart(patientId: number, uploadId: number, partNumber: number, signal?: AbortSignal): Promise<EhiSignedPart> {
+  const data: unknown = await fetchWrapper.post(`${base(patientId)}/uploads/${uploadId}/parts`, { part_number: partNumber }, signal ? { signal } : {})
+  return z.object({ part: EhiSignedPartSchema }).parse(data).part
+}
+
+export interface EhiUploadedPart {
+  part_number: number
+  etag: string
+}
+
+/** `parts` finishes a direct upload first; a chunked upload has none. */
+export async function queueEhiIntake(patientId: number, uploadId: number, parts?: EhiUploadedPart[]): Promise<EhiUpload> {
+  const data: unknown = await fetchWrapper.post(`${base(patientId)}/uploads/${uploadId}/intake`, parts ? { parts } : {})
   return z.object({ upload: EhiUploadSchema }).parse(data).upload
 }
 

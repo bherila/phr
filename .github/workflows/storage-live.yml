@@ -2,7 +2,7 @@ name: storage-live
 
 # The storage tests against a real S3-compatible server, for what a fake disk cannot show:
 # a store refusing a wrong-length signed PUT, moves without ACLs, multipart writes, signed
-# viewer URLs. Separate from ci.yml on purpose: it depends on a registry and a third-party
+# viewer URLs, and a real browser meeting the bucket's CORS rules. Separate from ci.yml on purpose: it depends on a registry and a third-party
 # image, and a flake here must not block a deploy. The default suite already runs these
 # tests on a disk that fails on local-disk assumptions, so a failure here means a store
 # disagrees with us, and someone should look before the next installation moves.
@@ -11,6 +11,12 @@ on:
     paths:
       - app/Support/Storage/**
       - app/Services/PHR/Documents/UploadUrlSigner.php
+      - app/Services/PHR/DICOM/DicomUploadProcessor.php
+      - app/Services/PHR/Import/Ehi/EhiUploadService.php
+      - resources/js/phr/uploads/**
+      - resources/js/phr/imports/ehi/EhiUploadProvider.tsx
+      - tests/e2e/phr-direct-uploads.spec.ts
+      - tests/e2e/support/**
       - config/filesystems.php
       - tests/Feature/Storage/**
       - tests/Support/LiveObjectStore.php
@@ -27,7 +33,7 @@ jobs:
   storage-live:
     name: Storage tests on Garage
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
 
@@ -105,3 +111,24 @@ jobs:
           PHR_TEST_S3_BUCKET: phr-test
           PHR_TEST_S3_REGION: garage
         run: php -d memory_limit=1G vendor/bin/phpunit tests/Feature/Storage
+
+      - name: Setup pnpm + Node dependencies
+        uses: ./.github/actions/setup-pnpm-node
+
+      - name: Build the frontend
+        run: pnpm run build
+
+      - name: Install Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      # Real Chromium against real Garage: preflights, the ETag a page can read, and what a
+      # person sees when the bucket's CORS rule is missing or hides it.
+      - name: Run the browser's direct uploads against it
+        timeout-minutes: 5
+        env:
+          PHR_E2E_S3_ENDPOINT: http://127.0.0.1:3900
+          PHR_E2E_S3_BUCKET: phr-test
+          PHR_E2E_S3_REGION: garage
+          PHR_E2E_S3_KEY: ${{ env.PHR_TEST_S3_KEY }}
+          PHR_E2E_S3_SECRET: ${{ env.PHR_TEST_S3_SECRET }}
+        run: pnpm exec playwright test tests/e2e/phr-direct-uploads.spec.ts

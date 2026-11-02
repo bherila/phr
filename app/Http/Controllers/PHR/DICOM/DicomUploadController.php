@@ -8,6 +8,7 @@ use App\Http\Requests\PHR\DICOM\StoreDicomUploadFileRequest;
 use App\Models\PhrDicomUpload;
 use App\Models\PhrPatient;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Services\PHR\DICOM\DicomUploadLimits;
 use App\Services\PHR\DICOM\DicomUploadPresenter;
 use App\Services\PHR\DICOM\DicomUploadProcessor;
 use Illuminate\Http\JsonResponse;
@@ -35,7 +36,12 @@ class DicomUploadController extends Controller
 
         return response()->json([
             'upload' => $this->uploadPresenter->payload($upload),
-            'limits' => $this->uploadPresenter->limitsPayload(),
+            'limits' => [
+                ...$this->uploadPresenter->limitsPayload(),
+                'max_file_bytes' => $this->uploadProcessor->maxFileBytes(),
+                'max_file_size_label' => DicomUploadLimits::formatBytes($this->uploadProcessor->maxFileBytes()),
+            ],
+            'transport' => $this->uploadProcessor->transport(),
         ], 201);
     }
 
@@ -56,6 +62,57 @@ class DicomUploadController extends Controller
 
         $result = $this->uploadProcessor->processSingleFile($session, $file, $relativePath);
 
+        return response()->json([
+            'result' => $result,
+            'upload' => $this->uploadPresenter->payload($session->refresh()),
+        ]);
+    }
+
+    /**
+     * Sign a PUT for one file of a direct upload, or say it won't be stored. The URL is a
+     * credential: never log it.
+     */
+    public function authorizeFile(Request $request, int $patient, int $upload): JsonResponse
+    {
+        $patientModel = $this->resolvePatient($request, $patient);
+        $session = $this->resolveSession($patientModel, $upload);
+        abort_unless($this->uploadProcessor->transport() === DicomUploadProcessor::TRANSPORT_S3, 409, 'This installation receives files through the application.');
+        $validated = $request->validate([
+            'relative_path' => ['nullable', 'string', 'max:1024'],
+            'filename' => ['required', 'string', 'max:255'],
+            'byte_size' => ['required', 'integer', 'min:0', 'max:'.$this->uploadProcessor->maxFileBytes()],
+            'content_type' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $authorized = $this->uploadProcessor->authorizeFile(
+            $session,
+            $validated['relative_path'] ?? null,
+            $validated['filename'],
+            (int) $validated['byte_size'],
+            $validated['content_type'] ?? null,
+        );
+        if (isset($authorized['skipped'])) {
+            return $this->fileResponse($authorized['skipped'], $session);
+        }
+
+        return response()->json(['authorization' => $authorized])->header('Cache-Control', 'private, no-store');
+    }
+
+    /**
+     * Record a file the browser sent straight to the store, answering as storeFile does.
+     */
+    public function confirmFile(Request $request, int $patient, int $upload): JsonResponse
+    {
+        $patientModel = $this->resolvePatient($request, $patient);
+        $session = $this->resolveSession($patientModel, $upload);
+        $validated = $request->validate(['token' => ['required', 'string']]);
+
+        return $this->fileResponse($this->uploadProcessor->confirmFile($session, $validated['token']), $session);
+    }
+
+    /** @param array{stored: bool, skipped_reason: string|null, relative_path: string, study_id: int|null} $result */
+    private function fileResponse(array $result, PhrDicomUpload $session): JsonResponse
+    {
         return response()->json([
             'result' => $result,
             'upload' => $this->uploadPresenter->payload($session->refresh()),

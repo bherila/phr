@@ -1,7 +1,9 @@
 import type { ReactElement, ReactNode } from 'react'
 import { createContext, use, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
-import { appendEhiChunk, ehiFailureText, getEhiUpload, queueEhiIntake, startEhiUpload } from './ehiApi'
+import { putToStorage } from '@/phr/uploads/directUpload'
+
+import { appendEhiChunk, ehiFailureText, type EhiUpload, type EhiUploadedPart, getEhiUpload, queueEhiIntake, signEhiPart, startEhiUpload } from './ehiApi'
 
 export type EhiUploadPhase = 'uploading' | 'queued' | 'failed' | 'cancelled'
 
@@ -32,8 +34,16 @@ export interface EhiUploadContextValue {
 
 const EhiUploadContext = createContext<EhiUploadContextValue | null>(null)
 
-/** Attempts per chunk before the upload is reported as failed. */
+/** Attempts per chunk or part before the upload is reported as failed. */
 const CHUNK_ATTEMPTS = 3
+
+/** A store that hides ETag will never complete: retrying only hides the reason. */
+class EtagHiddenError extends Error {
+  constructor() {
+    super('Storage accepted the file but hid its ETag. The bucket’s CORS rules must expose ETag.')
+    this.name = 'EtagHiddenError'
+  }
+}
 
 let nextJobId = 0
 
@@ -63,10 +73,64 @@ export function EhiUploadProvider({ children, retryDelayMs = 1000 }: EhiUploadPr
     setJobs((previous) => previous.map((job) => (job.id === jobId ? { ...job, ...patch } : job)))
   }, [])
 
+  /** Sends the file straight to the store, one signed part at a time. Null when cancelled. */
+  const sendParts = useCallback(async (jobId: string, patientId: number, opened: EhiUpload, file: File, signal: AbortSignal): Promise<EhiUploadedPart[] | null> => {
+    const partSize = opened.part_size_bytes
+    if (!partSize) {
+      throw new Error('The server did not say how to divide this file.')
+    }
+    const parts: EhiUploadedPart[] = []
+    const partCount = Math.ceil(file.size / partSize)
+    for (let partNumber = 1; partNumber <= partCount; partNumber += 1) {
+      const start = (partNumber - 1) * partSize
+      const end = Math.min(start + partSize, file.size)
+      let attempts = 0
+      for (;;) {
+        if (signal.aborted) {
+          return null
+        }
+        try {
+          // Signed for each attempt: a part retried later must not meet an expired URL. A
+          // part sent again replaces the one before it, so a retry needs no other cleanup.
+          const signed = await signEhiPart(patientId, opened.id, partNumber, signal)
+          const etag = await putToStorage(signed, file.slice(start, end), { signal })
+          if (!etag) {
+            throw new EtagHiddenError()
+          }
+          parts.push({ part_number: partNumber, etag })
+          update(jobId, { bytesSent: end })
+          break
+        } catch (caught) {
+          if (signal.aborted) {
+            return null
+          }
+          attempts += 1
+          if (caught instanceof EtagHiddenError || attempts >= CHUNK_ATTEMPTS) {
+            throw caught
+          }
+          await delay(retryDelayMs * attempts)
+        }
+      }
+    }
+
+    return parts
+  }, [retryDelayMs, update])
+
   const run = useCallback(async (jobId: string, patientId: number, file: File, signal: AbortSignal): Promise<void> => {
     try {
       const opened = await startEhiUpload(patientId, file.size)
       update(jobId, { uploadId: opened.id })
+      if (opened.transport === 's3') {
+        const parts = await sendParts(jobId, patientId, opened, file, signal)
+        if (parts === null || signal.aborted) {
+          return
+        }
+        committedRef.current.add(jobId)
+        update(jobId, { cancellable: false })
+        await queueEhiIntake(patientId, opened.id, parts)
+        update(jobId, { phase: 'queued' })
+        return
+      }
       const chunkSize = opened.chunk_size_bytes
       let offset = opened.uploaded_bytes
       let attempts = 0
@@ -114,7 +178,7 @@ export function EhiUploadProvider({ children, retryDelayMs = 1000 }: EhiUploadPr
     } finally {
       controllersRef.current.delete(jobId)
     }
-  }, [retryDelayMs, update])
+  }, [retryDelayMs, sendParts, update])
 
   const start = useCallback((patientId: number, file: File): string => {
     nextJobId += 1

@@ -74,6 +74,17 @@ final class LiveObjectStore
         return $keys;
     }
 
+    /** Abort what a run left open, which a listing of objects does not show. */
+    public static function abortUploads(string $prefix): void
+    {
+        $bucket = (string) getenv('PHR_TEST_S3_BUCKET');
+        foreach (self::client()->getPaginator('ListMultipartUploads', ['Bucket' => $bucket, 'Prefix' => $prefix]) as $page) {
+            foreach ($page['Uploads'] ?? [] as $upload) {
+                self::client()->abortMultipartUpload(['Bucket' => $bucket, 'Key' => (string) $upload['Key'], 'UploadId' => (string) $upload['UploadId']]);
+            }
+        }
+    }
+
     /** Remove everything a run left, so a shared bucket does not grow. */
     public static function purge(string $prefix): void
     {

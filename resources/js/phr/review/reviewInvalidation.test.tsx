@@ -188,6 +188,7 @@ describe('review decision paths', () => {
     'patients/PatientForm.tsx': 'creates a patient, which has nothing cached',
     'patients-manage/PatientsManagePage.tsx': 'creates a patient or edits its profile fields; neither is counted',
     'summary/SummaryPage.tsx': 'requests an export, which only reads the record',
+    'uploads/directUpload.ts': 'sends bytes to the object store; nothing is recorded until the application is asked to, and that caller counts it',
     'uploads/dicomUpload.ts': 'sends the files of an unfinished upload or cancels it; the study is added, and counted, at finalize in DicomUploadProvider',
   }
 

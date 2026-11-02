@@ -4,6 +4,8 @@ import { act, render, screen, waitFor } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import { useEffect } from 'react'
 
+import { MockUploadXMLHttpRequest } from '@/phr/uploads/__tests__/uploadTestDoubles'
+
 import { EhiUploadProvider, useEhiUploads } from '../EhiUploadProvider'
 import { EHI_PATIENT_ID, makeEhiUpload } from './ehiFixtures'
 
@@ -49,6 +51,138 @@ beforeEach(() => {
   holder.api = null
   mockGet.mockReset()
   mockPost.mockReset()
+})
+
+describe('EhiUploadProvider on the s3 transport', () => {
+  const STORE_URL = 'https://objects.example.test/bucket/phr-documents/package.zip'
+
+  /** Answers as the server does; the parts go to the XHR double. */
+  function directApi(signFailures: Record<number, number> = {}): void {
+    const remaining = { ...signFailures }
+    mockPost.mockImplementation((url: string, body: { part_number?: number }) => {
+      if (url === base) return Promise.resolve({ upload: makeEhiUpload({ file_size_bytes: 10, transport: 's3', part_size_bytes: 4 }) })
+      if (url.endsWith('/parts')) {
+        const partNumber = body.part_number ?? 0
+        if ((remaining[partNumber] ?? 0) > 0) {
+          remaining[partNumber] = (remaining[partNumber] ?? 0) - 1
+          return Promise.reject('Network error')
+        }
+        return Promise.resolve({ part: { part_number: partNumber, byte_size: 4, url: `${STORE_URL}?partNumber=${partNumber}`, headers: {} } })
+      }
+      return Promise.resolve({ upload: makeEhiUpload({ status: 'queued', uploaded_bytes: 10, transport: 's3' }) })
+    })
+  }
+
+  it('PUTs each part to the store, then finishes with the ETags it read', async () => {
+    const restoreXhr = MockUploadXMLHttpRequest.install()
+    MockUploadXMLHttpRequest.responseHeaders = { ETag: '"synthetic-etag"' }
+    directApi()
+
+    try {
+      render(<EhiUploadProvider retryDelayMs={0}><Harness /></EhiUploadProvider>)
+      act(() => {
+        holder.api!.start(EHI_PATIENT_ID, file())
+      })
+
+      expect(await screen.findByText('queued 10/10 committed')).toBeInTheDocument()
+      const requests = MockUploadXMLHttpRequest.instances
+      expect(requests.map((request) => `${request.requestMethod} ${request.requestUrl}`)).toEqual([
+        `PUT ${STORE_URL}?partNumber=1`,
+        `PUT ${STORE_URL}?partNumber=2`,
+        `PUT ${STORE_URL}?partNumber=3`,
+      ])
+      expect(requests.map((request) => request.requestBlob?.size)).toEqual([4, 4, 2])
+      expect(requests.every((request) => !request.withCredentials)).toBe(true)
+      expect(chunkOffsets()).toEqual([])
+      expect(mockPost).toHaveBeenLastCalledWith(`${base}/5/intake`, {
+        parts: [1, 2, 3].map((part_number) => ({ part_number, etag: '"synthetic-etag"' })),
+      })
+    } finally {
+      restoreXhr()
+    }
+  })
+
+  it('retries a failed part with a fresh signature and does not start over', async () => {
+    const restoreXhr = MockUploadXMLHttpRequest.install()
+    MockUploadXMLHttpRequest.responseHeaders = { ETag: '"synthetic-etag"' }
+    directApi({ 2: 1 })
+
+    try {
+      render(<EhiUploadProvider retryDelayMs={0}><Harness /></EhiUploadProvider>)
+      act(() => {
+        holder.api!.start(EHI_PATIENT_ID, file())
+      })
+
+      expect(await screen.findByText('queued 10/10 committed')).toBeInTheDocument()
+      const signed = mockPost.mock.calls.filter(([url]) => String(url).endsWith('/parts')).map(([, body]) => (body as { part_number: number }).part_number)
+      expect(signed).toEqual([1, 2, 2, 3])
+      expect(MockUploadXMLHttpRequest.instances).toHaveLength(3)
+    } finally {
+      restoreXhr()
+    }
+  })
+
+  it('gives up after the attempt limit and reports the failure', async () => {
+    const restoreXhr = MockUploadXMLHttpRequest.install()
+    MockUploadXMLHttpRequest.status = 500
+    MockUploadXMLHttpRequest.responseHeaders = { ETag: '"synthetic-etag"' }
+    directApi()
+
+    try {
+      render(<EhiUploadProvider retryDelayMs={0}><Harness /></EhiUploadProvider>)
+      act(() => {
+        holder.api!.start(EHI_PATIENT_ID, file())
+      })
+
+      expect(await screen.findByText(/^failed/)).toBeInTheDocument()
+      expect(MockUploadXMLHttpRequest.instances).toHaveLength(3)
+      expect(mockPost).not.toHaveBeenCalledWith(`${base}/5/intake`, expect.anything())
+    } finally {
+      restoreXhr()
+    }
+  })
+
+  it('stops at once, naming CORS, when the store hides the ETag', async () => {
+    const restoreXhr = MockUploadXMLHttpRequest.install()
+    directApi()
+
+    try {
+      render(<EhiUploadProvider retryDelayMs={0}><Harness /></EhiUploadProvider>)
+      act(() => {
+        holder.api!.start(EHI_PATIENT_ID, file())
+      })
+
+      await screen.findByText(/^failed/)
+      expect(MockUploadXMLHttpRequest.instances).toHaveLength(1)
+      expect(holder.api!.jobs[0]?.error).toMatch(/CORS rules must expose ETag/)
+    } finally {
+      restoreXhr()
+    }
+  })
+
+  it('aborts the part in flight on cancel and does not queue intake', async () => {
+    const restoreXhr = MockUploadXMLHttpRequest.install()
+    MockUploadXMLHttpRequest.autoComplete = false
+    directApi()
+
+    try {
+      render(<EhiUploadProvider retryDelayMs={0}><Harness /></EhiUploadProvider>)
+      let jobId = ''
+      act(() => {
+        jobId = holder.api!.start(EHI_PATIENT_ID, file())
+      })
+      await waitFor(() => expect(MockUploadXMLHttpRequest.instances).toHaveLength(1))
+
+      act(() => {
+        holder.api!.cancel(jobId)
+      })
+
+      expect(await screen.findByText(/^cancelled/)).toBeInTheDocument()
+      expect(mockPost).not.toHaveBeenCalledWith(`${base}/5/intake`, expect.anything())
+    } finally {
+      restoreXhr()
+    }
+  })
 })
 
 describe('EhiUploadProvider', () => {

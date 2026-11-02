@@ -18,6 +18,7 @@ use App\Services\PHR\Import\Ehi\EhiProposalService;
 use App\Services\PHR\Import\Ehi\EhiReviewRefused;
 use App\Services\PHR\Import\Ehi\EhiUploadRefused;
 use App\Services\PHR\Import\Ehi\EhiUploadService;
+use App\Support\Storage\MultipartPlan;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -88,11 +89,34 @@ final class PhrEhiImportController extends Controller
         return $this->privateJson(['upload' => $this->presenter->upload($updated)]);
     }
 
-    public function queueIntake(Request $request, int $patient, int $upload): JsonResponse
+    /** A signed URL for one part of a direct upload. The URL is a credential: never log it. */
+    public function signPart(Request $request, int $patient, int $upload): JsonResponse
     {
+        $validated = $request->validate(['part_number' => ['required', 'integer', 'min:1', 'max:'.MultipartPlan::MAX_PARTS]]);
         $patientModel = $this->access->writablePatient($patient, $this->actor($request));
         try {
-            $queued = $this->uploads->queueIntake($this->upload($patientModel, $upload), $this->actor($request));
+            $part = $this->uploads->signPart($this->upload($patientModel, $upload), $this->actor($request), (int) $validated['part_number']);
+        } catch (EhiUploadRefused $refused) {
+            return $this->refused($refused->reason, $refused->status());
+        }
+
+        return $this->privateJson(['part' => $part]);
+    }
+
+    public function queueIntake(Request $request, int $patient, int $upload): JsonResponse
+    {
+        $validated = $request->validate([
+            'parts' => ['sometimes', 'array', 'max:'.MultipartPlan::MAX_PARTS],
+            'parts.*.part_number' => ['required', 'integer', 'min:1', 'max:'.MultipartPlan::MAX_PARTS],
+            'parts.*.etag' => ['required', 'string', 'max:1024'],
+        ]);
+        $patientModel = $this->access->writablePatient($patient, $this->actor($request));
+        try {
+            $target = $this->upload($patientModel, $upload);
+            if ($target->transport === PhrEhiUpload::TRANSPORT_S3) {
+                $this->uploads->completeParts($target, $this->actor($request), array_column($validated['parts'] ?? [], 'etag', 'part_number'));
+            }
+            $queued = $this->uploads->queueIntake($target->refresh(), $this->actor($request));
         } catch (EhiUploadRefused $refused) {
             return $this->refused($refused->reason, $refused->status());
         }

@@ -75,8 +75,16 @@ final class BlobStorageQuota
             ->where(fn (Builder $q) => $q->whereIn('status', ['pending', 'receiving', 'uploaded'])->orWhere('transport', 's3'))
             ->sum('byte_size');
         $ehi = $this->owned('phr_ehi_uploads', $ownerId)->whereNotNull('storage_path')->sum('file_size_bytes');
+        $dicom = $this->owned('phr_dicom_upload_reservations', $ownerId)->sum('byte_size');
 
-        return (int) $stored + (int) $signed + (int) $ehi;
+        return (int) $stored + (int) $signed + (int) $ehi + (int) $dicom;
+    }
+
+    /** A reservation just became a stored file, which the cached total doesn't know yet. */
+    public function forgetUsage(int $ownerId): void
+    {
+        Cache::forget($this->cacheKey(null));
+        Cache::forget($this->cacheKey($ownerId));
     }
 
     private function cacheKey(?int $ownerId): string

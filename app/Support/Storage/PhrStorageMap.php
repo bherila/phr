@@ -65,6 +65,9 @@ class PhrStorageMap
             // otherwise a terminal upload row would protect partial leftovers forever.
             ->from('phr_dicom_uploads', 'r2_prefix')->asPrefix()->where('status', 'pending')
 
+            // A browser's DICOM file, signed for and not yet recorded or reclaimed.
+            ->from('phr_dicom_upload_reservations', 'staging_key')
+
             // Clinical documents. Soft-deleted rows still count: BlobReferences queries
             // through DB::table(), so the SoftDeletes scope never applies and a trashed
             // row keeps its bytes until the row is hard-deleted.

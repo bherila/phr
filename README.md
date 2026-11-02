@@ -567,14 +567,17 @@ record count against its owner. Existing files remain readable when over quota.
 Admission checks cover signed document URLs, direct document uploads, DICOM files,
 EHI/MyChart archive staging, and native restore uploads. Usage estimates come from
 stored size metadata cached for 60 seconds, with outstanding signed authorizations
-included immediately, including cancelled S3 URLs until they expire. This is a best-effort capacity guard, not filesystem billing:
+included immediately, including cancelled S3 URLs until they expire and DICOM files authorized
+for direct upload until they are recorded or reclaimed. This is a best-effort capacity guard, not filesystem billing:
 concurrent uploads, generated artifacts, archive expansion, caches, and retained or
 unreferenced bytes can exceed a cap. No directory walk or object listing is needed
 on the upload path.
 
 MCP `documents_upload_access_create` returns a short-lived PUT URL and required
 headers, followed by `documents_upload_finalize`. The default is a signed local
-application endpoint. `PHR_STORAGE=s3` stages directly on its bucket. With `PHR_STORAGE`
+application endpoint. `PHR_STORAGE=s3` stages directly on its bucket, and browsers send DICOM
+files and EHI or MyChart ZIPs straight to it too, which needs
+[the bucket's CORS rule](docs/storage.md#bucket-cors-for-direct-uploads). With `PHR_STORAGE`
 unset, `PHR_UPLOADS_DISK_DRIVER=s3` and the `PHR_UPLOADS_*` credentials, region, bucket,
 and endpoint from `.env.example` do the same for staging only, and durable document
 storage keeps its own configuration. Configure bucket CORS for PUT from the intended
