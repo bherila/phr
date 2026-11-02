@@ -65,9 +65,11 @@ export default function VitalsTrend({ patientId, recordId }: VitalsTrendProps) {
     }
   }, [patientId, recordId])
 
+  // Fixed when the trend opens, so rendering stays pure. The range only needs day precision.
+  const [now] = useState(() => new Date())
+
   const filteredPoints = useMemo(() => {
     if (range === 'all') return points
-    const now = new Date()
     const offsets: Record<'30d' | '90d' | '1y', number> = {
       '30d': -30,
       '90d': -90,
@@ -78,7 +80,7 @@ export default function VitalsTrend({ patientId, recordId }: VitalsTrendProps) {
       const parsed = parseRecordedAt(point.recorded_at)
       return parsed !== null && parsed >= boundary
     })
-  }, [points, range])
+  }, [now, points, range])
 
   const chartRows = useMemo(
     () => filteredPoints.map((point) => {
@@ -143,7 +145,7 @@ export default function VitalsTrend({ patientId, recordId }: VitalsTrendProps) {
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="label" minTickGap={20} />
               <YAxis />
-              <Tooltip formatter={(value) => `${value}${unit ? ` ${unit}` : ''}`} />
+              <Tooltip formatter={(value) => `${String(value)}${unit ? ` ${unit}` : ''}`} />
               <Line type="monotone" dataKey="value" stroke="hsl(var(--primary))" strokeWidth={2} dot />
             </LineChart>
           </ResponsiveContainer>

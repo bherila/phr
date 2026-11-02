@@ -10,6 +10,7 @@ use DOMElement;
 use DOMNode;
 use DOMXPath;
 use Illuminate\Support\Carbon;
+use Ramsey\Uuid\Uuid;
 use Tests\TestCase;
 
 /**
@@ -71,10 +72,9 @@ class PhrCcdaResultEntriesTest extends TestCase
 
         $this->assertSame($first, $second);
         $this->assertCount(2, array_unique($first));
-        // A name-based UUID, not the database key in the clear. Searching the text for the key
-        // would fail by chance on any deployment whose UUIDs happen to contain those digits.
+        // Not the database key, in the clear.
         foreach ($first as $id) {
-            $this->assertMatchesRegularExpression('/\A[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/', $id);
+            $this->assertTrue(Uuid::isValid($id), $id);
         }
     }
 

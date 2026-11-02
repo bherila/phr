@@ -60,7 +60,7 @@ describe('AllergyDetail', () => {
 
     const patchCall = fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH')
     expect(patchCall?.[0]).toBe('/api/phr/patients/42/allergies/17')
-    expect(JSON.parse(String(patchCall?.[1]?.body))).toMatchObject({
+    expect(JSON.parse(patchCall?.[1]?.body as string)).toMatchObject({
       substance: 'Synthetic allergen',
       reaction: 'Updated synthetic reaction',
       rxnorm_code: null,

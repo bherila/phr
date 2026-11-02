@@ -65,11 +65,11 @@ function abnormalLabs(labs: PhrLabResult[]): PhrLabResult[] {
 }
 
 function mostRecentDate(studies: PhrDicomStudy[]): string | null {
-  const dates = studies.map((s) => s.study_date).filter(Boolean)
+  const dates = studies.map((s) => s.study_date).filter((date): date is string => Boolean(date))
   if (dates.length === 0) {
     return null
   }
-  return dates.sort().reverse()[0] ?? null
+  return dates.sort((a, b) => b.localeCompare(a))[0] ?? null
 }
 
 const EXPORT_FORMATS = [

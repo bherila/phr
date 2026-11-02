@@ -80,11 +80,11 @@
     "react-hooks-js/use-memo": "error",
     "unused-imports/no-unused-imports": "error",
     "react/set-state-in-effect": "off",
-    "import/default": "warn",
-    "react/purity": "warn",
-    "typescript/require-array-sort-compare": "warn",
-    "typescript/no-base-to-string": "warn",
-    "typescript/restrict-template-expressions": "warn"
+    "import/default": "error",
+    "react/purity": "error",
+    "typescript/require-array-sort-compare": "error",
+    "typescript/no-base-to-string": "error",
+    "typescript/restrict-template-expressions": "error"
   },
   "overrides": [
     {

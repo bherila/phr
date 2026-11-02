@@ -1,5 +1,6 @@
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist'
 import * as pdfjsLib from 'pdfjs-dist'
+// oxlint-disable-next-line import/default -- Vite supplies this default export from the query suffix
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { useCallback, useEffect, useRef, useState } from 'react'
 

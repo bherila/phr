@@ -5,7 +5,7 @@ describe('PhrNavbar', () => {
 
   beforeEach(() => {
     fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async (input: RequestInfo | URL) => {
-      const url = String(input)
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
 
       if (url.includes('/api/phr/patients')) {
         const payload = {
