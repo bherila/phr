@@ -81,6 +81,11 @@ reviewed, and exported. Larger artifacts are stored through Laravel Flysystem:
 - original DICOM instances and derived volume caches;
 - generated exports and native backup archives.
 
+Each installation keeps them all on local disk or on one S3-compatible bucket, chosen by
+`PHR_STORAGE`. Left unset, every disk keeps the setting it has always had. Switching gives
+up host backups of the files unless something replaces them, and moving is a manual copy:
+see [Where PHR keeps files](docs/storage.md).
+
 Database records retain the storage reference and provenance. Clinical records can
 link back to source documents, EOB evidence, and related imaging rather than copying
 the underlying artifact.
@@ -367,6 +372,8 @@ To run the suite on a local PostgreSQL server, set `PHR_TEST_DATABASE=pgsql`, pl
 `PHR_TEST_PGSQL_HOST`, `_PORT`, `_USERNAME` and `_PASSWORD` when they differ from the
 defaults (`127.0.0.1`, `5432`, `postgres`, no password). Tests refuse any host that
 isn't local, and each worker creates and rebuilds its own `phr_test_<n>` database.
+`PHR_TEST_S3_ENDPOINT` similarly runs the storage tests against a local S3-compatible
+store; see [Testing against a real store](docs/storage.md#testing-against-a-real-store).
 
 CI runs PHPUnit in three separate runner jobs to isolate their in-memory databases,
 fake disks and cached Laravel configuration. PHPUnit's `--list-tests-xml` inventory
@@ -537,6 +544,7 @@ use synthetic data.
 - [Delegated access operations](docs/delegated-access.md)
 - [Patient authorization capability matrix and call-site inventory](docs/patient-authorization-inventory.md)
 - [Native backup format](docs/phr-native-v1.md)
+- [Where PHR keeps files: the storage setting, and moving between local and S3-compatible](docs/storage.md)
 - [Interface shell: layout, sidebar, URLs](docs/ui-shell.md)
 - [Keyboard navigation](docs/keyboard-navigation.md)
 - [Medication fills: web API contract](docs/medication-fills-contract.md)
@@ -562,10 +570,10 @@ on the upload path.
 
 MCP `documents_upload_access_create` returns a short-lived PUT URL and required
 headers, followed by `documents_upload_finalize`. The default is a signed local
-application endpoint. To stage directly on any S3-compatible store, set
-`PHR_UPLOADS_DISK_DRIVER=s3` and the `PHR_UPLOADS_*` credentials, region, bucket, and
-endpoint from `.env.example`. This changes staging only; durable document storage
-keeps its own configuration. Configure bucket CORS for PUT from the intended
+application endpoint. `PHR_STORAGE=s3` stages directly on its bucket. With `PHR_STORAGE`
+unset, `PHR_UPLOADS_DISK_DRIVER=s3` and the `PHR_UPLOADS_*` credentials, region, bucket,
+and endpoint from `.env.example` do the same for staging only, and durable document
+storage keeps its own configuration. Configure bucket CORS for PUT from the intended
 browser origin if browser clients will use these URLs; MCP server-side clients do
 not require CORS. Credentials need PutObject, GetObject/HeadObject, DeleteObject,
 and ListBucket for scheduled orphan cleanup on the staging prefix.
