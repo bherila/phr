@@ -54,6 +54,23 @@ describe('ehiProposalView', () => {
     expect(kept('linked_lab_status_not_clinical')).toMatch(/record in PHR is unchanged/)
   })
 
+  it('reads an encounter with its diagnoses, and says why one was kept as evidence', () => {
+    const attributes = { visit_type: 'Office Visit', visit_date: '2024-05-01', provider_name: 'Synthetic Provider', facility_name: 'Synthetic Clinic', encounter_diagnoses: [{ line: '1', name: 'Synthetic one' }, { line: '2', name: 'Synthetic two' }], raw_text: 'Epic EHI PAT_ENC', visit_started_timezone: 'local' }
+    const encounter = makeEhiProposal({ mapping: 'encounter', proposed: { attributes } })
+    expect(proposalView(encounter)).toMatchObject({ domain: 'Encounter', title: 'Office Visit', date: '2024-05-01', detail: 'Office Visit · Synthetic Provider · Synthetic Clinic · Diagnoses: Synthetic one; Synthetic two' })
+
+    const update = makeEhiProposal({ mapping: 'encounter', kind: 'update', before: { provider_name: 'Old', raw_text: 'old' }, proposed: { changed: ['provider_name', 'raw_text'], attributes } })
+    expect(proposalView(update).changes).toEqual([{ field: 'Provider', before: 'Old', after: 'Synthetic Provider' }])
+
+    const kept = (reason: string) => retainReason(makeEhiProposal({ mapping: 'encounter', kind: 'retain', proposed: { retain_reason: reason } }))
+    expect(kept('category_telephone')).toMatch(/telephone/i)
+    expect(kept('category_portal')).toMatch(/portal/i)
+    expect(kept('category_cancelled')).toMatch(/canceled/i)
+    expect(kept('category_administrative')).toMatch(/administrative/i)
+    expect(kept('category_unknown')).toMatch(/did not assume/)
+    expect(kept('linked_encounter_not_clinical')).toMatch(/record in PHR is unchanged/)
+  })
+
   it('shows a month-precision date without a day', () => {
     expect(formatSourceDate('2004-08')).toBe('Aug 2004')
     expect(formatSourceDate(null)).toBeNull()

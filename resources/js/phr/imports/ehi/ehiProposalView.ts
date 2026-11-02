@@ -44,6 +44,7 @@ const DOMAINS: Record<string, string> = {
   immunization: 'Immunization',
   document: 'Document',
   lab_result: 'Lab result',
+  encounter: 'Encounter',
 }
 
 /** Record-page nouns for the pending banner and counts. */
@@ -51,6 +52,7 @@ export const MAPPING_NOUNS: Record<string, { one: string, many: string }> = {
   immunization: { one: 'immunization', many: 'immunizations' },
   document: { one: 'document', many: 'documents' },
   lab_result: { one: 'lab result', many: 'lab results' },
+  encounter: { one: 'visit', many: 'visits' },
 }
 
 const FIELD_LABELS: Record<string, string> = {
@@ -90,10 +92,19 @@ const UPDATE_FIELD_LABELS: Record<string, string> = {
   resulting_lab: 'Lab',
   collection_datetime: 'Collected',
   result_datetime: 'Resulted',
+  visit_date: 'Date',
+  visit_started_at: 'Started',
+  visit_ended_at: 'Ended',
+  visit_type: 'Type',
+  encounter_status: 'Appointment status',
+  encounter_category: 'Kind of event',
+  encounter_diagnoses: 'Diagnoses',
+  provider_name: 'Provider',
+  facility_name: 'Facility',
 }
 
 /** Bookkeeping a reviewer does not decide on. */
-const HIDDEN_FIELDS = new Set(['import_source', 'external_id', 'review_status', 'source', 'tags', 'mime_type', 'original_filename', 'retain_reason', 'administered_at_source', 'administered_at_precision', 'administered_at_timezone', 'cvx_code', 'dose_number', 'value_numeric', 'analyte_code', 'analyte_code_system', 'collected_at_source', 'collected_at_precision', 'collected_at_timezone', 'resulted_at_source', 'resulted_at_precision', 'resulted_at_timezone'])
+const HIDDEN_FIELDS = new Set(['import_source', 'external_id', 'review_status', 'source', 'tags', 'mime_type', 'original_filename', 'retain_reason', 'administered_at_source', 'administered_at_precision', 'administered_at_timezone', 'cvx_code', 'dose_number', 'value_numeric', 'analyte_code', 'analyte_code_system', 'collected_at_source', 'collected_at_precision', 'collected_at_timezone', 'resulted_at_source', 'resulted_at_precision', 'resulted_at_timezone', 'raw_text', 'icd10_codes', 'visit_date_source', 'visit_started_source', 'visit_started_precision', 'visit_started_timezone', 'visit_ended_source', 'visit_ended_precision', 'visit_ended_timezone'])
 
 export function fieldLabel(field: string): string {
   return FIELD_LABELS[field] ?? field.replaceAll('_', ' ')
@@ -102,6 +113,11 @@ export function fieldLabel(field: string): string {
 function text(value: unknown): string | null {
   if (value === null || value === undefined || value === '') {
     return null
+  }
+  // Encounter diagnoses: a list of entries, each named.
+  if (Array.isArray(value)) {
+    const names = value.map((entry: unknown) => (entry !== null && typeof entry === 'object' ? (entry as Record<string, unknown>)['name'] : null)).filter((name): name is string => typeof name === 'string')
+    return names.length > 0 ? text(names.join('; ')) : null
   }
   if (typeof value === 'string') {
     return value.length > 160 ? `${value.slice(0, 157)}…` : value
@@ -223,6 +239,19 @@ export function proposalView(proposal: EhiProposal): EhiProposalView {
     }
   }
 
+  if (proposal.mapping === 'encounter') {
+    const diagnoses = text(attributes['encounter_diagnoses'])
+    const details = [text(attributes['visit_type']), text(attributes['provider_name']), text(attributes['facility_name']), diagnoses === null ? null : `Diagnoses: ${diagnoses}`].filter(Boolean)
+    return {
+      domain,
+      title: text(attributes['visit_type']) ?? 'Visit',
+      date: formatSourceDate(attributes['visit_date']),
+      detail: details.length > 0 ? details.join(' · ') : null,
+      changes,
+      notice,
+    }
+  }
+
   const first = Object.entries(attributes).find(([field, value]) => !HIDDEN_FIELDS.has(field) && text(value) !== null)
   return { domain, title: first ? String(text(first[1])) : `Proposal ${proposal.id}`, date: null, detail: null, changes, notice }
 }
@@ -240,6 +269,17 @@ const RETAIN_REASONS: Record<string, string> = {
   linked_record_withdrawn: 'The record it was linked to was deleted, retracted, or rejected, and stays that way.',
   lab_identity_withdrawn: 'The record it was imported as was deleted, retracted, or rejected, and stays that way.',
   linked_lab_status_not_clinical: 'The source no longer asserts this result. The record in PHR is unchanged; change it yourself if it is wrong.',
+  category_telephone: 'A telephone encounter. PHR keeps it as evidence, not as a visit.',
+  category_portal: 'A portal message or other portal event. PHR keeps it as evidence, not as a visit.',
+  category_cancelled: 'A canceled appointment or no-show, so no visit took place.',
+  category_administrative: 'An administrative event, such as an order, charge, or scheduled appointment, not a visit.',
+  category_unknown: 'The source does not say what kind of event this was, so PHR did not assume it was a visit.',
+  foreign_patient_encounter: 'The source links this encounter to another patient.',
+  orphan_encounter: 'Not linked to a patient in the source.',
+  missing_encounter_date: 'The source gives no date for this encounter.',
+  encounter_bridge_target_withdrawn: 'The record it matches was deleted, retracted, or rejected, and stays that way.',
+  encounter_identity_withdrawn: 'The record it was imported as was deleted or retracted, and stays that way.',
+  linked_encounter_not_clinical: 'The source no longer reports this as a visit. The record in PHR is unchanged; change it yourself if it is wrong.',
 }
 
 /** Why a kept-as-evidence row was not imported, in words. */

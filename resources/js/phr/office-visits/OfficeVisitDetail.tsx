@@ -191,6 +191,21 @@ export default function OfficeVisitDetail({ patientId, recordId, onDrill }: Offi
                 <p className="mt-1 text-muted-foreground">{detailValue(visit.plan, 'Not recorded.')}</p>
               </div>
               {renderCodeList('ICD-10 codes', visit.icd10_codes)}
+              {(visit.encounter_diagnoses ?? []).length > 0 && (
+                <div>
+                  <h3 className="font-medium text-card-foreground">Diagnoses on this encounter</h3>
+                  <p className="mt-0.5 text-xs text-muted-foreground">Recorded for this visit. They are not added to Conditions.</p>
+                  <ul className="mt-2 list-disc pl-5 text-sm text-muted-foreground">
+                    {(visit.encounter_diagnoses ?? []).map((diagnosis, index) => (
+                      <li key={`${diagnosis.line ?? index}`}>
+                        {diagnosis.name ?? 'Unnamed diagnosis'}
+                        {diagnosis.primary === true && ' (primary)'}
+                        {diagnosis.annotation ? ` · ${diagnosis.annotation}` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {renderCodeList('CPT codes', visit.cpt_codes)}
             </div>
           </section>

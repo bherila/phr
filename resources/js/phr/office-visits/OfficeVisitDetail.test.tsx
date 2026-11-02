@@ -76,4 +76,16 @@ describe('OfficeVisitDetail', () => {
 
     expect(onDrill).toHaveBeenCalledWith({ id: 'imaging-study-detail', instance: '73' })
   })
+
+  it('lists diagnoses recorded on an imported encounter, marked as not conditions', async () => {
+    const encounter = { ...VISIT, encounter_diagnoses: [{ line: '1', name: 'Synthetic diagnosis', primary: true, annotation: 'Synthetic note' }, { line: '2', name: 'Synthetic other', primary: false }] }
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ office_visit: encounter, can_manage: false }))
+
+    render(<OfficeVisitDetail patientId={42} recordId="18" onDrill={jest.fn()} />)
+
+    expect(await screen.findByRole('heading', { name: 'Diagnoses on this encounter' })).toBeInTheDocument()
+    expect(screen.getByText('They are not added to Conditions.', { exact: false })).toBeInTheDocument()
+    expect(screen.getByText(/Synthetic diagnosis \(primary\) · Synthetic note/)).toBeInTheDocument()
+    expect(screen.getByText('Synthetic other')).toBeInTheDocument()
+  })
 })
