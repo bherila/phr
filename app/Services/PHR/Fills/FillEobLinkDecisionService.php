@@ -56,7 +56,7 @@ final readonly class FillEobLinkDecisionService
 
             return match ($action) {
                 self::NONE => $this->dismiss($patient, $fill),
-                self::REJECT => $this->reject($patient, $fill),
+                self::REJECT => $this->reject($patient, $fill, $eobId),
                 self::RESET => $this->reset($patient, $fill),
                 default => $this->link($patient, $fill, (int) $eobId),
             };
@@ -98,16 +98,24 @@ final readonly class FillEobLinkDecisionService
         return self::DISMISSED;
     }
 
-    /** Frees the claim for another fill that day, so the rules may give it to the right one. */
-    private function reject(PhrPatient $patient, PhrMedicationFill $fill): string
+    /**
+     * Frees the claim for another fill that day, so the rules may give it to the right one. The
+     * links can change while someone reads them, so naming the claim they saw refuses a rejection
+     * that would land on a different one.
+     */
+    private function reject(PhrPatient $patient, PhrMedicationFill $fill, ?int $eobId): string
     {
         if ($this->dismissal($fill)->exists()) {
             return self::UNCHANGED;
         }
         $linked = PhrMedicationFillEvidence::query()->where('fill_id', $fill->id)
-            ->where('source_kind', PhrMedicationFillEvidence::KIND_AUTO_EOB_LINK)->exists();
+            ->where('source_kind', PhrMedicationFillEvidence::KIND_AUTO_EOB_LINK)
+            ->when($eobId !== null, fn ($query) => $query->whereIn('eob_line_id', $this->linker->linesOfClaim((int) $patient->id, (int) $eobId)))
+            ->exists();
         if (! $linked) {
-            throw new ConflictHttpException('This fill has no automatic claim to reject.');
+            throw new ConflictHttpException($eobId === null
+                ? 'This fill has no automatic claim to reject.'
+                : 'This fill is no longer matched to that claim. Reload and check it again.');
         }
         $this->recordDismissal($patient, $fill);
 

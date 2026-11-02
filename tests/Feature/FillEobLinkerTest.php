@@ -580,6 +580,24 @@ final class FillEobLinkerTest extends TestCase
         $this->assertNotNull($this->linkOf($other), 'the claim went to the only fill left');
     }
 
+    public function test_a_rejection_naming_a_claim_the_fill_has_moved_off_is_refused(): void
+    {
+        $fill = $this->fill('2026-01-05', 'alpha');
+        $old = $this->claim('C-OLD', '2026-01-05', '100.00');
+        $moved = $this->fill('2026-02-05', 'beta');
+        $current = $this->claim('C-NEW', '2026-02-05', '100.00');
+        $this->assertNotNull($this->linkOf($moved));
+        $this->actingAs($this->actor);
+        $url = "/api/phr/patients/{$this->patient->id}/medication-fills/{$moved->id}/eob-link";
+
+        $this->postJson($url, ['action' => 'reject', 'eob_id' => $old->id])->assertConflict();
+        $this->assertNotNull($this->linkOf($moved), 'the link on screen was not the one it has');
+        $this->assertNotNull($this->linkOf($fill));
+
+        $this->postJson($url, ['action' => 'reject', 'eob_id' => $current->id])->assertOk()->assertJsonPath('outcome', 'rejected');
+        $this->assertNull($this->linkOf($moved));
+    }
+
     public function test_only_an_automatic_link_can_be_rejected(): void
     {
         $bare = $this->fill('2026-03-01', 'alpha');

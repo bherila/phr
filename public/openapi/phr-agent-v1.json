@@ -9962,7 +9962,7 @@
                     "eob_id": {
                         "type": "integer",
                         "minimum": 1,
-                        "description": "The claim. Required for action link."
+                        "description": "The claim. Required for action link. With action reject, names the claim being rejected, and the answer is refused if the fill is no longer linked to it."
                     }
                 },
                 "additionalProperties": false

@@ -215,7 +215,7 @@ export async function resolveFillDuplicate(patientId: number, fillId: number, ac
   }
 }
 
-export type EobLinkAnswer = { action: 'link', eobId: number } | { action: 'none' | 'reject' | 'reset' }
+export type EobLinkAnswer = { action: 'link' | 'reject', eobId: number } | { action: 'none' | 'reset' }
 
 /**
  * Answer about a fill's claim: this claim, none of them, not the automatic one, or start over. Evidence only, so it does not touch
@@ -223,7 +223,7 @@ export type EobLinkAnswer = { action: 'link', eobId: number } | { action: 'none'
  */
 export async function answerFillEobLink(patientId: number, fillId: number, answer: EobLinkAnswer): Promise<void> {
   try {
-    await fetchWrapper.post(`/api/phr/patients/${patientId}/medication-fills/${fillId}/eob-link`, answer.action === 'link' ? { action: 'link', eob_id: answer.eobId } : { action: answer.action })
+    await fetchWrapper.post(`/api/phr/patients/${patientId}/medication-fills/${fillId}/eob-link`, 'eobId' in answer ? { action: answer.action, eob_id: answer.eobId } : { action: answer.action })
   } finally {
     void reviewStateChanged(patientId)
   }

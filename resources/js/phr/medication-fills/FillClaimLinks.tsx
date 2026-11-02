@@ -42,10 +42,12 @@ function claimLabel(claim: ClaimLinks['claims'][number]): string {
  * The pharmacy claims a fill is linked to. An automatic link is a reasoned guess from the date and
  * the charge, so a person who can manage the fill may reject it, and undo that.
  */
-export default function FillClaimLinks({ patientId, fillId, canManage, onChanged }: {
+export default function FillClaimLinks({ patientId, fillId, canManage, refreshKey, onChanged }: {
   patientId: number
   fillId: number
   canManage: boolean
+  /** Changes when the fill is saved, because an edit can move its automatic match. */
+  refreshKey: string | null
   onChanged: () => void
 }): ReactElement | null {
   const [links, setLinks] = useState<ClaimLinks | null>(null)
@@ -58,17 +60,19 @@ export default function FillClaimLinks({ patientId, fillId, canManage, onChanged
 
   useEffect(() => {
     load().catch(() => setError('The linked claims could not be loaded.'))
-  }, [load])
+  }, [load, refreshKey])
 
-  async function answer(action: 'reject' | 'reset'): Promise<void> {
+  async function answer(request: { action: 'reject', eobId: number } | { action: 'reset' }): Promise<void> {
     setSaving(true)
     setError(null)
     try {
-      await answerFillEobLink(patientId, fillId, { action })
+      await answerFillEobLink(patientId, fillId, request)
       await load()
       onChanged()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'That could not be saved.')
+      // A refusal usually means the links moved, so show what they are now.
+      await load().catch(() => undefined)
     } finally {
       setSaving(false)
     }
@@ -92,7 +96,7 @@ export default function FillClaimLinks({ patientId, fillId, canManage, onChanged
             )}
           </div>
           {claim.automatic && canManage && (
-            <Button type="button" variant="outline" size="sm" disabled={saving} className="max-lg:min-h-11" onClick={() => void answer('reject')}>
+            <Button type="button" variant="outline" size="sm" disabled={saving} className="max-lg:min-h-11" onClick={() => void answer({ action: 'reject', eobId: claim.eob_id })}>
               Not this claim
             </Button>
           )}
@@ -102,7 +106,7 @@ export default function FillClaimLinks({ patientId, fillId, canManage, onChanged
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-muted-foreground">You said not to match this fill to a claim automatically.</p>
           {canManage && (
-            <Button type="button" variant="outline" size="sm" disabled={saving} className="max-lg:min-h-11" onClick={() => void answer('reset')}>
+            <Button type="button" variant="outline" size="sm" disabled={saving} className="max-lg:min-h-11" onClick={() => void answer({ action: 'reset' })}>
               Match it again
             </Button>
           )}
