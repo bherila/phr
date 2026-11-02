@@ -214,7 +214,11 @@ it finds actual FHIR Bundle or C-CDA ClinicalDocument content; a JSON/XML manife
 alone is insufficient. TSV headers and records are limited to 8,192 fields before
 cell arrays can grow beyond that bound. Over-limit records are accounted as
 malformed while their original bytes remain preserved. Dictionary table names must
-match the same ASCII identifier rules as table member names.
+match the same ASCII identifier rules as table member names. Immunizations, notes and
+scanned documents, and lab results (`ORDER_RESULTS`, keyed on the full order, contact, and
+line) become proposals a person reviews on the Review and Imports pages. A compatible
+identifier links evidence, a probable duplicate is a person's decision, and no decision
+overwrites a record or revives a deleted one.
 
 ## Repository map
 

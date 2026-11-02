@@ -312,7 +312,11 @@ final class PhrNativeRestoreArchiveReader
         sort($expectedRelationships);
         $actualRelationships = array_keys($record['relationships']);
         sort($actualRelationships);
-        if ($expectedRelationships !== $actualRelationships) {
+        // As with attributes, the only tolerated absence is a nullable relationship
+        // a later release added, normalized to null after the hash is verified.
+        $absentRelationships = array_diff($expectedRelationships, $actualRelationships);
+        if (array_diff($absentRelationships, PhrNativeLifecycleCompatibility::TABLE_RELATIONSHIPS[$table] ?? []) !== []
+            || array_diff($actualRelationships, $expectedRelationships) !== []) {
             throw new NativeRestoreException('invalid_archive');
         }
         foreach ($record['relationships'] as $column => $relationship) {

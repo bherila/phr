@@ -89,10 +89,13 @@ original v1 table, or an unknown table still fails closed as `invalid_archive`.
 Columns follow the same idea. A record may lack `deleted_at`/`retracted_at`, and the
 nullable columns listed per table in `PhrNativeLifecycleCompatibility::TABLE_COLUMNS`
 (today the six EHI immunization provenance columns on `phr_immunizations`, the review
-status and lines digest on `phr_eobs`, and the two reference-bound inclusiveness columns
-on `phr_lab_results`). Absent ones
-are read as null only after the stored content hash has been verified against the
-attributes actually written; any other attribute difference fails closed.
+status and lines digest on `phr_eobs`, the reference-bound inclusiveness and EHI lab
+provenance columns on `phr_lab_results`, and the source-ID bridge columns on
+`phr_ehi_record_links`). Nullable relationships added later are listed the same way in
+`PhrNativeLifecycleCompatibility::TABLE_RELATIONSHIPS` (today a lab result as an evidence
+link and decision target). Absent ones are read as null only after the stored content
+hash has been verified against what was actually written; any other attribute or
+relationship difference fails closed.
 
 ## Deliberate boundaries
 
@@ -159,7 +162,7 @@ resource measurements on the intended runtime/database, not just increasing PHP 
 
 Clinical preview starts a generation, then checks a conservative patient-wide work set:
 EHI sources/packages/members, entities/revisions/occurrences, proposals/dependencies,
-decisions/links, and document/immunization targets, including prior history. The defaults
+decisions/links, and document/immunization/lab-result targets, including prior history. The defaults
 are `PHR_EHI_PREVIEW_MAX_ROWS=10000`, `PHR_EHI_PREVIEW_MAX_BYTES=8388608` (8 MiB of raw
 SQL column bytes), and `PHR_EHI_PREVIEW_MAX_SECONDS=240`. These are separate from the
 larger source-preservation byte ceilings. SQL aggregates and revision-page size probes

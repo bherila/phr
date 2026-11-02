@@ -33,7 +33,7 @@ class PhrEhiOccurrence extends Model
 
     public const string DISPOSITION_QUARANTINED = 'quarantined';
 
-    /** Reviewed and kept as evidence only (rejected or retain_evidence); no clinical record. */
+    /** Kept as evidence only: rejected, retain_evidence, or no proposal relies on it. No clinical record. */
     public const string DISPOSITION_RETAINED = 'retained';
 
     protected $table = 'phr_ehi_occurrences';

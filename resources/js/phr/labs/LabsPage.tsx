@@ -12,6 +12,7 @@ import { displayUnits } from '@/lib/measureUnits'
 import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
 import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { reviewStatusBadge, reviewStatusNeedsAttention } from '@/phr/clinical/ui'
+import { EhiPendingBanner } from '@/phr/imports/ehi/EhiPendingBanner'
 import { formatLabReferenceRange, formatLabValue, isNumericLabValue } from '@/phr/labs/formatLabResult'
 import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { reviewStateChanged } from '@/phr/review/reviewSummary'
@@ -392,6 +393,8 @@ export default function LabsPage({ patientId, onDrill, openRecord }: PhrListPage
           )}
         </div>
       </div>
+
+      <EhiPendingBanner patientId={patientId} mapping="lab_result" className="mb-4" />
 
       {error && (
         <div className="mb-4 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">

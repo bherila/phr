@@ -2,6 +2,7 @@
 
 namespace App\Services\PHR\Export;
 
+use App\Models\PhrLabResult;
 use App\Support\PHR\PhrLabReferenceRangeNotation;
 use Carbon\CarbonInterface;
 use Ramsey\Uuid\Uuid;
@@ -213,12 +214,23 @@ final class PhrCcdaResultEntries
             return null;
         }
 
+        // An offset would state a zone the source did not record; its date is all that is known.
+        if ($lab instanceof PhrLabResult && $lab->timeZoneIsUnrecorded()) {
+            return $moment->format('Ymd');
+        }
+
         return $moment->equalTo($moment->copy()->startOfDay()) ? $moment->format('Ymd') : $moment->format('YmdHisO');
+    }
+
+    /** The value with its inequality, for the structured entry and the narrative alike. */
+    public static function statedValue(object $lab): mixed
+    {
+        return $lab instanceof PhrLabResult ? $lab->valueWithComparator() : ($lab->value ?? null);
     }
 
     private function value(XMLWriter $xml, object $lab): void
     {
-        $raw = $this->text($lab->value ?? null);
+        $raw = $this->text(self::statedValue($lab));
         $unit = $this->text($lab->unit ?? null);
         $text = $raw ?? PhrLabReferenceRangeNotation::number($lab->value_numeric ?? null);
 

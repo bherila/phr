@@ -52,10 +52,9 @@ class PhrEhiReviewCommand extends BaseEhiCommand
         $this->line("proposal: {$decided->id}");
         $this->line("status: {$decided->status}");
         $last = PhrEhiProposalDecision::query()->where('proposal_id', $decided->id)->orderByDesc('id')->first();
-        if ($last?->linked_immunization_id !== null) {
-            $this->line("record: phr_immunizations {$last->linked_immunization_id}");
-        } elseif ($last?->linked_document_id !== null) {
-            $this->line("record: phr_documents {$last->linked_document_id}");
+        $record = EhiProposalService::decidedRecord($last);
+        if ($record !== null) {
+            $this->line("record: {$record['table']} {$record['id']}");
         }
 
         return self::SUCCESS;

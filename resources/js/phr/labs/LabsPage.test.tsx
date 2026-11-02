@@ -7,6 +7,10 @@ import LabsPage from '@/phr/labs/LabsPage'
 const mockGet = jest.fn()
 const mockPost = jest.fn()
 
+jest.mock('@/phr/imports/ehi/EhiPendingBanner', () => ({
+  EhiPendingBanner: ({ mapping }: { mapping: string }) => <div data-testid="ehi-pending" data-mapping={mapping} />,
+}))
+
 jest.mock('@/fetchWrapper', () => ({
   fetchWrapper: {
     get: (...args: unknown[]) => mockGet(...args),
@@ -54,6 +58,12 @@ describe('LabsPage', () => {
       lab_results: [makeLabResult()],
       can_manage: false,
     })
+  })
+
+  it('tells the page about lab results waiting in an EHI import', async () => {
+    render(<LabsPage patientId={42} onDrill={jest.fn()} />)
+
+    expect(await screen.findByTestId('ehi-pending')).toHaveAttribute('data-mapping', 'lab_result')
   })
 
   it('drills to lab panel detail when a row is clicked', async () => {

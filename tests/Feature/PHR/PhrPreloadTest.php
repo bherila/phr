@@ -53,8 +53,8 @@ final class PhrPreloadTest extends TestCase
             '/review' => ["{$p}/review"],
             // The first log's entries follow from the preloaded list, so they come last.
             '/health-log' => ["{$p}/health-logs", $summary, "{$p}/health-logs/{$this->ids['log']}/entries"],
-            '/labs' => ["{$p}/lab-results"],
-            "/labs/{$this->ids['lab']}" => ["{$p}/labs/{$this->ids['lab']}", "{$p}/lab-results"],
+            '/labs' => ["{$p}/lab-results", "{$p}/ehi/pending"],
+            "/labs/{$this->ids['lab']}" => ["{$p}/labs/{$this->ids['lab']}", "{$p}/lab-results", "{$p}/ehi/pending"],
             '/vitals' => ["{$p}/vitals"],
             "/vitals/{$this->ids['vital']}" => ["{$p}/vitals/{$this->ids['vital']}", "{$p}/vitals"],
             // A trend opens as its own page, so the list is not on screen.
@@ -191,7 +191,7 @@ final class PhrPreloadTest extends TestCase
         ]);
         $p = "/api/phr/patients/{$this->patient->id}";
 
-        $this->assertSame(["{$p}/review/summary"], array_keys($this->preload($this->actingAs($this->owner)->get("/phr/patient/{$this->patient->id}/labs")->assertOk())));
+        $this->assertSame(["{$p}/ehi/pending", "{$p}/review/summary"], array_keys($this->preload($this->actingAs($this->owner)->get("/phr/patient/{$this->patient->id}/labs")->assertOk())));
         $this->actingAs($this->owner)->getJson("{$p}/lab-results")->assertOk()->assertJsonCount(1, 'lab_results');
 
         $html = $this->actingAs($this->owner)->get("/phr/patient/{$this->patient->id}")->assertOk();

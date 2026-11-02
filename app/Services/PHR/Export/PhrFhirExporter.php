@@ -134,12 +134,15 @@ class PhrFhirExporter
             'category' => [$this->coding('http://terminology.hl7.org/CodeSystem/observation-category', 'laboratory', 'Laboratory')],
             'code' => $this->textCode($lab->analyte ?? $lab->test_name ?? 'Lab result'),
             'subject' => $this->patientReference($lab->patient_id),
-            'effectiveDateTime' => $this->fhirDateTime($lab->result_datetime ?? $lab->collection_datetime),
+            // FHIR requires a zone on a time. One the source did not record goes out as its date.
+            'effectiveDateTime' => $lab->timeZoneIsUnrecorded()
+                ? ($lab->result_datetime ?? $lab->collection_datetime)?->toDateString()
+                : $this->fhirDateTime($lab->result_datetime ?? $lab->collection_datetime),
             'valueQuantity' => $lab->value_numeric !== null ? [
                 'value' => (float) $lab->value_numeric,
                 'unit' => $lab->unit,
             ] : null,
-            'valueString' => $lab->value_numeric === null ? $lab->value : null,
+            'valueString' => $lab->value_numeric === null ? $lab->valueWithComparator() : null,
             'interpretation' => $lab->abnormal_flag ? [$this->textCode($lab->abnormal_flag)] : null,
             'referenceRange' => ($lab->range_min !== null || $lab->range_max !== null || $lab->reference_range_text !== null) ? [[
                 'low' => $lab->range_min !== null ? ['value' => (float) $lab->range_min, 'unit' => $lab->range_unit ?? $lab->unit] : null,

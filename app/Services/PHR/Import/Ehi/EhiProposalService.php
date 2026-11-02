@@ -15,6 +15,7 @@ use App\Models\PhrEhiRevision;
 use App\Models\PhrEhiSource;
 use App\Models\PhrEhiTableAccount;
 use App\Models\PhrImmunization;
+use App\Models\PhrLabResult;
 use App\Models\PhrPatient;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
@@ -27,7 +28,9 @@ use App\Services\PHR\Import\Ehi\Mapping\EhiMappingContext;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMappingRegistry;
 use App\Services\PHR\Import\Ehi\Mapping\EhiProposalDraft;
 use App\Services\PHR\Import\Ehi\Mapping\EhiPublishedObjects;
+use App\Services\PHR\Import\Ehi\Mapping\EhiSourceIdBridge;
 use App\Services\PHR\Import\Ehi\Mapping\EhiTargetDigest;
+use App\Support\PHR\PhrRecordLifecycle;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -78,6 +81,7 @@ final class EhiProposalService
     public const array TARGETS = [
         'phr_immunizations' => ['model' => PhrImmunization::class, 'link' => 'immunization_id', 'decision' => 'linked_immunization_id'],
         'phr_documents' => ['model' => PhrDocument::class, 'link' => 'document_id', 'decision' => 'linked_document_id'],
+        'phr_lab_results' => ['model' => PhrLabResult::class, 'link' => 'lab_result_id', 'decision' => 'linked_lab_result_id'],
     ];
 
     public const array KINDS = [
@@ -264,8 +268,7 @@ final class EhiProposalService
                 'previous_status' => $current->status,
                 'mapping_version' => $current->mapping_version,
                 'revision_digest' => $current->revision_digest,
-                'linked_immunization_id' => $outcome?->recordTable === 'phr_immunizations' ? $outcome->recordId : null,
-                'linked_document_id' => $outcome?->recordTable === 'phr_documents' ? $outcome->recordId : null,
+                ...$this->targetColumns('decision', $outcome?->recordTable, $outcome?->recordId),
             ]);
             $current->forceFill([
                 'status' => match ($decision) {
@@ -314,8 +317,9 @@ final class EhiProposalService
             throw new EhiReviewRefused($reason, 'the mapping refused to apply the proposal', $refused);
         }
 
+        $bridge = EhiSourceIdBridge::of($proposal, $decision);
         $expected = match (true) {
-            $decision === PhrEhiProposal::DECISION_LINK => PhrEhiRecordLink::KIND_BRIDGED,
+            $bridge !== null => PhrEhiRecordLink::KIND_BRIDGED,
             $proposal->kind === PhrEhiProposal::KIND_CORROBORATE => PhrEhiRecordLink::KIND_CORROBORATING,
             default => PhrEhiRecordLink::KIND_PROJECTED,
         };
@@ -332,16 +336,16 @@ final class EhiProposalService
         // Whatever the mapping wrote or chose must be a live record of this patient.
         $this->lockLive($patient, $outcome->recordTable, $outcome->recordId);
 
-        $column = self::TARGETS[$outcome->recordTable]['link'];
         foreach (array_chunk(PhrEhiProposalRevision::idsFor($proposal), self::CHUNK) as $chunk) {
-            PhrEhiRecordLink::query()->insertOrIgnore(array_map(static fn (int $revisionId): array => [
+            PhrEhiRecordLink::query()->insertOrIgnore(array_map(fn (int $revisionId): array => [
                 'patient_id' => $patient->id,
                 'revision_id' => $revisionId,
                 'proposal_id' => $proposal->id,
-                'immunization_id' => $column === 'immunization_id' ? $outcome->recordId : null,
-                'document_id' => $column === 'document_id' ? $outcome->recordId : null,
+                ...$this->targetColumns('link', $outcome->recordTable, $outcome->recordId),
                 'link_kind' => $outcome->linkKind,
                 'mapping_version' => $proposal->mapping_version,
+                'bridge_version' => $bridge['version'] ?? null,
+                'bridge_rule' => $bridge['rule'] ?? null,
                 'created_by_user_id' => $actorUserId,
                 'created_at' => $now,
                 'updated_at' => $now,
@@ -349,6 +353,43 @@ final class EhiProposalService
         }
 
         return $outcome;
+    }
+
+    /**
+     * Every typed target column of one kind, the one for this record set and the
+     * rest null, so a row always names all of them.
+     *
+     * @param  'link'|'decision'  $kind
+     * @return array<string, int|null>
+     */
+    private function targetColumns(string $kind, ?string $table, ?int $id): array
+    {
+        $columns = [];
+        foreach (self::TARGETS as $target => $definition) {
+            $columns[$definition[$kind]] = $target === $table ? $id : null;
+        }
+
+        return $columns;
+    }
+
+    /**
+     * The clinical record a decision produced or chose, if any.
+     *
+     * @return array{table: string, id: int}|null
+     */
+    public static function decidedRecord(?PhrEhiProposalDecision $decision): ?array
+    {
+        if ($decision === null) {
+            return null;
+        }
+        foreach (self::TARGETS as $table => $definition) {
+            $id = $decision->getAttribute($definition['decision']);
+            if ($id !== null) {
+                return ['table' => $table, 'id' => (int) $id];
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -397,8 +438,9 @@ final class EhiProposalService
     }
 
     /**
-     * Lock a clinical record including soft-deleted rows, so a withdrawn record
-     * is refused rather than invisible (and never resurrected).
+     * Lock a clinical record including soft-deleted rows, so a withdrawn or rejected
+     * record is refused rather than invisible (and never resurrected). Every mapping's
+     * target, a chosen link included, passes through here under the lock.
      */
     private function lockLive(PhrPatient $patient, string $table, int $id): Model
     {
@@ -409,9 +451,8 @@ final class EhiProposalService
         $record = $class::query()->withoutGlobalScope(SoftDeletingScope::class)->whereKey($id)->lockForUpdate()->first();
         if (! $record instanceof Model
             || (int) $record->getAttribute('patient_id') !== (int) $patient->id
-            || $record->getAttribute('deleted_at') !== null
-            || $record->getAttribute('retracted_at') !== null) {
-            throw new EhiReviewRefused(EhiReviewRefused::TARGET_WITHDRAWN, 'the target record is gone, deleted, or retracted');
+            || ! PhrRecordLifecycle::stands($record)) {
+            throw new EhiReviewRefused(EhiReviewRefused::TARGET_WITHDRAWN, 'the target record is gone, deleted, retracted, or rejected');
         }
 
         return $record;
@@ -455,7 +496,7 @@ final class EhiProposalService
         }
 
         return $decision !== PhrEhiProposal::DECISION_LINK
-            || in_array($linkTargetId, [$last->linked_immunization_id, $last->linked_document_id], true);
+            || (self::decidedRecord($last)['id'] ?? null) === $linkTargetId;
     }
 
     /**
@@ -719,10 +760,45 @@ final class EhiProposalService
             foreach (array_chunk($findingRows, self::CHUNK) as $chunk) {
                 PhrEhiFinding::query()->insert($chunk);
             }
+            $this->settleUnreviewable($package);
             PhrEhiPackage::query()->whereKey($package->id)->where('patient_id', $patient->id)
                 ->where('preview_generation_started', $generation)
                 ->toBase()->update(['preview_generation_completed' => $generation]);
         });
+    }
+
+    /**
+     * A row is pending review only while a proposal waits on it. A mapped-table row
+     * no current proposal relies on (an order with no result, a comment for a
+     * result this package did not supply) is retained, since nothing could ever
+     * decide it; a row retained that way goes back to pending once a preview does
+     * produce a proposal for it. A row a person decided is left alone.
+     */
+    private function settleUnreviewable(PhrEhiPackage $package): void
+    {
+        $now = now();
+        $reliedOnBy = static fn (array $statuses) => PhrEhiProposalRevision::query()->select('revision_id')
+            ->whereIn('proposal_id', PhrEhiProposal::query()->select('id')->where('package_id', $package->id)->whereIn('status', $statuses));
+        $decided = [PhrEhiProposal::STATUS_ACCEPTED, PhrEhiProposal::STATUS_REJECTED, PhrEhiProposal::STATUS_RETAINED, PhrEhiProposal::STATUS_LINKED];
+
+        $orphaned = PhrEhiOccurrence::query()->where('package_id', $package->id)
+            ->where('disposition', PhrEhiOccurrence::DISPOSITION_PENDING_REVIEW)
+            ->whereNotIn('revision_id', $reliedOnBy([PhrEhiProposal::STATUS_PENDING, ...$decided]));
+        $waiting = PhrEhiOccurrence::query()->where('package_id', $package->id)
+            ->where('disposition', PhrEhiOccurrence::DISPOSITION_RETAINED)
+            ->whereIn('revision_id', $reliedOnBy([PhrEhiProposal::STATUS_PENDING]))
+            ->whereNotIn('revision_id', $reliedOnBy($decided));
+
+        $members = [
+            ...(clone $orphaned)->distinct()->pluck('member_id')->all(),
+            ...(clone $waiting)->distinct()->pluck('member_id')->all(),
+        ];
+        $orphaned->update(['disposition' => PhrEhiOccurrence::DISPOSITION_RETAINED, 'updated_at' => $now]);
+        $waiting->update(['disposition' => PhrEhiOccurrence::DISPOSITION_PENDING_REVIEW, 'updated_at' => $now]);
+        if ($members !== []) {
+            PhrEhiTableAccount::query()->where('package_id', $package->id)->whereIn('member_id', array_values(array_unique($members)))
+                ->orderBy('id')->each(static fn (PhrEhiTableAccount $account) => EhiDispositionCounter::recount($account));
+        }
     }
 
     /**

@@ -111,7 +111,7 @@ export function reviewRow(item: ReviewItem, group: ReviewGroup, patientId: numbe
   const changeDetail = {
     new: 'Not in the record yet',
     update: view.changes.length > 0 ? view.changes.slice(0, 2).map((field) => `${field.field} ${field.before} → ${field.after}`).join('; ') : 'Changes a record already in PHR',
-    duplicate: 'Looks like a record already in PHR; approving adds it as a separate record',
+    duplicate: view.notice ?? 'Looks like a record already in PHR; approving adds it as a separate record',
     evidence: 'Matches a record already in PHR; approving adds the export as its evidence',
     kept: retainReason(proposal) ?? 'Kept with the export; nothing is added',
   }[change]

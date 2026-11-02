@@ -60,6 +60,43 @@ describe('EhiReview', () => {
     expect(await within(fresh).findByText('Accepted')).toBeInTheDocument()
   })
 
+  it('offers a lab result next to the record it may duplicate, which it fetches from the labs route', async () => {
+    const duplicate = makeEhiProposal({
+      id: 41,
+      mapping: 'lab_result',
+      kind: 'possible_duplicate',
+      candidate_ids: [7],
+      allowed_decisions: ['accept', 'link_existing', 'reject', 'retain_evidence'],
+      proposed: { attributes: { analyte: 'Synthetic glucose', value: '95.0', unit: 'mg/dL', result_datetime: '2024-03-05 11:00:00' } },
+    })
+    mockGet.mockImplementation((url: string) => {
+      if (url === proposalsUrl) return Promise.resolve({ proposals: [duplicate], next_after_id: null })
+      if (url === `/api/phr/patients/${EHI_PATIENT_ID}/lab-results/7`) {
+        return Promise.resolve({
+          lab_result: {
+            id: 7, patient_id: EHI_PATIENT_ID, user_id: 1, test_name: null, collection_datetime: '2024-03-05 08:00:00', result_datetime: null, result_status: null, ordering_provider: null,
+            resulting_lab: null, analyte: 'Glucose (entered by you)', value: '95', value_numeric: '95', unit: 'mg/dL', range_min: null, range_max: null, range_unit: null, reference_range_text: null,
+            normal_value: null, abnormal_flag: null, message_from_provider: null, result_comment: null, lab_director: null, source: null, notes: null, created_at: null, updated_at: null,
+          },
+        })
+      }
+      return Promise.reject(new Error(`unexpected ${url}`))
+    })
+    mockPost.mockResolvedValue({ proposal: { ...duplicate, status: 'linked', reviewable: false }, record: { table: 'phr_lab_results', id: 7 } })
+
+    render(<EhiReview patientId={EHI_PATIENT_ID} packageId={9} onBack={jest.fn()} />)
+
+    const duplicates = await screen.findByRole('region', { name: 'Might already be in PHR' })
+    expect(await within(duplicates).findByText('Glucose (entered by you) · 95 mg/dL · 2024-03-05')).toBeInTheDocument()
+    fireEvent.click(within(duplicates).getByRole('button', { name: 'Same record, link as evidence: Synthetic glucose' }))
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith(`/api/phr/patients/${EHI_PATIENT_ID}/ehi/proposals/41/review`, {
+      decision: 'link_existing',
+      preview_digest: duplicate.preview_digest,
+      link_id: 7,
+    }))
+    expect(await within(duplicates).findByText('Linked as evidence')).toBeInTheDocument()
+  })
+
   it('accepts every new record in turn and reports the ones that failed', async () => {
     const first = makeEhiProposal({ id: 41, proposed: { vaccine_name: 'Vaccine One' } })
     const second = makeEhiProposal({ id: 42, proposed: { vaccine_name: 'Vaccine Two' } })

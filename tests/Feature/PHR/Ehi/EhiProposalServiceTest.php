@@ -538,8 +538,9 @@ class EhiProposalServiceTest extends TestCase
             '100/1' => PhrEhiOccurrence::DISPOSITION_PROJECTED,
             '0100/1' => PhrEhiOccurrence::DISPOSITION_PROJECTED,
             '300/1' => PhrEhiOccurrence::DISPOSITION_RETAINED,
-            '100/2' => PhrEhiOccurrence::DISPOSITION_PENDING_REVIEW,
-            'account' => ['projected' => 2, 'corroborating' => 0, 'pending_review' => 1, 'retained' => 1, 'quarantined' => 0],
+            // No proposal relies on this row, so nothing could ever decide it.
+            '100/2' => PhrEhiOccurrence::DISPOSITION_RETAINED,
+            'account' => ['projected' => 2, 'corroborating' => 0, 'pending_review' => 0, 'retained' => 2, 'quarantined' => 0],
         ], $settled['accept_first']);
         self::assertSame($settled['accept_first'], $settled['retain_first']);
     }

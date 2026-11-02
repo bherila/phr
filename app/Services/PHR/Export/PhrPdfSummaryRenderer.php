@@ -60,7 +60,7 @@ class PhrPdfSummaryRenderer
                 $this->section('Labs', $data['lab_results']->map(fn (PhrLabResult $lab): array => [
                     $lab->result_datetime?->toDateString() ?? $lab->collection_datetime?->toDateString(),
                     $lab->analyte ?? $lab->test_name,
-                    trim((string) ($lab->value ?? $lab->value_numeric).' '.(string) $lab->unit),
+                    trim((string) $lab->displayValue().' '.(string) $lab->unit),
                     $lab->abnormal_flag,
                 ])->all()),
                 $this->section('Vitals', $data['vitals']->map(fn (PhrPatientVital $vital): array => [

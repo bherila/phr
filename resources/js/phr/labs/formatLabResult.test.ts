@@ -6,6 +6,19 @@ import {
 } from '@/phr/labs/formatLabResult'
 
 describe('lab result formatting', () => {
+  it('shows a range kept whole as text exactly as the source wrote it, with no partial bound', () => {
+    const stored = { range_min: null, range_max: null, range_unit: null, range_min_inclusive: null, range_max_inclusive: null }
+    expect(formatLabReferenceRange({ ...stored, reference_range_text: '0,5 - 5' })).toBe('0,5 - 5')
+    expect(formatLabReferenceRange({ ...stored, reference_range_text: '- 5,5' })).toBe('- 5,5')
+  })
+
+  it('shows an inequality the source states, once, and never reads a comparator into a plain value', () => {
+    expect(formatLabValue({ value: '<50', value_numeric: null, value_comparator: '<' })).toBe('<50')
+    expect(formatLabValue({ value: '50', value_numeric: null, value_comparator: '<' })).toBe('<50')
+    expect(formatLabValue({ value: '50', value_numeric: '50', value_comparator: null })).toBe('50')
+    expect(formatLabValue({ value: null, value_numeric: null, value_comparator: '<' })).toBeNull()
+  })
+
   it('trims trailing zeroes from numeric lab values without rounding meaningful precision', () => {
     expect(formatLabValueNumber('3.5000000000')).toBe('3.5')
     expect(formatLabValueNumber('1.2460000000')).toBe('1.246')

@@ -92,6 +92,10 @@ class PhrSchemaTest extends TestCase
         $this->createUser(['id' => 1]);
 
         Schema::disableForeignKeyConstraints();
+        // SQLite checks a dropped table's rows against every table referencing them,
+        // so what points at a lab result goes before the lab results do.
+        Schema::dropIfExists('phr_ehi_record_links');
+        Schema::dropIfExists('phr_ehi_proposal_decisions');
         Schema::dropIfExists('phr_lab_results');
         Schema::dropIfExists('phr_patient_vitals');
         Schema::dropIfExists('phr_patient_user_access');

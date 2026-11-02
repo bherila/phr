@@ -26,7 +26,8 @@ use Illuminate\Support\Facades\Schema;
  * one and stays a conflict rather than being silently resurrected.
  *
  * The same rule covers nullable columns a later release added to one table
- * (TABLE_COLUMNS): an archive written before them reads them as null.
+ * (TABLE_COLUMNS) and nullable relationships (TABLE_RELATIONSHIPS): an archive
+ * written before them reads them as null.
  */
 final class PhrNativeLifecycleCompatibility
 {
@@ -52,7 +53,35 @@ final class PhrNativeLifecycleCompatibility
         // The review status an agent-written EOB waits in (#268). Older EOBs were all confirmed.
         'phr_eobs' => ['review_status', 'lines_digest'],
         // Whether each lab reference bound is inclusive (#259); null is "not stated".
-        'phr_lab_results' => ['range_min_inclusive', 'range_max_inclusive'],
+        // EHI lab provenance (#213 M3): null on every result an older archive holds.
+        'phr_lab_results' => [
+            'range_min_inclusive',
+            'range_max_inclusive',
+            'value_raw',
+            'value_comparator',
+            'analyte_code',
+            'analyte_code_system',
+            'collected_at_source',
+            'collected_at_precision',
+            'collected_at_timezone',
+            'resulted_at_source',
+            'resulted_at_precision',
+            'resulted_at_timezone',
+        ],
+        // Which source-ID bridge justified a link (#213 M3); older links name none.
+        'phr_ehi_record_links' => ['bridge_version', 'bridge_rule'],
+    ];
+
+    /**
+     * Nullable relationship columns added to one table after v1 shipped, by table.
+     * An archive that predates one has no entry for it, which reads as no relationship.
+     *
+     * @var array<string, list<string>>
+     */
+    public const array TABLE_RELATIONSHIPS = [
+        // A lab result as a typed evidence-link target (#213 M3).
+        'phr_ehi_record_links' => ['lab_result_id'],
+        'phr_ehi_proposal_decisions' => ['linked_lab_result_id'],
     ];
 
     /**
@@ -101,13 +130,18 @@ final class PhrNativeLifecycleCompatibility
             return $record;
         }
 
+        $relationships = $record['relationships'];
         $missing = array_diff(self::columnsFor($table), array_keys($attributes));
-        if ($missing === []) {
+        $missingRelationships = array_diff(self::TABLE_RELATIONSHIPS[$table] ?? [], array_keys($relationships));
+        if ($missing === [] && $missingRelationships === []) {
             return $record;
         }
 
         foreach ($missing as $column) {
             $attributes[$column] = self::LEGACY_VALUES[$table][$column] ?? null;
+        }
+        foreach ($missingRelationships as $column) {
+            $relationships[$column] = null;
         }
 
         // Re-derive the hash so downstream comparison against a current row is
@@ -116,10 +150,10 @@ final class PhrNativeLifecycleCompatibility
         $normalized = (new PhrNativeRecordCodec)->record(
             (string) $record['nativeId'],
             $attributes,
-            $record['relationships'],
+            $relationships,
         );
 
-        return [...$record, 'attributes' => $normalized['attributes'], 'contentHash' => $normalized['contentHash']];
+        return [...$record, 'attributes' => $normalized['attributes'], 'relationships' => $normalized['relationships'], 'contentHash' => $normalized['contentHash']];
     }
 
     /** Test seam: the column listing is memoized per process. */
