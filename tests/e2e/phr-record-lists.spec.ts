@@ -195,7 +195,7 @@ test.describe('Record lists never cut anything off', () => {
     await expect(table.locator('tbody tr', { hasText: 'mometasone furoate' }).first().getByText(/^\d+ fills?$/)).toBeVisible()
 
     let layout = await layoutOf(page, 'Medications')
-    expect(layout.columns).toEqual(['Medication', 'Dose', 'Route', 'Schedule', 'Started', 'Last fill', 'Prescriber', 'Status', 'Actions'])
+    expect(layout.columns).toEqual(['Medication', 'Route', 'Dose', 'Schedule', 'Started', 'Last fill', 'Prescriber', 'Status', 'Actions'])
     expect(layout.overflow).toBeLessThanOrEqual(0)
     await expectInViewport(page, /^More actions for /)
 
@@ -210,7 +210,7 @@ test.describe('Record lists never cut anything off', () => {
     await page.getByRole('button', { name: /^Ended/ }).click()
     await expect(table.getByText('amoxicillin-clavulanate (Augmentin)')).toBeVisible()
     layout = await layoutOf(page, 'Medications')
-    expect(layout.columns).toEqual(['Medication', 'Dose', 'Route', 'Schedule', 'Started', 'Ended', 'Last fill', 'Prescriber', 'Status', 'Actions'])
+    expect(layout.columns).toEqual(['Medication', 'Route', 'Dose', 'Schedule', 'Started', 'Ended', 'Last fill', 'Prescriber', 'Status', 'Actions'])
     expect(layout.overflow).toBeLessThanOrEqual(0)
 
     await page.getByRole('button', { name: /^Active/ }).click()
