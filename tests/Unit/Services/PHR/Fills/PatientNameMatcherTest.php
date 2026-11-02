@@ -244,6 +244,29 @@ final class PatientNameMatcherTest extends TestCase
         $this->assertSame([1], $this->ids($matcher->match($granted, 'Bean', '1980-01-02', $everyone)));
     }
 
+    public function test_a_partial_name_with_the_birth_date_does_not_beat_an_exact_name_that_cannot_confirm_it(): void
+    {
+        // Patient 1 has the exact name and no recorded birth date, so nothing rules them out.
+        // Patient 2 only matches once the middle name is dropped. Neither may win silently.
+        $patients = $this->patients([['Jane Quincy Doe', null], ['Jane Doe', '1980-01-02']]);
+        $matcher = new PatientNameMatcher;
+
+        $result = $matcher->match($patients, 'Jane Quincy Doe', '1980-01-02');
+        $this->assertSame(PatientNameMatcher::AMBIGUOUS, $result['status']);
+        $this->assertSame([1, 2], $this->ids($result));
+
+        // The same exact name out of this request's view blocks it too, without being named.
+        $hidden = $matcher->match($patients->slice(1)->values(), 'Jane Quincy Doe', '1980-01-02', $patients);
+        $this->assertSame(PatientNameMatcher::NONE, $hidden['status']);
+        $this->assertSame([], $hidden['patients']);
+
+        // An exact name on the patient with the birth date is not in doubt, and a recorded
+        // birth date that disagrees still rules the other patient out.
+        $this->assertSame([2], $this->ids($matcher->match($patients, 'Jane Doe', '1980-01-02')));
+        $refuted = $this->patients([['Jane Quincy Doe', '1999-09-09'], ['Jane Doe', '1980-01-02']]);
+        $this->assertSame([2], $this->ids($matcher->match($refuted, 'Jane Quincy Doe', '1980-01-02')));
+    }
+
     public function test_a_listed_real_name_is_not_a_mismatch_but_someone_elses_name_still_is(): void
     {
         $patient = $this->patients([['Bean', '1980-01-02', ['Jane Quincy Doe']]])->first();

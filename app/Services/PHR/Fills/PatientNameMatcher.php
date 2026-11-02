@@ -56,7 +56,18 @@ final class PatientNameMatcher
 
         $confirmed = self::named($sameBirthDate, $wanted);
         if ($confirmed->isNotEmpty()) {
-            return self::result($confirmed);
+            // A name that fits only once middle names are dropped does not outrank the exact
+            // name on a patient with no recorded birth date, whom nothing rules out.
+            if (self::exactly($confirmed, $wanted)->isNotEmpty()) {
+                return self::result($confirmed);
+            }
+            $unconfirmed = static fn (Collection $candidates): Collection => self::exactly($candidates->filter(fn (PhrPatient $other): bool => $other->birth_date === null)->values(), $wanted);
+            $rivals = $unconfirmed($patients);
+            if ($rivals->isNotEmpty()) {
+                return self::result($rivals->concat($confirmed)->values());
+            }
+
+            return self::result($unconfirmed($accessible ?? $patients)->isNotEmpty() ? collect() : $confirmed);
         }
         if ($sameBirthDate->count() > 1) {
             return self::result($sameBirthDate);
@@ -89,7 +100,7 @@ final class PatientNameMatcher
      */
     private static function named(Collection $patients, array $wanted): Collection
     {
-        $exact = $patients->filter(fn (PhrPatient $patient): bool => in_array($wanted, self::names($patient), true))->values();
+        $exact = self::exactly($patients, $wanted);
         if ($exact->isNotEmpty()) {
             return $exact;
         }
@@ -103,6 +114,16 @@ final class PatientNameMatcher
 
             return false;
         })->values();
+    }
+
+    /**
+     * @param  Collection<int, PhrPatient>  $patients
+     * @param  list<string>  $wanted
+     * @return Collection<int, PhrPatient>
+     */
+    private static function exactly(Collection $patients, array $wanted): Collection
+    {
+        return $patients->filter(fn (PhrPatient $patient): bool => in_array($wanted, self::names($patient), true))->values();
     }
 
     /**
