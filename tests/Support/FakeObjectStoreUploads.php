@@ -26,6 +26,8 @@ final class FakeObjectStoreUploads extends UploadUrlSigner
 
     public bool $failLists = false;
 
+    public bool $failHeads = false;
+
     public function directUploadsEnabled(): bool
     {
         return true;
@@ -51,11 +53,11 @@ final class FakeObjectStoreUploads extends UploadUrlSigner
 
     public function listParts(string $disk, string $path, string $uploadId): array
     {
-        if ($this->failLists) {
-            throw new RuntimeException('The store refused the listing.');
+        if ($this->failLists || ! isset($this->uploads[$uploadId])) {
+            throw new RuntimeException('The store refused the listing, as it does for an upload that has finished.');
         }
 
-        return array_map(static fn (array $part): array => ['etag' => $part['etag'], 'bytes' => $part['bytes']], $this->uploads[$uploadId]['parts'] ?? []);
+        return array_map(static fn (array $part): array => ['etag' => $part['etag'], 'bytes' => $part['bytes']], $this->uploads[$uploadId]['parts']);
     }
 
     public function completeMultipartUpload(string $disk, string $path, string $uploadId, array $etags): void
@@ -98,6 +100,10 @@ final class FakeObjectStoreUploads extends UploadUrlSigner
 
     public function head(string $disk, string $path): ?array
     {
+        if ($this->failHeads) {
+            throw new RuntimeException('The store refused the request.');
+        }
+
         $body = Storage::disk($disk)->get($path);
 
         return is_string($body) ? ['bytes' => strlen($body), 'etag' => md5($body)] : null;

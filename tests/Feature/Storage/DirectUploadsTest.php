@@ -364,6 +364,61 @@ class DirectUploadsTest extends TestCase
         $this->actingAs($this->owner)->postJson("{$this->ehiBase()}/{$upload['id']}/intake", [])->assertStatus(503);
     }
 
+    public function test_an_upload_the_store_finished_but_the_row_missed_can_still_be_finished(): void
+    {
+        $bytes = (string) file_get_contents($this->largeEhiZip());
+        $upload = $this->startEhi(strlen($bytes));
+        $parts = $this->sendAllParts($upload['id'], $bytes, 5 * self::MIB);
+        $row = PhrEhiUpload::query()->findOrFail($upload['id']);
+        // The store finished, then the request died before the row was updated.
+        app(UploadUrlSigner::class)->completeMultipartUpload('phr_documents', (string) $row->storage_path, (string) $row->multipart_upload_id, array_column($parts, 'etag', 'part_number'));
+        $this->assertNotNull($row->refresh()->multipart_upload_id);
+        $url = "{$this->ehiBase()}/{$upload['id']}";
+
+        $this->assertSame(strlen($bytes), $this->actingAs($this->owner)->getJson($url)->assertOk()->json('upload.uploaded_bytes'), 'the page offers to finish, not to start over');
+        $this->assertNotSame(strlen($bytes), $row->refresh()->uploaded_bytes, 'a read writes nothing');
+
+        $this->actingAs($this->owner)->postJson("{$url}/intake", [])->assertStatus(202)->assertJsonPath('upload.status', 'queued');
+
+        $this->assertNull($row->refresh()->multipart_upload_id);
+        $this->assertSame(PhrEhiUpload::STATUS_COMPLETED, $this->runIntake($upload['id'])->status);
+    }
+
+    public function test_an_upload_gone_from_the_store_with_no_object_reports_what_the_row_holds(): void
+    {
+        $upload = $this->startEhi(6 * self::MIB);
+        $this->signPart($upload['id'], 2);
+        $row = PhrEhiUpload::query()->findOrFail($upload['id']);
+        app(UploadUrlSigner::class)->abortMultipartUpload('phr_documents', (string) $row->storage_path, (string) $row->multipart_upload_id);
+
+        $this->assertSame(5 * self::MIB, $this->actingAs($this->owner)->getJson("{$this->ehiBase()}/{$upload['id']}")->assertOk()->json('upload.uploaded_bytes'));
+    }
+
+    public function test_an_object_of_another_size_at_the_key_does_not_count_as_the_finished_upload(): void
+    {
+        $upload = $this->startEhi(6 * self::MIB);
+        $this->signPart($upload['id'], 2);
+        $row = PhrEhiUpload::query()->findOrFail($upload['id']);
+        app(UploadUrlSigner::class)->abortMultipartUpload('phr_documents', (string) $row->storage_path, (string) $row->multipart_upload_id);
+        Storage::disk('phr_documents')->put((string) $row->storage_path, 'short');
+
+        $this->assertSame(5 * self::MIB, $this->actingAs($this->owner)->getJson("{$this->ehiBase()}/{$upload['id']}")->assertOk()->json('upload.uploaded_bytes'));
+    }
+
+    public function test_reading_an_upload_answers_with_the_row_when_the_store_refuses_both_questions(): void
+    {
+        $store = app(UploadUrlSigner::class);
+        if (! $store instanceof FakeObjectStoreUploads) {
+            $this->markTestSkipped('Injects a storage failure, which only the default disk can do.');
+        }
+        $upload = $this->startEhi(6 * self::MIB);
+        $this->signPart($upload['id'], 2);
+        $store->failLists = true;
+        $store->failHeads = true;
+
+        $this->assertSame(5 * self::MIB, $this->actingAs($this->owner)->getJson("{$this->ehiBase()}/{$upload['id']}")->assertOk()->json('upload.uploaded_bytes'));
+    }
+
     public function test_finishing_twice_queues_once(): void
     {
         $bytes = (string) file_get_contents($this->myChartZip(1024));

@@ -640,7 +640,9 @@ final class EhiUploadService
      * How much of an upload has arrived. For a direct upload still open, that is what the store
      * holds at the lengths the plan says, counted from the first part, which reaches the file's
      * size only when finishing would succeed. The row's own count only says which parts were
-     * signed. This only reads, and falls back to that count if the store doesn't answer.
+     * signed. If the store lists no parts, it may have finished the upload and the row never
+     * heard, so an object of the declared size counts as all of it, and finishing will accept
+     * that. This only reads, and answers with the row's count if the store doesn't.
      */
     public function bytesReceived(PhrEhiUpload $upload): int
     {
@@ -648,12 +650,30 @@ final class EhiUploadService
             || $upload->multipart_upload_id === null || $upload->storage_path === null) {
             return $upload->uploaded_bytes;
         }
+        $received = $this->bytesInParts($upload);
+        if ($received !== null && $received > 0) {
+            return $received;
+        }
         try {
-            $held = $this->signer->listParts($upload->storage_disk, $upload->storage_path, $upload->multipart_upload_id);
+            if ($this->storedBytes($upload->storage_disk, $upload->storage_path) === $upload->file_size_bytes) {
+                return $upload->file_size_bytes;
+            }
         } catch (Throwable $failure) {
-            Log::warning('EHI multipart upload could not be listed.', ['upload_id' => $upload->id, 'exception' => $failure::class]);
+            Log::warning('EHI upload object could not be checked.', ['upload_id' => $upload->id, 'exception' => $failure::class]);
+        }
 
-            return $upload->uploaded_bytes;
+        return $received ?? $upload->uploaded_bytes;
+    }
+
+    /** What the store holds of an open upload, or null if it won't list any: it may have finished. */
+    private function bytesInParts(PhrEhiUpload $upload): ?int
+    {
+        try {
+            $held = $this->signer->listParts($upload->storage_disk, (string) $upload->storage_path, (string) $upload->multipart_upload_id);
+        } catch (Throwable $failure) {
+            Log::info('EHI multipart upload could not be listed.', ['upload_id' => $upload->id, 'exception' => $failure::class]);
+
+            return null;
         }
         $plan = new MultipartPlan($upload->file_size_bytes, (int) $upload->part_size_bytes);
         $received = 0;
