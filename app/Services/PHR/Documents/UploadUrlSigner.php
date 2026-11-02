@@ -21,7 +21,7 @@ class UploadUrlSigner
         $client = $storage->getClient();
         $command = $client->getCommand('PutObject', [
             'Bucket' => config("filesystems.disks.{$disk}.bucket"),
-            'Key' => $path, 'ContentType' => $contentType, 'ContentLength' => $bytes,
+            'Key' => $this->objectKey($disk, $path), 'ContentType' => $contentType, 'ContentLength' => $bytes,
         ]);
         $command->getHandlerList()->remove('signer');
         $command->getHandlerList()->remove('s3.checksum');
@@ -36,5 +36,16 @@ class UploadUrlSigner
         }
 
         return ['url' => (string) $request->getUri(), 'headers' => $headers];
+    }
+
+    /**
+     * The client takes the whole object key, while the disk reads and deletes under its
+     * `root`. Without the prefix a signed PUT lands where the disk never looks.
+     */
+    private function objectKey(string $disk, string $path): string
+    {
+        $root = trim((string) config("filesystems.disks.{$disk}.root", ''), '/');
+
+        return $root === '' ? $path : $root.'/'.$path;
     }
 }

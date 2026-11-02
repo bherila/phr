@@ -9,7 +9,7 @@ namespace App\Support\Storage;
  * would let one app's pruner reason about data it cannot see. The engine
  * (BlobReferences, StoragePruner) is generic; only this file is PHR's.
  *
- * Verified against the live `bherila_phr` schema on 2026-08-02 via information_schema
+ * Verified against a live production schema on 2026-08-02 via information_schema
  * rather than by grepping migrations. That distinction is not academic: a naive column
  * pattern anchored on a fixed suffix can silently miss a real storage-key column named
  * differently, and missing one condemns every object it references to pruning.
@@ -25,7 +25,8 @@ class PhrStorageMap
      * New durable writes use a patient-first `patients/{id}/...` hierarchy. Legacy
      * prefixes remain listed throughout the migration and rollback window so the
      * pruner cannot mistake pre-migration objects for garbage. Sweeping one disk with
-     * another's prefixes finds nothing — hence the disk/prefix pairing.
+     * another's prefixes finds nothing — hence the disk/prefix pairing. That holds in one
+     * bucket too, because PHR_STORAGE=s3 gives each disk its own root prefix.
      *
      * There is intentionally no option to widen this at the command line. A
      * caller-supplied prefix is how the finance app's `orphans:delete --prefix=` can be
@@ -38,6 +39,9 @@ class PhrStorageMap
         return [
             'phr_dicom' => ['patients', 'phr/dicom', 'derived/volume-cache'],
             'phr_uploads' => ['patients'],
+            // Chunks waiting to become one object. A row keeps them at the same key as the
+            // object, so the references below cover them; the rest is left from a crash.
+            StagedUpload::SPOOL_DISK => ['patients', 'phr/native-restores'],
             'phr_documents' => ['patients', 'phr/documents'],
             'phr_exports' => ['patients', 'phr/exports', 'phr/native-backups', 'phr/native-restores'],
 

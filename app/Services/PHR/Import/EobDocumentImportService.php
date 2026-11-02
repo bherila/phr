@@ -6,6 +6,7 @@ use App\Models\PhrDocument;
 use App\Models\PhrEob;
 use App\Models\PhrPatient;
 use App\Support\PHR\PhrReviewStatus;
+use App\Support\Storage\LocalObjectFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
@@ -47,15 +48,14 @@ final class EobDocumentImportService
             || ! Storage::disk(PhrDocument::STORAGE_DISK)->exists($document->storage_path)) {
             throw ValidationException::withMessages(['document_id' => 'The document has no stored file to import.']);
         }
-        $path = Storage::disk(PhrDocument::STORAGE_DISK)->path($document->storage_path);
-        $prefix = (string) file_get_contents($path, false, null, 0, 4096);
+        $prefix = LocalObjectFile::prefix(PhrDocument::STORAGE_DISK, $document->storage_path, 4096);
 
         if (str_starts_with($prefix, '%PDF')) {
-            return $this->importMeritain($patient, $document, $path);
+            return LocalObjectFile::with(PhrDocument::STORAGE_DISK, $document->storage_path, fn (string $path): array => $this->importMeritain($patient, $document, $path));
         }
         $firstLine = strtok(ltrim($prefix, "\xEF\xBB\xBF"), "\r\n");
         if (is_string($firstLine) && DeltaDentalEobCsvParser::isHeaderLine($firstLine)) {
-            return $this->importDelta($patient, $document, $path);
+            return LocalObjectFile::with(PhrDocument::STORAGE_DISK, $document->storage_path, fn (string $path): array => $this->importDelta($patient, $document, $path));
         }
 
         return $this->unrecognised();

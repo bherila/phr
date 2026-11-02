@@ -671,6 +671,7 @@ jobs:
             ohif
             phr-documents
             phr-uploads
+            phr-upload-spool
             phr-exports
             phr-dicom
             s3-blobs

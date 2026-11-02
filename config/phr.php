@@ -27,6 +27,9 @@ return [
     'native_restore_source_retention_days' => max(1, (int) env('PHR_NATIVE_RESTORE_SOURCE_RETENTION_DAYS', 7)),
     'native_restore_max_record_bytes' => max(1024, (int) env('PHR_NATIVE_RESTORE_MAX_RECORD_BYTES', 2 * 1024 * 1024)),
     'native_restore_chunk_bytes' => max(1024 * 1024, (int) env('PHR_NATIVE_RESTORE_CHUNK_BYTES', 8 * 1024 * 1024)),
+    // Where this installation keeps PHR files, as config/filesystems.php resolves it: local,
+    // s3, or '' when nothing has been chosen. See docs/storage.md.
+    'storage' => strtolower(trim((string) env('PHR_STORAGE', ''))),
     // Epic EHI Tables intake (#213). Every limit fails closed before bytes are
     // stored; a package over any of them is refused, never partially preserved.
     // Not env-configurable: patient deletion and storage pruning allowlist the

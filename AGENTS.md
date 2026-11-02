@@ -85,6 +85,15 @@ supported too: a CI job runs the PHP suite on it, and that job gates deploys. Wr
 that works on all three, branching on the driver when it can't. README covers running
 the suite on PostgreSQL locally.
 
+## Storage rules
+
+Any PHR file may be on an object store (`PHR_STORAGE`, see `docs/storage.md`), so never
+assume a stored object is a local file: use `Storage` streams, or `LocalObjectFile` for a
+reader that needs a seekable path. `->path()` does not fail on an object store, and neither
+a local disk nor `Storage::fake` catches it. Test such code with `UsesObjectStoreDisks`.
+`LocalDiskAssumptionsTest` lists every local-file call in `app/`. A new key column belongs
+in both `PhrStorageMap` and `PhrStorageVerifier::sources()`.
+
 ## Frontend rules
 
 - Inline image previews must gate on a browser-decodable allowlist — use

@@ -11,8 +11,10 @@ use App\Models\PhrPatient;
 use App\Models\PhrPatientDeletion;
 use App\Models\PhrPatientDeletionArtifact;
 use App\Services\PHR\NativeBackup\PhrNativeBackupCatalog;
+use App\Support\Storage\StagedUpload;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Throwable;
 
 /**
@@ -27,7 +29,7 @@ final class PhrPatientDeletionService
     private const int ACTIVE_ARTIFACT_LEASE_MINUTES = 15;
 
     /** @var list<string> */
-    private const array ALLOWED_DISKS = ['phr_documents', 'phr_dicom', 'phr_exports', 'phr_uploads'];
+    private const array ALLOWED_DISKS = ['phr_documents', 'phr_dicom', 'phr_exports', 'phr_uploads', StagedUpload::SPOOL_DISK];
 
     public function preview(PhrPatient $patient): PhrPatientDeletionPlan
     {
@@ -240,7 +242,13 @@ final class PhrPatientDeletionService
         DB::table('phr_ehi_blobs')->where('patient_id', $patientId)
             ->orderBy('id')->each(fn ($row) => $collect((string) $row->storage_disk, (string) $row->storage_path, (int) $row->byte_size));
         DB::table('phr_ehi_uploads')->where('patient_id', $patientId)->whereNotNull('storage_path')
-            ->orderBy('id')->each(fn ($row) => $collect((string) $row->storage_disk, (string) $row->storage_path, null));
+            ->orderBy('id')->each(function ($row) use ($collect): void {
+                $collect((string) $row->storage_disk, (string) $row->storage_path, null);
+                // On an object store, chunks that are still arriving are local at the same key.
+                if (Storage::disk(StagedUpload::SPOOL_DISK)->exists((string) $row->storage_path)) {
+                    $collect(StagedUpload::SPOOL_DISK, (string) $row->storage_path, null);
+                }
+            });
         DB::table('phr_document_uploads')->where('patient_id', $patientId)->whereNotNull('staging_path')
             ->orderBy('id')->each(fn ($row) => $collect((string) $row->storage_disk, (string) $row->staging_path, null));
         DB::table('phr_exports')->where('patient_id', $patientId)->whereNotNull('storage_path')
