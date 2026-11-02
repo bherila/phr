@@ -521,6 +521,8 @@ Route::middleware(['web', 'auth'])
         Route::get('/patients/{patient}/dicom/studies/{study}', [PHRDicomStudyController::class, 'show'])->whereNumber(['patient', 'study'])->name('patients.dicom.studies.show');
         Route::post('/patients/{patient}/dicom/uploads', [PHRDicomUploadController::class, 'open'])->whereNumber('patient')->name('patients.dicom.uploads.open');
         Route::post('/patients/{patient}/dicom/uploads/{upload}/files', [PHRDicomUploadController::class, 'storeFile'])->whereNumber(['patient', 'upload'])->name('patients.dicom.uploads.files.store');
+        Route::post('/patients/{patient}/dicom/uploads/{upload}/files/authorize', [PHRDicomUploadController::class, 'authorizeFile'])->whereNumber(['patient', 'upload'])->name('patients.dicom.uploads.files.authorize');
+        Route::post('/patients/{patient}/dicom/uploads/{upload}/files/confirm', [PHRDicomUploadController::class, 'confirmFile'])->whereNumber(['patient', 'upload'])->name('patients.dicom.uploads.files.confirm');
         Route::post('/patients/{patient}/dicom/uploads/{upload}/finalize', [PHRDicomUploadController::class, 'finalize'])->whereNumber(['patient', 'upload'])->name('patients.dicom.uploads.finalize');
         Route::post('/patients/{patient}/dicom/uploads/{upload}/cancel', [PHRDicomUploadController::class, 'cancel'])->whereNumber(['patient', 'upload'])->name('patients.dicom.uploads.cancel');
         Route::get('/patients/{patient}/dicom/studies/{study}/viewer-json', [PHRDicomStudyController::class, 'viewerJson'])->whereNumber(['patient', 'study'])->name('patients.dicom.studies.viewer-json');
@@ -548,6 +550,7 @@ Route::middleware(['web', 'auth'])
         Route::post('/patients/{patient}/ehi/uploads', [PhrEhiImportController::class, 'startUpload'])->whereNumber('patient')->middleware('throttle:10,1')->name('patients.ehi.uploads.store');
         Route::get('/patients/{patient}/ehi/uploads/{upload}', [PhrEhiImportController::class, 'showUpload'])->whereNumber(['patient', 'upload'])->name('patients.ehi.uploads.show');
         Route::post('/patients/{patient}/ehi/uploads/{upload}/chunks', [PhrEhiImportController::class, 'appendChunk'])->whereNumber(['patient', 'upload'])->middleware('throttle:120,1')->name('patients.ehi.uploads.chunks.store');
+        Route::post('/patients/{patient}/ehi/uploads/{upload}/parts', [PhrEhiImportController::class, 'signPart'])->whereNumber(['patient', 'upload'])->middleware('throttle:120,1')->name('patients.ehi.uploads.parts.sign');
         Route::post('/patients/{patient}/ehi/uploads/{upload}/intake', [PhrEhiImportController::class, 'queueIntake'])->whereNumber(['patient', 'upload'])->middleware('throttle:10,1')->name('patients.ehi.uploads.intake');
         Route::get('/patients/{patient}/ehi/pending', [PhrEhiImportController::class, 'pending'])->whereNumber('patient')->name('patients.ehi.pending');
         Route::get('/patients/{patient}/ehi/packages', [PhrEhiImportController::class, 'packages'])->whereNumber('patient')->name('patients.ehi.packages.index');

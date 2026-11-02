@@ -81,6 +81,9 @@ export class MockUploadXMLHttpRequest {
   // in flight so a test can exercise `UploadController.abort()` mid-upload.
   static autoComplete = true
 
+  // Response headers the page may read, as a store's CORS rules would expose them.
+  static responseHeaders: Record<string, string> = {}
+
   static reset(): void {
     MockUploadXMLHttpRequest.instances = []
     MockUploadXMLHttpRequest.status = 200
@@ -88,6 +91,7 @@ export class MockUploadXMLHttpRequest {
     MockUploadXMLHttpRequest.responseText = JSON.stringify(makeDicomUploadFileResponse())
     MockUploadXMLHttpRequest.responseTextFor = null
     MockUploadXMLHttpRequest.autoComplete = true
+    MockUploadXMLHttpRequest.responseHeaders = {}
   }
 
   /** Installs the mock and returns a restore function for `finally`. */
@@ -116,14 +120,24 @@ export class MockUploadXMLHttpRequest {
 
   requestBody: FormData | null = null
 
+  /** The body of a PUT to the store, which is the file itself rather than a form. */
+  requestBlob: Blob | null = null
+
+  requestMethod = ''
+
   private readonly listeners = new MockUploadEventTarget()
 
   constructor() {
     MockUploadXMLHttpRequest.instances.push(this)
   }
 
-  open(_method: string, url: string): void {
+  open(method: string, url: string): void {
+    this.requestMethod = method
     this.requestUrl = url
+  }
+
+  getResponseHeader(name: string): string | null {
+    return MockUploadXMLHttpRequest.responseHeaders[name] ?? null
   }
 
   setRequestHeader(name: string, value: string): void {
@@ -134,9 +148,10 @@ export class MockUploadXMLHttpRequest {
     this.listeners.addEventListener(type, listener)
   }
 
-  send(body?: FormData): void {
-    this.requestBody = body ?? null
-    if (MockUploadXMLHttpRequest.responseTextFor && body) {
+  send(body?: FormData | Blob): void {
+    this.requestBody = body instanceof FormData ? body : null
+    this.requestBlob = body instanceof Blob ? body : null
+    if (MockUploadXMLHttpRequest.responseTextFor && body instanceof FormData) {
       this.responseText = MockUploadXMLHttpRequest.responseTextFor(body)
     }
     if (MockUploadXMLHttpRequest.autoComplete) {

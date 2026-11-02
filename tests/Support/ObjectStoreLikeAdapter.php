@@ -24,6 +24,9 @@ final class ObjectStoreLikeAdapter implements FlysystemAdapter
     /** @var (callable(string): void)|null runs after each object is written */
     public $afterWrite = null;
 
+    /** @var (callable(string): void)|null runs once, just before the next object is read */
+    public $beforeNextRead = null;
+
     public function __construct(private readonly LocalFilesystemAdapter $files) {}
 
     /** @param callable(RuntimeException): FilesystemException $failure */
@@ -69,6 +72,12 @@ final class ObjectStoreLikeAdapter implements FlysystemAdapter
 
     public function readStream(string $path)
     {
+        if ($this->beforeNextRead !== null) {
+            $hook = $this->beforeNextRead;
+            $this->beforeNextRead = null;
+            $hook($path);
+        }
+
         return NetworkLikeStream::wrap($this->files->readStream($path));
     }
 

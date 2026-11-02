@@ -47,6 +47,7 @@ final class PhrStorageVerifier
             ['table' => 'phr_document_uploads', 'disk' => 'storage_disk', 'key' => 'staging_path', 'size' => null, 'hash' => null, 'in_flight' => true],
             // A prefix, not an object: only a pending upload means anything here.
             ['table' => 'phr_dicom_uploads', 'disk' => null, 'fixed_disk' => 'phr_dicom', 'key' => 'r2_prefix', 'size' => null, 'hash' => null, 'status' => 'status', 'in_flight' => ['pending'], 'not_an_object' => true],
+            ['table' => 'phr_dicom_upload_reservations', 'disk' => null, 'fixed_disk' => 'phr_dicom', 'key' => 'staging_key', 'size' => null, 'hash' => null, 'in_flight' => true],
             ['table' => 'phr_patient_deletion_artifacts', 'disk' => 'storage_disk', 'key' => 'storage_key', 'size' => null, 'hash' => null, 'in_flight' => true],
         ];
     }
