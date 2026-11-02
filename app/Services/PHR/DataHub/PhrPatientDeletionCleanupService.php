@@ -5,6 +5,7 @@ namespace App\Services\PHR\DataHub;
 use App\Models\PhrPatientDeletion;
 use App\Models\PhrPatientDeletionArtifact;
 use App\Services\PHR\Documents\UploadUrlSigner;
+use App\Support\Storage\PhrStorageKey;
 use App\Support\Storage\StagedUpload;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Support\Facades\DB;
@@ -33,7 +34,7 @@ final class PhrPatientDeletionCleanupService
             'failure_category' => null,
         ]);
 
-        $aborted = $this->abortOpenUploads((int) $deletion->patient_root_id);
+        $closed = $this->closeDirectUploads((int) $deletion->patient_root_id);
 
         PhrPatientDeletionArtifact::query()
             ->where('deletion_id', $deletionId)
@@ -45,7 +46,7 @@ final class PhrPatientDeletionCleanupService
             });
 
         $remaining = PhrPatientDeletionArtifact::query()->where('deletion_id', $deletionId)->count();
-        if ($remaining > 0 || ! $aborted) {
+        if ($remaining > 0 || ! $closed) {
             $deletion->update([
                 'status' => PhrPatientDeletion::STATUS_FAILED,
                 'failure_category' => 'storage_cleanup_failed',
@@ -62,25 +63,36 @@ final class PhrPatientDeletionCleanupService
     }
 
     /**
-     * Parts of an open multipart upload hold this patient's bytes, and the ledger can't see
-     * them, because they are not objects. Aborting by the patient's prefix also stops the
-     * browser: its remaining part URLs now fail. False if any of it should be retried.
+     * What the exact-key ledger can't see, because nothing recorded it: parts of an open
+     * multipart upload, and DICOM bytes a late PUT left in staging. Deletion waited for every
+     * signed URL to expire, so nothing can arrive after this sweep. Aborting also stops a part
+     * URL at once. False if any of it should be retried.
      */
-    private function abortOpenUploads(int $patientId): bool
+    private function closeDirectUploads(int $patientId): bool
     {
         if (! $this->signer->directUploadsEnabled()) {
             return true;
         }
-        $aborted = true;
+        $closed = true;
         foreach (self::OBJECT_STORE_DISKS as $disk) {
             try {
                 $this->signer->abortIncompleteUploads($disk, "patients/{$patientId}/");
             } catch (Throwable) {
-                $aborted = false;
+                $closed = false;
             }
         }
+        try {
+            $staging = PhrStorageKey::dicomIncomingRoot($patientId);
+            $disk = Storage::disk('phr_dicom');
+            $disk->deleteDirectory($staging);
+            if ($disk->allFiles($staging) !== []) {
+                $closed = false;
+            }
+        } catch (Throwable) {
+            $closed = false;
+        }
 
-        return $aborted;
+        return $closed;
     }
 
     public function markQueueFailure(int $deletionId): void

@@ -195,7 +195,19 @@ class DicomUploadProcessor
         app(BlobStorageQuota::class)->assertForPatient($current->patient()->firstOrFail(), $byteSize);
 
         $key = PhrStorageKey::dicomIncoming((int) $current->patient_id, (int) $current->id, Str::uuid()->toString());
-        $signed = $this->signer()->sign(self::DISK, $key, self::DIRECT_CONTENT_TYPE, $byteSize, now()->addMinutes(self::FILE_URL_MINUTES));
+        $expires = now()->addMinutes(self::FILE_URL_MINUTES);
+
+        // Recorded under the patient lock, before the URL exists: patient deletion either sees
+        // this window and waits for it, or has already happened and this finds no patient.
+        $signed = $this->writeGuard()->run((int) $current->patient_id, function () use ($current, $key, $byteSize, $expires): array {
+            $locked = PhrDicomUpload::query()->lockForUpdate()->findOrFail($current->id);
+            if ($locked->status !== PhrDicomUpload::STATUS_PENDING) {
+                throw new HttpException(409, 'Upload session is no longer accepting files.');
+            }
+            $locked->update(['signed_url_expires_at' => $expires]);
+
+            return $this->signer()->sign(self::DISK, $key, self::DIRECT_CONTENT_TYPE, $byteSize, $expires);
+        });
 
         return [
             ...$signed,

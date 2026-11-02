@@ -133,9 +133,15 @@ final class PhrPatientDeletionService
             ->count();
 
         $blockers = [];
+        // A deletion is only complete once no signed write URL can still land this patient's
+        // bytes: the store honours a URL until it expires, whatever the application decided
+        // since. So each upload that issues one holds deletion back while it lives. The
+        // sites are enumerated by SignedWriteUrlsHoldDeletionTest.
         if (PhrDicomUpload::query()
             ->where('patient_id', $patientId)
-            ->where('status', PhrDicomUpload::STATUS_PENDING)
+            ->where(fn ($query) => $query
+                ->where('status', PhrDicomUpload::STATUS_PENDING)
+                ->orWhere('signed_url_expires_at', '>', now()))
             ->exists()) {
             // An upload may have stored bytes before its per-file row commits.
             // Wait for finalization (or scheduled stale-upload recovery) so the
@@ -170,6 +176,10 @@ final class PhrPatientDeletionService
             // committed, which the exact-key ledger below would miss. An expired
             // lease belongs to a dead worker and no longer blocks.
             $blockers[] = 'ehi_intake_in_progress';
+        }
+
+        if (DB::table('phr_ehi_uploads')->where('patient_id', $patientId)->where('part_url_expires_at', '>', now())->exists()) {
+            $blockers[] = 'ehi_upload_in_progress';
         }
 
         if (DB::table('phr_document_uploads')->where('patient_id', $patientId)

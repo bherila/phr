@@ -348,6 +348,8 @@ class DirectUploadsTest extends TestCase
         $other = $this->ehiPatient($this->createUser());
         $otherUpload = app(UploadUrlSigner::class)->createMultipartUpload('phr_documents', "patients/{$other->id}/ehi-uploads/other/package.zip", 'application/zip');
 
+        // Deletion waits for the part URL. See SignedWriteUrlsHoldDeletionTest.
+        $this->travel(16)->minutes();
         $deletions = app(PhrPatientDeletionService::class);
         $plan = $deletions->preview($this->patient);
         $this->assertSame([], $plan->blockers);

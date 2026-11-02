@@ -24,6 +24,7 @@ use Illuminate\Support\Carbon;
  * @property string $transport
  * @property string|null $multipart_upload_id
  * @property int|null $part_size_bytes
+ * @property Carbon|null $part_url_expires_at
  * @property string|null $format
  * @property string|null $failure_reason
  * @property array<string, mixed>|null $result_json
@@ -83,6 +84,7 @@ class PhrEhiUpload extends Model
         'transport',
         'multipart_upload_id',
         'part_size_bytes',
+        'part_url_expires_at',
         'format',
         'failure_reason',
         'result_json',
@@ -100,6 +102,7 @@ class PhrEhiUpload extends Model
             'file_size_bytes' => 'integer',
             'uploaded_bytes' => 'integer',
             'part_size_bytes' => 'integer',
+            'part_url_expires_at' => 'datetime',
             'result_json' => 'array',
             'expires_at' => 'datetime',
             'completed_at' => 'datetime',

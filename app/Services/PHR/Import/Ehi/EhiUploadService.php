@@ -270,7 +270,12 @@ final class EhiUploadService
             if (! $plan->holds($partNumber)) {
                 throw new EhiUploadRefused(EhiUploadRefused::UPLOAD_STATE, 'the upload has no such part');
             }
-            $current->update(['uploaded_bytes' => max($current->uploaded_bytes, $plan->bytesBefore($partNumber))]);
+            $expires = now()->addMinutes(self::PART_URL_MINUTES)->min($current->expires_at);
+            // Under the patient lock, before the URL exists: patient deletion waits for this.
+            $current->update([
+                'uploaded_bytes' => max($current->uploaded_bytes, $plan->bytesBefore($partNumber)),
+                'part_url_expires_at' => $expires,
+            ]);
             $bytes = $plan->bytesOf($partNumber);
 
             return [
@@ -282,7 +287,7 @@ final class EhiUploadService
                     (string) $current->multipart_upload_id,
                     $partNumber,
                     $bytes,
-                    now()->addMinutes(self::PART_URL_MINUTES)->min($current->expires_at),
+                    $expires,
                 ),
             ];
         });
@@ -333,7 +338,8 @@ final class EhiUploadService
                 $this->deleteQuietly($disk, $path);
                 throw new EhiUploadRefused(EhiUploadRefused::UPLOAD_STATE, 'the finished object is not the declared size');
             }
-            $current->update(['multipart_upload_id' => null, 'uploaded_bytes' => $current->file_size_bytes]);
+            // A finished upload takes no more parts, so its URLs can land nothing.
+            $current->update(['multipart_upload_id' => null, 'part_url_expires_at' => null, 'uploaded_bytes' => $current->file_size_bytes]);
         });
     }
 
@@ -586,7 +592,7 @@ final class EhiUploadService
         try {
             if ($upload->multipart_upload_id !== null) {
                 $this->signer->abortMultipartUpload($upload->storage_disk, $upload->storage_path, $upload->multipart_upload_id);
-                $upload->update(['multipart_upload_id' => null]);
+                $upload->update(['multipart_upload_id' => null, 'part_url_expires_at' => null]);
             }
             $disk = Storage::disk($upload->storage_disk);
             if (! StagedUpload::discard($upload->storage_path)

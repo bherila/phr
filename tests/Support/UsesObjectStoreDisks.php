@@ -58,7 +58,7 @@ trait UsesObjectStoreDisks
     /** Turn on the browser's direct transport, as PHR_STORAGE=s3 does. */
     protected function useDirectUploads(): void
     {
-        config(['phr.storage' => 's3']);
+        config(['phr.storage' => 's3', 'filesystems.disks.phr_uploads.driver' => 's3']);
         if (! LiveObjectStore::configured()) {
             $this->app->instance(UploadUrlSigner::class, new FakeObjectStoreUploads);
         }

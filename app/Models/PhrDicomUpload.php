@@ -21,6 +21,7 @@ use Illuminate\Support\Carbon;
  * @property int $total_bytes
  * @property int $stored_bytes
  * @property string $r2_prefix
+ * @property Carbon|null $signed_url_expires_at
  * @property array<string, mixed>|null $manifest_json
  * @property array<int, array<string, mixed>>|null $skipped_files_json
  * @property string|null $error_message
@@ -52,6 +53,7 @@ class PhrDicomUpload extends Model
         'total_bytes',
         'stored_bytes',
         'r2_prefix',
+        'signed_url_expires_at',
         'manifest_json',
         'skipped_files_json',
         'error_message',
@@ -62,6 +64,7 @@ class PhrDicomUpload extends Model
         return [
             'patient_id' => 'integer',
             'uploaded_by_user_id' => 'integer',
+            'signed_url_expires_at' => 'datetime',
             'total_files' => 'integer',
             'stored_files' => 'integer',
             'skipped_files' => 'integer',

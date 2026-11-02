@@ -52,7 +52,13 @@ final class PhrStorageKey
             throw new InvalidArgumentException('A positive upload identifier is required.');
         }
 
-        return sprintf('patients/%d/imaging/dicom/incoming/%d', self::patientId($patientId), $uploadId);
+        return self::dicomIncomingRoot($patientId).'/'.$uploadId;
+    }
+
+    /** All of one patient's DICOM staging: nothing recorded lives under it. */
+    public static function dicomIncomingRoot(int $patientId): string
+    {
+        return sprintf('patients/%d/imaging/dicom/incoming', self::patientId($patientId));
     }
 
     /**

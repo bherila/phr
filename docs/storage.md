@@ -191,6 +191,13 @@ through PHP, but each file is still read back once. A late PUT lands in staging,
 object against the declared size, before intake is queued. Intake then reads the object through
 a local temporary copy.
 
+**Patient deletion waits for signed URLs.** A store honours a URL until it expires, whatever the
+application decided since, so a deletion is only complete once no signed write URL can still land
+that patient's bytes. Each upload records how long its latest URL lives, and deletion is refused
+until then, for at most 15 minutes after the last one. The final cleanup then removes what a late
+PUT left. A PUT already running when its URL expires can still finish; `phr:dicom:gc` removes
+anything like that within the hour.
+
 **Incomplete uploads** hold bytes that no listing of objects shows. `phr:ehi-uploads:purge` and
 `phr:dicom:gc` abort them, and patient deletion aborts everything under the patient's prefix, so
 a lifecycle rule is optional.
