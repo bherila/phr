@@ -69,7 +69,7 @@ final class EhiEncounterCategory
 
     private const array NOT_YET_STATUSES = ['scheduled'];
 
-    /** @return self::* */
+    /** One of the category constants above. */
     public static function of(?string $type, ?string $appointmentStatus, ?string $calculatedStatus, bool $hasAdmissionTime): string
     {
         $type = self::fold($type);
