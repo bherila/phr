@@ -71,8 +71,11 @@ class PhrCcdaResultEntriesTest extends TestCase
 
         $this->assertSame($first, $second);
         $this->assertCount(2, array_unique($first));
-        // Not the database key, in the clear.
-        $this->assertStringNotContainsString('42', implode('', $first));
+        // A name-based UUID, not the database key in the clear. Searching the text for the key
+        // would fail by chance on any deployment whose UUIDs happen to contain those digits.
+        foreach ($first as $id) {
+            $this->assertMatchesRegularExpression('/\A[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/', $id);
+        }
     }
 
     public function test_ids_differ_between_deployments_for_the_same_patient_and_lab_numbers(): void
