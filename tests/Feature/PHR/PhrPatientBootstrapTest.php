@@ -13,6 +13,14 @@ use Tests\TestCase;
 
 final class PhrPatientBootstrapTest extends TestCase
 {
+    public function test_a_json_profile_column_is_cast_to_text_before_postgres_measures_it(): void
+    {
+        $this->assertSame(
+            "OCTET_LENGTH(COALESCE(CAST(real_names AS TEXT), ''))",
+            PhrPatientListService::byteLengthExpression('pgsql', 'real_names'),
+        );
+    }
+
     public function test_every_phr_shell_bootstraps_the_same_full_authorized_payload_as_the_api(): void
     {
         $owner = $this->createUser();
