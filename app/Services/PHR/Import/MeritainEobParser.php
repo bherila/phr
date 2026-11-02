@@ -13,7 +13,7 @@ use Illuminate\Support\Carbon;
  */
 class MeritainEobParser
 {
-    public const string PARSER_VERSION = 'meritain-layout-v1';
+    public const string PARSER_VERSION = 'meritain-layout-v2';
 
     /**
      * @return array<string, mixed>
@@ -438,10 +438,22 @@ class MeritainEobParser
         foreach ($fieldOrder as $index => $field) {
             $start = $columns[$field];
             $end = $index + 1 < count($fieldOrder) ? $columns[$fieldOrder[$index + 1]] : strlen($line) + 1;
-            $values[$field] = $this->moneyBetween($line, $start, $end);
+            // Charges are the first money on a line, and some reversals print them well left of
+            // the header. Nothing else before the next column is money, so all of it is theirs.
+            $values[$field] = $this->moneyBetween($line, $start, $end, $index === 0 ? 0 : null);
         }
 
         return $values;
+    }
+
+    /**
+     * The charge on a stored line of the older layout, read again from its printed text.
+     *
+     * @param  array<string, int>  $columns
+     */
+    public function chargeFromLegacyLine(string $line, array $columns): ?string
+    {
+        return $this->financialColumns($line, $columns)['total_charges'] ?? null;
     }
 
     /**
@@ -469,13 +481,13 @@ class MeritainEobParser
         ], $matches[0]);
     }
 
-    private function moneyBetween(string $line, int $start, int $end): ?string
+    private function moneyBetween(string $line, int $start, int $end, ?int $earliest = null): ?string
     {
         $candidates = [];
         preg_match_all('/-?\$?[\d,]+\.\d{2}/', $line, $matches, PREG_OFFSET_CAPTURE);
         foreach ($matches[0] as $match) {
             $position = (int) $match[1];
-            if ($position >= $start - 3 && $position < $end + 3) {
+            if ($position >= ($earliest ?? $start - 3) && $position < $end + 3) {
                 $candidates[] = [
                     'value' => str_replace(['$', ','], '', (string) $match[0]),
                     'distance' => abs($position - $start),
