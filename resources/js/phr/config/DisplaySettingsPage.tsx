@@ -44,7 +44,7 @@ export default function DisplaySettingsPage(): ReactElement {
           <input type="checkbox" className="mt-0.5 size-4 shrink-0 accent-primary" checked={preferences.separate_columns} onChange={(event) => save({ separate_columns: event.target.checked })} />
           <span className="flex flex-col gap-0.5">
             Never merge columns
-            <span className="text-xs text-muted-foreground">On a wide list, give a fill&apos;s strength, form, route, prescriber and pharmacy their own columns instead of sharing cells to save space. The list may scroll sideways.</span>
+            <span className="text-xs text-muted-foreground">On a wide list, give a fill&apos;s route, strength, form, prescriber and pharmacy their own columns instead of sharing cells to save space. The list may scroll sideways.</span>
           </span>
         </label>
       </section>

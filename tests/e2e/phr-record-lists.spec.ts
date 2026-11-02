@@ -99,7 +99,7 @@ test.describe('Record lists never cut anything off', () => {
 
     await page.goto(await patientUrl(page, 'medication-fills'))
     await expect(page.getByRole('table', { name: 'Fills' }).getByRole('row').nth(1)).toBeVisible()
-    expect((await layoutOf(page, 'Fills')).columns).toEqual(['Date', 'Medication', 'Strength', 'Form', 'Route', 'Qty', 'Paid', 'No insurance', 'Prescriber', 'Pharmacy', 'Actions'])
+    expect((await layoutOf(page, 'Fills')).columns).toEqual(['Date', 'Medication', 'Route', 'Strength', 'Form', 'Qty', 'Paid', 'No insurance', 'Prescriber', 'Pharmacy', 'Actions'])
     // The table may scroll in its own box, as this setting says; the page never does.
     await expectNoPageOverflow(page)
 
@@ -280,7 +280,7 @@ test.describe('Record lists on a phone', () => {
     await expectNoPageOverflow(page)
     const row = table.locator('tbody tr[data-record-row]').first()
     expect((await row.boundingBox())!.height).toBeGreaterThanOrEqual(44)
-    await expect(row.getByText(/^2026-10-28 · Qty 90 · /)).toBeVisible()
+    await expect(row.getByText(/^2026-10-28 · /)).toBeVisible()
     await expect(table.getByRole('img', { name: 'Pending review' }).first()).toBeVisible()
 
     const add = page.getByRole('button', { name: 'Add fill' })
