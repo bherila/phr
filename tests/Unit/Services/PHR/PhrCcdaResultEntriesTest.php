@@ -10,6 +10,7 @@ use DOMElement;
 use DOMNode;
 use DOMXPath;
 use Illuminate\Support\Carbon;
+use Ramsey\Uuid\Uuid;
 use Tests\TestCase;
 
 /**
@@ -72,7 +73,9 @@ class PhrCcdaResultEntriesTest extends TestCase
         $this->assertSame($first, $second);
         $this->assertCount(2, array_unique($first));
         // Not the database key, in the clear.
-        $this->assertStringNotContainsString('42', implode('', $first));
+        foreach ($first as $id) {
+            $this->assertTrue(Uuid::isValid($id), $id);
+        }
     }
 
     public function test_ids_differ_between_deployments_for_the_same_patient_and_lab_numbers(): void
