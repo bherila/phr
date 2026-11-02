@@ -7,6 +7,7 @@ use App\Models\PhrDicomUpload;
 use App\Services\PHR\DICOM\DicomUploadProcessor;
 use App\Services\PHR\Documents\UploadUrlSigner;
 use App\Support\Storage\BlobReferences;
+use App\Support\Storage\PhrStorageKey;
 use App\Support\Storage\PhrStorageMap;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
@@ -138,12 +139,13 @@ class PhrDicomGarbageCollect extends Command
         }
 
         // A direct upload's bytes reach the store before anything is recorded, so while the
-        // upload is pending its prefix says they are wanted. The stale-upload pass above
-        // decides when that stops.
+        // upload is pending they are wanted, at its staging prefix and its own. The stale-upload
+        // pass above decides when that stops.
         $pendingPrefixes = [];
         if ($this->signer->directUploadsEnabled()) {
-            foreach (PhrDicomUpload::query()->where('status', PhrDicomUpload::STATUS_PENDING)->get(['r2_prefix']) as $pending) {
+            foreach (PhrDicomUpload::query()->where('status', PhrDicomUpload::STATUS_PENDING)->get(['id', 'patient_id', 'r2_prefix']) as $pending) {
                 $pendingPrefixes[] = rtrim((string) $pending->r2_prefix, '/').'/';
+                $pendingPrefixes[] = PhrStorageKey::dicomIncomingPrefix((int) $pending->patient_id, (int) $pending->id).'/';
             }
         }
 

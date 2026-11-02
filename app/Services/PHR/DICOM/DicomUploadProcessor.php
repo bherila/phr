@@ -95,9 +95,6 @@ class DicomUploadProcessor
     /** What S3 and R2 accept in one PUT, and copy in one CopyObject. */
     private const int MAX_SINGLE_PUT_BYTES = 5 * 1024 * 1024 * 1024;
 
-    /** Under an upload's prefix: bytes the browser sent, before they are recorded. */
-    private const string INCOMING_DIRECTORY = '.incoming';
-
     public function __construct(
         private readonly DicomMetadataParser $metadataParser,
         private readonly ?PhrPatientArtifactWriteGuard $artifactWriteGuard = null,
@@ -175,8 +172,9 @@ class DicomUploadProcessor
      * Sign a PUT for one file of a direct upload, with its exact length in the signature, or
      * say why it won't be stored. A file skipped here is recorded as if it had been sent.
      *
-     * The bytes go to a staging key, never the file's durable key: a signed URL stays usable
-     * until it expires, so one pointing at a durable key could replace a stored image.
+     * The bytes go to a staging key outside the upload's prefix, so never a durable key: a
+     * signed URL stays usable until it expires, so one pointing at a durable key could
+     * replace a stored image.
      *
      * @return array{skipped: array{stored: bool, skipped_reason: string|null, relative_path: string, study_id: int|null}}|array{token: string, url: string, headers: array<string, string>}
      */
@@ -196,7 +194,7 @@ class DicomUploadProcessor
         }
         app(BlobStorageQuota::class)->assertForPatient($current->patient()->firstOrFail(), $byteSize);
 
-        $key = PhrStorageKey::dicomObject($current->r2_prefix, self::INCOMING_DIRECTORY.'/'.Str::uuid()->toString());
+        $key = PhrStorageKey::dicomIncoming((int) $current->patient_id, (int) $current->id, Str::uuid()->toString());
         $signed = $this->signer()->sign(self::DISK, $key, self::DIRECT_CONTENT_TYPE, $byteSize, now()->addMinutes(self::FILE_URL_MINUTES));
 
         return [
@@ -264,7 +262,7 @@ class DicomUploadProcessor
         try {
             $this->disk()->delete($key);
         } catch (Throwable $cleanupError) {
-            // Under the upload's prefix with no row: phr:dicom:gc reclaims it after finalize.
+            // With no row: phr:dicom:gc reclaims it once the upload is no longer pending.
             SafeLog::warning('phr.dicom.cleanup_incoming_failed', ['upload_id' => $upload->id, 'exception' => $cleanupError::class]);
         }
 
@@ -456,6 +454,9 @@ class DicomUploadProcessor
 
         try {
             $disk->deleteDirectory($upload->r2_prefix);
+            if ($this->signer()->directUploadsEnabled()) {
+                $disk->deleteDirectory(PhrStorageKey::dicomIncomingPrefix((int) $upload->patient_id, (int) $upload->id));
+            }
         } catch (Throwable $cleanupError) {
             // Best-effort storage cleanup; the upload row still transitions to
             // STATUS_FAILED below regardless. `r2_prefix` embeds the owning

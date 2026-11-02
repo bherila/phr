@@ -179,11 +179,12 @@ A part's length comes from the file's declared size, and each part but the last 
 least 5 MiB, in at most 10,000 parts. The part size grows past the usual 8 MiB only for a file
 too large for that to fit in 10,000 parts.
 
-**DICOM.** A file's bytes go to `.incoming/` under its upload's prefix, not to its durable key,
-because a signed URL stays usable until it expires. To record the file, the application checks
+**DICOM.** A file's bytes go to a staging key under `imaging/dicom/incoming/`, beside the upload's
+own prefix. No relative path can name that, and a signed URL stays usable until it expires, so it
+must never be able to reach a durable key. To record the file, the application checks
 the object's size, reads it to take its metadata and SHA-256, and copies it to the same key a
 POST would have used, only if it is still the object it read. So bytes no longer come *up*
-through PHP, but each file is still read back once. A late PUT lands in `.incoming/`, where
+through PHP, but each file is still read back once. A late PUT lands in staging, where
 `phr:dicom:gc` removes it.
 
 **EHI and MyChart.** Completing checks every part against the store's own list, and the finished

@@ -36,6 +36,26 @@ final class PhrStorageKey
     }
 
     /**
+     * Where a browser sends one DICOM file, before it is recorded. Beside the upload's own
+     * prefix rather than under it, so no relative path can name it. dicomObject() appends only
+     * under the prefix and refuses `..`. A signed URL stays usable until it expires, so a
+     * durable key that could equal this one could be overwritten by that URL.
+     */
+    public static function dicomIncoming(int $patientId, int $uploadId, string $fileUuid): string
+    {
+        return self::dicomIncomingPrefix($patientId, $uploadId).'/'.self::uuid($fileUuid);
+    }
+
+    public static function dicomIncomingPrefix(int $patientId, int $uploadId): string
+    {
+        if ($uploadId < 1) {
+            throw new InvalidArgumentException('A positive upload identifier is required.');
+        }
+
+        return sprintf('patients/%d/imaging/dicom/incoming/%d', self::patientId($patientId), $uploadId);
+    }
+
+    /**
      * Append an already-sanitized DICOM path to either a canonical or legacy
      * upload prefix. Accepting both prefix shapes lets an upload opened before a
      * deployment finish safely after new writes switch to canonical keys.

@@ -15,16 +15,22 @@ use App\Services\PHR\DataHub\PhrPatientDeletionCleanupService;
 use App\Services\PHR\DataHub\PhrPatientDeletionService;
 use App\Services\PHR\Documents\UploadUrlSigner;
 use App\Services\PHR\Import\Ehi\EhiUploadService;
+use App\Support\AgentApi\AgentApiScopes;
+use App\Support\Storage\PhrStorageKey;
 use App\Support\Storage\PhrStorageVerifier;
 use App\Support\Storage\StagedUpload;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
+use Laravel\Passport\Client;
+use Laravel\Passport\Passport;
 use Symfony\Component\HttpFoundation\Response;
+use Tests\Concerns\ConfiguresPassportKeys;
 use Tests\Support\EhiClinicalPackage;
 use Tests\Support\EhiIntakeFixtures;
 use Tests\Support\FakeObjectStoreUploads;
@@ -39,6 +45,7 @@ use ZipArchive;
  */
 class DirectUploadsTest extends TestCase
 {
+    use ConfiguresPassportKeys;
     use EhiIntakeFixtures;
     use RefreshDatabase;
     use UsesObjectStoreDisks;
@@ -435,7 +442,7 @@ class DirectUploadsTest extends TestCase
         $this->assertSame($upload->r2_prefix.'/CT/ST1/IM0001', $file->r2_key, 'the key a POSTed file gets');
         $this->assertSame(hash('sha256', $bytes), $file->sha256);
         $this->assertSame(strlen($bytes), (int) $file->file_size_bytes);
-        $this->assertSame([$file->r2_key], Storage::disk('phr_dicom')->allFiles($upload->r2_prefix), 'and nothing else is left under the upload');
+        $this->assertSame([$file->r2_key], Storage::disk('phr_dicom')->allFiles("patients/{$this->patient->id}/imaging/dicom"), 'and nothing else is left for the patient');
         $instance = DB::table('phr_dicom_instances')->where('upload_id', $uploadId)->value('id');
         $this->assertSame($bytes, $this->actingAs($this->owner)->get("{$this->dicomBase()}/instances/{$instance}/file")->assertOk()->streamedContent());
         $this->assertSame(0, app(PhrStorageVerifier::class)->verify(['phr_dicom'])['problem_count']);
@@ -468,8 +475,124 @@ class DirectUploadsTest extends TestCase
         $this->actingAs($this->owner)->postJson("{$this->dicomBase()}/uploads/{$uploadId}/finalize")->assertOk();
         $this->artisan('phr:dicom:gc')->assertSuccessful();
 
-        $upload = PhrDicomUpload::query()->findOrFail($uploadId);
-        $this->assertSame([$file->r2_key], Storage::disk('phr_dicom')->allFiles($upload->r2_prefix), 'and the collector reaps what it left');
+        $this->assertSame([$file->r2_key], Storage::disk('phr_dicom')->allFiles("patients/{$this->patient->id}/imaging/dicom"), 'and the collector reaps what it left');
+    }
+
+    /** Every way a client might write a path at another file's staging key. */
+    private function pathsAimedAtStaging(string $stagingKey, string $prefix): array
+    {
+        $relative = str_starts_with($stagingKey, $prefix.'/') ? substr($stagingKey, strlen($prefix) + 1) : '../../incoming/'.basename(dirname($stagingKey)).'/'.basename($stagingKey);
+        $name = basename($stagingKey);
+
+        return [
+            'the staging path as given' => $relative,
+            'the staging directory, by the name it had' => '.incoming/'.$name,
+            'another case' => '.INCOMING/'.strtoupper($name),
+            'dot segments' => '../../incoming/'.basename(dirname($stagingKey)).'/'.$name,
+            'dot segments inside' => 'x/../.incoming/./'.$name,
+            'backslashes' => '..\\..\\incoming\\'.basename(dirname($stagingKey)).'\\'.$name,
+            'percent-encoded dots and slashes' => '%2e%2e%2f%2e%2e%2fincoming%2f'.basename(dirname($stagingKey)).'%2f'.$name,
+            'double-encoded' => '%252e%252e/%252e%252e/incoming/'.$name,
+            'the whole key' => $stagingKey,
+            'the whole key, rooted' => '/'.$stagingKey,
+            'a trailing dot' => '.incoming./'.$name,
+            'a null byte' => ".inco\0ming/".$name,
+        ];
+    }
+
+    private function assertLateStagingPutCannotReach(string $key, string $bytes, array $authorization): void
+    {
+        $upload = PhrDicomUpload::query()->whereHas('files', static fn ($query) => $query->where('r2_key', $key))->firstOrFail();
+        $this->assertStringStartsWith($upload->r2_prefix.'/', $key);
+        $this->assertSame(200, $this->putToStore($authorization, strrev($bytes))['status'], 'the signed URL is still usable');
+        $this->assertSame($bytes, Storage::disk('phr_dicom')->get($key), "A signed PUT reached a recorded image at {$key}.");
+    }
+
+    public function test_no_path_a_browser_gives_a_direct_file_reaches_a_staging_key(): void
+    {
+        [$uploadId] = $this->openDicom();
+        $prefix = (string) PhrDicomUpload::query()->findOrFail($uploadId)->r2_prefix;
+        $aimed = $this->authorizeDicom($uploadId, 'CT/IM0000', 100)->assertOk()->json('authorization');
+        $stagingKey = (string) json_decode(Crypt::decryptString($aimed['token']), true)['key'];
+        $this->assertStringStartsNotWith($prefix.'/', $stagingKey, 'staging is outside everything a relative path can name');
+
+        $sop = 10;
+        foreach ($this->pathsAimedAtStaging($stagingKey, $prefix) as $case => $path) {
+            $sop++;
+            $bytes = $this->dicomBytes((string) $sop);
+            $authorization = $this->authorizeDicom($uploadId, $path, strlen($bytes))->assertOk()->json('authorization');
+            $this->assertSame(200, $this->putToStore($authorization, $bytes)['status'], $case);
+            $this->confirmDicom($uploadId, $authorization['token'])->assertOk()->assertJsonPath('result.stored', true);
+            $key = (string) PhrDicomFile::query()->where('upload_id', $uploadId)->latest('id')->value('r2_key');
+
+            $this->assertNotSame($stagingKey, $key, $case);
+            $this->assertLateStagingPutCannotReach($key, $bytes, $authorization);
+        }
+    }
+
+    public function test_the_attack_from_the_review_cannot_replace_a_recorded_image(): void
+    {
+        [$uploadId] = $this->openDicom();
+        $padded = str_pad('', strlen($this->dicomBytes('1')), 'x');
+        $victim = $this->authorizeDicom($uploadId, 'CT/IM0000', strlen($padded))->assertOk()->json('authorization');
+        $stagingKey = (string) json_decode(Crypt::decryptString($victim['token']), true)['key'];
+
+        $bytes = $this->dicomBytes('1');
+        $recorded = $this->authorizeDicom($uploadId, '.incoming/'.basename($stagingKey), strlen($bytes))->assertOk()->json('authorization');
+        $this->putToStore($recorded, $bytes);
+        $this->confirmDicom($uploadId, $recorded['token'])->assertOk()->assertJsonPath('result.stored', true);
+        $key = (string) PhrDicomFile::query()->where('upload_id', $uploadId)->value('r2_key');
+
+        $this->assertSame(200, $this->putToStore($victim, $padded)['status']);
+
+        $this->assertSame($bytes, Storage::disk('phr_dicom')->get($key), 'The first URL overwrote an image recorded with another hash.');
+        $this->assertNotSame($stagingKey, $key);
+    }
+
+    public function test_a_posted_file_cannot_reach_a_staging_key_either(): void
+    {
+        [$uploadId] = $this->openDicom();
+        $prefix = (string) PhrDicomUpload::query()->findOrFail($uploadId)->r2_prefix;
+        $aimed = $this->authorizeDicom($uploadId, 'CT/IM0000', 100)->assertOk()->json('authorization');
+        $stagingKey = (string) json_decode(Crypt::decryptString($aimed['token']), true)['key'];
+
+        $sop = 40;
+        foreach ($this->pathsAimedAtStaging($stagingKey, $prefix) as $case => $path) {
+            $sop++;
+            $bytes = $this->dicomBytes((string) $sop);
+            $this->actingAs($this->owner)->withHeader('Accept', 'application/json')->post("{$this->dicomBase()}/uploads/{$uploadId}/files", [
+                'file' => UploadedFile::fake()->createWithContent('IM0001', $bytes),
+                'relative_path' => $path,
+            ])->assertOk()->assertJsonPath('result.stored', true);
+            $key = (string) PhrDicomFile::query()->where('upload_id', $uploadId)->latest('id')->value('r2_key');
+
+            $this->assertNotSame($stagingKey, $key, $case);
+            $this->assertStringStartsWith($prefix.'/', $key, $case);
+        }
+    }
+
+    public function test_an_agents_file_cannot_reach_a_staging_key_either(): void
+    {
+        $this->configurePassportKeys();
+        [$uploadId] = $this->openDicom();
+        $prefix = (string) PhrDicomUpload::query()->findOrFail($uploadId)->r2_prefix;
+        $aimed = $this->authorizeDicom($uploadId, 'CT/IM0000', 100)->assertOk()->json('authorization');
+        $stagingKey = (string) json_decode(Crypt::decryptString($aimed['token']), true)['key'];
+        $client = Client::query()->create(['name' => 'Synthetic Agent', 'secret' => null, 'provider' => 'users', 'redirect_uris' => ['https://agent.example.test/callback'], 'grant_types' => ['authorization_code', 'refresh_token'], 'revoked' => false]);
+        Passport::actingAs($this->owner, [AgentApiScopes::CLINICAL_WRITE, AgentApiScopes::CLINICAL_READ, AgentApiScopes::DOCUMENTS_WRITE, AgentApiScopes::DOCUMENTS_READ], 'api', $client);
+
+        $sop = 70;
+        foreach ($this->pathsAimedAtStaging($stagingKey, $prefix) as $case => $path) {
+            $sop++;
+            $this->withHeader('Accept', 'application/json')->post(route('agent-api.v1.dicom-uploads.files.store', ['patient' => $this->patient->id, 'upload' => $uploadId]), [
+                'file' => UploadedFile::fake()->createWithContent('IM0001', $this->dicomBytes((string) $sop)),
+                'relative_path' => $path,
+            ])->assertOk()->assertJsonPath('result.stored', true);
+            $key = (string) PhrDicomFile::query()->where('upload_id', $uploadId)->latest('id')->value('r2_key');
+
+            $this->assertNotSame($stagingKey, $key, $case);
+            $this->assertStringStartsWith($prefix.'/', $key, $case);
+        }
     }
 
     public function test_a_copy_only_happens_if_the_object_is_still_the_one_that_was_read(): void
@@ -534,8 +657,7 @@ class DirectUploadsTest extends TestCase
         $this->confirmDicom($uploadId, $authorization['token'])->assertOk()
             ->assertJsonPath('result.stored', false)->assertJsonPath('result.skipped_reason', 'not_dicom');
 
-        $upload = PhrDicomUpload::query()->findOrFail($uploadId);
-        $this->assertSame([], Storage::disk('phr_dicom')->allFiles($upload->r2_prefix));
+        $this->assertSame([], Storage::disk('phr_dicom')->allFiles("patients/{$this->patient->id}/imaging/dicom"));
     }
 
     public function test_a_duplicate_image_is_skipped_and_its_bytes_removed(): void
@@ -555,6 +677,7 @@ class DirectUploadsTest extends TestCase
 
         $upload = PhrDicomUpload::query()->findOrFail($second);
         $this->assertSame([], Storage::disk('phr_dicom')->allFiles($upload->r2_prefix));
+        $this->assertSame([], Storage::disk('phr_dicom')->allFiles(PhrStorageKey::dicomIncomingPrefix((int) $this->patient->id, $second)));
     }
 
     public function test_two_files_at_one_path_keep_their_own_keys(): void
@@ -620,12 +743,11 @@ class DirectUploadsTest extends TestCase
         [$uploadId] = $this->openDicom();
         $authorization = $this->authorizeDicom($uploadId, 'CT/IM0001', strlen($bytes))->assertOk()->json('authorization');
         $this->putToStore($authorization, $bytes);
-        $upload = PhrDicomUpload::query()->findOrFail($uploadId);
-        $this->assertCount(1, Storage::disk('phr_dicom')->allFiles($upload->r2_prefix));
+        $this->assertCount(1, Storage::disk('phr_dicom')->allFiles("patients/{$this->patient->id}/imaging/dicom"));
 
         $this->actingAs($this->owner)->postJson("{$this->dicomBase()}/uploads/{$uploadId}/cancel")->assertOk();
 
-        $this->assertSame([], Storage::disk('phr_dicom')->allFiles($upload->r2_prefix));
+        $this->assertSame([], Storage::disk('phr_dicom')->allFiles("patients/{$this->patient->id}/imaging/dicom"));
         $this->authorizeDicom($uploadId, 'CT/IM0002', 10)->assertStatus(409);
     }
 
