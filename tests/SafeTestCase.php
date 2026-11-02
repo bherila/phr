@@ -24,6 +24,15 @@ abstract class SafeTestCase extends BaseTestCase
 
     protected function setUpTraits(): array
     {
+        $traceDirectory = getenv('PHR_TEST_TRACE_DIR');
+        if (is_string($traceDirectory) && $traceDirectory !== '') {
+            file_put_contents(
+                $traceDirectory.'/phr-test-worker-'.((int) getenv('TEST_TOKEN')).'.log',
+                static::class.'::'.$this->name()."\n",
+                FILE_APPEND,
+            );
+        }
+
         $this->assertDatabaseIsSafeSqlite();
 
         $traits = parent::setUpTraits();

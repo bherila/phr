@@ -297,17 +297,29 @@ jobs:
           cp .env.example .env
           php artisan key:generate --no-interaction
 
+      # One run stalled at 99% with nothing in the PostgreSQL log, and the cause is unknown.
+      # A lock wait now fails its test, and a stall ends early and names what each worker
+      # last started. Tests that don't use the database aren't traced.
       - name: Run PHPUnit on PostgreSQL
+        timeout-minutes: 10
         env:
           PHR_TEST_DATABASE: pgsql
           PHR_TEST_PGSQL_HOST: 127.0.0.1
           PHR_TEST_PGSQL_PORT: '5432'
           PHR_TEST_PGSQL_USERNAME: postgres
           PHR_TEST_PGSQL_PASSWORD: synthetic-ci-password
+          PGOPTIONS: -c lock_timeout=60s
+          PHR_TEST_TRACE_DIR: ${{ runner.temp }}
         run: >-
           php -d memory_limit=1G vendor/bin/paratest
           --processes="$(nproc)"
           --fail-on-empty-test-suite
+
+      - name: Show what each worker last started
+        if: ${{ failure() }}
+        env:
+          TRACE_DIR: ${{ runner.temp }}
+        run: tail -n 1 "$TRACE_DIR"/phr-test-worker-*.log
 
   e2e:
     name: Playwright E2E (${{ matrix.shard }}/2)
