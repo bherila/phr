@@ -143,31 +143,6 @@ class UploadUrlSigner
         return ['bytes' => (int) $result['ContentLength'], 'etag' => self::normalizeEtag((string) $result['ETag'])];
     }
 
-    /**
-     * Copy within the disk, only if the source still has this ETag. A signed PUT stays usable
-     * until it expires, so this is what stops late bytes from reaching a durable key.
-     *
-     * @return bool false when the source changed
-     */
-    public function copyIfUnchanged(string $disk, string $from, string $to, string $etag): bool
-    {
-        try {
-            $this->client($disk)->copyObject([
-                'Bucket' => $this->bucket($disk),
-                'Key' => $this->objectKey($disk, $to),
-                'CopySource' => rawurlencode($this->bucket($disk)).'/'.implode('/', array_map('rawurlencode', explode('/', $this->objectKey($disk, $from)))),
-                'CopySourceIfMatch' => '"'.self::normalizeEtag($etag).'"',
-            ]);
-        } catch (AwsException $failure) {
-            if ($failure->getStatusCode() === 412) {
-                return false;
-            }
-            throw $failure;
-        }
-
-        return true;
-    }
-
     public static function normalizeEtag(string $etag): string
     {
         return trim($etag, " \t\"");

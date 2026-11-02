@@ -97,16 +97,6 @@ final class FakeObjectStoreUploads extends UploadUrlSigner
         return is_string($body) ? ['bytes' => strlen($body), 'etag' => md5($body)] : null;
     }
 
-    public function copyIfUnchanged(string $disk, string $from, string $to, string $etag): bool
-    {
-        $body = Storage::disk($disk)->get($from);
-        if (! is_string($body) || md5($body) !== self::normalizeEtag($etag)) {
-            return false;
-        }
-
-        return Storage::disk($disk)->put($to, $body);
-    }
-
     /**
      * What a PUT to a signed URL does.
      *

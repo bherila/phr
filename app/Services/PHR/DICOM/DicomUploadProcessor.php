@@ -21,7 +21,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
-use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
 use Throwable;
@@ -85,6 +84,9 @@ class DicomUploadProcessor
     private const string DIRECT_CONTENT_TYPE = 'application/dicom';
 
     public const DUPLICATE_UPLOAD_MESSAGE = 'Duplicate DICOM study upload was skipped because all image instances already exist for this patient.';
+
+    /** Added to a staging key for its copy that no URL can reach. URLs are signed for bare UUIDs. */
+    private const string SEALED_SUFFIX = '.sealed';
 
     /** Minutes a signed file URL lives. The browser asks for each file as it gets to it. */
     private const int FILE_URL_MINUTES = 15;
@@ -224,10 +226,11 @@ class DicomUploadProcessor
     }
 
     /**
-     * Record a file the browser sent straight to the store. The object must be there at the
-     * signed size. Its bytes are read here, because metadata and the SHA-256 come from them,
-     * and it reaches its durable key by a server-side copy that only succeeds if it is still
-     * the object that was read.
+     * Record a file the browser sent straight to the store. Its signed URL stays usable until it
+     * expires, so a client can change the staging object at any moment, and no check of it can
+     * hold while it is read. So it is first copied to a key no URL has ever been signed for.
+     * Everything comes from that copy from then on: the size check, the metadata, the SHA-256,
+     * and the durable object itself, which is what the record describes whatever arrives later.
      *
      * @return array{stored: bool, skipped_reason: string|null, relative_path: string, study_id: int|null}
      */
@@ -236,49 +239,59 @@ class DicomUploadProcessor
         $claim = $this->fileClaim($upload, $token);
         $key = (string) $claim['key'];
         $bytes = (int) $claim['bytes'];
+        $sealed = $key.self::SEALED_SUFFIX;
+        $disk = $this->disk();
 
-        $object = $this->signer()->head(self::DISK, $key);
-        if ($object === null) {
+        if (! $disk->copy($key, $sealed)) {
             throw new UnprocessableEntityHttpException('The file did not reach storage.');
         }
-        if ($object['bytes'] !== $bytes) {
-            $this->disk()->delete($key);
-            throw new UnprocessableEntityHttpException('The file in storage is not the declared size.');
-        }
 
-        $local = LocalObjectFile::open(self::DISK, $key);
         try {
-            $result = $this->recordFile(
-                $upload,
-                is_string($claim['relative_path'] ?? null) ? $claim['relative_path'] : null,
-                (string) $claim['filename'],
-                $bytes,
-                fn (PhrPatient $patient, PhrDicomUpload $locked, string $unique): array => $this->classifyAndPersist(
-                    $patient,
-                    $locked,
-                    $local->path,
-                    $bytes,
-                    is_string($claim['content_type'] ?? null) && $claim['content_type'] !== '' ? $claim['content_type'] : self::DIRECT_CONTENT_TYPE,
-                    $unique,
-                    function (string $storageKey) use ($key, $object): void {
-                        if (! $this->signer()->copyIfUnchanged(self::DISK, $key, $storageKey, $object['etag'])) {
-                            throw new ConflictHttpException('The file in storage changed while it was being recorded.');
-                        }
-                    },
-                ),
-            );
-        } finally {
-            $local->release();
-        }
+            if ($disk->size($sealed) !== $bytes) {
+                $disk->delete($key);
+                throw new UnprocessableEntityHttpException('The file in storage is not the declared size.');
+            }
 
+            $local = LocalObjectFile::open(self::DISK, $sealed);
+            try {
+                $result = $this->recordFile(
+                    $upload,
+                    is_string($claim['relative_path'] ?? null) ? $claim['relative_path'] : null,
+                    (string) $claim['filename'],
+                    $bytes,
+                    fn (PhrPatient $patient, PhrDicomUpload $locked, string $unique): array => $this->classifyAndPersist(
+                        $patient,
+                        $locked,
+                        $local->path,
+                        $bytes,
+                        is_string($claim['content_type'] ?? null) && $claim['content_type'] !== '' ? $claim['content_type'] : self::DIRECT_CONTENT_TYPE,
+                        $unique,
+                        function (string $storageKey) use ($disk, $sealed): void {
+                            if (! $disk->move($sealed, $storageKey)) {
+                                throw new RuntimeException('A sealed DICOM object could not be moved to its durable key.');
+                            }
+                        },
+                    ),
+                );
+            } finally {
+                $local->release();
+            }
+        } finally {
+            $this->deleteStagingQuietly($sealed, (int) $upload->id);
+        }
+        $this->deleteStagingQuietly($key, (int) $upload->id);
+
+        return $result;
+    }
+
+    private function deleteStagingQuietly(string $key, int $uploadId): void
+    {
         try {
             $this->disk()->delete($key);
         } catch (Throwable $cleanupError) {
             // With no row: phr:dicom:gc reclaims it once the upload is no longer pending.
-            SafeLog::warning('phr.dicom.cleanup_incoming_failed', ['upload_id' => $upload->id, 'exception' => $cleanupError::class]);
+            SafeLog::warning('phr.dicom.cleanup_incoming_failed', ['upload_id' => $uploadId, 'exception' => $cleanupError::class]);
         }
-
-        return $result;
     }
 
     /** @return array<string, mixed> */

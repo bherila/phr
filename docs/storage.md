@@ -181,9 +181,9 @@ too large for that to fit in 10,000 parts.
 
 **DICOM.** A file's bytes go to a staging key under `imaging/dicom/incoming/`, beside the upload's
 own prefix. No relative path can name that, and a signed URL stays usable until it expires, so it
-must never be able to reach a durable key. To record the file, the application checks
-the object's size, reads it to take its metadata and SHA-256, and copies it to the same key a
-POST would have used, only if it is still the object it read. So bytes no longer come *up*
+must never be able to reach a durable key. To record the file, the application copies it to a key no URL has ever been signed for, and
+everything comes from that copy: the size check, the metadata and SHA-256, and the object moved to
+the key a POST would have used. So bytes no longer come *up*
 through PHP, but each file is still read back once. A late PUT lands in staging, where
 `phr:dicom:gc` removes it.
 

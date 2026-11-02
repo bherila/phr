@@ -597,21 +597,28 @@ class DirectUploadsTest extends TestCase
         }
     }
 
-    public function test_a_copy_only_happens_if_the_object_is_still_the_one_that_was_read(): void
+    public function test_a_put_during_the_read_cannot_make_the_record_describe_other_bytes(): void
     {
-        $signer = app(UploadUrlSigner::class);
-        Storage::disk('phr_dicom')->put('patients/1/imaging/dicom/uploads/x/.incoming/a', 'first');
-        $object = $signer->head('phr_dicom', 'patients/1/imaging/dicom/uploads/x/.incoming/a');
-        $this->assertSame(5, $object['bytes'] ?? null);
+        [$uploadId] = $this->openDicom();
+        $original = $this->dicomBytes('1');
+        // The same length, another image: its SOP instance ends in a different digit.
+        $replacement = $this->dicomBytes('2');
+        $this->assertSame(strlen($original), strlen($replacement));
+        $authorization = $this->authorizeDicom($uploadId, 'CT/IM0001', strlen($original))->assertOk()->json('authorization');
+        $this->assertSame(200, $this->putToStore($authorization, $original)['status']);
 
-        Storage::disk('phr_dicom')->put('patients/1/imaging/dicom/uploads/x/.incoming/a', 'FIRST');
-        $this->assertFalse($signer->copyIfUnchanged('phr_dicom', 'patients/1/imaging/dicom/uploads/x/.incoming/a', 'patients/1/imaging/dicom/uploads/x/IM0001', (string) ($object['etag'] ?? '')));
-        $this->assertFalse(Storage::disk('phr_dicom')->exists('patients/1/imaging/dicom/uploads/x/IM0001'));
+        // Replaces what is about to be read, through the URL that is still valid.
+        $this->beforeNextRead('phr_dicom', function () use ($authorization, $replacement): void {
+            $this->assertSame(200, $this->putToStore($authorization, $replacement)['status']);
+        });
+        $this->confirmDicom($uploadId, $authorization['token'])->assertOk()->assertJsonPath('result.stored', true);
 
-        $current = $signer->head('phr_dicom', 'patients/1/imaging/dicom/uploads/x/.incoming/a');
-        $this->assertTrue($signer->copyIfUnchanged('phr_dicom', 'patients/1/imaging/dicom/uploads/x/.incoming/a', 'patients/1/imaging/dicom/uploads/x/IM 0001 é', (string) ($current['etag'] ?? '')));
-        $this->assertSame('FIRST', Storage::disk('phr_dicom')->get('patients/1/imaging/dicom/uploads/x/IM 0001 é'));
-        $this->assertNull($signer->head('phr_dicom', 'patients/1/imaging/dicom/uploads/x/none'));
+        $file = PhrDicomFile::query()->where('upload_id', $uploadId)->sole();
+        $stored = (string) Storage::disk('phr_dicom')->get($file->r2_key);
+        $this->assertSame(hash('sha256', $stored), $file->sha256, 'The recorded hash describes bytes other than the stored image.');
+        $this->assertSame($original, $stored, 'What was there when the file was confirmed is what is kept.');
+        $instance = DB::table('phr_dicom_instances')->where('upload_id', $uploadId)->sole();
+        $this->assertStringEndsWith('.1', (string) $instance->sop_instance_uid, 'The recorded metadata describes the stored image.');
     }
 
     public function test_a_file_that_never_arrived_is_not_recorded_and_can_be_sent_again(): void

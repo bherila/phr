@@ -4,10 +4,14 @@ namespace Tests\Support;
 
 use App\Services\PHR\Documents\UploadUrlSigner;
 use App\Support\Storage\StagedUpload;
+use Aws\S3\S3Client;
+use Illuminate\Filesystem\AwsS3V3Adapter;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use League\Flysystem\FilesystemAdapter as FlysystemAdapter;
+use League\Flysystem\FilesystemOperator;
 
 /**
  * Puts every PHR disk on an object store for one test: the real one when
@@ -79,6 +83,41 @@ trait UsesObjectStoreDisks
         $response = Http::withHeaders($signed['headers'])->withBody($body, $signed['headers']['Content-Type'] ?? '')->put($signed['url']);
 
         return ['status' => $response->status(), 'etag' => $response->header('ETag') ?: null];
+    }
+
+    /** Run something just before the application next reads an object, on either kind of disk. */
+    protected function beforeNextRead(string $disk, callable $hook): void
+    {
+        $filesystem = Storage::disk($disk);
+        if ($filesystem instanceof NoLocalPathDisk) {
+            $filesystem->objectStore()->beforeNextRead = $hook;
+
+            return;
+        }
+        assert($filesystem instanceof AwsS3V3Adapter);
+        Storage::set($disk, new class($filesystem->getDriver(), $filesystem->getAdapter(), $filesystem->getConfig(), $filesystem->getClient(), $hook) extends AwsS3V3Adapter
+        {
+            /** @var callable|null */
+            private $hook;
+
+            /** @param  array<string, mixed>  $config */
+            public function __construct(FilesystemOperator $driver, FlysystemAdapter $adapter, array $config, S3Client $client, callable $hook)
+            {
+                parent::__construct($driver, $adapter, $config, $client);
+                $this->hook = $hook;
+            }
+
+            public function readStream($path)
+            {
+                if ($this->hook !== null) {
+                    $hook = $this->hook;
+                    $this->hook = null;
+                    $hook($path);
+                }
+
+                return parent::readStream($path);
+            }
+        });
     }
 
     /** @return list<string> ids of the uploads open at the store on one disk, under a disk-relative prefix */
