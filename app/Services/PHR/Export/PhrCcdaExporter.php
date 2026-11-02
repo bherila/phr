@@ -88,7 +88,7 @@ class PhrCcdaExporter
         $this->section($xml, 'Results', ['Date', 'Test', 'Value', 'Unit', 'Reference', 'Flag'], array_map(fn ($lab): array => [
             $lab->result_datetime?->toDateString() ?? $lab->collection_datetime?->toDateString(),
             $lab->analyte ?? $lab->test_name,
-            $lab->value ?? $lab->value_numeric,
+            PhrCcdaResultEntries::statedValue($lab) ?? $lab->value_numeric,
             $lab->unit,
             $lab->reference_range_text ?? PhrLabReferenceRangeNotation::fromBounds($lab),
             $lab->abnormal_flag,

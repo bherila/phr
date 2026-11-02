@@ -455,7 +455,7 @@ class EhiLabResultMappingTest extends TestCase
         $update = $this->proposal($second, '8102', '66001', '1');
         self::assertSame(PhrEhiProposal::KIND_UPDATE, $update->kind);
         self::assertSame(['value', 'result_status'], $update->proposed_json['changed']);
-        self::assertSame(['value' => 'No growth', 'result_status' => 'Final'], $update->before_json);
+        self::assertSame(['value' => 'No growth', 'result_status' => 'Final', 'value_comparator' => null], $update->before_json);
         self::assertSame('No growth', $record->refresh()->value, 'nothing changes until a person approves');
         self::assertSame(PhrEhiProposal::KIND_CREATE, $this->proposal($second, '8101', '66000.01', '1')->kind, 'a row nobody accepted is still simply new');
 
@@ -483,6 +483,7 @@ class EhiLabResultMappingTest extends TestCase
 
         $update = $this->proposal($second, '8101', '66000.01', '1');
         self::assertSame(['value'], $update->proposed_json['changed'], 'the comparator did not change');
+        self::assertSame(['value' => '<50', 'value_comparator' => '<'], $update->before_json, 'what a reviewer compares it with');
         app(EhiProposalService::class)->review($update, PhrEhiProposal::DECISION_APPROVE_UPDATE, $owner->id, $update->preview_digest);
 
         $record = PhrLabResult::query()->where('external_id', 'ORDER_RESULTS:8101:66000.01:1')->sole();

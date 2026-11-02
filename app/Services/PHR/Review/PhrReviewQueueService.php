@@ -674,7 +674,7 @@ final readonly class PhrReviewQueueService
         return match ($page) {
             'labs' => [
                 (string) ($a('analyte') ?: $a('test_name') ?: 'Lab result'),
-                $this->join([$this->measure($a('value'), $a('unit')), $a('test_name') !== $a('analyte') ? $a('test_name') : null, $this->date($a('result_datetime') ?? $a('collection_datetime'))]),
+                $this->join([$this->measure($record instanceof PhrLabResult ? $record->displayValue() : $a('value'), $a('unit')), $a('test_name') !== $a('analyte') ? $a('test_name') : null, $this->date($a('result_datetime') ?? $a('collection_datetime'))]),
             ],
             'vitals' => [(string) ($a('vital_name') ?: 'Vital'), $this->join([$this->measure($a('vital_value'), $a('unit')), $this->date($a('observed_at') ?? $a('vital_date'))])],
             'office-visits' => [

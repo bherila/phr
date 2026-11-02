@@ -18,6 +18,7 @@ use App\Services\PHR\DataHub\PhrPatientDeletionService;
 use App\Services\PHR\Export\PhrCcdaExporter;
 use App\Services\PHR\Export\PhrExportDataService;
 use App\Services\PHR\Export\PhrFhirExporter;
+use App\Services\PHR\Export\PhrPdfSummaryRenderer;
 use App\Services\PHR\Import\Ehi\EhiPreviewQueue;
 use App\Services\PHR\Import\Ehi\EhiUploadService;
 use App\Services\PHR\Import\Ehi\Mapping\EhiLabResultMapping;
@@ -31,6 +32,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use Smalot\PdfParser\Parser;
 use Tests\Support\EhiClinicalPackage;
 use Tests\Support\EhiIntakeFixtures;
 use Tests\TestCase;
@@ -179,6 +181,63 @@ class EhiLabResultEndToEndTest extends TestCase
         self::assertSame('6', PhrLabResult::query()->findOrFail($recordId)->valueWithComparator());
     }
 
+    public function test_an_inequality_stated_only_beside_the_value_shows_everywhere_the_value_is_read(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        PhrPatientUserAccess::query()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'access_level' => PhrPatientUserAccess::LEVEL_OWNER, 'granted_by_user_id' => $owner->id, 'granted_at' => now()]);
+        $build = EhiClinicalPackage::withLabs()->changing('ORDER_RESULTS', ['ORDER_PROC_ID' => '8101', 'ORD_DATE_REAL' => '66000.01', 'LINE' => '2'], ['ORD_VALUE' => '95', 'ORD_RAW_VALUE' => '', 'VALUE_NORMALIZED' => "<\x1095"]);
+        $package = $this->previewedFromBrowser($owner, $patient, $build);
+        $proposal = $this->proposal($package, '8101', '66000.01', '2');
+        $base = "/api/phr/patients/{$patient->id}";
+        $recordId = $this->actingAs($owner)->postJson("{$base}/ehi/proposals/{$proposal->id}/review", ['decision' => 'accept', 'preview_digest' => $proposal->preview_digest])->assertOk()->json('record.id');
+        $record = PhrLabResult::query()->findOrFail($recordId);
+        self::assertSame('95', $record->value, 'the stored value stays as the source wrote it');
+        self::assertSame('<', $record->value_comparator);
+        $data = app(PhrExportDataService::class)->load($patient->refresh());
+
+        // The C-CDA narrative, as well as its structured entry.
+        $ccda = app(PhrCcdaExporter::class)->documentXml($data);
+        self::assertStringContainsString('<td>&lt;95</td>', $ccda, 'the Results narrative');
+
+        // The PDF summary, read back as text.
+        $pdf = (new Parser)->parseContent(app(PhrPdfSummaryRenderer::class)->render($data))->getText();
+        self::assertStringContainsString('<95 mg/dL', $pdf);
+
+        // FHIR, which never claims an exact quantity for it.
+        $bundle = json_decode(app(PhrFhirExporter::class)->bundleJson($data), true, flags: JSON_THROW_ON_ERROR);
+        $observation = collect($bundle['entry'])->pluck('resource')->first(fn (array $resource): bool => $resource['resourceType'] === 'Observation' && ($resource['code']['text'] ?? null) === 'SYNTHETIC GLUCOSE');
+        self::assertSame('<95', $observation['valueString']);
+        self::assertNull($observation['valueQuantity'] ?? null);
+
+        // Patient search, and the Review page's line for a record back under review.
+        $hit = collect($this->actingAs($owner)->getJson("{$base}/search?q=SYNTHETIC+GLUCOSE")->assertOk()->json('results'))->firstWhere('id', $recordId);
+        self::assertIsArray($hit);
+        self::assertStringStartsWith('<95', (string) $hit['description']);
+        $record->forceFill(['review_status' => PhrReviewStatus::PENDING])->save();
+        $item = collect($this->actingAs($owner)->getJson("{$base}/review")->assertOk()->json('groups'))->pluck('items')->flatten(1)->firstWhere('id', $recordId);
+        self::assertIsArray($item);
+        self::assertStringStartsWith('<95 mg/dL', (string) $item['detail']);
+
+        // The panel route carries the comparator the Labs page shows it with.
+        $row = collect($this->actingAs($owner)->getJson("{$base}/labs/{$recordId}")->assertOk()->json('panel.rows'))->firstWhere('id', $recordId);
+        self::assertSame('<', $row['value_comparator']);
+    }
+
+    public function test_a_duplicate_is_still_found_when_only_one_side_writes_the_inequality_in_its_value(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        PhrPatientUserAccess::query()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'access_level' => PhrPatientUserAccess::LEVEL_OWNER, 'granted_by_user_id' => $owner->id, 'granted_at' => now()]);
+        $earlier = PhrLabResult::query()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'review_status' => PhrReviewStatus::CONFIRMED, 'import_source' => 'ccda', 'external_id' => 'ccda-lab-'.sha1('synthetic'), 'analyte' => 'SYNTHETIC GLUCOSE', 'value' => '<95', 'result_datetime' => '2024-03-05 10:00:00']);
+        $build = EhiClinicalPackage::withLabs()->changing('ORDER_RESULTS', ['ORDER_PROC_ID' => '8101', 'ORD_DATE_REAL' => '66000.01', 'LINE' => '2'], ['ORD_VALUE' => '95', 'VALUE_NORMALIZED' => "<\x1095"]);
+        $package = $this->previewedFromBrowser($owner, $patient, $build);
+
+        $proposal = $this->proposal($package, '8101', '66000.01', '2');
+        self::assertSame(PhrEhiProposal::KIND_POSSIBLE_DUPLICATE, $proposal->kind);
+        self::assertSame([$earlier->id], $proposal->candidate_ids_json);
+    }
+
     public function test_review_access_is_rechecked_for_a_lab_proposal(): void
     {
         $owner = $this->createUser();
@@ -214,9 +273,9 @@ class EhiLabResultEndToEndTest extends TestCase
         self::assertStringContainsString('record: phr_lab_results '.PhrLabResult::query()->sole()->id, $output);
     }
 
-    private function previewedFromBrowser(User $owner, PhrPatient $patient): PhrEhiPackage
+    private function previewedFromBrowser(User $owner, PhrPatient $patient, ?EhiClinicalPackage $build = null, ?int $sourceId = null): PhrEhiPackage
     {
-        $zip = EhiClinicalPackage::withLabs()->build()->writeZip($this->ehiRoot.'/'.bin2hex(random_bytes(4)).'.zip');
+        $zip = ($build ?? EhiClinicalPackage::withLabs())->build()->writeZip($this->ehiRoot.'/'.bin2hex(random_bytes(4)).'.zip');
         $bytes = (string) file_get_contents($zip);
         $base = "/api/phr/patients/{$patient->id}/ehi";
         $uploadId = $this->actingAs($owner)->postJson("{$base}/uploads", ['file_size_bytes' => strlen($bytes)])->assertCreated()->json('upload.id');
@@ -224,7 +283,7 @@ class EhiLabResultEndToEndTest extends TestCase
         $this->actingAs($owner)->postJson("{$base}/uploads/{$uploadId}/intake")->assertStatus(202);
         (new IntakeEhiUploadJob($uploadId))->handle(app(EhiUploadService::class));
         $packageId = PhrEhiUpload::query()->findOrFail($uploadId)->package_id;
-        $this->actingAs($owner)->postJson("{$base}/packages/{$packageId}/binding", ['new_source_label' => 'Synthetic Clinic'])->assertOk();
+        $this->actingAs($owner)->postJson("{$base}/packages/{$packageId}/binding", $sourceId === null ? ['new_source_label' => 'Synthetic Clinic'] : ['source_id' => $sourceId])->assertOk();
         $runId = $this->actingAs($owner)->postJson("{$base}/packages/{$packageId}/preview")->assertStatus(202)->json('preview_run.id');
         (new PreviewEhiPackageJob($runId))->handle(app(EhiPreviewQueue::class));
 

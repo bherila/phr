@@ -421,7 +421,7 @@ final class EhiLabResultMapping implements EhiMapping
         }
 
         $dates = $this->dates($fields);
-        $matches = $records->candidates($analytes, $dates, $fields['value'], $built['number']);
+        $matches = $records->candidates($analytes, $dates, $fields['value'], $fields['value_comparator'], $built['number']);
         if ($matches['live']->total > 0) {
             return new EhiProposalDraft(
                 subjectKey: $subject,
@@ -858,6 +858,10 @@ final class EhiLabResultMapping implements EhiMapping
                 $changed[] = $field;
                 $before[$field] = $current[$field];
             }
+        }
+        // The value a reviewer compares is read with the inequality it had.
+        if (in_array('value', $changed, true)) {
+            $before['value_comparator'] = $current['value_comparator'];
         }
 
         if ($changed === []) {

@@ -191,7 +191,7 @@ class PhrPatientSearchController extends Controller
             'analyte', 'test_name', 'ordering_provider', 'resulting_lab', 'result_comment', 'message_from_provider', 'notes',
         ])->latest('result_datetime')->limit($limit)->get()->toBase()->map(fn (PhrLabResult $lab): array => $this->result(
             'Lab', $lab->id, $lab->analyte ?: ($lab->test_name ?: 'Lab result'),
-            $this->join([$lab->value, $lab->unit, $lab->resulting_lab]), $lab->result_datetime?->toDateString(), 'lab-panel-detail',
+            $this->join([$lab->displayValue(), $lab->unit, $lab->resulting_lab]), $lab->result_datetime?->toDateString(), 'lab-panel-detail',
         ));
     }
 

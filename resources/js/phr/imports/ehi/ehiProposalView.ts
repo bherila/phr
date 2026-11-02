@@ -136,6 +136,14 @@ export function proposedAttributes(proposal: EhiProposal): Record<string, unknow
   return nested !== null && typeof nested === 'object' && !Array.isArray(nested) ? nested as Record<string, unknown> : proposed
 }
 
+/** A lab value as a reader should see it: an inequality stated beside it is part of it. */
+function labValueText(fields: Record<string, unknown>): string | null {
+  const value = text(fields['value'])
+  const comparator = text(fields['value_comparator'])
+
+  return value !== null && comparator !== null && !value.startsWith(comparator) ? `${comparator}${value}` : value
+}
+
 function changesOf(proposal: EhiProposal, attributes: Record<string, unknown>): EhiProposalView['changes'] {
   if (proposal.kind !== 'update') {
     return []
@@ -148,8 +156,8 @@ function changesOf(proposal: EhiProposal, attributes: Record<string, unknown>): 
 
   return fields.filter((field) => !HIDDEN_FIELDS.has(field)).map((field) => ({
     field: UPDATE_FIELD_LABELS[field] ?? fieldLabel(field),
-    before: displayUnits(text(before[field])) ?? 'Not recorded',
-    after: displayUnits(text(attributes[field])) ?? 'Not recorded',
+    before: displayUnits(field === 'value' ? labValueText(before) : text(before[field])) ?? 'Not recorded',
+    after: displayUnits(field === 'value' ? labValueText(attributes) : text(attributes[field])) ?? 'Not recorded',
   }))
 }
 
@@ -202,10 +210,7 @@ export function proposalView(proposal: EhiProposal): EhiProposalView {
   }
   if (proposal.mapping === 'lab_result') {
     // The value exactly as the source stored it: an inequality is part of it.
-    const value = text(attributes['value'])
-    const comparator = text(attributes['value_comparator'])
-    const shown = value !== null && comparator !== null && !value.startsWith(comparator) ? `${comparator}${value}` : value
-    const measured = [shown, text(attributes['unit'])].filter(Boolean).join(' ')
+    const measured = [labValueText(attributes), text(attributes['unit'])].filter(Boolean).join(' ')
     const details = [measured === '' ? null : displayUnits(measured), text(attributes['abnormal_flag']), text(attributes['result_status'])].filter(Boolean)
     return {
       domain,

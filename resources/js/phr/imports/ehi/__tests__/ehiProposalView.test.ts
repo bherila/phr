@@ -30,6 +30,16 @@ describe('ehiProposalView', () => {
     ])
   })
 
+  it('shows an update to a lab value with the inequality on each side', () => {
+    const update = makeEhiProposal({
+      mapping: 'lab_result',
+      kind: 'update',
+      before: { value: '50', value_comparator: '<' },
+      proposed: { changed: ['value'], attributes: { analyte: 'Synthetic LDL', value: '60', value_comparator: '<' } },
+    })
+    expect(proposalView(update).changes).toEqual([{ field: 'Value', before: '<50', after: '<60' }])
+  })
+
   it('says what a person should know about a conflicting identifier or a withdrawn look-alike', () => {
     const conflict = makeEhiProposal({ mapping: 'lab_result', kind: 'possible_duplicate', candidate_ids: [4], proposed: { attributes: { analyte: 'Synthetic glucose' }, bridge: { version: 'ehi-bridge-1', rule: 'ccda_order_extension', conflicts: ['value'] } } })
     expect(proposalView(conflict).notice).toMatch(/same source identifier.*value differs/)

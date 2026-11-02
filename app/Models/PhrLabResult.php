@@ -190,6 +190,15 @@ class PhrLabResult extends Model
     }
 
     /**
+     * The result as a reader should see it: every place that shows a lab value as text
+     * reads this, so an inequality never reads as an exact measurement.
+     */
+    public function displayValue(): ?string
+    {
+        return $this->valueWithComparator() ?? $this->value_numeric;
+    }
+
+    /**
      * Whether a stored time of day is a wall clock in a zone nobody recorded. Such
      * a time is shown as written, but an export must not state it as UTC, so it
      * exports the date alone. Null is a record from before zones were recorded.

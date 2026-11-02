@@ -135,7 +135,7 @@ final class EhiLabRecordIndex
      * @param  list<string>  $dates  Y-m-d
      * @return array{live: EhiCandidateSummary, withdrawn: int}
      */
-    public function candidates(array $analytes, array $dates, ?string $value, ?string $number): array
+    public function candidates(array $analytes, array $dates, ?string $value, ?string $comparator, ?string $number): array
     {
         $positions = [];
         foreach ($dates as $date) {
@@ -157,7 +157,7 @@ final class EhiLabRecordIndex
         $withdrawn = 0;
         foreach (array_keys($positions) as $position) {
             $row = $this->rows[$position];
-            if (! $this->sameValue($row, $value, $number)) {
+            if (! $this->sameValue($row, $value, $comparator, $number)) {
                 continue;
             }
             if ($row['live']) {
@@ -261,8 +261,8 @@ final class EhiLabRecordIndex
         }
     }
 
-    /** @param  array{value: string|null, number: string|null, unit: string|null}  $row */
-    private function sameValue(array $row, ?string $value, ?string $number): bool
+    /** @param  array{value: string|null, number: string|null, comparator: string|null, unit: string|null}  $row */
+    private function sameValue(array $row, ?string $value, ?string $comparator, ?string $number): bool
     {
         if ($value === null || ($row['value'] === null && $row['number'] === null)) {
             return true;
@@ -276,8 +276,10 @@ final class EhiLabRecordIndex
             return true;
         }
 
-        // A FHIR value is stored as "value unit".
-        return $row['unit'] !== null && $row['value'] === $folded.' '.$row['unit'];
+        // A FHIR value is stored as "value unit"; one side may write an inequality in
+        // its value that the other states beside it.
+        return ($row['unit'] !== null && $row['value'] === $folded.' '.$row['unit'])
+            || EhiLabValue::agree($value, $comparator, null, $row['value'], $row['comparator'], null);
     }
 
     private static function shift(string $date, int $days): string
