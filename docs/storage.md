@@ -1,0 +1,200 @@
+# Where PHR keeps files
+
+Each installation keeps every PHR file in one place, chosen by one setting. This covers
+source documents, EHI and MyChart exports people upload, DICOM images and volume caches,
+generated exports, native backups, upload staging and GenAI import staging.
+
+| `PHR_STORAGE` | What happens |
+|---|---|
+| unset (or empty) | Nothing has been chosen. Each disk keeps its own setting (`PHR_DICOM_DISK_DRIVER`, `PHR_UPLOADS_DISK_DRIVER`, `S3_DISK_DRIVER`) and its code default. `phr_dicom` defaults to `s3` and the others to `local`. An existing installation stays exactly as it is until its operator chooses. |
+| `local` | Every disk uses the local driver under `storage/app/private`. A disk's own `*_DISK_ROOT` setting can still move its directory, and must be an absolute path. |
+| `s3` | Every disk uses one S3-compatible bucket, set by `PHR_STORAGE_S3_*`. The per-disk `PHR_DICOM_R2_*`, `PHR_UPLOADS_*`, `AWS_*` and `*_DISK_ROOT` settings are not read. |
+
+An unknown value, or `s3` with no bucket, stops the application from loading, rather than
+sending patient files somewhere nobody chose.
+
+Disk names never change, so `storage_disk` and path columns need no rewrite when a move
+happens. Only the driver behind each name changes.
+
+## The layout: a move is a copy
+
+A file's path under its local directory is its object key under the prefix of the same
+name:
+
+| Disk | Local directory | Object prefix | Holds |
+|---|---|---|---|
+| `phr_documents` | `storage/app/private/phr-documents` | `phr-documents/` | documents, EHI members, staged exports |
+| `phr_dicom` | `storage/app/private/phr-dicom` | `phr-dicom/` | DICOM instances, volume caches |
+| `phr_exports` | `storage/app/private/phr-exports` | `phr-exports/` | exports, native backups, restore sources |
+| `phr_uploads` | `storage/app/private/phr-uploads` | `phr-uploads/` | signed document uploads awaiting finalize |
+| `s3` | `storage/app/private/s3-blobs` | `s3-blobs/` | GenAI import staging |
+
+So `storage/app/private/phr-documents/patients/1/documents/x/note.pdf` becomes
+`s3://bucket/phr-documents/patients/1/documents/x/note.pdf`.
+
+The prefixes also keep the disks apart. Each disk uses the same `patients/` key prefixes,
+and the sweeps list those prefixes. Without separate prefixes, `phr:dicom:gc` would treat
+every document as an orphan DICOM object and delete it. Don't put two disks, or another
+application, under one prefix.
+
+`phr_upload_spool` (`storage/app/private/phr-upload-spool`) stays local under every choice.
+See [Uploads through PHP](#uploads-through-php).
+
+## Before switching to S3-compatible storage
+
+**Switching gives up host backups of these files unless something replaces them.** Blobs
+were moved off object storage to local disk on purpose: an object store has durability but
+no point-in-time recovery, so an application bug or an errant delete cannot be undone, and
+local disk puts the files inside host backups. Before cutover, put in place a scheduled
+copy to somewhere restorable, and test a restore from it. Keep in mind that `storage:prune`'s
+quarantine holds only what the pruner itself removed, and that the database backup does
+not contain the files.
+
+Check these as well:
+
+- **Credentials** need ListBucket, GetObject/HeadObject, PutObject, DeleteObject and
+  CopyObject, plus multipart upload for large objects.
+- **Temporary space.** ZIP intake needs a seekable file, so it copies the object to the
+  system temporary directory first. That directory needs room for the largest package
+  (`PHR_EHI_MAX_PACKAGE_BYTES`, 10 GB by default) and for native restore sources.
+- **Incomplete multipart uploads.** A write that dies partway can leave parts the bucket
+  still bills for and no listing shows. A bucket lifecycle rule that aborts them after a
+  few days is worth adding.
+- **Tested stores.** The live suite has run against Garage only. AWS S3 and Cloudflare R2
+  use the same API, but this code has not been run against them.
+- **Direct viewer URLs.** `PHR_DICOM_VIEWER_DIRECT_SIGNED_URLS=true` needs bucket CORS for
+  the application's origin. By default, images pass through PHP and CORS is not needed.
+
+## Moving, in either direction
+
+Whether any installation moves is its operator's decision. Nothing in the application
+moves files, and no migration touches `storage_disk` or path columns.
+
+The examples use [rclone](https://rclone.org), with a remote called `store` configured for
+the bucket, but any tool that copies keys unchanged will do. `phr-store` below stands for
+the bucket.
+
+### 1. Stop new work and let in-flight work finish
+
+Put the application in maintenance mode and let the queue drain. Workers pause in
+maintenance mode unless they run with `--force`. Then stop them and the scheduler, which is
+what runs the sweeps. The `in flight` column of `php artisan phr:storage:verify` should be 0
+and `storage/app/private/phr-upload-spool` should be empty.
+
+A signed direct upload URL stays valid for up to 15 minutes after it is issued. Rows left
+over clear when `phr:document-uploads:gc`, `phr:ehi-uploads:purge` and
+`phr:native-restores:purge` run, which you can do by hand, but an abandoned chunked upload
+counts until it expires (48 hours by default). An upload still open at the switch fails and
+has to be started again. That's safe, because the appender refuses a chunk that doesn't
+continue what is stored, so you can decide not to wait for those.
+
+### 2. Record the source
+
+```sh
+php artisan phr:storage:verify | tee storage-before.txt
+```
+
+The command only reads. It checks every object against the database (existence, size, and
+hash wherever a row records one) and fails if anything is wrong. Fix what it reports first.
+It reports table and row id, never a key, because a key can hold an original filename.
+
+### 3. Copy each disk
+
+Local to S3-compatible:
+
+```sh
+for d in phr-documents phr-dicom phr-exports phr-uploads s3-blobs; do
+  rclone copy --checksum --s3-no-check-bucket "storage/app/private/$d" "store:phr-store/$d"
+done
+```
+
+S3-compatible to local:
+
+```sh
+for d in phr-documents phr-dicom phr-exports phr-uploads s3-blobs; do
+  rclone copy --checksum --s3-no-check-bucket "store:phr-store/$d" "storage/app/private/$d"
+done
+```
+
+**Copy the quarantine too.** It sits at `_quarantine/` under each disk's root, so the loops
+above include it. It is the only undo for a sweep that was wrong, and its holding period
+is read from the batch name, so it carries on correctly in the new place.
+
+If DICOM is already on a bucket with no prefix (`PHR_DICOM_DISK_DRIVER=s3` and no root),
+copy from that bucket's top level to `phr-dicom/`. It contains only that disk's objects.
+
+### 4. Verify the copy before changing anything
+
+Add the new store's settings to `.env` without setting `PHR_STORAGE`. Then check the target
+by setting the choice for one command only. `APP_CONFIG_CACHE` points at a file that doesn't
+exist, so that a cached configuration can't hide the choice:
+
+```sh
+APP_CONFIG_CACHE=/tmp/phr-unused-config.php PHR_STORAGE=s3 php artisan phr:storage:verify | tee storage-after.txt
+diff storage-before.txt storage-after.txt
+```
+
+Use `PHR_STORAGE=local` when moving back. The only differences you should see are the first
+line and the `driver` column. If rows, bytes, objects, unreferenced objects or quarantined
+objects differ, the copy is not whole.
+
+### 5. Change the setting
+
+Set `PHR_STORAGE` in `.env`, run `php artisan config:cache`, restart the workers and leave
+maintenance mode.
+
+### 6. Keep the old copy
+
+Keep it until the new store has proven itself, and until the backups from
+[Before switching](#before-switching-to-s3-compatible-storage) have been restored from at
+least once. To go back, re-copy anything written since and repeat the steps from step 1.
+
+Don't run `storage:prune --apply` until at least 24 hours after the copy. The copy resets
+an object's age, so the pruner's age guard treats everything as too new until then. The
+verify report's `unreferenced` column shows what it would consider.
+
+## Pruning and sweeps
+
+`storage:prune` moves objects no row references into `_quarantine/<date>/`, and a later
+`--purge-quarantine=<days> --apply` deletes batches older than that. It stays a manual step
+on both storage kinds. The hourly and daily collectors (`phr:dicom:gc`,
+`phr:document-uploads:gc`, `phr:exports:purge`, `phr:native-backups:purge`,
+`phr:native-restores:purge`, `phr:ehi-uploads:purge`) run from the schedule as before.
+
+## Uploads through PHP
+
+EHI and MyChart ZIPs and native restore sources reach PHP in chunks. An object cannot be
+appended to, so on an object store the chunks wait in the local spool at the same key, and
+the queued job publishes them as one object before reading them. The spool is not storage:
+it holds bytes on their way somewhere, only until the job runs. Patient deletion and the
+purges remove it, and it isn't part of a move. A spooled upload does keep patient files on
+local disk for as long as its upload lasts, up to its expiry.
+
+## Code rules
+
+- Stored objects go through `Storage` and its streams. `FilesystemAdapter::path()` doesn't
+  fail on an object store: it returns the key, which then reads as a relative path that
+  doesn't exist. `LocalDiskAssumptionsTest` fails when a new local-file call appears.
+- A reader that needs a seekable file uses `LocalObjectFile`. On a local disk that's the file
+  itself. Otherwise it's a temporary copy.
+- A read stream from an object store cannot seek and can return short reads. Use
+  `stream_get_contents` or `stream_copy_to_stream`, not one `fread`.
+
+## Testing against a real store
+
+The default suite needs no server: `tests/Feature/Storage` runs on `NoLocalPathDisk`, which
+throws on `path()`, cannot seek and returns short reads. Those same tests run against a real
+store when `PHR_TEST_S3_ENDPOINT` selects one, and the signed-upload round trip runs only
+then. Tests refuse any endpoint that isn't on this machine.
+
+```sh
+# A throwaway Garage node. See its quick-start for the bucket and key.
+export PHR_TEST_S3_ENDPOINT=http://127.0.0.1:3900
+export PHR_TEST_S3_BUCKET=phr-test PHR_TEST_S3_REGION=garage
+export PHR_TEST_S3_KEY=<key id> PHR_TEST_S3_SECRET=<secret>
+# Optional: make ManualStorageMoveTest copy with the rclone commands above.
+export PHR_TEST_RCLONE="$(command -v rclone)"
+php -d memory_limit=1G vendor/bin/phpunit tests/Feature/Storage
+```
+
+The `storage-live` workflow runs this against Garage. It doesn't gate deploys.

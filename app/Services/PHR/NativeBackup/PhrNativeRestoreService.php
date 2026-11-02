@@ -12,6 +12,7 @@ use App\Support\PHR\PhrDocumentSource;
 use App\Support\PHR\PhrDocumentType;
 use App\Support\Storage\PhrStorageKey;
 use App\Support\Storage\StagedChunkAppender;
+use App\Support\Storage\StagedUpload;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
@@ -50,11 +51,12 @@ final class PhrNativeRestoreService
         $storageDisk = 'phr_exports';
         $storagePath = PhrStorageKey::nativeRestoreSource((string) Str::uuid());
         try {
-            if (! Storage::disk($storageDisk)->put($storagePath, '')) {
+            if (! StagedUpload::create($storageDisk, $storagePath)) {
                 throw new NativeRestoreException('source_storage_failed');
             }
         } catch (Throwable $exception) {
             try {
+                StagedUpload::discard($storagePath);
                 Storage::disk($storageDisk)->delete($storagePath);
             } catch (Throwable) {
                 // The generic pruner can reclaim an unreferenced partial key.
@@ -75,6 +77,7 @@ final class PhrNativeRestoreService
                 'expires_at' => now()->addDays((int) config('phr.native_restore_source_retention_days')),
             ]);
         } catch (Throwable) {
+            StagedUpload::discard($storagePath);
             Storage::disk($storageDisk)->delete($storagePath);
             throw new NativeRestoreException('internal_error');
         }
@@ -101,8 +104,7 @@ final class PhrNativeRestoreService
                 throw new NativeRestoreException('upload_state_invalid');
             }
 
-            $targetPath = Storage::disk($current->source_storage_disk)->path($current->source_storage_path);
-            $outcome = StagedChunkAppender::append($targetPath, (string) $chunk->getRealPath(), $offset, $chunkSize);
+            $outcome = StagedUpload::append($current->source_storage_disk, $current->source_storage_path, (string) $chunk->getRealPath(), $offset, $chunkSize);
             if ($outcome === StagedChunkAppender::STATE_MISMATCH) {
                 throw new NativeRestoreException('upload_state_invalid');
             }
@@ -157,6 +159,11 @@ final class PhrNativeRestoreService
                 || $attempt->source_storage_path === null
                 || $attempt->expires_at->isPast()) {
                 throw new NativeRestoreException('preview_expired');
+            }
+            try {
+                StagedUpload::publish($attempt->source_storage_disk, $attempt->source_storage_path, (int) $attempt->source_file_size_bytes);
+            } catch (Throwable) {
+                throw new NativeRestoreException('source_storage_failed');
             }
             $archive = $this->reader->openFromStorage($attempt->source_storage_disk, $attempt->source_storage_path);
             $plan = $this->planner->plan($archive, (int) $attempt->actor_user_id, (bool) $attempt->restore_access_grants);

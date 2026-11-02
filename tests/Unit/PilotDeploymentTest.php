@@ -328,6 +328,19 @@ JS;
         $this->assertTrue($process->isSuccessful(), $process->getErrorOutput());
     }
 
+    public function test_the_candidate_check_loads_a_storage_choice_without_the_application(): void
+    {
+        // The check runs on a candidate before the release is live, so config cannot depend
+        // on an application class to resolve the choice.
+        foreach (['', "PHR_STORAGE=local\n", "PHR_STORAGE=s3\nPHR_STORAGE_S3_BUCKET=synthetic\n"] as $choice) {
+            $result = $this->assertLocalDatabase(self::PILOT_ENV.$choice);
+            $this->assertTrue($result->isSuccessful(), $choice.$result->getErrorOutput());
+        }
+        // A choice that cannot work stops the release before migrations touch anything.
+        $this->assertFalse($this->assertLocalDatabase(self::PILOT_ENV."PHR_STORAGE=somewhere\n")->isSuccessful());
+        $this->assertFalse($this->assertLocalDatabase(self::PILOT_ENV."PHR_STORAGE=s3\n")->isSuccessful());
+    }
+
     public function test_database_override_cases_enumerate_every_destination_setting(): void
     {
         $covered = [];

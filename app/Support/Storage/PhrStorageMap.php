@@ -25,7 +25,8 @@ class PhrStorageMap
      * New durable writes use a patient-first `patients/{id}/...` hierarchy. Legacy
      * prefixes remain listed throughout the migration and rollback window so the
      * pruner cannot mistake pre-migration objects for garbage. Sweeping one disk with
-     * another's prefixes finds nothing — hence the disk/prefix pairing.
+     * another's prefixes finds nothing — hence the disk/prefix pairing. That holds in one
+     * bucket too, because PHR_STORAGE=s3 gives each disk its own root prefix.
      *
      * There is intentionally no option to widen this at the command line. A
      * caller-supplied prefix is how the finance app's `orphans:delete --prefix=` can be
@@ -38,6 +39,9 @@ class PhrStorageMap
         return [
             'phr_dicom' => ['patients', 'phr/dicom', 'derived/volume-cache'],
             'phr_uploads' => ['patients'],
+            // Chunks waiting to become one object. A row keeps them at the same key as the
+            // object, so the references below cover them; the rest is left from a crash.
+            StagedUpload::SPOOL_DISK => ['patients', 'phr/native-restores'],
             'phr_documents' => ['patients', 'phr/documents'],
             'phr_exports' => ['patients', 'phr/exports', 'phr/native-backups', 'phr/native-restores'],
 

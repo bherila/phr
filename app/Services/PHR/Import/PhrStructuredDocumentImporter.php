@@ -7,6 +7,7 @@ use App\Models\PhrPatient;
 use App\Services\PHR\Import\Ehi\EhiPackageDetector;
 use App\Services\PHR\Import\Ehi\EhiUploadRefused;
 use App\Services\PHR\Import\Ehi\EhiUploadService;
+use App\Support\Storage\LocalObjectFile;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
@@ -45,8 +46,9 @@ final class PhrStructuredDocumentImporter
             return null;
         }
 
-        $prefix = $this->prefix($document);
-        if (str_starts_with($prefix, self::ZIP_SIGNATURE) && $this->isExport($disk->path($document->storage_path))) {
+        $prefix = LocalObjectFile::prefix(PhrDocument::STORAGE_DISK, $document->storage_path, self::PREFIX_BYTES);
+        if (str_starts_with($prefix, self::ZIP_SIGNATURE)
+            && LocalObjectFile::with(PhrDocument::STORAGE_DISK, $document->storage_path, fn (string $path): bool => $this->isExport($path))) {
             try {
                 [$upload, $queued] = $this->uploads->stageDocument($patient, $actorUserId, $document);
             } catch (EhiUploadRefused $refused) {
@@ -113,19 +115,5 @@ final class PhrStructuredDocumentImporter
         }
 
         return EhiPackageDetector::detectZipPaths($names) || $this->myChart->recognizes($path);
-    }
-
-    /** The document's first bytes: enough to tell a ZIP, JSON or XML from anything else. */
-    private function prefix(PhrDocument $document): string
-    {
-        $stream = Storage::disk(PhrDocument::STORAGE_DISK)->readStream((string) $document->storage_path);
-        if (! is_resource($stream)) {
-            return '';
-        }
-        try {
-            return (string) fread($stream, self::PREFIX_BYTES);
-        } finally {
-            fclose($stream);
-        }
     }
 }

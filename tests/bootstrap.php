@@ -5,7 +5,8 @@
  *
  * This file ensures that tests always use .env.testing (SQLite)
  * instead of .env (which may contain MySQL production credentials).
- * PHR_TEST_DATABASE=pgsql selects a local PostgreSQL server instead.
+ * PHR_TEST_DATABASE=pgsql selects a local PostgreSQL server instead, and
+ * PHR_TEST_S3_ENDPOINT adds the live storage tests against a local S3-compatible store.
  */
 
 // Set the environment to testing BEFORE loading anything
@@ -43,6 +44,16 @@ if (getenv('PHR_TEST_DATABASE') === 'pgsql') {
         'DB_USERNAME' => $username,
         'DB_PASSWORD' => $password,
     ];
+}
+
+// Live storage tests are opt-in, and only ever against a store on this machine: a real
+// bucket can hold real files, and these tests write and delete objects.
+$liveObjectStore = (string) getenv('PHR_TEST_S3_ENDPOINT');
+if ($liveObjectStore !== '') {
+    $liveObjectStoreHost = trim((string) parse_url($liveObjectStore, PHP_URL_HOST), '[]');
+    if (! in_array($liveObjectStoreHost, ['127.0.0.1', '::1', 'localhost'], true)) {
+        throw new RuntimeException("SAFETY ERROR: live storage tests must use a local store, not '{$liveObjectStoreHost}'.");
+    }
 }
 
 foreach ($testEnvironment as $key => $value) {

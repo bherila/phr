@@ -34,8 +34,12 @@ class PhrExportPurgeCommand extends BasePhrCommand
                         continue;
                     }
 
-                    if ($export->storage_path) {
-                        Storage::disk($export->storage_disk)->delete($export->storage_path);
+                    // An object store's delete can fail where a local one rarely does, and the
+                    // row is the only thing that lets the next run find the object again.
+                    if ($export->storage_path && ! Storage::disk($export->storage_disk)->delete($export->storage_path)) {
+                        $this->error("Failed to delete export {$export->id}; keeping its row for the next run.");
+
+                        continue;
                     }
                     $export->delete();
                 }

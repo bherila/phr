@@ -1,0 +1,107 @@
+name: storage-live
+
+# The storage tests against a real S3-compatible server, for what a fake disk cannot show:
+# a store refusing a wrong-length signed PUT, moves without ACLs, multipart writes, signed
+# viewer URLs. Separate from ci.yml on purpose: it depends on a registry and a third-party
+# image, and a flake here must not block a deploy. The default suite already runs these
+# tests on a disk that fails on local-disk assumptions, so a failure here means a store
+# disagrees with us, and someone should look before the next installation moves.
+on:
+  pull_request:
+    paths:
+      - app/Support/Storage/**
+      - app/Services/PHR/Documents/UploadUrlSigner.php
+      - config/filesystems.php
+      - tests/Feature/Storage/**
+      - tests/Support/LiveObjectStore.php
+      - tests/Support/UsesObjectStoreDisks.php
+      - .github/workflows/storage-live.yml
+  schedule:
+    - cron: '17 7 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  storage-live:
+    name: Storage tests on Garage
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: simplexml
+
+      - name: Authorize private MCP bridge dependency
+        uses: webfactory/ssh-agent@e83874834305fe9a4a2997156cb26c5de65a8555 # upstream main: v0.9.1 + node24 runtime (#243), no tag yet
+        with:
+          ssh-private-key: ${{ secrets.MCP_BRIDGE_DEPLOY_KEY }}
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v6
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction
+
+      - name: Create .env for tests
+        run: |
+          cp .env.example .env
+          php artisan key:generate --no-interaction
+
+      - name: Start a single Garage node
+        env:
+          GARAGE_IMAGE: dxflrs/garage:v2.4.1
+        run: |
+          mkdir -p "$RUNNER_TEMP/garage"
+          cat > "$RUNNER_TEMP/garage/garage.toml" <<EOF
+          metadata_dir = "/var/lib/garage/meta"
+          data_dir = "/var/lib/garage/data"
+          db_engine = "sqlite"
+          replication_factor = 1
+          rpc_bind_addr = "127.0.0.1:3901"
+          rpc_public_addr = "127.0.0.1:3901"
+          rpc_secret = "$(openssl rand -hex 32)"
+
+          [s3_api]
+          s3_region = "garage"
+          api_bind_addr = "127.0.0.1:3900"
+          EOF
+          for attempt in 1 2 3; do
+            docker pull "$GARAGE_IMAGE" && break
+            [ "$attempt" = 3 ] && exit 1
+            sleep $((attempt * 10))
+          done
+          docker run -d --name garage --network host \
+            -v "$RUNNER_TEMP/garage/garage.toml:/etc/garage.toml:ro" "$GARAGE_IMAGE"
+          garage() { docker exec garage /garage "$@"; }
+          for attempt in $(seq 1 30); do
+            garage status >/dev/null 2>&1 && break
+            [ "$attempt" = 30 ] && { docker logs garage; exit 1; }
+            sleep 1
+          done
+          garage layout assign -z ci -c 1G "$(garage node id -q | cut -d@ -f1)"
+          garage layout apply --version 1
+          garage bucket create phr-test
+          keys=$(garage key create phr-test-key)
+          garage bucket allow --read --write --owner phr-test --key phr-test-key
+          {
+            echo "PHR_TEST_S3_KEY=$(echo "$keys" | awk '/Key ID/{print $NF}')"
+            echo "PHR_TEST_S3_SECRET=$(echo "$keys" | awk '/Secret key/{print $NF}')"
+          } >> "$GITHUB_ENV"
+
+      - name: Run the storage tests against it
+        timeout-minutes: 5
+        env:
+          PHR_TEST_S3_ENDPOINT: http://127.0.0.1:3900
+          PHR_TEST_S3_BUCKET: phr-test
+          PHR_TEST_S3_REGION: garage
+        run: php -d memory_limit=1G vendor/bin/phpunit tests/Feature/Storage
