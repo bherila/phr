@@ -467,32 +467,173 @@ final class FillEobLinkerTest extends TestCase
 
     // ---- The fill is not touched ----------------------------------------------------------
 
-    public function test_a_confirmed_fill_keeps_its_review_status_version_and_timestamp_through_linking_flagging_and_unlinking(): void
+    public function test_a_confirmed_fill_keeps_its_review_status_and_version_through_linking_flagging_and_unlinking(): void
     {
         $fill = $this->fill('2026-01-05', 'alpha', ['review_status' => PhrReviewStatus::CONFIRMED]);
         $versions = app(AgentClinicalRecordVersion::class);
         $version = $versions->for($fill->fresh());
         $updatedAt = (string) DB::table('phr_medication_fills')->where('id', $fill->id)->value('updated_at');
-        $this->travel(1)->hours();
-        $assertUntouched = function () use ($fill, $versions, $version, $updatedAt): void {
+        $assertSameFill = function () use ($fill, $versions, $version, &$updatedAt): void {
             $this->assertSame(PhrReviewStatus::CONFIRMED, $fill->fresh()->review_status);
             $this->assertSame($version, $versions->for($fill->fresh()));
-            $this->assertSame($updatedAt, (string) DB::table('phr_medication_fills')->where('id', $fill->id)->value('updated_at'));
+            $moved = (string) DB::table('phr_medication_fills')->where('id', $fill->id)->value('updated_at');
+            $this->assertGreaterThan($updatedAt, $moved, 'a client syncing on updated_at sees the change');
+            $updatedAt = $moved;
         };
 
+        $this->travel(1)->hours();
         $this->claim('C-1', '2026-01-05', '100.00');
         $this->assertNotNull($this->linkOf($fill));
-        $assertUntouched();
+        $assertSameFill();
 
+        $this->travel(1)->hours();
         $this->claim('C-2', '2026-01-05', '200.00');
         $this->assertTrue($this->flagged($fill));
-        $assertUntouched();
+        $assertSameFill();
 
+        $this->travel(1)->hours();
         $this->claim('C-R', '2026-01-05', '-200.00');
         $this->assertNotNull($this->linkOf($fill));
+        $assertSameFill();
+
+        $this->travel(1)->hours();
         $this->claim('C-R2', '2026-01-05', '-100.00');
         $this->assertNull($this->linkOf($fill));
-        $assertUntouched();
+        $assertSameFill();
+    }
+
+    public function test_a_rerun_with_nothing_to_change_leaves_updated_at_alone(): void
+    {
+        $fill = $this->fill('2026-01-05', 'alpha');
+        $this->claim('C-1', '2026-01-05', '100.00');
+        $updatedAt = (string) DB::table('phr_medication_fills')->where('id', $fill->id)->value('updated_at');
+
+        $this->travel(1)->hours();
+        $this->rerun();
+
+        $this->assertSame($updatedAt, (string) DB::table('phr_medication_fills')->where('id', $fill->id)->value('updated_at'));
+    }
+
+    public function test_a_link_only_change_reaches_the_changes_feed_and_a_write_on_the_old_version_still_works(): void
+    {
+        $this->actAsClient();
+        $written = $this->putJson("/api/v1/patients/{$this->patient->id}/medication-fills", [
+            'external_id' => 'fill:synthetic:feed', 'source_document_id' => $this->document()->id, 'expected_version' => null,
+            'data' => ['drug_as_printed' => 'Synthetic Drug', 'filled_on' => '2026-01-05', 'quantity' => 30, 'source_kind' => 'receipt_pdf'],
+        ])->assertCreated()->json();
+        $this->travel(1)->hours();
+        $after = now()->toIso8601String();
+        $this->travel(1)->hours();
+
+        $changes = fn (): array => collect($this->getJson("/api/v1/patients/{$this->patient->id}/changes?".http_build_query(['updated_after' => $after, 'resource_type' => ['medication-fills']]))->assertOk()->json('data'))
+            ->pluck('id')->all();
+        $this->assertSame([], $changes());
+
+        $this->claim('C-1', '2026-01-05', '100.00');
+
+        $this->assertContains($written['data']['id'], $changes());
+        $this->assertSame($written['version'], $this->getJson("/api/v1/patients/{$this->patient->id}/medication-fills/{$written['data']['id']}")->assertOk()->json('data.version'));
+    }
+
+    // ---- Correcting a link ----------------------------------------------------------------
+
+    public function test_a_person_rejects_an_automatic_link_and_can_undo_it(): void
+    {
+        $fill = $this->fill('2026-01-05', 'alpha', ['review_status' => PhrReviewStatus::CONFIRMED]);
+        $this->claim('C-1', '2026-01-05', '100.00');
+        $version = app(AgentClinicalRecordVersion::class)->for($fill->fresh());
+        $url = "/api/phr/patients/{$this->patient->id}/medication-fills/{$fill->id}/eob-link";
+        $this->actingAs($this->actor);
+
+        $this->getJson($url)->assertOk()->assertJsonPath('dismissed', false)
+            ->assertJsonPath('claims.0.claim_number', 'C-1')->assertJsonPath('claims.0.automatic', true)
+            ->assertJsonPath('claims.0.rule', FillEobLinkPlanner::RULE_SOLE_PAIR)->assertJsonCount(1, 'claims');
+
+        $this->postJson($url, ['action' => 'reject'])->assertOk()->assertJsonPath('outcome', 'rejected');
+        $this->assertNull($this->linkOf($fill));
+        $this->assertFalse($this->flagged($fill), 'a person has answered, so it is not asked again');
+        $this->getJson($url)->assertOk()->assertJsonPath('dismissed', true)->assertJsonCount(0, 'claims');
+        $this->rerun();
+        $this->assertNull($this->linkOf($fill), 'the answer outlasts a recompute');
+        $this->postJson($url, ['action' => 'reject'])->assertOk()->assertJsonPath('outcome', 'unchanged');
+        $this->assertSame($version, app(AgentClinicalRecordVersion::class)->for($fill->fresh()));
+        $this->assertSame(PhrReviewStatus::CONFIRMED, $fill->fresh()->review_status);
+
+        $this->postJson($url, ['action' => 'reset'])->assertOk()->assertJsonPath('outcome', 'restored');
+        $this->assertNotNull($this->linkOf($fill));
+        $this->postJson($url, ['action' => 'reset'])->assertOk()->assertJsonPath('outcome', 'unchanged');
+    }
+
+    public function test_rejecting_a_link_frees_the_claim_for_the_other_fill_that_day(): void
+    {
+        $this->learn('alpha', '100.00', ['2026-01-01']);
+        $wrong = $this->fill('2026-02-01', 'alpha');
+        $other = $this->fill('2026-02-01', 'beta');
+        $this->claim('C-A', '2026-02-01', '100.00');
+        $this->assertNotNull($this->linkOf($wrong));
+        $this->assertNull($this->linkOf($other));
+        $this->actingAs($this->actor);
+
+        $this->postJson("/api/phr/patients/{$this->patient->id}/medication-fills/{$wrong->id}/eob-link", ['action' => 'reject'])->assertOk();
+
+        $this->assertNull($this->linkOf($wrong));
+        $this->assertNotNull($this->linkOf($other), 'the claim went to the only fill left');
+    }
+
+    public function test_only_an_automatic_link_can_be_rejected(): void
+    {
+        $bare = $this->fill('2026-03-01', 'alpha');
+        $this->actingAs($this->actor);
+        $url = "/api/phr/patients/{$this->patient->id}/medication-fills/{$bare->id}/eob-link";
+
+        $this->postJson($url, ['action' => 'reject'])->assertConflict();
+        $this->assertSame(0, PhrMedicationFillEvidence::query()->where('fill_id', $bare->id)->count());
+    }
+
+    public function test_someone_who_can_only_read_sees_the_links_but_cannot_change_them(): void
+    {
+        $fill = $this->fill('2026-01-05', 'alpha');
+        $this->claim('C-1', '2026-01-05', '100.00');
+        $viewer = User::factory()->create(['user_role' => 'user']);
+        DB::table('phr_patient_user_access')->insert(['patient_id' => $this->patient->id, 'user_id' => $viewer->id, 'access_level' => 'viewer', 'created_at' => now(), 'updated_at' => now()]);
+        $stranger = User::factory()->create(['user_role' => 'user']);
+        $url = "/api/phr/patients/{$this->patient->id}/medication-fills/{$fill->id}/eob-link";
+
+        $this->actingAs($viewer)->getJson($url)->assertOk()->assertJsonCount(1, 'claims');
+        $this->actingAs($viewer)->postJson($url, ['action' => 'reject'])->assertForbidden();
+        $this->actingAs($stranger)->getJson($url)->assertNotFound();
+        $this->assertNotNull($this->linkOf($fill));
+    }
+
+    public function test_a_read_cannot_reach_another_patients_fill_through_this_patient(): void
+    {
+        $theirs = $this->fill('2026-01-05', 'alpha', [], $this->newPatient());
+        $this->actingAs($this->actor);
+
+        $this->getJson("/api/phr/patients/{$this->patient->id}/medication-fills/{$theirs->id}/eob-link")->assertNotFound();
+    }
+
+    public function test_an_agent_relays_a_persons_answers(): void
+    {
+        $flagged = $this->fill('2026-04-01', 'alpha');
+        $this->claim('C-1', '2026-04-01', '100.00');
+        $this->claim('C-2', '2026-04-01', '200.00');
+        $this->assertTrue($this->flagged($flagged));
+        $this->actAsClient();
+        $url = "/api/v1/patients/{$this->patient->id}/medication-fills/{$flagged->id}/eob-link";
+
+        $this->postJson($url, ['action' => 'link'])->assertUnprocessable();
+        $this->postJson($url, ['action' => 'none'])->assertOk()
+            ->assertJsonPath('resource_type', 'medication_fill_eob_link_answer')
+            ->assertJsonPath('outcome', 'dismissed')
+            ->assertJsonPath('data', ['fill_id' => $flagged->id, 'action' => 'none']);
+        $this->assertFalse($this->flagged($flagged));
+        $this->postJson($url, ['action' => 'reset'])->assertOk()->assertJsonPath('outcome', 'restored');
+        $this->assertTrue($this->flagged($flagged));
+
+        $claim = PhrEob::query()->where('patient_id', $this->patient->id)->where('claim_number', 'C-2')->sole();
+        $this->postJson($url, ['action' => 'link', 'eob_id' => $claim->id])->assertOk()->assertJsonPath('outcome', 'linked');
+        $this->assertFalse($this->flagged($flagged));
     }
 
     public function test_a_retried_upsert_carrying_the_old_version_still_works_after_a_link(): void

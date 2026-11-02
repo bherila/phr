@@ -110,6 +110,7 @@
                 "immunizations.upsert",
                 "lab_results.update",
                 "lab_results.upsert",
+                "medication_fills.answer_eob_link",
                 "medication_fills.get",
                 "medication_fills.list",
                 "medication_fills.resolve_duplicate",
@@ -331,6 +332,7 @@
                 "imports.review",
                 "lab_results.update",
                 "lab_results.upsert",
+                "medication_fills.answer_eob_link",
                 "medication_fills.get",
                 "medication_fills.list",
                 "medication_fills.resolve_duplicate",
@@ -1052,6 +1054,19 @@
             "name": "lab_results.upsert",
             "outputSchema": "sha256:8d27ab7435cdd77b0812ac4fca1416596454bf6a40c5928b5b282d8e942fe32e",
             "title": "Upsert Lab Results"
+        },
+        "medication_fills.answer_eob_link": {
+            "annotations": {
+                "readOnlyHint": false,
+                "destructiveHint": false,
+                "idempotentHint": true,
+                "openWorldHint": false
+            },
+            "description": "Only when the person has told you the answer; never decide it yourself. action link with eob_id puts a fill flagged eob_link_open on a same-day claim on offer. action none says it is on none of them. action reject removes an automatic link (eob_links with automatic true) the person says is wrong. action reset lets the server link the fill automatically again after none or reject. The fill's version and review status do not change.",
+            "inputSchema": "sha256:b4286ab4c332c9b9dcbcdfa15ad8475ff26f6aad06e36015d4336fc4f9356a84",
+            "name": "medication_fills.answer_eob_link",
+            "outputSchema": "sha256:377057654d1d7b006c96ec911af61fbff45b6672d05f1d333d8cc4f31ee06a22",
+            "title": "Record a person's answer about a fill and its claim"
         },
         "medication_fills.get": {
             "annotations": {

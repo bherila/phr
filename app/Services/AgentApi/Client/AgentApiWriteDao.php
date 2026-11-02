@@ -260,4 +260,14 @@ final readonly class AgentApiWriteDao
             json: array_filter(['action' => $action, 'expected_version' => $expectedVersion, 'candidate_fill_id' => $candidateFillId], static fn (mixed $value): bool => $value !== null),
         ), ['resource_type', 'patient_id', 'outcome', 'data']);
     }
+
+    /** @return array<string, mixed> */
+    public function medicationFillAnswerEobLink(int $patientId, int $fillId, string $action, ?int $eobId): array
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'POST',
+            "patients/{$patientId}/medication-fills/{$fillId}/eob-link",
+            json: array_filter(['action' => $action, 'eob_id' => $eobId], static fn (mixed $value): bool => $value !== null),
+        ), ['resource_type', 'patient_id', 'outcome', 'data']);
+    }
 }

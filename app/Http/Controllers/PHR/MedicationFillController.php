@@ -10,8 +10,10 @@ use App\Http\Requests\PHR\StoreMedicationFillRequest;
 use App\Http\Resources\PHR\MedicationFillResource;
 use App\Models\PhrMedication;
 use App\Models\PhrMedicationFill;
+use App\Models\PhrMedicationFillEvidence;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\Fills\FillEobLinkDecisionService;
+use App\Services\PHR\Fills\FillEobLinker;
 use App\Services\PHR\Fills\MedicationFillDuplicateService;
 use App\Services\PHR\Fills\MedicationFillWriter;
 use App\Services\PHR\Ndc\NdcDrugDetail;
@@ -179,11 +181,24 @@ class MedicationFillController extends Controller
      * Evidence only, so it changes neither the fill's review status nor its version, and takes
      * no version of its own: the claim must still be on offer for the fill (409 otherwise).
      */
+    /** The claims a fill is linked to, and whether a person has said not to link it automatically. */
+    public function eobLinks(Request $request, int $patient, int $fill): JsonResponse
+    {
+        $resolvedPatient = $this->accessService->accessiblePatient($patient, (int) $request->user()?->id);
+        PhrMedicationFill::query()->where('patient_id', $resolvedPatient->id)->findOrFail($fill);
+
+        return response()->json([
+            'claims' => app(FillEobLinker::class)->claimsOfFill((int) $resolvedPatient->id, $fill),
+            'dismissed' => PhrMedicationFillEvidence::query()->where('fill_id', $fill)
+                ->where('source_kind', PhrMedicationFillEvidence::KIND_EOB_LINK_DISMISSED)->exists(),
+        ]);
+    }
+
     public function linkEob(Request $request, int $patient, int $fill): JsonResponse
     {
         $resolvedPatient = $this->accessService->writablePatient($patient, (int) $request->user()?->id);
         $validated = $request->validate([
-            'action' => ['required', Rule::in([FillEobLinkDecisionService::LINK, FillEobLinkDecisionService::NONE])],
+            'action' => ['required', Rule::in(FillEobLinkDecisionService::ACTIONS)],
             'eob_id' => ['required_if:action,'.FillEobLinkDecisionService::LINK, 'integer', 'min:1'],
         ]);
         $outcome = app(FillEobLinkDecisionService::class)->decide($resolvedPatient, $fill, (string) $validated['action'], isset($validated['eob_id']) ? (int) $validated['eob_id'] : null);

@@ -240,12 +240,12 @@ final class AgentMcpReadAdapterTest extends TestCase
             $this->assertContains($name, $toolNames);
         }
         $this->assertCount(
-            64 + (count(AgentClinicalResourceCatalog::writableIds()) * 2),
+            65 + (count(AgentClinicalResourceCatalog::writableIds()) * 2),
             $toolNames,
         );
         $writeTools = [
             'patients.create', 'documents.upload', 'documents.upload_access_create', 'documents.upload_finalize', 'documents.upload_cancel', 'eobs.import', 'medication_fills.resolve_duplicate', 'imports.create', 'imports.review', 'imports.retry',
-            'health_logs.create', 'health_log_entries.append', 'respiratory_events.ingest',
+            'medication_fills.answer_eob_link', 'health_logs.create', 'health_log_entries.append', 'respiratory_events.ingest',
             'dicom_uploads.open', 'dicom_uploads.upload_file', 'dicom_uploads.finalize', 'dicom_uploads.cancel',
             'reconciliations.apply',
             'exports.create', 'native_backups.create',

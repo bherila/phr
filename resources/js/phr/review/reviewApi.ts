@@ -215,15 +215,15 @@ export async function resolveFillDuplicate(patientId: number, fillId: number, ac
   }
 }
 
-export type EobLinkAnswer = { action: 'link', eobId: number } | { action: 'none' }
+export type EobLinkAnswer = { action: 'link', eobId: number } | { action: 'none' | 'reject' | 'reset' }
 
 /**
- * Answer a fill's claim flag: this claim, or none of them. Evidence only, so it does not touch
+ * Answer about a fill's claim: this claim, none of them, not the automatic one, or start over. Evidence only, so it does not touch
  * the fill's review. Throws the route's refusal, such as a claim no longer on offer (409).
  */
 export async function answerFillEobLink(patientId: number, fillId: number, answer: EobLinkAnswer): Promise<void> {
   try {
-    await fetchWrapper.post(`/api/phr/patients/${patientId}/medication-fills/${fillId}/eob-link`, answer.action === 'link' ? { action: 'link', eob_id: answer.eobId } : { action: 'none' })
+    await fetchWrapper.post(`/api/phr/patients/${patientId}/medication-fills/${fillId}/eob-link`, answer.action === 'link' ? { action: 'link', eob_id: answer.eobId } : { action: answer.action })
   } finally {
     void reviewStateChanged(patientId)
   }
