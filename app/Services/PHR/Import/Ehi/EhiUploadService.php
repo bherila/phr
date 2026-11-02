@@ -294,16 +294,18 @@ final class EhiUploadService
     }
 
     /**
-     * Finish a direct upload: every part must be at the store with the length the plan says
-     * and the ETag the browser saw, and the finished object must be the declared size. A
-     * repeat after this succeeded has nothing left to do, so a client can retry safely.
+     * Finish a direct upload: every part must be at the store with the length the plan says,
+     * and the finished object must be the declared size. The store's own list is the authority
+     * on what it holds, so this needs nothing from the browser, and a person whose last request
+     * failed can finish after a reload. $etags, when the browser still has them, must agree with
+     * that list too. A repeat after this succeeded has nothing left to do.
      *
-     * @param  array<int, string>  $etags  by part number
+     * @param  array<int, string>  $etags  by part number; empty to go by the store's list alone
      *
      * @throws EhiUploadRefused
      * @throws AuthorizationException
      */
-    public function completeParts(PhrEhiUpload $upload, int $actorUserId, array $etags): void
+    public function completeParts(PhrEhiUpload $upload, int $actorUserId, array $etags = []): void
     {
         $this->writeGuard->run($upload->patient_id, function (PhrPatient $patient) use ($upload, $actorUserId, $etags): void {
             $this->ensureWritable($patient, $actorUserId);
@@ -320,11 +322,11 @@ final class EhiUploadService
                 foreach (range(1, $plan->partCount()) as $partNumber) {
                     $part = $held[$partNumber] ?? null;
                     if ($part === null || $part['bytes'] !== $plan->bytesOf($partNumber)
-                        || ! hash_equals($part['etag'], UploadUrlSigner::normalizeEtag($etags[$partNumber] ?? ''))) {
+                        || ($etags !== [] && ! hash_equals($part['etag'], UploadUrlSigner::normalizeEtag($etags[$partNumber] ?? '')))) {
                         throw new EhiUploadRefused(EhiUploadRefused::INCOMPLETE, 'not every part arrived');
                     }
                 }
-                $this->signer->completeMultipartUpload($disk, $path, $uploadId, array_intersect_key($etags, $held));
+                $this->signer->completeMultipartUpload($disk, $path, $uploadId, array_map(static fn (array $part): string => $part['etag'], $held));
             } catch (EhiUploadRefused $refused) {
                 throw $refused;
             } catch (Throwable $failure) {
@@ -632,6 +634,57 @@ final class EhiUploadService
     private function storedBytes(string $disk, string $path): ?int
     {
         return $this->signer->head($disk, $path)['bytes'] ?? null;
+    }
+
+    /**
+     * How much of an upload has arrived. For a direct upload still open, that is what the store
+     * holds at the lengths the plan says, counted from the first part, which reaches the file's
+     * size only when finishing would succeed. The row's own count only says which parts were
+     * signed. If the store lists no parts, it may have finished the upload and the row never
+     * heard, so an object of the declared size counts as all of it, and finishing will accept
+     * that. This only reads, and answers with the row's count if the store doesn't.
+     */
+    public function bytesReceived(PhrEhiUpload $upload): int
+    {
+        if ($upload->transport !== PhrEhiUpload::TRANSPORT_S3 || $upload->status !== PhrEhiUpload::STATUS_UPLOADING
+            || $upload->multipart_upload_id === null || $upload->storage_path === null) {
+            return $upload->uploaded_bytes;
+        }
+        $received = $this->bytesInParts($upload);
+        if ($received !== null && $received > 0) {
+            return $received;
+        }
+        try {
+            if ($this->storedBytes($upload->storage_disk, $upload->storage_path) === $upload->file_size_bytes) {
+                return $upload->file_size_bytes;
+            }
+        } catch (Throwable $failure) {
+            Log::warning('EHI upload object could not be checked.', ['upload_id' => $upload->id, 'exception' => $failure::class]);
+        }
+
+        return $received ?? $upload->uploaded_bytes;
+    }
+
+    /** What the store holds of an open upload, or null if it won't list any: it may have finished. */
+    private function bytesInParts(PhrEhiUpload $upload): ?int
+    {
+        try {
+            $held = $this->signer->listParts($upload->storage_disk, (string) $upload->storage_path, (string) $upload->multipart_upload_id);
+        } catch (Throwable $failure) {
+            Log::info('EHI multipart upload could not be listed.', ['upload_id' => $upload->id, 'exception' => $failure::class]);
+
+            return null;
+        }
+        $plan = new MultipartPlan($upload->file_size_bytes, (int) $upload->part_size_bytes);
+        $received = 0;
+        foreach (range(1, $plan->partCount()) as $partNumber) {
+            if (($held[$partNumber]['bytes'] ?? null) !== $plan->bytesOf($partNumber)) {
+                break;
+            }
+            $received += $plan->bytesOf($partNumber);
+        }
+
+        return $received;
     }
 
     /** The plan of a direct upload that is still taking parts. */

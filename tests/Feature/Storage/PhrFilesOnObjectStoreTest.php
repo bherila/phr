@@ -221,7 +221,8 @@ CSV;
     public function test_a_stored_ehi_export_is_staged_and_taken_in_through_a_local_temporary_copy(): void
     {
         Queue::fake();
-        $document = $this->storedDocument('ehi.zip', 'application/zip', (string) file_get_contents($this->ehiZip()));
+        $archive = (string) file_get_contents($this->ehiZip());
+        $document = $this->storedDocument('ehi.zip', 'application/zip', $archive);
 
         $import = app(PhrStructuredDocumentImporter::class)->import($this->patient, (int) $this->owner->id, $document);
 

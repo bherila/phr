@@ -188,7 +188,9 @@ through PHP, but each file is still read back once. A late PUT lands in staging,
 `phr:dicom:gc` removes it.
 
 **EHI and MyChart.** Completing checks every part against the store's own list, and the finished
-object against the declared size, before intake is queued. Intake then reads the object through
+object against the declared size, before intake is queued. If the last request fails with every part
+at the store, the Imports page offers to finish without sending anything again, including after a
+reload, until the upload expires. Intake then reads the object through
 a local temporary copy.
 
 **Storage limits count what a URL allows.** A store accepts what a URL allows whether or not the

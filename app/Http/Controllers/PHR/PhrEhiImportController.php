@@ -69,8 +69,9 @@ final class PhrEhiImportController extends Controller
     public function showUpload(Request $request, int $patient, int $upload): JsonResponse
     {
         $patientModel = $this->access->accessiblePatient($patient, $this->actor($request));
+        $found = $this->upload($patientModel, $upload);
 
-        return $this->privateJson(['upload' => $this->presenter->upload($this->upload($patientModel, $upload))]);
+        return $this->privateJson(['upload' => [...$this->presenter->upload($found), 'uploaded_bytes' => $this->uploads->bytesReceived($found)]]);
     }
 
     public function appendChunk(Request $request, int $patient, int $upload): JsonResponse
