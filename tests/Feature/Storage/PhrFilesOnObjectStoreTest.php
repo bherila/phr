@@ -229,7 +229,10 @@ CSV;
         $upload = PhrEhiUpload::query()->where('source_document_id', $document->id)->sole();
         $staged = (string) $upload->storage_path;
         $this->assertTrue($this->documents()->exists($staged), 'staged on the store, not locally');
-        $temporary = glob(sys_get_temp_dir().'/phr-object-*') ?: [];
+        // Its own directory: the system's is shared with other test workers, whose copies come and go.
+        $temporaryDirectory = sys_get_temp_dir().'/phr-object-test-'.bin2hex(random_bytes(8));
+        $this->assertTrue(mkdir($temporaryDirectory));
+        config(['phr.object_temp_dir' => $temporaryDirectory]);
 
         $this->runIntake($upload);
 
@@ -242,7 +245,8 @@ CSV;
         foreach (PhrEhiBlob::query()->where('patient_id', $this->patient->id)->get() as $blob) {
             $this->assertTrue($this->documents()->exists($blob->storage_path), 'each member lands on the store');
         }
-        $this->assertSame($temporary, glob(sys_get_temp_dir().'/phr-object-*') ?: [], 'and the temporary copy is gone');
+        $this->assertSame([], glob($temporaryDirectory.'/*') ?: [], 'and the temporary copy is gone');
+        $this->assertTrue(rmdir($temporaryDirectory));
     }
 
     public function test_a_stored_mychart_export_is_recognized_and_imported(): void
