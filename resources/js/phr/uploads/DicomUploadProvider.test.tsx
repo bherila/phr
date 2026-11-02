@@ -105,6 +105,129 @@ beforeEach(() => {
   mockPost.mockResolvedValue({ upload: makeDicomUpload('pending') })
 })
 
+describe('DicomUploadProvider on the s3 transport', () => {
+  const AUTHORIZE_URL = `${OPEN_URL}/501/files/authorize`
+  const CONFIRM_URL = `${OPEN_URL}/501/files/confirm`
+  const STORE_URL = 'https://objects.example.test/bucket/phr-dicom/incoming?X-Amz-Signature=synthetic'
+
+  function directApi(overrides: (url: string) => unknown = () => undefined): void {
+    mockPost.mockImplementation(async (url: string, body: { relative_path?: string }) => {
+      const overridden = overrides(url)
+      if (overridden !== undefined) return overridden
+      if (url === OPEN_URL) return { upload: makeDicomUpload('pending'), transport: 's3', limits: { max_file_bytes: 1000, max_file_size_label: '1 KB' } }
+      if (url === AUTHORIZE_URL) {
+        return { authorization: { token: `token-for-${body.relative_path}`, url: STORE_URL, headers: { 'Content-Type': 'application/dicom' } } }
+      }
+      if (url === CONFIRM_URL) return makeDicomUploadFileResponse()
+      if (url === FINALIZE_URL) return { upload: makeDicomUpload('processed') }
+      return {}
+    })
+  }
+
+  it('PUTs each file to the store with what the server signed, then has the server record it', async () => {
+    const restoreXhr = MockUploadXMLHttpRequest.install()
+    directApi()
+
+    try {
+      const { container } = await renderImports()
+      fireEvent.change(fileInput(container), { target: { files: [makeDicomFile('CARDIAC_CT/IM0001')] } })
+
+      await waitFor(() => expect(within(tray()).getByText('Upload complete')).toBeInTheDocument())
+      expect(mockPost).toHaveBeenCalledWith(AUTHORIZE_URL, {
+        relative_path: 'CARDIAC_CT/IM0001',
+        filename: 'IM0001',
+        byte_size: 5,
+        content_type: 'application/dicom',
+      }, expect.anything())
+      const put = MockUploadXMLHttpRequest.instances[0]
+      expect(MockUploadXMLHttpRequest.instances).toHaveLength(1)
+      expect(put?.requestMethod).toBe('PUT')
+      expect(put?.requestUrl).toBe(STORE_URL)
+      expect(put?.requestHeaders).toEqual({ 'Content-Type': 'application/dicom' })
+      expect(put?.withCredentials).toBe(false)
+      expect(put?.requestBlob).toBeInstanceOf(File)
+      expect(mockPost).toHaveBeenCalledWith(CONFIRM_URL, { token: 'token-for-CARDIAC_CT/IM0001' }, expect.anything())
+      expect(mockPost).toHaveBeenCalledWith(FINALIZE_URL, {})
+    } finally {
+      restoreXhr()
+    }
+  })
+
+  it('sends nothing to the store for a file the server says it won’t keep', async () => {
+    const restoreXhr = MockUploadXMLHttpRequest.install()
+    directApi((url) => (url === AUTHORIZE_URL
+      ? makeDicomUploadFileResponse('CARDIAC_CT/IM0001', { stored: false, skipped_reason: 'auxiliary_file', study_id: null })
+      : undefined))
+
+    try {
+      const { container } = await renderImports()
+      fireEvent.change(fileInput(container), { target: { files: [makeDicomFile('CARDIAC_CT/IM0001')] } })
+
+      await waitFor(() => expect(within(tray()).getByText('Upload complete')).toBeInTheDocument())
+      expect(MockUploadXMLHttpRequest.instances).toHaveLength(0)
+      expect(mockPost).not.toHaveBeenCalledWith(CONFIRM_URL, expect.anything(), expect.anything())
+    } finally {
+      restoreXhr()
+    }
+  })
+
+  it('fails the job without showing the signed URL when the store refuses a file', async () => {
+    const restoreXhr = MockUploadXMLHttpRequest.install()
+    MockUploadXMLHttpRequest.status = 403
+    directApi()
+
+    try {
+      const { container } = await renderImports()
+      fireEvent.change(fileInput(container), { target: { files: [makeDicomFile('CARDIAC_CT/IM0001')] } })
+
+      await waitFor(() => expect(mockPost).toHaveBeenCalledWith(CANCEL_URL, {}))
+      await waitFor(() => expect(within(tray()).getByText(/1 of 1 failed|failed/i)).toBeInTheDocument())
+      expect(document.body.textContent).not.toContain('X-Amz-Signature')
+      expect(mockPost).not.toHaveBeenCalledWith(CONFIRM_URL, expect.anything(), expect.anything())
+      expect(mockPost).not.toHaveBeenCalledWith(FINALIZE_URL, {})
+    } finally {
+      restoreXhr()
+    }
+  })
+
+  it('aborts a PUT in flight on cancel and discards the session', async () => {
+    const restoreXhr = MockUploadXMLHttpRequest.install()
+    MockUploadXMLHttpRequest.autoComplete = false
+    directApi()
+
+    try {
+      const { container } = await renderImports()
+      fireEvent.change(fileInput(container), { target: { files: [makeDicomFile('CARDIAC_CT/IM0001')] } })
+      await waitFor(() => expect(MockUploadXMLHttpRequest.instances).toHaveLength(1))
+
+      openTrayJob()
+      fireEvent.click(await screen.findByRole('button', { name: /cancel upload/i }))
+
+      await waitFor(() => expect(mockPost).toHaveBeenCalledWith(CANCEL_URL, {}))
+      expect(mockPost).not.toHaveBeenCalledWith(CONFIRM_URL, expect.anything(), expect.anything())
+    } finally {
+      restoreXhr()
+    }
+  })
+
+  it('POSTs as always when the server names any other transport', async () => {
+    const restoreXhr = MockUploadXMLHttpRequest.install()
+    directApi((url) => (url === OPEN_URL ? { upload: makeDicomUpload('pending'), transport: 'post' } : undefined))
+
+    try {
+      const { container } = await renderImports()
+      fireEvent.change(fileInput(container), { target: { files: [makeDicomFile('CARDIAC_CT/IM0001')] } })
+
+      await waitFor(() => expect(within(tray()).getByText('Upload complete')).toBeInTheDocument())
+      expect(MockUploadXMLHttpRequest.instances[0]?.requestMethod).toBe('POST')
+      expect(MockUploadXMLHttpRequest.instances[0]?.requestUrl).toBe(`${OPEN_URL}/501/files`)
+      expect(mockPost).not.toHaveBeenCalledWith(AUTHORIZE_URL, expect.anything(), expect.anything())
+    } finally {
+      restoreXhr()
+    }
+  })
+})
+
 describe('DicomUploadProvider', () => {
   it('tracks a job to completion and shows it in the tray', async () => {
     const restoreXhr = MockUploadXMLHttpRequest.install()

@@ -366,6 +366,8 @@ export const PhrDicomUploadResponseSchema = z.object({
     max_file_size_label: nullableString,
     direct_upload: z.boolean().optional(),
   }).optional(),
+  /** How this installation takes files: POSTed to the application, or `s3`, PUT straight to its store. */
+  transport: z.string().optional(),
 })
 
 export const PhrDicomUploadFinalizeResponseSchema = PhrDicomUploadResponseSchema.extend({
@@ -387,6 +389,18 @@ export const PhrDicomUploadFileResponseSchema = z.object({
 })
 
 export type PhrDicomUploadFileResponse = z.infer<typeof PhrDicomUploadFileResponseSchema>
+
+/** Either a signed PUT for the file, or the file's outcome when it won't be stored. */
+export const PhrDicomFileAuthorizationResponseSchema = z.union([
+  z.object({
+    authorization: z.object({
+      token: z.string(),
+      url: z.string(),
+      headers: z.record(z.string(), z.string()),
+    }),
+  }),
+  PhrDicomUploadFileResponseSchema,
+])
 
 export const PhrAccessGrantDetailResponseSchema = z.object({
   access: PhrAccessGrantSchema,

@@ -115,7 +115,7 @@ export function DicomUploadProvider({ children, budget = globalUploadBudget }: D
         `/api/phr/patients/${patientId}/dicom/uploads`,
         rootName ? { root_name: rootName } : {},
       )
-      const { upload, limits } = PhrDicomUploadResponseSchema.parse(openResponse)
+      const { upload, limits, transport } = PhrDicomUploadResponseSchema.parse(openResponse)
       uploadId = upload.id
 
       // Cancel can land while the session is still opening, before any controller exists to
@@ -133,6 +133,7 @@ export function DicomUploadProvider({ children, budget = globalUploadBudget }: D
         budget,
         maxFileBytes: limits?.max_file_bytes ?? null,
         maxFileSizeLabel: limits?.max_file_size_label ?? null,
+        transport,
         onFileBytesProgress: (bytes) => updateJob(jobId, (job) => ({ ...job, bytesSent: job.bytesSent + bytes })),
         onFileStarted: (name) => updateJob(jobId, (job) => ({ ...job, currentFileName: name })),
         onFileFinished: (outcome) => updateJob(jobId, (job) => ({

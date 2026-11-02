@@ -14,6 +14,22 @@ const oauthKeys = generateKeyPairSync('rsa', {
   privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
 })
 
+// A run against a real store: PHR_STORAGE=s3 with the browser's real CORS and ETag. Off this
+// machine it is refused, like the PHPUnit live suite, because these tests write and delete.
+const liveStore = process.env.PHR_E2E_S3_ENDPOINT
+if (liveStore && !['127.0.0.1', '[::1]', 'localhost'].includes(new URL(liveStore).hostname)) {
+  throw new Error('SAFETY ERROR: Playwright must use a local store.')
+}
+export const e2eLiveStore = liveStore
+  ? {
+      endpoint: liveStore,
+      bucket: process.env.PHR_E2E_S3_BUCKET ?? '',
+      region: process.env.PHR_E2E_S3_REGION ?? 'garage',
+      key: process.env.PHR_E2E_S3_KEY ?? '',
+      secret: process.env.PHR_E2E_S3_SECRET ?? '',
+    }
+  : null
+
 export const e2eEnv: Record<string, string> = {
   ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)),
   APP_ENV: 'testing',
@@ -39,4 +55,15 @@ export const e2eEnv: Record<string, string> = {
   PHR_EXPORTS_DISK_ROOT: path.join(e2eStorageRoot, 'exports'),
   QUEUE_CONNECTION: 'sync',
   SESSION_DRIVER: 'file',
+  ...(e2eLiveStore
+    ? {
+        PHR_STORAGE: 's3',
+        PHR_STORAGE_S3_ACCESS_KEY_ID: e2eLiveStore.key,
+        PHR_STORAGE_S3_SECRET_ACCESS_KEY: e2eLiveStore.secret,
+        PHR_STORAGE_S3_REGION: e2eLiveStore.region,
+        PHR_STORAGE_S3_BUCKET: e2eLiveStore.bucket,
+        PHR_STORAGE_S3_ENDPOINT: e2eLiveStore.endpoint,
+        PHR_STORAGE_S3_USE_PATH_STYLE_ENDPOINT: 'true',
+      }
+    : {}),
 }

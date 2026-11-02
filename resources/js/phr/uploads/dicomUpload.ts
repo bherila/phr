@@ -1,7 +1,9 @@
 import { fetchWrapper, getCsrfToken } from '@/fetchWrapper'
 import { formatBytes } from '@/lib/utils'
 import { errorMessage } from '@/phr/shared'
-import { type PhrDicomUploadFileResponse, PhrDicomUploadFileResponseSchema } from '@/phr/types'
+import { PhrDicomFileAuthorizationResponseSchema, type PhrDicomUploadFileResponse, PhrDicomUploadFileResponseSchema } from '@/phr/types'
+
+import { putToStorage } from './directUpload'
 
 /**
  * Ceiling on file-upload requests in flight at any moment, shared by *every* job.
@@ -89,6 +91,8 @@ export interface UploadControllerOptions {
   budget: ConcurrencyBudget
   maxFileBytes: number | null
   maxFileSizeLabel: string | null
+  /** `s3` sends each file straight to the installation's store. Anything else POSTs it, as always. */
+  transport?: string | undefined
   onFileBytesProgress: (deltaBytes: number) => void
   onFileStarted: (name: string) => void
   onFileFinished: (outcome: FileOutcome) => void
@@ -101,6 +105,9 @@ export class UploadController {
 
   private readonly activeRequests = new Set<XMLHttpRequest>()
 
+  /** Stops whatever a direct upload is doing: its API calls and its PUTs. */
+  private readonly directAbort = new AbortController()
+
   private hasHardFailure = false
 
   aborted = false
@@ -111,6 +118,7 @@ export class UploadController {
 
   abort(): void {
     this.aborted = true
+    this.directAbort.abort()
     for (const request of this.activeRequests) {
       request.abort()
     }
@@ -177,7 +185,9 @@ export class UploadController {
     }
 
     try {
-      const completed = await this.postFile(file, relativePath)
+      const completed = this.options.transport === 's3'
+        ? await this.sendToStorage(file, relativePath)
+        : await this.postFile(file, relativePath)
 
       return {
         stored: completed.result.stored,
@@ -193,6 +203,31 @@ export class UploadController {
         relativePath,
       }
     }
+  }
+
+  /**
+   * The session stays with the application; only the bytes go elsewhere. It signs the PUT and
+   * records the file afterward, answering as the POST does.
+   */
+  private async sendToStorage(file: File, relativePath: string): Promise<PhrDicomUploadFileResponse> {
+    const { signal } = this.directAbort
+    const base = `/api/phr/patients/${this.options.patientId}/dicom/uploads/${this.options.uploadId}/files`
+    const authorized = PhrDicomFileAuthorizationResponseSchema.parse(await fetchWrapper.post(`${base}/authorize`, {
+      relative_path: relativePath,
+      filename: file.name,
+      byte_size: file.size,
+      content_type: file.type || null,
+    }, { signal }))
+    if ('result' in authorized) {
+      this.options.onFileBytesProgress(file.size)
+
+      return authorized
+    }
+
+    const { token, url, headers } = authorized.authorization
+    await putToStorage({ url, headers }, file, { signal, onProgress: this.options.onFileBytesProgress })
+
+    return PhrDicomUploadFileResponseSchema.parse(await fetchWrapper.post(`${base}/confirm`, { token }, { signal }))
   }
 
   private postFile(file: File, relativePath: string): Promise<PhrDicomUploadFileResponse> {

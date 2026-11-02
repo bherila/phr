@@ -3,8 +3,11 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 
 import { e2eDatabasePath, e2eEnv, e2eStorageRoot } from './environment'
+import { setLiveStoreCors } from './liveStoreCors'
 
 export default function globalSetup(): void {
+  setLiveStoreCors('documented')
+
   const safeDatabaseRoot = `${path.join(process.cwd(), 'storage/framework/testing')}${path.sep}`
   if (!e2eDatabasePath.startsWith(safeDatabaseRoot)) {
     throw new Error('Refusing to recreate a Playwright database outside storage/framework/testing.')
