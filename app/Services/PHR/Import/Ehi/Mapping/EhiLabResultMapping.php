@@ -19,7 +19,6 @@ use Generator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Database\UniqueConstraintViolationException;
-use Illuminate\Support\Collection;
 
 /**
  * Epic EHI `ORDER_RESULTS` rows to lab result proposals (issue #213, M3).
@@ -281,7 +280,7 @@ final class EhiLabResultMapping implements EhiMapping
     {
         $evidence = EhiLabEvidence::load($context, self::TABLE_ORDERS, self::TABLE_ENCOUNTERS, self::TABLE_COMMENTS, self::TABLE_NARRATIVE);
         $importSource = self::importSource($context->source->id);
-        $records = new EhiLabRecordIndex($context, $importSource, self::TABLE_RESULTS);
+        $records = new EhiLabRecordIndex($context, $importSource, self::TABLE_RESULTS, self::NAME);
         $narrativeOwners = $this->narrativeOwners($context);
 
         $group = [];
@@ -794,9 +793,8 @@ final class EhiLabResultMapping implements EhiMapping
             }
 
             $sameRevision = $links->contains(static fn (PhrEhiRecordLink $link): bool => (int) $link->revision_id === $revision->id);
-            $previous = $sameRevision ? null : $this->previousFields($context, $links);
 
-            return ['state' => 'target', 'record' => $record, 'previous' => $previous, 'same_revision' => $sameRevision];
+            return ['state' => 'target', 'record' => $record, 'previous' => $this->previousFields($records, $entity->key_digest), 'same_revision' => $sameRevision];
         }
 
         $record = $records->heldIdentity($externalId);
@@ -814,19 +812,17 @@ final class EhiLabResultMapping implements EhiMapping
     }
 
     /**
-     * The fields the latest linked proposal wrote or showed, so an update can tell
-     * what the source changed from what a person edited on the record.
+     * What the source said when this result was last accepted or linked, so an update
+     * can tell what the source changed from what a person edited on the record. Read
+     * from the decision rather than the root row's link, because a correction can arrive
+     * in a comment, narrative, or order row while the result row stays identical.
      *
-     * @param  Collection<int, PhrEhiRecordLink>  $links
      * @return array<string, string|null>|null
      */
-    private function previousFields(EhiMappingContext $context, Collection $links): ?array
+    private function previousFields(EhiLabRecordIndex $records, string $subject): ?array
     {
-        /** @var PhrEhiRecordLink $latest */
-        $latest = $links->sortByDesc('id')->first();
-        $proposal = $latest->proposal_id === null ? null : PhrEhiProposal::query()->where('patient_id', $context->patient->id)->find($latest->proposal_id);
-        $attributes = is_array($proposal?->proposed_json) ? ($proposal->proposed_json['attributes'] ?? null) : null;
-        if (! is_array($attributes)) {
+        $attributes = $records->decidedAttributes($subject);
+        if ($attributes === null) {
             return null;
         }
         $fields = [];
@@ -840,8 +836,10 @@ final class EhiLabResultMapping implements EhiMapping
 
     /**
      * Corroborate when nothing would change; otherwise an update over the mapped
-     * fields this revision changed that the record does not already hold. A field a
-     * person edited and the source did not change is left alone.
+     * fields the source changed that the record does not already hold. A field a
+     * person edited and the source did not change is left alone. With no decision to
+     * compare against, the same root revision says nothing changed and another says
+     * everything may have.
      *
      * @param  list<int>  $revisionIds
      * @param  array<string, mixed>  $proposed
@@ -853,14 +851,12 @@ final class EhiLabResultMapping implements EhiMapping
         $current = $this->currentFields($record);
         $changed = [];
         $before = [];
-        if (! $sameRevision) {
-            foreach (self::MAPPED_FIELDS as $field) {
-                $next = $this->comparable($field, $fields[$field]);
-                $sourceChanged = $previous === null || $this->comparable($field, $previous[$field] ?? null) !== $next;
-                if ($sourceChanged && $this->comparable($field, $current[$field]) !== $next) {
-                    $changed[] = $field;
-                    $before[$field] = $current[$field];
-                }
+        foreach (self::MAPPED_FIELDS as $field) {
+            $next = $this->comparable($field, $fields[$field]);
+            $sourceChanged = $previous === null ? ! $sameRevision : $this->comparable($field, $previous[$field] ?? null) !== $next;
+            if ($sourceChanged && $this->comparable($field, $current[$field]) !== $next) {
+                $changed[] = $field;
+                $before[$field] = $current[$field];
             }
         }
 

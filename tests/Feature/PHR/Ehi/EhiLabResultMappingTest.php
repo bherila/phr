@@ -458,6 +458,41 @@ class EhiLabResultMappingTest extends TestCase
         self::assertSame(0, PhrLabResult::query()->count());
     }
 
+    public function test_a_correction_only_in_joined_rows_reaches_the_record_through_an_approved_update(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $package = $this->previewed(EhiClinicalPackage::withLabs()->build(), $owner, $patient);
+        $this->accept($this->proposal($package, '8101', '66000.01', '1'), $owner);
+        $record = PhrLabResult::query()->where('external_id', 'ORDER_RESULTS:8101:66000.01:1')->sole();
+        $record->forceFill(['abnormal_flag' => 'Edited by a person'])->save();
+        $sourceId = PhrEhiSource::query()->sole()->id;
+
+        // ORDER_RESULTS is byte-identical; only a comment, the narrative, and the order changed.
+        $corrected = EhiClinicalPackage::withLabs()
+            ->changing('ORDER_RES_COMMENT', ['ORDER_ID' => '8101', 'CONTACT_DATE_REAL' => '66000.01', 'LINE' => '1', 'LINE_COMMENT' => '2'], ['RESULTS_CMT' => 'Synthetic corrected comment'])
+            ->changing('ORDER_NARRATIVE', ['ORDER_PROC_ID' => '8101', 'ORD_DATE_REAL' => '66000.01', 'LINE' => '1'], ['NARRATIVE' => 'Synthetic corrected narrative'])
+            ->changing('ORDER_PROC', ['ORDER_PROC_ID' => '8101'], ['AUTHRZING_PROV_ID_PROV_NAME' => 'SYNTHETIC CORRECTED PROVIDER']);
+        $second = $this->previewed($corrected->build(), $owner, $patient, 'package-2', $sourceId);
+
+        $update = $this->proposal($second, '8101', '66000.01', '1');
+        self::assertSame(PhrEhiProposal::KIND_UPDATE, $update->kind);
+        self::assertEqualsCanonicalizing(['result_comment', 'notes', 'ordering_provider'], $update->proposed_json['changed']);
+        self::assertStringContainsString('Synthetic comment line 2', (string) $update->before_json['result_comment']);
+        self::assertStringNotContainsString('Synthetic corrected comment', (string) $record->refresh()->result_comment, 'nothing changes until a person approves');
+
+        app(EhiProposalService::class)->review($update, PhrEhiProposal::DECISION_APPROVE_UPDATE, $owner->id, $update->preview_digest);
+        $record->refresh();
+        self::assertStringContainsString('Synthetic corrected comment', (string) $record->result_comment);
+        self::assertStringContainsString('Synthetic corrected narrative', (string) $record->notes);
+        self::assertSame('SYNTHETIC CORRECTED PROVIDER', $record->ordering_provider);
+        self::assertSame('Edited by a person', $record->abnormal_flag, 'what the source did not change stays as a person left it');
+
+        // The same content again corroborates, and a person's later edit is not proposed away.
+        $record->forceFill(['ordering_provider' => 'Edited by a person too'])->save();
+        $third = $this->previewed($corrected->adding('ORDER_PROC', ['ORDER_PROC_ID' => '8300', 'PAT_ID' => EhiClinicalPackage::PATIENT_KEY])->build(), $owner, $patient, 'package-3', $sourceId);
+        self::assertSame(PhrEhiProposal::KIND_CORROBORATE, $this->proposal($third, '8101', '66000.01', '1')->kind);
+    }
+
     public function test_an_update_is_refused_if_the_record_changed_since_the_preview(): void
     {
         [$owner, $patient] = $this->ownerAndPatient();
