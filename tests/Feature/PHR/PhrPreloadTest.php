@@ -186,7 +186,8 @@ final class PhrPreloadTest extends TestCase
             'user_id' => $this->owner->id,
             'test_name' => 'Synthetic panel',
             'analyte' => 'Synthetic analyte',
-            'value' => str_repeat('x', PhrPreloadBuilder::MAX_BYTES),
+            'value' => '1',
+            'notes' => str_repeat('x', PhrPreloadBuilder::MAX_BYTES),
         ]);
         $p = "/api/phr/patients/{$this->patient->id}";
 

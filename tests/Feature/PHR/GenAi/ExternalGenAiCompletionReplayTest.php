@@ -15,6 +15,7 @@ use Bherila\GenAiLaravel\Mcp\McpQueueService;
 use Bherila\GenAiLaravel\Mcp\Models\McpRequest;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Tests\TestCase;
 
@@ -337,6 +338,9 @@ final class ExternalGenAiCompletionReplayTest extends TestCase
         foreach (['completion_principal', 'completion_hash', 'completion_receipt_id'] as $field) {
             $original = $request->getAttribute($field);
             foreach ([null, ''] as $missing) {
+                if ($missing === '' && $field === 'completion_receipt_id' && DB::connection()->getDriverName() === 'pgsql') {
+                    continue; // A uuid column cannot hold an empty string.
+                }
                 $request->forceFill([$field => $missing])->save();
                 try {
                     app(McpQueueService::class)->complete($context, $request->id, $leaseToken, $this->completionResponse(), [

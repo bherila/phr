@@ -45,7 +45,7 @@ final class OAuthPatientConsents
         }
         $scope = $request->query('scope');
         $clientId = $request->query('client_id');
-        $client = is_string($clientId) ? Passport::client()->newQuery()->find($clientId) : null;
+        $client = Str::isUuid($clientId) ? Passport::client()->newQuery()->find($clientId) : null;
         $registeredAt = config('bherila-auth.oauth_server.dynamic_clients.registered_at_column', 'dynamically_registered_at');
         abort_unless($request->query('patient_select') === '1'
             && is_string($scope) && in_array(AgentApiScopes::BILLING_READ, explode(' ', $scope), true)

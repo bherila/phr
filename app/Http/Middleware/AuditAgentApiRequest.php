@@ -63,7 +63,8 @@ class AuditAgentApiRequest
             : null;
 
         try {
-            AgentApiAudit::query()->create([
+            // A savepoint: on PostgreSQL a refused insert would otherwise end any open transaction.
+            AgentApiAudit::query()->getConnection()->transaction(static fn () => AgentApiAudit::query()->create([
                 'request_id' => $requestId,
                 'actor_user_id' => $actorUserId,
                 'oauth_client_id' => is_string($clientId) ? $clientId : null,
@@ -75,7 +76,7 @@ class AuditAgentApiRequest
                 'duration_ms' => max(0, (int) round((hrtime(true) - $startedAt) / 1_000_000)),
                 'sampling_key' => $samplingKey,
                 'created_at' => $createdAt,
-            ]);
+            ]));
         } catch (UniqueConstraintViolationException $exception) {
             if ($samplingKey === null || ! AgentApiAudit::query()->where('sampling_key', $samplingKey)->exists()) {
                 throw $exception;

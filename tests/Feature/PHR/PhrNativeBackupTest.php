@@ -460,7 +460,7 @@ class PhrNativeBackupTest extends TestCase
             restoreAccessGrants: true, // Explicit test-only proof; production restore is out of scope.
         );
 
-        $this->assertSame([], DB::select('PRAGMA foreign_key_check'));
+        $this->assertSame([], $this->foreignKeyViolations());
         $this->assertNull(DB::table('phr_ehi_packages')->where('patient_id', $restoredPatientId)->value('lease_token'));
         // Evidence links and decision history point at the restored clinical rows.
         $restoredImmunizationId = DB::table('phr_immunizations')->where('patient_id', $restoredPatientId)->value('id');

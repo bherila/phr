@@ -120,6 +120,10 @@ final class PhrPatientBootstrapTest extends TestCase
 
     public function test_oversized_raw_profiles_are_refused_before_hydration_and_invalid_utf8_is_omitted(): void
     {
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            $this->markTestSkipped('PostgreSQL refuses NUL bytes and invalid UTF-8, so these profiles cannot be stored.');
+        }
+
         $user = $this->createUser();
         $patient = $this->patient($user, 'Synthetic profile', "\0".str_repeat('x', 2 * PhrPatientListService::BOOTSTRAP_MAX_BYTES));
         $hydrated = 0;

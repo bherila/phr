@@ -15,6 +15,7 @@ use App\Services\PHR\NativeBackup\PhrNativeBackupService;
 use App\Services\PHR\NativeBackup\PhrNativeRestoreService;
 use App\Services\PHR\NativeBackup\PhrNativeTableCompatibility;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -72,7 +73,7 @@ class EhiEvidenceRestoreTest extends TestCase
         @unlink($archive);
 
         $restoredId = (int) $attempt->target_patient_root_id;
-        self::assertSame([], DB::select('PRAGMA foreign_key_check'));
+        self::assertSame([], $this->foreignKeyViolations());
         self::assertSame($counts, $this->evidenceCounts($restoredId));
         $record = PhrImmunization::query()->where('patient_id', $restoredId)->sole();
         self::assertSame($record->id, (int) DB::table('phr_ehi_record_links')->where('patient_id', $restoredId)->value('immunization_id'));
@@ -113,7 +114,7 @@ class EhiEvidenceRestoreTest extends TestCase
         $pending = $this->proposalFor($package, '100', '2');
         $row = (array) DB::table('phr_ehi_proposals')->where('id', $pending->id)->sole();
         DB::table('phr_ehi_proposals')->where('id', $pending->id)->delete();
-        DB::table('phr_ehi_proposals')->insert([...$row, 'id' => null]);
+        DB::table('phr_ehi_proposals')->insert(Arr::except($row, 'id'));
 
         $restore = app(PhrNativeRestoreService::class);
         $attempt = $restore->preview($restore->createPreview(new UploadedFile($archive, 'synthetic-native.zip', 'application/zip', null, true), $owner->id, false));

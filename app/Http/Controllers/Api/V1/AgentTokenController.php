@@ -8,6 +8,7 @@ use App\Support\AgentApi\OAuthPatientConsents;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Laravel\Passport\AccessToken;
 use Laravel\Passport\Passport;
 
@@ -58,7 +59,7 @@ class AgentTokenController extends Controller
         // A personal API token has no consent to withdraw, and its client is
         // shared by every personal token the person holds: it only disconnects
         // itself, exactly as the token endpoint's DELETE does.
-        $client = Passport::client()->newQuery()->find($clientId);
+        $client = Str::isUuid($clientId) ? Passport::client()->newQuery()->find($clientId) : null;
         if ($client === null || ! $client->hasGrantType('authorization_code')) {
             return $this->destroy($request);
         }

@@ -62,9 +62,15 @@ final class AgentDocumentController extends Controller
         }
         if (isset($validated['tag'])) {
             $tag = mb_strtolower((string) $validated['tag']);
-            if ($query->getModel()->getConnection()->getDriverName() === 'sqlite') {
+            $driver = $query->getModel()->getConnection()->getDriverName();
+            if ($driver === 'sqlite') {
                 $query->whereRaw(
                     'EXISTS (SELECT 1 FROM json_each(phr_documents.tags) AS agent_tags WHERE LOWER(agent_tags.value) = ?)',
+                    [$tag],
+                );
+            } elseif ($driver === 'pgsql') {
+                $query->whereRaw(
+                    "EXISTS (SELECT 1 FROM jsonb_array_elements_text(CASE WHEN jsonb_typeof(CAST(phr_documents.tags AS jsonb)) = 'array' THEN CAST(phr_documents.tags AS jsonb) ELSE '[]'::jsonb END) AS agent_tags(value) WHERE LOWER(agent_tags.value) = ?)",
                     [$tag],
                 );
             } else {

@@ -7,6 +7,7 @@ use App\Models\OAuthTokenFamily;
 use App\Support\AgentApi\OAuthCredentialRevoker;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
+use Illuminate\Support\Str;
 use Laravel\Passport\Passport;
 
 #[Signature('phr:agent-api:revoke-first-party-client {client_id : Exact first-party client ID to disable permanently}')]
@@ -16,7 +17,7 @@ final class AgentApiRevokeFirstPartyClientCommand extends BasePhrCommand
     public function handle(OAuthCredentialRevoker $revoker): int
     {
         $clientId = (string) $this->argument('client_id');
-        $client = Passport::client()->newQuery()->find($clientId);
+        $client = Str::isUuid($clientId) ? Passport::client()->newQuery()->find($clientId) : null;
         $grants = $client?->getAttribute('grant_types');
         $registeredColumn = config('bherila-auth.oauth_server.dynamic_clients.registered_at_column', 'dynamically_registered_at');
         if ($client === null || ! $client->firstParty() || ! $client->confidential()

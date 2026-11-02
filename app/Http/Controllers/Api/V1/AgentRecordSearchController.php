@@ -349,9 +349,15 @@ final class AgentRecordSearchController extends Controller
             foreach ($definition['code_arrays'] as $column) {
                 $method = $hasPredicate ? 'orWhereRaw' : 'whereRaw';
                 $qualified = $matches->getModel()->qualifyColumn($column);
-                if ($matches->getModel()->getConnection()->getDriverName() === 'sqlite') {
+                $driver = $matches->getModel()->getConnection()->getDriverName();
+                if ($driver === 'sqlite') {
                     $matches->{$method}(
                         "EXISTS (SELECT 1 FROM json_each({$qualified}) AS agent_codes WHERE LOWER(json_extract(agent_codes.value, '$.code')) = ?)",
+                        [$code],
+                    );
+                } elseif ($driver === 'pgsql') {
+                    $matches->{$method}(
+                        "EXISTS (SELECT 1 FROM jsonb_array_elements(CASE WHEN jsonb_typeof(CAST({$qualified} AS jsonb)) = 'array' THEN CAST({$qualified} AS jsonb) ELSE '[]'::jsonb END) AS agent_codes WHERE LOWER(agent_codes->>'code') = ?)",
                         [$code],
                     );
                 } else {

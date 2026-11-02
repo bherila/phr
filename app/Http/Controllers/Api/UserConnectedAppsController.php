@@ -6,6 +6,7 @@ use App\Models\OAuthClientConsent;
 use App\Support\AgentApi\OAuthCredentialRevoker;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Laravel\Passport\Passport;
 use Symfony\Component\HttpFoundation\Response;
 
@@ -26,7 +27,7 @@ final readonly class UserConnectedAppsController
             ->paginate(20, ['client_id'], 'page', $validated['page'] ?? 1);
         $clientIds = $clients->getCollection()->pluck('client_id');
         $names = Passport::client()->newQuery()
-            ->whereIn('id', $clientIds)
+            ->whereIn('id', $clientIds->filter(static fn (string $id): bool => Str::isUuid($id)))
             ->pluck('name', 'id');
         $consents = OAuthClientConsent::query()
             ->where('user_id', $userId)

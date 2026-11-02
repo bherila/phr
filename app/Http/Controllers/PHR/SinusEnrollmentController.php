@@ -9,6 +9,7 @@ use App\Http\Resources\PHR\SinusEnrollmentResource;
 use App\Models\PhrRespiratoryEvent;
 use App\Models\PhrSinusEnrollment;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Support\Database\BinaryColumn;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
@@ -92,7 +93,7 @@ class SinusEnrollmentController extends Controller
 
             $removed = PhrSinusEnrollment::query()
                 ->where('phr_patient_id', $resolvedPatient->id)
-                ->where('client_enrollment_uuid', $raw)
+                ->where('client_enrollment_uuid', BinaryColumn::bind($raw))
                 ->delete();
 
             $deleted += $removed;
@@ -177,7 +178,7 @@ class SinusEnrollmentController extends Controller
 
         $exists = PhrSinusEnrollment::query()
             ->where('phr_patient_id', $patientId)
-            ->where('client_enrollment_uuid', $rawUuid)
+            ->where('client_enrollment_uuid', BinaryColumn::bind($rawUuid))
             ->exists();
 
         if ($exists) {

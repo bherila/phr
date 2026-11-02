@@ -2,6 +2,7 @@
 
 namespace App\Services\PHR\NativeBackup;
 
+use App\Support\Database\BinaryColumn;
 use Illuminate\Support\Facades\Schema;
 
 final class PhrNativeRecordCodec
@@ -35,10 +36,11 @@ final class PhrNativeRecordCodec
         }
 
         $type = $this->columnTypes($table)[$column] ?? 'string';
-        if (preg_match('/(blob|binary)/i', $type)) {
-            return ['encoding' => 'base64', 'data' => base64_encode((string) $value)];
+        if (preg_match('/(blob|binary|bytea)/i', $type)) {
+            return ['encoding' => 'base64', 'data' => base64_encode((string) BinaryColumn::read($value))];
         }
-        if (preg_match('/(int|serial)/i', $type)) {
+        // A boolean is written as 0 or 1 whatever the engine, so an archive restores anywhere.
+        if (preg_match('/(int|serial|bool)/i', $type)) {
             return (int) $value;
         }
         if (preg_match('/(real|float|double|decimal|numeric)/i', $type)) {
@@ -56,7 +58,7 @@ final class PhrNativeRecordCodec
                 throw new NativeBackupException('invalid_archive');
             }
 
-            return $decoded;
+            return BinaryColumn::bind($decoded);
         }
 
         return $value;
