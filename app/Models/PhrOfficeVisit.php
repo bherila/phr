@@ -115,10 +115,16 @@ class PhrOfficeVisit extends Model
     }
 
     /**
-     * Whether a stored start time is a wall clock in a zone nobody recorded. It is
-     * shown as written, but an export must not state it as UTC, so it exports the
-     * date alone. Null is a record from before zones were recorded.
+     * Whether a stored end time is a wall clock in a zone nobody recorded. It is shown
+     * as written, but an export must not state it as UTC, so it exports the date alone.
+     * Null is a record from before zones were recorded, or a time a person entered.
      */
+    public function endZoneIsUnrecorded(): bool
+    {
+        return in_array($this->visit_ended_timezone, ['local', 'unspecified'], true);
+    }
+
+    /** The same for the start, which falls back to the visit's date when it has no time. */
     public function startZoneIsUnrecorded(): bool
     {
         return in_array($this->visit_started_timezone, ['local', 'unspecified'], true)

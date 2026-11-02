@@ -376,6 +376,33 @@ class EhiEncounterMappingTest extends TestCase
         self::assertGreaterThan(0, PhrEhiFinding::query()->where('package_id', $package->id)->where('code', EhiEncounterMapping::FINDING_DIAGNOSES_UNAVAILABLE)->count());
     }
 
+    public function test_each_exported_visit_time_follows_its_own_zone_provenance(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        PhrPatientUserAccess::query()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'access_level' => PhrPatientUserAccess::LEVEL_OWNER, 'granted_by_user_id' => $owner->id, 'granted_at' => now()]);
+        $package = $this->previewed(EhiClinicalPackage::withEncounters()->build(), $owner, $patient);
+        $this->accept($this->proposal($package, '7102'), $owner);
+        $visit = PhrOfficeVisit::query()->where('external_id', 'PAT_ENC:7102')->sole();
+        $url = "/api/phr/patients/{$patient->id}/office-visits/{$visit->id}";
+        $period = function () use ($patient): array {
+            $bundle = json_decode(app(PhrFhirExporter::class)->bundleJson(app(PhrExportDataService::class)->load($patient->refresh())), true, flags: JSON_THROW_ON_ERROR);
+
+            return collect($bundle['entry'])->pluck('resource')->firstWhere('resourceType', 'Encounter')['period'];
+        };
+
+        // Both are the source's unzoned wall clock.
+        self::assertSame(['start' => '2024-05-02', 'end' => '2024-05-03'], $period());
+
+        // A person states the start: it keeps its time, and the source's end stays unzoned.
+        $this->actingAs($owner)->patchJson($url, ['visit_started_at' => '2024-05-02 23:00:00'])->assertOk();
+        self::assertSame(['start' => '2024-05-02T23:00:00+00:00', 'end' => '2024-05-03'], $period());
+
+        // And the other way round, on a visit whose start is still the source's.
+        $visit->refresh()->forceFill(['visit_started_at' => '2024-05-02 22:15:00', 'visit_started_timezone' => 'local', 'visit_started_source' => '2024-05-02 22:15:00'])->save();
+        $this->actingAs($owner)->patchJson($url, ['visit_ended_at' => '2024-05-03 07:00:00'])->assertOk();
+        self::assertSame(['start' => '2024-05-02', 'end' => '2024-05-03T07:00:00+00:00'], $period());
+    }
+
     public function test_a_visit_rejected_after_the_preview_cannot_be_linked_and_gets_no_later_update(): void
     {
         [$owner, $patient] = $this->ownerAndPatient();
