@@ -136,7 +136,7 @@ describe('DicomUploadProvider', () => {
   it('uploads every file in the folder with one multipart POST each', async () => {
     const restoreXhr = MockUploadXMLHttpRequest.install()
     MockUploadXMLHttpRequest.responseTextFor = (body) => JSON.stringify(
-      makeDicomUploadFileResponse(String(body.get('relative_path'))),
+      makeDicomUploadFileResponse(body.get('relative_path') as string),
     )
     mockPost.mockImplementation(async (url: string) => {
       if (url === OPEN_URL) return { upload: makeDicomUpload('pending') }
@@ -153,7 +153,9 @@ describe('DicomUploadProvider', () => {
       await waitFor(() => expect(within(tray()).getByText('Upload complete')).toBeInTheDocument())
       expect(MockUploadXMLHttpRequest.instances).toHaveLength(2)
       expect(
-        MockUploadXMLHttpRequest.instances.map((instance) => instance.requestBody?.get('relative_path')).sort(),
+        MockUploadXMLHttpRequest.instances
+          .map((instance) => instance.requestBody?.get('relative_path') as string)
+          .sort((a, b) => a.localeCompare(b)),
       ).toEqual(['CARDIAC_CT/IM0001', 'CARDIAC_CT/IM0002'])
     } finally {
       restoreXhr()
@@ -164,7 +166,7 @@ describe('DicomUploadProvider', () => {
     const restoreXhr = MockUploadXMLHttpRequest.install()
     MockUploadXMLHttpRequest.autoComplete = false
     MockUploadXMLHttpRequest.responseTextFor = (body) => JSON.stringify(
-      makeDicomUploadFileResponse(String(body.get('relative_path'))),
+      makeDicomUploadFileResponse(body.get('relative_path') as string),
     )
     mockPost.mockImplementation(async (url: string) => {
       if (url === OPEN_URL) return { upload: makeDicomUpload('pending') }
@@ -203,7 +205,7 @@ describe('DicomUploadProvider', () => {
     const restoreXhr = MockUploadXMLHttpRequest.install()
     MockUploadXMLHttpRequest.autoComplete = false
     MockUploadXMLHttpRequest.responseTextFor = (body) => JSON.stringify(
-      makeDicomUploadFileResponse(String(body.get('relative_path'))),
+      makeDicomUploadFileResponse(body.get('relative_path') as string),
     )
     mockPost.mockImplementation(async (url: string) => {
       if (url === OPEN_URL) return { upload: makeDicomUpload('pending') }

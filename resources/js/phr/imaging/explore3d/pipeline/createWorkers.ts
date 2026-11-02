@@ -3,7 +3,9 @@
  * `new Worker(new URL(...))` is both un-mockable and unsupported in jsdom.
  */
 
+// oxlint-disable-next-line import/default -- Vite supplies this default export from the query suffix
 import decodeWorkerUrl from './decodeWorker.ts?worker&url'
+// oxlint-disable-next-line import/default -- Vite supplies this default export from the query suffix
 import meshWorkerUrl from './meshWorker.ts?worker&url'
 
 /**
