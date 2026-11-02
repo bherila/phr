@@ -271,13 +271,15 @@ final class MedicationFillCrossSourceDedupeTest extends TestCase
         $this->actingAsClient('insurer');
         $claim = $this->putJson($this->eobUrl(), $this->claim($eob, [[]]))->assertCreated()->json();
         $lineId = $claim['lines'][0]['id'];
-        $this->assertSame([], $this->readFill($fillId)['eob_line_ids']);
+        // The only fill and the only claim of the day: the server has inferred the link, and says so.
+        $this->assertSame([['eob_line_id' => $lineId, 'automatic' => true, 'rule' => 'sole_pair']], $this->readFill($fillId)['eob_links']);
 
-        // The agent links the fill to the line after reading the EOB (e.g. after eobs.import).
+        // The agent links the fill to the line after reading the EOB (e.g. after eobs.import). Its word replaces the inference.
         $this->actingAsClient('label');
         $this->fill('label', $label, ['ndc' => '58151-0155-77', 'source_kind' => 'label_photo', 'eob_line_id' => $lineId], 'label')
             ->assertOk()
-            ->assertJsonPath('data.eob_line_ids', [$lineId]);
+            ->assertJsonPath('data.eob_line_ids', [$lineId])
+            ->assertJsonPath('data.eob_links', [['eob_line_id' => $lineId, 'automatic' => false, 'rule' => null]]);
         $this->assertSame(1, PhrMedicationFill::query()->count());
 
         // A line of another patient's claim is refused.

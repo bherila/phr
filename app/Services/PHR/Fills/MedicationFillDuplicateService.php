@@ -132,7 +132,8 @@ final readonly class MedicationFillDuplicateService
 
         $held = PhrMedicationFillEvidence::query()->where('fill_id', $candidate->id)->pluck('evidence_key')->all();
         $rows = PhrMedicationFillEvidence::query()->where('fill_id', $fill->id)
-            ->whereNotIn('source_kind', ['possible_duplicate', self::KIND_MERGED, self::KIND_DISMISSED])
+            // The linker's rows stay behind and go when it next runs: it decides afresh for the fill that remains.
+            ->whereNotIn('source_kind', ['possible_duplicate', self::KIND_MERGED, self::KIND_DISMISSED, ...PhrMedicationFillEvidence::LINKER_KINDS])
             ->orderBy('id')->get();
         foreach ($rows as $row) {
             if (in_array($row->evidence_key, $held, true)) {
