@@ -244,12 +244,16 @@ jobs:
           retention-days: 14
 
   e2e:
-    name: Playwright E2E
+    name: Playwright E2E (${{ matrix.shard }}/2)
     needs: frontend-build
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 20
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v7
 
@@ -286,13 +290,13 @@ jobs:
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Run Playwright
-        run: pnpm run test:e2e
+        run: pnpm exec playwright test --shard=${{ matrix.shard }}/2
 
       - name: Upload failure artifacts
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-failure-artifacts
+          name: playwright-failure-artifacts-${{ matrix.shard }}
           path: test-results/
           if-no-files-found: ignore
           retention-days: 7
