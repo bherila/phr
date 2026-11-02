@@ -191,7 +191,7 @@ final class PhrPreloadTest extends TestCase
         ]);
         $p = "/api/phr/patients/{$this->patient->id}";
 
-        $this->assertSame(["{$p}/review/summary"], array_keys($this->preload($this->actingAs($this->owner)->get("/phr/patient/{$this->patient->id}/labs")->assertOk())));
+        $this->assertSame(["{$p}/ehi/pending", "{$p}/review/summary"], array_keys($this->preload($this->actingAs($this->owner)->get("/phr/patient/{$this->patient->id}/labs")->assertOk())));
         $this->actingAs($this->owner)->getJson("{$p}/lab-results")->assertOk()->assertJsonCount(1, 'lab_results');
 
         $html = $this->actingAs($this->owner)->get("/phr/patient/{$this->patient->id}")->assertOk();
