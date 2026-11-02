@@ -322,6 +322,10 @@ final class PhrNativeBackupCatalog
                 'patient_column' => 'patient_id',
                 'because' => 'Transient browser staging of an EHI ZIP; the package intake produced from it is backed up with its preserved members.',
             ],
+            'phr_dicom_upload_reservations' => [
+                'patient_column' => 'patient_id',
+                'because' => 'Transient reservations for signed DICOM uploads; a restored patient has no live URLs.',
+            ],
             'phr_document_uploads' => [
                 'patient_column' => 'patient_id',
                 'because' => 'Transient upload sessions.',

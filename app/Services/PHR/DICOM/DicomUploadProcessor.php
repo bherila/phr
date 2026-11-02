@@ -7,6 +7,7 @@ use App\Models\PhrDicomInstance;
 use App\Models\PhrDicomSeries;
 use App\Models\PhrDicomStudy;
 use App\Models\PhrDicomUpload;
+use App\Models\PhrDicomUploadReservation;
 use App\Models\PhrPatient;
 use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
 use App\Services\PHR\Documents\UploadUrlSigner;
@@ -86,7 +87,7 @@ class DicomUploadProcessor
     public const DUPLICATE_UPLOAD_MESSAGE = 'Duplicate DICOM study upload was skipped because all image instances already exist for this patient.';
 
     /** Added to a staging key for its copy that no URL can reach. URLs are signed for bare UUIDs. */
-    private const string SEALED_SUFFIX = '.sealed';
+    public const string SEALED_SUFFIX = '.sealed';
 
     /** Minutes a signed file URL lives. The browser asks for each file as it gets to it. */
     private const int FILE_URL_MINUTES = 15;
@@ -194,19 +195,26 @@ class DicomUploadProcessor
                 fn (): array => $this->skipResult($reason),
             )];
         }
-        app(BlobStorageQuota::class)->assertForPatient($current->patient()->firstOrFail(), $byteSize);
-
         $key = PhrStorageKey::dicomIncoming((int) $current->patient_id, (int) $current->id, Str::uuid()->toString());
         $expires = now()->addMinutes(self::FILE_URL_MINUTES);
 
         // Recorded under the patient lock, before the URL exists: patient deletion either sees
-        // this window and waits for it, or has already happened and this finds no patient.
-        $signed = $this->writeGuard()->run((int) $current->patient_id, function () use ($current, $key, $byteSize, $expires): array {
+        // this window and waits for it, or has already happened and this finds no patient. The
+        // bytes are admitted and reserved here too, so authorizing again can't pass a limit.
+        $signed = $this->writeGuard()->run((int) $current->patient_id, function (PhrPatient $patient) use ($current, $key, $byteSize, $expires): array {
             $locked = PhrDicomUpload::query()->lockForUpdate()->findOrFail($current->id);
             if ($locked->status !== PhrDicomUpload::STATUS_PENDING) {
                 throw new HttpException(409, 'Upload session is no longer accepting files.');
             }
+            app(BlobStorageQuota::class)->assertForPatient($patient, $byteSize);
             $locked->update(['signed_url_expires_at' => $expires]);
+            PhrDicomUploadReservation::query()->create([
+                'patient_id' => $patient->id,
+                'upload_id' => $locked->id,
+                'staging_key' => $key,
+                'byte_size' => $byteSize,
+                'expires_at' => $expires,
+            ]);
 
             return $this->signer()->sign(self::DISK, $key, self::DIRECT_CONTENT_TYPE, $byteSize, $expires);
         });
@@ -241,6 +249,10 @@ class DicomUploadProcessor
         $bytes = (int) $claim['bytes'];
         $sealed = $key.self::SEALED_SUFFIX;
         $disk = $this->disk();
+        $reservation = PhrDicomUploadReservation::query()->where('upload_id', $upload->id)->where('staging_key', $key)->whereNull('closed_at')->first();
+        if ($reservation === null) {
+            throw new UnprocessableEntityHttpException('This file was already recorded, or its upload has closed.');
+        }
 
         if (! $disk->copy($key, $sealed)) {
             throw new UnprocessableEntityHttpException('The file did not reach storage.');
@@ -259,20 +271,33 @@ class DicomUploadProcessor
                     is_string($claim['relative_path'] ?? null) ? $claim['relative_path'] : null,
                     (string) $claim['filename'],
                     $bytes,
-                    fn (PhrPatient $patient, PhrDicomUpload $locked, string $unique): array => $this->classifyAndPersist(
-                        $patient,
-                        $locked,
-                        $local->path,
-                        $bytes,
-                        is_string($claim['content_type'] ?? null) && $claim['content_type'] !== '' ? $claim['content_type'] : self::DIRECT_CONTENT_TYPE,
-                        $unique,
-                        function (string $storageKey) use ($disk, $sealed): void {
-                            if (! $disk->move($sealed, $storageKey)) {
-                                throw new RuntimeException('A sealed DICOM object could not be moved to its durable key.');
-                            }
-                        },
-                    ),
+                    function (PhrPatient $patient, PhrDicomUpload $locked, string $unique) use ($local, $bytes, $claim, $disk, $sealed, $reservation): array {
+                        $classified = $this->classifyAndPersist(
+                            $patient,
+                            $locked,
+                            $local->path,
+                            $bytes,
+                            is_string($claim['content_type'] ?? null) && $claim['content_type'] !== '' ? $claim['content_type'] : self::DIRECT_CONTENT_TYPE,
+                            $unique,
+                            function (string $storageKey) use ($disk, $sealed): void {
+                                if (! $disk->move($sealed, $storageKey)) {
+                                    throw new RuntimeException('A sealed DICOM object could not be moved to its durable key.');
+                                }
+                            },
+                            admitted: true,
+                        );
+                        // A stored file now counts as one. A skipped one's URL can still land its
+                        // bytes again, so it stays reserved until phr:dicom:gc reclaims it.
+                        if ($classified['stored']) {
+                            $reservation->delete();
+                        } else {
+                            $reservation->update(['closed_at' => now()]);
+                        }
+
+                        return $classified;
+                    },
                 );
+                app(BlobStorageQuota::class)->forgetUsage((int) $upload->patient()->firstOrFail()->owner_user_id);
             } finally {
                 $local->release();
             }
@@ -567,9 +592,10 @@ class DicomUploadProcessor
      * stored DICOM, and record it.
      *
      * @param  callable(string): void  $store
+     * @param  bool  $admitted  whether a reservation already counted these bytes against the limit
      * @return array{stored: bool, skipped_reason: string|null, study_id: int|null, file_kind: string|null, normalized: array<string, mixed>|null}
      */
-    private function classifyAndPersist(PhrPatient $patient, PhrDicomUpload $upload, string $realPath, int $fileSize, string $mimeType, string $relativePath, callable $store): array
+    private function classifyAndPersist(PhrPatient $patient, PhrDicomUpload $upload, string $realPath, int $fileSize, string $mimeType, string $relativePath, callable $store, bool $admitted = false): array
     {
         if ($this->isAuxiliaryFile($relativePath)) {
             return $this->skipResult('auxiliary_file');
@@ -585,7 +611,9 @@ class DicomUploadProcessor
         }
 
         $storageKey = $this->storageKey($upload->r2_prefix, $relativePath);
-        app(BlobStorageQuota::class)->assertForPatient($patient, $fileSize);
+        if (! $admitted) {
+            app(BlobStorageQuota::class)->assertForPatient($patient, $fileSize);
+        }
         $store($storageKey);
 
         $sha256 = hash_file('sha256', $realPath);

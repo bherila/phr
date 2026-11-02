@@ -233,6 +233,8 @@ class SignedWriteUrlsHoldDeletionTest extends TestCase
         $this->assertSame(200, $this->putToStore($authorization, str_repeat('x', 10))['status']);
         $this->assertCount(1, $this->left(), 'the URL still works, which is the point of this test');
 
+        // Reserved until the URL can land nothing more, so an earlier sweep would be repeated.
+        $this->travel(16)->minutes();
         $this->artisan('phr:dicom:gc')->assertSuccessful();
 
         $this->assertSame([], $this->left());

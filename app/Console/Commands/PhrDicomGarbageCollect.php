@@ -4,10 +4,10 @@ namespace App\Console\Commands;
 
 use App\Models\PhrDicomFile;
 use App\Models\PhrDicomUpload;
+use App\Models\PhrDicomUploadReservation;
 use App\Services\PHR\DICOM\DicomUploadProcessor;
 use App\Services\PHR\Documents\UploadUrlSigner;
 use App\Support\Storage\BlobReferences;
-use App\Support\Storage\PhrStorageKey;
 use App\Support\Storage\PhrStorageMap;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
@@ -41,16 +41,18 @@ class PhrDicomGarbageCollect extends Command
 
         $stalePending = $this->failStalePendingUploads($cutoff, $dryRun);
         $staleDerivedVolumes = $this->reclaimStaleDerivedVolumes($dryRun);
+        $releasedReservations = $this->releaseReservations($dryRun);
         $orphanedObjects = $this->reclaimOrphanedObjects($dryRun);
 
         $abortedUploads = $this->abortIncompleteUploads($cutoff, $dryRun);
 
         $this->info(sprintf(
-            'PHR DICOM gc complete: %d pending upload(s) finalized, %d stale derived volume(s) reclaimed, %d storage object(s) reclaimed, %d incomplete upload(s) aborted.',
+            'PHR DICOM gc complete: %d pending upload(s) finalized, %d stale derived volume(s) reclaimed, %d storage object(s) reclaimed, %d incomplete upload(s) aborted, %d reservation(s) released.',
             $stalePending,
             $staleDerivedVolumes,
             $orphanedObjects,
             $abortedUploads,
+            $releasedReservations,
         ));
 
         return self::SUCCESS;
@@ -115,6 +117,38 @@ class PhrDicomGarbageCollect extends Command
     }
 
     /**
+     * A reservation the session will never record, once its URL can land nothing more: remove
+     * what is at its staging key, then stop counting it against storage limits. A failed delete
+     * keeps the row, so the bytes stay counted and the next run tries again.
+     */
+    private function releaseReservations(bool $dryRun): int
+    {
+        if ($dryRun || ! $this->signer->directUploadsEnabled()) {
+            return 0;
+        }
+        $released = 0;
+        PhrDicomUploadReservation::query()
+            ->where('expires_at', '<=', now())
+            ->where(fn ($query) => $query
+                ->whereNotNull('closed_at')
+                ->orWhereHas('upload', fn ($upload) => $upload->where('status', '!=', PhrDicomUpload::STATUS_PENDING)))
+            ->chunkById(500, function ($reservations) use (&$released): void {
+                foreach ($reservations as $reservation) {
+                    try {
+                        if ($this->uploadProcessor->disk()->delete($reservation->staging_key)) {
+                            $reservation->delete();
+                            $released++;
+                        }
+                    } catch (Throwable $error) {
+                        $this->error('Failed to reclaim a DICOM reservation ('.$error::class.').');
+                    }
+                }
+            });
+
+        return $released;
+    }
+
+    /**
      * List storage keys with no matching phr_dicom_files row and delete them.
      *
      * Canonical and legacy roots come from the same map as storage:prune so a
@@ -138,14 +172,18 @@ class PhrDicomGarbageCollect extends Command
             return 0;
         }
 
-        // A direct upload's bytes reach the store before anything is recorded, so while the
-        // upload is pending they are wanted, at its staging prefix and its own. The stale-upload
-        // pass above decides when that stops.
+        // A direct upload's bytes reach the store before anything is recorded. A reservation says
+        // which staging keys are still wanted, and a pending upload's prefix covers the moment
+        // between a durable copy and its row. Staging bytes with neither are a late PUT's.
         $pendingPrefixes = [];
+        $reserved = [];
         if ($this->signer->directUploadsEnabled()) {
-            foreach (PhrDicomUpload::query()->where('status', PhrDicomUpload::STATUS_PENDING)->get(['id', 'patient_id', 'r2_prefix']) as $pending) {
+            foreach (PhrDicomUpload::query()->where('status', PhrDicomUpload::STATUS_PENDING)->get(['r2_prefix']) as $pending) {
                 $pendingPrefixes[] = rtrim((string) $pending->r2_prefix, '/').'/';
-                $pendingPrefixes[] = PhrStorageKey::dicomIncomingPrefix((int) $pending->patient_id, (int) $pending->id).'/';
+            }
+            foreach (PhrDicomUploadReservation::query()->get(['staging_key']) as $reservation) {
+                $reserved[$reservation->staging_key] = true;
+                $reserved[$reservation->staging_key.DicomUploadProcessor::SEALED_SUFFIX] = true;
             }
         }
 
@@ -174,7 +212,7 @@ class PhrDicomGarbageCollect extends Command
             }
 
             foreach ($keyBatch as $key) {
-                if (isset($knownSet[$key]) || BlobReferences::covers($key, [], $pendingPrefixes)) {
+                if (isset($knownSet[$key]) || isset($reserved[$key]) || BlobReferences::covers($key, [], $pendingPrefixes)) {
                     continue;
                 }
 

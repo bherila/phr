@@ -191,6 +191,12 @@ through PHP, but each file is still read back once. A late PUT lands in staging,
 object against the declared size, before intake is queued. Intake then reads the object through
 a local temporary copy.
 
+**Storage limits count what a URL allows.** A store accepts what a URL allows whether or not the
+application is ever told, so a signed DICOM file counts against the limit from the moment its URL
+exists. It stops once it is recorded as a stored file. If it won't be recorded (skipped, or its
+session cancelled, finalized or abandoned), it stops once its URL has expired and `phr:dicom:gc`
+has removed its bytes, up to about 75 minutes after a cancel.
+
 **Patient deletion waits for signed URLs.** A store honours a URL until it expires, whatever the
 application decided since, so a deletion is only complete once no signed write URL can still land
 that patient's bytes. Each upload records how long its latest URL lives, and deletion is refused
