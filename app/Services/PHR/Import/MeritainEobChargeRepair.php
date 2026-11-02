@@ -54,7 +54,8 @@ final readonly class MeritainEobChargeRepair
 
         $charges = [];
         foreach ($lines as $line) {
-            $columns = $line->parsed_data['columns'] ?? null;
+            $parsed = $line->getAttribute('parsed_data');
+            $columns = is_array($parsed) ? ($parsed['columns'] ?? null) : null;
             if ($line->total_charges === null && is_string($line->raw_text) && is_array($columns) && isset($columns['total_charges'])) {
                 $charge = $this->parser->chargeFromLegacyLine($line->raw_text, $columns);
                 if ($charge !== null) {
