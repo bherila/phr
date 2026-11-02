@@ -1330,6 +1330,96 @@ final class PhrNativeRestoreTest extends TestCase
         @unlink($archivePath);
     }
 
+    public function test_an_archive_written_before_lab_provenance_and_lab_links_still_restores(): void
+    {
+        $owner = User::factory()->create(['user_role' => 'user']);
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        $this->seedEhiLink($patient, (int) $owner->id);
+        $labId = DB::table('phr_lab_results')->insertGetId([
+            'patient_id' => $patient->id,
+            'user_id' => $owner->id,
+            'analyte' => 'Synthetic older result',
+            'value' => '1',
+            'review_status' => PhrReviewStatus::CONFIRMED,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        $archivePath = $this->archiveCopy($patient, (int) $owner->id);
+        $absent = PhrNativeLifecycleCompatibility::TABLE_COLUMNS['phr_lab_results'];
+        // Forge the shape of an archive written before these columns existed, with
+        // hashes over that smaller set, and with records that really hold links.
+        $this->mutateTableRecords($archivePath, 'phr_lab_results', static function (array $record) use ($absent): array {
+            foreach ($absent as $column) {
+                if ($column !== 'range_min_inclusive' && $column !== 'range_max_inclusive') {
+                    unset($record['attributes'][$column]);
+                }
+            }
+
+            return $record;
+        });
+        foreach (['phr_ehi_record_links', 'phr_ehi_proposal_decisions'] as $table) {
+            $this->mutateTableRecords($archivePath, $table, static function (array $record) use ($table): array {
+                foreach (PhrNativeLifecycleCompatibility::TABLE_COLUMNS[$table] ?? [] as $column) {
+                    unset($record['attributes'][$column]);
+                }
+                foreach (PhrNativeLifecycleCompatibility::TABLE_RELATIONSHIPS[$table] as $column) {
+                    unset($record['relationships'][$column]);
+                }
+
+                return $record;
+            });
+        }
+
+        // Unchanged since the backup: every row is recognised, not a conflict.
+        $unchanged = $this->readyAttempt($archivePath, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $unchanged->status, (string) $unchanged->failure_category);
+        $this->assertSame(1, $unchanged->plan_counts_json['tables']['phr_lab_results']['skip']);
+        $this->assertSame(0, $unchanged->plan_counts_json['tables']['phr_ehi_record_links']['block']);
+        $this->assertSame(0, $unchanged->plan_counts_json['tables']['phr_ehi_record_links']['create']);
+
+        DB::table('phr_patients')->where('id', $patient->id)->delete();
+        $this->assertFalse(DB::table('phr_lab_results')->where('id', $labId)->exists());
+        $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $attempt->status, (string) $attempt->failure_category);
+        app(PhrNativeRestoreService::class)->apply($attempt->refresh());
+
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_COMPLETED, $attempt->refresh()->status);
+        $restoredPatient = $attempt->target_patient_root_id;
+        $restored = DB::table('phr_lab_results')->where('patient_id', $restoredPatient)->sole();
+        $this->assertSame('Synthetic older result', $restored->analyte);
+        $this->assertNull($restored->value_comparator);
+        $links = DB::table('phr_ehi_record_links')->where('patient_id', $restoredPatient)->get();
+        $this->assertNotEmpty($links);
+        foreach ($links as $link) {
+            $this->assertNull($link->lab_result_id);
+            $this->assertNull($link->bridge_version);
+        }
+        $this->assertNull(DB::table('phr_ehi_proposal_decisions')->where('patient_id', $restoredPatient)->value('linked_lab_result_id'));
+        @unlink($archivePath);
+    }
+
+    public function test_only_a_known_later_relationship_may_be_absent_from_an_archive(): void
+    {
+        $owner = User::factory()->create(['user_role' => 'user']);
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        $this->seedEhiLink($patient, (int) $owner->id);
+        $archivePath = $this->archiveCopy($patient, (int) $owner->id);
+        $this->mutateTableRecords($archivePath, 'phr_ehi_record_links', static function (array $record): array {
+            unset($record['relationships']['immunization_id']);
+
+            return $record;
+        });
+
+        try {
+            $this->readyAttempt($archivePath, (int) $owner->id);
+            $this->fail('an absent relationship no release added later must be refused');
+        } catch (NativeRestoreException $refused) {
+            $this->assertSame('invalid_archive', $refused->getMessage());
+        } finally {
+            @unlink($archivePath);
+        }
+    }
+
     public function test_an_archive_written_before_prescription_fills_still_restores_and_a_current_one_carries_them(): void
     {
         $owner = User::factory()->create(['user_role' => 'user']);
@@ -1523,6 +1613,21 @@ final class PhrNativeRestoreTest extends TestCase
     }
 
     /** @return array{string, string} the blob bytes and their digest */
+    /** One evidence link and decision on an immunization, under a seeded package. */
+    private function seedEhiLink(PhrPatient $patient, int $ownerId): void
+    {
+        $this->seedEhiPackage($patient, $ownerId);
+        $now = now();
+        $sourceId = DB::table('phr_ehi_sources')->where('patient_id', $patient->id)->value('id');
+        $packageId = DB::table('phr_ehi_packages')->where('patient_id', $patient->id)->value('id');
+        $immunizationId = DB::table('phr_immunizations')->insertGetId(['patient_id' => $patient->id, 'user_id' => $ownerId, 'vaccine_name' => 'Synthetic linked vaccine', 'review_status' => PhrReviewStatus::CONFIRMED, 'created_at' => $now, 'updated_at' => $now]);
+        $entityId = DB::table('phr_ehi_entities')->insertGetId(['patient_id' => $patient->id, 'source_id' => $sourceId, 'table_name' => 'IMMUNE', 'key_digest' => str_repeat('a', 64), 'key_json' => '{"IMMUNE_ID":"1"}', 'created_at' => $now, 'updated_at' => $now]);
+        $revisionId = DB::table('phr_ehi_revisions')->insertGetId(['patient_id' => $patient->id, 'entity_id' => $entityId, 'first_package_id' => $packageId, 'content_digest' => str_repeat('b', 64), 'values_json' => '{"IMMUNE_ID":"1"}', 'created_at' => $now, 'updated_at' => $now]);
+        $proposalId = DB::table('phr_ehi_proposals')->insertGetId(['patient_id' => $patient->id, 'package_id' => $packageId, 'mapping' => 'immunization', 'mapping_version' => 'synthetic-1', 'subject_key' => str_repeat('c', 64), 'revision_digest' => str_repeat('d', 64), 'kind' => 'create', 'status' => 'accepted', 'preview_digest' => str_repeat('e', 64), 'created_at' => $now, 'updated_at' => $now]);
+        DB::table('phr_ehi_proposal_decisions')->insert(['patient_id' => $patient->id, 'proposal_id' => $proposalId, 'actor_user_id' => $ownerId, 'decision' => 'accept', 'previous_status' => 'pending', 'mapping_version' => 'synthetic-1', 'revision_digest' => str_repeat('d', 64), 'linked_immunization_id' => $immunizationId, 'created_at' => $now, 'updated_at' => $now]);
+        DB::table('phr_ehi_record_links')->insert(['patient_id' => $patient->id, 'revision_id' => $revisionId, 'proposal_id' => $proposalId, 'immunization_id' => $immunizationId, 'link_kind' => 'projected', 'mapping_version' => 'synthetic-1', 'created_by_user_id' => $ownerId, 'created_at' => $now, 'updated_at' => $now]);
+    }
+
     private function seedEhiPackage(PhrPatient $patient, int $ownerId): array
     {
         $bytes = "PAT_ID\tSYNTHETIC_COLUMN\n000042\tvalue\n";

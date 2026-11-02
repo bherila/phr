@@ -266,6 +266,7 @@ final class PhrNativeBackupCatalog
                     'actor_user_id' => self::actor(true),
                     'linked_immunization_id' => self::record('phr_immunizations', true),
                     'linked_document_id' => self::record('phr_documents', true),
+                    'linked_lab_result_id' => self::record('phr_lab_results', true),
                 ],
             ],
             'phr_ehi_record_links' => [
@@ -275,6 +276,7 @@ final class PhrNativeBackupCatalog
                     'proposal_id' => self::record('phr_ehi_proposals', true),
                     'immunization_id' => self::record('phr_immunizations', true),
                     'document_id' => self::record('phr_documents', true),
+                    'lab_result_id' => self::record('phr_lab_results', true),
                     'created_by_user_id' => self::actor(true),
                 ],
             ],
