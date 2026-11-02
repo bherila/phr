@@ -69,17 +69,18 @@ final class EhiSourceIdBridge
     }
 
     /**
-     * The identifier values an earlier FHIR import's stored resource states.
+     * The identifier values an earlier import's stored FHIR Encounter states. A stored
+     * ClinicalImpression is a visit too, but its identifiers name the impression.
      *
      * @return list<string>
      */
-    public static function fhirIdentifiers(?string $importSource, ?string $rawResource): array
+    public static function fhirEncounterIdentifiers(?string $importSource, ?string $rawResource): array
     {
         if ($importSource !== self::FHIR_IMPORT_SOURCE || $rawResource === null || strlen($rawResource) > self::MAX_FHIR_RESOURCE_BYTES) {
             return [];
         }
         $resource = json_decode($rawResource, true);
-        $identifiers = is_array($resource) ? ($resource['identifier'] ?? null) : null;
+        $identifiers = is_array($resource) && ($resource['resourceType'] ?? null) === 'Encounter' ? ($resource['identifier'] ?? null) : null;
         if (! is_array($identifiers)) {
             return [];
         }

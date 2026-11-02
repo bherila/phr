@@ -196,7 +196,7 @@ final class EhiEncounterRecordIndex
         $date = ($record->visit_date ?? $record->visit_started_at)?->format('Y-m-d');
         $position = count($this->rows);
         $extension = EhiSourceIdBridge::ccdaExtension($record->import_source, $record->external_id);
-        $identifiers = EhiSourceIdBridge::fhirIdentifiers($record->import_source, $record->raw_text);
+        $identifiers = EhiSourceIdBridge::fhirEncounterIdentifiers($record->import_source, $record->raw_text);
         $this->rows[] = [
             'id' => $record->id,
             'source' => $record->import_source,

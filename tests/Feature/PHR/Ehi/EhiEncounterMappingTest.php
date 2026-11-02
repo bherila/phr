@@ -284,6 +284,24 @@ class EhiEncounterMappingTest extends TestCase
         self::assertSame(3, PhrOfficeVisit::query()->count());
     }
 
+    public function test_only_a_stored_encounter_resource_can_bridge_a_csn(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        // FHIR ClinicalImpression resources are stored as visits too, and name their own identifiers.
+        $impression = $this->legacy($owner, $patient, ['import_source' => 'fhir', 'external_id' => 'ClinicalImpression/opaque-3', 'visit_date' => '2024-05-01', 'raw_text' => '{"resourceType":"ClinicalImpression","identifier":[{"value":"7101"}]}']);
+        $encounter = $this->legacy($owner, $patient, ['import_source' => 'fhir', 'external_id' => 'Encounter/opaque-4', 'visit_date' => '2024-05-02', 'raw_text' => '{"resourceType":"Encounter","identifier":[{"value":"7102"}]}']);
+        $package = $this->previewed(EhiClinicalPackage::withEncounters()->build(), $owner, $patient);
+
+        $notBridged = $this->proposal($package, '7101');
+        self::assertSame(PhrEhiProposal::KIND_POSSIBLE_DUPLICATE, $notBridged->kind, 'the same date still makes it a question for a person');
+        self::assertArrayNotHasKey('bridge', $notBridged->proposed_json);
+        self::assertSame([$impression->id], $notBridged->candidate_ids_json);
+
+        $bridged = $this->proposal($package, '7102');
+        self::assertSame(PhrEhiProposal::KIND_CORROBORATE, $bridged->kind);
+        self::assertSame($encounter->id, $bridged->target_id);
+    }
+
     public function test_a_deleted_or_rejected_visit_is_never_a_target_nor_silently_recreated(): void
     {
         [$owner, $patient] = $this->ownerAndPatient();
