@@ -183,6 +183,13 @@ final class AgentMcpToolCatalog
                 $byVersion,
                 effect: Effect::Destructive,
             ),
+            $this->write(
+                'medication_fills.answer_eob_link',
+                'Record a person\'s answer about a fill and its claim',
+                'Only when the person has told you the answer; never decide it yourself. action link with eob_id puts a fill flagged eob_link_open on a same-day claim on offer. action none says it is on none of them. action reject removes an automatic link (eob_links with automatic true) the person says is wrong. action reset lets the server link the fill automatically again after none or reject. The fill\'s version and review status do not change.',
+                [$writes, 'medicationFillsAnswerEobLink'],
+                new WriteSafety(note: 'A repeated answer returns outcome unchanged.'),
+            ),
             $this->read('imports.list', 'List imports', 'List bounded import-job status for an accessible patient.', [$reads, 'importsList']),
             $this->read('imports.get', 'Get import', 'Inspect one import job and its proposed structured records.', [$reads, 'importsGet']),
             $this->write(

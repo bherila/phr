@@ -3652,6 +3652,79 @@
                 }
             }
         },
+        "/patients/{patient}/medication-fills/{fill}/eob-link": {
+            "post": {
+                "operationId": "medication_fills.answer_eob_link",
+                "summary": "Record what a person said about a fill and its pharmacy claim",
+                "description": "Send only what the person told you; never decide this yourself. action link puts the fill on eob_id, one of the same-day claims on offer for a fill with review_flags eob_link_open. action none says it is on none of them. action reject removes an automatic link (eob_links with automatic true) the person says is wrong, and the claim becomes free for another fill. After none or reject the fill is not linked automatically again until action reset. Only evidence is written: the fill's version and review status do not change.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "clinical:read",
+                            "clinical:write"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/FillEobLinkAnswerRequest"
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    },
+                    {
+                        "name": "fill",
+                        "in": "path",
+                        "required": true,
+                        "description": "The ID of the medication fill.",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Answer recorded, or already recorded",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/FillEobLinkAnswerResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/Conflict"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            }
+        },
         "/patients/{patient}/medication-fills/{fill}/resolve-duplicate": {
             "post": {
                 "operationId": "medication_fills.resolve_duplicate",
@@ -9866,6 +9939,80 @@
                     },
                     "data": {
                         "$ref": "#/components/schemas/FillDuplicateResolution"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "FillEobLinkAnswerRequest": {
+                "type": "object",
+                "required": [
+                    "action"
+                ],
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": [
+                            "link",
+                            "none",
+                            "reject",
+                            "reset"
+                        ],
+                        "description": "link puts the fill on eob_id. none says it is on none of the claims on offer. reject removes an automatic link. reset lets the server link it automatically again."
+                    },
+                    "eob_id": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "The claim. Required for action link. With action reject, names the claim being rejected, and the answer is refused if the fill is no longer linked to it."
+                    }
+                },
+                "additionalProperties": false
+            },
+            "FillEobLinkAnswerResponse": {
+                "type": "object",
+                "required": [
+                    "resource_type",
+                    "patient_id",
+                    "outcome",
+                    "data"
+                ],
+                "properties": {
+                    "resource_type": {
+                        "const": "medication_fill_eob_link_answer"
+                    },
+                    "patient_id": {
+                        "type": "integer"
+                    },
+                    "outcome": {
+                        "type": "string",
+                        "enum": [
+                            "linked",
+                            "dismissed",
+                            "rejected",
+                            "restored",
+                            "unchanged"
+                        ]
+                    },
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "fill_id",
+                            "action"
+                        ],
+                        "properties": {
+                            "fill_id": {
+                                "type": "integer"
+                            },
+                            "action": {
+                                "type": "string",
+                                "enum": [
+                                    "link",
+                                    "none",
+                                    "reject",
+                                    "reset"
+                                ]
+                            }
+                        },
+                        "additionalProperties": false
                     }
                 },
                 "additionalProperties": false

@@ -179,6 +179,14 @@
             "clinical:write"
         ]
     },
+    "medication_fills.answer_eob_link": {
+        "available": true,
+        "scope": "clinical:write",
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ]
+    },
     "imports.list": {
         "available": true,
         "scope": "imports:read"

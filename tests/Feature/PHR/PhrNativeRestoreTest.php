@@ -7,6 +7,7 @@ use App\Jobs\PHR\PreviewPhrNativeRestoreJob;
 use App\Models\PhrDocument;
 use App\Models\PhrEob;
 use App\Models\PhrEobLine;
+use App\Models\PhrLabResult;
 use App\Models\PhrMedication;
 use App\Models\PhrMedicationFill;
 use App\Models\PhrMedicationFillEvidence;
@@ -14,6 +15,7 @@ use App\Models\PhrNativeRecordIdentity;
 use App\Models\PhrNativeRestoreAttempt;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
+use App\Models\PhrSinusEnrollment;
 use App\Models\User;
 use App\Services\PHR\Fills\FillEobLinker;
 use App\Services\PHR\Fills\FillEobLinkPlanner;
@@ -1122,6 +1124,46 @@ final class PhrNativeRestoreTest extends TestCase
         $third = $this->readyAttempt($archivePath, (int) $owner->id);
         $this->assertContains('artifact_conflict', $third->plan_counts_json['blockers']);
         @unlink($archivePath);
+    }
+
+    /**
+     * The archive is a real one: synthetic rows that MariaDB 10.11 stored and PHR wrote out, so it
+     * proves what a move between engines relies on. It also stands in for an older archive once
+     * the schema moves on.
+     */
+    public function test_an_archive_written_by_mariadb_restores_on_this_engine(): void
+    {
+        $owner = $this->createUser();
+        $archive = tempnam(sys_get_temp_dir(), 'phr-restore-test-');
+        $this->assertIsString($archive);
+        $this->assertTrue(copy(base_path('tests/Fixtures/native-backup/mariadb-10.11-synthetic.zip'), $archive));
+
+        $attempt = $this->readyAttempt($archive, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $attempt->status, (string) $attempt->failure_category);
+        app(PhrNativeRestoreService::class)->apply($attempt->refresh(), (int) $owner->id);
+        $patientId = (int) $attempt->refresh()->target_patient_root_id;
+
+        $patient = PhrPatient::query()->findOrFail($patientId);
+        $this->assertSame('Synthetic MariaDB Patient', $patient->display_name);
+        $this->assertSame(['Synthetic Person'], $patient->real_names);
+
+        $enrollment = PhrSinusEnrollment::query()->where('phr_patient_id', $patientId)->sole();
+        $this->assertSame("\x00\xFF\xFE\x5C\x27syntheticuu", $enrollment->client_enrollment_uuid);
+        $this->assertSame("\x00\xFF\x5C\x27\xC3\x28\x00\x80\x3F\x00\x00\x00", $enrollment->embedding);
+        $this->assertFalse($enrollment->is_negative);
+        $this->assertTrue($enrollment->negative_scoped);
+        $this->assertSame(0.5, $enrollment->similarity);
+        $this->assertSame('2026-01-02 03:04:05', $enrollment->captured_at->format('Y-m-d H:i:s'));
+
+        $lab = PhrLabResult::query()->where('patient_id', $patientId)->sole();
+        $this->assertSame("Unicode \u{00E9} \u{1F600} and a 'quote'", $lab->notes);
+        $this->assertEqualsWithDelta(95.5, (float) $lab->value_numeric, 0.0001);
+
+        $fill = PhrMedicationFill::query()->where('patient_id', $patientId)->sole();
+        $this->assertSame(['Synthetic Substance'], $fill->substance_names);
+        $this->assertEqualsWithDelta(30.0, (float) $fill->quantity, 0.0001);
+        $this->assertSame('2026-01-05', substr((string) $fill->getRawOriginal('filled_on'), 0, 10));
+        $this->assertSame([], $this->foreignKeyViolations());
     }
 
     public function test_a_new_blob_whose_digest_the_patient_already_holds_is_a_conflict(): void

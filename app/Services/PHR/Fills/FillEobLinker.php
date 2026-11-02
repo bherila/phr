@@ -15,10 +15,11 @@ use stdClass;
  * was linked before is never an input, so the result does not depend on the order things arrived.
  *
  * Writes only `phr_medication_fill_evidence` rows of its own kinds
- * ({@see PhrMedicationFillEvidence::LINKER_KINDS}), and only where they differ. A fill row is
- * never written: its review status, its clinical fields and its opaque version (a hash of the
- * fill's own columns) stay exactly as they were. Rows a person or client made are read, never
- * changed: such a fill is settled and such a claim is taken.
+ * ({@see PhrMedicationFillEvidence::LINKER_KINDS}), and only where they differ. On a fill whose
+ * links or flag changed, only updated_at moves, so a client syncing on it sees the change: its
+ * review status, its clinical fields and its opaque version (a hash of the fill's other columns)
+ * stay exactly as they were. Rows a person or client made are read, never changed: such a fill
+ * is settled and such a claim is taken.
  *
  * Rows are matched on (fill, line) and not on evidence_key, because a native restore remaps ids
  * but keeps the key, which was derived from the old ones.
@@ -85,6 +86,39 @@ class FillEobLinker
                     'provider_name' => $claim['provider_name'],
                 ];
             }, $open['claim_ids']);
+        }
+
+        return $found;
+    }
+
+    /**
+     * The claims one fill is linked to, for the person looking at it.
+     *
+     * @return list<array{eob_id: int, claim_number: ?string, service_date: ?string, processed_date: ?string, total_charges: ?string, provider_name: ?string, automatic: bool, rule: ?string}>
+     */
+    public function claimsOfFill(int $patientId, int $fillId): array
+    {
+        $snapshot = $this->snapshot($patientId);
+        $evidence = DB::table('phr_medication_fill_evidence')->where('patient_id', $patientId)->where('fill_id', $fillId)
+            ->whereNotNull('eob_line_id')->orderBy('id')->get(['eob_line_id', 'source_kind', 'source_locator']);
+
+        $found = [];
+        foreach ($snapshot['claims'] as $claim) {
+            $row = $evidence->first(static fn (object $row): bool => in_array((int) $row->eob_line_id, $claim['line_ids'], true));
+            if ($row === null) {
+                continue;
+            }
+            $automatic = $row->source_kind === PhrMedicationFillEvidence::KIND_AUTO_EOB_LINK;
+            $found[] = [
+                'eob_id' => $claim['id'],
+                'claim_number' => $claim['claim_number'],
+                'service_date' => $claim['day'],
+                'processed_date' => $claim['processed_date'],
+                'total_charges' => $claim['total_charges'],
+                'provider_name' => $claim['provider_name'],
+                'automatic' => $automatic,
+                'rule' => $automatic ? $row->source_locator : null,
+            ];
         }
 
         return $found;
@@ -209,40 +243,48 @@ class FillEobLinker
             }
         }
 
-        $diff = ['add_links' => [], 'remove' => [], 'relabel' => [], 'add_flags' => [], 'links_removed' => 0, 'flags_removed' => 0, 'links_relabelled' => 0, 'flags_relabelled' => 0];
+        $diff = ['touched' => [], 'add_links' => [], 'remove' => [], 'relabel' => [], 'add_flags' => [], 'links_removed' => 0, 'flags_removed' => 0, 'links_relabelled' => 0, 'flags_relabelled' => 0];
         foreach ($snapshot['automatic'] as $row) {
             $key = $row->fill_id.'|'.$row->eob_line_id;
             if ($row->eob_line_id === null || ! isset($wanted[$key])) {
                 $diff['remove'][] = (int) $row->id;
+                $diff['touched'][(int) $row->fill_id] = true;
                 $diff['links_removed']++;
 
                 continue;
             }
             if ($row->source_locator !== $wanted[$key]['rule']) {
                 $diff['relabel'][] = ['id' => (int) $row->id, 'locator' => $wanted[$key]['rule']];
+                $diff['touched'][(int) $row->fill_id] = true;
                 $diff['links_relabelled']++;
             }
             unset($wanted[$key]);
         }
         $diff['add_links'] = array_values($wanted);
+        foreach ($diff['add_links'] as $link) {
+            $diff['touched'][$link['fill_id']] = true;
+        }
 
         $open = array_map(static fn (array $entry): string => $entry['reason'], $plan['open']);
         foreach ($snapshot['flags'] as $row) {
             $fillId = (int) $row->fill_id;
             if (! isset($open[$fillId])) {
                 $diff['remove'][] = (int) $row->id;
+                $diff['touched'][$fillId] = true;
                 $diff['flags_removed']++;
 
                 continue;
             }
             if ($row->source_locator !== $open[$fillId]) {
                 $diff['relabel'][] = ['id' => (int) $row->id, 'locator' => $open[$fillId]];
+                $diff['touched'][$fillId] = true;
                 $diff['flags_relabelled']++;
             }
             unset($open[$fillId]);
         }
         foreach ($open as $fillId => $reason) {
             $diff['add_flags'][] = ['fill_id' => $fillId, 'reason' => $reason];
+            $diff['touched'][$fillId] = true;
         }
 
         return $diff;
@@ -251,6 +293,11 @@ class FillEobLinker
     /** @param  array<string, mixed>  $diff */
     private function apply(int $patientId, array $diff): void
     {
+        if ($diff['touched'] !== []) {
+            // The table directly: no model events, because this path answers them.
+            DB::table('phr_medication_fills')->where('patient_id', $patientId)
+                ->whereIn('id', array_keys($diff['touched']))->update(['updated_at' => now()]);
+        }
         if ($diff['remove'] !== []) {
             PhrMedicationFillEvidence::query()->where('patient_id', $patientId)->whereIn('id', $diff['remove'])
                 ->whereIn('source_kind', PhrMedicationFillEvidence::LINKER_KINDS)->delete();

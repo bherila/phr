@@ -7,16 +7,18 @@ use App\Models\PhrMedicationFill;
 use App\Models\PhrMedicationFillEvidence;
 use App\Models\PhrPatient;
 use App\Support\PHR\PhrReviewStatus;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 /**
- * A person's answer to a fill flagged for its pharmacy claim, from the Review page. Either the
- * fill is on this claim, which is recorded on all the claim's lines like a link any client makes
- * and so is the linker's to respect and never to change; or it is on none of them, which is
- * remembered so the fill is neither asked about again nor linked automatically later.
+ * A person's answer about a fill's pharmacy claim, from the web app or relayed by an agent they
+ * told. Either the fill is on this claim, which is recorded on all the claim's lines like a link
+ * any client makes and so is the linker's to respect and never to change; or it is on none of the
+ * claims on offer, or not on the one it was linked to automatically. Those two are remembered, so
+ * the fill is neither asked about again nor linked automatically later, until the person resets it.
  *
- * Only evidence is written. The fill itself, its review status and its version are not touched.
+ * Only evidence is written here. The fill's review status and its version are not touched.
  */
 final readonly class FillEobLinkDecisionService
 {
@@ -24,9 +26,19 @@ final readonly class FillEobLinkDecisionService
 
     public const string NONE = 'none';
 
+    public const string REJECT = 'reject';
+
+    public const string RESET = 'reset';
+
+    public const array ACTIONS = [self::LINK, self::NONE, self::REJECT, self::RESET];
+
     public const string LINKED = 'linked';
 
     public const string DISMISSED = 'dismissed';
+
+    public const string REJECTED = 'rejected';
+
+    public const string RESTORED = 'restored';
 
     public const string UNCHANGED = 'unchanged';
 
@@ -42,7 +54,12 @@ final readonly class FillEobLinkDecisionService
             $fill = PhrMedicationFill::query()->where('patient_id', $patient->id)->whereNull('retracted_at')
                 ->where('review_status', '!=', PhrReviewStatus::REJECTED)->findOrFail($fillId);
 
-            return $action === self::NONE ? $this->dismiss($patient, $fill) : $this->link($patient, $fill, (int) $eobId);
+            return match ($action) {
+                self::NONE => $this->dismiss($patient, $fill),
+                self::REJECT => $this->reject($patient, $fill, $eobId),
+                self::RESET => $this->reset($patient, $fill),
+                default => $this->link($patient, $fill, (int) $eobId),
+            };
         }, 3);
     }
 
@@ -70,13 +87,62 @@ final readonly class FillEobLinkDecisionService
 
     private function dismiss(PhrPatient $patient, PhrMedicationFill $fill): string
     {
-        $dismissed = PhrMedicationFillEvidence::query()->where('fill_id', $fill->id)->where('source_kind', PhrMedicationFillEvidence::KIND_EOB_LINK_DISMISSED)->exists();
-        if ($dismissed) {
+        if ($this->dismissal($fill)->exists()) {
             return self::UNCHANGED;
         }
         if (($this->linker->candidates((int) $patient->id)[(int) $fill->id] ?? []) === []) {
             throw new ConflictHttpException('This fill has no claim waiting for an answer.');
         }
+        $this->recordDismissal($patient, $fill);
+
+        return self::DISMISSED;
+    }
+
+    /**
+     * Frees the claim for another fill that day, so the rules may give it to the right one. The
+     * links can change while someone reads them, so naming the claim they saw refuses a rejection
+     * that would land on a different one.
+     */
+    private function reject(PhrPatient $patient, PhrMedicationFill $fill, ?int $eobId): string
+    {
+        if ($this->dismissal($fill)->exists()) {
+            return self::UNCHANGED;
+        }
+        $linked = PhrMedicationFillEvidence::query()->where('fill_id', $fill->id)
+            ->where('source_kind', PhrMedicationFillEvidence::KIND_AUTO_EOB_LINK)
+            ->when($eobId !== null, fn ($query) => $query->whereIn('eob_line_id', $this->linker->linesOfClaim((int) $patient->id, (int) $eobId)))
+            ->exists();
+        if (! $linked) {
+            throw new ConflictHttpException($eobId === null
+                ? 'This fill has no automatic claim to reject.'
+                : 'This fill is no longer matched to that claim. Reload and check it again.');
+        }
+        $this->recordDismissal($patient, $fill);
+
+        return self::REJECTED;
+    }
+
+    private function reset(PhrPatient $patient, PhrMedicationFill $fill): string
+    {
+        $dismissal = $this->dismissal($fill)->first();
+        if ($dismissal === null) {
+            return self::UNCHANGED;
+        }
+        $dismissal->delete();
+        FillEobLinkTrigger::schedule((int) $patient->id);
+
+        return self::RESTORED;
+    }
+
+    /** @return Builder<PhrMedicationFillEvidence> */
+    private function dismissal(PhrMedicationFill $fill): Builder
+    {
+        return PhrMedicationFillEvidence::query()->where('fill_id', $fill->id)
+            ->where('source_kind', PhrMedicationFillEvidence::KIND_EOB_LINK_DISMISSED);
+    }
+
+    private function recordDismissal(PhrPatient $patient, PhrMedicationFill $fill): void
+    {
         PhrMedicationFillEvidence::query()->create([
             'patient_id' => $patient->id,
             'fill_id' => $fill->id,
@@ -84,7 +150,5 @@ final readonly class FillEobLinkDecisionService
             'evidence_key' => substr(hash('sha256', PhrMedicationFillEvidence::KIND_EOB_LINK_DISMISSED), 0, 40),
         ]);
         FillEobLinkTrigger::schedule((int) $patient->id);
-
-        return self::DISMISSED;
     }
 }

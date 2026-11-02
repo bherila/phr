@@ -333,6 +333,13 @@
             "mcp:use"
         ]
     },
+    "medication_fills.answer_eob_link": {
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ],
+        "scope_rule": "all"
+    },
     "medication_fills.get": {
         "scopes": [
             "clinical:read"

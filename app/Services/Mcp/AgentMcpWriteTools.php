@@ -312,6 +312,16 @@ final readonly class AgentMcpWriteTools
     }
 
     /** @return array<string, mixed> */
+    public function medicationFillsAnswerEobLink(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $fill_id,
+        #[Schema(enum: ['link', 'none', 'reject', 'reset'])] string $action,
+        #[Schema(minimum: 1)] ?int $eob_id = null,
+    ): array {
+        return $this->api->medicationFillAnswerEobLink($patient_id, $fill_id, $action, $eob_id)->toArray();
+    }
+
+    /** @return array<string, mixed> */
     public function eobsImport(
         #[Schema(minimum: 1)] int $patient_id,
         #[Schema(minimum: 1)] int $document_id,

@@ -2,6 +2,7 @@
 
 namespace App\Support\AgentApi;
 
+use App\Models\PhrMedicationFill;
 use Illuminate\Database\Eloquent\Model;
 use LogicException;
 
@@ -15,6 +16,11 @@ final class AgentClinicalRecordVersion
         }
 
         $attributes = $record->getAttributes();
+        // A fill's updated_at also moves when its claim links change, so sync clients see those
+        // changes. Links aren't the fill's own columns, so they must not refuse a client's write.
+        if ($record instanceof PhrMedicationFill) {
+            unset($attributes['updated_at']);
+        }
         ksort($attributes);
 
         return hash_hmac(

@@ -19,6 +19,7 @@ import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import { patientPageUrl } from '@/phr/shell/phrRoutes'
 
 import { DrugDetailPanel } from './DrugDetailPanel'
+import FillClaimLinks from './FillClaimLinks'
 import { FillFormDialog } from './FillEntryForm'
 import { FillFlags, fillStrength } from './FillFlags'
 import { fillDrugName, formatCents, formatFillDate, formatQuantity, type MedicationFill, MedicationFillResponseSchema } from './fillTypes'
@@ -186,6 +187,8 @@ export default function MedicationFillDetail({ patientId, recordId, onDrill }: P
               </p>
             )}
           </section>
+
+          <FillClaimLinks patientId={patientId} fillId={fill.id} canManage={canManage} refreshKey={fill.version} onChanged={() => void load().catch((caught: unknown) => setError(errorMessage(caught)))} />
 
           <details className="group border-t border-border pt-4 text-sm">
             <summary className="flex min-h-8 cursor-pointer items-center gap-1 font-semibold text-card-foreground marker:content-none max-lg:min-h-11 [&::-webkit-details-marker]:hidden">

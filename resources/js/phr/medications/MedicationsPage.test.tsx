@@ -109,11 +109,11 @@ describe('MedicationsPage', () => {
     const table = await screen.findByRole('table', { name: 'Medications' })
     await within(table).findByText('Metformin')
     const headers = () => within(table).getAllByRole('columnheader').map((header) => header.textContent)
-    expect(headers()).toEqual(['Medication', 'Dose', 'Route', 'Schedule', 'Started', 'Last fill', 'Prescriber', 'Status', 'Actions'])
+    expect(headers()).toEqual(['Medication', 'Route', 'Dose', 'Schedule', 'Started', 'Last fill', 'Prescriber', 'Status', 'Actions'])
 
     const cells = within(within(table).getAllByRole('row')[1]!).getAllByRole('cell')
-    expect(cells[1]).toHaveTextContent(/^500 mg$/)
-    expect(cells[2]).toHaveTextContent(/^PO$/)
+    expect(cells[1]).toHaveTextContent(/^PO$/)
+    expect(cells[2]).toHaveTextContent(/^500 mg$/)
     expect(cells[3]).toHaveTextContent(/^BID$/)
     expect(cells[4]).toHaveTextContent(/^2026-01-01$/)
     expect(cells[5]).toHaveTextContent(/^—$/)
@@ -121,7 +121,7 @@ describe('MedicationsPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /^Ended/ }))
     await within(table).findByText('Amoxicillin')
-    expect(headers()).toEqual(['Medication', 'Dose', 'Route', 'Schedule', 'Started', 'Ended', 'Last fill', 'Prescriber', 'Status', 'Actions'])
+    expect(headers()).toEqual(['Medication', 'Route', 'Dose', 'Schedule', 'Started', 'Ended', 'Last fill', 'Prescriber', 'Status', 'Actions'])
     expect(within(table).getByText('Completed', { selector: '[data-tone]' })).toBeInTheDocument()
   })
 
