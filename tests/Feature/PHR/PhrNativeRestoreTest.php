@@ -987,6 +987,35 @@ final class PhrNativeRestoreTest extends TestCase
         $this->assertSame(1, $plan['tables']['phr_lab_results']['skip'] ?? 0);
     }
 
+    public function test_real_names_survive_a_round_trip_and_an_older_archive_restores_without_them(): void
+    {
+        $owner = User::factory()->create(['user_role' => 'user']);
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        $patient->update(['real_names' => ['Synthetic Real Name', 'Synthetic Other Name']]);
+
+        $current = $this->archiveCopy($patient, (int) $owner->id);
+        $older = $this->archiveCopy($patient, (int) $owner->id);
+        // An archive downloaded before the attribute existed has none.
+        $this->mutateTableRecords($older, 'phr_patients', static function (array $record): array {
+            unset($record['attributes']['real_names']);
+
+            return $record;
+        });
+
+        DB::table('phr_patients')->where('id', $patient->id)->delete();
+        $attempt = $this->readyAttempt($current, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $attempt->status, (string) $attempt->failure_category);
+        app(PhrNativeRestoreService::class)->apply($attempt->refresh(), (int) $owner->id);
+        $target = (int) $attempt->refresh()->target_patient_root_id;
+        $this->assertSame(['Synthetic Real Name', 'Synthetic Other Name'], PhrPatient::query()->findOrFail($target)->real_names);
+
+        DB::table('phr_patients')->where('id', $target)->delete();
+        $olderAttempt = $this->readyAttempt($older, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $olderAttempt->status, (string) $olderAttempt->failure_category);
+        app(PhrNativeRestoreService::class)->apply($olderAttempt->refresh(), (int) $owner->id);
+        $this->assertNull(PhrPatient::query()->findOrFail((int) $olderAttempt->refresh()->target_patient_root_id)->real_names);
+    }
+
     public function test_lab_bound_inclusiveness_survives_a_round_trip_and_an_older_archive_restores_without_it(): void
     {
         $owner = User::factory()->create(['user_role' => 'user']);

@@ -24,6 +24,7 @@ class PhrPatientPresenter
             'id' => $patient->id,
             'owner_user_id' => $patient->owner_user_id,
             'display_name' => $patient->display_name,
+            'real_names' => $patient->real_names ?? [],
             'relationship' => $patient->relationship,
             'birth_date' => $patient->birth_date?->toDateString(),
             'sex_at_birth' => $patient->sex_at_birth,

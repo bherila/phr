@@ -103,6 +103,56 @@ final class AgentApiMedicationFillTest extends TestCase
             ->assertJsonPath('code', 'patient_match_none');
     }
 
+    public function test_a_nickname_patient_is_found_by_a_real_name_or_the_printed_birth_date(): void
+    {
+        $bean = $this->makePatient($this->actor, 'Bean', '2001-02-03');
+        $bean->update(['real_names' => ['Jane Quincy Doe']]);
+        $sprout = $this->makePatient($this->actor, 'Sprout', '2002-03-04');
+
+        $this->getJson('/api/v1/patients?'.http_build_query(['name' => 'DOE, JANE Q']))
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $bean->id)
+            ->assertJsonPath('data.0.real_names', ['Jane Quincy Doe']);
+        $this->getJson('/api/v1/patients?'.http_build_query(['name' => 'Sprout Formal Name', 'birth_date' => '03/04/2002']))
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $sprout->id)
+            ->assertJsonPath('data.0.real_names', []);
+        $this->getJson('/api/v1/patients?'.http_build_query(['name' => 'Sprout Formal Name']))
+            ->assertUnprocessable()
+            ->assertJsonPath('code', 'patient_match_none');
+    }
+
+    public function test_birthday_twins_on_a_login_stop_a_match_on_the_birth_date_alone(): void
+    {
+        $first = $this->makePatient($this->actor, 'Bean', '2001-02-03');
+        $second = $this->makePatient($this->actor, 'Sprout', '2001-02-03');
+        $query = ['name' => 'Printed Stranger', 'birth_date' => '2001-02-03'];
+
+        $this->getJson('/api/v1/patients?'.http_build_query($query))
+            ->assertUnprocessable()
+            ->assertJsonPath('code', 'patient_match_ambiguous')
+            ->assertJsonCount(2, 'candidates');
+
+        // The twin filtered out of this request still counts, and is not named.
+        $second->update(['archived_at' => now()]);
+        $this->getJson('/api/v1/patients?'.http_build_query([...$query, 'archived' => 'exclude']))
+            ->assertUnprocessable()
+            ->assertJsonPath('code', 'patient_match_none')
+            ->assertJsonCount(0, 'candidates');
+        $this->getJson('/api/v1/patients?'.http_build_query(['name' => 'Bean', 'birth_date' => '2001-02-03', 'archived' => 'exclude']))
+            ->assertOk()
+            ->assertJsonPath('data.0.id', $first->id);
+    }
+
+    public function test_an_agent_cannot_attach_a_real_name_to_a_patient(): void
+    {
+        $this->actingWith([AgentApiScopes::PATIENTS_READ, AgentApiScopes::PATIENTS_WRITE]);
+
+        $created = $this->postJson('/api/v1/patients', ['display_name' => 'Agent Made', 'real_names' => ['Someone Else']])->assertCreated();
+
+        $this->assertNull(PhrPatient::query()->findOrFail($created->json('data.id'))->real_names);
+    }
+
     // ---- ndc tools ------------------------------------------------------------------------
 
     public function test_ndc_lookup_and_search_are_clinical_read_operations(): void

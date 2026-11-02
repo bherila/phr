@@ -25,6 +25,27 @@ class PhrPatientCrudTest extends TestCase
         $response->assertJsonPath('patient.can_share', true);
     }
 
+    public function test_owner_can_list_real_names_beside_a_nickname(): void
+    {
+        $user = $this->createUser();
+
+        $created = $this->actingAs($user)->postJson('/api/phr/patients', [
+            'display_name' => 'Bean',
+            'real_names' => ['  Jane Quincy Doe ', '', 'Janie Doe'],
+        ])->assertCreated()->assertJsonPath('patient.real_names', ['Jane Quincy Doe', 'Janie Doe']);
+        $id = $created->json('patient.id');
+
+        $this->actingAs($user)->patchJson("/api/phr/patients/{$id}", ['display_name' => 'Bean', 'real_names' => ['Jane Doe']])
+            ->assertOk()
+            ->assertJsonPath('patient.real_names', ['Jane Doe']);
+        $this->actingAs($user)->patchJson("/api/phr/patients/{$id}", ['display_name' => 'Bean', 'real_names' => [' ']])
+            ->assertOk()
+            ->assertJsonPath('patient.real_names', []);
+        $this->actingAs($user)->postJson('/api/phr/patients', ['display_name' => 'Bean', 'real_names' => array_fill(0, 21, 'Same')])
+            ->assertUnprocessable()
+            ->assertJsonValidationErrors('real_names');
+    }
+
     public function test_create_requires_display_name(): void
     {
         $user = $this->createUser();

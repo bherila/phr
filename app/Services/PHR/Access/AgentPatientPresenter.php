@@ -41,6 +41,7 @@ final class AgentPatientPresenter
             'id' => $patient->id,
             'public_id' => $publicId,
             'display_name' => $patient->display_name,
+            'real_names' => $patient->real_names ?? [],
             'relationship' => $patient->relationship,
             'birth_date' => $patient->birth_date?->toDateString(),
             'sex_at_birth' => $patient->sex_at_birth,

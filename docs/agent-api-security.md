@@ -443,7 +443,15 @@ metadata with Authorization Code plus S256 PKCE, call `identity.get` and then
 client-scoped identities with read-before-write and version preconditions. It
 front-loads the identity, deduplication, version, and review-state rules that a harness
 must see before acting. Clients that implement MCP prompts can additionally expose the
-guided `safely-update-clinical-record` and `review-import-proposal` workflows. This
+guided `safely-update-clinical-record` and `review-import-proposal` workflows. Finding a
+patient from a source document (`patients.list` with `name` and `birth_date`) treats the
+display name as a possible nickname: it also matches the real names a person listed for
+the patient, and a printed birth date is enough on its own unless another patient on the
+login shares it or the printed name belongs to someone else. Those checks cover the whole
+login, including patients the request cannot see, so a limited client is refused rather
+than handed a twin's document, without learning who the other patient is. Real names
+decide which chart a document lands on, so only a person sets them; a name an agent sends
+when creating a patient is ignored. This
 gives an agent enough protocol context to select a patient safely without inferring ids
 from an external source. `tools/list`, prompt registration, and initialization guidance
 are filtered to the token's OpenAPI-declared scopes, while the delegated REST route

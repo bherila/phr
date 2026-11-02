@@ -128,7 +128,7 @@ describe('assembleVolume', () => {
     ];
     const volume = assembleVolume(slices);
     expect(volume.dims[2]).toBe(3);
-    expect(volume.droppedInstanceIds.sort()).toEqual([997, 998]);
+    expect(volume.droppedInstanceIds.sort((a, b) => a - b)).toEqual([997, 998]);
   });
 
   it('drops a slice whose dimensions do not match the group', () => {

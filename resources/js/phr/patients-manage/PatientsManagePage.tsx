@@ -1,6 +1,6 @@
 import { Pencil, Plus, Trash2, UserRound } from 'lucide-react'
 import type { FormEvent } from 'react'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -17,6 +17,7 @@ import {
 
 const emptyForm: PhrPatientFormData = {
   display_name: '',
+  real_names: [],
   relationship: '',
   birth_date: '',
   sex_at_birth: '',
@@ -26,6 +27,7 @@ const emptyForm: PhrPatientFormData = {
 function patientToForm(patient: PhrPatient): PhrPatientFormData {
   return {
     display_name: patient.display_name ?? '',
+    real_names: patient.real_names ?? [],
     relationship: patient.relationship ?? '',
     birth_date: patient.birth_date ?? '',
     sex_at_birth: patient.sex_at_birth ?? '',
@@ -39,16 +41,32 @@ interface PatientFieldsProps {
 }
 
 function PatientFields({ form, onChange }: PatientFieldsProps) {
+  const realNamesHelpId = useId()
+
   return (
     <div className="grid gap-3">
       <label className="grid gap-1 text-sm font-medium text-foreground">
-        Name *
+        Display name or nickname *
         <Input
           value={form.display_name}
           onChange={(e) => onChange({ ...form, display_name: e.target.value })}
           required
         />
       </label>
+      <div className="grid gap-1">
+        <label className="grid gap-1 text-sm font-medium text-foreground">
+          Real names
+          <textarea
+            className="flex min-h-[64px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            value={(form.real_names ?? []).join('\n')}
+            onChange={(e) => onChange({ ...form, real_names: e.target.value.split('\n') })}
+            aria-describedby={realNamesHelpId}
+          />
+        </label>
+        <p id={realNamesHelpId} className="text-xs text-muted-foreground">
+          One per line, as printed on documents. Used to match records to this patient.
+        </p>
+      </div>
       <label className="grid gap-1 text-sm font-medium text-foreground">
         Relationship
         <Input
@@ -244,6 +262,9 @@ export default function PatientsManagePage() {
                 <UserRound className="size-5 shrink-0 text-muted-foreground" />
                 <div>
                   <p className="font-medium text-card-foreground">{patient.display_name ?? `Patient ${patient.id}`}</p>
+                  {patient.real_names && patient.real_names.length > 0 && (
+                    <p className="text-xs text-muted-foreground">Real names: {patient.real_names.join(', ')}</p>
+                  )}
                   {patient.relationship && (
                     <p className="text-xs text-muted-foreground">{patient.relationship}</p>
                   )}

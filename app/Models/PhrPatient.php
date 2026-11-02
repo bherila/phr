@@ -17,6 +17,7 @@ use Illuminate\Support\Carbon;
  * @property int $id
  * @property int $owner_user_id
  * @property string|null $display_name
+ * @property list<string>|null $real_names
  * @property string|null $relationship
  * @property Carbon|null $birth_date
  * @property string|null $sex_at_birth
@@ -43,6 +44,7 @@ class PhrPatient extends Model
     protected $fillable = [
         'owner_user_id',
         'display_name',
+        'real_names',
         'relationship',
         'birth_date',
         'sex_at_birth',
@@ -54,6 +56,7 @@ class PhrPatient extends Model
     {
         return [
             'owner_user_id' => 'integer',
+            'real_names' => 'array',
             'birth_date' => 'date',
             'archived_at' => 'datetime',
         ];

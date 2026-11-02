@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\Relation;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
@@ -72,15 +73,17 @@ final class AgentPatientController extends Controller
     }
 
     /**
-     * The one patient a name printed on a source document refers to. Never
-     * guesses and never creates: with no match, or several, it refuses and tells
-     * the caller to ask the person.
+     * The one patient a name and date of birth printed on a source document refer
+     * to. Never guesses and never creates: with no match, or several, it refuses and
+     * tells the caller to ask the person. The query may be limited to the patients
+     * this client was granted, so a birth date is also checked across the whole login.
      *
      * @param  Builder<PhrPatient>  $query
      */
     private function byPrintedName(Request $request, Builder $query, int $userId, bool $billingOnly, string $name, ?string $birthDate): JsonResponse
     {
-        $result = (new PatientNameMatcher)->match($query->orderBy('id')->get(), $name, $birthDate);
+        $accessible = $birthDate === null ? null : $this->accessService->accessiblePatientsQuery($userId)->get();
+        $result = (new PatientNameMatcher)->match($query->orderBy('id')->get(), $name, $birthDate, $accessible);
         if ($result['status'] === PatientNameMatcher::MATCHED) {
             $patient = $result['patients'][0];
             $publicIds = $this->publicIds->forPatients(collect([(int) $patient->id]));
@@ -94,7 +97,7 @@ final class AgentPatientController extends Controller
         $none = $result['status'] === PatientNameMatcher::NONE;
         $message = $none
             ? "No patient you can access matches the name \"{$name}\"".($birthDate !== null ? " with date of birth {$birthDate}" : '').'. Ask the user which patient this belongs to. Do not guess, and do not create a patient.'
-            : 'Several patients match the name "'.$name.'": '.collect($result['patients'])->map(fn (PhrPatient $patient): string => "{$patient->display_name} (id {$patient->id}".($patient->birth_date === null ? '' : ", born {$patient->birth_date->toDateString()}").')')->implode('; ').'. Ask the user which one, or for the date of birth printed on the source. Do not guess.';
+            : 'Several patients could be "'.$name.'": '.collect($result['patients'])->map(fn (PhrPatient $patient): string => "{$patient->display_name} (id {$patient->id}".($patient->birth_date === null ? '' : ", born {$patient->birth_date->toDateString()}").')')->implode('; ').'. Ask the user which one, or for the date of birth printed on the source. Do not guess.';
 
         return response()->json([
             'message' => $message,
@@ -129,11 +132,13 @@ final class AgentPatientController extends Controller
      * Mirrors PhrPatientController::store's persistence: the creator becomes
      * both owner_user_id and the sole owner-level access grant. Reuses
      * StorePatientRequest's validation rules directly, rather than
-     * duplicating them, so the two entry points can never drift apart.
+     * duplicating them, so the two entry points can never drift apart. Real names
+     * are the exception: they decide which chart a document lands on, so only a
+     * person sets them, and a name an agent sends is ignored.
      */
     public function store(Request $request): JsonResponse
     {
-        $validated = $request->validate((new StorePatientRequest)->rules());
+        $validated = $request->validate(Arr::except((new StorePatientRequest)->rules(), ['real_names', 'real_names.*']));
         $userId = (int) $request->user('api')?->id;
 
         $patient = DB::transaction(function () use ($userId, $validated): PhrPatient {
