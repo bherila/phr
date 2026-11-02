@@ -198,7 +198,7 @@ class EhiEncounterMappingTest extends TestCase
         $package = $this->previewed(EhiClinicalPackage::withEncounters()->buildWithDocumentedKey('PAT_ENC_DX', ['PAT_ENC_CSN_ID']), $owner, $patient);
 
         self::assertSame(1, PhrEhiFinding::query()->where('package_id', $package->id)->where('code', EhiFindingCode::MAPPING_KEY_MISMATCH)->count());
-        self::assertNull($this->proposal($package, '7101')->proposed_json['attributes']['encounter_diagnoses'], 'a table whose key disagrees supplies nothing');
+        self::assertArrayNotHasKey('encounter_diagnoses', $this->proposal($package, '7101')->proposed_json['attributes'], 'a table whose key disagrees supplies nothing');
         $account = PhrEhiTableAccount::query()->where('package_id', $package->id)->where('table_name', 'PAT_ENC_DX')->sole();
         self::assertSame([PhrEhiTableAccount::DISPOSITION_RETAINED_UNMAPPED => 5], $account->disposition_counts_json);
 
@@ -308,6 +308,72 @@ class EhiEncounterMappingTest extends TestCase
         }
         self::assertNotNull(PhrOfficeVisit::withTrashed()->findOrFail($bridged->id)->deleted_at);
         self::assertSame(PhrReviewStatus::REJECTED, $lookalike->refresh()->review_status);
+    }
+
+    public function test_diagnoses_a_package_cannot_vouch_for_are_never_read_as_an_empty_list(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $package = $this->previewed(EhiClinicalPackage::withEncounters()->build(), $owner, $patient);
+        $this->accept($this->proposal($package, '7101'), $owner);
+        $visit = PhrOfficeVisit::query()->where('external_id', 'PAT_ENC:7101')->sole();
+        $original = $visit->encounter_diagnoses;
+        $sourceId = PhrEhiSource::query()->sole()->id;
+        $withProvider = static fn (string $name): EhiClinicalPackage => EhiClinicalPackage::withEncounters()->changing('PAT_ENC', ['PAT_ENC_CSN_ID' => '7101'], ['VISIT_PROV_ID_PROV_NAME' => $name]);
+        $approve = function (PhrEhiPackage $second) use ($owner): array {
+            $update = $this->proposal($second, '7101');
+            self::assertSame(PhrEhiProposal::KIND_UPDATE, $update->kind);
+            app(EhiProposalService::class)->review($update, PhrEhiProposal::DECISION_APPROVE_UPDATE, $owner->id, $update->preview_digest);
+
+            return $update->proposed_json;
+        };
+
+        // The table's key disagrees with its dictionary, so it supplies nothing at all.
+        $withheld = $this->previewed($withProvider('SYNTHETIC SECOND')->buildWithDocumentedKey('PAT_ENC_DX', ['PAT_ENC_CSN_ID']), $owner, $patient, 'package-2', $sourceId);
+        $proposed = $approve($withheld);
+        self::assertSame(['provider_name', 'raw_text'], $proposed['changed']);
+        self::assertTrue($proposed['ehi']['diagnoses_unavailable']);
+        self::assertArrayNotHasKey('encounter_diagnoses', $proposed['attributes']);
+        self::assertSame($original, $visit->refresh()->encounter_diagnoses);
+        self::assertSame('SYNTHETIC SECOND', $visit->provider_name);
+
+        // The package has no diagnosis table at all.
+        $absent = $this->previewed($withProvider('SYNTHETIC THIRD')->build()->without('PAT_ENC_DX.tsv')->without('docs/PAT_ENC_DX.htm'), $owner, $patient, 'package-3', $sourceId);
+        self::assertSame(['provider_name', 'raw_text'], $approve($absent)['changed']);
+        self::assertSame($original, $visit->refresh()->encounter_diagnoses);
+
+        // One of this encounter's rows repeats a key and is quarantined: the rest are a partial list.
+        $repeated = $withProvider('SYNTHETIC FOURTH')->adding('PAT_ENC_DX', ['PAT_ENC_CSN_ID' => '7101', 'LINE' => '1', 'DX_ID_DX_NAME' => 'Synthetic repeated key']);
+        $quarantined = $this->previewed($repeated->build(), $owner, $patient, 'package-4', $sourceId);
+        self::assertSame(['provider_name', 'raw_text'], $approve($quarantined)['changed']);
+        self::assertSame($original, $visit->refresh()->encounter_diagnoses);
+
+        // A row that could not be read could belong to any encounter.
+        $malformed = $withProvider('SYNTHETIC FIFTH')->build();
+        $malformed = $malformed->with('PAT_ENC_DX.tsv', $malformed->files['PAT_ENC_DX.tsv']."only\ttwo\n");
+        $unreadable = $this->previewed($malformed, $owner, $patient, 'package-5', $sourceId);
+        self::assertSame(['provider_name', 'raw_text'], $approve($unreadable)['changed']);
+        self::assertSame($original, $visit->refresh()->encounter_diagnoses);
+
+        // A complete table with no row for this encounter does say there are none, and a person decides.
+        $emptied = $withProvider('SYNTHETIC FIFTH')
+            ->without('PAT_ENC_DX', ['PAT_ENC_CSN_ID' => '7101', 'LINE' => '1'])
+            ->without('PAT_ENC_DX', ['PAT_ENC_CSN_ID' => '7101', 'LINE' => '2'])
+            ->without('PAT_ENC_DX', ['PAT_ENC_CSN_ID' => '7101', 'LINE' => '10']);
+        $explicit = $this->previewed($emptied->build(), $owner, $patient, 'package-6', $sourceId);
+        $proposed = $approve($explicit);
+        self::assertSame(['encounter_diagnoses'], $proposed['changed']);
+        self::assertNull($visit->refresh()->encounter_diagnoses);
+    }
+
+    public function test_a_first_import_of_an_encounter_says_when_its_diagnoses_are_unavailable(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $package = $this->previewed(EhiClinicalPackage::withEncounters()->buildWithDocumentedKey('PAT_ENC_DX', ['PAT_ENC_CSN_ID']), $owner, $patient);
+
+        $proposal = $this->proposal($package, '7101');
+        self::assertSame(PhrEhiProposal::KIND_CREATE, $proposal->kind);
+        self::assertTrue($proposal->proposed_json['ehi']['diagnoses_unavailable']);
+        self::assertGreaterThan(0, PhrEhiFinding::query()->where('package_id', $package->id)->where('code', EhiEncounterMapping::FINDING_DIAGNOSES_UNAVAILABLE)->count());
     }
 
     public function test_a_visit_rejected_after_the_preview_cannot_be_linked_and_gets_no_later_update(): void

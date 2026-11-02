@@ -3,10 +3,12 @@
 namespace App\Services\PHR\Import\Ehi\Mapping;
 
 use App\Models\PhrEhiEntity;
+use App\Models\PhrEhiOccurrence;
 use App\Models\PhrEhiPackage;
 use App\Models\PhrEhiProposal;
 use App\Models\PhrEhiRecordLink;
 use App\Models\PhrEhiRevision;
+use App\Models\PhrEhiTableAccount;
 use App\Models\PhrOfficeVisit;
 use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentValues;
 use App\Services\PHR\Import\Ehi\Mapping\Encounter\EhiEncounterApplyRefused;
@@ -29,7 +31,11 @@ use Illuminate\Database\UniqueConstraintViolationException;
  *   encounter-type column, so ENC_TYPE_C_NAME is read only if a package supplies it.
  * - PAT_ENC_DX, PK [PAT_ENC_CSN_ID, LINE]. A diagnosis recorded on an encounter, by
  *   name: the table has no ICD-10 column, and none is invented. These stay on the
- *   visit in encounter_diagnoses; they never create a longitudinal condition.
+ *   visit in encounter_diagnoses; they never create a longitudinal condition. A list
+ *   is only as good as the rows behind it: if the table was withheld or absent, or a
+ *   row could not be read or was quarantined, the package cannot say what an
+ *   encounter's diagnoses are, so its proposal carries none and an update leaves the
+ *   visit's alone. A complete table with no row for an encounter does say it has none.
  *
  * Only a clinical encounter (EhiEncounterCategory) maps to a visit. Telephone,
  * portal, cancelled, administrative, and unclassified ones are retained as evidence
@@ -91,6 +97,9 @@ final class EhiEncounterMapping implements EhiMapping
     public const string FINDING_UNORDERED_DIAGNOSES = 'unordered_encounter_diagnoses';
 
     public const string FINDING_DIAGNOSES_TOO_LARGE = 'encounter_diagnoses_too_large';
+
+    /** The package cannot vouch for an encounter's diagnoses; what a visit holds is left alone. */
+    public const string FINDING_DIAGNOSES_UNAVAILABLE = 'encounter_diagnoses_unavailable';
 
     public const string FINDING_UNCLASSIFIED = 'unclassified_encounter';
 
@@ -199,6 +208,10 @@ final class EhiEncounterMapping implements EhiMapping
     public function propose(EhiMappingContext $context): iterable
     {
         $diagnoses = $this->diagnoses($context);
+        $gaps = $this->diagnosisGaps($context);
+        if ($gaps['all']) {
+            $context->finding(self::FINDING_DIAGNOSES_UNAVAILABLE, null, ['scope' => 'table', 'severity' => 'info']);
+        }
         $importSource = self::importSource($context->source->id);
         $records = new EhiEncounterRecordIndex($context, $importSource, self::TABLE_ENCOUNTERS, self::NAME);
         /** @var array<string, true> $used */
@@ -207,13 +220,13 @@ final class EhiEncounterMapping implements EhiMapping
         $group = [];
         foreach ($context->lazyRevisions(self::TABLE_ENCOUNTERS, withEntity: true) as $revision) {
             if ($group !== [] && $group[0]->entity_id !== $revision->entity_id) {
-                yield $this->draft($context, $records, $group, $diagnoses, $used, $importSource);
+                yield $this->draft($context, $records, $group, $diagnoses, $gaps, $used, $importSource);
                 $group = [];
             }
             $group[] = $revision;
         }
         if ($group !== []) {
-            yield $this->draft($context, $records, $group, $diagnoses, $used, $importSource);
+            yield $this->draft($context, $records, $group, $diagnoses, $gaps, $used, $importSource);
         }
 
         $unmatched = (int) array_sum(array_map('count', array_diff_key($diagnoses, $used)));
@@ -282,11 +295,55 @@ final class EhiEncounterMapping implements EhiMapping
     }
 
     /**
+     * Where this package's diagnosis rows do not add up to a complete list: every
+     * encounter, when the table supplied nothing or held a row with no usable key, or
+     * only the encounters whose rows were quarantined.
+     *
+     * @return array{all: bool, csns: array<string, true>}
+     */
+    private function diagnosisGaps(EhiMappingContext $context): array
+    {
+        $everything = ['all' => true, 'csns' => []];
+        if ($context->withheld(self::TABLE_DIAGNOSES)) {
+            return $everything;
+        }
+        $account = PhrEhiTableAccount::query()->where('package_id', $context->package->id)->whereNotNull('member_id')->get()
+            ->first(static fn (PhrEhiTableAccount $row): bool => strtoupper($row->table_name) === self::TABLE_DIAGNOSES);
+        if ($account === null || $account->malformed_row_count > 0) {
+            return $everything;
+        }
+        $quarantined = (int) ($account->disposition_counts_json[PhrEhiOccurrence::DISPOSITION_QUARANTINED] ?? 0);
+        if ($quarantined === 0) {
+            return ['all' => false, 'csns' => []];
+        }
+        $rows = PhrEhiRevision::query()
+            ->join('phr_ehi_occurrences', 'phr_ehi_occurrences.revision_id', '=', 'phr_ehi_revisions.id')
+            ->where('phr_ehi_occurrences.member_id', $account->member_id)
+            ->where('phr_ehi_occurrences.disposition', PhrEhiOccurrence::DISPOSITION_QUARANTINED)
+            ->select('phr_ehi_revisions.*', 'phr_ehi_occurrences.id as ehi_occurrence_id')
+            ->get();
+        if ($rows->count() < $quarantined) {
+            // A row quarantined with no key could have belonged to any encounter.
+            return $everything;
+        }
+        $csns = [];
+        foreach ($rows as $row) {
+            $csn = EhiDocumentValues::cell($row, 'PAT_ENC_CSN_ID');
+            if ($csn !== null) {
+                $csns[$csn] = true;
+            }
+        }
+
+        return ['all' => false, 'csns' => $csns];
+    }
+
+    /**
      * @param  non-empty-list<PhrEhiRevision>  $revisions
      * @param  array<string, list<array{id: int, ambiguous: bool, line: string, entry: array<string, string|bool|null>}>>  $diagnoses
+     * @param  array{all: bool, csns: array<string, true>}  $gaps
      * @param  array<string, true>  $used
      */
-    private function draft(EhiMappingContext $context, EhiEncounterRecordIndex $records, array $revisions, array $diagnoses, array &$used, string $importSource): EhiProposalDraft
+    private function draft(EhiMappingContext $context, EhiEncounterRecordIndex $records, array $revisions, array $diagnoses, array $gaps, array &$used, string $importSource): EhiProposalDraft
     {
         $context->budget->checkpoint();
         $revision = $revisions[0];
@@ -325,7 +382,11 @@ final class EhiEncounterMapping implements EhiMapping
             return $this->retain($subject, $revisionIds, null, self::FINDING_FOREIGN_PATIENT);
         }
 
-        $built = $this->build($revision, $csn, $diagnoses[$csn] ?? [], $importSource, $externalId);
+        $diagnosesAvailable = ! $gaps['all'] && ! isset($gaps['csns'][$csn]);
+        if (! $gaps['all'] && ! $diagnosesAvailable) {
+            $context->finding(self::FINDING_DIAGNOSES_UNAVAILABLE, $revision, ['scope' => 'encounter', 'severity' => 'info']);
+        }
+        $built = $this->build($revision, $csn, $diagnoses[$csn] ?? [], $diagnosesAvailable, $importSource, $externalId);
         if ($built['issue'] !== null) {
             $context->finding($built['issue']['code'], $revision, $built['issue']['detail']);
 
@@ -359,7 +420,7 @@ final class EhiEncounterMapping implements EhiMapping
         }
 
         if ($target['state'] === 'target') {
-            return $this->reconcile($subject, $revisionIds, $built['proposed'], $fields, $built['diagnoses'], $target['record'], $target['previous'], $target['same_revision']);
+            return $this->reconcile($subject, $revisionIds, $built['proposed'], $fields, $diagnosesAvailable, $built['diagnoses'], $target['record'], $target['previous'], $target['same_revision']);
         }
 
         $bridged = $records->bridged($csn);
@@ -401,7 +462,7 @@ final class EhiEncounterMapping implements EhiMapping
      * @param  list<array{id: int, ambiguous: bool, line: string, entry: array<string, string|bool|null>}>  $diagnoses
      * @return array{fields: array<string, string|null>, diagnoses: list<array<string, string|bool|null>>|null, proposed: array<string, mixed>, issue: array{code: string, detail: array<string, int|string|bool|null>}|null}
      */
-    private function build(PhrEhiRevision $revision, string $csn, array $diagnoses, string $importSource, string $externalId): array
+    private function build(PhrEhiRevision $revision, string $csn, array $diagnoses, bool $diagnosesAvailable, string $importSource, string $externalId): array
     {
         $issue = null;
         $raise = static function (string $code, array $detail = []) use (&$issue): void {
@@ -450,6 +511,9 @@ final class EhiEncounterMapping implements EhiMapping
         }
 
         $ordered = null;
+        if (! $diagnosesAvailable) {
+            $diagnoses = [];
+        }
         foreach ($diagnoses as $diagnosis) {
             if ($diagnosis['ambiguous'] || ! EhiDocumentValues::isExactInteger($diagnosis['line'])) {
                 $raise(self::FINDING_UNORDERED_DIAGNOSES, ['table' => self::TABLE_DIAGNOSES]);
@@ -476,7 +540,7 @@ final class EhiEncounterMapping implements EhiMapping
                     'review_status' => PhrReviewStatus::CONFIRMED,
                     ...$fields,
                     // Named on the encounter only, and PAT_ENC_DX has no ICD-10 column.
-                    'encounter_diagnoses' => $ordered,
+                    ...($diagnosesAvailable ? ['encounter_diagnoses' => $ordered] : []),
                     'icd10_codes' => null,
                 ],
                 'ehi' => [
@@ -484,6 +548,7 @@ final class EhiEncounterMapping implements EhiMapping
                     'csn' => $csn,
                     'contact_date_real' => $cell('PAT_ENC_DATE_REAL'),
                     'diagnosis_lines' => count($ordered ?? []),
+                    'diagnoses_unavailable' => ! $diagnosesAvailable,
                 ],
             ],
             'issue' => $issue,
@@ -590,16 +655,19 @@ final class EhiEncounterMapping implements EhiMapping
      * @param  list<array<string, string|bool|null>>|null  $diagnoses
      * @param  array<string, mixed>|null  $previous
      */
-    private function reconcile(string $subject, array $revisionIds, array $proposed, array $fields, ?array $diagnoses, PhrOfficeVisit $record, ?array $previous, bool $sameRevision): EhiProposalDraft
+    private function reconcile(string $subject, array $revisionIds, array $proposed, array $fields, bool $diagnosesAvailable, ?array $diagnoses, PhrOfficeVisit $record, ?array $previous, bool $sameRevision): EhiProposalDraft
     {
         $changed = [];
         $before = [];
         $current = $this->currentFields($record);
-        $next = [...$fields, 'encounter_diagnoses' => $diagnoses === null ? null : EhiCanonicalJson::encode($diagnoses)];
+        $next = $diagnosesAvailable
+            ? [...$fields, 'encounter_diagnoses' => $diagnoses === null ? null : EhiCanonicalJson::encode($diagnoses)]
+            : $fields;
         foreach ($next as $field => $value) {
             $earlier = $previous[$field] ?? null;
             $earlier = is_array($earlier) ? EhiCanonicalJson::encode($earlier) : (is_string($earlier) ? $earlier : null);
-            $sourceChanged = $previous === null ? ! $sameRevision : $earlier !== $value;
+            // A decision that could not vouch for a field says nothing about whether it changed.
+            $sourceChanged = $previous === null ? ! $sameRevision : (! array_key_exists($field, $previous) || $earlier !== $value);
             if ($sourceChanged && $current[$field] !== $value) {
                 $changed[] = $field;
                 $before[$field] = $field === 'encounter_diagnoses' ? $record->encounter_diagnoses : $current[$field];

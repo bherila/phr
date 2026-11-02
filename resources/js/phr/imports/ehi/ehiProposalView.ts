@@ -190,6 +190,10 @@ function noticeOf(proposal: EhiProposal): string | null {
       return `It carries the same source identifier as a record in PHR, but the ${conflicts.map((conflict) => CONFLICT_LABELS[String(conflict)] ?? String(conflict)).join(' and ')} differ${conflicts.length === 1 ? 's' : ''}. Neither is changed unless you choose.`
     }
   }
+  const ehi = proposed['ehi']
+  if (ehi !== null && typeof ehi === 'object' && !Array.isArray(ehi) && (ehi as Record<string, unknown>)['diagnoses_unavailable'] === true) {
+    return 'This export could not vouch for this encounter\'s diagnoses, so they are not part of this proposal and a visit in PHR keeps the ones it has.'
+  }
   if (proposed['withdrawn_match'] === true) {
     return 'A matching record was deleted, retracted, or rejected earlier. Adding this one is your choice; that record stays as it is.'
   }

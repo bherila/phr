@@ -169,7 +169,7 @@ final class EhiMappingContext
     }
 
     /** Whether this package's projection left the table unprojected, so it supplies no evidence. */
-    private function withheld(string $table): bool
+    public function withheld(string $table): bool
     {
         $this->withheldTables ??= EhiProjectionService::withheldTables($this->package);
 

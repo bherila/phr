@@ -71,6 +71,12 @@ describe('ehiProposalView', () => {
     expect(kept('linked_encounter_not_clinical')).toMatch(/record in PHR is unchanged/)
   })
 
+  it('says when an encounter\'s diagnoses could not be read rather than implying there are none', () => {
+    const proposal = makeEhiProposal({ mapping: 'encounter', proposed: { attributes: { visit_type: 'Office Visit' }, ehi: { diagnoses_unavailable: true } } })
+    expect(proposalView(proposal).notice).toMatch(/could not vouch.*diagnoses/)
+    expect(proposalView(makeEhiProposal({ mapping: 'encounter', proposed: { attributes: { visit_type: 'Office Visit' }, ehi: { diagnoses_unavailable: false } } })).notice).toBeNull()
+  })
+
   it('shows a month-precision date without a day', () => {
     expect(formatSourceDate('2004-08')).toBe('Aug 2004')
     expect(formatSourceDate(null)).toBeNull()
