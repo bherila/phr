@@ -20,6 +20,7 @@ use Illuminate\Support\Carbon;
  * @property string $revision_digest
  * @property int|null $linked_immunization_id
  * @property int|null $linked_lab_result_id
+ * @property int|null $linked_office_visit_id
  * @property int|null $linked_document_id
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
@@ -30,11 +31,11 @@ class PhrEhiProposalDecision extends Model
 
     protected $table = 'phr_ehi_proposal_decisions';
 
-    protected $fillable = ['patient_id', 'proposal_id', 'actor_user_id', 'decision', 'previous_status', 'mapping_version', 'revision_digest', 'linked_immunization_id', 'linked_document_id', 'linked_lab_result_id'];
+    protected $fillable = ['patient_id', 'proposal_id', 'actor_user_id', 'decision', 'previous_status', 'mapping_version', 'revision_digest', 'linked_immunization_id', 'linked_document_id', 'linked_lab_result_id', 'linked_office_visit_id'];
 
     protected function casts(): array
     {
-        return ['linked_immunization_id' => 'integer', 'linked_document_id' => 'integer', 'linked_lab_result_id' => 'integer'];
+        return ['linked_immunization_id' => 'integer', 'linked_document_id' => 'integer', 'linked_lab_result_id' => 'integer', 'linked_office_visit_id' => 'integer'];
     }
 
     /** @return BelongsTo<PhrPatient, $this> */

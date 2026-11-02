@@ -16,6 +16,7 @@ use App\Models\PhrEhiSource;
 use App\Models\PhrEhiTableAccount;
 use App\Models\PhrImmunization;
 use App\Models\PhrLabResult;
+use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
@@ -82,6 +83,7 @@ final class EhiProposalService
         'phr_immunizations' => ['model' => PhrImmunization::class, 'link' => 'immunization_id', 'decision' => 'linked_immunization_id'],
         'phr_documents' => ['model' => PhrDocument::class, 'link' => 'document_id', 'decision' => 'linked_document_id'],
         'phr_lab_results' => ['model' => PhrLabResult::class, 'link' => 'lab_result_id', 'decision' => 'linked_lab_result_id'],
+        'phr_office_visits' => ['model' => PhrOfficeVisit::class, 'link' => 'office_visit_id', 'decision' => 'linked_office_visit_id'],
     ];
 
     public const array KINDS = [

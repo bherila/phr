@@ -68,6 +68,19 @@ final class PhrNativeLifecycleCompatibility
             'resulted_at_precision',
             'resulted_at_timezone',
         ],
+        // EHI encounter context (#213 M3): null on every visit an older archive holds.
+        'phr_office_visits' => [
+            'encounter_category',
+            'encounter_status',
+            'encounter_diagnoses',
+            'visit_date_source',
+            'visit_started_source',
+            'visit_started_precision',
+            'visit_started_timezone',
+            'visit_ended_source',
+            'visit_ended_precision',
+            'visit_ended_timezone',
+        ],
         // Which source-ID bridge justified a link (#213 M3); older links name none.
         'phr_ehi_record_links' => ['bridge_version', 'bridge_rule'],
     ];
@@ -79,9 +92,9 @@ final class PhrNativeLifecycleCompatibility
      * @var array<string, list<string>>
      */
     public const array TABLE_RELATIONSHIPS = [
-        // A lab result as a typed evidence-link target (#213 M3).
-        'phr_ehi_record_links' => ['lab_result_id'],
-        'phr_ehi_proposal_decisions' => ['linked_lab_result_id'],
+        // A lab result or visit as a typed evidence-link target (#213 M3).
+        'phr_ehi_record_links' => ['lab_result_id', 'office_visit_id'],
+        'phr_ehi_proposal_decisions' => ['linked_lab_result_id', 'linked_office_visit_id'],
     ];
 
     /**

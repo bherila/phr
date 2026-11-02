@@ -17,6 +17,7 @@ use Illuminate\Support\Carbon;
  * @property int|null $immunization_id
  * @property int|null $document_id
  * @property int|null $lab_result_id
+ * @property int|null $office_visit_id
  * @property string $link_kind
  * @property string $mapping_version
  * @property string|null $bridge_version
@@ -44,11 +45,11 @@ class PhrEhiRecordLink extends Model
 
     protected $table = 'phr_ehi_record_links';
 
-    protected $fillable = ['patient_id', 'revision_id', 'proposal_id', 'immunization_id', 'document_id', 'lab_result_id', 'link_kind', 'mapping_version', 'bridge_version', 'bridge_rule', 'created_by_user_id'];
+    protected $fillable = ['patient_id', 'revision_id', 'proposal_id', 'immunization_id', 'document_id', 'lab_result_id', 'office_visit_id', 'link_kind', 'mapping_version', 'bridge_version', 'bridge_rule', 'created_by_user_id'];
 
     protected function casts(): array
     {
-        return ['immunization_id' => 'integer', 'document_id' => 'integer', 'lab_result_id' => 'integer', 'proposal_id' => 'integer'];
+        return ['immunization_id' => 'integer', 'document_id' => 'integer', 'lab_result_id' => 'integer', 'office_visit_id' => 'integer', 'proposal_id' => 'integer'];
     }
 
     /** @return BelongsTo<PhrPatient, $this> */

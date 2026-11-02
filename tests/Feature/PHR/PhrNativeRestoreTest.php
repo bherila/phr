@@ -1330,7 +1330,7 @@ final class PhrNativeRestoreTest extends TestCase
         @unlink($archivePath);
     }
 
-    public function test_an_archive_written_before_lab_provenance_and_lab_links_still_restores(): void
+    public function test_an_archive_written_before_lab_and_encounter_context_still_restores(): void
     {
         $owner = User::factory()->create(['user_role' => 'user']);
         $patient = $this->patientWithOwnerGrant((int) $owner->id);
@@ -1344,7 +1344,22 @@ final class PhrNativeRestoreTest extends TestCase
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+        DB::table('phr_office_visits')->insert([
+            'patient_id' => $patient->id,
+            'user_id' => $owner->id,
+            'visit_type' => 'Synthetic older visit',
+            'review_status' => PhrReviewStatus::CONFIRMED,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
         $archivePath = $this->archiveCopy($patient, (int) $owner->id);
+        $this->mutateTableRecords($archivePath, 'phr_office_visits', static function (array $record): array {
+            foreach (PhrNativeLifecycleCompatibility::TABLE_COLUMNS['phr_office_visits'] as $column) {
+                unset($record['attributes'][$column]);
+            }
+
+            return $record;
+        });
         $absent = PhrNativeLifecycleCompatibility::TABLE_COLUMNS['phr_lab_results'];
         // Forge the shape of an archive written before these columns existed, with
         // hashes over that smaller set, and with records that really hold links.
@@ -1374,6 +1389,7 @@ final class PhrNativeRestoreTest extends TestCase
         $unchanged = $this->readyAttempt($archivePath, (int) $owner->id);
         $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $unchanged->status, (string) $unchanged->failure_category);
         $this->assertSame(1, $unchanged->plan_counts_json['tables']['phr_lab_results']['skip']);
+        $this->assertSame(1, $unchanged->plan_counts_json['tables']['phr_office_visits']['skip']);
         $this->assertSame(0, $unchanged->plan_counts_json['tables']['phr_ehi_record_links']['block']);
         $this->assertSame(0, $unchanged->plan_counts_json['tables']['phr_ehi_record_links']['create']);
 
@@ -1388,13 +1404,19 @@ final class PhrNativeRestoreTest extends TestCase
         $restored = DB::table('phr_lab_results')->where('patient_id', $restoredPatient)->sole();
         $this->assertSame('Synthetic older result', $restored->analyte);
         $this->assertNull($restored->value_comparator);
+        $visit = DB::table('phr_office_visits')->where('patient_id', $restoredPatient)->sole();
+        $this->assertSame('Synthetic older visit', $visit->visit_type);
+        $this->assertNull($visit->encounter_category);
+        $this->assertNull($visit->encounter_diagnoses);
         $links = DB::table('phr_ehi_record_links')->where('patient_id', $restoredPatient)->get();
         $this->assertNotEmpty($links);
         foreach ($links as $link) {
             $this->assertNull($link->lab_result_id);
+            $this->assertNull($link->office_visit_id);
             $this->assertNull($link->bridge_version);
         }
         $this->assertNull(DB::table('phr_ehi_proposal_decisions')->where('patient_id', $restoredPatient)->value('linked_lab_result_id'));
+        $this->assertNull(DB::table('phr_ehi_proposal_decisions')->where('patient_id', $restoredPatient)->value('linked_office_visit_id'));
         @unlink($archivePath);
     }
 

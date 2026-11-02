@@ -12,7 +12,7 @@ final class EhiPreviewBudget
         'phr_ehi_sources', 'phr_ehi_packages', 'phr_ehi_package_members',
         'phr_ehi_entities', 'phr_ehi_revisions', 'phr_ehi_occurrences',
         'phr_ehi_proposals', 'phr_ehi_proposal_revisions', 'phr_ehi_record_links',
-        'phr_ehi_proposal_decisions', 'phr_documents', 'phr_immunizations', 'phr_lab_results',
+        'phr_ehi_proposal_decisions', 'phr_documents', 'phr_immunizations', 'phr_lab_results', 'phr_office_visits',
     ];
 
     private readonly float $started;
