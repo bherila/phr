@@ -30,6 +30,7 @@ use App\Services\PHR\Import\Ehi\Mapping\EhiMappingRegistry;
 use App\Services\PHR\Import\Ehi\Mapping\EhiProposalDraft;
 use App\Services\PHR\Import\Ehi\Mapping\EhiSourceIdBridge;
 use App\Services\PHR\Import\Ehi\Mapping\EhiTargetDigest;
+use App\Services\PHR\Import\Ehi\Mapping\Lab\EhiLabValue;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -178,6 +179,39 @@ class EhiLabResultMappingTest extends TestCase
         self::assertSame(1, PhrEhiFinding::query()->where('package_id', $package->id)->where('code', EhiLabResultMapping::FINDING_ORPHAN)->count());
         self::assertSame(1, PhrEhiFinding::query()->where('package_id', $package->id)->where('code', EhiLabResultMapping::FINDING_ORDERS_WITHOUT_RESULTS)->count());
         self::assertSame(1, PhrEhiFinding::query()->where('package_id', $package->id)->where('code', EhiLabResultMapping::FINDING_UNMATCHED_NARRATIVE)->count());
+    }
+
+    public function test_a_range_with_a_bound_the_columns_cannot_hold_stays_whole_as_text(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $result = static fn (string $line, array $cells): array => ['ORDER_PROC_ID' => '8102', 'ORD_DATE_REAL' => '66001', 'LINE' => $line, 'COMPONENT_ID_NAME' => 'SYNTHETIC RANGE '.$line, 'ORD_VALUE' => '1', ...$cells];
+        $package = $this->previewed(
+            EhiClinicalPackage::withLabs()
+                ->adding('ORDER_RESULTS', $result('11', ['REFERENCE_LOW' => '0,5', 'REFERENCE_HIGH' => '5', 'REFERENCE_UNIT' => 'mg/dL']))
+                ->adding('ORDER_RESULTS', $result('12', ['REFERENCE_LOW' => '1', 'REFERENCE_HIGH' => '<9']))
+                ->adding('ORDER_RESULTS', $result('13', ['REFERENCE_LOW' => '0,5', 'REF_NORMAL_VALS' => 'Synthetic normal range']))
+                ->adding('ORDER_RESULTS', $result('14', ['REFERENCE_HIGH' => '5,5']))
+                ->adding('ORDER_RESULTS', $result('15', ['REFERENCE_HIGH' => '5', 'REFERENCE_UNIT' => 'mg/dL']))
+                ->build(),
+            $owner,
+            $patient,
+        );
+
+        foreach ([
+            '11' => ['0,5 - 5', null, null, null],
+            '12' => ['1 - <9', null, null, null],
+            '13' => ['Synthetic normal range', null, null, null],
+            '14' => ['- 5,5', null, null, null],
+            // A lone bound the column holds exactly is still a numeric bound.
+            '15' => [null, null, '5', 'mg/dL'],
+        ] as $line => [$text, $min, $max, $unit]) {
+            $this->accept($this->proposal($package, '8102', '66001', (string) $line), $owner);
+            $record = PhrLabResult::query()->where('external_id', "ORDER_RESULTS:8102:66001:{$line}")->sole();
+            self::assertSame($text, $record->reference_range_text, "line {$line}");
+            self::assertSame($min, $record->range_min === null ? null : EhiLabValue::canonical($record->range_min), "line {$line}");
+            self::assertSame($max, $record->range_max === null ? null : EhiLabValue::canonical($record->range_max), "line {$line}");
+            self::assertSame($unit, $record->range_unit, "line {$line}");
+        }
     }
 
     public function test_a_value_the_columns_cannot_hold_is_retained_not_cut(): void

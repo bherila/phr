@@ -52,7 +52,8 @@ use Illuminate\Database\UniqueConstraintViolationException;
  *   ORD_VALUE -> value (verbatim); ORD_RAW_VALUE -> value_raw (verbatim)
  *   ORD_VALUE + VALUE_NORMALIZED -> value_comparator, value_numeric (EhiLabValue)
  *   REFERENCE_UNIT -> unit, and range_unit when there is a bound
- *   REFERENCE_LOW, REFERENCE_HIGH -> range_min, range_max when exact decimals
+ *   REFERENCE_LOW, REFERENCE_HIGH -> range_min, range_max when every supplied bound
+ *     is an exact decimal; otherwise neither, and the text below holds the range
  *   REF_NORMAL_VALS, else non-decimal low/high text -> reference_range_text
  *   RESULT_FLAG_C_NAME -> abnormal_flag
  *   RESULT_STATUS_C_NAME, else LAB_STATUS_C_NAME -> result_status
@@ -576,9 +577,13 @@ final class EhiLabResultMapping implements EhiMapping
         $rangeMin = EhiLabValue::exactBound($low);
         $rangeMax = EhiLabValue::exactBound($high);
         $rangeText = $cell('REF_NORMAL_VALS');
-        if ($rangeText === null && (($low !== null && $rangeMin === null) || ($high !== null && $rangeMax === null))) {
-            // A bound the decimal columns cannot hold exactly stays as the source wrote it.
-            $rangeText = implode(' - ', array_filter([$low, $high], static fn (?string $bound): bool => $bound !== null));
+        if (($low !== null && $rangeMin === null) || ($high !== null && $rangeMax === null)) {
+            // The display prefers any numeric bound over the text, so half a range would
+            // read as a one-sided limit. A bound the columns cannot hold exactly keeps
+            // the whole range as the source wrote it.
+            $rangeMin = null;
+            $rangeMax = null;
+            $rangeText ??= trim(($low ?? '').' - '.($high ?? ''));
         }
 
         $fields = [
