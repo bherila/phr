@@ -614,6 +614,26 @@ final class FillEobLinkerTest extends TestCase
         $this->assertNotNull($this->getJson($url)->json('claims.0'), 'a recompute keeps a person\'s choice');
     }
 
+    public function test_choosing_a_claim_after_a_rejection_reaches_the_changes_feed(): void
+    {
+        $fill = $this->fill('2026-01-05', 'alpha', ['review_status' => PhrReviewStatus::CONFIRMED]);
+        $claim = $this->claim('C-1', '2026-01-05', '100.00');
+        $url = "/api/phr/patients/{$this->patient->id}/medication-fills/{$fill->id}/eob-link";
+        $this->actingAs($this->actor)->postJson($url, ['action' => 'reject'])->assertOk();
+        $version = app(AgentClinicalRecordVersion::class)->for($fill->fresh());
+        $this->travel(1)->hours();
+        $after = now()->toIso8601String();
+        $this->travel(1)->hours();
+
+        $this->actingAs($this->actor)->postJson($url, ['action' => 'link', 'eob_id' => $claim->id])->assertOk();
+
+        $this->actAsClient();
+        $changed = collect($this->getJson("/api/v1/patients/{$this->patient->id}/changes?".http_build_query(['updated_after' => $after, 'resource_type' => ['medication-fills']]))->assertOk()->json('data'))->pluck('id')->all();
+        $this->assertContains($fill->id, $changed);
+        $this->assertSame($version, app(AgentClinicalRecordVersion::class)->for($fill->fresh()), 'a link never refuses a client\'s write');
+        $this->assertSame(PhrReviewStatus::CONFIRMED, $fill->fresh()->review_status);
+    }
+
     public function test_a_read_only_person_is_offered_claims_but_cannot_take_one(): void
     {
         $fill = $this->fill('2026-01-05', 'alpha');

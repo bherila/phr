@@ -6,6 +6,7 @@ use App\Services\PHR\Fills\FillEobLinker;
 use App\Services\PHR\Fills\FillEobLinkTrigger;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\DB;
 
 /**
  * One piece of evidence for a fill besides the document it was first read from:
@@ -52,6 +53,9 @@ class PhrMedicationFillEvidence extends Model
         $changed = static function (self $evidence): void {
             if (! in_array($evidence->source_kind, self::LINKER_KINDS, true)
                 && ($evidence->eob_line_id !== null || $evidence->getOriginal('eob_line_id') !== null)) {
+                // The fill's eob_line_ids changed, and a client syncing on updated_at must see that.
+                // The table directly: the version leaves updated_at out, and no fill event should fire.
+                DB::table('phr_medication_fills')->where('id', $evidence->fill_id)->update(['updated_at' => now()]);
                 FillEobLinkTrigger::schedule((int) $evidence->patient_id);
             }
         };
