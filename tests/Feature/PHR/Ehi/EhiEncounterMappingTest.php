@@ -310,6 +310,35 @@ class EhiEncounterMappingTest extends TestCase
         self::assertSame(PhrReviewStatus::REJECTED, $lookalike->refresh()->review_status);
     }
 
+    public function test_a_visit_rejected_after_the_preview_cannot_be_linked_and_gets_no_later_update(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        PhrPatientUserAccess::query()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'access_level' => PhrPatientUserAccess::LEVEL_OWNER, 'granted_by_user_id' => $owner->id, 'granted_at' => now()]);
+        $candidate = $this->legacy($owner, $patient, ['visit_date' => '2024-05-02', 'provider_name' => 'A person wrote this']);
+        $package = $this->previewed(EhiClinicalPackage::withEncounters()->build(), $owner, $patient);
+        $base = "/api/phr/patients/{$patient->id}";
+
+        // Rejected after the preview offered it: a link is refused under the lock.
+        $duplicate = $this->proposal($package, '7102');
+        self::assertSame([$candidate->id], $duplicate->candidate_ids_json);
+        $this->actingAs($owner)->patchJson("{$base}/office-visits/{$candidate->id}/review", ['review_status' => PhrReviewStatus::REJECTED])->assertOk();
+        $this->actingAs($owner)->postJson("{$base}/ehi/proposals/{$duplicate->id}/review", ['decision' => 'link_existing', 'preview_digest' => $duplicate->preview_digest, 'link_id' => $candidate->id])
+            ->assertStatus(409)->assertExactJson(['error' => 'target_withdrawn']);
+        self::assertSame(0, PhrEhiRecordLink::query()->where('office_visit_id', $candidate->id)->count());
+
+        // Accepted, then rejected: a later export's change is kept as evidence, not proposed.
+        $accepted = $this->proposal($package, '7101');
+        $recordId = $this->actingAs($owner)->postJson("{$base}/ehi/proposals/{$accepted->id}/review", ['decision' => 'accept', 'preview_digest' => $accepted->preview_digest])->assertOk()->json('record.id');
+        $this->actingAs($owner)->patchJson("{$base}/office-visits/{$recordId}/review", ['review_status' => PhrReviewStatus::REJECTED])->assertOk();
+        $changed = EhiClinicalPackage::withEncounters()->changing('PAT_ENC', ['PAT_ENC_CSN_ID' => '7101'], ['VISIT_PROV_ID_PROV_NAME' => 'SYNTHETIC SECOND PROVIDER']);
+        $second = $this->previewed($changed->build(), $owner, $patient, 'package-2', PhrEhiSource::query()->sole()->id);
+
+        $retained = $this->proposal($second, '7101');
+        self::assertSame(PhrEhiProposal::KIND_RETAIN, $retained->kind);
+        self::assertSame(EhiEncounterMapping::FINDING_LINKED_RECORD_WITHDRAWN, $retained->proposed_json['retain_reason']);
+        self::assertSame('SYNTHETIC PROVIDER', PhrOfficeVisit::query()->findOrFail($recordId)->provider_name);
+    }
+
     public function test_changed_source_content_is_an_explicit_update_a_status_change_is_not_and_replay_changes_nothing(): void
     {
         [$owner, $patient] = $this->ownerAndPatient();

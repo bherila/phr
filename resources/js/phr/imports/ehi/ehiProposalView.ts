@@ -278,7 +278,7 @@ const RETAIN_REASONS: Record<string, string> = {
   orphan_encounter: 'Not linked to a patient in the source.',
   missing_encounter_date: 'The source gives no date for this encounter.',
   encounter_bridge_target_withdrawn: 'The record it matches was deleted, retracted, or rejected, and stays that way.',
-  encounter_identity_withdrawn: 'The record it was imported as was deleted or retracted, and stays that way.',
+  encounter_identity_withdrawn: 'The record it was imported as was deleted, retracted, or rejected, and stays that way.',
   linked_encounter_not_clinical: 'The source no longer reports this as a visit. The record in PHR is unchanged; change it yourself if it is wrong.',
 }
 

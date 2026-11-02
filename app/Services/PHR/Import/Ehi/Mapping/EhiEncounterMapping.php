@@ -550,9 +550,10 @@ final class EhiEncounterMapping implements EhiMapping
         }
         if ($linkedIds->count() === 1) {
             $record = $records->linkedRecord((int) $linkedIds->first());
-            if ($record === null || PhrRecordLifecycle::of($record) !== PhrRecordLifecycle::ACTIVE) {
+            if ($record === null || ! PhrRecordLifecycle::stands($record)) {
                 $context->finding(self::FINDING_LINKED_RECORD_WITHDRAWN, $revision, [
                     'lifecycle' => $record === null ? 'missing' : PhrRecordLifecycle::of($record),
+                    'review_status' => $record?->review_status,
                 ]);
 
                 return ['state' => 'retain', 'reason' => self::FINDING_LINKED_RECORD_WITHDRAWN];
@@ -566,8 +567,8 @@ final class EhiEncounterMapping implements EhiMapping
         if ($record === null) {
             return ['state' => 'none'];
         }
-        if (PhrRecordLifecycle::of($record) !== PhrRecordLifecycle::ACTIVE) {
-            $context->finding(self::FINDING_IDENTITY_WITHDRAWN, $revision, ['lifecycle' => PhrRecordLifecycle::of($record)]);
+        if (! PhrRecordLifecycle::stands($record)) {
+            $context->finding(self::FINDING_IDENTITY_WITHDRAWN, $revision, ['lifecycle' => PhrRecordLifecycle::of($record), 'review_status' => $record->review_status]);
 
             return ['state' => 'retain', 'reason' => self::FINDING_IDENTITY_WITHDRAWN];
         }
@@ -733,8 +734,8 @@ final class EhiEncounterMapping implements EhiMapping
         if (! $record instanceof PhrOfficeVisit) {
             throw new EhiEncounterApplyRefused(EhiEncounterApplyRefused::TARGET_NOT_FOUND, "the target is not this patient's visit");
         }
-        if (PhrRecordLifecycle::of($record) !== PhrRecordLifecycle::ACTIVE) {
-            throw new EhiEncounterApplyRefused(EhiEncounterApplyRefused::TARGET_WITHDRAWN, 'the target was deleted or retracted');
+        if (! PhrRecordLifecycle::stands($record)) {
+            throw new EhiEncounterApplyRefused(EhiEncounterApplyRefused::TARGET_WITHDRAWN, 'the target was deleted, retracted, or rejected');
         }
 
         return $record;
