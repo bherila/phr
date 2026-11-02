@@ -7,6 +7,7 @@ use App\Models\PhrPatient;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use stdClass;
 
 /**
  * Keeps one patient's automatic fill-to-claim evidence equal to what
@@ -97,12 +98,12 @@ class FillEobLinker
 
     /**
      * @return array{
-     *     fills: list<array{id: int, day: string, drug: ?string}>,
-     *     claims: array<int, array{id: int, day: ?string, charge: ?int, sort: string, line_ids: list<int>, claim_number: ?string, processed_date: ?string, total_charges: ?string, provider_name: ?string}>,
+     *     fills: array<int, array{id: int, day: string, drug: ?string}>,
+     *     claims: array<int, array{id: int, day: ?string, charge: ?int, sort: string, line_ids: array<int, int>, claim_number: ?string, processed_date: ?string, total_charges: ?string, provider_name: ?string}>,
      *     manual: array<int, list<int>>,
-     *     dismissed: list<int>,
-     *     automatic: Collection<int, object>,
-     *     flags: Collection<int, object>,
+     *     dismissed: array<int, int>,
+     *     automatic: Collection<int, stdClass>,
+     *     flags: Collection<int, stdClass>,
      * }
      */
     private function snapshot(int $patientId): array
@@ -144,10 +145,10 @@ class FillEobLinker
                 // Row ids come last: they are only for two claims with nothing else to tell them apart.
                 'sort' => implode('|', [$processed ?? '9999-12-31', (string) $eob->claim_number, (string) $eob->claim_fingerprint, str_pad((string) $eob->id, 20, '0', STR_PAD_LEFT)]),
                 'line_ids' => $eobLines->pluck('id')->map(static fn (mixed $id): int => (int) $id)->all(),
-                'claim_number' => $eob->claim_number,
+                'claim_number' => $eob->claim_number === null ? null : (string) $eob->claim_number,
                 'processed_date' => $processed,
                 'total_charges' => is_numeric($eob->total_charges) ? number_format((float) $eob->total_charges, 2, '.', '') : null,
-                'provider_name' => $eob->provider_name,
+                'provider_name' => $eob->provider_name === null ? null : (string) $eob->provider_name,
             ];
         }
 

@@ -59,7 +59,7 @@ final class FillEobLinkPlanner
      * @param  array<int, array{id: int, day: string, drug: ?string}>  $fills  live, not rejected
      * @param  array<int, array{id: int, day: ?string, charge: ?int, sort: string}>  $claims  pharmacy, not rejected; charge in cents; sort is a stable order that does not depend on row ids alone
      * @param  array<int, list<int>>  $manualLinks  fill id => claims a person or client linked it to; an empty list means a line of something other than a pharmacy claim
-     * @param  list<int>  $dismissed  fills a person said have none of the claims on offer
+     * @param  array<int, int>  $dismissed  fills a person said have none of the claims on offer
      * @return array{
      *     links: array<int, array{claim_id: int, rule: string}>,
      *     open: array<int, array{reason: string, claim_ids: list<int>}>,
