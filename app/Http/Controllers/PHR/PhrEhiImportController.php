@@ -279,13 +279,8 @@ final class PhrEhiImportController extends Controller
         }
 
         $last = PhrEhiProposalDecision::query()->where('proposal_id', $decided->id)->orderByDesc('id')->first();
-        $record = match (true) {
-            $last?->linked_immunization_id !== null => ['table' => 'phr_immunizations', 'id' => (int) $last->linked_immunization_id],
-            $last?->linked_document_id !== null => ['table' => 'phr_documents', 'id' => (int) $last->linked_document_id],
-            default => null,
-        };
 
-        return $this->privateJson(['proposal' => $this->presenter->proposal($decided, false), 'record' => $record]);
+        return $this->privateJson(['proposal' => $this->presenter->proposal($decided, false), 'record' => EhiProposalService::decidedRecord($last)]);
     }
 
     private function actor(Request $request): int
