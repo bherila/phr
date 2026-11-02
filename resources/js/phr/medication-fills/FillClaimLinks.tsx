@@ -8,16 +8,17 @@ import { answerFillEobLink } from '@/phr/review/reviewApi'
 
 import { formatFillDate } from './fillTypes'
 
+const ClaimSchema = z.object({
+  eob_id: z.number(),
+  claim_number: z.string().nullable(),
+  service_date: z.string().nullable(),
+  total_charges: z.string().nullable(),
+  provider_name: z.string().nullable(),
+})
+
 const ClaimLinksSchema = z.object({
-  claims: z.array(z.object({
-    eob_id: z.number(),
-    claim_number: z.string().nullable(),
-    service_date: z.string().nullable(),
-    total_charges: z.string().nullable(),
-    provider_name: z.string().nullable(),
-    automatic: z.boolean(),
-    rule: z.string().nullable(),
-  })),
+  claims: z.array(ClaimSchema.extend({ automatic: z.boolean(), rule: z.string().nullable() })),
+  on_offer: z.array(ClaimSchema),
   dismissed: z.boolean(),
 })
 
@@ -29,7 +30,7 @@ const RULE_REASON: Record<string, string> = {
   last_pair: 'it was the last fill and the last claim left that day',
 }
 
-function claimLabel(claim: ClaimLinks['claims'][number]): string {
+function claimLabel(claim: z.infer<typeof ClaimSchema>): string {
   return [
     claim.claim_number ? `Claim ${claim.claim_number}` : 'Claim',
     claim.service_date ? formatFillDate(claim.service_date) : null,
@@ -62,7 +63,7 @@ export default function FillClaimLinks({ patientId, fillId, canManage, refreshKe
     load().catch(() => setError('The linked claims could not be loaded.'))
   }, [load, refreshKey])
 
-  async function answer(request: { action: 'reject', eobId: number } | { action: 'reset' }): Promise<void> {
+  async function answer(request: { action: 'reject' | 'link', eobId: number } | { action: 'reset' }): Promise<void> {
     setSaving(true)
     setError(null)
     try {
@@ -110,6 +111,19 @@ export default function FillClaimLinks({ patientId, fillId, canManage, refreshKe
               Match it again
             </Button>
           )}
+        </div>
+      )}
+      {links.dismissed && canManage && links.on_offer.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-xs text-muted-foreground">Other claims from that day:</p>
+          {links.on_offer.map((claim) => (
+            <div key={claim.eob_id} className="flex flex-wrap items-center justify-between gap-2">
+              <p className="min-w-0">{claimLabel(claim)}</p>
+              <Button type="button" variant="outline" size="sm" disabled={saving} className="max-lg:min-h-11" onClick={() => void answer({ action: 'link', eobId: claim.eob_id })}>
+                Use this claim
+              </Button>
+            </div>
+          ))}
         </div>
       )}
     </section>

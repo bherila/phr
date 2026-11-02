@@ -26,8 +26,8 @@ describe('FillClaimLinks', () => {
   })
 
   it('says why an automatic link was made and lets a manager reject it', async () => {
-    get.mockResolvedValueOnce({ claims: [{ ...CLAIM, automatic: true, rule: 'sole_pair' }], dismissed: false })
-    get.mockResolvedValueOnce({ claims: [], dismissed: true })
+    get.mockResolvedValueOnce({ claims: [{ ...CLAIM, automatic: true, rule: 'sole_pair' }], dismissed: false, on_offer: [] })
+    get.mockResolvedValueOnce({ claims: [], dismissed: true, on_offer: [] })
     const onChanged = jest.fn()
     render(<FillClaimLinks patientId={1} fillId={7} canManage refreshKey="v1" onChanged={onChanged} />)
 
@@ -40,7 +40,7 @@ describe('FillClaimLinks', () => {
   })
 
   it('undoes a rejection', async () => {
-    get.mockResolvedValue({ claims: [], dismissed: true })
+    get.mockResolvedValue({ claims: [], dismissed: true, on_offer: [] })
     render(<FillClaimLinks patientId={1} fillId={7} canManage refreshKey="v1" onChanged={jest.fn()} />)
 
     fireEvent.click(await screen.findByRole('button', { name: 'Match it again' }))
@@ -49,20 +49,36 @@ describe('FillClaimLinks', () => {
   })
 
   it('offers no buttons to someone who can only read, or on a link a person made', async () => {
-    get.mockResolvedValue({ claims: [{ ...CLAIM, automatic: false, rule: null }], dismissed: true })
+    get.mockResolvedValue({ claims: [{ ...CLAIM, automatic: false, rule: null }], dismissed: true, on_offer: [] })
     const { unmount } = render(<FillClaimLinks patientId={1} fillId={7} canManage={false} refreshKey="v1" onChanged={jest.fn()} />)
     expect(await screen.findByText(/Claim C-1/)).toBeTruthy()
     expect(screen.queryByRole('button')).toBeNull()
     unmount()
 
-    get.mockResolvedValue({ claims: [{ ...CLAIM, automatic: false, rule: null }], dismissed: false })
+    get.mockResolvedValue({ claims: [{ ...CLAIM, automatic: false, rule: null }], dismissed: false, on_offer: [] })
     render(<FillClaimLinks patientId={1} fillId={7} canManage refreshKey="v1" onChanged={jest.fn()} />)
     expect(await screen.findByText(/Claim C-1/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Not this claim' })).toBeNull()
   })
 
+  it('offers that day\'s free claims after a rejection, to someone who can manage the fill', async () => {
+    const offered = { claims: [], dismissed: true, on_offer: [{ ...CLAIM, eob_id: 9, claim_number: 'C-9' }] }
+    get.mockResolvedValue(offered)
+    post.mockResolvedValue({ outcome: 'linked' })
+    const { unmount } = render(<FillClaimLinks patientId={1} fillId={7} canManage={false} refreshKey="v1" onChanged={jest.fn()} />)
+    expect(await screen.findByText(/said not to match/)).toBeTruthy()
+    expect(screen.queryByText(/Claim C-9/)).toBeNull()
+    unmount()
+
+    render(<FillClaimLinks patientId={1} fillId={7} canManage refreshKey="v1" onChanged={jest.fn()} />)
+    expect(await screen.findByText(/Claim C-9/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Use this claim' }))
+
+    await waitFor(() => expect(post).toHaveBeenCalledWith(URL, { action: 'link', eob_id: 9 }))
+  })
+
   it('shows nothing for a fill with no claim', async () => {
-    get.mockResolvedValue({ claims: [], dismissed: false })
+    get.mockResolvedValue({ claims: [], dismissed: false, on_offer: [] })
     const { container } = render(<FillClaimLinks patientId={1} fillId={7} canManage refreshKey="v1" onChanged={jest.fn()} />)
 
     await waitFor(() => expect(get).toHaveBeenCalled())
@@ -70,8 +86,8 @@ describe('FillClaimLinks', () => {
   })
 
   it('reads the links again when the fill is saved, so a rejection names the claim on screen', async () => {
-    get.mockResolvedValueOnce({ claims: [{ ...CLAIM, automatic: true, rule: 'sole_pair' }], dismissed: false })
-    get.mockResolvedValueOnce({ claims: [{ ...CLAIM, eob_id: 9, claim_number: 'C-9', automatic: true, rule: 'sole_pair' }], dismissed: false })
+    get.mockResolvedValueOnce({ claims: [{ ...CLAIM, automatic: true, rule: 'sole_pair' }], dismissed: false, on_offer: [] })
+    get.mockResolvedValueOnce({ claims: [{ ...CLAIM, eob_id: 9, claim_number: 'C-9', automatic: true, rule: 'sole_pair' }], dismissed: false, on_offer: [] })
     const { rerender } = render(<FillClaimLinks patientId={1} fillId={7} canManage refreshKey="v1" onChanged={jest.fn()} />)
     expect(await screen.findByText(/Claim C-1/)).toBeTruthy()
 
@@ -83,8 +99,8 @@ describe('FillClaimLinks', () => {
   })
 
   it('shows the current claim after a refusal', async () => {
-    get.mockResolvedValueOnce({ claims: [{ ...CLAIM, automatic: true, rule: 'sole_pair' }], dismissed: false })
-    get.mockResolvedValueOnce({ claims: [{ ...CLAIM, eob_id: 9, claim_number: 'C-9', automatic: true, rule: 'sole_pair' }], dismissed: false })
+    get.mockResolvedValueOnce({ claims: [{ ...CLAIM, automatic: true, rule: 'sole_pair' }], dismissed: false, on_offer: [] })
+    get.mockResolvedValueOnce({ claims: [{ ...CLAIM, eob_id: 9, claim_number: 'C-9', automatic: true, rule: 'sole_pair' }], dismissed: false, on_offer: [] })
     post.mockRejectedValue(new Error('This fill is no longer matched to that claim.'))
     render(<FillClaimLinks patientId={1} fillId={7} canManage refreshKey="v1" onChanged={jest.fn()} />)
 
@@ -95,7 +111,7 @@ describe('FillClaimLinks', () => {
   })
 
   it('keeps the rejection button and shows the refusal when saving fails', async () => {
-    get.mockResolvedValue({ claims: [{ ...CLAIM, automatic: true, rule: 'known_charge' }], dismissed: false })
+    get.mockResolvedValue({ claims: [{ ...CLAIM, automatic: true, rule: 'known_charge' }], dismissed: false, on_offer: [] })
     post.mockRejectedValue(new Error('This fill has no automatic claim to reject.'))
     render(<FillClaimLinks patientId={1} fillId={7} canManage refreshKey="v1" onChanged={jest.fn()} />)
 

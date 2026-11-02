@@ -189,6 +189,7 @@ class MedicationFillController extends Controller
 
         return response()->json([
             'claims' => app(FillEobLinker::class)->claimsOfFill((int) $resolvedPatient->id, $fill),
+            'on_offer' => app(FillEobLinker::class)->claimsOnOfferTo((int) $resolvedPatient->id, $fill),
             'dismissed' => PhrMedicationFillEvidence::query()->where('fill_id', $fill)
                 ->where('source_kind', PhrMedicationFillEvidence::KIND_EOB_LINK_DISMISSED)->exists(),
         ]);
