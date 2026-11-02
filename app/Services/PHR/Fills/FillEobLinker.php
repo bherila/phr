@@ -242,7 +242,7 @@ class FillEobLinker
 
     /**
      * @param  array<string, mixed>  $snapshot
-     * @return array{links: array<int, array{claim_id: int, rule: string}>, open: array<int, array{reason: string, claim_ids: list<int>}>, counts: array<string, int>}
+     * @return array{links: array<int, array{claim_id: int, rule: string}>, open: array<int, array{reason: string, claim_ids: list<int>}>, free: array<string, list<int>>, counts: array<string, int>}
      */
     private function plan(array $snapshot): array
     {
@@ -258,7 +258,7 @@ class FillEobLinker
      * What differs between the rows there are and the rows the plan calls for.
      *
      * @param  array<string, mixed>  $snapshot
-     * @param  array{links: array<int, array{claim_id: int, rule: string}>, open: array<int, array{reason: string, claim_ids: list<int>}>, counts: array<string, int>}  $plan
+     * @param  array{links: array<int, array{claim_id: int, rule: string}>, open: array<int, array{reason: string, claim_ids: list<int>}>, free: array<string, list<int>>, counts: array<string, int>}  $plan
      * @return array<string, mixed>
      */
     private function diff(array $snapshot, array $plan): array
