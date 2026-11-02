@@ -9,7 +9,7 @@ namespace App\Support\Storage;
  * would let one app's pruner reason about data it cannot see. The engine
  * (BlobReferences, StoragePruner) is generic; only this file is PHR's.
  *
- * Verified against the live `bherila_phr` schema on 2026-08-02 via information_schema
+ * Verified against a live production schema on 2026-08-02 via information_schema
  * rather than by grepping migrations. That distinction is not academic: a naive column
  * pattern anchored on a fixed suffix can silently miss a real storage-key column named
  * differently, and missing one condemns every object it references to pruning.
