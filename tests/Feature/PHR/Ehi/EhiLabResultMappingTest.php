@@ -20,6 +20,7 @@ use App\Services\PHR\Import\Ehi\EhiFindingCode;
 use App\Services\PHR\Import\Ehi\EhiProjectionRefused;
 use App\Services\PHR\Import\Ehi\EhiProposalService;
 use App\Services\PHR\Import\Ehi\EhiReviewRefused;
+use App\Services\PHR\Import\Ehi\EhiZipSource;
 use App\Services\PHR\Import\Ehi\Mapping\EhiApplyContext;
 use App\Services\PHR\Import\Ehi\Mapping\EhiApplyOutcome;
 use App\Services\PHR\Import\Ehi\Mapping\EhiLabResultMapping;
@@ -521,7 +522,9 @@ class EhiLabResultMappingTest extends TestCase
         $proposals = PhrEhiProposal::query()->count();
         $digests = PhrEhiProposal::query()->orderBy('id')->pluck('preview_digest', 'id')->all();
 
-        $replay = $this->ehiIntakeDirectory($build, $patient, (int) $owner->id, 'replay');
+        // The same files in another container and order are the same package.
+        $repacked = $build->writeZip($this->ehiRoot.'/repacked.zip', reverse: true);
+        $replay = $this->ehiIntake(new EhiZipSource($repacked), $patient, (int) $owner->id);
         self::assertTrue($replay->replayed);
         self::assertSame($package->id, $replay->package->id);
         app(EhiProposalService::class)->preview($replay->package, $patient, $owner->id);
@@ -587,6 +590,31 @@ class EhiLabResultMappingTest extends TestCase
         }
         self::assertSame([$winner->id], PhrLabResult::query()->pluck('id')->all());
         self::assertSame(PhrEhiProposal::STATUS_PENDING, $proposal->refresh()->status);
+    }
+
+    public function test_an_ambiguous_join_is_never_guessed_at(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        // Two rows claim one order id: both are quarantined, so the result has no owner.
+        $package = $this->previewed(
+            EhiClinicalPackage::withLabs()
+                ->adding('ORDER_PROC', ['ORDER_PROC_ID' => '8102', 'PAT_ID' => EhiClinicalPackage::PATIENT_KEY, 'DISPLAY_NAME' => 'SYNTHETIC OTHER ORDER'])
+                ->adding('ORDER_RES_COMMENT', ['ORDER_ID' => '8101', 'CONTACT_DATE_REAL' => '66000.02', 'LINE' => '1', 'LINE_COMMENT' => 'not-a-number', 'RESULTS_CMT' => 'Synthetic unordered comment'])
+                ->build(),
+            $owner,
+            $patient,
+        );
+
+        $orphan = $this->proposal($package, '8102', '66001', '1');
+        self::assertSame(PhrEhiProposal::KIND_RETAIN, $orphan->kind);
+        self::assertSame(EhiLabResultMapping::FINDING_ORPHAN, $orphan->proposed_json['retain_reason']);
+        $member = PhrEhiPackageMember::query()->where('package_id', $package->id)->where('table_name', 'ORDER_PROC')->sole();
+        self::assertSame(2, PhrEhiOccurrence::query()->where('member_id', $member->id)->where('disposition', PhrEhiOccurrence::DISPOSITION_QUARANTINED)->count());
+
+        // A comment line that cannot be ordered holds the result back rather than misorder it.
+        $unordered = $this->proposal($package, '8101', '66000.02', '1');
+        self::assertSame(PhrEhiProposal::KIND_RETAIN, $unordered->kind);
+        self::assertSame(EhiLabResultMapping::FINDING_UNORDERED_LINES, $unordered->proposed_json['retain_reason']);
     }
 
     public function test_a_foreign_order_is_retained(): void
