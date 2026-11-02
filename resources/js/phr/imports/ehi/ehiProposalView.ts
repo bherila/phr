@@ -188,16 +188,22 @@ function labValueText(fields: Record<string, unknown>): string | null {
   return value !== null && comparator !== null && !value.startsWith(comparator) ? `${comparator}${value}` : value
 }
 
-/** A diagnosis as a person compares it, with everything a correction could change. */
+/** A yes/no a diagnosis states, with unknown left unsaid and "no" said. */
+function flagText(value: unknown, yes: string, no: string): string | null {
+  return value === true ? yes : value === false ? no : null
+}
+
+/** A diagnosis as a person compares it, with every field a correction could change. */
 function diagnosisText(entry: unknown): string | null {
   if (entry === null || typeof entry !== 'object') {
     return null
   }
   const fields = entry as Record<string, unknown>
   const label = typeof fields['name'] === 'string' ? fields['name'] : 'Unnamed diagnosis'
-  const name = `${label}${fields['primary'] === true ? ' (primary)' : ''}`
+  const line = typeof fields['line'] === 'string' ? `Line ${fields['line']}: ` : ''
+  const primary = flagText(fields['primary'], ' (primary)', ' (not primary)') ?? ''
 
-  return [name, fields['chronic'] === true ? 'chronic' : null, fields['qualifier'], fields['annotation'], fields['comments']]
+  return [`${line}${label}${primary}`, flagText(fields['chronic'], 'chronic', 'not chronic'), flagText(fields['ed_impression'], 'ED impression', 'not ED impression'), fields['qualifier'], fields['annotation'], fields['comments']]
     .filter((part): part is string => typeof part === 'string' && part !== '')
     .join(', ')
 }
@@ -217,6 +223,13 @@ function fullText(field: string, fields: Record<string, unknown>): string | null
   }
 
   return typeof value === 'number' || typeof value === 'boolean' ? String(value) : null
+}
+
+/** What a field stores, for telling whether two values differ at all. */
+function storedForm(field: string, fields: Record<string, unknown>): string {
+  const stored = field === 'value' ? [fields['value'] ?? null, fields['value_comparator'] ?? null] : fields[field] ?? null
+
+  return typeof stored === 'string' ? stored : JSON.stringify(stored)
 }
 
 const SHOWN_CHARACTERS = 160
@@ -251,10 +264,18 @@ function changesOf(proposal: EhiProposal, attributes: Record<string, unknown>): 
 
   const rows: EhiProposalView['changes'] = []
   for (const field of fields) {
-    const shown = differenceOf(displayUnits(fullText(field, before)) ?? null, displayUnits(fullText(field, attributes)) ?? null)
-    if (shown.before !== shown.after) {
-      rows.push({ field: UPDATE_FIELD_LABELS[field] ?? fieldLabel(field), before: shown.before ?? 'Not recorded', after: shown.after ?? 'Not recorded' })
+    const storedBefore = storedForm(field, before)
+    const storedAfter = storedForm(field, attributes)
+    // Only values that really are the same are no change.
+    if (storedBefore === storedAfter) {
+      continue
     }
+    let shown = differenceOf(displayUnits(fullText(field, before)) ?? null, displayUnits(fullText(field, attributes)) ?? null)
+    if (shown.before === shown.after) {
+      // The friendly form hides this difference, so show the stored values themselves.
+      shown = differenceOf(storedBefore, storedAfter)
+    }
+    rows.push({ field: UPDATE_FIELD_LABELS[field] ?? fieldLabel(field), before: shown.before ?? 'Not recorded', after: shown.after ?? 'Not recorded' })
   }
 
   return rows

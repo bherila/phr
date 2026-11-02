@@ -143,6 +143,39 @@ describe('EhiReview', () => {
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith(`/api/phr/patients/${EHI_PATIENT_ID}/ehi/proposals/43/review`, { decision: 'approve_update', preview_digest: update.preview_digest }))
   })
 
+  it.each<[string, Record<string, unknown>, Record<string, unknown>?]>([
+    ['line', { line: '2' }],
+    ['name', { name: 'Synthetic other name' }],
+    ['primary, true to false', { primary: false }],
+    ['primary, unknown to false', { primary: false }, { primary: null }],
+    ['chronic, unknown to false', { chronic: false }],
+    ['chronic, unknown to true', { chronic: true }],
+    ['ED impression, unknown to true', { ed_impression: true }],
+    ['ED impression, unknown to false', { ed_impression: false }],
+    ['ED impression, true to false', { ed_impression: false }, { ed_impression: true }],
+    ['qualifier', { qualifier: 'Synthetic qualifier' }],
+    ['annotation', { annotation: 'Synthetic annotation' }],
+    ['comments', { comments: 'Synthetic comment' }],
+  ])('shows a diagnosis change in %s and can approve it', async (_name, after, before = {}) => {
+    const entry = { line: '1', name: 'Synthetic diagnosis', primary: true, chronic: null, ed_impression: null, qualifier: null, annotation: null, comments: null }
+    const update = makeEhiProposal({
+      id: 45,
+      mapping: 'encounter',
+      kind: 'update',
+      allowed_decisions: ['approve_update', 'reject', 'retain_evidence'],
+      target: { table: 'phr_office_visits', id: 6 },
+      before: { encounter_diagnoses: [{ ...entry, ...before }] },
+      proposed: { changed: ['encounter_diagnoses'], attributes: { visit_type: 'Office Visit', encounter_diagnoses: [{ ...entry, ...before, ...after }] } },
+    })
+    mockGet.mockImplementation((url: string) => (url === proposalsUrl ? Promise.resolve({ proposals: [update], next_after_id: null }) : Promise.reject(new Error(`unexpected ${url}`))))
+
+    render(<EhiReview patientId={EHI_PATIENT_ID} packageId={9} onBack={jest.fn()} />)
+
+    const changed = await screen.findByRole('region', { name: 'Changed in the source' })
+    expect(within(changed).getByText('Diagnoses')).toBeInTheDocument()
+    expect(within(changed).getByRole('button', { name: /^Approve update/ })).toBeInTheDocument()
+  })
+
   it('offers no "Approve update" when the update shows no difference', async () => {
     const update = makeEhiProposal({
       id: 44,

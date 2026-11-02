@@ -64,7 +64,25 @@ describe('ehiProposalView', () => {
       before: { encounter_diagnoses: [{ line: '1', name: 'Synthetic one', primary: true, annotation: 'Old note' }] },
       proposed: { changed: ['encounter_diagnoses'], attributes: { encounter_diagnoses: [{ line: '1', name: 'Synthetic one', primary: true, annotation: 'New note' }] } },
     })
-    expect(proposalView(update).changes).toEqual([{ field: 'Diagnoses', before: 'Synthetic one (primary), Old note', after: 'Synthetic one (primary), New note' }])
+    expect(proposalView(update).changes).toEqual([{ field: 'Diagnoses', before: 'Line 1: Synthetic one (primary), Old note', after: 'Line 1: Synthetic one (primary), New note' }])
+  })
+
+  it('shows a difference for any compared field whose stored value changed, however it renders', () => {
+    const cases: [string, Record<string, unknown>, Record<string, unknown>][] = [
+      ['value', { value: '50', value_comparator: '<' }, { value: '50', value_comparator: '>' }],
+      ['value', { value: '50', value_comparator: null }, { value: '50', value_comparator: '<' }],
+      ['raw_text', { raw_text: 'same text' }, { raw_text: 'same  text' }],
+      // Renderings that would collapse: the stored values still differ.
+      ['unit', { unit: 'mcg' }, { unit: 'µg' }],
+      ['encounter_diagnoses', { encounter_diagnoses: [] }, { encounter_diagnoses: null }],
+      ['encounter_diagnoses', { encounter_diagnoses: [{ line: '1', name: 'A', extra: 'x' }] }, { encounter_diagnoses: [{ line: '1', name: 'A', extra: 'y' }] }],
+    ]
+    for (const [field, before, after] of cases) {
+      const update = makeEhiProposal({ mapping: 'lab_result', kind: 'update', before, proposed: { changed: [field], attributes: after } })
+      const [change] = proposalView(update).changes
+      expect(change).toBeDefined()
+      expect(change?.before).not.toBe(change?.after)
+    }
   })
 
   it('has nothing to approve when no field of an update visibly differs', () => {
