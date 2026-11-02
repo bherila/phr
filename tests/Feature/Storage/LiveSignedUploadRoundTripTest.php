@@ -10,6 +10,7 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Tests\Support\LiveObjectStore;
 use Tests\TestCase;
 
@@ -30,6 +31,8 @@ class LiveSignedUploadRoundTripTest extends TestCase
 
     private SignedDocumentUploadService $service;
 
+    private string $run = '';
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -38,12 +41,19 @@ class LiveSignedUploadRoundTripTest extends TestCase
         }
         Cache::flush();
         Storage::fake('phr_documents');
-        LiveObjectStore::useDisk('phr_uploads', 'phr-uploads');
-        config(['filesystems.disks.phr_uploads.throw' => true]);
-        Storage::forgetDisk('phr_uploads');
+        $this->run = 'run-'.Str::lower((string) Str::ulid());
+        LiveObjectStore::useDisk('phr_uploads', $this->run);
         $this->owner = User::factory()->create();
         $this->patient = PhrPatient::query()->create(['owner_user_id' => $this->owner->id, 'display_name' => 'Synthetic Patient', 'relationship' => 'self']);
         $this->service = app(SignedDocumentUploadService::class);
+    }
+
+    protected function tearDown(): void
+    {
+        if ($this->run !== '') {
+            LiveObjectStore::purge($this->run.'/');
+        }
+        parent::tearDown();
     }
 
     private function open(string $contentType = 'text/plain', ?string $bytes = null): array

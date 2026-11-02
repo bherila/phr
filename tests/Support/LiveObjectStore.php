@@ -2,8 +2,8 @@
 
 namespace Tests\Support;
 
+use Aws\S3\S3Client;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
 
 /**
  * The opt-in S3-compatible store for live storage tests, the same shape of opt-in as
@@ -18,34 +18,67 @@ final class LiveObjectStore
         return (string) getenv('PHR_TEST_S3_ENDPOINT') !== '';
     }
 
-    /** @return array<string, mixed> The settings every PHR disk gets from one PHR_STORAGE=s3 store. */
-    public static function diskConfig(string $root): array
+    /**
+     * The disks exactly as config/filesystems.php builds them for PHR_STORAGE=s3, so the
+     * options a live run proves are the ones an installation gets.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    public static function configuredDisks(): array
     {
-        return [
-            'driver' => 's3',
-            'key' => (string) getenv('PHR_TEST_S3_KEY'),
-            'secret' => (string) getenv('PHR_TEST_S3_SECRET'),
-            'region' => (string) getenv('PHR_TEST_S3_REGION') ?: 'garage',
-            'bucket' => (string) getenv('PHR_TEST_S3_BUCKET'),
-            'endpoint' => (string) getenv('PHR_TEST_S3_ENDPOINT'),
-            'use_path_style_endpoint' => true,
-            'request_checksum_calculation' => 'when_required',
-            'response_checksum_validation' => 'when_required',
-            'root' => $root,
-            'stream_reads' => true,
-            'retain_visibility' => false,
-            'throw' => false,
-            'report' => false,
+        $settings = [
+            'PHR_STORAGE' => 's3',
+            'PHR_STORAGE_S3_ACCESS_KEY_ID' => (string) getenv('PHR_TEST_S3_KEY'),
+            'PHR_STORAGE_S3_SECRET_ACCESS_KEY' => (string) getenv('PHR_TEST_S3_SECRET'),
+            'PHR_STORAGE_S3_REGION' => (string) getenv('PHR_TEST_S3_REGION') ?: 'garage',
+            'PHR_STORAGE_S3_BUCKET' => (string) getenv('PHR_TEST_S3_BUCKET'),
+            'PHR_STORAGE_S3_ENDPOINT' => (string) getenv('PHR_TEST_S3_ENDPOINT'),
+            'PHR_STORAGE_S3_USE_PATH_STYLE_ENDPOINT' => 'true',
         ];
+
+        return FilesystemConfig::load($settings)['disks'];
     }
 
-    /** Point a disk at the store under a prefix no other test uses. */
-    public static function useDisk(string $disk, string $root, ?string $run = null): string
+    /** Point a disk at the store, under a prefix only this run uses. */
+    public static function useDisk(string $disk, string $run): void
     {
-        $prefix = ($run ?? 'run-'.Str::lower((string) Str::ulid())).'/'.$root;
-        config(["filesystems.disks.{$disk}" => self::diskConfig($prefix)]);
+        $config = self::configuredDisks()[$disk];
+        $config['root'] = $run.'/'.$config['root'];
+        config(["filesystems.disks.{$disk}" => $config]);
         Storage::forgetDisk($disk);
+    }
 
-        return $prefix;
+    public static function client(): S3Client
+    {
+        return new S3Client([
+            'version' => 'latest',
+            'region' => (string) getenv('PHR_TEST_S3_REGION') ?: 'garage',
+            'endpoint' => (string) getenv('PHR_TEST_S3_ENDPOINT'),
+            'use_path_style_endpoint' => true,
+            'credentials' => ['key' => (string) getenv('PHR_TEST_S3_KEY'), 'secret' => (string) getenv('PHR_TEST_S3_SECRET')],
+            'request_checksum_calculation' => 'when_required',
+            'response_checksum_validation' => 'when_required',
+        ]);
+    }
+
+    /** @return list<string> every whole key in the bucket under a prefix, read past the disks */
+    public static function keys(string $prefix): array
+    {
+        $keys = [];
+        foreach (self::client()->getPaginator('ListObjectsV2', ['Bucket' => (string) getenv('PHR_TEST_S3_BUCKET'), 'Prefix' => $prefix]) as $page) {
+            foreach ($page['Contents'] ?? [] as $object) {
+                $keys[] = (string) $object['Key'];
+            }
+        }
+
+        return $keys;
+    }
+
+    /** Remove everything a run left, so a shared bucket does not grow. */
+    public static function purge(string $prefix): void
+    {
+        foreach (self::keys($prefix) as $key) {
+            self::client()->deleteObject(['Bucket' => (string) getenv('PHR_TEST_S3_BUCKET'), 'Key' => $key]);
+        }
     }
 }
