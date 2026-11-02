@@ -21,6 +21,9 @@ use Illuminate\Support\Carbon;
  * @property int $file_size_bytes
  * @property int $uploaded_bytes
  * @property string $status
+ * @property string $transport
+ * @property string|null $multipart_upload_id
+ * @property int|null $part_size_bytes
  * @property string|null $format
  * @property string|null $failure_reason
  * @property array<string, mixed>|null $result_json
@@ -34,7 +37,7 @@ class PhrEhiUpload extends Model
 {
     use SerializesDatesAsLocal;
 
-    /** Chunks are being appended. */
+    /** Chunks are being appended, or parts sent straight to the store. */
     public const string STATUS_UPLOADING = 'uploading';
 
     /** Every byte arrived and the intake job is queued. */
@@ -59,6 +62,12 @@ class PhrEhiUpload extends Model
     /** A MyChart record ZIP: its FHIR and C-CDA files were imported directly, pending review. */
     public const string FORMAT_MYCHART = 'mychart';
 
+    /** Sequential POSTs to the chunks route, staged by PHP. */
+    public const string TRANSPORT_CHUNKS = 'chunks';
+
+    /** A multipart upload the browser sends straight to the installation's object store. */
+    public const string TRANSPORT_S3 = 's3';
+
     protected $table = 'phr_ehi_uploads';
 
     protected $fillable = [
@@ -71,6 +80,9 @@ class PhrEhiUpload extends Model
         'file_size_bytes',
         'uploaded_bytes',
         'status',
+        'transport',
+        'multipart_upload_id',
+        'part_size_bytes',
         'format',
         'failure_reason',
         'result_json',
@@ -87,6 +99,7 @@ class PhrEhiUpload extends Model
             'source_document_id' => 'integer',
             'file_size_bytes' => 'integer',
             'uploaded_bytes' => 'integer',
+            'part_size_bytes' => 'integer',
             'result_json' => 'array',
             'expires_at' => 'datetime',
             'completed_at' => 'datetime',

@@ -8,10 +8,12 @@ use App\Models\PhrEhiUpload;
 use App\Models\PhrPatient;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
+use App\Services\PHR\Documents\UploadUrlSigner;
 use App\Services\PHR\Import\PhrMultiplePatientsInSource;
 use App\Services\PHR\Import\PhrMyChartZipImporter;
 use App\Services\PHR\Storage\BlobStorageQuota;
 use App\Support\Storage\LocalObjectFile;
+use App\Support\Storage\MultipartPlan;
 use App\Support\Storage\PhrStorageKey;
 use App\Support\Storage\StagedChunkAppender;
 use App\Support\Storage\StagedUpload;
@@ -30,11 +32,17 @@ use Throwable;
  *
  * The staged archive is written only under the patient artifact guard, so patient
  * deletion either sees the row (and deletes the archive) or the write fails on the
- * missing patient. On an object store the chunks wait in a local spool (StagedUpload)
- * that the job publishes first; that one write can take too long to hold the lock for,
- * so the job checks afterward instead. Intake preserves each member as its own blob, so
- * the archive is deleted once intake completes or refuses the package. A failed intake
- * keeps it until expiry so intake can be queued again, and a retry resumes.
+ * missing patient. A chunked upload still open when an installation moved to an object
+ * store waits in a local spool (StagedUpload) that the job publishes first; that one write
+ * can take too long to hold the lock for, so the job checks afterward instead. Intake
+ * preserves each member as its own blob, so the archive is deleted once intake completes
+ * or refuses the package. A failed intake keeps it until expiry so intake can be queued
+ * again, and a retry resumes.
+ *
+ * On an installation that chose an object store, the browser sends the archive straight
+ * to it as a multipart upload instead (issue #241): this signs each part with its length,
+ * then completes the upload and checks the object's size before intake is queued. Intake
+ * reads the object the same way, through a local temporary copy.
  *
  * A ZIP intake refuses as not EHI is tried as a MyChart record ZIP, so one upload
  * path serves both kinds of export.
@@ -44,11 +52,15 @@ final class EhiUploadService
     /** Skipped-file warnings kept on a MyChart upload's result. */
     private const int MAX_WARNINGS = 20;
 
+    /** Minutes a signed part URL lives. The browser asks for each part as it gets to it. */
+    private const int PART_URL_MINUTES = 15;
+
     public function __construct(
         private readonly PhrPatientAccessService $access,
         private readonly PhrPatientArtifactWriteGuard $writeGuard,
         private readonly EhiIntakeService $intake,
         private readonly PhrMyChartZipImporter $myChart,
+        private readonly UploadUrlSigner $signer,
     ) {}
 
     /**
@@ -68,8 +80,12 @@ final class EhiUploadService
             $this->ensureWritable($locked, $actorUserId);
             app(BlobStorageQuota::class)->assertForPatient($locked, $size);
             $path = PhrStorageKey::ehiUpload((int) $locked->id, (string) Str::uuid());
+            $plan = $this->signer->directUploadsEnabled() ? MultipartPlan::forFile($size, (int) config('phr.ehi_upload_chunk_bytes')) : null;
+            $multipartUploadId = null;
             try {
-                if (! StagedUpload::create($diskName, $path)) {
+                if ($plan !== null) {
+                    $multipartUploadId = $this->signer->createMultipartUpload($diskName, $path, 'application/zip');
+                } elseif (! StagedUpload::create($diskName, $path)) {
                     throw new EhiUploadRefused(EhiUploadRefused::STORAGE_FAILED, 'the staged archive could not be created');
                 }
 
@@ -81,10 +97,16 @@ final class EhiUploadService
                     'file_size_bytes' => $size,
                     'uploaded_bytes' => 0,
                     'status' => PhrEhiUpload::STATUS_UPLOADING,
+                    'transport' => $plan !== null ? PhrEhiUpload::TRANSPORT_S3 : PhrEhiUpload::TRANSPORT_CHUNKS,
+                    'multipart_upload_id' => $multipartUploadId,
+                    'part_size_bytes' => $plan?->partBytes,
                     'expires_at' => now()->addHours((int) config('phr.ehi_upload_retention_hours')),
                 ]);
             } catch (Throwable $failure) {
                 $this->deleteQuietly($diskName, $path);
+                if ($multipartUploadId !== null) {
+                    $this->abortQuietly($diskName, $path, $multipartUploadId);
+                }
 
                 // Rethrown as is: the guard's transaction retries a deadlock or
                 // lock timeout only if it sees the original exception.
@@ -208,7 +230,8 @@ final class EhiUploadService
         return $this->writeGuard->run($upload->patient_id, function (PhrPatient $patient) use ($upload, $actorUserId, $chunk, $chunkSize, $offset): PhrEhiUpload {
             $this->ensureWritable($patient, $actorUserId);
             $current = $this->locked($upload, $patient);
-            if ($current->status !== PhrEhiUpload::STATUS_UPLOADING || $current->storage_path === null || $current->expires_at->isPast()) {
+            if ($current->status !== PhrEhiUpload::STATUS_UPLOADING || $current->storage_path === null || $current->expires_at->isPast()
+                || $current->transport !== PhrEhiUpload::TRANSPORT_CHUNKS) {
                 throw new EhiUploadRefused(EhiUploadRefused::UPLOAD_STATE, 'the upload is not accepting bytes');
             }
             if ($offset !== $current->uploaded_bytes || $chunkSize > $current->file_size_bytes - $offset) {
@@ -225,6 +248,92 @@ final class EhiUploadService
             $current->update(['uploaded_bytes' => $offset + $chunkSize]);
 
             return $current;
+        });
+    }
+
+    /**
+     * A signed URL for one part of a direct upload, with its exact length in the signature.
+     * Asking for a part also says every part before it arrived, which is what the progress
+     * shown elsewhere reads; completing checks that against the store.
+     *
+     * @return array{part_number: int, byte_size: int, url: string, headers: array<string, string>}
+     *
+     * @throws EhiUploadRefused
+     * @throws AuthorizationException
+     */
+    public function signPart(PhrEhiUpload $upload, int $actorUserId, int $partNumber): array
+    {
+        return $this->writeGuard->run($upload->patient_id, function (PhrPatient $patient) use ($upload, $actorUserId, $partNumber): array {
+            $this->ensureWritable($patient, $actorUserId);
+            $current = $this->locked($upload, $patient);
+            $plan = $this->openPlan($current);
+            if (! $plan->holds($partNumber)) {
+                throw new EhiUploadRefused(EhiUploadRefused::UPLOAD_STATE, 'the upload has no such part');
+            }
+            $current->update(['uploaded_bytes' => max($current->uploaded_bytes, $plan->bytesBefore($partNumber))]);
+            $bytes = $plan->bytesOf($partNumber);
+
+            return [
+                'part_number' => $partNumber,
+                'byte_size' => $bytes,
+                ...$this->signer->signPart(
+                    $current->storage_disk,
+                    (string) $current->storage_path,
+                    (string) $current->multipart_upload_id,
+                    $partNumber,
+                    $bytes,
+                    now()->addMinutes(self::PART_URL_MINUTES)->min($current->expires_at),
+                ),
+            ];
+        });
+    }
+
+    /**
+     * Finish a direct upload: every part must be at the store with the length the plan says
+     * and the ETag the browser saw, and the finished object must be the declared size. A
+     * repeat after this succeeded has nothing left to do, so a client can retry safely.
+     *
+     * @param  array<int, string>  $etags  by part number
+     *
+     * @throws EhiUploadRefused
+     * @throws AuthorizationException
+     */
+    public function completeParts(PhrEhiUpload $upload, int $actorUserId, array $etags): void
+    {
+        $this->writeGuard->run($upload->patient_id, function (PhrPatient $patient) use ($upload, $actorUserId, $etags): void {
+            $this->ensureWritable($patient, $actorUserId);
+            $current = $this->locked($upload, $patient);
+            if ($current->transport !== PhrEhiUpload::TRANSPORT_S3 || $current->multipart_upload_id === null) {
+                return;
+            }
+            $plan = $this->openPlan($current);
+            $disk = $current->storage_disk;
+            $path = (string) $current->storage_path;
+            $uploadId = $current->multipart_upload_id;
+            try {
+                $held = array_intersect_key($this->signer->listParts($disk, $path, $uploadId), array_flip(range(1, $plan->partCount())));
+                foreach (range(1, $plan->partCount()) as $partNumber) {
+                    $part = $held[$partNumber] ?? null;
+                    if ($part === null || $part['bytes'] !== $plan->bytesOf($partNumber)
+                        || ! hash_equals($part['etag'], UploadUrlSigner::normalizeEtag($etags[$partNumber] ?? ''))) {
+                        throw new EhiUploadRefused(EhiUploadRefused::INCOMPLETE, 'not every part arrived');
+                    }
+                }
+                $this->signer->completeMultipartUpload($disk, $path, $uploadId, array_intersect_key($etags, $held));
+            } catch (EhiUploadRefused $refused) {
+                throw $refused;
+            } catch (Throwable $failure) {
+                // The store may have finished and only the answer been lost.
+                Log::warning('EHI multipart upload could not be completed.', ['upload_id' => $current->id, 'exception' => $failure::class]);
+                if ($this->storedBytes($disk, $path) !== $current->file_size_bytes) {
+                    throw new EhiUploadRefused(EhiUploadRefused::STORAGE_FAILED, 'the upload could not be completed');
+                }
+            }
+            if ($this->storedBytes($disk, $path) !== $current->file_size_bytes) {
+                $this->deleteQuietly($disk, $path);
+                throw new EhiUploadRefused(EhiUploadRefused::UPLOAD_STATE, 'the finished object is not the declared size');
+            }
+            $current->update(['multipart_upload_id' => null, 'uploaded_bytes' => $current->file_size_bytes]);
         });
     }
 
@@ -475,6 +584,10 @@ final class EhiUploadService
             return true;
         }
         try {
+            if ($upload->multipart_upload_id !== null) {
+                $this->signer->abortMultipartUpload($upload->storage_disk, $upload->storage_path, $upload->multipart_upload_id);
+                $upload->update(['multipart_upload_id' => null]);
+            }
             $disk = Storage::disk($upload->storage_disk);
             if (! StagedUpload::discard($upload->storage_path)
                 || ($disk->exists($upload->storage_path) && ! $disk->delete($upload->storage_path))) {
@@ -507,6 +620,34 @@ final class EhiUploadService
         if (in_array($status, PhrEhiUpload::TERMINAL_STATUSES, true)) {
             // A failed delete leaves the key on the row for the purge to retry.
             $this->discardArchive($upload);
+        }
+    }
+
+    private function storedBytes(string $disk, string $path): ?int
+    {
+        return $this->signer->head($disk, $path)['bytes'] ?? null;
+    }
+
+    /** The plan of a direct upload that is still taking parts. */
+    private function openPlan(PhrEhiUpload $current): MultipartPlan
+    {
+        if ($current->status !== PhrEhiUpload::STATUS_UPLOADING || $current->storage_path === null
+            || $current->transport !== PhrEhiUpload::TRANSPORT_S3 || $current->multipart_upload_id === null) {
+            throw new EhiUploadRefused(EhiUploadRefused::UPLOAD_STATE, 'the upload is not accepting parts');
+        }
+        if ($current->expires_at->isPast()) {
+            throw new EhiUploadRefused(EhiUploadRefused::EXPIRED, 'the upload expired');
+        }
+
+        return new MultipartPlan($current->file_size_bytes, (int) $current->part_size_bytes);
+    }
+
+    private function abortQuietly(string $diskName, string $path, string $uploadId): void
+    {
+        try {
+            $this->signer->abortMultipartUpload($diskName, $path, $uploadId);
+        } catch (Throwable) {
+            // phr:ehi-uploads:purge aborts an upload no row knows, once it is old enough.
         }
     }
 

@@ -2,8 +2,10 @@
 
 namespace Tests\Support;
 
+use App\Services\PHR\Documents\UploadUrlSigner;
 use App\Support\Storage\StagedUpload;
 use Illuminate\Support\Facades\File;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -53,6 +55,52 @@ trait UsesObjectStoreDisks
         Storage::set($disk, new NoLocalPathDisk($path));
     }
 
+    /** Turn on the browser's direct transport, as PHR_STORAGE=s3 does. */
+    protected function useDirectUploads(): void
+    {
+        config(['phr.storage' => 's3']);
+        if (! LiveObjectStore::configured()) {
+            $this->app->instance(UploadUrlSigner::class, new FakeObjectStoreUploads);
+        }
+    }
+
+    /**
+     * Send bytes to a signed URL as a browser would, past the application.
+     *
+     * @param  array{url: string, headers: array<string, string>}  $signed
+     * @return array{status: int, etag: string|null}
+     */
+    protected function putToStore(array $signed, string $body): array
+    {
+        $store = $this->app->make(UploadUrlSigner::class);
+        if ($store instanceof FakeObjectStoreUploads) {
+            return $store->receive($signed['url'], $body);
+        }
+        $response = Http::withHeaders($signed['headers'])->withBody($body, $signed['headers']['Content-Type'] ?? '')->put($signed['url']);
+
+        return ['status' => $response->status(), 'etag' => $response->header('ETag') ?: null];
+    }
+
+    /** @return list<string> ids of the uploads open at the store on one disk, under a disk-relative prefix */
+    protected function openUploads(string $disk, string $prefix = ''): array
+    {
+        $store = $this->app->make(UploadUrlSigner::class);
+        if ($store instanceof FakeObjectStoreUploads) {
+            $found = array_filter($store->uploads, static fn (array $upload): bool => $upload['disk'] === $disk && str_starts_with($upload['path'], $prefix));
+
+            return array_keys($found);
+        }
+        $ids = [];
+        $root = trim((string) config("filesystems.disks.{$disk}.root"), '/');
+        foreach (LiveObjectStore::client()->getPaginator('ListMultipartUploads', ['Bucket' => (string) getenv('PHR_TEST_S3_BUCKET'), 'Prefix' => $root.'/'.$prefix]) as $page) {
+            foreach ($page['Uploads'] ?? [] as $upload) {
+                $ids[] = (string) $upload['UploadId'];
+            }
+        }
+
+        return $ids;
+    }
+
     protected function tearDownObjectStoreDisks(): void
     {
         if ($this->objectStoreDirectory !== '') {
@@ -60,6 +108,7 @@ trait UsesObjectStoreDisks
         }
         if ($this->objectStoreRun !== '' && LiveObjectStore::configured()) {
             LiveObjectStore::purge($this->objectStoreRun.'/');
+            LiveObjectStore::abortUploads($this->objectStoreRun.'/');
         }
     }
 }

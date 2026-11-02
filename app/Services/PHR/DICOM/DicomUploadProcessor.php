@@ -9,16 +9,21 @@ use App\Models\PhrDicomStudy;
 use App\Models\PhrDicomUpload;
 use App\Models\PhrPatient;
 use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
+use App\Services\PHR\Documents\UploadUrlSigner;
 use App\Services\PHR\Storage\BlobStorageQuota;
 use App\Support\Logging\SafeLog;
+use App\Support\Storage\LocalObjectFile;
 use App\Support\Storage\PhrStorageKey;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 use Symfony\Component\HttpKernel\Exception\HttpException;
+use Symfony\Component\HttpKernel\Exception\UnprocessableEntityHttpException;
 use Throwable;
 
 class DicomUploadProcessor
@@ -70,12 +75,48 @@ class DicomUploadProcessor
 
     public const DISK = 'phr_dicom';
 
+    /** Each file POSTed to the application. */
+    public const string TRANSPORT_POST = 'post';
+
+    /** Each file PUT straight to the installation's object store with a signed URL. */
+    public const string TRANSPORT_S3 = 's3';
+
+    /** What a directly sent file is signed as, and what one with no type of its own is recorded as. */
+    private const string DIRECT_CONTENT_TYPE = 'application/dicom';
+
     public const DUPLICATE_UPLOAD_MESSAGE = 'Duplicate DICOM study upload was skipped because all image instances already exist for this patient.';
+
+    /** Minutes a signed file URL lives. The browser asks for each file as it gets to it. */
+    private const int FILE_URL_MINUTES = 15;
+
+    /** How long after signing a browser may still confirm a file it sent in time. */
+    private const int CONFIRM_MINUTES = 240;
+
+    /** What S3 and R2 accept in one PUT, and copy in one CopyObject. */
+    private const int MAX_SINGLE_PUT_BYTES = 5 * 1024 * 1024 * 1024;
+
+    /** Under an upload's prefix: bytes the browser sent, before they are recorded. */
+    private const string INCOMING_DIRECTORY = '.incoming';
 
     public function __construct(
         private readonly DicomMetadataParser $metadataParser,
         private readonly ?PhrPatientArtifactWriteGuard $artifactWriteGuard = null,
+        private readonly ?UploadUrlSigner $signer = null,
     ) {}
+
+    /** How the browser sends this installation's files. */
+    public function transport(): string
+    {
+        return $this->signer()->directUploadsEnabled() ? self::TRANSPORT_S3 : self::TRANSPORT_POST;
+    }
+
+    /** The largest file the browser may send on this installation's transport. */
+    public function maxFileBytes(): int
+    {
+        return $this->signer()->directUploadsEnabled()
+            ? min(DicomUploadLimits::maxDirectFileBytes(), self::MAX_SINGLE_PUT_BYTES)
+            : DicomUploadLimits::maxMultipartFileBytes();
+    }
 
     /**
      * Open a new upload session and return the persisted row.
@@ -121,9 +162,142 @@ class DicomUploadProcessor
      */
     public function processSingleFile(PhrDicomUpload $upload, UploadedFile $file, ?string $relativePath): array
     {
+        return $this->recordFile(
+            $upload,
+            $relativePath,
+            $file->getClientOriginalName(),
+            (int) $file->getSize(),
+            fn (PhrPatient $patient, PhrDicomUpload $locked, string $unique): array => $this->classifyAndStore($patient, $locked, $file, $unique),
+        );
+    }
+
+    /**
+     * Sign a PUT for one file of a direct upload, with its exact length in the signature, or
+     * say why it won't be stored. A file skipped here is recorded as if it had been sent.
+     *
+     * The bytes go to a staging key, never the file's durable key: a signed URL stays usable
+     * until it expires, so one pointing at a durable key could replace a stored image.
+     *
+     * @return array{skipped: array{stored: bool, skipped_reason: string|null, relative_path: string, study_id: int|null}}|array{token: string, url: string, headers: array<string, string>}
+     */
+    public function authorizeFile(PhrDicomUpload $upload, ?string $relativePath, string $filename, int $byteSize, ?string $contentType): array
+    {
+        $current = $upload->refresh();
+        if ($current->status !== PhrDicomUpload::STATUS_PENDING) {
+            throw new HttpException(409, 'Upload session is no longer accepting files.');
+        }
+        if ($byteSize === 0 || $this->isAuxiliaryFile($this->sanitizeRelativePath($relativePath, $filename, $current->total_files))) {
+            $reason = $byteSize === 0 ? 'not_dicom' : 'auxiliary_file';
+
+            return ['skipped' => $this->recordFile(
+                $current, $relativePath, $filename, $byteSize,
+                fn (): array => $this->skipResult($reason),
+            )];
+        }
+        app(BlobStorageQuota::class)->assertForPatient($current->patient()->firstOrFail(), $byteSize);
+
+        $key = PhrStorageKey::dicomObject($current->r2_prefix, self::INCOMING_DIRECTORY.'/'.Str::uuid()->toString());
+        $signed = $this->signer()->sign(self::DISK, $key, self::DIRECT_CONTENT_TYPE, $byteSize, now()->addMinutes(self::FILE_URL_MINUTES));
+
+        return [
+            ...$signed,
+            'token' => Crypt::encryptString((string) json_encode([
+                'upload_id' => $current->id,
+                'key' => $key,
+                'relative_path' => $relativePath,
+                'filename' => $filename,
+                'bytes' => $byteSize,
+                'content_type' => $contentType,
+                'expires' => now()->addMinutes(self::CONFIRM_MINUTES)->getTimestamp(),
+            ], JSON_THROW_ON_ERROR)),
+        ];
+    }
+
+    /**
+     * Record a file the browser sent straight to the store. The object must be there at the
+     * signed size. Its bytes are read here, because metadata and the SHA-256 come from them,
+     * and it reaches its durable key by a server-side copy that only succeeds if it is still
+     * the object that was read.
+     *
+     * @return array{stored: bool, skipped_reason: string|null, relative_path: string, study_id: int|null}
+     */
+    public function confirmFile(PhrDicomUpload $upload, string $token): array
+    {
+        $claim = $this->fileClaim($upload, $token);
+        $key = (string) $claim['key'];
+        $bytes = (int) $claim['bytes'];
+
+        $object = $this->signer()->head(self::DISK, $key);
+        if ($object === null) {
+            throw new UnprocessableEntityHttpException('The file did not reach storage.');
+        }
+        if ($object['bytes'] !== $bytes) {
+            $this->disk()->delete($key);
+            throw new UnprocessableEntityHttpException('The file in storage is not the declared size.');
+        }
+
+        $local = LocalObjectFile::open(self::DISK, $key);
+        try {
+            $result = $this->recordFile(
+                $upload,
+                is_string($claim['relative_path'] ?? null) ? $claim['relative_path'] : null,
+                (string) $claim['filename'],
+                $bytes,
+                fn (PhrPatient $patient, PhrDicomUpload $locked, string $unique): array => $this->classifyAndPersist(
+                    $patient,
+                    $locked,
+                    $local->path,
+                    $bytes,
+                    is_string($claim['content_type'] ?? null) && $claim['content_type'] !== '' ? $claim['content_type'] : self::DIRECT_CONTENT_TYPE,
+                    $unique,
+                    function (string $storageKey) use ($key, $object): void {
+                        if (! $this->signer()->copyIfUnchanged(self::DISK, $key, $storageKey, $object['etag'])) {
+                            throw new ConflictHttpException('The file in storage changed while it was being recorded.');
+                        }
+                    },
+                ),
+            );
+        } finally {
+            $local->release();
+        }
+
+        try {
+            $this->disk()->delete($key);
+        } catch (Throwable $cleanupError) {
+            // Under the upload's prefix with no row: phr:dicom:gc reclaims it after finalize.
+            SafeLog::warning('phr.dicom.cleanup_incoming_failed', ['upload_id' => $upload->id, 'exception' => $cleanupError::class]);
+        }
+
+        return $result;
+    }
+
+    /** @return array<string, mixed> */
+    private function fileClaim(PhrDicomUpload $upload, string $token): array
+    {
+        try {
+            $claim = json_decode(Crypt::decryptString($token), true, 8, JSON_THROW_ON_ERROR);
+        } catch (Throwable) {
+            throw new UnprocessableEntityHttpException('The upload token is not valid.');
+        }
+        if (! is_array($claim) || ($claim['upload_id'] ?? null) !== $upload->id || ($claim['expires'] ?? 0) < now()->getTimestamp()) {
+            throw new UnprocessableEntityHttpException('The upload token is not valid.');
+        }
+
+        return $claim;
+    }
+
+    /**
+     * Enter one file into the session under its row lock: its unique path, whatever $classify
+     * decides, the manifest and the counters.
+     *
+     * @param  callable(PhrPatient, PhrDicomUpload, string): array{stored: bool, skipped_reason: string|null, study_id: int|null, file_kind: string|null, normalized: array<string, mixed>|null}  $classify
+     * @return array{stored: bool, skipped_reason: string|null, relative_path: string, study_id: int|null}
+     */
+    private function recordFile(PhrDicomUpload $upload, ?string $relativePath, string $fallbackName, int $fileSize, callable $classify): array
+    {
         $patient = $upload->patient()->firstOrFail();
 
-        return DB::transaction(function () use ($upload, $patient, $file, $relativePath): array {
+        return DB::transaction(function () use ($upload, $patient, $relativePath, $fallbackName, $fileSize, $classify): array {
             $locked = PhrDicomUpload::query()->lockForUpdate()->findOrFail($upload->id);
             if ($locked->status !== PhrDicomUpload::STATUS_PENDING) {
                 throw new HttpException(409, 'Upload session is no longer accepting files.');
@@ -132,11 +306,10 @@ class DicomUploadProcessor
             $manifest = $locked->manifest_json ?? [];
             $skippedFiles = $locked->skipped_files_json ?? [];
 
-            $sanitized = $this->sanitizeRelativePath($relativePath, $file->getClientOriginalName(), $locked->total_files);
+            $sanitized = $this->sanitizeRelativePath($relativePath, $fallbackName, $locked->total_files);
             $unique = $this->uniqueAgainstManifest($sanitized, $this->stringList($manifest['stored_paths'] ?? []), $skippedFiles);
-            $fileSize = (int) $file->getSize();
 
-            $result = $this->classifyAndStore($patient, $locked, $file, $unique);
+            $result = $classify($patient, $locked, $unique);
             $manifest = $this->applyManifest($manifest, $result, $unique);
             if ($result['skipped_reason'] !== null) {
                 $skippedFiles[] = $this->skipEntry($unique, $result['skipped_reason']);
@@ -347,13 +520,33 @@ class DicomUploadProcessor
             return $this->skipResult('upload_error');
         }
 
-        if ($this->isAuxiliaryFile($relativePath)) {
-            return $this->skipResult('auxiliary_file');
+        $realPath = $file->getRealPath();
+        if ($realPath === false && ! $this->isAuxiliaryFile($relativePath)) {
+            return $this->skipResult('missing_temp_file');
         }
 
-        $realPath = $file->getRealPath();
-        if ($realPath === false) {
-            return $this->skipResult('missing_temp_file');
+        return $this->classifyAndPersist(
+            $patient,
+            $upload,
+            (string) $realPath,
+            (int) $file->getSize(),
+            $file->getClientMimeType() ?: self::DIRECT_CONTENT_TYPE,
+            $relativePath,
+            fn (string $storageKey) => $this->storeFile((string) $realPath, $storageKey),
+        );
+    }
+
+    /**
+     * Classify a local copy of a file, have $store put it at its durable key if it is a
+     * stored DICOM, and record it.
+     *
+     * @param  callable(string): void  $store
+     * @return array{stored: bool, skipped_reason: string|null, study_id: int|null, file_kind: string|null, normalized: array<string, mixed>|null}
+     */
+    private function classifyAndPersist(PhrPatient $patient, PhrDicomUpload $upload, string $realPath, int $fileSize, string $mimeType, string $relativePath, callable $store): array
+    {
+        if ($this->isAuxiliaryFile($relativePath)) {
+            return $this->skipResult('auxiliary_file');
         }
 
         $parsed = $this->metadataParser->parse($realPath);
@@ -366,8 +559,8 @@ class DicomUploadProcessor
         }
 
         $storageKey = $this->storageKey($upload->r2_prefix, $relativePath);
-        app(BlobStorageQuota::class)->assertForPatient($patient, (int) $file->getSize());
-        $this->storeFile($realPath, $storageKey);
+        app(BlobStorageQuota::class)->assertForPatient($patient, $fileSize);
+        $store($storageKey);
 
         $sha256 = hash_file('sha256', $realPath);
         if ($sha256 === false) {
@@ -380,8 +573,8 @@ class DicomUploadProcessor
             $storageKey,
             $relativePath,
             basename($relativePath),
-            $file->getClientMimeType() ?: 'application/dicom',
-            (int) $file->getSize(),
+            $mimeType,
+            $fileSize,
             $sha256,
             $parsed,
         );
@@ -746,6 +939,11 @@ class DicomUploadProcessor
         $trimmed = trim($value);
 
         return $trimmed === '' ? null : $trimmed;
+    }
+
+    private function signer(): UploadUrlSigner
+    {
+        return $this->signer ?? app(UploadUrlSigner::class);
     }
 
     private function writeGuard(): PhrPatientArtifactWriteGuard

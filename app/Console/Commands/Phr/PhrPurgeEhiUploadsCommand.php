@@ -3,6 +3,7 @@
 namespace App\Console\Commands\Phr;
 
 use App\Models\PhrEhiUpload;
+use App\Services\PHR\Documents\UploadUrlSigner;
 use App\Services\PHR\Import\Ehi\EhiUploadRefused;
 use App\Services\PHR\Import\Ehi\EhiUploadService;
 use Illuminate\Console\Attributes\Description;
@@ -16,7 +17,7 @@ final class PhrPurgeEhiUploadsCommand extends BasePhrCommand
     /** An expired upload still marked processing is left to a live worker for this long. */
     private const int PROCESSING_GRACE_HOURS = 2;
 
-    public function handle(EhiUploadService $uploads): int
+    public function handle(EhiUploadService $uploads, UploadUrlSigner $signer): int
     {
         $purged = 0;
         $failed = 0;
@@ -55,9 +56,33 @@ final class PhrPurgeEhiUploadsCommand extends BasePhrCommand
                 }
             });
 
+        $this->abortForgottenUploads($signer, $failed);
+
         $this->info("EHI upload purge: purged={$purged} failed={$failed}.");
 
         return $failed === 0 ? self::SUCCESS : self::FAILURE;
+    }
+
+    /**
+     * An incomplete multipart upload no row knows, older than any row could be: one whose
+     * row never committed, or a large write the SDK started and a crash left. Nothing else
+     * can find these, because they are not objects.
+     */
+    private function abortForgottenUploads(UploadUrlSigner $signer, int &$failed): void
+    {
+        if (! $signer->directUploadsEnabled()) {
+            return;
+        }
+        try {
+            $signer->abortIncompleteUploads(
+                (string) config('phr.ehi_disk'),
+                'patients/',
+                now()->subHours((int) config('phr.ehi_upload_retention_hours') + self::PROCESSING_GRACE_HOURS),
+                static fn (string $uploadId): bool => PhrEhiUpload::query()->where('multipart_upload_id', $uploadId)->exists(),
+            );
+        } catch (Throwable) {
+            $failed++;
+        }
     }
 
     /**

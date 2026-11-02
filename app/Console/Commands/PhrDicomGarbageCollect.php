@@ -5,6 +5,8 @@ namespace App\Console\Commands;
 use App\Models\PhrDicomFile;
 use App\Models\PhrDicomUpload;
 use App\Services\PHR\DICOM\DicomUploadProcessor;
+use App\Services\PHR\Documents\UploadUrlSigner;
+use App\Support\Storage\BlobReferences;
 use App\Support\Storage\PhrStorageMap;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
@@ -19,8 +21,10 @@ class PhrDicomGarbageCollect extends Command
 
     protected $description = 'Reclaim stale derived volumes and PHR DICOM objects that are orphaned or belong to stuck pending uploads.';
 
-    public function __construct(private readonly DicomUploadProcessor $uploadProcessor)
-    {
+    public function __construct(
+        private readonly DicomUploadProcessor $uploadProcessor,
+        private readonly UploadUrlSigner $signer,
+    ) {
         parent::__construct();
     }
 
@@ -38,11 +42,14 @@ class PhrDicomGarbageCollect extends Command
         $staleDerivedVolumes = $this->reclaimStaleDerivedVolumes($dryRun);
         $orphanedObjects = $this->reclaimOrphanedObjects($dryRun);
 
+        $abortedUploads = $this->abortIncompleteUploads($cutoff, $dryRun);
+
         $this->info(sprintf(
-            'PHR DICOM gc complete: %d pending upload(s) finalized, %d stale derived volume(s) reclaimed, %d storage object(s) reclaimed.',
+            'PHR DICOM gc complete: %d pending upload(s) finalized, %d stale derived volume(s) reclaimed, %d storage object(s) reclaimed, %d incomplete upload(s) aborted.',
             $stalePending,
             $staleDerivedVolumes,
             $orphanedObjects,
+            $abortedUploads,
         ));
 
         return self::SUCCESS;
@@ -130,6 +137,16 @@ class PhrDicomGarbageCollect extends Command
             return 0;
         }
 
+        // A direct upload's bytes reach the store before anything is recorded, so while the
+        // upload is pending its prefix says they are wanted. The stale-upload pass above
+        // decides when that stops.
+        $pendingPrefixes = [];
+        if ($this->signer->directUploadsEnabled()) {
+            foreach (PhrDicomUpload::query()->where('status', PhrDicomUpload::STATUS_PENDING)->get(['r2_prefix']) as $pending) {
+                $pendingPrefixes[] = rtrim((string) $pending->r2_prefix, '/').'/';
+            }
+        }
+
         $count = 0;
         foreach (array_chunk($keys, 500) as $keyBatch) {
             $knownSet = array_flip(PhrDicomFile::query()
@@ -155,7 +172,7 @@ class PhrDicomGarbageCollect extends Command
             }
 
             foreach ($keyBatch as $key) {
-                if (isset($knownSet[$key])) {
+                if (isset($knownSet[$key]) || BlobReferences::covers($key, [], $pendingPrefixes)) {
                     continue;
                 }
 
@@ -177,5 +194,23 @@ class PhrDicomGarbageCollect extends Command
         }
 
         return $count;
+    }
+
+    /**
+     * DICOM has no multipart transport of its own, but a large write through the SDK is
+     * multipart, and a crash leaves it open, holding bytes no listing shows.
+     */
+    private function abortIncompleteUploads(Carbon $cutoff, bool $dryRun): int
+    {
+        if ($dryRun || ! $this->signer->directUploadsEnabled()) {
+            return 0;
+        }
+        try {
+            return $this->signer->abortIncompleteUploads(DicomUploadProcessor::DISK, '', $cutoff);
+        } catch (Throwable $error) {
+            $this->error('Failed to abort incomplete DICOM uploads ('.$error::class.').');
+
+            return 0;
+        }
     }
 }

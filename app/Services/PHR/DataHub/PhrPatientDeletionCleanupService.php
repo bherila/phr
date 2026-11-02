@@ -4,6 +4,7 @@ namespace App\Services\PHR\DataHub;
 
 use App\Models\PhrPatientDeletion;
 use App\Models\PhrPatientDeletionArtifact;
+use App\Services\PHR\Documents\UploadUrlSigner;
 use App\Support\Storage\StagedUpload;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Support\Facades\DB;
@@ -16,6 +17,11 @@ final class PhrPatientDeletionCleanupService
     /** @var list<string> */
     private const array ALLOWED_DISKS = ['phr_documents', 'phr_dicom', 'phr_exports', 'phr_uploads', StagedUpload::SPOOL_DISK];
 
+    /** The disks of the object store, where an upload can be open. The spool is always local. */
+    private const array OBJECT_STORE_DISKS = ['phr_documents', 'phr_dicom', 'phr_exports', 'phr_uploads'];
+
+    public function __construct(private readonly UploadUrlSigner $signer) {}
+
     public function cleanup(int $deletionId): void
     {
         $deletion = PhrPatientDeletion::query()->find($deletionId);
@@ -27,6 +33,8 @@ final class PhrPatientDeletionCleanupService
             'failure_category' => null,
         ]);
 
+        $aborted = $this->abortOpenUploads((int) $deletion->patient_root_id);
+
         PhrPatientDeletionArtifact::query()
             ->where('deletion_id', $deletionId)
             ->orderBy('id')
@@ -37,7 +45,7 @@ final class PhrPatientDeletionCleanupService
             });
 
         $remaining = PhrPatientDeletionArtifact::query()->where('deletion_id', $deletionId)->count();
-        if ($remaining > 0) {
+        if ($remaining > 0 || ! $aborted) {
             $deletion->update([
                 'status' => PhrPatientDeletion::STATUS_FAILED,
                 'failure_category' => 'storage_cleanup_failed',
@@ -51,6 +59,28 @@ final class PhrPatientDeletionCleanupService
             'failure_category' => null,
             'completed_at' => now(),
         ]);
+    }
+
+    /**
+     * Parts of an open multipart upload hold this patient's bytes, and the ledger can't see
+     * them, because they are not objects. Aborting by the patient's prefix also stops the
+     * browser: its remaining part URLs now fail. False if any of it should be retried.
+     */
+    private function abortOpenUploads(int $patientId): bool
+    {
+        if (! $this->signer->directUploadsEnabled()) {
+            return true;
+        }
+        $aborted = true;
+        foreach (self::OBJECT_STORE_DISKS as $disk) {
+            try {
+                $this->signer->abortIncompleteUploads($disk, "patients/{$patientId}/");
+            } catch (Throwable) {
+                $aborted = false;
+            }
+        }
+
+        return $aborted;
     }
 
     public function markQueueFailure(int $deletionId): void
