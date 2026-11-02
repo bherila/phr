@@ -68,6 +68,10 @@ const FIELD_LABELS: Record<string, string> = {
   observed_at: 'Date',
   extracted_text: 'Text',
   summary: 'Summary',
+}
+
+/** Lab fields, as an update names them. The AI review reads fieldLabel() and keeps its own wording. */
+const UPDATE_FIELD_LABELS: Record<string, string> = {
   test_name: 'Test',
   analyte: 'Analyte',
   value: 'Value',
@@ -143,7 +147,7 @@ function changesOf(proposal: EhiProposal, attributes: Record<string, unknown>): 
     : Object.keys(attributes).filter((field) => !HIDDEN_FIELDS.has(field) && JSON.stringify(attributes[field]) !== JSON.stringify(before[field]))
 
   return fields.filter((field) => !HIDDEN_FIELDS.has(field)).map((field) => ({
-    field: fieldLabel(field),
+    field: UPDATE_FIELD_LABELS[field] ?? fieldLabel(field),
     before: displayUnits(text(before[field])) ?? 'Not recorded',
     after: displayUnits(text(attributes[field])) ?? 'Not recorded',
   }))

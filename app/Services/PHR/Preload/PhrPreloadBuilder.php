@@ -17,6 +17,7 @@ use App\Http\Controllers\PHR\OfficeVisitController;
 use App\Http\Controllers\PHR\PatientController;
 use App\Http\Controllers\PHR\PhrDataHubController;
 use App\Http\Controllers\PHR\PhrDocumentController;
+use App\Http\Controllers\PHR\PhrEhiImportController;
 use App\Http\Controllers\PHR\PhrExportController;
 use App\Http\Controllers\PHR\PhrNativeRestoreController;
 use App\Http\Controllers\PHR\PhrPatientDeletionController;
@@ -70,6 +71,7 @@ final class PhrPreloadBuilder
         PhrReviewController::class.'@overview',
         PhrReviewController::class.'@index',
         PhrReviewController::class.'@summary',
+        PhrEhiImportController::class.'@pending',
         LabResultController::class.'@index',
         LabResultController::class.'@showPanel',
         VitalController::class.'@index',
