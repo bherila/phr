@@ -30,6 +30,7 @@ use App\Services\PHR\Import\Ehi\Mapping\EhiProposalDraft;
 use App\Services\PHR\Import\Ehi\Mapping\EhiPublishedObjects;
 use App\Services\PHR\Import\Ehi\Mapping\EhiSourceIdBridge;
 use App\Services\PHR\Import\Ehi\Mapping\EhiTargetDigest;
+use App\Support\PHR\PhrRecordLifecycle;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -437,8 +438,9 @@ final class EhiProposalService
     }
 
     /**
-     * Lock a clinical record including soft-deleted rows, so a withdrawn record
-     * is refused rather than invisible (and never resurrected).
+     * Lock a clinical record including soft-deleted rows, so a withdrawn or rejected
+     * record is refused rather than invisible (and never resurrected). Every mapping's
+     * target, a chosen link included, passes through here under the lock.
      */
     private function lockLive(PhrPatient $patient, string $table, int $id): Model
     {
@@ -449,9 +451,8 @@ final class EhiProposalService
         $record = $class::query()->withoutGlobalScope(SoftDeletingScope::class)->whereKey($id)->lockForUpdate()->first();
         if (! $record instanceof Model
             || (int) $record->getAttribute('patient_id') !== (int) $patient->id
-            || $record->getAttribute('deleted_at') !== null
-            || $record->getAttribute('retracted_at') !== null) {
-            throw new EhiReviewRefused(EhiReviewRefused::TARGET_WITHDRAWN, 'the target record is gone, deleted, or retracted');
+            || ! PhrRecordLifecycle::stands($record)) {
+            throw new EhiReviewRefused(EhiReviewRefused::TARGET_WITHDRAWN, 'the target record is gone, deleted, retracted, or rejected');
         }
 
         return $record;

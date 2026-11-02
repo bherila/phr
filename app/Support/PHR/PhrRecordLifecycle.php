@@ -54,6 +54,16 @@ final class PhrRecordLifecycle
         $query->whereNull($model->qualifyColumn('retracted_at'));
     }
 
+    /**
+     * Whether a record still stands as something to build on: not withdrawn, and not
+     * refused by a person's review. A rejected record is left out of its working list,
+     * so nothing new (a link, a corroboration, an update) may land on it unseen.
+     */
+    public static function stands(Model $record): bool
+    {
+        return self::of($record) === self::ACTIVE && $record->getAttribute('review_status') !== PhrReviewStatus::REJECTED;
+    }
+
     /** Deletion wins over retraction: it is the later and more final of the two. */
     public static function of(Model $record): string
     {

@@ -477,9 +477,10 @@ final class EhiImmunizationMapping implements EhiMapping
                 ->where('patient_id', $context->patient->id)
                 ->whereKey($linkedIds->first())
                 ->first();
-            if (! $record instanceof PhrImmunization || PhrRecordLifecycle::of($record) !== PhrRecordLifecycle::ACTIVE) {
+            if (! $record instanceof PhrImmunization || ! PhrRecordLifecycle::stands($record)) {
                 $context->finding(self::FINDING_LINKED_RECORD_WITHDRAWN, $revision, [
                     'lifecycle' => $record instanceof PhrImmunization ? PhrRecordLifecycle::of($record) : 'missing',
+                    'review_status' => $record instanceof PhrImmunization ? $record->review_status : null,
                 ]);
 
                 return ['state' => 'retain', 'reason' => self::FINDING_LINKED_RECORD_WITHDRAWN];
@@ -507,8 +508,8 @@ final class EhiImmunizationMapping implements EhiMapping
         if (! $record instanceof PhrImmunization) {
             return ['state' => 'none'];
         }
-        if (PhrRecordLifecycle::of($record) !== PhrRecordLifecycle::ACTIVE) {
-            $context->finding(self::FINDING_IDENTITY_WITHDRAWN, $revision, ['lifecycle' => PhrRecordLifecycle::of($record)]);
+        if (! PhrRecordLifecycle::stands($record)) {
+            $context->finding(self::FINDING_IDENTITY_WITHDRAWN, $revision, ['lifecycle' => PhrRecordLifecycle::of($record), 'review_status' => $record->review_status]);
 
             return ['state' => 'retain', 'reason' => self::FINDING_IDENTITY_WITHDRAWN];
         }
@@ -591,6 +592,8 @@ final class EhiImmunizationMapping implements EhiMapping
             ->where('patient_id', $context->patient->id)
             ->whereDate('administered_on', $fields['administered_on']);
         PhrRecordLifecycle::scopeLive($query);
+        // A person refused it: not a record to link, and left out of their working list.
+        $query->where('review_status', '!=', PhrReviewStatus::REJECTED);
 
         $scanned = 0;
         foreach ($query->select(['id', 'vaccine_name', 'lot_number'])->lazyById(100) as $record) {
@@ -852,8 +855,8 @@ final class EhiImmunizationMapping implements EhiMapping
         if (! $record instanceof PhrImmunization) {
             throw new EhiImmunizationApplyRefused(EhiImmunizationApplyRefused::TARGET_NOT_FOUND, "the target is not this patient's immunization");
         }
-        if (PhrRecordLifecycle::of($record) !== PhrRecordLifecycle::ACTIVE) {
-            throw new EhiImmunizationApplyRefused(EhiImmunizationApplyRefused::TARGET_WITHDRAWN, 'the target was deleted or retracted');
+        if (! PhrRecordLifecycle::stands($record)) {
+            throw new EhiImmunizationApplyRefused(EhiImmunizationApplyRefused::TARGET_WITHDRAWN, 'the target was deleted, retracted, or rejected');
         }
 
         return $record;

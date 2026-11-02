@@ -237,8 +237,8 @@ const RETAIN_REASONS: Record<string, string> = {
   foreign_patient_lab_result: 'The source links this result to another patient.',
   orphan_lab_result: 'Not linked to this patient in the source.',
   lab_bridge_target_withdrawn: 'The record it matches was deleted, retracted, or rejected, and stays that way.',
-  linked_record_withdrawn: 'The record it was linked to was deleted or retracted, and stays that way.',
-  lab_identity_withdrawn: 'The record it was imported as was deleted or retracted, and stays that way.',
+  linked_record_withdrawn: 'The record it was linked to was deleted, retracted, or rejected, and stays that way.',
+  lab_identity_withdrawn: 'The record it was imported as was deleted, retracted, or rejected, and stays that way.',
   linked_lab_status_not_clinical: 'The source no longer asserts this result. The record in PHR is unchanged; change it yourself if it is wrong.',
 }
 
