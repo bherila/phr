@@ -359,6 +359,34 @@ class EhiEncounterMappingTest extends TestCase
         self::assertSame('SYNTHETIC SECOND PROVIDER', $visit->refresh()->provider_name);
     }
 
+    public function test_a_diagnosis_corrected_with_the_encounter_row_unchanged_reaches_the_visit_through_an_approved_update(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $package = $this->previewed(EhiClinicalPackage::withEncounters()->build(), $owner, $patient);
+        $this->accept($this->proposal($package, '7101'), $owner);
+        $visit = PhrOfficeVisit::query()->where('external_id', 'PAT_ENC:7101')->sole();
+        $visit->forceFill(['provider_name' => 'Edited by a person'])->save();
+        $sourceId = PhrEhiSource::query()->sole()->id;
+
+        // PAT_ENC is byte-identical; only a diagnosis row changed.
+        $corrected = EhiClinicalPackage::withEncounters()->changing('PAT_ENC_DX', ['PAT_ENC_CSN_ID' => '7101', 'LINE' => '1'], ['DX_ID_DX_NAME' => 'Synthetic corrected diagnosis']);
+        $second = $this->previewed($corrected->build(), $owner, $patient, 'package-2', $sourceId);
+
+        $update = $this->proposal($second, '7101');
+        self::assertSame(PhrEhiProposal::KIND_UPDATE, $update->kind);
+        self::assertSame(['encounter_diagnoses'], $update->proposed_json['changed'], 'what a person edited and the source did not change stays out of it');
+        self::assertSame('Synthetic diagnosis one', $visit->refresh()->encounter_diagnoses[0]['name'] ?? null, 'nothing changes until a person approves');
+
+        app(EhiProposalService::class)->review($update, PhrEhiProposal::DECISION_APPROVE_UPDATE, $owner->id, $update->preview_digest);
+        $visit->refresh();
+        self::assertSame('Synthetic corrected diagnosis', $visit->encounter_diagnoses[0]['name'] ?? null);
+        self::assertSame('Edited by a person', $visit->provider_name);
+
+        // The same content again corroborates.
+        $third = $this->previewed($corrected->adding('PAT_ENC_DX', ['PAT_ENC_CSN_ID' => '9998', 'LINE' => '1', 'DX_ID_DX_NAME' => 'Synthetic other orphan'])->build(), $owner, $patient, 'package-3', $sourceId);
+        self::assertSame(PhrEhiProposal::KIND_CORROBORATE, $this->proposal($third, '7101')->kind);
+    }
+
     public function test_an_accepted_encounter_reaches_the_visit_page_from_the_browser_and_survives_backup_and_restore(): void
     {
         config(['phr.ehi_mappings' => (require base_path('config/phr.php'))['ehi_mappings']]);

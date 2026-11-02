@@ -2,6 +2,8 @@
 
 namespace App\Services\PHR\Import\Ehi\Mapping\Encounter;
 
+use App\Models\PhrEhiPackage;
+use App\Models\PhrEhiProposal;
 use App\Models\PhrEhiRecordLink;
 use App\Models\PhrOfficeVisit;
 use App\Services\PHR\Import\Ehi\Mapping\EhiCandidateSummary;
@@ -41,10 +43,14 @@ final class EhiEncounterRecordIndex
     /** @var array<int, PhrOfficeVisit> */
     private array $linked = [];
 
-    public function __construct(EhiMappingContext $context, string $ownImportSource, string $encounterTable)
+    /** @var array<string, array<string, mixed>> subject key => attributes of its latest accepted or linked proposal */
+    private array $decided = [];
+
+    public function __construct(EhiMappingContext $context, string $ownImportSource, string $encounterTable, string $mapping)
     {
         $scanned = 0;
         $this->loadLinks($context, $encounterTable, $scanned);
+        $this->loadDecided($context, $mapping, $scanned);
         foreach ($this->inclusive($context)->where('import_source', $ownImportSource)->lazyById(500) as $record) {
             $context->budget->charge(++$scanned, 0);
             if ($record->external_id !== null) {
@@ -75,6 +81,17 @@ final class EhiEncounterRecordIndex
     public function heldIdentity(string $externalId): ?PhrOfficeVisit
     {
         return $this->held[$externalId] ?? null;
+    }
+
+    /**
+     * What the source said when this subject was last accepted or linked, in any
+     * package of this source.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function decidedAttributes(string $subject): ?array
+    {
+        return $this->decided[$subject] ?? null;
     }
 
     /**
@@ -151,6 +168,25 @@ final class EhiEncounterRecordIndex
         foreach (array_chunk(array_keys($recordIds), 500) as $chunk) {
             foreach ($this->inclusive($context)->whereIn('id', $chunk)->get() as $record) {
                 $this->linked[$record->id] = $record;
+            }
+        }
+    }
+
+    private function loadDecided(EhiMappingContext $context, string $mapping, int &$scanned): void
+    {
+        $query = PhrEhiProposal::query()
+            ->where('patient_id', $context->patient->id)
+            ->where('mapping', $mapping)
+            ->whereIn('status', [PhrEhiProposal::STATUS_ACCEPTED, PhrEhiProposal::STATUS_LINKED])
+            ->whereIn('package_id', PhrEhiPackage::query()->select('id')->where('source_id', $context->source->id))
+            ->orderBy('decided_at')
+            ->orderBy('id')
+            ->select(['id', 'subject_key', 'proposed_json']);
+        foreach ($query->cursor() as $proposal) {
+            $context->budget->charge(++$scanned, 0);
+            $attributes = $proposal->proposed_json['attributes'] ?? null;
+            if (is_array($attributes)) {
+                $this->decided[$proposal->subject_key] = $attributes;
             }
         }
     }

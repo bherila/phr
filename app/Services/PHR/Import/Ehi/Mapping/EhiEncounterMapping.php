@@ -18,7 +18,6 @@ use Generator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 use Illuminate\Database\UniqueConstraintViolationException;
-use Illuminate\Support\Collection;
 
 /**
  * Epic EHI `PAT_ENC` rows to visit proposals (issue #213, M3).
@@ -201,7 +200,7 @@ final class EhiEncounterMapping implements EhiMapping
     {
         $diagnoses = $this->diagnoses($context);
         $importSource = self::importSource($context->source->id);
-        $records = new EhiEncounterRecordIndex($context, $importSource, self::TABLE_ENCOUNTERS);
+        $records = new EhiEncounterRecordIndex($context, $importSource, self::TABLE_ENCOUNTERS, self::NAME);
         /** @var array<string, true> $used */
         $used = [];
 
@@ -560,7 +559,7 @@ final class EhiEncounterMapping implements EhiMapping
             }
             $sameRevision = $links->contains(static fn (PhrEhiRecordLink $link): bool => (int) $link->revision_id === $revision->id);
 
-            return ['state' => 'target', 'record' => $record, 'previous' => $sameRevision ? null : $this->previousAttributes($context, $links), 'same_revision' => $sameRevision];
+            return ['state' => 'target', 'record' => $record, 'previous' => $records->decidedAttributes($entity->key_digest), 'same_revision' => $sameRevision];
         }
 
         $record = $records->heldIdentity($externalId);
@@ -578,25 +577,11 @@ final class EhiEncounterMapping implements EhiMapping
     }
 
     /**
-     * What the latest linked proposal wrote or showed.
-     *
-     * @param  Collection<int, PhrEhiRecordLink>  $links
-     * @return array<string, mixed>|null
-     */
-    private function previousAttributes(EhiMappingContext $context, Collection $links): ?array
-    {
-        /** @var PhrEhiRecordLink $latest */
-        $latest = $links->sortByDesc('id')->first();
-        $proposal = $latest->proposal_id === null ? null : PhrEhiProposal::query()->where('patient_id', $context->patient->id)->find($latest->proposal_id);
-        $attributes = is_array($proposal?->proposed_json) ? ($proposal->proposed_json['attributes'] ?? null) : null;
-
-        return is_array($attributes) ? $attributes : null;
-    }
-
-    /**
      * Corroborate when nothing would change; otherwise an update over the fields the
-     * source changed that the record does not already hold. What a person edited and
-     * the source did not change is left alone. Diagnoses are compared as a whole list.
+     * source changed that the record does not already hold, judged against what the
+     * source said at the last accepted or linked decision: a diagnosis can change while
+     * the encounter row stays identical. What a person edited and the source did not
+     * change is left alone. Diagnoses are compared as a whole list.
      *
      * @param  list<int>  $revisionIds
      * @param  array<string, mixed>  $proposed
@@ -610,15 +595,13 @@ final class EhiEncounterMapping implements EhiMapping
         $before = [];
         $current = $this->currentFields($record);
         $next = [...$fields, 'encounter_diagnoses' => $diagnoses === null ? null : EhiCanonicalJson::encode($diagnoses)];
-        if (! $sameRevision) {
-            foreach ($next as $field => $value) {
-                $earlier = $previous[$field] ?? null;
-                $earlier = is_array($earlier) ? EhiCanonicalJson::encode($earlier) : (is_string($earlier) ? $earlier : null);
-                $sourceChanged = $previous === null || $earlier !== $value;
-                if ($sourceChanged && $current[$field] !== $value) {
-                    $changed[] = $field;
-                    $before[$field] = $field === 'encounter_diagnoses' ? $record->encounter_diagnoses : $current[$field];
-                }
+        foreach ($next as $field => $value) {
+            $earlier = $previous[$field] ?? null;
+            $earlier = is_array($earlier) ? EhiCanonicalJson::encode($earlier) : (is_string($earlier) ? $earlier : null);
+            $sourceChanged = $previous === null ? ! $sameRevision : $earlier !== $value;
+            if ($sourceChanged && $current[$field] !== $value) {
+                $changed[] = $field;
+                $before[$field] = $field === 'encounter_diagnoses' ? $record->encounter_diagnoses : $current[$field];
             }
         }
 
