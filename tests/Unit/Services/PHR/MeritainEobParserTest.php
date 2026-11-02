@@ -38,6 +38,37 @@ EOB;
         self::assertSame('187.87', $parsed['total_plan_payment']);
     }
 
+    public function test_a_reversal_printed_left_of_the_charges_column_keeps_its_charge(): void
+    {
+        $parsed = (new MeritainEobParser)->parse(self::reversalText(), 'EOB_SYNTHETIC.pdf');
+
+        self::assertSame(['-1234.56', '-12.34'], array_column($parsed['lines'], 'total_charges'));
+        self::assertSame(['-1234.56', null], array_column($parsed['lines'], 'plan_payment'));
+        self::assertSame([null, '-12.34'], array_column($parsed['lines'], 'copay_applied'));
+        self::assertSame('-1246.90', $parsed['total_charges']);
+    }
+
+    public static function reversalText(): string
+    {
+        return <<<'EOB'
+EMPLOYEE BENEFIT PLAN                         Print Date:05-03-22
+ PROCEDURE                                                                                                                               OTHER     PYMT          PATIENT
+ / REVENUE       DATES OF SERVICE          TOTAL         PROVIDER INELIGIBLE NOTES APPLIED                      APPLIED       BEN.      CARRIER'S MADE BY        RESPON-
+    CODE                                  CHARGES        DISCOUNT AMOUNT           TO DED.                     TO COPAY        %          PYMT     PLAN          SIBILITY
+99B               04-25-22          -1234.56                                                                                                       -1234.56
+99B               04-25-22 04-25-22   -12.34                                                                             -12.34
+                          TOTALS            -1246.90                                                                     -12.34                    -1234.56
+                                                                                                                          Claim No:      SYN0001
+Processed Under Prescription Drug
+Plan For Services Provided By                              Check #                          Amount                            ID No:     SYNTHETIC-1
+EXAMPLE PHARMACY                                           0000001                          $0.00                          Address:      1 EXAMPLE ST
+                                                                                                                    Processed On:        05-03-22       By: SY3
+Patient:      SYNTHETIC PATIENT
+Group Name:        SYNTHETIC GROUP
+Group No:       00000.000
+EOB;
+    }
+
     public function test_modern_layout_preserves_description_revenue_code_and_payment_fields(): void
     {
         $text = <<<'EOB'
