@@ -671,6 +671,8 @@ final class EhiLabResultMapping implements EhiMapping
                     'narrative_truncated' => $notes['truncated'],
                     'comments_unavailable' => isset($unavailable['result_comment']),
                     'narrative_unavailable' => isset($unavailable['notes']),
+                    // Read back when this decision is a baseline: it said nothing about these.
+                    'unavailable_fields' => array_keys($unavailable),
                 ],
             ],
             'issue' => $issue,
@@ -854,10 +856,13 @@ final class EhiLabResultMapping implements EhiMapping
         if ($attributes === null) {
             return null;
         }
+        // A field missing here is one that decision could not vouch for: it says nothing
+        // about whether the source has changed it since, unlike a stated null.
         $fields = [];
         foreach (self::MAPPED_FIELDS as $field) {
-            $value = $attributes[$field] ?? null;
-            $fields[$field] = is_string($value) ? $value : null;
+            if (array_key_exists($field, $attributes)) {
+                $fields[$field] = is_string($attributes[$field]) ? $attributes[$field] : null;
+            }
         }
 
         return $fields;
@@ -886,7 +891,9 @@ final class EhiLabResultMapping implements EhiMapping
                 continue;
             }
             $next = $this->comparable($field, $fields[$field]);
-            $sourceChanged = $previous === null ? ! $sameRevision : $this->comparable($field, $previous[$field] ?? null) !== $next;
+            $sourceChanged = $previous === null
+                ? ! $sameRevision
+                : (! array_key_exists($field, $previous) || $this->comparable($field, $previous[$field]) !== $next);
             if ($sourceChanged && $this->comparable($field, $current[$field]) !== $next) {
                 $changed[] = $field;
                 $before[$field] = $current[$field];

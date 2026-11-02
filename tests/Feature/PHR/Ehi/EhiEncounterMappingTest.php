@@ -383,6 +383,32 @@ class EhiEncounterMappingTest extends TestCase
         self::assertNull($visit->refresh()->encounter_diagnoses);
     }
 
+    public function test_diagnoses_a_package_could_not_vouch_for_are_no_baseline_for_a_later_removal(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $package = $this->previewed(EhiClinicalPackage::withEncounters()->build(), $owner, $patient);
+        $this->accept($this->proposal($package, '7101'), $owner);
+        $visit = PhrOfficeVisit::query()->where('external_id', 'PAT_ENC:7101')->sole();
+        $sourceId = PhrEhiSource::query()->sole()->id;
+        $changed = EhiClinicalPackage::withEncounters()->changing('PAT_ENC', ['PAT_ENC_CSN_ID' => '7101'], ['VISIT_PROV_ID_PROV_NAME' => 'SYNTHETIC SECOND']);
+
+        $second = $this->previewed($changed->build()->without('PAT_ENC_DX.tsv')->without('docs/PAT_ENC_DX.htm'), $owner, $patient, 'package-2', $sourceId);
+        $update = $this->proposal($second, '7101');
+        app(EhiProposalService::class)->review($update, PhrEhiProposal::DECISION_APPROVE_UPDATE, $owner->id, $update->preview_digest);
+        self::assertNotNull($visit->refresh()->encounter_diagnoses);
+
+        $emptied = $changed
+            ->without('PAT_ENC_DX', ['PAT_ENC_CSN_ID' => '7101', 'LINE' => '1'])
+            ->without('PAT_ENC_DX', ['PAT_ENC_CSN_ID' => '7101', 'LINE' => '2'])
+            ->without('PAT_ENC_DX', ['PAT_ENC_CSN_ID' => '7101', 'LINE' => '10']);
+        $third = $this->previewed($emptied->build(), $owner, $patient, 'package-3', $sourceId);
+        $removal = $this->proposal($third, '7101');
+        self::assertSame(PhrEhiProposal::KIND_UPDATE, $removal->kind);
+        self::assertSame(['encounter_diagnoses'], $removal->proposed_json['changed']);
+        app(EhiProposalService::class)->review($removal, PhrEhiProposal::DECISION_APPROVE_UPDATE, $owner->id, $removal->preview_digest);
+        self::assertNull($visit->refresh()->encounter_diagnoses);
+    }
+
     public function test_a_first_import_of_an_encounter_says_when_its_diagnoses_are_unavailable(): void
     {
         [$owner, $patient] = $this->ownerAndPatient();

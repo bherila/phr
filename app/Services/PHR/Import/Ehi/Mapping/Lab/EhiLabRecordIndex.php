@@ -97,7 +97,7 @@ final class EhiLabRecordIndex
 
     /**
      * What the source said when this subject was last accepted or linked, in any
-     * package of this source.
+     * package of this source, without the fields that package could not vouch for.
      *
      * @return array<string, mixed>|null
      */
@@ -226,7 +226,8 @@ final class EhiLabRecordIndex
             $context->budget->charge(++$scanned, 0);
             $attributes = $proposal->proposed_json['attributes'] ?? null;
             if (is_array($attributes)) {
-                $this->decided[$proposal->subject_key] = $attributes;
+                $unavailable = $proposal->proposed_json['ehi']['unavailable_fields'] ?? [];
+                $this->decided[$proposal->subject_key] = array_diff_key($attributes, array_flip(is_array($unavailable) ? array_filter($unavailable, 'is_string') : []));
             }
         }
     }

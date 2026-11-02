@@ -607,6 +607,42 @@ class EhiLabResultMappingTest extends TestCase
         self::assertSame($notes, $record->notes);
     }
 
+    public function test_a_field_a_package_could_not_vouch_for_is_no_baseline_for_a_later_removal(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $key = ['ORDER_PROC_ID' => '8101', 'ORD_DATE_REAL' => '66000.01', 'LINE' => '1'];
+        $package = $this->previewed(EhiClinicalPackage::withLabs()->build(), $owner, $patient);
+        $this->accept($this->proposal($package, '8101', '66000.01', '1'), $owner);
+        $record = PhrLabResult::query()->where('external_id', 'ORDER_RESULTS:8101:66000.01:1')->sole();
+        $sourceId = PhrEhiSource::query()->sole()->id;
+
+        // Package 2 has no narrative or comment table, and a person approves its other change.
+        $unreadable = EhiClinicalPackage::withLabs()->changing('ORDER_RESULTS', $key, ['ORD_VALUE' => '<60', 'VALUE_NORMALIZED' => "<\x1060"])->build()
+            ->without('ORDER_NARRATIVE.tsv')->without('docs/ORDER_NARRATIVE.htm')
+            ->without('ORDER_RES_COMMENT.tsv')->without('docs/ORDER_RES_COMMENT.htm');
+        $second = $this->previewed($unreadable, $owner, $patient, 'package-2', $sourceId);
+        $update = $this->proposal($second, '8101', '66000.01', '1');
+        self::assertSame(['value'], $update->proposed_json['changed']);
+        app(EhiProposalService::class)->review($update, PhrEhiProposal::DECISION_APPROVE_UPDATE, $owner->id, $update->preview_digest);
+        $notes = $record->refresh()->notes;
+        self::assertNotNull($notes);
+
+        // Package 3 has both tables again, and says this contact has no narrative and fewer comments.
+        $complete = EhiClinicalPackage::withLabs()->changing('ORDER_RESULTS', $key, ['ORD_VALUE' => '<60', 'VALUE_NORMALIZED' => "<\x1060"])
+            ->without('ORDER_NARRATIVE', ['ORDER_PROC_ID' => '8101', 'ORD_DATE_REAL' => '66000.01', 'LINE' => '1'])
+            ->without('ORDER_NARRATIVE', ['ORDER_PROC_ID' => '8101', 'ORD_DATE_REAL' => '66000.01', 'LINE' => '2'])
+            ->without('ORDER_RES_COMMENT', ['ORDER_ID' => '8101', 'CONTACT_DATE_REAL' => '66000.01', 'LINE' => '1', 'LINE_COMMENT' => '10']);
+        $third = $this->previewed($complete->build(), $owner, $patient, 'package-3', $sourceId);
+        $removal = $this->proposal($third, '8101', '66000.01', '1');
+        self::assertSame(PhrEhiProposal::KIND_UPDATE, $removal->kind, 'a stated removal is not corroboration');
+        self::assertEqualsCanonicalizing(['notes', 'result_comment'], $removal->proposed_json['changed']);
+        self::assertSame($notes, $removal->before_json['notes']);
+        app(EhiProposalService::class)->review($removal, PhrEhiProposal::DECISION_APPROVE_UPDATE, $owner->id, $removal->preview_digest);
+        $record->refresh();
+        self::assertNull($record->notes);
+        self::assertStringNotContainsString('Synthetic comment line 10', (string) $record->result_comment);
+    }
+
     public function test_an_update_is_refused_if_the_record_changed_since_the_preview(): void
     {
         [$owner, $patient] = $this->ownerAndPatient();
