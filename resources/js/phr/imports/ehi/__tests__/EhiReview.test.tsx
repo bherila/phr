@@ -120,6 +120,48 @@ describe('EhiReview', () => {
     expect(within(duplicates).getByRole('button', { name: 'Same record, link as evidence: Office Visit' })).toBeInTheDocument()
   })
 
+  it('shows the corrected dose an immunization update changes only in its source details, then approves it', async () => {
+    const shared = 'Epic EHI IMMUNE\nIMMUNE_ID: 601\nIMMUNZATN_ID_NAME: SYNTHETIC VACCINE A'
+    const update = makeEhiProposal({
+      id: 43,
+      kind: 'update',
+      allowed_decisions: ['approve_update', 'reject', 'retain_evidence'],
+      target: { table: 'phr_immunizations', id: 5 },
+      before: { raw_text: `${shared}\nDOSE: 0.5 mL` },
+      proposed: { raw_text: `${shared}\nDOSE: 1.0 mL` },
+    })
+    mockGet.mockImplementation((url: string) => (url === proposalsUrl ? Promise.resolve({ proposals: [update], next_after_id: null }) : Promise.reject(new Error(`unexpected ${url}`))))
+    mockPost.mockResolvedValue({ proposal: { ...update, status: 'accepted', reviewable: false }, record: { table: 'phr_immunizations', id: 5 } })
+
+    render(<EhiReview patientId={EHI_PATIENT_ID} packageId={9} onBack={jest.fn()} />)
+
+    const changed = await screen.findByRole('region', { name: 'Changed in the source' })
+    expect(within(changed).getByText('Source details')).toBeInTheDocument()
+    expect(within(changed).getByText(/DOSE: 0\.5 mL/)).toBeInTheDocument()
+    expect(within(changed).getByText(/DOSE: 1\.0 mL/)).toBeInTheDocument()
+    fireEvent.click(within(changed).getByRole('button', { name: /^Approve update/ }))
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith(`/api/phr/patients/${EHI_PATIENT_ID}/ehi/proposals/43/review`, { decision: 'approve_update', preview_digest: update.preview_digest }))
+  })
+
+  it('offers no "Approve update" when the update shows no difference', async () => {
+    const update = makeEhiProposal({
+      id: 44,
+      kind: 'update',
+      allowed_decisions: ['approve_update', 'reject', 'retain_evidence'],
+      target: { table: 'phr_immunizations', id: 5 },
+      before: { lot_number: 'SYN-LOT-1' },
+      proposed: { lot_number: 'SYN-LOT-1' },
+    })
+    mockGet.mockImplementation((url: string) => (url === proposalsUrl ? Promise.resolve({ proposals: [update], next_after_id: null }) : Promise.reject(new Error(`unexpected ${url}`))))
+
+    render(<EhiReview patientId={EHI_PATIENT_ID} packageId={9} onBack={jest.fn()} />)
+
+    const changed = await screen.findByRole('region', { name: 'Changed in the source' })
+    expect(within(changed).queryByRole('button', { name: /^Approve update/ })).not.toBeInTheDocument()
+    expect(within(changed).getByRole('button', { name: /^Keep as evidence only/ })).toBeInTheDocument()
+    expect(within(changed).getByRole('button', { name: /^Reject/ })).toBeInTheDocument()
+  })
+
   it('accepts every new record in turn and reports the ones that failed', async () => {
     const first = makeEhiProposal({ id: 41, proposed: { vaccine_name: 'Vaccine One' } })
     const second = makeEhiProposal({ id: 42, proposed: { vaccine_name: 'Vaccine Two' } })

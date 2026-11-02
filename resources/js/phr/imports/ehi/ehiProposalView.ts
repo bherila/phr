@@ -92,6 +92,26 @@ const UPDATE_FIELD_LABELS: Record<string, string> = {
   resulting_lab: 'Lab',
   collection_datetime: 'Collected',
   result_datetime: 'Resulted',
+  raw_text: 'Source details',
+  value_numeric: 'Numeric value',
+  analyte_code: 'Component code',
+  analyte_code_system: 'Code system',
+  collected_at_source: 'Collected, as written',
+  collected_at_precision: 'Collected precision',
+  collected_at_timezone: 'Collected time zone',
+  resulted_at_source: 'Resulted, as written',
+  resulted_at_precision: 'Resulted precision',
+  resulted_at_timezone: 'Resulted time zone',
+  administered_at_source: 'Date given, as written',
+  administered_at_precision: 'Date given precision',
+  administered_at_timezone: 'Date given time zone',
+  visit_date_source: 'Date, as written',
+  visit_started_source: 'Started, as written',
+  visit_started_precision: 'Started precision',
+  visit_started_timezone: 'Started time zone',
+  visit_ended_source: 'Ended, as written',
+  visit_ended_precision: 'Ended precision',
+  visit_ended_timezone: 'Ended time zone',
   visit_date: 'Date',
   visit_started_at: 'Started',
   visit_ended_at: 'Ended',
@@ -102,6 +122,13 @@ const UPDATE_FIELD_LABELS: Record<string, string> = {
   provider_name: 'Provider',
   facility_name: 'Facility',
 }
+
+/**
+ * What an update never writes, so it is no change to show. Everything else an update
+ * names is shown, source details and provenance included: a person cannot approve a
+ * difference they cannot see.
+ */
+const NEVER_UPDATED = new Set(['import_source', 'external_id', 'review_status', 'source', 'tags', 'mime_type', 'original_filename', 'retain_reason', 'cvx_code', 'dose_number'])
 
 /** Bookkeeping a reviewer does not decide on. */
 const HIDDEN_FIELDS = new Set(['import_source', 'external_id', 'review_status', 'source', 'tags', 'mime_type', 'original_filename', 'retain_reason', 'administered_at_source', 'administered_at_precision', 'administered_at_timezone', 'cvx_code', 'dose_number', 'value_numeric', 'analyte_code', 'analyte_code_system', 'collected_at_source', 'collected_at_precision', 'collected_at_timezone', 'resulted_at_source', 'resulted_at_precision', 'resulted_at_timezone', 'raw_text', 'icd10_codes', 'visit_date_source', 'visit_started_source', 'visit_started_precision', 'visit_started_timezone', 'visit_ended_source', 'visit_ended_precision', 'visit_ended_timezone'])
@@ -161,6 +188,57 @@ function labValueText(fields: Record<string, unknown>): string | null {
   return value !== null && comparator !== null && !value.startsWith(comparator) ? `${comparator}${value}` : value
 }
 
+/** A diagnosis as a person compares it, with everything a correction could change. */
+function diagnosisText(entry: unknown): string | null {
+  if (entry === null || typeof entry !== 'object') {
+    return null
+  }
+  const fields = entry as Record<string, unknown>
+  const label = typeof fields['name'] === 'string' ? fields['name'] : 'Unnamed diagnosis'
+  const name = `${label}${fields['primary'] === true ? ' (primary)' : ''}`
+
+  return [name, fields['chronic'] === true ? 'chronic' : null, fields['qualifier'], fields['annotation'], fields['comments']]
+    .filter((part): part is string => typeof part === 'string' && part !== '')
+    .join(', ')
+}
+
+/** A changed field in full, before any shortening. */
+function fullText(field: string, fields: Record<string, unknown>): string | null {
+  if (field === 'value') {
+    return labValueText(fields)
+  }
+  const value = fields[field]
+  if (Array.isArray(value)) {
+    return value.map(diagnosisText).filter(Boolean).join('; ') || null
+  }
+
+  if (typeof value === 'string') {
+    return value === '' ? null : value
+  }
+
+  return typeof value === 'number' || typeof value === 'boolean' ? String(value) : null
+}
+
+const SHOWN_CHARACTERS = 160
+const CONTEXT_BEFORE_DIFFERENCE = 40
+
+/** Long texts cut around where they first differ, so two long values never read the same. */
+function differenceOf(before: string | null, after: string | null): { before: string | null, after: string | null } {
+  if (before === null || after === null || (before.length <= SHOWN_CHARACTERS && after.length <= SHOWN_CHARACTERS)) {
+    const cut = (value: string | null): string | null => (value !== null && value.length > SHOWN_CHARACTERS ? `${value.slice(0, SHOWN_CHARACTERS - 3)}…` : value)
+    return { before: cut(before), after: cut(after) }
+  }
+  let first = 0
+  while (first < before.length && before[first] === after[first]) {
+    first += 1
+  }
+  const start = Math.max(0, first - CONTEXT_BEFORE_DIFFERENCE)
+  const length = SHOWN_CHARACTERS - 3
+  const excerpt = (value: string): string => `${start > 0 ? '…' : ''}${value.slice(start, start + length)}${start + length < value.length ? '…' : ''}`
+
+  return { before: excerpt(before), after: excerpt(after) }
+}
+
 function changesOf(proposal: EhiProposal, attributes: Record<string, unknown>): EhiProposalView['changes'] {
   if (proposal.kind !== 'update') {
     return []
@@ -169,13 +247,17 @@ function changesOf(proposal: EhiProposal, attributes: Record<string, unknown>): 
   const declared = proposal.proposed?.['changed']
   const fields = Array.isArray(declared)
     ? declared.map(String)
-    : Object.keys(attributes).filter((field) => !HIDDEN_FIELDS.has(field) && JSON.stringify(attributes[field]) !== JSON.stringify(before[field]))
+    : Object.keys(attributes).filter((field) => !NEVER_UPDATED.has(field) && JSON.stringify(attributes[field]) !== JSON.stringify(before[field]))
 
-  return fields.filter((field) => !HIDDEN_FIELDS.has(field)).map((field) => ({
-    field: UPDATE_FIELD_LABELS[field] ?? fieldLabel(field),
-    before: displayUnits(field === 'value' ? labValueText(before) : text(before[field])) ?? 'Not recorded',
-    after: displayUnits(field === 'value' ? labValueText(attributes) : text(attributes[field])) ?? 'Not recorded',
-  }))
+  const rows: EhiProposalView['changes'] = []
+  for (const field of fields) {
+    const shown = differenceOf(displayUnits(fullText(field, before)) ?? null, displayUnits(fullText(field, attributes)) ?? null)
+    if (shown.before !== shown.after) {
+      rows.push({ field: UPDATE_FIELD_LABELS[field] ?? fieldLabel(field), before: shown.before ?? 'Not recorded', after: shown.after ?? 'Not recorded' })
+    }
+  }
+
+  return rows
 }
 
 const CONFLICT_LABELS: Record<string, string> = { value: 'value', unit: 'unit', date: 'date' }
@@ -334,6 +416,10 @@ export function decisionActions(proposal: EhiProposal): DecisionAction[] {
       ? ['retain_evidence', 'reject']
       : ['approve_update', 'accept', 'link_existing', 'retain_evidence', 'reject']
   const allowed = new Set(proposal.allowed_decisions)
+  // Nothing visibly differs, so there is nothing a person could be approving.
+  if (proposal.kind === 'update' && changesOf(proposal, proposedAttributes(proposal)).length === 0) {
+    allowed.delete('approve_update')
+  }
   // Linking an existing record needs a candidate to link; offer it only with one.
   const actions = order.filter((decision) => allowed.has(decision) && (decision !== 'link_existing' || proposal.candidate_ids.length > 0))
 

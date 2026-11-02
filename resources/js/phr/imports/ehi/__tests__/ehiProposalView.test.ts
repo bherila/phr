@@ -27,7 +27,50 @@ describe('ehiProposalView', () => {
     expect(proposalView(update).changes).toEqual([
       { field: 'Value', before: 'No growth', after: 'Light growth' },
       { field: 'Status', before: 'Final', after: 'Corrected' },
+      { field: 'Resulted, as written', before: '3/6/2024', after: '3/7/2024' },
     ])
+  })
+
+  it('never hides a field an update changes, for any mapping', () => {
+    const hiddenBefore: [string, string, string][] = [
+      ['lab_result', 'value_numeric', 'Numeric value'],
+      ['lab_result', 'value_raw', 'Value as entered'],
+      ['lab_result', 'collected_at_timezone', 'Collected time zone'],
+      ['encounter', 'raw_text', 'Source details'],
+      ['encounter', 'visit_started_source', 'Started, as written'],
+    ]
+    for (const [mapping, field, label] of hiddenBefore) {
+      const update = makeEhiProposal({ mapping, kind: 'update', before: { [field]: 'old' }, proposed: { changed: [field], attributes: { [field]: 'new' } } })
+      expect(proposalView(update).changes).toEqual([{ field: label, before: 'old', after: 'new' }])
+    }
+    const immunization = makeEhiProposal({ kind: 'update', before: { administered_at_source: '3/5/2024' }, proposed: { administered_at_source: '2024-03-05' } })
+    expect(proposalView(immunization).changes).toEqual([{ field: 'Date given, as written', before: '3/5/2024', after: '2024-03-05' }])
+  })
+
+  it('shows where two long texts differ, not two identical openings', () => {
+    const opening = 'Epic EHI IMMUNE '.repeat(20)
+    const update = makeEhiProposal({ kind: 'update', before: { raw_text: `${opening}DOSE: 0.5 mL` }, proposed: { raw_text: `${opening}DOSE: 1.0 mL` } })
+    const [change] = proposalView(update).changes
+    expect(change?.before).toContain('DOSE: 0.5 mL')
+    expect(change?.after).toContain('DOSE: 1.0 mL')
+    expect(change?.before).not.toBe(change?.after)
+    expect(change?.before.length).toBeLessThan(170)
+  })
+
+  it('shows a change to a diagnosis beyond its name', () => {
+    const update = makeEhiProposal({
+      mapping: 'encounter',
+      kind: 'update',
+      before: { encounter_diagnoses: [{ line: '1', name: 'Synthetic one', primary: true, annotation: 'Old note' }] },
+      proposed: { changed: ['encounter_diagnoses'], attributes: { encounter_diagnoses: [{ line: '1', name: 'Synthetic one', primary: true, annotation: 'New note' }] } },
+    })
+    expect(proposalView(update).changes).toEqual([{ field: 'Diagnoses', before: 'Synthetic one (primary), Old note', after: 'Synthetic one (primary), New note' }])
+  })
+
+  it('has nothing to approve when no field of an update visibly differs', () => {
+    const same = makeEhiProposal({ kind: 'update', allowed_decisions: ['approve_update', 'reject', 'retain_evidence'], before: { lot_number: 'A' }, proposed: { lot_number: 'A' } })
+    expect(proposalView(same).changes).toEqual([])
+    expect(decisionActions(same).map((action) => action.decision)).toEqual(['retain_evidence', 'reject'])
   })
 
   it('shows an update to a lab value with the inequality on each side', () => {
@@ -60,7 +103,10 @@ describe('ehiProposalView', () => {
     expect(proposalView(encounter)).toMatchObject({ domain: 'Encounter', title: 'Office Visit', date: '2024-05-01', detail: 'Office Visit · Synthetic Provider · Synthetic Clinic · Diagnoses: Synthetic one; Synthetic two' })
 
     const update = makeEhiProposal({ mapping: 'encounter', kind: 'update', before: { provider_name: 'Old', raw_text: 'old' }, proposed: { changed: ['provider_name', 'raw_text'], attributes } })
-    expect(proposalView(update).changes).toEqual([{ field: 'Provider', before: 'Old', after: 'Synthetic Provider' }])
+    expect(proposalView(update).changes).toEqual([
+      { field: 'Provider', before: 'Old', after: 'Synthetic Provider' },
+      { field: 'Source details', before: 'old', after: 'Epic EHI PAT_ENC' },
+    ])
 
     const kept = (reason: string) => retainReason(makeEhiProposal({ mapping: 'encounter', kind: 'retain', proposed: { retain_reason: reason } }))
     expect(kept('category_telephone')).toMatch(/telephone/i)
