@@ -59,6 +59,28 @@ final class EhiClinicalPackage
     ];
 
     /**
+     * Tables only a package built with withLabs() supplies, so standard() keeps its
+     * exact members. Each dictionary page declares the key the real mapping expects.
+     *
+     * @var array<string, array{columns: list<string>, key: list<string>}>
+     */
+    private const array LAB_TABLES = [
+        'ORDER_PROC' => ['columns' => [
+            'ORDER_PROC_ID', 'PAT_ID', 'PAT_ENC_CSN_ID', 'DISPLAY_NAME', 'DESCRIPTION', 'ORDER_TYPE_C_NAME',
+            'ORDER_STATUS_C_NAME', 'AUTHRZING_PROV_ID_PROV_NAME', 'RESULT_TIME',
+        ], 'key' => ['ORDER_PROC_ID']],
+        'ORDER_RESULTS' => ['columns' => [
+            'ORDER_PROC_ID', 'ORD_DATE_REAL', 'LINE', 'PAT_ENC_CSN_ID', 'COMPONENT_ID', 'COMPONENT_ID_NAME',
+            'COMPON_LNC_ID_LNC_LONG_NAME', 'ORD_VALUE', 'ORD_RAW_VALUE', 'ORD_NUM_VALUE', 'VALUE_NORMALIZED',
+            'REFERENCE_LOW', 'REFERENCE_HIGH', 'REFERENCE_UNIT', 'REF_NORMAL_VALS', 'RESULT_FLAG_C_NAME',
+            'RESULT_STATUS_C_NAME', 'LAB_STATUS_C_NAME', 'RESULT_DATE', 'COMP_OBS_INST_TM', 'COMP_ANL_INST_TM',
+            'COMPONENT_COMMENT', 'RESULTING_LAB_ID_LLB_NAME',
+        ], 'key' => ['ORDER_PROC_ID', 'ORD_DATE_REAL', 'LINE']],
+        'ORDER_RES_COMMENT' => ['columns' => ['ORDER_ID', 'CONTACT_DATE_REAL', 'LINE', 'LINE_COMMENT', 'RESULTS_CMT'], 'key' => ['ORDER_ID', 'CONTACT_DATE_REAL', 'LINE', 'LINE_COMMENT']],
+        'ORDER_NARRATIVE' => ['columns' => ['ORDER_PROC_ID', 'ORD_DATE_REAL', 'LINE', 'NARRATIVE'], 'key' => ['ORDER_PROC_ID', 'ORD_DATE_REAL', 'LINE']],
+    ];
+
+    /**
      * @param  array<string, list<array<string, string>>>  $rows  table => rows
      * @param  array<string, string>  $files  extra members: path => bytes
      */
@@ -136,6 +158,101 @@ final class EhiClinicalPackage
     }
 
     /**
+     * standard() plus lab tables:
+     * - order 8101, encounter 7001: contact 66000.01 has line 1 (LDL "<50", with
+     *   VALUE_NORMALIZED, comments stored out of order, a time) and line 2 (glucose
+     *   95.0 with a comma raw value and a range), plus a narrative out of order;
+     *   contact 66000.02 repeats line 1 the same day with a different value.
+     * - order 8102: a text result; 8103: canceled; 8104: no results, only a
+     *   narrative; 8105: Incomplete status; 8107: an imaging order's result.
+     * - order 8106 is named by a result but not supplied: an orphan.
+     */
+    public static function withLabs(): self
+    {
+        $key = self::PATIENT_KEY;
+        $order = static fn (string $id, array $extra = []): array => [
+            'ORDER_PROC_ID' => $id,
+            'PAT_ID' => $key,
+            'PAT_ENC_CSN_ID' => '7001',
+            'DISPLAY_NAME' => 'SYNTHETIC PANEL',
+            'ORDER_TYPE_C_NAME' => 'Lab',
+            'ORDER_STATUS_C_NAME' => 'Completed',
+            'AUTHRZING_PROV_ID_PROV_NAME' => 'SYNTHETIC PROVIDER',
+            ...$extra,
+        ];
+        $result = static fn (string $id, string $contact, string $line, array $extra = []): array => [
+            'ORDER_PROC_ID' => $id,
+            'ORD_DATE_REAL' => $contact,
+            'LINE' => $line,
+            'COMPONENT_ID' => '4'.$line,
+            'COMPONENT_ID_NAME' => 'SYNTHETIC ANALYTE',
+            'ORD_VALUE' => '1',
+            'RESULT_STATUS_C_NAME' => 'Final',
+            'RESULT_DATE' => '2024-03-05',
+            ...$extra,
+        ];
+        $standard = self::standard();
+
+        return new self([...$standard->rows,
+            'ORDER_PROC' => [
+                $order('8101'),
+                $order('8102', ['DISPLAY_NAME' => 'SYNTHETIC CULTURE']),
+                $order('8103', ['ORDER_STATUS_C_NAME' => 'Canceled']),
+                $order('8104', ['ORDER_TYPE_C_NAME' => 'Imaging']),
+                $order('8105'),
+                $order('8107', ['ORDER_TYPE_C_NAME' => 'Imaging']),
+            ],
+            'ORDER_RESULTS' => [
+                $result('8101', '66000.01', '1', [
+                    'PAT_ENC_CSN_ID' => '7001',
+                    'COMPONENT_ID_NAME' => 'SYNTHETIC LDL',
+                    'ORD_VALUE' => '<50',
+                    'ORD_NUM_VALUE' => '9999999',
+                    'VALUE_NORMALIZED' => '<50',
+                    'REFERENCE_UNIT' => 'mg/dL',
+                    'REF_NORMAL_VALS' => 'Below 100',
+                    'RESULT_FLAG_C_NAME' => 'Low',
+                    'COMP_OBS_INST_TM' => '2024-03-05 09:15',
+                    'COMP_ANL_INST_TM' => '2024-03-05 11:40:30',
+                    'COMPONENT_COMMENT' => 'Synthetic short comment',
+                    'RESULTING_LAB_ID_LLB_NAME' => 'SYNTHETIC LAB',
+                ]),
+                $result('8101', '66000.01', '2', [
+                    'COMPONENT_ID_NAME' => 'SYNTHETIC GLUCOSE',
+                    'COMPON_LNC_ID_LNC_LONG_NAME' => 'Synthetic glucose long name',
+                    'ORD_VALUE' => '95.0',
+                    'ORD_RAW_VALUE' => '95,0',
+                    'ORD_NUM_VALUE' => '95',
+                    'REFERENCE_LOW' => '70.00',
+                    'REFERENCE_HIGH' => '99',
+                    'REFERENCE_UNIT' => 'mg/dL',
+                ]),
+                $result('8101', '66000.02', '1', [
+                    'COMPONENT_ID_NAME' => 'SYNTHETIC LDL',
+                    'ORD_VALUE' => '52',
+                    'REFERENCE_UNIT' => 'mg/dL',
+                    'RESULT_DATE' => '2024-03-05',
+                ]),
+                $result('8102', '66001', '1', ['COMPONENT_ID_NAME' => 'SYNTHETIC CULTURE RESULT', 'ORD_VALUE' => 'No growth', 'RESULT_DATE' => '3/6/2024']),
+                $result('8103', '66002', '1'),
+                $result('8105', '66003', '1', ['RESULT_STATUS_C_NAME' => 'Incomplete']),
+                $result('8106', '66004', '1'),
+                $result('8107', '66005', '1'),
+            ],
+            'ORDER_RES_COMMENT' => [
+                ['ORDER_ID' => '8101', 'CONTACT_DATE_REAL' => '66000.01', 'LINE' => '1', 'LINE_COMMENT' => '10', 'RESULTS_CMT' => 'Synthetic comment line 10'],
+                ['ORDER_ID' => '8101', 'CONTACT_DATE_REAL' => '66000.01', 'LINE' => '1', 'LINE_COMMENT' => '2', 'RESULTS_CMT' => 'Synthetic comment line 2'],
+                ['ORDER_ID' => '8101', 'CONTACT_DATE_REAL' => '66000.01', 'LINE' => '1', 'LINE_COMMENT' => '1', 'RESULTS_CMT' => 'Synthetic comment line 1'],
+            ],
+            'ORDER_NARRATIVE' => [
+                ['ORDER_PROC_ID' => '8101', 'ORD_DATE_REAL' => '66000.01', 'LINE' => '2', 'NARRATIVE' => 'Synthetic narrative line 2'],
+                ['ORDER_PROC_ID' => '8101', 'ORD_DATE_REAL' => '66000.01', 'LINE' => '1', 'NARRATIVE' => 'Synthetic narrative line 1'],
+                ['ORDER_PROC_ID' => '8104', 'ORD_DATE_REAL' => '66006', 'LINE' => '1', 'NARRATIVE' => 'Synthetic imaging narrative'],
+            ],
+        ], $standard->files);
+    }
+
+    /**
      * Override cells of the one row of a table matching $match (column => value).
      *
      * @param  array<string, string>  $match
@@ -167,10 +284,28 @@ final class EhiClinicalPackage
         return new self($rows, $this->files);
     }
 
+    /**
+     * Drop the one row of a table matching $match.
+     *
+     * @param  array<string, string>  $match
+     */
+    public function without(string $table, array $match): self
+    {
+        $rows = $this->rows;
+        $kept = array_values(array_filter($rows[$table], static fn (array $row): bool => array_intersect_assoc($match, $row) !== $match));
+        if (count($kept) !== count($rows[$table]) - 1) {
+            throw new LogicException('EhiClinicalPackage::without() must match exactly one row.');
+        }
+        $rows[$table] = $kept;
+
+        return new self($rows, $this->files);
+    }
+
     public function build(): EhiSyntheticPackage
     {
         $files = $this->files;
-        foreach (self::TABLES as $table => $shape) {
+        $supplied = array_intersect_key(self::LAB_TABLES, $this->rows);
+        foreach ([...self::TABLES, ...$supplied] as $table => $shape) {
             $lines = [implode("\t", $shape['columns'])];
             foreach ($this->rows[$table] ?? [] as $row) {
                 $unknown = array_diff(array_keys($row), $shape['columns']);
@@ -184,6 +319,19 @@ final class EhiClinicalPackage
         }
 
         return EhiSyntheticPackage::fromFiles($files);
+    }
+
+    /**
+     * The dictionary pages say what the package's own key is. Replacing one is how a
+     * test proves a key the mapping does not expect is refused.
+     *
+     * @param  list<string>  $key
+     */
+    public function buildWithDocumentedKey(string $table, array $key): EhiSyntheticPackage
+    {
+        $shape = self::LAB_TABLES[$table] ?? self::TABLES[$table] ?? throw new LogicException('Unknown synthetic table.');
+
+        return $this->build()->with("docs/{$table}.htm", self::dictionaryPage($table, $shape['columns'], $key));
     }
 
     /**
