@@ -24,6 +24,7 @@ describe('dates in a person\'s format', () => {
   })
 
   it.each([
+    ['YY.MM.DD', '26.11.01'],
     ['MM/DD/YYYY', '11/01/2026'],
     ['DD/MM/YYYY', '01/11/2026'],
     ['MMM D, YYYY', 'Nov 1, 2026'],

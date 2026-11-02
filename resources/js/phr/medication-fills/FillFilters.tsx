@@ -16,6 +16,7 @@ export interface FillFilterValues {
 export const NO_FILL_FILTERS: FillFilterValues = { query: '', from: '', to: '', medicationId: '' }
 
 const COLUMN_CHOICES: ReadonlyArray<{ column: FillColumn, label: string }> = [
+  { column: 'quantity', label: 'Qty' },
   { column: 'no_insurance', label: 'No insurance' },
   { column: 'prescriber', label: 'Prescriber' },
   { column: 'pharmacy', label: 'Pharmacy' },

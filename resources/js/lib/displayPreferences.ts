@@ -4,9 +4,9 @@ import { fetchWrapper } from '@/fetchWrapper'
 
 import { displayPreferencesFromPage } from './appShell'
 
-export type FillColumn = 'no_insurance' | 'prescriber' | 'pharmacy'
+export type FillColumn = 'quantity' | 'no_insurance' | 'prescriber' | 'pharmacy'
 
-export type DateFormat = 'YYYY-MM-DD' | 'MM/DD/YYYY' | 'DD/MM/YYYY' | 'MMM D, YYYY'
+export type DateFormat = 'YYYY-MM-DD' | 'YY.MM.DD' | 'MM/DD/YYYY' | 'DD/MM/YYYY' | 'MMM D, YYYY'
 
 export interface DisplayPreferences {
   date_format: DateFormat
@@ -15,8 +15,8 @@ export interface DisplayPreferences {
   hidden_fill_columns: FillColumn[]
 }
 
-const FILL_COLUMNS: readonly FillColumn[] = ['no_insurance', 'prescriber', 'pharmacy']
-const DATE_FORMAT_VALUES: readonly DateFormat[] = ['YYYY-MM-DD', 'MM/DD/YYYY', 'DD/MM/YYYY', 'MMM D, YYYY']
+const FILL_COLUMNS: readonly FillColumn[] = ['quantity', 'no_insurance', 'prescriber', 'pharmacy']
+const DATE_FORMAT_VALUES: readonly DateFormat[] = ['YYYY-MM-DD', 'YY.MM.DD', 'MM/DD/YYYY', 'DD/MM/YYYY', 'MMM D, YYYY']
 
 function normalize(raw: unknown): DisplayPreferences {
   const value = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>

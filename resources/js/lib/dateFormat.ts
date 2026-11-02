@@ -2,6 +2,7 @@ import { type DateFormat, getDisplayPreferences } from './displayPreferences'
 
 export const DATE_FORMATS: ReadonlyArray<{ value: DateFormat, example: string }> = [
   { value: 'YYYY-MM-DD', example: '2026-11-01' },
+  { value: 'YY.MM.DD', example: '26.11.01' },
   { value: 'MM/DD/YYYY', example: '11/01/2026' },
   { value: 'DD/MM/YYYY', example: '01/11/2026' },
   { value: 'MMM D, YYYY', example: 'Nov 1, 2026' },
@@ -12,6 +13,7 @@ const CALENDAR_DATE = /^(\d{4})-(\d{2})-(\d{2})/
 
 function writeDate(year: string, month: string, day: string): string {
   switch (getDisplayPreferences().date_format) {
+    case 'YY.MM.DD': return `${year.slice(-2)}.${month}.${day}`
     case 'MM/DD/YYYY': return `${month}/${day}/${year}`
     case 'DD/MM/YYYY': return `${day}/${month}/${year}`
     case 'MMM D, YYYY': return `${MONTHS[Number(month) - 1] ?? month} ${Number(day)}, ${year}`

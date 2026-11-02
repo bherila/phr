@@ -148,7 +148,7 @@ describe('MedicationFillsPage table', () => {
     resetDisplayPreferences()
   })
 
-  it('merges strength, form and route beside the name by default, and never for someone who chose separate columns', async () => {
+  it('merges route, strength and form beside the name by default, and never for someone who chose separate columns', async () => {
     const initial = document.createElement('script')
     initial.id = 'app-initial-data'
     initial.type = 'application/json'
@@ -157,12 +157,13 @@ describe('MedicationFillsPage table', () => {
     resetDisplayPreferences()
     renderPage()
     const table = await findLoadedFills()
-    expect(within(table).getAllByRole('columnheader').map((header) => header.textContent)).toEqual(['Date', 'Medication', 'Strength', 'Form', 'Route', 'Qty', 'Paid', 'No insurance', 'Prescriber', 'Pharmacy', 'Actions'])
+    expect(within(table).getAllByRole('columnheader').map((header) => header.textContent)).toEqual(['Date', 'Medication', 'Route', 'Strength', 'Form', 'Qty', 'Paid', 'No insurance', 'Prescriber', 'Pharmacy', 'Actions'])
     const cells = within(within(table).getAllByRole('row')[1]!).getAllByRole('cell')
-    expect(cells[2]).toHaveTextContent(/^20 mg\/1$/)
-    expect(cells[3]).toHaveTextContent(/^tablet, film coated$/)
-    expect(cells[4]).toHaveTextContent(/^oral$/)
+    expect(cells[2]).toHaveTextContent(/^oral$/)
+    expect(cells[3]).toHaveTextContent(/^20 mg\/1$/)
+    expect(cells[4]).toHaveTextContent(/^tablet, film coated$/)
     expect(cells[1]).not.toHaveTextContent('film coated')
+    expect(cells[1]).not.toHaveTextContent('oral')
     initial.remove()
     resetDisplayPreferences()
   })
@@ -188,7 +189,8 @@ describe('MedicationFillsPage table', () => {
     const cells = within(row).getAllByRole('cell')
     expect(cells[0]).toHaveTextContent('2026-10-28')
     expect(within(cells[1]!).getByText('atorvastatin calcium')).toBeInTheDocument()
-    expect(cells[1]).toHaveTextContent('20 mg/1 · oral tablet, film coated')
+    expect(cells[1]).toHaveTextContent('atorvastatin calcium oral')
+    expect(cells[1]).toHaveTextContent('20 mg/1 · tablet, film coated')
     expect(cells[1]).not.toHaveTextContent('Lipitor')
     expect(cells[2]).toHaveTextContent(/^90$/)
     expect(cells[3]).toHaveTextContent(/^\$10\.00$/)
@@ -210,7 +212,7 @@ describe('MedicationFillsPage table', () => {
     expect(tier('Medication')).not.toHaveClass('hidden')
     expect(tier('Paid')).not.toHaveClass('hidden')
     // Below 560px the date, the quantity and the pharmacy are on the row's second line.
-    const line = screen.getByText('2026-10-28 · Qty 90 · Example Pharmacy')
+    const line = screen.getByText('2026-10-28 · Example Pharmacy')
     expect(line).toHaveClass('@[560px]/record-list:hidden')
   })
 
@@ -273,10 +275,10 @@ describe('MedicationFillsPage table', () => {
     window.history.pushState(null, '', '/phr/patient/42/medication-fills?medication_id=9')
     try {
       renderPage()
-      expect(await screen.findByText('2025-03-04')).toBeInTheDocument()
-      expect(screen.queryByText('2026-10-28')).not.toBeInTheDocument()
+      expect(await screen.findByText('2025-03-04', { selector: 'td' })).toBeInTheDocument()
+      expect(screen.queryByText('2026-10-28', { selector: 'td' })).not.toBeInTheDocument()
       fireEvent.click(await screen.findByRole('button', { name: 'Show all fills, not only Mystery' }))
-      expect(screen.getByText('2026-10-28')).toBeInTheDocument()
+      expect(screen.getByText('2026-10-28', { selector: 'td' })).toBeInTheDocument()
     } finally {
       window.history.pushState(null, '', '/')
     }
@@ -340,7 +342,7 @@ describe('MedicationFillsPage table', () => {
       renderPage()
       expect(await screen.findByText('No fills match these filters.')).toBeInTheDocument()
       fireEvent.click(screen.getByRole('button', { name: 'Show all fills, not only this medication' }))
-      expect(await screen.findByText('2026-10-28')).toBeInTheDocument()
+      expect(await screen.findByText('2026-10-28', { selector: 'td' })).toBeInTheDocument()
     } finally {
       window.history.pushState(null, '', '/')
     }
@@ -352,16 +354,16 @@ describe('MedicationFillsPage table', () => {
 
     const search = screen.getByRole('searchbox', { name: 'Search by name' })
     fireEvent.change(search, { target: { value: 'VAST' } })
-    expect(screen.getByText('2026-10-28')).toBeInTheDocument()
-    expect(screen.queryByText('2025-03-04')).not.toBeInTheDocument()
+    expect(screen.getByText('2026-10-28', { selector: 'td' })).toBeInTheDocument()
+    expect(screen.queryByText('2025-03-04', { selector: 'td' })).not.toBeInTheDocument()
     fireEvent.change(search, { target: { value: '' } })
-    expect(screen.getByText('2025-03-04')).toBeInTheDocument()
+    expect(screen.getByText('2025-03-04', { selector: 'td' })).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText('Filled from'), { target: { value: '2026-01-01' } })
-    expect(screen.queryByText('2025-03-04')).not.toBeInTheDocument()
-    expect(screen.getByText('2026-10-28')).toBeInTheDocument()
+    expect(screen.queryByText('2025-03-04', { selector: 'td' })).not.toBeInTheDocument()
+    expect(screen.getByText('2026-10-28', { selector: 'td' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Clear dates' }))
-    expect(screen.getByText('2025-03-04')).toBeInTheDocument()
+    expect(screen.getByText('2025-03-04', { selector: 'td' })).toBeInTheDocument()
 
     fireEvent.change(screen.getByLabelText('Filled to'), { target: { value: '2024-12-31' } })
     expect(screen.getByText('No fills match these filters.')).toBeInTheDocument()
@@ -374,11 +376,11 @@ describe('MedicationFillsPage table', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Filter' }))
     const sheet = await screen.findByRole('dialog', { name: 'Filter fills' })
     fireEvent.change(within(sheet).getByLabelText('Filled to'), { target: { value: '2025-12-31' } })
-    expect(screen.queryByText('2026-10-28')).not.toBeInTheDocument()
+    expect(screen.queryByText('2026-10-28', { selector: 'td' })).not.toBeInTheDocument()
 
     fireEvent.click(within(sheet).getByRole('button', { name: 'Show 1 fill' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    expect(screen.getByText('2025-03-04')).toBeInTheDocument()
+    expect(screen.getByText('2025-03-04', { selector: 'td' })).toBeInTheDocument()
   })
 
   it('records a review decision on a pending fill', async () => {
@@ -400,9 +402,9 @@ describe('MedicationFillsPage table', () => {
     renderPage()
 
     expect(await screen.findAllByText('Possible duplicate')).toHaveLength(1)
-    const row = screen.getByText('2026-10-28').closest('tr') as HTMLElement
+    const row = screen.getByText('2026-10-28', { selector: 'td' }).closest('tr') as HTMLElement
     expect(within(row).getByText('Possible duplicate')).toBeInTheDocument()
-    expect(within(screen.getByText('2025-03-04').closest('tr') as HTMLElement).queryByText('Possible duplicate')).not.toBeInTheDocument()
+    expect(within(screen.getByText('2025-03-04', { selector: 'td' }).closest('tr') as HTMLElement).queryByText('Possible duplicate')).not.toBeInTheDocument()
   })
 })
 
@@ -631,7 +633,7 @@ describe('MedicationFillHistory', () => {
     expect(within(table).getByRole('img', { name: 'Pending review' })).toBeInTheDocument()
     expect(screen.getByText('1 fill · last 2026-10-28 · 1 waiting for review')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Show these fills' })).toHaveAttribute('href', '/phr/patient/42/medication-fills?medication_id=7')
-    expect(screen.queryByText('2025-03-04')).not.toBeInTheDocument()
+    expect(screen.queryByText('2025-03-04', { selector: 'td' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /delete|edit/i })).not.toBeInTheDocument()
   })
 
@@ -1076,6 +1078,19 @@ describe('Editing a fill: review fixes', () => {
 
     await openEdit()
     expect(await screen.findByText('Read from its source as 00071015523.')).toBeInTheDocument()
+  })
+
+  it('lets a person hide the quantity column', async () => {
+    renderPage()
+    const table = await findLoadedFills()
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Qty' }))
+    expect(within(table).queryByRole('columnheader', { name: 'Qty' })).not.toBeInTheDocument()
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/api/user/display-preferences', { hidden_fill_columns: ['quantity'] }))
+
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Qty' }))
+    expect(within(table).getByRole('columnheader', { name: 'Qty' })).toBeInTheDocument()
+    await waitFor(() => expect(mockPut).toHaveBeenLastCalledWith('/api/user/display-preferences', { hidden_fill_columns: [] }))
+    await act(async () => { await Promise.resolve() })
   })
 
   it('saves which columns show for this person, and applies it at once', async () => {
