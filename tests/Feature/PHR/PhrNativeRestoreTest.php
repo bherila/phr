@@ -27,6 +27,7 @@ use App\Support\PHR\PhrReviewStatus;
 use App\Support\Storage\PhrStorageKey;
 use Illuminate\Contracts\Filesystem\Filesystem;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
@@ -1108,7 +1109,7 @@ final class PhrNativeRestoreTest extends TestCase
         $this->assertNull($package->lease_expires_at);
         $this->assertNull($package->checkpoint_json);
         $this->assertSame(1, DB::table('phr_ehi_package_members')->where('blob_id', $blob->id)->where('package_id', $package->id)->count());
-        $this->assertSame([], DB::select('PRAGMA foreign_key_check'));
+        $this->assertSame([], $this->foreignKeyViolations());
 
         // Re-reading the same archive recognises the restored rows and bytes.
         $second = $this->readyAttempt($archivePath, (int) $owner->id);
@@ -1132,7 +1133,7 @@ final class PhrNativeRestoreTest extends TestCase
         // A later intake re-created the same bytes under a fresh identity.
         $blob = DB::table('phr_ehi_blobs')->where('patient_id', $patient->id)->sole();
         DB::table('phr_ehi_blobs')->where('id', $blob->id)->delete();
-        DB::table('phr_ehi_blobs')->insert([...(array) $blob, 'id' => null]);
+        DB::table('phr_ehi_blobs')->insert(Arr::except((array) $blob, 'id'));
 
         $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
         $this->assertContains('record_conflict', $attempt->plan_counts_json['blockers']);
@@ -1153,8 +1154,8 @@ final class PhrNativeRestoreTest extends TestCase
         $package = DB::table('phr_ehi_packages')->where('patient_id', $patient->id)->sole();
         DB::table('phr_ehi_packages')->where('id', $package->id)->delete();
         DB::table('phr_ehi_sources')->where('id', $source->id)->delete();
-        $newSourceId = DB::table('phr_ehi_sources')->insertGetId([...(array) $source, 'id' => null]);
-        DB::table('phr_ehi_packages')->insert([...(array) $package, 'id' => null, 'source_id' => $newSourceId]);
+        $newSourceId = DB::table('phr_ehi_sources')->insertGetId(Arr::except((array) $source, 'id'));
+        DB::table('phr_ehi_packages')->insert([...Arr::except((array) $package, 'id'), 'source_id' => $newSourceId]);
 
         $attempt = $this->readyAttempt($archivePath, (int) $owner->id);
         $this->assertContains('record_conflict', $attempt->plan_counts_json['blockers']);

@@ -149,7 +149,9 @@ class PhrPatientSearchController extends Controller
             foreach (['drug_as_printed', 'brand_name', 'rx_number', 'pharmacy_name', 'ndc_as_captured'] as $column) {
                 $matches->orWhereRaw("LOWER(COALESCE(phr_medication_fills.{$column}, '')) LIKE ? ESCAPE '!'", [$needle]);
             }
-            $matches->orWhereRaw("LOWER(COALESCE(CAST(phr_medication_fills.substance_names AS CHAR), '')) LIKE ? ESCAPE '!'", [$needle]);
+            // CHAR means one character on PostgreSQL, and any length on MariaDB and SQLite.
+            $textType = $matches->getModel()->getConnection()->getDriverName() === 'pgsql' ? 'TEXT' : 'CHAR';
+            $matches->orWhereRaw("LOWER(COALESCE(CAST(phr_medication_fills.substance_names AS {$textType}), '')) LIKE ? ESCAPE '!'", [$needle]);
             if (strlen($digits) >= 4) {
                 $digitNeedle = "%{$digits}%";
                 $matches->orWhereRaw("REPLACE(COALESCE(phr_medication_fills.ndc_10, ''), '-', '') LIKE ?", [$digitNeedle])

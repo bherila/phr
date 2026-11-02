@@ -205,7 +205,7 @@ class EhiProjectionServiceTest extends TestCase
         // A crash mid-projection: a dead lease, half-written checkpoint, and rows.
         $package->refresh()->forceFill([
             'clinical_status' => PhrEhiPackage::CLINICAL_PROJECTING,
-            'lease_token' => 'dead-worker',
+            'lease_token' => '00000000-0000-4000-8000-00000000dead',
             'lease_expires_at' => now()->subMinute(),
             'checkpoint_json' => [...($package->checkpoint_json ?? []), 'projection' => ['registry' => 'old', 'tables' => []]],
         ])->save();

@@ -39,6 +39,7 @@ use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
@@ -233,7 +234,12 @@ final readonly class PhrReviewQueueService
             ->join('phr_documents', 'phr_documents.genai_job_id', '=', 'genai_import_jobs.id')
             ->where('genai_import_results.status', 'pending_review')
             ->whereIn('phr_documents.patient_id', $patientIds)
-            ->whereColumn('genai_import_jobs.context_json->patient_id', 'phr_documents.patient_id')
+            ->when(
+                DB::connection()->getDriverName() === 'pgsql',
+                // PostgreSQL reads a JSON path as text and will not compare that with a bigint.
+                static fn ($query) => $query->whereRaw("CAST(genai_import_jobs.context_json->>'patient_id' AS BIGINT) = phr_documents.patient_id"),
+                static fn ($query) => $query->whereColumn('genai_import_jobs.context_json->patient_id', 'phr_documents.patient_id'),
+            )
             ->whereNotExists(static fn ($other) => $other->selectRaw('1')->from('phr_documents as other_documents')
                 ->whereColumn('other_documents.genai_job_id', 'genai_import_jobs.id')
                 ->whereColumn('other_documents.patient_id', '!=', 'phr_documents.patient_id'))
@@ -370,7 +376,7 @@ final readonly class PhrReviewQueueService
         $clientIds = array_values(array_unique(array_filter(array_map(
             static fn (array $row): ?string => self::agentClientId($row[1]?->getAttribute('import_source')),
             $rows,
-        ))));
+        ), static fn (?string $id): bool => Str::isUuid($id))));
         $clients = $clientIds === [] ? collect() : PassportClient::query()->whereIn('id', $clientIds)->pluck('name', 'id');
 
         $mismatched = $this->medicationsFromMismatchedFills($patient, $rows);

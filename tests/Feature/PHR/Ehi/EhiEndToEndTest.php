@@ -344,7 +344,7 @@ class EhiEndToEndTest extends TestCase
         @unlink($archive);
 
         $restoredId = (int) $attempt->target_patient_root_id;
-        self::assertSame([], DB::select('PRAGMA foreign_key_check'));
+        self::assertSame([], $this->foreignKeyViolations());
         self::assertSame($counts, $this->evidenceCounts($restoredId));
         self::assertSame($records['immunizations'], PhrImmunization::withTrashed()->where('patient_id', $restoredId)->count());
         self::assertSame($records['documents'], PhrDocument::query()->where('patient_id', $restoredId)->count());
@@ -415,7 +415,11 @@ class EhiEndToEndTest extends TestCase
         $rtfBlob = $this->blobFor($package, EhiClinicalPackage::RTF_MEMBER);
 
         // The mapping copies the file, then the evidence-link insert fails.
-        DB::statement("CREATE TRIGGER synthetic_link_failure BEFORE INSERT ON phr_ehi_record_links BEGIN SELECT RAISE(ABORT, 'synthetic link failure'); END");
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            DB::unprepared("CREATE FUNCTION synthetic_link_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic link failure'; END; $$; CREATE TRIGGER synthetic_link_failure BEFORE INSERT ON phr_ehi_record_links FOR EACH ROW EXECUTE FUNCTION synthetic_link_failure()");
+        } else {
+            DB::statement("CREATE TRIGGER synthetic_link_failure BEFORE INSERT ON phr_ehi_record_links BEGIN SELECT RAISE(ABORT, 'synthetic link failure'); END");
+        }
         foreach (['88002', '88001'] as $noteId) {
             $proposal = $this->note($package, $noteId);
             try {
@@ -434,7 +438,7 @@ class EhiEndToEndTest extends TestCase
         self::assertTrue($existing->refresh()->exists);
 
         // Once the failure is gone the same proposal applies and its copy stays.
-        DB::statement('DROP TRIGGER synthetic_link_failure');
+        DB::unprepared(DB::connection()->getDriverName() === 'pgsql' ? 'DROP TRIGGER synthetic_link_failure ON phr_ehi_record_links' : 'DROP TRIGGER synthetic_link_failure');
         $proposal = $this->note($package, '88002');
         $service->review($proposal, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $proposal->preview_digest);
         $document = PhrDocument::query()->where('external_id', 'NOTE:88002')->sole();

@@ -78,6 +78,13 @@ Nothing under `$SRC/vendor` may be modified by this recipe (only read
 from), and it never runs `composer install`/`update` or `pnpm install` — see
 "Cloud sessions" above for why.
 
+## Databases
+
+PHR runs on MariaDB in production and SQLite in the default test suite. PostgreSQL is
+supported too: a CI job runs the PHP suite on it, and that job gates deploys. Write SQL
+that works on all three, branching on the driver when it can't. README covers running
+the suite on PostgreSQL locally.
+
 ## Frontend rules
 
 - Inline image previews must gate on a browser-decodable allowlist — use

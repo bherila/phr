@@ -76,6 +76,7 @@ final readonly class PhrPatientListService
         return match ((new PhrPatient)->getConnection()->getDriverName()) {
             'sqlite' => "LENGTH(CAST({$value} AS BLOB))",
             'sqlsrv' => "DATALENGTH({$value})",
+            'pgsql' => "OCTET_LENGTH(COALESCE(CAST({$column} AS TEXT), ''))",
             default => "OCTET_LENGTH({$value})",
         };
     }

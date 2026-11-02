@@ -206,7 +206,7 @@ final readonly class PhrMcpMailboxAccessResolver implements MailboxAccessResolve
         $hash = $request->completion_hash;
         $receiptId = $request->completion_receipt_id;
         if (! is_string($principal) || $principal === ''
-            || ! is_string($hash) || $hash === ''
+            || ! is_string($hash) || trim($hash) === ''
             || ! is_string($receiptId) || $receiptId === ''
             || ! hash_equals($principal, $context->principalKey)) {
             return false;

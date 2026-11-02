@@ -102,7 +102,7 @@ class UserAiConfigurationController extends Controller
 
         $config = DB::transaction(function () use ($data, $model, $user) {
             // Lock existing configs to prevent a race between two concurrent first-config creates.
-            $existingCount = $user->aiConfigurations()->lockForUpdate()->count();
+            $existingCount = $user->aiConfigurations()->lockForUpdate()->pluck('id')->count();
 
             $config = $user->aiConfigurations()->create([
                 'name' => $data['name'],

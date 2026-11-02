@@ -12,6 +12,7 @@ use BWH\Auth\Http\Middleware\RequireActiveProviderSession;
 use BWH\Auth\OAuth\Server\OAuthProtectedResource;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -90,6 +91,12 @@ return Application::configure(basePath: dirname(__DIR__))
             }
 
             return $response;
+        });
+
+        // PostgreSQL refuses a malformed value for a typed column such as a uuid, where
+        // MariaDB simply finds no row. Such an id names nothing, so answer the same way.
+        $exceptions->render(function (QueryException $exception) {
+            return $exception->getCode() === '22P02' ? response()->json(['message' => 'Not found.'], 404) : null;
         });
 
         // Each agent route's challenge names the metadata of its own protected

@@ -243,6 +243,72 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  backend-tests-postgres:
+    name: Backend Tests (PostgreSQL)
+    needs: frontend-build
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: synthetic-ci-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: simplexml, pdo_pgsql
+
+      - name: Authorize private MCP bridge dependency
+        uses: webfactory/ssh-agent@e83874834305fe9a4a2997156cb26c5de65a8555 # upstream main: v0.9.1 + node24 runtime (#243), no tag yet
+        with:
+          ssh-private-key: ${{ secrets.MCP_BRIDGE_DEPLOY_KEY }}
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v6
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction
+
+      - name: Download frontend build artifact
+        uses: actions/download-artifact@v8
+        with:
+          name: frontend-build
+          path: public/build/
+
+      - name: Create .env for tests
+        run: |
+          cp .env.example .env
+          php artisan key:generate --no-interaction
+
+      - name: Run PHPUnit on PostgreSQL
+        env:
+          PHR_TEST_DATABASE: pgsql
+          PHR_TEST_PGSQL_HOST: 127.0.0.1
+          PHR_TEST_PGSQL_PORT: '5432'
+          PHR_TEST_PGSQL_USERNAME: postgres
+          PHR_TEST_PGSQL_PASSWORD: synthetic-ci-password
+        run: >-
+          php -d memory_limit=1G vendor/bin/paratest
+          --processes="$(nproc)"
+          --fail-on-empty-test-suite
+
   e2e:
     name: Playwright E2E (${{ matrix.shard }}/2)
     needs: frontend-build
@@ -383,6 +449,7 @@ jobs:
       - frontend-tests
       - backend-static
       - backend-tests
+      - backend-tests-postgres
       - e2e
       - ohif-transport-integration
     if: ${{ always() }}
@@ -406,6 +473,7 @@ jobs:
           check "frontend-tests" "${{ needs.frontend-tests.result }}"
           check "backend-static" "${{ needs.backend-static.result }}"
           check "backend-tests" "${{ needs.backend-tests.result }}"
+          check "backend-tests-postgres" "${{ needs.backend-tests-postgres.result }}"
           check "e2e" "${{ needs.e2e.result }}"
           check "ohif-transport-integration" "${{ needs.ohif-transport-integration.result }}"
 

@@ -237,7 +237,8 @@ throughput guarantee. Production MySQL network latency and artifact throughput w
 measured. SQL size expressions have driver-specific forms for SQLite, MySQL/MariaDB,
 PostgreSQL, and SQL Server. Execution was verified on SQLite and, in a disposable
 loopback-only MariaDB 10.11.19 container using PDO MySQL, the native and EHI profiles
-below. PostgreSQL and SQL Server were not exercised. The application snapshot
+below. CI runs the test suite on PostgreSQL 17, which covers a backup and restore round
+trip but not these profiles. SQL Server was not exercised. The application snapshot
 implementation's supported isolation behavior remains unchanged.
 
 Additional boundary regressions admit a ZIP at its exact compressed-byte limit and

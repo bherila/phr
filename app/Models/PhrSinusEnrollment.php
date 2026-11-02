@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\Database\BinaryColumnCast;
 use App\Traits\SerializesDatesAsLocal;
 use Database\Factories\PhrSinusEnrollmentFactory;
 use Illuminate\Database\Eloquent\Builder;
@@ -73,8 +74,8 @@ class PhrSinusEnrollment extends Model
     ];
 
     /**
-     * Note the absence of `client_enrollment_uuid` and `embedding`: they are
-     * raw binary and any cast would corrupt them.
+     * `client_enrollment_uuid` and `embedding` are raw binary, so only the
+     * binary cast may touch them.
      *
      * @return array<string, string>
      */
@@ -82,6 +83,8 @@ class PhrSinusEnrollment extends Model
     {
         return [
             'phr_patient_id' => 'integer',
+            'client_enrollment_uuid' => BinaryColumnCast::class,
+            'embedding' => BinaryColumnCast::class,
             'is_negative' => 'boolean',
             'negative_scoped' => 'boolean',
             'embedding_dim' => 'integer',

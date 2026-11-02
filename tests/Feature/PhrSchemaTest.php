@@ -85,6 +85,10 @@ class PhrSchemaTest extends TestCase
 
     public function test_legacy_phr_tables_are_normalized_to_user_one_patient(): void
     {
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            $this->markTestSkipped('The legacy tables only ever existed on MariaDB, and PostgreSQL will not drop the tables other rows point at.');
+        }
+
         $this->createUser(['id' => 1]);
 
         Schema::disableForeignKeyConstraints();

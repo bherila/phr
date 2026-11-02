@@ -33,13 +33,23 @@ return new class extends Migration
                 .'ELSE NEW.oauth_security_version END',
                 self::TRIGGER,
             )),
+            'pgsql' => DB::unprepared(sprintf(
+                'CREATE OR REPLACE FUNCTION %1$s() RETURNS trigger LANGUAGE plpgsql AS $trigger$ BEGIN '
+                .'IF OLD.user_role IS DISTINCT FROM NEW.user_role THEN '
+                .'NEW.oauth_security_version := OLD.oauth_security_version + 1; '
+                .'END IF; RETURN NEW; END; $trigger$; '
+                .'CREATE TRIGGER %1$s BEFORE UPDATE ON users FOR EACH ROW EXECUTE FUNCTION %1$s()',
+                self::TRIGGER,
+            )),
             default => throw new RuntimeException('OAuth credential generations require a supported database trigger driver.'),
         };
     }
 
     public function down(): void
     {
-        DB::unprepared('DROP TRIGGER IF EXISTS '.self::TRIGGER);
+        DB::unprepared(DB::getDriverName() === 'pgsql'
+            ? sprintf('DROP TRIGGER IF EXISTS %1$s ON users; DROP FUNCTION IF EXISTS %1$s()', self::TRIGGER)
+            : 'DROP TRIGGER IF EXISTS '.self::TRIGGER);
 
         Schema::table('users', function (Blueprint $table): void {
             $table->dropColumn('oauth_security_version');

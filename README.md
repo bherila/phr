@@ -363,6 +363,11 @@ composer audit --locked --no-interaction
 php -d memory_limit=1G vendor/bin/phpunit
 ```
 
+To run the suite on a local PostgreSQL server, set `PHR_TEST_DATABASE=pgsql`, plus
+`PHR_TEST_PGSQL_HOST`, `_PORT`, `_USERNAME` and `_PASSWORD` when they differ from the
+defaults (`127.0.0.1`, `5432`, `postgres`, no password). Tests refuse any host that
+isn't local, and each worker creates and rebuilds its own `phr_test_<n>` database.
+
 CI runs PHPUnit in three separate runner jobs to isolate their in-memory databases,
 fake disks and cached Laravel configuration. PHPUnit's `--list-tests-xml` inventory
 is partitioned by class using `.github/phpunit-timings.json`; new classes are
