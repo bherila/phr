@@ -9,12 +9,17 @@ use PHPUnit\Framework\TestCase;
 
 final class PatientNameMatcherTest extends TestCase
 {
-    /** @param list<array{string, ?string}> $people */
+    /** @param list<array{0: string, 1: ?string, 2?: list<string>}> $people */
     private function patients(array $people): Collection
     {
         return collect($people)->map(function (array $person, int $index): PhrPatient {
             $patient = new PhrPatient;
-            $patient->setRawAttributes(['id' => $index + 1, 'display_name' => $person[0], 'birth_date' => $person[1]]);
+            $patient->setRawAttributes([
+                'id' => $index + 1,
+                'display_name' => $person[0],
+                'birth_date' => $person[1],
+                'real_names' => isset($person[2]) ? json_encode($person[2]) : null,
+            ]);
 
             return $patient;
         });
@@ -168,5 +173,83 @@ final class PatientNameMatcherTest extends TestCase
 
         $this->assertSame(PatientNameMatcher::MATCHED, $result['status']);
         $this->assertSame([2], $this->ids($result));
+    }
+
+    public function test_a_nickname_patient_is_found_by_a_listed_real_name(): void
+    {
+        $patients = $this->patients([['Bean', null, ['Jane Quincy Doe', 'Janie Doe']], ['John Smith', null]]);
+        $matcher = new PatientNameMatcher;
+
+        foreach (['JANE QUINCY DOE', 'DOE, JANE Q', 'Jane Doe', 'janie doe', 'Bean'] as $printed) {
+            $this->assertSame([1], $this->ids($matcher->match($patients, $printed)), $printed);
+        }
+        $this->assertSame(PatientNameMatcher::NONE, $matcher->match($patients, 'Jane Mary Doe')['status'], 'a listed name still refuses a contradicting middle name');
+    }
+
+    public function test_a_real_name_shared_by_two_patients_is_ambiguous(): void
+    {
+        $patients = $this->patients([['Bean', null, ['Jane Doe']], ['Sprout', null, ['Jane Doe']]]);
+
+        $this->assertSame(PatientNameMatcher::AMBIGUOUS, (new PatientNameMatcher)->match($patients, 'Jane Doe')['status']);
+    }
+
+    public function test_a_birth_date_is_enough_when_only_one_patient_has_it(): void
+    {
+        $patients = $this->patients([['Bean', '1980-01-02'], ['Sprout', '2010-05-06']]);
+
+        $result = (new PatientNameMatcher)->match($patients, 'JANE QUINCY DOE', '01/02/1980');
+
+        $this->assertSame(PatientNameMatcher::MATCHED, $result['status']);
+        $this->assertSame([1], $this->ids($result));
+    }
+
+    public function test_a_shared_birth_date_is_not_enough_and_the_name_decides(): void
+    {
+        $patients = $this->patients([['Bean', '1980-01-02', ['Jane Doe']], ['Sprout', '1980-01-02', ['John Doe']], ['Other', '2010-05-06']]);
+        $matcher = new PatientNameMatcher;
+
+        $this->assertSame([2], $this->ids($matcher->match($patients, 'John Doe', '1980-01-02')));
+
+        $unknown = $matcher->match($patients, 'Printed Stranger', '1980-01-02');
+        $this->assertSame(PatientNameMatcher::AMBIGUOUS, $unknown['status']);
+        $this->assertSame([1, 2], $this->ids($unknown));
+    }
+
+    public function test_a_name_that_belongs_to_another_patient_contradicts_the_birth_date(): void
+    {
+        foreach (['1999-09-09', null] as $otherBirthDate) {
+            $patients = $this->patients([['Bean', '1980-01-02'], ['Jane Doe', $otherBirthDate]]);
+
+            $result = (new PatientNameMatcher)->match($patients, 'Jane Doe', '1980-01-02');
+
+            $this->assertSame(PatientNameMatcher::AMBIGUOUS, $result['status']);
+            $this->assertSame([1, 2], $this->ids($result));
+        }
+    }
+
+    public function test_a_patient_the_caller_cannot_see_blocks_a_match_on_the_birth_date_alone_without_being_named(): void
+    {
+        $everyone = $this->patients([['Bean', '1980-01-02'], ['Sprout', '1980-01-02'], ['Jane Doe', '1999-09-09']]);
+        $granted = $everyone->take(1)->values();
+        $matcher = new PatientNameMatcher;
+
+        foreach (['Printed Stranger', 'Jane Doe'] as $printed) {
+            $result = $matcher->match($granted, $printed, '1980-01-02', $everyone);
+            $this->assertSame(PatientNameMatcher::NONE, $result['status'], $printed);
+            $this->assertSame([], $result['patients'], $printed);
+        }
+
+        // Without a rival on the login, the same grant matches; and a name that agrees is not a birth-date-only match.
+        $this->assertSame([1], $this->ids($matcher->match($granted, 'Printed Stranger', '1980-01-02', $granted)));
+        $this->assertSame([1], $this->ids($matcher->match($granted, 'Bean', '1980-01-02', $everyone)));
+    }
+
+    public function test_a_listed_real_name_is_not_a_mismatch_but_someone_elses_name_still_is(): void
+    {
+        $patient = $this->patients([['Bean', '1980-01-02', ['Jane Quincy Doe']]])->first();
+        $matcher = new PatientNameMatcher;
+
+        $this->assertFalse($matcher->mismatches($patient, 'JANE Q DOE'));
+        $this->assertTrue($matcher->mismatches($patient, 'John Smith'));
     }
 }

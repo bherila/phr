@@ -6,6 +6,8 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class StorePatientRequest extends FormRequest
 {
+    use ValidatesPatientRealNames;
+
     public function authorize(): bool
     {
         return auth()->check();
@@ -18,6 +20,7 @@ class StorePatientRequest extends FormRequest
     {
         return [
             'display_name' => ['required', 'string', 'max:255'],
+            ...$this->realNamesRules(),
             'relationship' => ['nullable', 'string', 'max:50'],
             'birth_date' => ['nullable', 'date'],
             'sex_at_birth' => ['nullable', 'string', 'max:50'],

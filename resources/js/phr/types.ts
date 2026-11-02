@@ -52,6 +52,7 @@ export const PhrPatientSchema = z.object({
   id: z.number(),
   owner_user_id: z.number(),
   display_name: nullableString,
+  real_names: z.array(z.string()).optional(),
   relationship: nullableString,
   birth_date: nullableString,
   sex_at_birth: nullableString,
@@ -484,6 +485,7 @@ export const PhrExportResponseSchema = z.object({
 
 export const PhrPatientFormSchema = z.object({
   display_name: z.string().trim().min(1).max(255),
+  real_names: z.array(z.string()).transform((names) => names.map((name) => name.trim()).filter(Boolean)).optional(),
   relationship: z.string().trim().max(50).optional(),
   birth_date: z.string().trim().optional(),
   sex_at_birth: z.string().trim().max(50).optional(),

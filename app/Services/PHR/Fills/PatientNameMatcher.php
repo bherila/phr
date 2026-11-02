@@ -11,10 +11,13 @@ use Throwable;
 /**
  * Finds the one patient a name printed on a source document refers to.
  *
- * Names are compared ignoring case, accents, punctuation, spacing and
- * "LAST, FIRST" order. A date of birth, when the source prints one, confirms
- * or narrows the match. This never guesses: the result is a match only when
- * exactly one patient qualifies, and the caller is told to ask otherwise.
+ * A display name is often a nickname, so a patient is known by it and by any real
+ * names listed for them. Names are compared ignoring case, accents, punctuation,
+ * spacing and "LAST, FIRST" order. A date of birth, when the source prints one, is
+ * stable where names are not: it is enough on its own unless another patient shares
+ * it or the printed name belongs to someone else. This never guesses: the result is
+ * a match only when exactly one patient qualifies, and the caller is told to ask
+ * otherwise.
  */
 final class PatientNameMatcher
 {
@@ -25,51 +28,109 @@ final class PatientNameMatcher
     public const string AMBIGUOUS = 'ambiguous';
 
     /**
-     * @param  Collection<int, PhrPatient>  $patients  the patients the caller may access
+     * @param  Collection<int, PhrPatient>  $patients  the patients the caller may choose among
+     * @param  Collection<int, PhrPatient>|null  $accessible  everyone on the login, when the caller is
+     *                                                        limited to some of them: a match on the birth date alone must be unique
+     *                                                        among these too, or a client granted one twin would be handed the other's
+     *                                                        documents. Refused without naming the patient the caller cannot see.
      * @return array{status: string, patients: list<PhrPatient>}
      */
-    public function match(Collection $patients, string $printedName, ?string $birthDate = null): array
+    public function match(Collection $patients, string $printedName, ?string $birthDate = null, ?Collection $accessible = null): array
     {
         $wanted = self::tokens($printedName);
         if ($wanted === []) {
-            return ['status' => self::NONE, 'patients' => []];
+            return self::result(collect());
         }
 
         $dob = self::date($birthDate);
-        // A recorded date of birth that disagrees rules the patient out; a patient with
-        // none recorded cannot confirm, but is not refuted. A confirmed one wins over those.
-        $narrow = static function (Collection $candidates) use ($dob): Collection {
-            if ($dob === null) {
-                return $candidates;
-            }
-            $candidates = $candidates->filter(
-                fn (PhrPatient $patient): bool => $patient->birth_date === null || $patient->birth_date->toDateString() === $dob,
-            )->values();
-            $confirmed = $candidates->filter(fn (PhrPatient $patient): bool => $patient->birth_date !== null)->values();
-
-            return $confirmed->isNotEmpty() ? $confirmed : $candidates;
-        };
-
-        // An exact name beats a name that matches only after dropping middle names, but only
-        // while the date of birth leaves an exact match standing: a birth date that rules out
-        // every exact name can still be consistent with a first-and-last-name match.
-        $named = $narrow($patients->filter(fn (PhrPatient $patient): bool => self::tokens((string) $patient->display_name) === $wanted)->values());
-        if ($named->isEmpty() && self::firstAndLast($wanted) !== null) {
-            $named = $narrow($patients->filter(
-                fn (PhrPatient $patient): bool => self::compatible($wanted, self::tokens((string) $patient->display_name)),
-            )->values());
+        if ($dob === null) {
+            return self::result(self::named($patients, $wanted));
         }
 
-        /** @var list<PhrPatient> $matches */
-        $matches = $named->all();
+        $sameBirthDate = $patients->filter(fn (PhrPatient $patient): bool => $patient->birth_date?->toDateString() === $dob)->values();
+        // A recorded date of birth that disagrees rules a patient out. A patient with none
+        // recorded cannot confirm it, but is not refuted, so the name alone can still find them.
+        if ($sameBirthDate->isEmpty()) {
+            return self::result(self::named($patients->filter(fn (PhrPatient $patient): bool => $patient->birth_date === null)->values(), $wanted));
+        }
+
+        $confirmed = self::named($sameBirthDate, $wanted);
+        if ($confirmed->isNotEmpty()) {
+            return self::result($confirmed);
+        }
+        if ($sameBirthDate->count() > 1) {
+            return self::result($sameBirthDate);
+        }
+
+        // One patient has this birth date and the printed name is not one of theirs, which a
+        // nickname explains, unless the name belongs to someone else: then the source
+        // contradicts itself and a person must decide.
+        $patient = $sameBirthDate->first();
+        $isOther = fn (PhrPatient $other): bool => (int) $other->id !== (int) $patient->id;
+        $rivals = self::named($patients->filter($isOther)->values(), $wanted);
+        if ($rivals->isNotEmpty()) {
+            return self::result($sameBirthDate->concat($rivals)->values());
+        }
+
+        $others = ($accessible ?? $patients)->filter($isOther)->values();
+        $hidden = $others->contains(fn (PhrPatient $other): bool => $other->birth_date?->toDateString() === $dob)
+            || self::named($others, $wanted)->isNotEmpty();
+
+        return self::result($hidden ? collect() : $sameBirthDate);
+    }
+
+    /**
+     * The patients a printed name refers to. An exact name beats one that matches only
+     * after dropping middle names.
+     *
+     * @param  Collection<int, PhrPatient>  $patients
+     * @param  list<string>  $wanted
+     * @return Collection<int, PhrPatient>
+     */
+    private static function named(Collection $patients, array $wanted): Collection
+    {
+        $exact = $patients->filter(fn (PhrPatient $patient): bool => in_array($wanted, self::names($patient), true))->values();
+        if ($exact->isNotEmpty()) {
+            return $exact;
+        }
+
+        return $patients->filter(function (PhrPatient $patient) use ($wanted): bool {
+            foreach (self::names($patient) as $name) {
+                if (self::compatible($wanted, $name)) {
+                    return true;
+                }
+            }
+
+            return false;
+        })->values();
+    }
+
+    /**
+     * The comparable words of every name a patient goes by.
+     *
+     * @return list<list<string>>
+     */
+    private static function names(PhrPatient $patient): array
+    {
+        return array_map(self::tokens(...), [(string) $patient->display_name, ...($patient->real_names ?? [])]);
+    }
+
+    /**
+     * @param  Collection<int, PhrPatient>  $matches
+     * @return array{status: string, patients: list<PhrPatient>}
+     */
+    private static function result(Collection $matches): array
+    {
+        /** @var list<PhrPatient> $patients */
+        $patients = $matches->values()->all();
 
         return [
-            'status' => match (count($matches)) {
+            'status' => match (count($patients)) {
                 0 => self::NONE,
                 1 => self::MATCHED,
                 default => self::AMBIGUOUS,
             },
-            'patients' => $matches,
+            'patients' => $patients,
         ];
     }
 
@@ -129,12 +190,6 @@ final class PatientNameMatcher
         }
 
         return true;
-    }
-
-    /** @param list<string> $tokens */
-    private static function firstAndLast(array $tokens): ?string
-    {
-        return count($tokens) >= 2 ? $tokens[0].' '.$tokens[array_key_last($tokens)] : null;
     }
 
     private static function date(?string $value): ?string

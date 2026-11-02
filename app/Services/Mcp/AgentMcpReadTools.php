@@ -29,8 +29,8 @@ final class AgentMcpReadTools
         #[Schema(format: 'date-time')] ?string $updated_after = null,
         #[Schema(format: 'date-time')] ?string $updated_before = null,
         #[Schema(enum: ['include', 'exclude', 'only'])] string $archived = 'include',
-        #[Schema(minLength: 1, maxLength: 255, description: 'A name printed on a source document. Returns the one accessible patient it matches (case, spacing and LAST, FIRST order ignored), or fails telling you to ask the user. Never guess, and never create a patient.')] ?string $name = null,
-        #[Schema(format: 'date', description: 'The date of birth printed on the source; confirms or narrows a name match. Only with name.')] ?string $birth_date = null,
+        #[Schema(minLength: 1, maxLength: 255, description: 'A name printed on a source document. Returns the one accessible patient it matches by display name or a listed real name (case, spacing and LAST, FIRST order ignored), or fails telling you to ask the user. Never guess, and never create a patient.')] ?string $name = null,
+        #[Schema(format: 'date', description: 'The date of birth printed on the source. Send it whenever one is printed: it identifies the patient even when the printed name is not one PHR lists, unless another patient shares it. Only with name.')] ?string $birth_date = null,
     ): array {
         return $this->api->patients($limit, $cursor, $updated_after, $updated_before, $archived, $name, $birth_date)->toArray();
     }

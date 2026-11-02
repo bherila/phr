@@ -39,7 +39,7 @@ final readonly class PhrPatientListService
             return ['patients' => []];
         }
 
-        $profileLengths = array_map($this->byteLength(...), ['display_name', 'relationship', 'sex_at_birth', 'notes']);
+        $profileLengths = array_map($this->byteLength(...), ['display_name', 'real_names', 'relationship', 'sex_at_birth', 'notes']);
         $profileSize = PhrPatient::query()->whereIn('id', $ids)->toBase()
             ->selectRaw('COALESCE(SUM('.implode(' + ', $profileLengths).'), 0) AS payload_size')
             ->value('payload_size');

@@ -5523,7 +5523,7 @@
             "PatientName": {
                 "name": "name",
                 "in": "query",
-                "description": "A name as printed on a source document, matched to the accessible patients ignoring case, spacing and LAST, FIRST order. Exactly one patient must match; otherwise the request fails with 422 and tells the caller to ask the person. Never creates a patient.",
+                "description": "A name as printed on a source document, matched to the accessible patients' display and real names ignoring case, spacing and LAST, FIRST order. Exactly one patient must match; otherwise the request fails with 422 and tells the caller to ask the person. Never creates a patient.",
                 "schema": {
                     "type": "string",
                     "maxLength": 255
@@ -5532,7 +5532,7 @@
             "PatientBirthDate": {
                 "name": "birth_date",
                 "in": "query",
-                "description": "A date of birth printed on the source, used with name to confirm or narrow the match. Accepted only with name.",
+                "description": "A date of birth printed on the source. It identifies the patient even when the printed name is not one PHR lists, unless another patient shares it or the name belongs to another patient. Accepted only with name.",
                 "schema": {
                     "type": "string",
                     "format": "date"
@@ -12407,6 +12407,7 @@
                     "id",
                     "public_id",
                     "display_name",
+                    "real_names",
                     "relationship",
                     "birth_date",
                     "sex_at_birth",
@@ -12428,6 +12429,13 @@
                             "string",
                             "null"
                         ]
+                    },
+                    "real_names": {
+                        "type": "array",
+                        "description": "The names this patient appears under on source documents, entered by a person. The display name is often a nickname.",
+                        "items": {
+                            "type": "string"
+                        }
                     },
                     "relationship": {
                         "type": [
