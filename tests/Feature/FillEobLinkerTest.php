@@ -651,6 +651,29 @@ final class FillEobLinkerTest extends TestCase
         $this->assertSame($written['version'], app(AgentClinicalRecordVersion::class)->for($fill->fresh()), 'linking did not change the version a client holds');
     }
 
+    public function test_the_mcp_tool_relays_a_persons_answers_like_the_rest_route(): void
+    {
+        $flagged = $this->fill('2026-04-01', 'alpha');
+        $this->claim('C-1', '2026-04-01', '100.00');
+        $claim = $this->claim('C-2', '2026-04-01', '200.00');
+        $bare = $this->fill('2026-05-01', 'alpha');
+        $this->actAsClient([AgentApiScopes::MCP_USE]);
+        $session = (string) $this->postJson('/api/v1/mcp', ['jsonrpc' => '2.0', 'id' => 1, 'method' => 'initialize', 'params' => [
+            'protocolVersion' => '2025-06-18', 'capabilities' => [], 'clientInfo' => ['name' => 'Synthetic', 'version' => '1.0.0'],
+        ]], ['Mcp-Protocol-Version' => '2025-06-18'])->assertOk()->headers->get('Mcp-Session-Id');
+        $answer = fn (int $fillId, array $arguments): array => $this->callMcpTool($session, 'medication_fills.answer_eob_link', ['patient_id' => $this->patient->id, 'fill_id' => $fillId, ...$arguments]);
+
+        foreach ([[['action' => 'none'], 'dismissed'], [['action' => 'reset'], 'restored'], [['action' => 'link', 'eob_id' => $claim->id], 'linked']] as [$arguments, $outcome]) {
+            $result = $answer($flagged->id, $arguments);
+            $this->assertNotTrue($result['isError'] ?? false, json_encode($result));
+            $this->assertSame('medication_fill_eob_link_answer', $result['structuredContent']['resource_type']);
+            $this->assertSame($outcome, $result['structuredContent']['outcome']);
+        }
+        $this->assertFalse($this->flagged($flagged));
+
+        $this->assertTrue($answer($bare->id, ['action' => 'reject'])['isError'] ?? false, 'a refusal reaches the agent as an error');
+    }
+
     // ---- Order and idempotence ------------------------------------------------------------
 
     /**
@@ -1444,13 +1467,22 @@ EOB;
         return $linker;
     }
 
-    private function actAsClient(): void
+    /** @param array<string, mixed> $arguments @return array<string, mixed> */
+    private function callMcpTool(string $session, string $name, array $arguments): array
+    {
+        return $this->postJson('/api/v1/mcp', ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/call', 'params' => ['name' => $name, 'arguments' => $arguments]], [
+            'Mcp-Protocol-Version' => '2025-06-18', 'Mcp-Session-Id' => $session,
+        ])->assertOk()->json('result');
+    }
+
+    /** @param list<string> $extraScopes */
+    private function actAsClient(array $extraScopes = []): void
     {
         $client = Client::query()->create([
             'name' => 'Synthetic Linker Client', 'secret' => null, 'provider' => 'users',
             'redirect_uris' => ['https://client.example.test/callback'], 'grant_types' => ['authorization_code', 'refresh_token'], 'revoked' => false,
         ]);
-        Passport::actingAs($this->actor, [AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE], 'api', $client);
+        Passport::actingAs($this->actor, [AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE, ...$extraScopes], 'api', $client);
     }
 
     private function document(): PhrDocument

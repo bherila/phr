@@ -318,7 +318,7 @@ final readonly class AgentMcpWriteTools
         #[Schema(enum: ['link', 'none', 'reject', 'reset'])] string $action,
         #[Schema(minimum: 1)] ?int $eob_id = null,
     ): array {
-        return $this->api->medicationFillAnswerEobLink($patient_id, $fill_id, $action, $eob_id);
+        return $this->api->medicationFillAnswerEobLink($patient_id, $fill_id, $action, $eob_id)->toArray();
     }
 
     /** @return array<string, mixed> */

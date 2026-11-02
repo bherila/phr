@@ -261,8 +261,7 @@ final readonly class AgentApiWriteDao
         ), ['resource_type', 'patient_id', 'outcome', 'data']);
     }
 
-    /** @return array<string, mixed> */
-    public function medicationFillAnswerEobLink(int $patientId, int $fillId, string $action, ?int $eobId): array
+    public function medicationFillAnswerEobLink(int $patientId, int $fillId, string $action, ?int $eobId): AgentApiPayload
     {
         return AgentApiPayload::item($this->transport->send(
             'POST',
