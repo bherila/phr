@@ -1258,7 +1258,7 @@
             "description": "Create a new PHR patient owned by the authorized account and grant that account owner-level access to it. This is not idempotent and has no deduplication key: confirm with patients.list that the person is not already present before calling it, and never retry a call whose outcome is unknown without checking first.",
             "inputSchema": "sha256:42ee6e59d850ace0f12f1b2a7f5f909f7e0db564dd06abb84e00269b400cb208",
             "name": "patients.create",
-            "outputSchema": "sha256:90f396d918e74206e20ce27a6e3f8d745a8730f290281500c3cf803b5f6c3150",
+            "outputSchema": "sha256:cde40dce46c1cff45c9e1ec0dd2c5fb26fb2e0f78a26503a4f13cb05fb88de87",
             "title": "Create patient"
         },
         "patients.get": {
@@ -1271,7 +1271,7 @@
             "description": "Get one accessible patient and its current access metadata.",
             "inputSchema": "sha256:2e286a5215cdbe324d46ca789bb5fb63023e8a87c11602fe62dfbc2315347ccb",
             "name": "patients.get",
-            "outputSchema": "sha256:90f396d918e74206e20ce27a6e3f8d745a8730f290281500c3cf803b5f6c3150",
+            "outputSchema": "sha256:cde40dce46c1cff45c9e1ec0dd2c5fb26fb2e0f78a26503a4f13cb05fb88de87",
             "title": "Get patient"
         },
         "patients.list": {
@@ -1282,9 +1282,9 @@
                 "openWorldHint": false
             },
             "description": "List only patients accessible to the authorized account, with bounded pagination.",
-            "inputSchema": "sha256:477c3dd9c895611aec205a104c1edecfbd6c180c4dbd60e99391abed7c6fc3c7",
+            "inputSchema": "sha256:85e56525fcc2817f91ab3f5fa528ec3333b49a81fda0364182da27a8f315b192",
             "name": "patients.list",
-            "outputSchema": "sha256:0a0954a1c4c390b5a9cd725de707067134c815a2fe4231b823c7f022c9054557",
+            "outputSchema": "sha256:df2b984d2ebfa52f036fcef469ad67d8f8ec06adec07474a63314d4e4ecb3c67",
             "title": "List patients"
         },
         "procedures.update": {

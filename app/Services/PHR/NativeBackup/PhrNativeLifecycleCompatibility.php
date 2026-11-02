@@ -38,6 +38,8 @@ final class PhrNativeLifecycleCompatibility
      * @var array<string, list<string>>
      */
     public const array TABLE_COLUMNS = [
+        // The names a person listed for a patient; null is "none listed".
+        'phr_patients' => ['real_names'],
         // EHI immunization provenance (#213 M2).
         'phr_immunizations' => [
             'administered_at_source',
