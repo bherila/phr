@@ -45,7 +45,7 @@ final class PhrPreloadTest extends TestCase
     {
         $this->seedRecords();
         $p = "/api/phr/patients/{$this->patient->id}";
-        $lists = ["{$p}/office-visits", "{$p}/procedures", "{$p}/immunizations"];
+        $lists = ["{$p}/office-visits", "{$p}/procedures", "{$p}/immunizations", "{$p}/ehi/pending"];
         $summary = "{$p}/review/summary";
         $expected = [
             '' => [$p, "{$p}/lab-results", "{$p}/vitals", "{$p}/dicom/studies", "{$p}/exports"],
@@ -232,7 +232,7 @@ final class PhrPreloadTest extends TestCase
         $study = ["{$p}/dicom/studies/9", "{$p}/dicom/studies/9/viewer-json"];
         $this->assertSame([...$study, $summary], PhrPreloadPlan::forPatient(4, '/imaging/9')->urls);
         // A visit's linked study takes the visit's panel; the Visits list stays on screen.
-        $this->assertSame([...$study, "{$p}/office-visits", "{$p}/procedures", "{$p}/immunizations", $summary], PhrPreloadPlan::forPatient(4, '/office-visits/3/imaging/9')->urls);
+        $this->assertSame([...$study, "{$p}/office-visits", "{$p}/procedures", "{$p}/immunizations", "{$p}/ehi/pending", $summary], PhrPreloadPlan::forPatient(4, '/office-visits/3/imaging/9')->urls);
         $this->assertSame(["{$p}/conditions", $summary], PhrPreloadPlan::forPatient(4, '/conditions/not-a-record')->urls);
         $this->assertSame(["{$p}/conditions/0012", "{$p}/conditions", $summary], PhrPreloadPlan::forPatient(4, '/conditions/0012/')->urls);
         $this->assertSame([$summary], PhrPreloadPlan::forPatient(4, '/vitals/trend/a%2Fb')->urls);
