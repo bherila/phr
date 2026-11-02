@@ -105,6 +105,7 @@ class EhiLabResultMappingTest extends TestCase
         self::assertSame('95.0', $glucose['value_numeric']);
         self::assertSame('70.00', $glucose['range_min']);
         self::assertSame('99', $glucose['range_max']);
+        self::assertSame('mg/dL', $glucose['range_unit'], 'the unit its bounds were stated in');
         self::assertNull($glucose['notes'], 'a narrative is recorded once, on the lowest line');
         self::assertSame('2024-03-05', $glucose['resulted_at_source']);
         self::assertSame('date', $glucose['resulted_at_precision']);

@@ -19,7 +19,9 @@ use App\Services\PHR\Export\PhrCcdaExporter;
 use App\Services\PHR\Export\PhrExportDataService;
 use App\Services\PHR\Export\PhrFhirExporter;
 use App\Services\PHR\Export\PhrPdfSummaryRenderer;
+use App\Services\PHR\Import\Ehi\EhiBindingService;
 use App\Services\PHR\Import\Ehi\EhiPreviewQueue;
+use App\Services\PHR\Import\Ehi\EhiProposalService;
 use App\Services\PHR\Import\Ehi\EhiUploadService;
 use App\Services\PHR\Import\Ehi\Mapping\EhiLabResultMapping;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMappingContext;
@@ -236,6 +238,52 @@ class EhiLabResultEndToEndTest extends TestCase
         $proposal = $this->proposal($package, '8101', '66000.01', '2');
         self::assertSame(PhrEhiProposal::KIND_POSSIBLE_DUPLICATE, $proposal->kind);
         self::assertSame([$earlier->id], $proposal->candidate_ids_json);
+    }
+
+    public function test_an_approved_correction_never_leaves_new_bounds_beside_an_old_range_unit(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        PhrPatientUserAccess::query()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'access_level' => PhrPatientUserAccess::LEVEL_OWNER, 'granted_by_user_id' => $owner->id, 'granted_at' => now()]);
+        // An earlier import kept its own spelling of the range unit, and the bridge links it.
+        $earlier = PhrLabResult::query()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'review_status' => PhrReviewStatus::CONFIRMED, 'import_source' => 'ccda', 'external_id' => '8101', 'analyte' => 'SYNTHETIC GLUCOSE', 'value' => '95.0', 'value_numeric' => '95', 'unit' => 'mg/dL', 'range_min' => '70', 'range_max' => '99', 'range_unit' => 'mg/dL', 'result_datetime' => '2024-03-05 10:00:00']);
+        $base = "/api/phr/patients/{$patient->id}";
+        $package = $this->previewedFromBrowser($owner, $patient);
+        $bridge = $this->proposal($package, '8101', '66000.01', '2');
+        self::assertSame(PhrEhiProposal::KIND_CORROBORATE, $bridge->kind);
+        $this->actingAs($owner)->postJson("{$base}/ehi/proposals/{$bridge->id}/review", ['decision' => 'accept', 'preview_digest' => $bridge->preview_digest])->assertOk();
+
+        // A new accepted result carries the unit its bounds were stated in.
+        $fresh = $this->proposal($package, '8101', '66000.02', '1');
+        self::assertNull($fresh->proposed_json['attributes']['range_unit'], 'no bounds, so no range unit');
+
+        $corrected = EhiClinicalPackage::withLabs()->changing('ORDER_RESULTS', ['ORDER_PROC_ID' => '8101', 'ORD_DATE_REAL' => '66000.01', 'LINE' => '2'], ['ORD_VALUE' => '5.3', 'ORD_RAW_VALUE' => '5,3', 'REFERENCE_LOW' => '3.9', 'REFERENCE_HIGH' => '5.5', 'REFERENCE_UNIT' => 'mmol/L']);
+        $second = $this->previewedFromBrowser($owner, $patient, $corrected, PhrEhiPackage::query()->sole()->source_id);
+        $update = $this->proposal($second, '8101', '66000.01', '2');
+        self::assertSame(PhrEhiProposal::KIND_UPDATE, $update->kind);
+        self::assertContains('range_unit', $update->proposed_json['changed']);
+        self::assertSame('mg/dL', $update->before_json['range_unit'], 'a reviewer sees it change');
+        $this->actingAs($owner)->postJson("{$base}/ehi/proposals/{$update->id}/review", ['decision' => 'approve_update', 'preview_digest' => $update->preview_digest])->assertOk();
+
+        $shown = $this->actingAs($owner)->getJson("{$base}/lab-results/{$earlier->id}")->assertOk()->json('lab_result');
+        self::assertSame('mmol/L', $shown['unit']);
+        self::assertSame('mmol/L', $shown['range_unit']);
+        $bundle = json_decode(app(PhrFhirExporter::class)->bundleJson(app(PhrExportDataService::class)->load($patient->refresh())), true, flags: JSON_THROW_ON_ERROR);
+        $observation = collect($bundle['entry'])->pluck('resource')->first(fn (array $resource): bool => $resource['resourceType'] === 'Observation' && $resource['id'] === 'phr-lab-'.$earlier->id);
+        self::assertSame('mmol/L', $observation['referenceRange'][0]['low']['unit']);
+        self::assertSame('mmol/L', $observation['referenceRange'][0]['high']['unit']);
+
+        // Corrected bounds alone still replace a range unit the source never gave.
+        $earlier->forceFill(['range_unit' => 'a stale spelling'])->save();
+        $bounds = $corrected->changing('ORDER_RESULTS', ['ORDER_PROC_ID' => '8101', 'ORD_DATE_REAL' => '66000.01', 'LINE' => '2'], ['REFERENCE_HIGH' => '5.6']);
+        // Through the services: the preview route allows only so many requests a minute.
+        $third = $this->ehiIntakeDirectory($bounds->build(), $patient, (int) $owner->id, 'package-3')->package;
+        $third = app(EhiBindingService::class)->bind($third, $patient, (int) $owner->id, PhrEhiPackage::query()->orderBy('id')->firstOrFail()->source_id, null);
+        app(EhiProposalService::class)->preview($third, $patient, (int) $owner->id);
+        $next = $this->proposal($third, '8101', '66000.01', '2');
+        self::assertEqualsCanonicalizing(['range_max', 'range_unit'], $next->proposed_json['changed']);
+        $this->actingAs($owner)->postJson("{$base}/ehi/proposals/{$next->id}/review", ['decision' => 'approve_update', 'preview_digest' => $next->preview_digest])->assertOk();
+        self::assertSame('mmol/L', $earlier->refresh()->range_unit);
     }
 
     public function test_review_access_is_rechecked_for_a_lab_proposal(): void

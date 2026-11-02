@@ -80,6 +80,7 @@ const UPDATE_FIELD_LABELS: Record<string, string> = {
   unit: 'Unit',
   range_min: 'Range low',
   range_max: 'Range high',
+  range_unit: 'Range unit',
   reference_range_text: 'Reference range',
   abnormal_flag: 'Flag',
   result_status: 'Status',

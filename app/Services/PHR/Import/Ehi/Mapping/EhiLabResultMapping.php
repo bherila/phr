@@ -51,7 +51,7 @@ use Illuminate\Database\UniqueConstraintViolationException;
  *   COMPONENT_ID_NAME -> analyte; COMPONENT_ID -> analyte_code (ANALYTE_CODE_SYSTEM)
  *   ORD_VALUE -> value (verbatim); ORD_RAW_VALUE -> value_raw (verbatim)
  *   ORD_VALUE + VALUE_NORMALIZED -> value_comparator, value_numeric (EhiLabValue)
- *   REFERENCE_UNIT -> unit
+ *   REFERENCE_UNIT -> unit, and range_unit when there is a bound
  *   REFERENCE_LOW, REFERENCE_HIGH -> range_min, range_max when exact decimals
  *   REF_NORMAL_VALS, else non-decimal low/high text -> reference_range_text
  *   RESULT_FLAG_C_NAME -> abnormal_flag
@@ -174,6 +174,7 @@ final class EhiLabResultMapping implements EhiMapping
         'unit',
         'range_min',
         'range_max',
+        'range_unit',
         'reference_range_text',
         'abnormal_flag',
         'result_status',
@@ -205,6 +206,7 @@ final class EhiLabResultMapping implements EhiMapping
         'value' => 255,
         'value_raw' => 255,
         'unit' => 50,
+        'range_unit' => 50,
         'reference_range_text' => 255,
         'abnormal_flag' => 50,
         'result_status' => 50,
@@ -592,6 +594,8 @@ final class EhiLabResultMapping implements EhiMapping
             'unit' => $cell('REFERENCE_UNIT'),
             'range_min' => $rangeMin,
             'range_max' => $rangeMax,
+            // ORDER_RESULTS has one unit, stated for the value and its bounds alike.
+            'range_unit' => $rangeMin !== null || $rangeMax !== null ? $cell('REFERENCE_UNIT') : null,
             'reference_range_text' => $rangeText,
             'abnormal_flag' => $cell('RESULT_FLAG_C_NAME'),
             'result_status' => $cell('RESULT_STATUS_C_NAME') ?? $cell('LAB_STATUS_C_NAME') ?? $orderCell('LAB_STATUS_C_NAME'),
@@ -858,6 +862,13 @@ final class EhiLabResultMapping implements EhiMapping
                 $changed[] = $field;
                 $before[$field] = $current[$field];
             }
+        }
+        // New bounds never sit beside an old range unit, even one the source did not
+        // change: an earlier import may have stored its own.
+        if (array_intersect(['range_min', 'range_max'], $changed) !== [] && ! in_array('range_unit', $changed, true)
+            && $current['range_unit'] !== $fields['range_unit']) {
+            $changed[] = 'range_unit';
+            $before['range_unit'] = $current['range_unit'];
         }
         // The value a reviewer compares is read with the inequality it had.
         if (in_array('value', $changed, true)) {
