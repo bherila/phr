@@ -38,7 +38,7 @@ every document as an orphan DICOM object and delete it. Don't put two disks, or 
 application, under one prefix.
 
 `phr_upload_spool` (`storage/app/private/phr-upload-spool`) stays local under every choice.
-See [Uploads through PHP](#uploads-through-php).
+See [Uploads](#uploads).
 
 ## Before switching to S3-compatible storage
 
@@ -62,8 +62,8 @@ Check these as well:
   few days is worth adding.
 - **Tested stores.** The live suite has run against Garage only. AWS S3 and Cloudflare R2
   use the same API, but this code has not been run against them.
-- **Direct viewer URLs.** `PHR_DICOM_VIEWER_DIRECT_SIGNED_URLS=true` needs bucket CORS for
-  the application's origin. By default, images pass through PHP and CORS is not needed.
+- **Bucket CORS.** Browser uploads go straight to the bucket, so they fail until
+  [its CORS rule](#bucket-cors-for-direct-uploads) is in place. Set it before the switch.
 
 ## Moving, in either direction
 
@@ -161,14 +161,80 @@ on both storage kinds. The hourly and daily collectors (`phr:dicom:gc`,
 `phr:document-uploads:gc`, `phr:exports:purge`, `phr:native-backups:purge`,
 `phr:native-restores:purge`, `phr:ehi-uploads:purge`) run from the schedule as before.
 
-## Uploads through PHP
+## Uploads
 
-EHI and MyChart ZIPs and native restore sources reach PHP in chunks. An object cannot be
-appended to, so on an object store the chunks wait in the local spool at the same key, and
-the queued job publishes them as one object before reading them. The spool is not storage:
-it holds bytes on their way somewhere, only until the job runs. Patient deletion and the
-purges remove it, and it isn't part of a move. A spooled upload does keep patient files on
-local disk for as long as its upload lasts, up to its expiry.
+| Upload | Unset or `local` | `s3` |
+|---|---|---|
+| DICOM file | POST through PHP | one signed, length-bound PUT per file, straight to the bucket |
+| EHI or MyChart ZIP | 8 MB chunks through PHP | multipart upload, straight to the bucket |
+| Native restore source | chunks through PHP, in place | chunks through PHP, spooled |
+| Agent document (`documents_upload_access_create`) | signed application endpoint | signed PUT, straight to the bucket |
+| Agent DICOM file | POST through PHP | POST through PHP |
+
+The transport follows `PHR_STORAGE` alone. An installation with it unset never sends a browser
+to a bucket, even if its DICOM disk is on one.
+
+**Every direct URL is signed with its exact length**, so the store refuses any other size.
+A part's length comes from the file's declared size, and each part but the last is at
+least 5 MiB, in at most 10,000 parts. The part size grows past the usual 8 MiB only for a file
+too large for that to fit in 10,000 parts.
+
+**DICOM.** A file's bytes go to `.incoming/` under its upload's prefix, not to its durable key,
+because a signed URL stays usable until it expires. To record the file, the application checks
+the object's size, reads it to take its metadata and SHA-256, and copies it to the same key a
+POST would have used, only if it is still the object it read. So bytes no longer come *up*
+through PHP, but each file is still read back once. A late PUT lands in `.incoming/`, where
+`phr:dicom:gc` removes it.
+
+**EHI and MyChart.** Completing checks every part against the store's own list, and the finished
+object against the declared size, before intake is queued. Intake then reads the object through
+a local temporary copy.
+
+**Incomplete uploads** hold bytes that no listing of objects shows. `phr:ehi-uploads:purge` and
+`phr:dicom:gc` abort them, and patient deletion aborts everything under the patient's prefix, so
+a lifecycle rule is optional.
+
+**The spool.** Native restore sources still reach PHP in chunks. An object cannot be appended to,
+so on an object store they wait in the local spool at the same key, and the queued job publishes
+them as one object before reading them. The spool is not storage: it holds bytes on their way
+somewhere, only until the job runs. The purge removes it, and it isn't part of a move. A spooled
+upload keeps those bytes on local disk until it is published or expires.
+
+### Bucket CORS for direct uploads
+
+The bucket must allow PUT from the application's origin and expose `ETag`. The browser reads each
+part's ETag to complete an upload. **The application cannot check this.** Without the rule, a
+browser reports only a network error and PHR says to check the bucket's CORS rules. If `ETag`
+alone is missing, the PUT succeeds and PHR says that CORS must expose it.
+
+Set the origin to your own, with its scheme and no trailing slash:
+
+```json
+{
+  "CORSRules": [
+    {
+      "AllowedOrigins": ["https://phr.example.test"],
+      "AllowedMethods": ["PUT"],
+      "AllowedHeaders": ["content-type"],
+      "ExposeHeaders": ["ETag"],
+      "MaxAgeSeconds": 3600
+    }
+  ]
+}
+```
+
+Add `GET` to `AllowedMethods` only if `PHR_DICOM_VIEWER_DIRECT_SIGNED_URLS=true`.
+
+- **Garage:** S3 API only. With the JSON above saved as `cors.json`:
+  `aws s3api put-bucket-cors --endpoint-url https://garage.example.test --bucket phr-store --cors-configuration file://cors.json`.
+  The key needs the owner permission on the bucket. This exact rule is what the live tests set.
+- **AWS S3:** the same command with no `--endpoint-url`, or paste the contents of `CORSRules`
+  into **Permissions → Cross-origin resource sharing (CORS)** in the console.
+- **Cloudflare R2:** the same command with the account's R2 endpoint, or use the bucket's
+  **Settings → CORS Policy** in the dashboard, which takes the contents of `CORSRules`.
+
+Only Garage has been run. The rule is the S3 API's own, but check a real upload after setting it
+on another store.
 
 ## Code rules
 
@@ -197,4 +263,5 @@ export PHR_TEST_RCLONE="$(command -v rclone)"
 php -d memory_limit=1G vendor/bin/phpunit tests/Feature/Storage
 ```
 
-The `storage-live` workflow runs this against Garage. It doesn't gate deploys.
+The `storage-live` workflow runs this against Garage, along with a real browser's direct uploads
+(`PHR_E2E_S3_ENDPOINT`, in `tests/e2e/phr-direct-uploads.spec.ts`). It doesn't gate deploys.

@@ -570,7 +570,9 @@ on the upload path.
 
 MCP `documents_upload_access_create` returns a short-lived PUT URL and required
 headers, followed by `documents_upload_finalize`. The default is a signed local
-application endpoint. `PHR_STORAGE=s3` stages directly on its bucket. With `PHR_STORAGE`
+application endpoint. `PHR_STORAGE=s3` stages directly on its bucket, and browsers send DICOM
+files and EHI or MyChart ZIPs straight to it too, which needs
+[the bucket's CORS rule](docs/storage.md#bucket-cors-for-direct-uploads). With `PHR_STORAGE`
 unset, `PHR_UPLOADS_DISK_DRIVER=s3` and the `PHR_UPLOADS_*` credentials, region, bucket,
 and endpoint from `.env.example` do the same for staging only, and durable document
 storage keeps its own configuration. Configure bucket CORS for PUT from the intended

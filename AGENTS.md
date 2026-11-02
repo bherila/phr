@@ -92,7 +92,9 @@ assume a stored object is a local file: use `Storage` streams, or `LocalObjectFi
 reader that needs a seekable path. `->path()` does not fail on an object store, and neither
 a local disk nor `Storage::fake` catches it. Test such code with `UsesObjectStoreDisks`.
 `LocalDiskAssumptionsTest` lists every local-file call in `app/`. A new key column belongs
-in both `PhrStorageMap` and `PhrStorageVerifier::sources()`.
+in both `PhrStorageMap` and `PhrStorageVerifier::sources()`. Browser uploads have two
+transports, chosen by `PHR_STORAGE` alone, and `tests/e2e/phr-direct-uploads.spec.ts` reaches
+both. Anything talking to the store about uploads goes through `UploadUrlSigner`.
 
 ## Frontend rules
 
