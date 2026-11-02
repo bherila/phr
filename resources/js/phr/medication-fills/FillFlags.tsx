@@ -27,6 +27,3 @@ export function fillStrength(fill: MedicationFill): string {
   return displayUnits(fill.drug?.strengths.join('; ') ?? '')
 }
 
-export function fillRouteAndForm(fill: MedicationFill): string {
-  return [fill.drug?.route, fill.drug?.dosage_form].filter(Boolean).join(' ')
-}

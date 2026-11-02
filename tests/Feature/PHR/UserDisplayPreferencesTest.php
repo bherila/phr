@@ -26,6 +26,9 @@ class UserDisplayPreferencesTest extends TestCase
             ->assertJsonPath('display_preferences.hide_medication_list', true)
             ->assertJsonPath('display_preferences.hidden_fill_columns', ['prescriber', 'pharmacy']);
 
+        $this->actingAs($person)->putJson(self::URL, ['hidden_fill_columns' => ['quantity']])->assertOk()
+            ->assertJsonPath('display_preferences.hidden_fill_columns', ['quantity']);
+
         $this->assertTrue($person->refresh()->displayPreferences()['hide_medication_list']);
         $this->assertFalse($other->refresh()->displayPreferences()['hide_medication_list']);
 
@@ -42,7 +45,7 @@ class UserDisplayPreferencesTest extends TestCase
         $person = User::factory()->create();
 
         $this->actingAs($person)->putJson(self::URL, ['hidden_fill_columns' => ['rx_number']])->assertUnprocessable();
-        $this->actingAs($person)->putJson(self::URL, ['date_format' => 'YY.MM.DD'])->assertUnprocessable();
+        $this->actingAs($person)->putJson(self::URL, ['date_format' => 'YY/MM/DD'])->assertUnprocessable();
         $this->actingAs($person)->putJson(self::URL, ['hide_medication_list' => 'yes'])->assertUnprocessable();
         $this->actingAs($person)->putJson(self::URL, ['user_role' => 'admin', 'hide_medication_list' => true])->assertOk();
 
@@ -68,6 +71,10 @@ class UserDisplayPreferencesTest extends TestCase
             ->flatMap(static fn (array $group): array => $group['items'])->firstWhere('section', 'medication-fills')['detail'];
         $this->assertStringContainsString('03/04/2026', $detail($person));
         $this->assertStringContainsString('2026-03-04', $detail($other));
+
+        // Two-digit years with dots, and not a slash anywhere.
+        $this->actingAs($person)->putJson(self::URL, ['date_format' => 'YY.MM.DD'])->assertOk();
+        $this->assertStringContainsString('26.03.04', $detail($person->refresh()));
     }
 
     public function test_it_requires_a_session(): void

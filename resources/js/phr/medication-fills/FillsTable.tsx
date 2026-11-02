@@ -9,7 +9,7 @@ import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
 import { ReviewDot } from '@/phr/clinical/ReviewDot'
 import { drillOpener, type PhrListPageProps } from '@/phr/shell/phrPages'
 
-import { FillFlags, fillRouteAndForm, fillStrength } from './FillFlags'
+import { FillFlags, fillStrength } from './FillFlags'
 import { fillDrugName, formatCents, formatFillDate, formatQuantity, type MedicationFill, MISSING } from './fillTypes'
 
 export interface FillActions {
@@ -34,7 +34,7 @@ interface FillsTableProps {
   openRowId?: string | null | undefined
   /** Columns this person has chosen not to see. */
   hiddenColumns?: readonly FillColumn[] | undefined
-  /** Strength, form and route get their own columns on a wide list, instead of sitting beside the name. */
+  /** Route, strength and form get their own columns on a wide list, instead of sitting beside the name. */
   separateColumns?: boolean | undefined
 }
 
@@ -82,23 +82,28 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
       className: CELL,
       cell: (fill) => {
         const strength = fillStrength(fill)
-        const routeAndForm = fillRouteAndForm(fill)
+        const route = fill.drug?.route
+        const form = fill.drug?.dosage_form
         return (
           <div className="flex gap-2">
             <span className="w-2 shrink-0 pt-1.5"><ReviewDot status={fill.review_status} /></span>
             <div className="min-w-0">
               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                <span className="font-medium text-card-foreground">{fillDrugName(fill)}</span>
+                <span>
+                  <span className="font-medium text-card-foreground">{fillDrugName(fill)}</span>
+                  {route && !separateColumns && <span className={cn('text-muted-foreground', RECORD_ONLY_WIDE_INLINE)}> {route}</span>}
+                </span>
                 {strength && (
                   <span className={cn('text-muted-foreground', separateColumns && RECORD_ONLY_BELOW_WIDE)}>
                     {strength}
-                    {routeAndForm && !separateColumns && <span className={RECORD_ONLY_WIDE_INLINE}> · {routeAndForm}</span>}
+                    {form && !separateColumns && <span className={RECORD_ONLY_WIDE_INLINE}> · {form}</span>}
                   </span>
                 )}
+                {!strength && form && !separateColumns && <span className={cn('text-muted-foreground', RECORD_ONLY_WIDE_INLINE)}>{form}</span>}
                 <FillFlags fill={fill} />
               </div>
               <div className={cn('mt-0.5 text-xs text-muted-foreground', RECORD_ONLY_BELOW_MEDIUM)}>
-                {[formatFillDate(fill.filled_on), `Qty ${formatQuantity(fill.quantity)}`, shows('pharmacy') ? pharmacyName(fill) : null].filter(Boolean).join(' · ')}
+                {[formatFillDate(fill.filled_on), shows('pharmacy') ? pharmacyName(fill) : null].filter(Boolean).join(' · ')}
               </div>
             </div>
           </div>
@@ -106,11 +111,11 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
       },
     },
     ...(separateColumns ? [
+      { id: 'route', header: 'Route', cell: (fill: MedicationFill) => fill.drug?.route ?? MISSING },
       { id: 'strength', header: 'Strength', cell: (fill: MedicationFill) => fillStrength(fill) || MISSING },
       { id: 'form', header: 'Form', cell: (fill: MedicationFill) => fill.drug?.dosage_form ?? MISSING },
-      { id: 'route', header: 'Route', cell: (fill: MedicationFill) => fill.drug?.route ?? MISSING },
     ].map((column) => ({ ...column, showFrom: 'wide', headerClassName: HEAD, className: cn(CELL, 'text-muted-foreground') } satisfies RecordColumn<MedicationFill>)) : []),
-    {
+    ...(shows('quantity') ? [{
       id: 'quantity',
       header: 'Qty',
       fit: true,
@@ -119,7 +124,7 @@ export function FillsTable({ label, rows, loading = false, empty, actions, onEdi
       numeric: true,
       className: CELL,
       cell: (fill) => formatQuantity(fill.quantity),
-    },
+    } satisfies RecordColumn<MedicationFill>] : []),
     {
       id: 'paid',
       header: 'Paid',

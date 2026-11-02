@@ -15,6 +15,7 @@ final class DisplayPreferences
     /** The date formats a person can choose, each with how PHP writes it. */
     public const array DATE_FORMATS = [
         'YYYY-MM-DD' => 'Y-m-d',
+        'YY.MM.DD' => 'y.m.d',
         'MM/DD/YYYY' => 'm/d/Y',
         'DD/MM/YYYY' => 'd/m/Y',
         'MMM D, YYYY' => 'M j, Y',
@@ -23,7 +24,7 @@ final class DisplayPreferences
     public const string DEFAULT_DATE_FORMAT = 'YYYY-MM-DD';
 
     /** The Fills columns a person can hide. */
-    public const array FILL_COLUMNS = ['no_insurance', 'prescriber', 'pharmacy'];
+    public const array FILL_COLUMNS = ['quantity', 'no_insurance', 'prescriber', 'pharmacy'];
 
     /**
      * What is stored, with defaults filled in and anything unknown dropped.

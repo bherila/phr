@@ -289,7 +289,7 @@ from a C-CDA). So both records stay, and they share a section: **(shipped)**
 **Display settings** live on the logged-in user, never the patient, under Config. They reach the
 page in its initial data, change only what that person sees, and never change an API response or
 export. Hide the Medications list removes the tabs from Fills, and a link to a medication still
-opens. Never merge columns gives a fill's strength, form and route their own columns on a wide list,
+opens. Never merge columns gives a fill's route, strength and form their own columns on a wide list,
 and separate prescriber and pharmacy columns, where by default they share cells to save space, and the list may then scroll in its own box;
 below 960px the list's shape is the same either way. The saved Fills columns are the other setting.
 The date format (YYYY-MM-DD by default) goes through `lib/dateFormat`: a stored date is sliced, never
