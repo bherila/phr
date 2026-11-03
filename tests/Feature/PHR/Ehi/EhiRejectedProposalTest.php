@@ -20,7 +20,9 @@ use App\Services\PHR\Import\Ehi\EhiBindingService;
 use App\Services\PHR\Import\Ehi\EhiFindingCode;
 use App\Services\PHR\Import\Ehi\EhiProposalService;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMappingContext;
+use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -48,6 +50,7 @@ class EhiRejectedProposalTest extends TestCase
 
     protected function tearDown(): void
     {
+        Carbon::setTestNow();
         $this->tearDownEhi();
         parent::tearDown();
     }
@@ -114,6 +117,66 @@ class EhiRejectedProposalTest extends TestCase
         self::assertSame(PhrEhiProposal::KIND_CREATE, $back->kind);
         $this->decide($owner, $patient, $back, 'accept');
         self::assertSame(1, $model::query()->count());
+    }
+
+    public function test_decisions_in_one_second_are_ordered_by_when_they_were_made_not_by_which_preview_came_first(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $key = ['ORDER_PROC_ID' => '8102', 'ORD_DATE_REAL' => '66001', 'LINE' => '1'];
+        $match = ['ORDER_PROC_ID' => '8102', 'LINE' => '1'];
+        $rejectedLater = EhiClinicalPackage::withLabs()->changing('ORDER_RESULTS', $match, ['ORD_VALUE' => 'Light growth']);
+        $older = $this->previewed(EhiClinicalPackage::withLabs()->build(), $owner, $patient);
+        $sourceId = PhrEhiSource::query()->sole()->id;
+        $newer = $this->previewed($rejectedLater->build(), $owner, $patient, 'package-2', $sourceId);
+
+        // The newer package's proposal is rejected, and then the older one's accepted, within one second.
+        Carbon::setTestNow(Carbon::parse('2026-03-05 10:00:00'));
+        $this->decide($owner, $patient, $this->subject($newer, 'lab_result', $key), 'reject');
+        $this->decide($owner, $patient, $this->subject($older, 'lab_result', $key), 'accept');
+
+        $third = $this->previewed($rejectedLater->build()->with('README.txt', "Synthetic later readme\n"), $owner, $patient, 'package-3', $sourceId);
+        self::assertSame(PhrEhiProposal::KIND_UPDATE, $this->subject($third, 'lab_result', $key)->kind, 'the acceptance came last, so this is reconciled and not set aside');
+    }
+
+    /**
+     * Two packages linked to one earlier record within a second: what the source last
+     * said is what the later link accepted, whichever package was previewed first.
+     *
+     * @param  array<string, string>  $key
+     * @param  class-string<Model>  $model
+     * @param  array<string, mixed>  $legacy
+     * @param  array<string, string>  $match
+     * @param  array<string, string>  $first
+     * @param  array<string, string>  $second
+     */
+    #[DataProvider('linkedBaselines')]
+    public function test_the_source_baseline_is_the_last_decision_made_not_the_last_previewed(string $mapping, array $key, string $model, array $legacy, string $table, array $match, array $first, array $second, string $field): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $earlier = $model::query()->forceCreate(['patient_id' => $patient->id, 'user_id' => $owner->id, 'review_status' => PhrReviewStatus::CONFIRMED, ...$legacy]);
+        $older = $this->previewed($this->package($mapping)->changing($table, $match, $first)->build(), $owner, $patient);
+        $sourceId = PhrEhiSource::query()->sole()->id;
+        $newer = $this->previewed($this->package($mapping)->changing($table, $match, $second)->build(), $owner, $patient, 'package-2', $sourceId);
+        $link = fn (PhrEhiProposal $proposal) => $this->actingAs($owner)->postJson("/api/phr/patients/{$patient->id}/ehi/proposals/{$proposal->id}/review", ['decision' => 'link_existing', 'preview_digest' => $proposal->preview_digest, 'link_id' => $earlier->id])->assertOk();
+
+        Carbon::setTestNow(Carbon::parse('2026-03-05 10:00:00'));
+        $link($this->subject($newer, $mapping, $key));
+        $link($this->subject($older, $mapping, $key));
+
+        // The source now says what the newer package said. Compared with the last link, that changed.
+        $third = $this->previewed($this->package($mapping)->changing($table, $match, $second)->build()->with('README.txt', "Synthetic later readme\n"), $owner, $patient, 'package-3', $sourceId);
+        $proposal = $this->subject($third, $mapping, $key);
+        self::assertSame(PhrEhiProposal::KIND_UPDATE, $proposal->kind);
+        self::assertContains($field, $proposal->proposed_json['changed']);
+    }
+
+    /** @return array<string, array{0: string, 1: array<string, string>, 2: class-string<Model>, 3: array<string, mixed>, 4: string, 5: array<string, string>, 6: array<string, string>, 7: array<string, string>, 8: string}> */
+    public static function linkedBaselines(): array
+    {
+        return [
+            'lab result' => ['lab_result', ['ORDER_PROC_ID' => '8102', 'ORD_DATE_REAL' => '66001', 'LINE' => '1'], PhrLabResult::class, ['import_source' => 'manual', 'analyte' => 'SYNTHETIC CULTURE', 'value' => 'No growth', 'unit' => 'stored unit', 'result_datetime' => '2024-03-06 10:00:00'], 'ORDER_RESULTS', ['ORDER_PROC_ID' => '8102', 'LINE' => '1'], ['REFERENCE_UNIT' => 'first unit'], ['REFERENCE_UNIT' => 'second unit'], 'unit'],
+            'encounter' => ['encounter', ['PAT_ENC_CSN_ID' => '7101'], PhrOfficeVisit::class, ['import_source' => 'manual', 'provider_name' => 'stored provider', 'visit_date' => '2024-05-01'], 'PAT_ENC', ['PAT_ENC_CSN_ID' => '7101'], ['VISIT_PROV_ID_PROV_NAME' => 'FIRST PROVIDER'], ['VISIT_PROV_ID_PROV_NAME' => 'SECOND PROVIDER'], 'provider_name'],
+        ];
     }
 
     public function test_a_rejected_update_is_not_proposed_again_and_the_record_keeps_what_it_held(): void

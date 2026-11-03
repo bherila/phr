@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Traits\SerializesDatesAsLocal;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -111,6 +112,19 @@ class PhrEhiProposal extends Model
     public function revisions(): HasMany
     {
         return $this->hasMany(PhrEhiProposalRevision::class, 'proposal_id');
+    }
+
+    /**
+     * Put decided proposals in the order they were decided. `decided_at` has second
+     * precision and a proposal id reflects preview order, so only the append-only
+     * decision sequence says which of two decisions came last.
+     *
+     * @param  Builder<PhrEhiProposal>  $query
+     * @return Builder<PhrEhiProposal>
+     */
+    public static function inDecisionOrder(Builder $query): Builder
+    {
+        return $query->orderBy(PhrEhiProposalDecision::query()->selectRaw('max(id)')->whereColumn('proposal_id', 'phr_ehi_proposals.id'));
     }
 
     /**

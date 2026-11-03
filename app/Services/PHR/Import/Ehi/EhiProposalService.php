@@ -562,10 +562,10 @@ final class EhiProposalService
     {
         $latest = [];
         $own = [];
-        PhrEhiProposal::query()->where('patient_id', $package->patient_id)->where('mapping', $mapping)->where('mapping_version', $version)
+        $decided = PhrEhiProposal::query()->where('patient_id', $package->patient_id)->where('mapping', $mapping)->where('mapping_version', $version)
             ->whereIn('status', [PhrEhiProposal::STATUS_ACCEPTED, PhrEhiProposal::STATUS_LINKED, PhrEhiProposal::STATUS_REJECTED, PhrEhiProposal::STATUS_RETAINED])
-            ->whereIn('package_id', PhrEhiPackage::query()->select('id')->where('source_id', $package->source_id))
-            ->orderBy('decided_at')->orderBy('id')
+            ->whereIn('package_id', PhrEhiPackage::query()->select('id')->where('source_id', $package->source_id));
+        PhrEhiProposal::inDecisionOrder($decided)
             ->select(['id', 'package_id', 'subject_key', 'status', 'revision_digest'])
             ->cursor()
             ->each(static function (PhrEhiProposal $proposal) use ($package, &$latest, &$own): void {
