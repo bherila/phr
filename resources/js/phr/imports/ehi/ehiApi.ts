@@ -106,6 +106,7 @@ export const EhiPackageSchema = z.object({
     by_status: countMap,
     pending: nestedCountMap,
     pending_unreviewable: z.number(),
+    previously_rejected: z.number().default(0),
   }),
   preview_run: EhiPreviewRunSchema.nullable(),
 })

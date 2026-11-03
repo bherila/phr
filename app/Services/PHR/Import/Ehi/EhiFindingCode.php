@@ -38,6 +38,13 @@ final class EhiFindingCode
      */
     public const string UNSUPPORTED_TABLE_NAME = 'unsupported_table_name';
 
+    /**
+     * Rows a person already rejected, with the same content, that this preview did not
+     * propose again; detail.count says how many, detail.mapping which mapping. Their
+     * evidence stays: each row is still accounted for, as retained.
+     */
+    public const string PREVIOUSLY_REJECTED = 'previously_rejected';
+
     /** Further findings for one member were dropped; detail.omitted counts them. */
     public const string FINDINGS_TRUNCATED = 'findings_truncated';
 
@@ -62,6 +69,7 @@ final class EhiFindingCode
     public const string DUPLICATE_KEY = 'duplicate_key';
 
     public const array SEVERITY = [
+        self::PREVIOUSLY_REJECTED => PhrEhiFinding::SEVERITY_INFO,
         self::DICTIONARY_EMPTY => PhrEhiFinding::SEVERITY_WARNING,
         self::DICTIONARY_OVERSIZE => PhrEhiFinding::SEVERITY_WARNING,
         self::UNKNOWN_TABLE => PhrEhiFinding::SEVERITY_INFO,

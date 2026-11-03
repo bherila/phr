@@ -59,6 +59,13 @@ use Throwable;
  * only after every mapping, supersession, and finding step succeeded, and only
  * pending proposals of a completed generation are reviewable or listed.
  *
+ * What a person rejected stays decided while the source says the same thing. A draft
+ * is not proposed in a later package of this source when the latest decision on its
+ * subject, under this mapping version, was a rejection of identical content (the same
+ * revision digest, joined rows included). Nothing about it is hidden: its row is still
+ * accounted for, as retained, the rejected proposal can still be read, and a finding
+ * says how many were set aside. Changed content is proposed again.
+ *
  * Review consumes that persisted preview. Under the patient artifact guard it
  * re-checks write access, locks the proposal, and refuses (EhiReviewRefused,
  * nothing written) unless the proposal is still pending and of the package's
@@ -162,6 +169,8 @@ final class EhiProposalService
             /** @var array<string, true> $produced */
             $produced = [];
             $rows = [];
+            $rejected = $this->rejectedContent($package, $name, $mapping->version());
+            $setAside = 0;
             foreach ($mapping->propose($context) as $draft) {
                 if (isset($produced[$draft->subjectKey])) {
                     throw new LogicException("EHI mapping {$name} proposed one subject twice.");
@@ -169,7 +178,14 @@ final class EhiProposalService
                 $produced[$draft->subjectKey] = true;
                 $budget->charge(count($produced), 0);
                 $budget->checkpoint();
-                $rows[$draft->subjectKey] = $this->row($package, $name, $mapping->version(), $draft);
+                $row = $this->row($package, $name, $mapping->version(), $draft);
+                if (isset($rejected[$draft->subjectKey]) && hash_equals($rejected[$draft->subjectKey], (string) $row['attributes']['revision_digest'])) {
+                    // Not stamped, so a pending row left from before the rejection is superseded.
+                    $setAside++;
+
+                    continue;
+                }
+                $rows[$draft->subjectKey] = $row;
                 $counts[$name][$draft->kind] = ($counts[$name][$draft->kind] ?? 0) + 1;
                 if (count($rows) >= self::CHUNK || strlen(json_encode($rows, JSON_THROW_ON_ERROR)) >= 1024 * 1024) {
                     $this->persistChunk($package, $actorUserId, $name, $mapping->version(), $generation, $rows);
@@ -181,7 +197,9 @@ final class EhiProposalService
             $counts[$name] ??= [];
             ksort($counts[$name], SORT_STRING);
 
-            [$rowsForMapping, $mappingCounts] = $this->findingRows($package, $name, $context->findings(), $context->omittedFindings());
+            // A count of rows, not a per-row finding, so the cap on those never drops it.
+            $summaries = $setAside > 0 ? [['code' => EhiFindingCode::PREVIOUSLY_REJECTED, 'revision_id' => null, 'detail' => ['count' => $setAside]]] : [];
+            [$rowsForMapping, $mappingCounts] = $this->findingRows($package, $name, [...$context->findings(), ...$summaries], $context->omittedFindings());
             array_push($findingRows, ...$rowsForMapping);
             foreach ($mappingCounts as $code => $count) {
                 $findingCounts[$code] = ($findingCounts[$code] ?? 0) + $count;
@@ -530,6 +548,33 @@ final class EhiProposalService
 
         PhrEhiTableAccount::query()->where('package_id', $proposal->package_id)->whereIn('member_id', $members)
             ->orderBy('id')->each(static fn (PhrEhiTableAccount $account) => EhiDispositionCounter::recount($account));
+    }
+
+    /**
+     * Subjects whose latest decision, across this source's packages, was a rejection,
+     * with the revision digest it rejected. A subject this package decided itself is
+     * left out: its own decided row already stands, and a re-preview never rewrites it.
+     *
+     * @return array<string, string> subject key => rejected revision digest
+     */
+    private function rejectedContent(PhrEhiPackage $package, string $mapping, string $version): array
+    {
+        $latest = [];
+        $own = [];
+        $decided = PhrEhiProposal::query()->where('patient_id', $package->patient_id)->where('mapping', $mapping)->where('mapping_version', $version)
+            ->whereIn('status', [PhrEhiProposal::STATUS_ACCEPTED, PhrEhiProposal::STATUS_LINKED, PhrEhiProposal::STATUS_REJECTED, PhrEhiProposal::STATUS_RETAINED])
+            ->whereIn('package_id', PhrEhiPackage::query()->select('id')->where('source_id', $package->source_id));
+        PhrEhiProposal::inDecisionOrder($decided)
+            ->select(['id', 'package_id', 'subject_key', 'status', 'revision_digest'])
+            ->cursor()
+            ->each(static function (PhrEhiProposal $proposal) use ($package, &$latest, &$own): void {
+                $latest[$proposal->subject_key] = $proposal->status === PhrEhiProposal::STATUS_REJECTED ? $proposal->revision_digest : null;
+                if ((int) $proposal->package_id === (int) $package->id) {
+                    $own[$proposal->subject_key] = true;
+                }
+            });
+
+        return array_filter(array_diff_key($latest, $own), static fn (?string $digest): bool => $digest !== null);
     }
 
     /**

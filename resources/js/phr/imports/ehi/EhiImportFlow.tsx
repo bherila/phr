@@ -71,7 +71,7 @@ const DISPOSITIONS: { key: string, label: string, note: string }[] = [
   { key: 'pending_review', label: 'Waiting for your review', note: 'Became proposals' },
   { key: 'projected', label: 'Added to records', note: 'Accepted proposals, with this export as their source' },
   { key: 'corroborating', label: 'Matched records already in PHR', note: 'Added as evidence; the records did not change' },
-  { key: 'retained', label: 'Kept as evidence', note: 'Not imported: deleted in the source, or not linked to this patient' },
+  { key: 'retained', label: 'Kept as evidence', note: 'Not imported: deleted in the source, rejected, or not linked to this patient' },
   { key: 'quarantined', label: 'Set aside', note: 'Missing the identifier needed to track them' },
   { key: 'retained_unmapped', label: 'Kept, not mapped yet', note: 'Stored with the export; later versions of PHR may read them' },
   { key: 'out_of_scope', label: 'Outside PHR’s scope', note: 'Billing and administrative tables, stored but not read' },
@@ -112,6 +112,11 @@ function AccountingTable({ pkg }: { pkg: EhiPackage }): ReactElement {
       </dl>
       {accounting.unreconciled_tables > 0 && (
         <p role="alert" className="text-sm text-destructive">{accounting.unreconciled_tables} tables did not add up and need attention before review.</p>
+      )}
+      {pkg.proposals.previously_rejected > 0 && (
+        <p className="text-sm text-muted-foreground">
+          {count.format(pkg.proposals.previously_rejected)} {pkg.proposals.previously_rejected === 1 ? 'row' : 'rows'} you rejected from an earlier import {pkg.proposals.previously_rejected === 1 ? 'was' : 'were'} not proposed again. {pkg.proposals.previously_rejected === 1 ? 'It is' : 'They are'} kept as evidence, and changed content would come back for review.
+        </p>
       )}
       {proposals && Object.keys(proposals).length > 0 && (
         <p className="text-sm text-muted-foreground">

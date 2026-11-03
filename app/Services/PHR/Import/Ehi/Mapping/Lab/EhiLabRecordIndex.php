@@ -219,10 +219,8 @@ final class EhiLabRecordIndex
             ->where('mapping', $mapping)
             ->whereIn('status', [PhrEhiProposal::STATUS_ACCEPTED, PhrEhiProposal::STATUS_LINKED])
             ->whereIn('package_id', PhrEhiPackage::query()->select('id')->where('source_id', $context->source->id))
-            ->orderBy('decided_at')
-            ->orderBy('id')
             ->select(['id', 'subject_key', 'proposed_json']);
-        foreach ($query->cursor() as $proposal) {
+        foreach (PhrEhiProposal::inDecisionOrder($query)->cursor() as $proposal) {
             $context->budget->charge(++$scanned, 0);
             $attributes = $proposal->proposed_json['attributes'] ?? null;
             if (is_array($attributes)) {
