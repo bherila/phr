@@ -8,12 +8,16 @@ use App\Models\PhrEhiPackage;
 use App\Models\PhrEhiPackageMember;
 use App\Models\PhrEhiProposal;
 use App\Models\PhrEhiSource;
+use App\Models\PhrLabResult;
+use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Models\User;
 use App\Services\PHR\Import\Ehi\EhiBindingService;
 use App\Services\PHR\Import\Ehi\EhiProposalService;
 use App\Services\PHR\Import\Ehi\Mapping\EhiDocumentMapping;
+use App\Services\PHR\Import\Ehi\Mapping\EhiEncounterMapping;
+use App\Services\PHR\Import\Ehi\Mapping\EhiLabResultMapping;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMappingContext;
 use Closure;
 use Illuminate\Support\Facades\Queue;
@@ -207,6 +211,131 @@ class EhiDocumentTextGapsTest extends TestCase
         self::assertSame(['extracted_text'], $update->proposed_json['changed']);
         $this->review($owner, $patient, $update, 'approve_update')->assertOk();
         self::assertStringContainsString('Synthetic final line 2', (string) $document->refresh()->extracted_text);
+    }
+
+    /** @return array<string, array{0: string, 1: bool}> */
+    public static function deferredCorrections(): array
+    {
+        return [
+            'a line unparseable, with a title change' => ['malformed', true],
+            'a line quarantined, with a title change' => ['quarantined', true],
+            'a line unparseable, nothing else changed' => ['malformed', false],
+            'a line quarantined, nothing else changed' => ['quarantined', false],
+        ];
+    }
+
+    #[DataProvider('deferredCorrections')]
+    public function test_a_text_correction_held_back_by_a_gap_comes_back_once_a_whole_export_can_vouch_for_it(string $gap, bool $retitled): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $first = $this->previewed(EhiClinicalPackage::standard()->build(), $owner, $patient);
+        $this->review($owner, $patient, $this->subject($first, self::NOTE), 'accept')->assertOk();
+        $sourceId = PhrEhiSource::query()->sole()->id;
+        $document = PhrDocument::query()->where('external_id', 'NOTE:88001')->sole();
+        $stored = (string) $document->extracted_text;
+
+        // The second package carries a real correction, and something it cannot read.
+        $corrected = EhiClinicalPackage::standard()->changing('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '9102', 'LINE' => '1'], ['NOTE_TEXT' => 'Synthetic corrected line 1']);
+        $corrected = $retitled ? $corrected->changing('HNO_INFO', self::NOTE, self::RETITLED) : $corrected;
+        $damaged = $gap === 'malformed'
+            ? (static function (EhiSyntheticPackage $build): EhiSyntheticPackage {
+                return $build->with('HNO_PLAIN_TEXT.tsv', $build->files['HNO_PLAIN_TEXT.tsv']."only\ttwo\n");
+            })($corrected->build())
+            : $corrected->adding('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '9102', 'LINE' => '10', 'NOTE_ID' => '88001', 'NOTE_TEXT' => 'Synthetic final line 10'])->build();
+        $second = $this->subject($this->previewed($damaged, $owner, $patient, 'package-2', $sourceId), self::NOTE);
+        self::assertSame($retitled ? PhrEhiProposal::KIND_UPDATE : PhrEhiProposal::KIND_CORROBORATE, $second->kind);
+        $this->review($owner, $patient, $second, $retitled ? 'approve_update' : 'accept')->assertOk();
+        self::assertSame($stored, $document->refresh()->extracted_text, 'approving around the gap kept the text');
+
+        // A person's own title stands: only what was held back is proposed.
+        $document->forceFill(['title' => 'Titled by a person'])->save();
+        $whole = $corrected->build()->with('README.txt', "Synthetic later readme\n");
+        $third = $this->subject($this->previewed($whole, $owner, $patient, 'package-3', $sourceId), self::NOTE);
+        self::assertSame(PhrEhiProposal::KIND_UPDATE, $third->kind);
+        self::assertSame(['extracted_text'], $third->proposed_json['changed']);
+
+        $this->review($owner, $patient, $third, 'approve_update')->assertOk();
+        $document->refresh();
+        self::assertStringContainsString('Synthetic corrected line 1', (string) $document->extracted_text);
+        self::assertSame('Titled by a person', $document->title);
+
+        // Now the source has vouched for it, so the same export again changes nothing.
+        $fourth = $this->subject($this->previewed($corrected->build()->with('README.txt', "Synthetic later readme again\n"), $owner, $patient, 'package-4', $sourceId), self::NOTE);
+        self::assertSame(PhrEhiProposal::KIND_CORROBORATE, $fourth->kind);
+    }
+
+    public function test_a_gap_that_held_nothing_back_leaves_a_whole_export_nothing_to_propose(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $first = $this->previewed(EhiClinicalPackage::standard()->build(), $owner, $patient);
+        $this->review($owner, $patient, $this->subject($first, self::NOTE), 'accept')->assertOk();
+        $sourceId = PhrEhiSource::query()->sole()->id;
+
+        $second = $this->subject($this->previewed($this->damaged(EhiClinicalPackage::standard(), 'malformed', null), $owner, $patient, 'package-2', $sourceId), self::NOTE);
+        $this->review($owner, $patient, $second, 'accept')->assertOk();
+
+        $third = $this->previewed(EhiClinicalPackage::standard()->build()->with('README.txt', "Synthetic later readme\n"), $owner, $patient, 'package-3', $sourceId);
+        self::assertSame(PhrEhiProposal::KIND_CORROBORATE, $this->subject($third, self::NOTE)->kind);
+    }
+
+    /** @return array<string, array{0: bool}> */
+    public static function withOrWithoutAnotherChange(): array
+    {
+        return ['with another change' => [true], 'nothing else changed' => [false]];
+    }
+
+    /** The same shape in labs: they compare field by field, against what was vouched for. */
+    #[DataProvider('withOrWithoutAnotherChange')]
+    public function test_a_lab_comment_correction_held_back_by_a_gap_comes_back(bool $otherChange): void
+    {
+        config(['phr.ehi_mappings' => [EhiLabResultMapping::class]]);
+        [$owner, $patient] = $this->ownerAndPatient();
+        $key = ['ORDER_PROC_ID' => '8101', 'ORD_DATE_REAL' => '66000.01', 'LINE' => '1'];
+        $first = $this->previewed(EhiClinicalPackage::withLabs()->build(), $owner, $patient);
+        $this->review($owner, $patient, $this->subject($first, $key), 'accept')->assertOk();
+        $sourceId = PhrEhiSource::query()->sole()->id;
+        $record = PhrLabResult::query()->where('external_id', 'ORDER_RESULTS:8101:66000.01:1')->sole();
+        $stored = $record->result_comment;
+
+        $corrected = EhiClinicalPackage::withLabs()->changing('ORDER_RES_COMMENT', ['ORDER_ID' => '8101', 'LINE_COMMENT' => '2'], ['RESULTS_CMT' => 'Synthetic corrected comment']);
+        $corrected = $otherChange ? $corrected->changing('ORDER_RESULTS', ['ORDER_PROC_ID' => '8101', 'ORD_DATE_REAL' => '66000.01', 'LINE' => '1'], ['RESULT_STATUS_C_NAME' => 'Corrected']) : $corrected;
+        $build = $corrected->build();
+        $second = $this->subject($this->previewed($build->with('ORDER_RES_COMMENT.tsv', $build->files['ORDER_RES_COMMENT.tsv']."only\ttwo\n"), $owner, $patient, 'package-2', $sourceId), $key);
+        $this->review($owner, $patient, $second, $second->kind === PhrEhiProposal::KIND_UPDATE ? 'approve_update' : 'accept')->assertOk();
+        self::assertSame($stored, $record->refresh()->result_comment);
+
+        $third = $this->subject($this->previewed($corrected->build()->with('README.txt', "Synthetic later readme\n"), $owner, $patient, 'package-3', $sourceId), $key);
+        self::assertSame(PhrEhiProposal::KIND_UPDATE, $third->kind);
+        self::assertContains('result_comment', $third->proposed_json['changed']);
+        $this->review($owner, $patient, $third, 'approve_update')->assertOk();
+        self::assertStringContainsString('Synthetic corrected comment', (string) $record->refresh()->result_comment);
+    }
+
+    /** The same shape in encounters. */
+    #[DataProvider('withOrWithoutAnotherChange')]
+    public function test_an_encounter_diagnosis_correction_held_back_by_a_gap_comes_back(bool $otherChange): void
+    {
+        config(['phr.ehi_mappings' => [EhiEncounterMapping::class]]);
+        [$owner, $patient] = $this->ownerAndPatient();
+        $key = ['PAT_ENC_CSN_ID' => '7101'];
+        $first = $this->previewed(EhiClinicalPackage::withEncounters()->build(), $owner, $patient);
+        $this->review($owner, $patient, $this->subject($first, $key), 'accept')->assertOk();
+        $sourceId = PhrEhiSource::query()->sole()->id;
+        $visit = PhrOfficeVisit::query()->where('external_id', 'PAT_ENC:7101')->sole();
+        $stored = $visit->encounter_diagnoses;
+
+        $corrected = EhiClinicalPackage::withEncounters()->changing('PAT_ENC_DX', ['PAT_ENC_CSN_ID' => '7101', 'LINE' => '1'], ['DX_ID_DX_NAME' => 'Synthetic corrected diagnosis']);
+        $corrected = $otherChange ? $corrected->changing('PAT_ENC', $key, ['VISIT_PROV_ID_PROV_NAME' => 'SYNTHETIC SECOND PROVIDER']) : $corrected;
+        $build = $corrected->build();
+        $second = $this->subject($this->previewed($build->with('PAT_ENC_DX.tsv', $build->files['PAT_ENC_DX.tsv']."only\ttwo\n"), $owner, $patient, 'package-2', $sourceId), $key);
+        $this->review($owner, $patient, $second, $second->kind === PhrEhiProposal::KIND_UPDATE ? 'approve_update' : 'accept')->assertOk();
+        self::assertSame($stored, $visit->refresh()->encounter_diagnoses);
+
+        $third = $this->subject($this->previewed($corrected->build()->with('README.txt', "Synthetic later readme\n"), $owner, $patient, 'package-3', $sourceId), $key);
+        self::assertSame(PhrEhiProposal::KIND_UPDATE, $third->kind);
+        self::assertContains('encounter_diagnoses', $third->proposed_json['changed']);
+        $this->review($owner, $patient, $third, 'approve_update')->assertOk();
+        self::assertStringContainsString('Synthetic corrected diagnosis', json_encode($visit->refresh()->encounter_diagnoses, JSON_THROW_ON_ERROR));
     }
 
     private function withFile(EhiClinicalPackage $package, ?string $file): EhiClinicalPackage

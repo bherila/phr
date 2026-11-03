@@ -75,7 +75,8 @@ use Throwable;
  * package could not read that text (lines withheld, missing, malformed, quarantined
  * or unorderable, or an RTF member unreadable), it says nothing about it: an update
  * built from it leaves the stored text alone, and the proposal is marked
- * `text_unavailable`.
+ * `text_unavailable`. Approving that links the rows without vouching for the text, so
+ * the next package that can read the text still compares it.
  *
  * Apply: a document is created with source "ehi_tables", import_source
  * "ehi:{source_id}", external_id "NOTE:{NOTE_ID}" or "DOC:{DOC_INFO_ID}". Its
@@ -914,10 +915,18 @@ final readonly class EhiDocumentMapping implements EhiMapping
             $before = $live['comparable'];
             $after = $this->comparableProposed($attributes);
             // What could not be read is no statement about the stored text.
-            if (($proposed['ehi']['text_unavailable'] ?? false) === true) {
+            $textUnavailable = ($proposed['ehi']['text_unavailable'] ?? false) === true;
+            if ($textUnavailable) {
                 $after['extracted_text_sha256'] = $before['extracted_text_sha256'];
             }
-            if ($records->linkedCount($live['id'], $revisionIds) === count($revisionIds) || $before === $after) {
+            $seen = $records->linkedCount($live['id'], $revisionIds) === count($revisionIds);
+            if ($seen && ! $textUnavailable && $records->textOwed($entity->key_digest)) {
+                // Every row has been decided, but an earlier decision could not read the
+                // text. It alone is still open; a person's edits to the rest stand.
+                $after = [...$before, 'extracted_text_sha256' => $after['extracted_text_sha256']];
+                $seen = false;
+            }
+            if ($seen || $before === $after) {
                 return new EhiProposalDraft($entity->key_digest, PhrEhiProposal::KIND_CORROBORATE, $revisionIds, $proposed, self::RECORD_TABLE, $live['id'], targetDigest: $live['digest']);
             }
             $proposed['changed'] = array_keys(array_diff_assoc(
