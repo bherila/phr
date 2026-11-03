@@ -29,9 +29,9 @@ final readonly class EhiDocumentFileStore
      * The member's bytes, if they are present, match the manifest, and fit the
      * cap; null otherwise. Used for RTF conversion at preview.
      */
-    public function readVerified(PhrEhiPackageMember $member, int $maxBytes): ?string
+    public function readVerified(PhrEhiPackageMember $member, int $maxBytes, ?PhrEhiBlob $known = null): ?string
     {
-        $blob = $this->blobOf($member);
+        $blob = $known === null ? $this->blobOf($member) : $this->checked($member, $known);
         if ($blob === null || $member->byte_size > $maxBytes) {
             return null;
         }
@@ -133,7 +133,13 @@ final readonly class EhiDocumentFileStore
             ->where('patient_id', $member->patient_id)
             ->whereKey($member->blob_id)
             ->first();
-        if (! $blob instanceof PhrEhiBlob
+
+        return $blob instanceof PhrEhiBlob ? $this->checked($member, $blob) : null;
+    }
+
+    private function checked(PhrEhiPackageMember $member, PhrEhiBlob $blob): ?PhrEhiBlob
+    {
+        if ((int) $blob->patient_id !== (int) $member->patient_id
             || $blob->storage_disk !== (string) config('phr.ehi_disk')
             || ! hash_equals($blob->sha256, $member->sha256)
             || $blob->byte_size !== $member->byte_size) {

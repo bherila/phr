@@ -16,8 +16,8 @@ use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentApplyRefused;
 use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentEvidence;
 use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentFileStore;
 use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentFinding;
+use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentRecordIndex;
 use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentValues;
-use App\Services\PHR\ResourceByteSize;
 use App\Support\PHR\PhrRecordLifecycle;
 use Generator;
 use Illuminate\Database\UniqueConstraintViolationException;
@@ -203,6 +203,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
     public function propose(EhiMappingContext $context): iterable
     {
         $evidence = EhiDocumentEvidence::load($context, self::JOINS);
+        $records = new EhiDocumentRecordIndex($context);
         /** @var array<int, true> $linkedMembers */
         $linkedMembers = [];
 
@@ -210,10 +211,10 @@ final readonly class EhiDocumentMapping implements EhiMapping
         $noteDocuments = $evidence->indexedIds(self::DOC_INFORMATION);
         /** @var array<int, true> $consumed document revisions some note proposal relies on */
         $consumed = [];
-        foreach ($this->entityGroups($context->lazyRevisions(self::HNO_INFO, withEntity: true)) as $revisions) {
+        foreach ($this->entityGroups($this->notesWithTextPlanned($context, $evidence)) as $revisions) {
             $draft = count($revisions) > 1
                 ? $this->ambiguousDraft($context, $revisions, self::HNO_INFO)
-                : $this->noteDraft($context, $evidence, $revisions[0], $linkedMembers);
+                : $this->noteDraft($context, $evidence, $records, $revisions[0], $linkedMembers);
             foreach ($draft->revisionIds as $id) {
                 if (isset($noteDocuments[$id])) {
                     $consumed[$id] = true;
@@ -233,7 +234,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
             }
             yield count($revisions) > 1
                 ? $this->ambiguousDraft($context, $revisions, self::DOC_INFORMATION)
-                : $this->scannedDocumentDraft($context, $evidence, $revisions[0], $linkedMembers);
+                : $this->scannedDocumentDraft($context, $evidence, $records, $revisions[0], $linkedMembers);
         }
 
         $unlinked = [];
@@ -269,7 +270,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
     // ---------------------------------------------------------------- notes
 
     /** @param  array<int, true>  $linkedMembers */
-    private function noteDraft(EhiMappingContext $context, EhiDocumentEvidence $evidence, PhrEhiRevision $note, array &$linkedMembers): EhiProposalDraft
+    private function noteDraft(EhiMappingContext $context, EhiDocumentEvidence $evidence, EhiDocumentRecordIndex $records, PhrEhiRevision $note, array &$linkedMembers): EhiProposalDraft
     {
         $entity = $note->entity;
         $noteId = (string) EhiDocumentValues::cell($note, 'NOTE_ID');
@@ -297,7 +298,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
         $file = $this->referencedFile($context, $evidence, $note, self::DOC_INFORMATION, 'DOC_HNO_ID', $noteId, $revisionIds, $linkedMembers);
         $text = $this->noteText($context, $evidence, $note, $noteId, $contacts['rows'], $revisionIds);
         if ($text['text'] === null) {
-            $text = $this->rtfText($context, $note, $file);
+            $text = $this->rtfText($context, $evidence, $note, $file);
         }
         if ($text['text'] === null && $file === null) {
             return $this->retainDraft($entity, $revisionIds, 'no_content', $reference);
@@ -319,7 +320,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
             $summary[] = 'The source marks this note unsigned.';
         }
 
-        return $this->reconcile($context, $entity, $revisionIds, $this->boundedContacts($this->proposal(
+        return $this->reconcile($context, $records, $entity, $revisionIds, $this->boundedContacts($this->proposal(
             context: $context,
             externalId: 'NOTE:'.$noteId,
             title: $title,
@@ -464,11 +465,73 @@ final readonly class EhiDocumentMapping implements EhiMapping
             $revisionIds[] = $row->id;
             $ambiguous = $ambiguous || $evidence->isAmbiguous($row);
         }
-        usort($rows, static fn (PhrEhiRevision $a, PhrEhiRevision $b): int => EhiDocumentValues::compareDecimals(EhiDocumentValues::cell($a, 'CONTACT_DATE_REAL') ?? '', EhiDocumentValues::cell($b, 'CONTACT_DATE_REAL') ?? '')
+
+        return ['rows' => $this->oldestFirst($rows), 'ambiguous' => $ambiguous];
+    }
+
+    /**
+     * @param  list<PhrEhiRevision>  $contacts
+     * @return list<PhrEhiRevision>
+     */
+    private function oldestFirst(array $contacts): array
+    {
+        usort($contacts, static fn (PhrEhiRevision $a, PhrEhiRevision $b): int => EhiDocumentValues::compareDecimals(EhiDocumentValues::cell($a, 'CONTACT_DATE_REAL') ?? '', EhiDocumentValues::cell($b, 'CONTACT_DATE_REAL') ?? '')
             ?: EhiDocumentValues::compareIntegers(EhiDocumentValues::cell($a, 'CONTACT_SERIAL_NUM') ?? '', EhiDocumentValues::cell($b, 'CONTACT_SERIAL_NUM') ?? '')
             ?: strcmp($a->content_digest, $b->content_digest));
 
-        return ['rows' => $rows, 'ambiguous' => $ambiguous];
+        return $contacts;
+    }
+
+    /**
+     * Contacts whose lines could hold a note's text, newest first.
+     *
+     * @param  list<PhrEhiRevision>  $contacts  oldest first
+     * @param  array<array-key, list<int>>  $groups  contact serial number => line ids
+     * @return list<string>
+     */
+    private function textCandidates(array $contacts, array $groups): array
+    {
+        $candidates = [];
+        foreach (array_reverse($contacts) as $contact) {
+            $csn = EhiDocumentValues::cell($contact, 'CONTACT_SERIAL_NUM');
+            if ($csn !== null && isset($groups[$csn])) {
+                $candidates[] = $csn;
+            }
+        }
+        if ($candidates === [] && $contacts === [] && count($groups) === 1 && array_key_first($groups) !== '') {
+            $candidates[] = (string) array_key_first($groups);
+        }
+
+        return $candidates;
+    }
+
+    /**
+     * The package's notes, a page at a time, having first told the evidence which text
+     * lines those notes read first. Only a note's latest contact with lines is planned:
+     * an older contact is read only if every newer one proves blank.
+     *
+     * @return Generator<int, PhrEhiRevision>
+     */
+    private function notesWithTextPlanned(EhiMappingContext $context, EhiDocumentEvidence $evidence): Generator
+    {
+        foreach ($context->lazyRevisions(self::HNO_INFO, withEntity: true)->chunk(max(1, $context->chunk)) as $page) {
+            $reads = [];
+            foreach ($page as $note) {
+                $noteId = EhiDocumentValues::cell($note, 'NOTE_ID');
+                if ($noteId === null || EhiDocumentValues::cell($note, 'DELETE_INSTANT_DTTM') !== null) {
+                    continue;
+                }
+                $groups = $evidence->groups(self::HNO_PLAIN_TEXT, 'NOTE_ID', $noteId);
+                $first = $this->textCandidates($this->oldestFirst($evidence->where(self::NOTE_ENC_INFO, 'NOTE_ID', $noteId)), $groups)[0] ?? null;
+                if ($first !== null) {
+                    $reads[] = $groups[$first];
+                }
+            }
+            $evidence->planNoteText($reads);
+            foreach ($page as $note) {
+                yield $note;
+            }
+        }
     }
 
     /** @return array<string, string|null> each value at most MAX_VALUE_BYTES */
@@ -505,17 +568,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
             return ['text' => null, 'provenance' => null];
         }
 
-        /** @var list<string> $candidates contact serial numbers with lines, newest first */
-        $candidates = [];
-        foreach (array_reverse($contacts) as $contact) {
-            $csn = EhiDocumentValues::cell($contact, 'CONTACT_SERIAL_NUM');
-            if ($csn !== null && isset($groups[$csn])) {
-                $candidates[] = $csn;
-            }
-        }
-        if ($candidates === [] && $contacts === [] && count($groups) === 1 && array_key_first($groups) !== '') {
-            $candidates[] = (string) array_key_first($groups);
-        }
+        $candidates = $this->textCandidates($contacts, $groups);
         if ($candidates === []) {
             $this->finding($context, EhiDocumentFinding::TEXT_UNORDERED, $note, ['table' => self::HNO_PLAIN_TEXT, 'reason' => 'no_contact']);
 
@@ -568,12 +621,12 @@ final readonly class EhiDocumentMapping implements EhiMapping
      * @param  array{member: PhrEhiPackageMember, via: string, doc_info_id: string}|null  $file
      * @return array{text: string|null, provenance: array<string, mixed>|null}
      */
-    private function rtfText(EhiMappingContext $context, PhrEhiRevision $root, ?array $file): array
+    private function rtfText(EhiMappingContext $context, EhiDocumentEvidence $evidence, PhrEhiRevision $root, ?array $file): array
     {
         if ($file === null || $file['member']->kind !== EhiMemberKind::NOTE) {
             return ['text' => null, 'provenance' => null];
         }
-        $bytes = $this->files->readVerified($file['member'], EhiRtfText::MAX_INPUT_BYTES);
+        $bytes = $this->files->readVerified($file['member'], EhiRtfText::MAX_INPUT_BYTES, $evidence->blobOf($file['member']));
         if ($bytes === null) {
             $this->finding($context, EhiDocumentFinding::MEMBER_UNVERIFIED, $root, ['reason' => 'rtf_unreadable']);
 
@@ -595,7 +648,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
     // ------------------------------------------------------ scanned documents
 
     /** @param  array<int, true>  $linkedMembers */
-    private function scannedDocumentDraft(EhiMappingContext $context, EhiDocumentEvidence $evidence, PhrEhiRevision $document, array &$linkedMembers): EhiProposalDraft
+    private function scannedDocumentDraft(EhiMappingContext $context, EhiDocumentEvidence $evidence, EhiDocumentRecordIndex $records, PhrEhiRevision $document, array &$linkedMembers): EhiProposalDraft
     {
         $entity = $document->entity;
         $docInfoId = (string) EhiDocumentValues::cell($document, 'DOC_INFO_ID');
@@ -645,7 +698,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
         if ($file === null) {
             return $this->retainDraft($entity, $revisionIds, 'no_content', $reference);
         }
-        $text = $this->rtfText($context, $document, $file);
+        $text = $this->rtfText($context, $evidence, $document, $file);
         $observed = $this->observed($context, $document, [
             ['DOC_SRVC_DTTM', 'local'],
             ['SCAN_INST_DTTM', 'local'],
@@ -654,7 +707,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
         ]);
         $title = EhiDocumentValues::cell($document, 'DOC_DESCR') ?? EhiDocumentValues::cell($document, 'DOC_INFO_TYPE_C_NAME') ?? 'Scanned document';
 
-        return $this->reconcile($context, $entity, $revisionIds, $this->proposal(
+        return $this->reconcile($context, $records, $entity, $revisionIds, $this->proposal(
             context: $context,
             externalId: 'DOC:'.$docInfoId,
             title: $title,
@@ -823,47 +876,28 @@ final readonly class EhiDocumentMapping implements EhiMapping
      * @param  list<int>  $revisionIds
      * @param  array<string, mixed>  $proposed
      */
-    private function reconcile(EhiMappingContext $context, PhrEhiEntity $entity, array $revisionIds, array $proposed): EhiProposalDraft
+    private function reconcile(EhiMappingContext $context, EhiDocumentRecordIndex $records, PhrEhiEntity $entity, array $revisionIds, array $proposed): EhiProposalDraft
     {
         $revisionIds = $this->ids($revisionIds);
         /** @var array<string, mixed> $attributes */
         $attributes = $proposed['attributes'];
-        $patientId = $context->patient->id;
 
-        $documentIds = $context->linksForEntity($entity)->pluck('document_id')->filter()->map(static fn ($id): int => (int) $id)->all();
-        $identity = PhrDocument::withTrashed()
-            ->where('patient_id', $patientId)
-            ->where('import_source', $attributes['import_source'])
-            ->where('external_id', $attributes['external_id'])
-            ->value('id');
-        if ($identity !== null) {
-            $documentIds[] = (int) $identity;
-        }
-        $targets = $documentIds === [] ? collect() : PhrDocument::withTrashed()
-            ->where('patient_id', $patientId)
-            ->whereIn('id', array_values(array_unique($documentIds)))
-            ->orderBy('id')
-            ->get();
-        $liveTargets = $targets->filter(static fn (PhrDocument $document): bool => PhrRecordLifecycle::of($document) === PhrRecordLifecycle::ACTIVE);
-        if ($liveTargets->count() > 1) {
+        $targets = $records->targets($entity->id, is_string($attributes['import_source'] ?? null) ? $attributes['import_source'] : null, (string) $attributes['external_id']);
+        $liveTargets = array_values(array_filter($targets, static fn (array $target): bool => $target['active']));
+        if (count($liveTargets) > 1) {
             // Links to different documents (e.g. two packages reviewed against
             // different targets): neither is chosen, so none is corroborated or updated.
-            $this->finding($context, EhiDocumentFinding::AMBIGUOUS_LINK, null, ['table' => (string) $entity->table_name, 'records' => $liveTargets->count()]);
+            $this->finding($context, EhiDocumentFinding::AMBIGUOUS_LINK, null, ['table' => (string) $entity->table_name, 'records' => count($liveTargets)]);
 
             return $this->retainDraft($entity, $revisionIds, 'ambiguous_link', $proposed['ehi'] ?? []);
         }
-        $live = $liveTargets->first();
+        $live = $liveTargets[0] ?? null;
 
-        if ($live instanceof PhrDocument) {
-            $before = $this->comparable($live);
+        if ($live !== null) {
+            $before = $live['comparable'];
             $after = $this->comparableProposed($attributes);
-            $linked = PhrEhiRecordLink::query()
-                ->where('document_id', $live->id)
-                ->whereIn('revision_id', $revisionIds)
-                ->distinct()
-                ->count('revision_id');
-            if ($linked === count($revisionIds) || $before === $after) {
-                return new EhiProposalDraft($entity->key_digest, PhrEhiProposal::KIND_CORROBORATE, $revisionIds, $proposed, self::RECORD_TABLE, $live->id);
+            if ($records->linkedCount($live['id'], $revisionIds) === count($revisionIds) || $before === $after) {
+                return new EhiProposalDraft($entity->key_digest, PhrEhiProposal::KIND_CORROBORATE, $revisionIds, $proposed, self::RECORD_TABLE, $live['id']);
             }
             $proposed['changed'] = array_keys(array_diff_assoc(
                 array_map(static fn (?string $value): string => (string) $value, $after),
@@ -871,15 +905,15 @@ final readonly class EhiDocumentMapping implements EhiMapping
             ));
             $proposed['changed'] = array_map(static fn (string $field): string => $field === 'extracted_text_sha256' ? 'extracted_text' : $field, $proposed['changed']);
 
-            return new EhiProposalDraft($entity->key_digest, PhrEhiProposal::KIND_UPDATE, $revisionIds, $proposed, self::RECORD_TABLE, $live->id, $before);
+            return new EhiProposalDraft($entity->key_digest, PhrEhiProposal::KIND_UPDATE, $revisionIds, $proposed, self::RECORD_TABLE, $live['id'], $before);
         }
-        if ($targets->isNotEmpty()) {
+        if ($targets !== []) {
             $this->finding($context, EhiDocumentFinding::TARGET_WITHDRAWN, null, ['table' => (string) $entity->table_name]);
 
             return $this->retainDraft($entity, $revisionIds, 'target_withdrawn', $proposed['ehi'] ?? []);
         }
 
-        $candidates = $this->possibleDuplicates($context, $attributes);
+        $candidates = $this->possibleDuplicates($records, $attributes);
 
         return $candidates->total === 0
             ? new EhiProposalDraft($entity->key_digest, PhrEhiProposal::KIND_CREATE, $revisionIds, $proposed)
@@ -892,46 +926,19 @@ final readonly class EhiDocumentMapping implements EhiMapping
      *
      * @param  array<string, mixed>  $attributes
      */
-    private function possibleDuplicates(EhiMappingContext $context, array $attributes): EhiCandidateSummary
+    private function possibleDuplicates(EhiDocumentRecordIndex $records, array $attributes): EhiCandidateSummary
     {
-        $patientId = $context->patient->id;
         $summary = new EhiCandidateSummary;
         $observed = $attributes['observed_at'] ?? null;
         $text = $attributes['extracted_text'] ?? null;
         if (! is_string($observed) || ! is_string($text) || $text === '') {
             return $summary;
         }
-        $digest = hash('sha256', $text);
-
-        $query = PhrDocument::query()
-            ->where('patient_id', $patientId)
-            ->whereNull('retracted_at')
-            ->where('document_type', $attributes['document_type'])
-            ->whereDate('observed_at', substr($observed, 0, 10))
-            ->whereNotNull('extracted_text')
-            // Raw byte length avoids hydrating texts that cannot possibly match.
-            ->whereRaw(app(ResourceByteSize::class)->column('extracted_text').' = ?', [strlen($text)]);
-        // One text at a time: the per-record text budget bounds the payload.
-        $scanned = 0;
-        foreach ($query->select(['id', 'extracted_text'])->lazyById(1) as $document) {
-            $context->budget->charge(++$scanned, 0);
-            if (hash_equals($digest, hash('sha256', (string) $document->extracted_text))) {
-                $summary->add($document->id);
-            }
+        foreach ($records->sameText((string) $attributes['document_type'], substr($observed, 0, 10), hash('sha256', $text)) as $id) {
+            $summary->add($id);
         }
 
         return $summary;
-    }
-
-    /** @return array{title: string|null, document_type: string|null, observed_at: string|null, extracted_text_sha256: string|null} */
-    private function comparable(PhrDocument $document): array
-    {
-        return [
-            'title' => $document->title,
-            'document_type' => $document->document_type,
-            'observed_at' => $document->observed_at?->format('Y-m-d H:i:s'),
-            'extracted_text_sha256' => $document->extracted_text === null ? null : hash('sha256', $document->extracted_text),
-        ];
     }
 
     /**

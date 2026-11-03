@@ -236,6 +236,31 @@ final class EhiMappingContext
             ->get()->tap(fn ($rows) => $this->budget->charge($rows->count(), 0));
     }
 
+    /**
+     * Every evidence link of this patient with one target column set, by the entity its
+     * revision belongs to, oldest first. One read, for a mapping to reconcile many rows.
+     *
+     * @return array<int, list<PhrEhiRecordLink>>
+     */
+    public function linksByEntity(string $targetColumn): array
+    {
+        $this->budget->assertPatient($this->patient->id);
+        $query = PhrEhiRecordLink::query()
+            ->join('phr_ehi_revisions', 'phr_ehi_revisions.id', '=', 'phr_ehi_record_links.revision_id')
+            ->where('phr_ehi_record_links.patient_id', $this->patient->id)
+            ->whereNotNull('phr_ehi_record_links.'.$targetColumn)
+            ->orderBy('phr_ehi_record_links.id')
+            ->select(['phr_ehi_record_links.*', 'phr_ehi_revisions.entity_id as ehi_link_entity_id']);
+        $links = [];
+        $scanned = 0;
+        foreach ($query->cursor() as $link) {
+            $this->budget->charge(++$scanned, 0);
+            $links[(int) $link->getAttribute('ehi_link_entity_id')][] = $link;
+        }
+
+        return $links;
+    }
+
     /** @param  array<string, int|string|bool|null>  $detail  structural only, never source values */
     public function finding(string $code, ?PhrEhiRevision $revision = null, array $detail = []): void
     {

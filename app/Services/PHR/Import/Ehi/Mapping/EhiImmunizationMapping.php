@@ -10,6 +10,7 @@ use App\Models\PhrEhiRevision;
 use App\Models\PhrImmunization;
 use App\Services\PHR\Import\Ehi\Mapping\Immunization\EhiImmunizationApplyRefused;
 use App\Services\PHR\Import\Ehi\Mapping\Immunization\EhiImmunizationDateText;
+use App\Services\PHR\Import\Ehi\Mapping\Immunization\EhiImmunizationRecordIndex;
 use App\Support\PHR\PhrRecordLifecycle;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Builder;
@@ -265,6 +266,7 @@ final class EhiImmunizationMapping implements EhiMapping
     {
         $patientLinks = $this->patientLinks($context);
         $importSource = self::importSource($context->source->id);
+        $records = new EhiImmunizationRecordIndex($context, $importSource);
 
         $seenImmuneIds = [];
         foreach ($context->revisions(self::TABLE_IMMUNE)->groupBy('entity_id', true) as $revisions) {
@@ -279,6 +281,7 @@ final class EhiImmunizationMapping implements EhiMapping
 
             yield $this->draftForEntity(
                 $context,
+                $records,
                 $entity,
                 $revisions,
                 $immuneId,
@@ -353,6 +356,7 @@ final class EhiImmunizationMapping implements EhiMapping
      */
     private function draftForEntity(
         EhiMappingContext $context,
+        EhiImmunizationRecordIndex $records,
         PhrEhiEntity $entity,
         Collection $revisions,
         string $immuneId,
@@ -402,7 +406,7 @@ final class EhiImmunizationMapping implements EhiMapping
         }
 
         $fields = $built['fields'];
-        $target = $this->resolveTarget($context, $entity, $revision, $importSource, self::externalId($immuneId));
+        $target = $this->resolveTarget($context, $records, $entity, $revision, $importSource, self::externalId($immuneId));
         if ($target['state'] === 'retain') {
             return $this->retain($subject, $revisionIds, $built['proposed'], $target['reason']);
         }
@@ -430,7 +434,7 @@ final class EhiImmunizationMapping implements EhiMapping
             return $this->reconcile($subject, $revisionIds, $built['proposed'], $fields, $target['record'], $target['previous'], $target['same_revision']);
         }
 
-        $candidates = $this->duplicateCandidates($context, $fields);
+        $candidates = $this->duplicateCandidates($records, $fields);
         if ($candidates->total > 0) {
             return new EhiProposalDraft(
                 subjectKey: $subject,
@@ -458,12 +462,13 @@ final class EhiImmunizationMapping implements EhiMapping
      */
     private function resolveTarget(
         EhiMappingContext $context,
+        EhiImmunizationRecordIndex $records,
         PhrEhiEntity $entity,
         PhrEhiRevision $revision,
         string $importSource,
         string $externalId,
     ): array {
-        $links = $context->linksForEntity($entity)->filter(static fn (PhrEhiRecordLink $link): bool => $link->getAttribute('immunization_id') !== null);
+        $links = collect($records->linksOf($entity->id));
         $linkedIds = $links->map(static fn (PhrEhiRecordLink $link): int => (int) $link->getAttribute('immunization_id'))->unique()->values();
 
         if ($linkedIds->count() > 1) {
@@ -473,10 +478,7 @@ final class EhiImmunizationMapping implements EhiMapping
         }
 
         if ($linkedIds->count() === 1) {
-            $record = $this->withdrawnInclusiveQuery()
-                ->where('patient_id', $context->patient->id)
-                ->whereKey($linkedIds->first())
-                ->first();
+            $record = $records->linkedRecord((int) $linkedIds->first());
             if (! $record instanceof PhrImmunization || ! PhrRecordLifecycle::stands($record)) {
                 $context->finding(self::FINDING_LINKED_RECORD_WITHDRAWN, $revision, [
                     'lifecycle' => $record instanceof PhrImmunization ? PhrRecordLifecycle::of($record) : 'missing',
@@ -491,7 +493,7 @@ final class EhiImmunizationMapping implements EhiMapping
             if (! $sameRevision) {
                 /** @var PhrEhiRecordLink $latest */
                 $latest = $links->sortByDesc('id')->first();
-                $previousRevision = PhrEhiRevision::query()->find((int) $latest->getAttribute('revision_id'));
+                $previousRevision = $records->revision((int) $latest->getAttribute('revision_id'));
                 if ($previousRevision instanceof PhrEhiRevision) {
                     $previous = $this->build($this->values($previousRevision), $this->keyValue($entity, 'IMMUNE_ID'), $importSource)['fields'];
                 }
@@ -500,11 +502,7 @@ final class EhiImmunizationMapping implements EhiMapping
             return ['state' => 'target', 'record' => $record, 'previous' => $previous, 'same_revision' => $sameRevision];
         }
 
-        $record = $this->withdrawnInclusiveQuery()
-            ->where('patient_id', $context->patient->id)
-            ->where('import_source', $importSource)
-            ->where('external_id', $externalId)
-            ->first();
+        $record = $records->heldIdentity($externalId);
         if (! $record instanceof PhrImmunization) {
             return ['state' => 'none'];
         }
@@ -579,7 +577,7 @@ final class EhiImmunizationMapping implements EhiMapping
      *
      * @param  array<string, string|null>  $fields
      */
-    private function duplicateCandidates(EhiMappingContext $context, array $fields): EhiCandidateSummary
+    private function duplicateCandidates(EhiImmunizationRecordIndex $records, array $fields): EhiCandidateSummary
     {
         $summary = new EhiCandidateSummary;
         if ($fields['administered_on'] === null) {
@@ -588,19 +586,10 @@ final class EhiImmunizationMapping implements EhiMapping
         $name = $this->fold($fields['vaccine_name']);
         $lot = $this->fold($fields['lot_number']);
 
-        $query = PhrImmunization::query()
-            ->where('patient_id', $context->patient->id)
-            ->whereDate('administered_on', $fields['administered_on']);
-        PhrRecordLifecycle::scopeLive($query);
-        // A person refused it: not a record to link, and left out of their working list.
-        $query->where('review_status', '!=', PhrReviewStatus::REJECTED);
-
-        $scanned = 0;
-        foreach ($query->select(['id', 'vaccine_name', 'lot_number'])->lazyById(100) as $record) {
-            $context->budget->charge(++$scanned, 0);
-            if (($name !== null && $this->fold($record->vaccine_name) === $name)
-                || ($lot !== null && $this->fold($record->lot_number) === $lot)) {
-                $summary->add($record->id);
+        foreach ($records->onDate($fields['administered_on']) as $record) {
+            if (($name !== null && $this->fold($record['name']) === $name)
+                || ($lot !== null && $this->fold($record['lot']) === $lot)) {
+                $summary->add($record['id']);
             }
         }
 
