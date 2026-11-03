@@ -21,6 +21,7 @@ use Generator;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Throwable;
@@ -507,22 +508,21 @@ final class EhiProjectionService
     private function finishTable(PhrEhiPackage $package, PhrEhiPackageMember $member, PhrEhiTableAccount $account, int $budget, int $omitted): void
     {
         $now = now();
-        $repeated = PhrEhiOccurrence::query()
+        // Each scans the member's occurrences once. An IN over the same join ran for minutes on
+        // PostgreSQL under some plans, on a table whose statistics lag rows just written.
+        $base = PhrEhiOccurrence::query()
             ->join('phr_ehi_revisions', 'phr_ehi_revisions.id', '=', 'phr_ehi_occurrences.revision_id')
-            ->where('phr_ehi_occurrences.member_id', $member->id)
-            ->groupBy('phr_ehi_revisions.entity_id')
-            ->havingRaw('count(*) > 1')
-            ->select('phr_ehi_revisions.entity_id');
-        $duplicates = PhrEhiOccurrence::query()
-            ->join('phr_ehi_revisions', 'phr_ehi_revisions.id', '=', 'phr_ehi_occurrences.revision_id')
-            ->where('phr_ehi_occurrences.member_id', $member->id)
-            ->whereIn('phr_ehi_revisions.entity_id', $repeated);
-        $total = (clone $duplicates)->count();
+            ->where('phr_ehi_occurrences.member_id', $member->id);
+        $repeated = (clone $base)->groupBy('phr_ehi_revisions.entity_id')->havingRaw('count(*) > 1')->selectRaw('count(*) AS occurrences');
+        $total = (int) DB::query()->fromSub($repeated, 'repeated')->sum('occurrences');
         $rows = [];
         if ($budget > 0 && $total > 0) {
-            foreach ((clone $duplicates)->select('phr_ehi_occurrences.line_number', 'phr_ehi_occurrences.byte_offset')
-                ->orderBy('phr_ehi_occurrences.line_number')->limit($budget)->get() as $occurrence) {
-                $rows[] = $this->findingRow($package, $member, EhiFindingCode::DUPLICATE_KEY, $occurrence->line_number, $occurrence->byte_offset, [], $now);
+            $counted = (clone $base)->select('phr_ehi_occurrences.line_number', 'phr_ehi_occurrences.byte_offset')
+                ->selectRaw('count(*) OVER (PARTITION BY phr_ehi_revisions.entity_id) AS entity_occurrences');
+            $duplicates = DB::query()->fromSub($counted, 'counted')->where('entity_occurrences', '>', 1)
+                ->orderBy('line_number')->limit($budget)->get(['line_number', 'byte_offset']);
+            foreach ($duplicates as $occurrence) {
+                $rows[] = $this->findingRow($package, $member, EhiFindingCode::DUPLICATE_KEY, (int) $occurrence->line_number, $occurrence->byte_offset === null ? null : (int) $occurrence->byte_offset, [], $now);
             }
         }
         $omitted += $total - count($rows);

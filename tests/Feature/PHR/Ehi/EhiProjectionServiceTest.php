@@ -281,14 +281,14 @@ class EhiProjectionServiceTest extends TestCase
         config(['phr.ehi_max_findings_per_member' => 2]);
         $maxBindings = 0;
         DB::listen(static function (QueryExecuted $query) use (&$maxBindings): void {
-            if (str_contains($query->sql, 'count(*) > 1')) {
+            if (str_contains($query->sql, 'count(*) > 1') || str_contains($query->sql, 'entity_occurrences')) {
                 $maxBindings = max($maxBindings, count($query->bindings));
             }
         });
         $service = app(EhiProjectionService::class);
         $service->project($package, $owner->id);
         self::assertSame(2200, PhrEhiOccurrence::query()->where('disposition', 'quarantined')->count());
-        self::assertSame(2, PhrEhiFinding::query()->where('code', 'duplicate_key')->count());
+        self::assertSame([1, 2], PhrEhiFinding::query()->where('code', 'duplicate_key')->orderBy('line_number')->pluck('line_number')->map(static fn (mixed $line): int => (int) $line - 1)->all());
         self::assertSame(2198, PhrEhiFinding::query()->where('code', 'findings_truncated')->sole()->detail_json['omitted']);
         self::assertLessThanOrEqual(3, $maxBindings);
         self::assertTrue($service->project($package->refresh(), $owner->id)->replayed);
