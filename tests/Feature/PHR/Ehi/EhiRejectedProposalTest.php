@@ -179,6 +179,24 @@ class EhiRejectedProposalTest extends TestCase
         ];
     }
 
+    public function test_the_set_aside_count_survives_findings_being_capped(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $key = ['IMMUNE_ID' => '601'];
+        // An immunization no patient link names raises its own finding, on every preview.
+        $orphan = static fn (): EhiClinicalPackage => EhiClinicalPackage::standard()->adding('IMMUNE', ['IMMUNE_ID' => '699', 'IMMUNZATN_ID_NAME' => 'SYNTHETIC ORPHAN', 'IMMUNE_DATE' => '2024-03-07']);
+        $first = $this->previewed($orphan()->build(), $owner, $patient);
+        $this->decide($owner, $patient, $this->subject($first, 'immunization', $key), 'reject');
+
+        config(['phr.ehi_max_findings_per_member' => 1]);
+        $second = $this->previewed($orphan()->build()->with('README.txt', "Synthetic later readme\n"), $owner, $patient, 'package-2', PhrEhiSource::query()->sole()->id);
+
+        self::assertSame(1, PhrEhiFinding::query()->where('package_id', $second->id)->where('code', 'orphan_immunization')->count(), 'the row finding filled the allowance');
+        self::assertGreaterThan(0, PhrEhiFinding::query()->where('package_id', $second->id)->where('code', EhiFindingCode::FINDINGS_TRUNCATED)->count());
+        $status = $this->actingAs($owner)->getJson("/api/phr/patients/{$patient->id}/ehi/packages/{$second->id}")->assertOk()->json('package');
+        self::assertSame(1, $status['proposals']['previously_rejected']);
+    }
+
     public function test_a_rejected_update_is_not_proposed_again_and_the_record_keeps_what_it_held(): void
     {
         [$owner, $patient] = $this->ownerAndPatient();

@@ -196,11 +196,10 @@ final class EhiProposalService
             $this->supersedeNotProduced($package, $actorUserId, $name, $generation);
             $counts[$name] ??= [];
             ksort($counts[$name], SORT_STRING);
-            if ($setAside > 0) {
-                $context->finding(EhiFindingCode::PREVIOUSLY_REJECTED, null, ['count' => $setAside]);
-            }
 
-            [$rowsForMapping, $mappingCounts] = $this->findingRows($package, $name, $context->findings(), $context->omittedFindings());
+            // A count of rows, not a per-row finding, so the cap on those never drops it.
+            $summaries = $setAside > 0 ? [['code' => EhiFindingCode::PREVIOUSLY_REJECTED, 'revision_id' => null, 'detail' => ['count' => $setAside]]] : [];
+            [$rowsForMapping, $mappingCounts] = $this->findingRows($package, $name, [...$context->findings(), ...$summaries], $context->omittedFindings());
             array_push($findingRows, ...$rowsForMapping);
             foreach ($mappingCounts as $code => $count) {
                 $findingCounts[$code] = ($findingCounts[$code] ?? 0) + $count;
