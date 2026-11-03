@@ -37,6 +37,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $external_id
  * @property Carbon|null $imported_at
  * @property Carbon|null $deleted_at
+ * @property Carbon|null $retracted_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read Collection<int, PhrNegativeAssertion> $negativeAssertions
