@@ -63,8 +63,11 @@ final class EhiImmunizationRecordIndex
                 $this->held[$record->external_id] = $record;
             }
         }
-        // Never merged automatically; a person refused a rejected one, and it is left out.
-        $live = PhrImmunization::query()->where('patient_id', $context->patient->id)->where('review_status', '!=', PhrReviewStatus::REJECTED);
+        // Duplicate candidates are never merged automatically; a person refused a rejected
+        // one, and it is left out. So is what this source holds under its own identity: a
+        // different key is by definition a different dose, whatever day it was given.
+        $live = PhrImmunization::query()->where('patient_id', $context->patient->id)->where('review_status', '!=', PhrReviewStatus::REJECTED)
+            ->where(static fn ($query) => $query->whereNull('import_source')->orWhere('import_source', '!=', $ownImportSource));
         PhrRecordLifecycle::scopeLive($live);
         foreach ($live->select(['id', 'vaccine_name', 'lot_number', 'administered_on'])->lazyById(500) as $record) {
             $context->budget->charge(++$scanned, 0);

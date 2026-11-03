@@ -415,6 +415,22 @@ describe('ImportsPage', () => {
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith(`${packageUrl}/preview`, {}))
   })
 
+  it('says how many rows it did not propose because they were rejected before, and that they were kept', async () => {
+    const packageUrl = `/api/phr/patients/${PATIENT_ID}/ehi/packages/9`
+    const bound = makeEhiPackage({
+      patient_id: PATIENT_ID,
+      binding_status: 'bound',
+      source: { id: 3, label: 'Synthetic Clinic' },
+      proposals: { by_status: {}, pending: {}, pending_unreviewable: 0, previously_rejected: 2 },
+    })
+    routeGets({ packages: [bound], [packageUrl]: { package: bound } })
+    renderImports(PATIENT_ID)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View' }))
+
+    expect(await screen.findByText('2 rows you rejected from an earlier import were not proposed again. They are kept as evidence, and changed content would come back for review.')).toBeInTheDocument()
+  })
+
   it('tells a manager that only the owner can confirm the source', async () => {
     const packageUrl = `/api/phr/patients/${PATIENT_ID}/ehi/packages/9`
     const unbound = makeEhiPackage({ patient_id: PATIENT_ID })
