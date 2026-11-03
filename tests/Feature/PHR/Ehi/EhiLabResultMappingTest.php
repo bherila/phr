@@ -214,6 +214,55 @@ class EhiLabResultMappingTest extends TestCase
         }
     }
 
+    public function test_a_missing_supporting_table_never_turns_a_row_with_no_content_into_a_new_result(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $empty = ['ORDER_PROC_ID' => '8102', 'ORD_DATE_REAL' => '66001', 'LINE' => '20', 'COMPONENT_ID_NAME' => 'SYNTHETIC EMPTY', 'RESULT_STATUS_C_NAME' => 'Final'];
+        $package = $this->previewed(
+            EhiClinicalPackage::withLabs()->adding('ORDER_RESULTS', $empty)->build()
+                ->without('ORDER_NARRATIVE.tsv')->without('docs/ORDER_NARRATIVE.htm')
+                ->without('ORDER_RES_COMMENT.tsv')->without('docs/ORDER_RES_COMMENT.htm'),
+            $owner,
+            $patient,
+        );
+
+        $proposal = $this->proposal($package, '8102', '66001', '20');
+        self::assertSame(PhrEhiProposal::KIND_RETAIN, $proposal->kind);
+        self::assertSame('no_result_value', $proposal->proposed_json['retain_reason']);
+        try {
+            app(EhiProposalService::class)->review($proposal, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $proposal->preview_digest);
+            self::fail('a row with no content cannot be accepted as a result');
+        } catch (EhiReviewRefused $refused) {
+            self::assertSame(EhiReviewRefused::DECISION_NOT_ALLOWED, $refused->reason);
+        }
+        self::assertSame(0, PhrLabResult::query()->where('analyte', 'SYNTHETIC EMPTY')->count());
+    }
+
+    public function test_a_result_that_lost_its_value_can_still_be_reconciled_when_a_supporting_table_is_missing(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $key = ['ORDER_PROC_ID' => '8102', 'ORD_DATE_REAL' => '66001', 'LINE' => '1'];
+        $package = $this->previewed(EhiClinicalPackage::withLabs()->build(), $owner, $patient);
+        $this->accept($this->proposal($package, '8102', '66001', '1'), $owner);
+        $record = PhrLabResult::query()->where('external_id', 'ORDER_RESULTS:8102:66001:1')->sole();
+
+        $second = $this->previewed(
+            EhiClinicalPackage::withLabs()->changing('ORDER_RESULTS', $key, ['ORD_VALUE' => ''])->build()
+                ->without('ORDER_NARRATIVE.tsv')->without('docs/ORDER_NARRATIVE.htm')
+                ->without('ORDER_RES_COMMENT.tsv')->without('docs/ORDER_RES_COMMENT.htm'),
+            $owner,
+            $patient,
+            'package-2',
+            PhrEhiSource::query()->sole()->id,
+        );
+
+        // The exception is for an existing record: a person sees it, and nothing changes unseen.
+        $update = $this->proposal($second, '8102', '66001', '1');
+        self::assertSame(PhrEhiProposal::KIND_UPDATE, $update->kind);
+        self::assertSame(['value'], $update->proposed_json['changed']);
+        self::assertSame('No growth', $record->refresh()->value);
+    }
+
     public function test_a_value_the_columns_cannot_hold_is_retained_not_cut(): void
     {
         [$owner, $patient] = $this->ownerAndPatient();
@@ -576,6 +625,71 @@ class EhiLabResultMappingTest extends TestCase
         $record->forceFill(['ordering_provider' => 'Edited by a person too'])->save();
         $third = $this->previewed($corrected->adding('ORDER_PROC', ['ORDER_PROC_ID' => '8300', 'PAT_ID' => EhiClinicalPackage::PATIENT_KEY])->build(), $owner, $patient, 'package-3', $sourceId);
         self::assertSame(PhrEhiProposal::KIND_CORROBORATE, $this->proposal($third, '8101', '66000.01', '1')->kind);
+    }
+
+    public function test_comments_and_a_narrative_a_package_cannot_vouch_for_survive_an_approved_update(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $key = ['ORDER_PROC_ID' => '8101', 'ORD_DATE_REAL' => '66000.01', 'LINE' => '1'];
+        $package = $this->previewed(EhiClinicalPackage::withLabs()->build(), $owner, $patient);
+        $this->accept($this->proposal($package, '8101', '66000.01', '1'), $owner);
+        $record = PhrLabResult::query()->where('external_id', 'ORDER_RESULTS:8101:66000.01:1')->sole();
+        $comment = $record->result_comment;
+        $notes = $record->notes;
+        self::assertNotNull($notes);
+
+        // The comment table's key disagrees with its dictionary, and there is no narrative table.
+        $changed = EhiClinicalPackage::withLabs()->changing('ORDER_RESULTS', $key, ['ORD_VALUE' => '<60', 'VALUE_NORMALIZED' => "<\x1060"])
+            ->buildWithDocumentedKey('ORDER_RES_COMMENT', ['ORDER_ID'])
+            ->without('ORDER_NARRATIVE.tsv')->without('docs/ORDER_NARRATIVE.htm');
+        $second = $this->previewed($changed, $owner, $patient, 'package-2', PhrEhiSource::query()->sole()->id);
+
+        $update = $this->proposal($second, '8101', '66000.01', '1');
+        self::assertSame(['value'], $update->proposed_json['changed'], 'what the package could not read is no correction');
+        self::assertTrue($update->proposed_json['ehi']['comments_unavailable']);
+        self::assertTrue($update->proposed_json['ehi']['narrative_unavailable']);
+        app(EhiProposalService::class)->review($update, PhrEhiProposal::DECISION_APPROVE_UPDATE, $owner->id, $update->preview_digest);
+
+        $record->refresh();
+        self::assertSame('<60', $record->value);
+        self::assertSame($comment, $record->result_comment);
+        self::assertSame($notes, $record->notes);
+    }
+
+    public function test_a_field_a_package_could_not_vouch_for_is_no_baseline_for_a_later_removal(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $key = ['ORDER_PROC_ID' => '8101', 'ORD_DATE_REAL' => '66000.01', 'LINE' => '1'];
+        $package = $this->previewed(EhiClinicalPackage::withLabs()->build(), $owner, $patient);
+        $this->accept($this->proposal($package, '8101', '66000.01', '1'), $owner);
+        $record = PhrLabResult::query()->where('external_id', 'ORDER_RESULTS:8101:66000.01:1')->sole();
+        $sourceId = PhrEhiSource::query()->sole()->id;
+
+        // Package 2 has no narrative or comment table, and a person approves its other change.
+        $unreadable = EhiClinicalPackage::withLabs()->changing('ORDER_RESULTS', $key, ['ORD_VALUE' => '<60', 'VALUE_NORMALIZED' => "<\x1060"])->build()
+            ->without('ORDER_NARRATIVE.tsv')->without('docs/ORDER_NARRATIVE.htm')
+            ->without('ORDER_RES_COMMENT.tsv')->without('docs/ORDER_RES_COMMENT.htm');
+        $second = $this->previewed($unreadable, $owner, $patient, 'package-2', $sourceId);
+        $update = $this->proposal($second, '8101', '66000.01', '1');
+        self::assertSame(['value'], $update->proposed_json['changed']);
+        app(EhiProposalService::class)->review($update, PhrEhiProposal::DECISION_APPROVE_UPDATE, $owner->id, $update->preview_digest);
+        $notes = $record->refresh()->notes;
+        self::assertNotNull($notes);
+
+        // Package 3 has both tables again, and says this contact has no narrative and fewer comments.
+        $complete = EhiClinicalPackage::withLabs()->changing('ORDER_RESULTS', $key, ['ORD_VALUE' => '<60', 'VALUE_NORMALIZED' => "<\x1060"])
+            ->without('ORDER_NARRATIVE', ['ORDER_PROC_ID' => '8101', 'ORD_DATE_REAL' => '66000.01', 'LINE' => '1'])
+            ->without('ORDER_NARRATIVE', ['ORDER_PROC_ID' => '8101', 'ORD_DATE_REAL' => '66000.01', 'LINE' => '2'])
+            ->without('ORDER_RES_COMMENT', ['ORDER_ID' => '8101', 'CONTACT_DATE_REAL' => '66000.01', 'LINE' => '1', 'LINE_COMMENT' => '10']);
+        $third = $this->previewed($complete->build(), $owner, $patient, 'package-3', $sourceId);
+        $removal = $this->proposal($third, '8101', '66000.01', '1');
+        self::assertSame(PhrEhiProposal::KIND_UPDATE, $removal->kind, 'a stated removal is not corroboration');
+        self::assertEqualsCanonicalizing(['notes', 'result_comment'], $removal->proposed_json['changed']);
+        self::assertSame($notes, $removal->before_json['notes']);
+        app(EhiProposalService::class)->review($removal, PhrEhiProposal::DECISION_APPROVE_UPDATE, $owner->id, $removal->preview_digest);
+        $record->refresh();
+        self::assertNull($record->notes);
+        self::assertStringNotContainsString('Synthetic comment line 10', (string) $record->result_comment);
     }
 
     public function test_an_update_is_refused_if_the_record_changed_since_the_preview(): void

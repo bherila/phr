@@ -43,7 +43,11 @@ final class EhiClinicalPackage
             'IMMNZTN_DOSE_UNIT_C_NAME', 'LOT', 'MFG_C_NAME', 'ROUTE_C_NAME', 'SITE_C_NAME',
         ], 'key' => ['IMMUNE_ID']],
         'PAT_IMMUNIZATIONS' => ['columns' => ['PAT_ID', 'LINE', 'IMMUNE_ID'], 'key' => ['PAT_ID', 'LINE']],
-        'PAT_ENC' => ['columns' => ['PAT_ENC_CSN_ID', 'PAT_ID', 'CONTACT_DATE'], 'key' => ['PAT_ENC_CSN_ID']],
+        'PAT_ENC' => ['columns' => [
+            'PAT_ENC_CSN_ID', 'PAT_ID', 'PAT_ENC_DATE_REAL', 'CONTACT_DATE', 'EFFECTIVE_DATE_DTTM', 'ENC_TYPE_C_NAME', 'APPT_STATUS_C_NAME',
+            'CALCULATED_ENC_STAT_C_NAME', 'VISIT_PROV_ID_PROV_NAME', 'DEPARTMENT_ID_EXTERNAL_NAME', 'HOSP_ADMSN_TIME', 'HOSP_DISCHRG_TIME',
+            'CONTACT_COMMENT', 'CLAIM_ID', 'COPAY_DUE', 'HSP_ACCOUNT_ID',
+        ], 'key' => ['PAT_ENC_CSN_ID']],
         'HNO_INFO' => ['columns' => [
             'NOTE_ID', 'PAT_ENC_CSN_ID', 'IP_NOTE_TYPE_C_NAME', 'NOTE_DESC', 'CREATE_INSTANT_DTTM',
             'DATE_OF_SERVIC_DTTM', 'DELETE_INSTANT_DTTM', 'UNSIGNED_YN',
@@ -78,6 +82,10 @@ final class EhiClinicalPackage
         ], 'key' => ['ORDER_PROC_ID', 'ORD_DATE_REAL', 'LINE']],
         'ORDER_RES_COMMENT' => ['columns' => ['ORDER_ID', 'CONTACT_DATE_REAL', 'LINE', 'LINE_COMMENT', 'RESULTS_CMT'], 'key' => ['ORDER_ID', 'CONTACT_DATE_REAL', 'LINE', 'LINE_COMMENT']],
         'ORDER_NARRATIVE' => ['columns' => ['ORDER_PROC_ID', 'ORD_DATE_REAL', 'LINE', 'NARRATIVE'], 'key' => ['ORDER_PROC_ID', 'ORD_DATE_REAL', 'LINE']],
+        'PAT_ENC_DX' => ['columns' => [
+            'PAT_ENC_CSN_ID', 'LINE', 'DX_ID_DX_NAME', 'PRIMARY_DX_YN', 'DX_CHRONIC_YN', 'DX_ED_YN', 'DX_QUALIFIER_C_NAME', 'ANNOTATION', 'COMMENTS',
+        ], 'key' => ['PAT_ENC_CSN_ID', 'LINE']],
+        'ARPB_TRANSACTIONS' => ['columns' => ['TX_ID', 'PAT_ID', 'AMOUNT'], 'key' => ['TX_ID']],
     ];
 
     /**
@@ -249,6 +257,53 @@ final class EhiClinicalPackage
                 ['ORDER_PROC_ID' => '8101', 'ORD_DATE_REAL' => '66000.01', 'LINE' => '1', 'NARRATIVE' => 'Synthetic narrative line 1'],
                 ['ORDER_PROC_ID' => '8104', 'ORD_DATE_REAL' => '66006', 'LINE' => '1', 'NARRATIVE' => 'Synthetic imaging narrative'],
             ],
+        ], $standard->files);
+    }
+
+    /**
+     * standard() plus encounter kinds, keyed so each says what it is:
+     * - 7101 office visit with a time, two diagnoses stored out of order, billing cells
+     * - 7102 hospital encounter with admission and discharge times
+     * - 7103 telephone, 7104 portal message, 7105 canceled appointment, 7106 no show
+     * - 7107 orders only, 7108 charge (administrative), 7109 scheduled in the future
+     * - 7110 a type this installation invented, 7111 a row stating nothing
+     * plus one billing ledger row, and a diagnosis for an encounter not supplied.
+     */
+    public static function withEncounters(): self
+    {
+        $key = self::PATIENT_KEY;
+        $encounter = static fn (string $csn, array $extra = []): array => [
+            'PAT_ENC_CSN_ID' => $csn,
+            'PAT_ID' => $key,
+            'CONTACT_DATE' => '2024-05-01',
+            ...$extra,
+        ];
+        $standard = self::standard();
+        $rows = $standard->rows;
+        $rows['PAT_ENC'] = [
+            ...$rows['PAT_ENC'],
+            $encounter('7101', ['PAT_ENC_DATE_REAL' => '66050.01', 'EFFECTIVE_DATE_DTTM' => '2024-05-01 09:30', 'ENC_TYPE_C_NAME' => 'Office Visit', 'APPT_STATUS_C_NAME' => 'Completed', 'VISIT_PROV_ID_PROV_NAME' => 'SYNTHETIC PROVIDER', 'DEPARTMENT_ID_EXTERNAL_NAME' => 'SYNTHETIC CLINIC', 'CONTACT_COMMENT' => 'Synthetic contact comment', 'CLAIM_ID' => '555001', 'COPAY_DUE' => '25.00', 'HSP_ACCOUNT_ID' => '555002']),
+            $encounter('7102', ['CONTACT_DATE' => '2024-05-02', 'ENC_TYPE_C_NAME' => 'Hospital Encounter', 'HOSP_ADMSN_TIME' => '2024-05-02 22:15:00', 'HOSP_DISCHRG_TIME' => '2024-05-03 06:00:00']),
+            $encounter('7103', ['CONTACT_DATE' => '2024-05-03', 'ENC_TYPE_C_NAME' => 'Telephone']),
+            $encounter('7104', ['CONTACT_DATE' => '2024-05-04', 'ENC_TYPE_C_NAME' => 'Patient Message']),
+            $encounter('7105', ['CONTACT_DATE' => '2024-05-05', 'ENC_TYPE_C_NAME' => 'Office Visit', 'APPT_STATUS_C_NAME' => 'Canceled']),
+            $encounter('7106', ['CONTACT_DATE' => '2024-05-06', 'APPT_STATUS_C_NAME' => 'No Show']),
+            $encounter('7107', ['CONTACT_DATE' => '2024-05-07', 'ENC_TYPE_C_NAME' => 'Orders Only']),
+            $encounter('7108', ['CONTACT_DATE' => '2024-05-08', 'ENC_TYPE_C_NAME' => 'Charge', 'CLAIM_ID' => '555003']),
+            $encounter('7109', ['CONTACT_DATE' => '2030-01-01', 'ENC_TYPE_C_NAME' => 'Office Visit', 'APPT_STATUS_C_NAME' => 'Scheduled']),
+            $encounter('7110', ['CONTACT_DATE' => '2024-05-10', 'ENC_TYPE_C_NAME' => 'Synthetic Local Type']),
+            $encounter('7111', ['CONTACT_DATE' => '2024-05-11']),
+        ];
+
+        return new self([...$rows,
+            'PAT_ENC_DX' => [
+                ['PAT_ENC_CSN_ID' => '7101', 'LINE' => '10', 'DX_ID_DX_NAME' => 'Synthetic diagnosis ten', 'PRIMARY_DX_YN' => 'N', 'COMMENTS' => 'Synthetic comment'],
+                ['PAT_ENC_CSN_ID' => '7101', 'LINE' => '2', 'DX_ID_DX_NAME' => 'Synthetic diagnosis two', 'PRIMARY_DX_YN' => 'N', 'DX_CHRONIC_YN' => 'Yes', 'ANNOTATION' => 'Synthetic annotation'],
+                ['PAT_ENC_CSN_ID' => '7101', 'LINE' => '1', 'DX_ID_DX_NAME' => 'Synthetic diagnosis one', 'PRIMARY_DX_YN' => 'Y', 'DX_QUALIFIER_C_NAME' => 'Synthetic qualifier'],
+                ['PAT_ENC_CSN_ID' => '7103', 'LINE' => '1', 'DX_ID_DX_NAME' => 'Synthetic telephone diagnosis', 'PRIMARY_DX_YN' => 'Y'],
+                ['PAT_ENC_CSN_ID' => '9999', 'LINE' => '1', 'DX_ID_DX_NAME' => 'Synthetic orphan diagnosis'],
+            ],
+            'ARPB_TRANSACTIONS' => [['TX_ID' => '900001', 'PAT_ID' => $key, 'AMOUNT' => '10.00']],
         ], $standard->files);
     }
 

@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
 import { formatLabValue } from '@/phr/labs/formatLabResult'
 import { errorMessage } from '@/phr/shared'
-import { PhrDocumentResponseSchema, PhrImmunizationResponseSchema, PhrLabResultResponseSchema } from '@/phr/types'
+import { PhrDocumentResponseSchema, PhrImmunizationResponseSchema, PhrLabResultResponseSchema, PhrOfficeVisitResponseSchema } from '@/phr/types'
 
 import { type EhiDecision, ehiFailureText, type EhiProposal, listAllEhiProposals, reviewEhiProposal } from './ehiApi'
 import { decisionActions, formatSourceDate, proposalView, retainReason, REVIEW_GROUPS, reviewGroupOf, STATUS_LABELS } from './ehiProposalView'
@@ -40,6 +40,9 @@ function CandidateRecord({ patientId, mapping, recordId }: { patientId: number, 
           const { lab_result: lab } = PhrLabResultResponseSchema.parse(await fetchWrapper.get(`/api/phr/patients/${patientId}/lab-results/${recordId}`))
           const date = formatSourceDate(lab.result_datetime ?? lab.collection_datetime)
           if (!cancelled) setSummary([lab.analyte ?? lab.test_name ?? 'Lab result', [formatLabValue(lab), lab.unit].filter(Boolean).join(' '), date].filter(Boolean).join(' · '))
+        } else if (mapping === 'encounter') {
+          const { office_visit: visit } = PhrOfficeVisitResponseSchema.parse(await fetchWrapper.get(`/api/phr/patients/${patientId}/office-visits/${recordId}`))
+          if (!cancelled) setSummary([visit.visit_type ?? 'Visit', visit.provider_name, formatSourceDate(visit.visit_date)].filter(Boolean).join(' · '))
         }
       } catch {
         if (!cancelled) setSummary(null)

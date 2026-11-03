@@ -74,7 +74,7 @@ final readonly class PhrReviewQueueService
     public const array REVIEW_SEGMENTS = ['labs' => 'lab-results'];
 
     /** EHI mappings and the section their records land in. */
-    public const array EHI_SECTIONS = ['immunization' => 'immunizations', 'document' => 'documents', 'lab_result' => 'labs'];
+    public const array EHI_SECTIONS = ['immunization' => 'immunizations', 'document' => 'documents', 'lab_result' => 'labs', 'encounter' => 'office-visits'];
 
     /** Rows listed per section, AI import or EHI export; the rest stay countable. */
     public const int ITEM_LIMIT = 200;

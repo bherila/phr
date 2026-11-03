@@ -126,9 +126,9 @@ final readonly class PhrPreloadPlan
             'review' => ["{$base}/review"],
             'summary' => [$base, "{$base}/lab-results", "{$base}/vitals", "{$base}/dicom/studies", "{$base}/exports"],
             'health-log' => ["{$base}/health-logs"],
-            // The list, and whether an EHI import has lab results waiting (its banner).
+            // Each list, and whether an EHI import has its records waiting (its banner).
             'labs' => ["{$base}/lab-results", "{$base}/ehi/pending"],
-            'office-visits' => ["{$base}/office-visits", "{$base}/procedures", "{$base}/immunizations"],
+            'office-visits' => ["{$base}/office-visits", "{$base}/procedures", "{$base}/immunizations", "{$base}/ehi/pending"],
             // One section: each list shows counts and dates from the other.
             'medications' => ["{$base}/medications", "{$base}/medication-fills"],
             'medication-fills' => ["{$base}/medication-fills", "{$base}/medications"],

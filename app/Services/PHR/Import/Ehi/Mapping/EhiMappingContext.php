@@ -8,6 +8,7 @@ use App\Models\PhrEhiPackage;
 use App\Models\PhrEhiRecordLink;
 use App\Models\PhrEhiRevision;
 use App\Models\PhrEhiSource;
+use App\Models\PhrEhiTableAccount;
 use App\Models\PhrPatient;
 use App\Services\PHR\Import\Ehi\EhiLimits;
 use App\Services\PHR\Import\Ehi\EhiPreviewBudget;
@@ -169,11 +170,54 @@ final class EhiMappingContext
     }
 
     /** Whether this package's projection left the table unprojected, so it supplies no evidence. */
-    private function withheld(string $table): bool
+    public function withheld(string $table): bool
     {
         $this->withheldTables ??= EhiProjectionService::withheldTables($this->package);
 
         return isset($this->withheldTables[strtoupper($table)]);
+    }
+
+    /**
+     * Where this package's rows of a table do not add up to a complete set, so a row's
+     * absence means nothing: every key, when the table supplied nothing or held a row
+     * that could not be read or had no usable key, or only the keys whose rows were
+     * quarantined. Quarantined rows are never revisions a mapping sees.
+     *
+     * @return array{all: bool, keys: array<string, true>}
+     */
+    public function incompleteRows(string $table, string $keyColumn): array
+    {
+        $everything = ['all' => true, 'keys' => []];
+        if ($this->withheld($table)) {
+            return $everything;
+        }
+        $account = PhrEhiTableAccount::query()->where('package_id', $this->package->id)->whereNotNull('member_id')->get()
+            ->first(static fn (PhrEhiTableAccount $row): bool => strtoupper($row->table_name) === strtoupper($table));
+        if ($account === null || $account->malformed_row_count > 0) {
+            return $everything;
+        }
+        $quarantined = (int) ($account->disposition_counts_json[PhrEhiOccurrence::DISPOSITION_QUARANTINED] ?? 0);
+        if ($quarantined === 0) {
+            return ['all' => false, 'keys' => []];
+        }
+        $rows = PhrEhiRevision::query()
+            ->join('phr_ehi_occurrences', 'phr_ehi_occurrences.revision_id', '=', 'phr_ehi_revisions.id')
+            ->where('phr_ehi_occurrences.member_id', $account->member_id)
+            ->where('phr_ehi_occurrences.disposition', PhrEhiOccurrence::DISPOSITION_QUARANTINED)
+            ->select('phr_ehi_revisions.*', 'phr_ehi_occurrences.id as ehi_occurrence_id')
+            ->get();
+        if ($rows->count() < $quarantined) {
+            return $everything;
+        }
+        $keys = [];
+        foreach ($rows as $row) {
+            $value = $row->values_json[$keyColumn] ?? null;
+            if (is_string($value) && $value !== '') {
+                $keys[$value] = true;
+            }
+        }
+
+        return ['all' => false, 'keys' => $keys];
     }
 
     /**

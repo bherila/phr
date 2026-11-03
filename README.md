@@ -215,8 +215,10 @@ alone is insufficient. TSV headers and records are limited to 8,192 fields befor
 cell arrays can grow beyond that bound. Over-limit records are accounted as
 malformed while their original bytes remain preserved. Dictionary table names must
 match the same ASCII identifier rules as table member names. Immunizations, notes and
-scanned documents, and lab results (`ORDER_RESULTS`, keyed on the full order, contact, and
-line) become proposals a person reviews on the Review and Imports pages. A compatible
+scanned documents, lab results (`ORDER_RESULTS`, keyed on the full order, contact, and
+line), and clinical encounters (`PAT_ENC`, with `PAT_ENC_DX` diagnoses kept on the visit)
+become proposals a person reviews on the Review and Imports pages. Telephone, portal,
+cancelled, and administrative encounters stay evidence, and billing tables produce nothing. A compatible
 identifier links evidence, a probable duplicate is a person's decision, and no decision
 overwrites a record or revives a deleted one.
 

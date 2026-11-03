@@ -44,6 +44,7 @@ const DOMAINS: Record<string, string> = {
   immunization: 'Immunization',
   document: 'Document',
   lab_result: 'Lab result',
+  encounter: 'Encounter',
 }
 
 /** Record-page nouns for the pending banner and counts. */
@@ -51,6 +52,7 @@ export const MAPPING_NOUNS: Record<string, { one: string, many: string }> = {
   immunization: { one: 'immunization', many: 'immunizations' },
   document: { one: 'document', many: 'documents' },
   lab_result: { one: 'lab result', many: 'lab results' },
+  encounter: { one: 'visit', many: 'visits' },
 }
 
 const FIELD_LABELS: Record<string, string> = {
@@ -90,10 +92,46 @@ const UPDATE_FIELD_LABELS: Record<string, string> = {
   resulting_lab: 'Lab',
   collection_datetime: 'Collected',
   result_datetime: 'Resulted',
+  raw_text: 'Source details',
+  value_numeric: 'Numeric value',
+  analyte_code: 'Component code',
+  analyte_code_system: 'Code system',
+  collected_at_source: 'Collected, as written',
+  collected_at_precision: 'Collected precision',
+  collected_at_timezone: 'Collected time zone',
+  resulted_at_source: 'Resulted, as written',
+  resulted_at_precision: 'Resulted precision',
+  resulted_at_timezone: 'Resulted time zone',
+  administered_at_source: 'Date given, as written',
+  administered_at_precision: 'Date given precision',
+  administered_at_timezone: 'Date given time zone',
+  visit_date_source: 'Date, as written',
+  visit_started_source: 'Started, as written',
+  visit_started_precision: 'Started precision',
+  visit_started_timezone: 'Started time zone',
+  visit_ended_source: 'Ended, as written',
+  visit_ended_precision: 'Ended precision',
+  visit_ended_timezone: 'Ended time zone',
+  visit_date: 'Date',
+  visit_started_at: 'Started',
+  visit_ended_at: 'Ended',
+  visit_type: 'Type',
+  encounter_status: 'Appointment status',
+  encounter_category: 'Kind of event',
+  encounter_diagnoses: 'Diagnoses',
+  provider_name: 'Provider',
+  facility_name: 'Facility',
 }
 
+/**
+ * What an update never writes, so it is no change to show. Everything else an update
+ * names is shown, source details and provenance included: a person cannot approve a
+ * difference they cannot see.
+ */
+const NEVER_UPDATED = new Set(['import_source', 'external_id', 'review_status', 'source', 'tags', 'mime_type', 'original_filename', 'retain_reason', 'cvx_code', 'dose_number'])
+
 /** Bookkeeping a reviewer does not decide on. */
-const HIDDEN_FIELDS = new Set(['import_source', 'external_id', 'review_status', 'source', 'tags', 'mime_type', 'original_filename', 'retain_reason', 'administered_at_source', 'administered_at_precision', 'administered_at_timezone', 'cvx_code', 'dose_number', 'value_numeric', 'analyte_code', 'analyte_code_system', 'collected_at_source', 'collected_at_precision', 'collected_at_timezone', 'resulted_at_source', 'resulted_at_precision', 'resulted_at_timezone'])
+const HIDDEN_FIELDS = new Set(['import_source', 'external_id', 'review_status', 'source', 'tags', 'mime_type', 'original_filename', 'retain_reason', 'administered_at_source', 'administered_at_precision', 'administered_at_timezone', 'cvx_code', 'dose_number', 'value_numeric', 'analyte_code', 'analyte_code_system', 'collected_at_source', 'collected_at_precision', 'collected_at_timezone', 'resulted_at_source', 'resulted_at_precision', 'resulted_at_timezone', 'raw_text', 'icd10_codes', 'visit_date_source', 'visit_started_source', 'visit_started_precision', 'visit_started_timezone', 'visit_ended_source', 'visit_ended_precision', 'visit_ended_timezone'])
 
 export function fieldLabel(field: string): string {
   return FIELD_LABELS[field] ?? field.replaceAll('_', ' ')
@@ -102,6 +140,11 @@ export function fieldLabel(field: string): string {
 function text(value: unknown): string | null {
   if (value === null || value === undefined || value === '') {
     return null
+  }
+  // Encounter diagnoses: a list of entries, each named.
+  if (Array.isArray(value)) {
+    const names = value.map((entry: unknown) => (entry !== null && typeof entry === 'object' ? (entry as Record<string, unknown>)['name'] : null)).filter((name): name is string => typeof name === 'string')
+    return names.length > 0 ? text(names.join('; ')) : null
   }
   if (typeof value === 'string') {
     return value.length > 160 ? `${value.slice(0, 157)}…` : value
@@ -145,6 +188,70 @@ function labValueText(fields: Record<string, unknown>): string | null {
   return value !== null && comparator !== null && !value.startsWith(comparator) ? `${comparator}${value}` : value
 }
 
+/** A yes/no a diagnosis states, with unknown left unsaid and "no" said. */
+function flagText(value: unknown, yes: string, no: string): string | null {
+  return value === true ? yes : value === false ? no : null
+}
+
+/** A diagnosis as a person compares it, with every field a correction could change. */
+function diagnosisText(entry: unknown): string | null {
+  if (entry === null || typeof entry !== 'object') {
+    return null
+  }
+  const fields = entry as Record<string, unknown>
+  const label = typeof fields['name'] === 'string' ? fields['name'] : 'Unnamed diagnosis'
+  const line = typeof fields['line'] === 'string' ? `Line ${fields['line']}: ` : ''
+  const primary = flagText(fields['primary'], ' (primary)', ' (not primary)') ?? ''
+
+  return [`${line}${label}${primary}`, flagText(fields['chronic'], 'chronic', 'not chronic'), flagText(fields['ed_impression'], 'ED impression', 'not ED impression'), fields['qualifier'], fields['annotation'], fields['comments']]
+    .filter((part): part is string => typeof part === 'string' && part !== '')
+    .join(', ')
+}
+
+/** A changed field in full, before any shortening. */
+function fullText(field: string, fields: Record<string, unknown>): string | null {
+  if (field === 'value') {
+    return labValueText(fields)
+  }
+  const value = fields[field]
+  if (Array.isArray(value)) {
+    return value.map(diagnosisText).filter(Boolean).join('; ') || null
+  }
+
+  if (typeof value === 'string') {
+    return value === '' ? null : value
+  }
+
+  return typeof value === 'number' || typeof value === 'boolean' ? String(value) : null
+}
+
+/** What a field stores, for telling whether two values differ at all. */
+function storedForm(field: string, fields: Record<string, unknown>): string {
+  const stored = field === 'value' ? [fields['value'] ?? null, fields['value_comparator'] ?? null] : fields[field] ?? null
+
+  return typeof stored === 'string' ? stored : JSON.stringify(stored)
+}
+
+const SHOWN_CHARACTERS = 160
+const CONTEXT_BEFORE_DIFFERENCE = 40
+
+/** Long texts cut around where they first differ, so two long values never read the same. */
+function differenceOf(before: string | null, after: string | null): { before: string | null, after: string | null } {
+  if (before === null || after === null || (before.length <= SHOWN_CHARACTERS && after.length <= SHOWN_CHARACTERS)) {
+    const cut = (value: string | null): string | null => (value !== null && value.length > SHOWN_CHARACTERS ? `${value.slice(0, SHOWN_CHARACTERS - 3)}…` : value)
+    return { before: cut(before), after: cut(after) }
+  }
+  let first = 0
+  while (first < before.length && before[first] === after[first]) {
+    first += 1
+  }
+  const start = Math.max(0, first - CONTEXT_BEFORE_DIFFERENCE)
+  const length = SHOWN_CHARACTERS - 3
+  const excerpt = (value: string): string => `${start > 0 ? '…' : ''}${value.slice(start, start + length)}${start + length < value.length ? '…' : ''}`
+
+  return { before: excerpt(before), after: excerpt(after) }
+}
+
 function changesOf(proposal: EhiProposal, attributes: Record<string, unknown>): EhiProposalView['changes'] {
   if (proposal.kind !== 'update') {
     return []
@@ -153,13 +260,25 @@ function changesOf(proposal: EhiProposal, attributes: Record<string, unknown>): 
   const declared = proposal.proposed?.['changed']
   const fields = Array.isArray(declared)
     ? declared.map(String)
-    : Object.keys(attributes).filter((field) => !HIDDEN_FIELDS.has(field) && JSON.stringify(attributes[field]) !== JSON.stringify(before[field]))
+    : Object.keys(attributes).filter((field) => !NEVER_UPDATED.has(field) && JSON.stringify(attributes[field]) !== JSON.stringify(before[field]))
 
-  return fields.filter((field) => !HIDDEN_FIELDS.has(field)).map((field) => ({
-    field: UPDATE_FIELD_LABELS[field] ?? fieldLabel(field),
-    before: displayUnits(field === 'value' ? labValueText(before) : text(before[field])) ?? 'Not recorded',
-    after: displayUnits(field === 'value' ? labValueText(attributes) : text(attributes[field])) ?? 'Not recorded',
-  }))
+  const rows: EhiProposalView['changes'] = []
+  for (const field of fields) {
+    const storedBefore = storedForm(field, before)
+    const storedAfter = storedForm(field, attributes)
+    // Only values that really are the same are no change.
+    if (storedBefore === storedAfter) {
+      continue
+    }
+    let shown = differenceOf(displayUnits(fullText(field, before)) ?? null, displayUnits(fullText(field, attributes)) ?? null)
+    if (shown.before === shown.after) {
+      // The friendly form hides this difference, so show the stored values themselves.
+      shown = differenceOf(storedBefore, storedAfter)
+    }
+    rows.push({ field: UPDATE_FIELD_LABELS[field] ?? fieldLabel(field), before: shown.before ?? 'Not recorded', after: shown.after ?? 'Not recorded' })
+  }
+
+  return rows
 }
 
 const CONFLICT_LABELS: Record<string, string> = { value: 'value', unit: 'unit', date: 'date' }
@@ -172,6 +291,16 @@ function noticeOf(proposal: EhiProposal): string | null {
     const conflicts = (bridge as Record<string, unknown>)['conflicts']
     if (Array.isArray(conflicts) && conflicts.length > 0) {
       return `It carries the same source identifier as a record in PHR, but the ${conflicts.map((conflict) => CONFLICT_LABELS[String(conflict)] ?? String(conflict)).join(' and ')} differ${conflicts.length === 1 ? 's' : ''}. Neither is changed unless you choose.`
+    }
+  }
+  const ehi = proposed['ehi']
+  if (ehi !== null && typeof ehi === 'object' && !Array.isArray(ehi) && (ehi as Record<string, unknown>)['diagnoses_unavailable'] === true) {
+    return 'This export could not vouch for this encounter\'s diagnoses, so they are not part of this proposal and a visit in PHR keeps the ones it has.'
+  }
+  if (ehi !== null && typeof ehi === 'object' && !Array.isArray(ehi)) {
+    const unreadable = ehi as Record<string, unknown>
+    if (unreadable['comments_unavailable'] === true || unreadable['narrative_unavailable'] === true) {
+      return 'This export could not vouch for this result\'s comments or narrative, so a record in PHR keeps the ones it has.'
     }
   }
   if (proposed['withdrawn_match'] === true) {
@@ -223,6 +352,19 @@ export function proposalView(proposal: EhiProposal): EhiProposalView {
     }
   }
 
+  if (proposal.mapping === 'encounter') {
+    const diagnoses = text(attributes['encounter_diagnoses'])
+    const details = [text(attributes['visit_type']), text(attributes['provider_name']), text(attributes['facility_name']), diagnoses === null ? null : `Diagnoses: ${diagnoses}`].filter(Boolean)
+    return {
+      domain,
+      title: text(attributes['visit_type']) ?? 'Visit',
+      date: formatSourceDate(attributes['visit_date']),
+      detail: details.length > 0 ? details.join(' · ') : null,
+      changes,
+      notice,
+    }
+  }
+
   const first = Object.entries(attributes).find(([field, value]) => !HIDDEN_FIELDS.has(field) && text(value) !== null)
   return { domain, title: first ? String(text(first[1])) : `Proposal ${proposal.id}`, date: null, detail: null, changes, notice }
 }
@@ -240,6 +382,17 @@ const RETAIN_REASONS: Record<string, string> = {
   linked_record_withdrawn: 'The record it was linked to was deleted, retracted, or rejected, and stays that way.',
   lab_identity_withdrawn: 'The record it was imported as was deleted, retracted, or rejected, and stays that way.',
   linked_lab_status_not_clinical: 'The source no longer asserts this result. The record in PHR is unchanged; change it yourself if it is wrong.',
+  category_telephone: 'A telephone encounter. PHR keeps it as evidence, not as a visit.',
+  category_portal: 'A portal message or other portal event. PHR keeps it as evidence, not as a visit.',
+  category_cancelled: 'A canceled appointment or no-show, so no visit took place.',
+  category_administrative: 'An administrative event, such as an order, charge, or scheduled appointment, not a visit.',
+  category_unknown: 'The source does not say what kind of event this was, so PHR did not assume it was a visit.',
+  foreign_patient_encounter: 'The source links this encounter to another patient.',
+  orphan_encounter: 'Not linked to a patient in the source.',
+  missing_encounter_date: 'The source gives no date for this encounter.',
+  encounter_bridge_target_withdrawn: 'The record it matches was deleted, retracted, or rejected, and stays that way.',
+  encounter_identity_withdrawn: 'The record it was imported as was deleted, retracted, or rejected, and stays that way.',
+  linked_encounter_not_clinical: 'The source no longer reports this as a visit. The record in PHR is unchanged; change it yourself if it is wrong.',
 }
 
 /** Why a kept-as-evidence row was not imported, in words. */
@@ -290,6 +443,10 @@ export function decisionActions(proposal: EhiProposal): DecisionAction[] {
       ? ['retain_evidence', 'reject']
       : ['approve_update', 'accept', 'link_existing', 'retain_evidence', 'reject']
   const allowed = new Set(proposal.allowed_decisions)
+  // Nothing visibly differs, so there is nothing a person could be approving.
+  if (proposal.kind === 'update' && changesOf(proposal, proposedAttributes(proposal)).length === 0) {
+    allowed.delete('approve_update')
+  }
   // Linking an existing record needs a candidate to link; offer it only with one.
   const actions = order.filter((decision) => allowed.has(decision) && (decision !== 'link_existing' || proposal.candidate_ids.length > 0))
 

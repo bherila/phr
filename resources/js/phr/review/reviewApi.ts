@@ -4,6 +4,7 @@ import { fetchWrapper } from '@/fetchWrapper'
 import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { AiImportResultSchema, decideAiResult } from '@/phr/imports/ai/aiImportsApi'
 import { type EhiDecision, ehiFailureText, EhiProposalSchema, reviewEhiProposal } from '@/phr/imports/ehi/ehiApi'
+import { proposalView } from '@/phr/imports/ehi/ehiProposalView'
 import { isPhrPageId, type PhrPageId } from '@/phr/shell/phrRoutes'
 
 import { reviewStateChanged, ReviewSummarySchema, type ReviewSummaryState } from './reviewSummary'
@@ -161,6 +162,10 @@ export async function decideReviewItem(patientId: number, item: ReviewItem, deci
       await decideAiResult(patientId, item.import_id, item.id, decision === 'approve' ? 'accept' : 'reject')
       return
     case 'ehi_proposal':
+      // The same rule as its own review screen: never approve a change nobody can see.
+      if (decision === 'approve' && item.proposal.kind === 'update' && proposalView(item.proposal).changes.length === 0) {
+        throw new Error('This update shows no difference, so there is nothing to approve. Open the import to keep it as evidence or reject it.')
+      }
       await reviewEhiProposal(patientId, item.proposal, decision === 'approve' ? EHI_APPROVAL[item.proposal.kind] ?? 'accept' : 'reject')
   }
 }

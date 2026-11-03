@@ -119,7 +119,7 @@ export function reviewRow(item: ReviewItem, group: ReviewGroup, patientId: numbe
     item, section, source, title: view.title, detail: joined([view.date, view.detail]), flags: [],
     change, changeDetail,
     action: { label: change === 'new' || change === 'kept' ? 'Open' : 'Compare', href: ehiReviewUrl(patientId, item.package_id) },
-    checkedByDefault: change !== 'duplicate',
+    checkedByDefault: change !== 'duplicate' && (change !== 'update' || view.changes.length > 0),
     ai: null,
     duplicate: null,
     eobCandidates: null,

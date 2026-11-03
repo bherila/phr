@@ -393,13 +393,19 @@ class PhrFhirExporter
             'subject' => $this->patientReference($visit->patient_id),
             'type' => $visit->visit_type ? [$this->textCode($visit->visit_type)] : null,
             'period' => [
-                'start' => $this->fhirDateTime($visit->visit_started_at ?? $visit->visit_date),
-                'end' => $this->fhirDateTime($visit->visit_ended_at),
+                // FHIR requires a zone on a time. One the source did not record goes out as its date.
+                'start' => $this->visitMoment($visit->startZoneIsUnrecorded(), $visit->visit_started_at ?? $visit->visit_date),
+                'end' => $this->visitMoment($visit->endZoneIsUnrecorded(), $visit->visit_ended_at),
             ],
             'participant' => $visit->provider_name ? [['individual' => ['display' => $visit->provider_name]]] : null,
             'reasonCode' => $visit->chief_complaint ? [$this->textCode($visit->chief_complaint)] : null,
             'serviceProvider' => $visit->facility_name ? ['display' => $visit->facility_name] : null,
         ];
+    }
+
+    private function visitMoment(bool $zoneIsUnrecorded, ?Carbon $moment): ?string
+    {
+        return $zoneIsUnrecorded ? $moment?->toDateString() : $this->fhirDateTime($moment);
     }
 
     /**
@@ -413,7 +419,7 @@ class PhrFhirExporter
             'status' => 'completed',
             'subject' => $this->patientReference($visit->patient_id),
             'encounter' => ['reference' => 'Encounter/phr-visit-'.$visit->id],
-            'date' => $this->fhirDateTime($visit->visit_started_at ?? $visit->visit_date),
+            'date' => $this->visitMoment($visit->startZoneIsUnrecorded(), $visit->visit_started_at ?? $visit->visit_date),
             'description' => $visit->chief_complaint,
             'summary' => trim(implode("\n\n", array_filter([$visit->assessment, $visit->plan]))),
         ];
