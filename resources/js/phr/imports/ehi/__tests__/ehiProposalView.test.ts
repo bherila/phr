@@ -178,6 +178,12 @@ describe('ehiProposalView', () => {
     expect(reviewGroupOf(makeEhiProposal({ kind: 'corroborate' }))).toBe('evidence')
     expect(reviewGroupOf(makeEhiProposal({ kind: 'retain' }))).toBe('kept')
     expect(reviewGroupOf(makeEhiProposal())).toBe('new')
+    const phone = { mapping: 'encounter', proposed: { attributes: { encounter_category: 'telephone' } } }
+    expect(reviewGroupOf(makeEhiProposal(phone))).toBe('phone')
+    expect(decisionActions(makeEhiProposal(phone)).map((action) => action.label)).toEqual(['Add as visit', 'Keep as evidence only', 'Reject'])
+    expect(reviewGroupOf(makeEhiProposal({ ...phone, kind: 'possible_duplicate' }))).toBe('duplicate')
+    expect(reviewGroupOf(makeEhiProposal({ ...phone, kind: 'update' }))).toBe('change')
+    expect(reviewGroupOf(makeEhiProposal({ mapping: 'encounter', proposed: { attributes: { encounter_category: 'clinical' } } }))).toBe('new')
   })
 
   it('offers linking only when there is a candidate, and leads a duplicate with it', () => {

@@ -10,7 +10,7 @@ import { errorMessage } from '@/phr/shared'
 import { PhrDocumentResponseSchema, PhrImmunizationResponseSchema, PhrLabResultResponseSchema, PhrOfficeVisitResponseSchema } from '@/phr/types'
 
 import { type EhiDecision, ehiFailureText, type EhiProposal, listAllEhiProposals, reviewEhiProposal } from './ehiApi'
-import { decisionActions, formatSourceDate, proposalView, retainReason, REVIEW_GROUPS, reviewGroupOf, STATUS_LABELS } from './ehiProposalView'
+import { decisionActions, type EhiReviewGroup, formatSourceDate, proposalView, retainReason, REVIEW_GROUPS, reviewGroupOf, STATUS_LABELS } from './ehiProposalView'
 
 export interface EhiReviewProps {
   patientId: number
@@ -215,10 +215,11 @@ export function EhiReview({ patientId, packageId, sourceLabel, onBack }: EhiRevi
   }, [proposals])
 
   const undecided = (proposals ?? []).filter((proposal) => proposal.status === 'pending' && proposal.reviewable)
-  const acceptableNew = undecided.filter((proposal) => reviewGroupOf(proposal) === 'new' && proposal.allowed_decisions.includes('accept'))
+  const acceptableIn = (group: EhiReviewGroup): EhiProposal[] => undecided.filter((proposal) => reviewGroupOf(proposal) === group && proposal.allowed_decisions.includes('accept'))
+  const acceptableNew = acceptableIn('new')
+  const addablePhoneCalls = acceptableIn('phone')
 
-  async function acceptAllNew(): Promise<void> {
-    const queue = [...acceptableNew]
+  async function acceptAll(queue: EhiProposal[]): Promise<void> {
     setBulk({ running: true, done: 0, failed: 0 })
     let done = 0
     let failed = 0
@@ -249,7 +250,7 @@ export function EhiReview({ patientId, packageId, sourceLabel, onBack }: EhiRevi
           </p>
         </div>
         {acceptableNew.length > 0 && (
-          <Button type="button" disabled={bulk?.running === true} onClick={() => void acceptAllNew()}>
+          <Button type="button" disabled={bulk?.running === true} onClick={() => void acceptAll(acceptableNew)}>
             Accept all {acceptableNew.length} new records
           </Button>
         )}
@@ -281,6 +282,11 @@ export function EhiReview({ patientId, packageId, sourceLabel, onBack }: EhiRevi
               <span className="text-sm text-muted-foreground">{list.length}</span>
             </div>
             <p className="mt-0.5 text-sm text-muted-foreground">{description}</p>
+            {group === 'phone' && addablePhoneCalls.length > 0 && (
+              <Button type="button" variant="outline" size="sm" className="mt-2" disabled={bulk?.running === true} onClick={() => void acceptAll(addablePhoneCalls)}>
+                Add all {addablePhoneCalls.length} as visits
+              </Button>
+            )}
             <ul className="mt-1">
               {list.map((proposal) => (
                 <ProposalCard

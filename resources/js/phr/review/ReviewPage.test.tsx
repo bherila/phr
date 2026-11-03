@@ -276,6 +276,20 @@ describe('ReviewPage possible duplicates and EOBs', () => {
     mockPost.mockResolvedValue({ outcome: 'merged' })
   })
 
+  it('lists a phone call from an EHI export unchecked, so a batch approval only adds it on request', async () => {
+    const encounter = (id: number, type: string, category: string) => {
+      const item = ehi(id, 'create', type)
+      return { ...item, section: 'office-visits', proposal: { ...item.proposal, mapping: 'encounter', proposed: { attributes: { visit_type: type, visit_date: '2024-05-03', encounter_category: category } } } }
+    }
+    mockGet.mockResolvedValue(queue([group('ehi:9', 'ehi', 'EHI export', [encounter(71, 'Telephone', 'telephone'), encounter(72, 'Office Visit', 'clinical')], { package_id: 9 })]))
+    render(<ReviewPage patientId={PATIENT} />)
+
+    const exported = await screen.findByRole('region', { name: /EHI export/ })
+    expect(within(exported).getByRole('checkbox', { name: 'Select Telephone' })).not.toBeChecked()
+    expect(within(exported).getByText(/approve it only if you want it as a visit/)).toBeInTheDocument()
+    expect(within(exported).getByRole('checkbox', { name: 'Select Office Visit' })).toBeChecked()
+  })
+
   it('lists a flagged fill unchecked, with the existing fill beside it', async () => {
     mockGet.mockResolvedValue(queue([group('records:agent:', 'records', 'Agent', [flaggedFill, record(62, 'conditions', 'Synthetic rhinitis')])]))
     render(<ReviewPage patientId={PATIENT} />)

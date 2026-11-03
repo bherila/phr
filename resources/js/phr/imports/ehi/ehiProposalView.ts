@@ -15,15 +15,24 @@ export interface EhiProposalView {
   notice: string | null
 }
 
-export type EhiReviewGroup = 'change' | 'duplicate' | 'new' | 'evidence' | 'kept'
+export type EhiReviewGroup = 'change' | 'duplicate' | 'new' | 'phone' | 'evidence' | 'kept'
 
 export const REVIEW_GROUPS: { group: EhiReviewGroup, title: string, description: string }[] = [
   { group: 'change', title: 'Changed in the source', description: 'The export has a different value for a record already in PHR.' },
   { group: 'duplicate', title: 'Might already be in PHR', description: 'A record in PHR looks like the same thing, from another source.' },
   { group: 'new', title: 'New records', description: 'Not in PHR yet.' },
+  { group: 'phone', title: 'Phone calls', description: 'The source records these as telephone encounters, which can be a visit or a staff note about a call. Add the ones you want as visits. Reject remembers your answer for later exports; keeping one as evidence only asks again.' },
   { group: 'evidence', title: 'Matched records already in PHR', description: 'They share an identifier with an existing record, so accepting adds the export as its evidence. The record does not change.' },
   { group: 'kept', title: 'Kept as evidence only', description: 'Rows the export marks as deleted or that could not be linked to a record. They are kept with the export; nothing is added.' },
 ]
+
+/**
+ * A telephone encounter proposed as a new visit. It may only be a note about a call, so it
+ * waits for a person to choose it: no bulk action picks it up by default.
+ */
+export function isOptionalVisit(proposal: EhiProposal): boolean {
+  return proposal.kind === 'create' && proposal.mapping === 'encounter' && proposedAttributes(proposal)['encounter_category'] === 'telephone'
+}
 
 export function reviewGroupOf(proposal: EhiProposal): EhiReviewGroup {
   switch (proposal.kind) {
@@ -36,7 +45,7 @@ export function reviewGroupOf(proposal: EhiProposal): EhiReviewGroup {
     case 'retain':
       return 'kept'
     default:
-      return 'new'
+      return isOptionalVisit(proposal) ? 'phone' : 'new'
   }
 }
 
@@ -451,7 +460,7 @@ export interface DecisionAction {
 export function decisionActions(proposal: EhiProposal): DecisionAction[] {
   const group = reviewGroupOf(proposal)
   const labels: Record<string, string> = {
-    accept: group === 'duplicate' ? 'Different, add as new' : group === 'evidence' ? 'Add as evidence' : 'Accept',
+    accept: group === 'duplicate' ? 'Different, add as new' : group === 'evidence' ? 'Add as evidence' : group === 'phone' ? 'Add as visit' : 'Accept',
     approve_update: 'Approve update',
     link_existing: 'Same record, link as evidence',
     reject: 'Reject',

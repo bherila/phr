@@ -12,6 +12,10 @@ namespace App\Services\PHR\Import\Ehi\Mapping\Encounter;
  * the ones whose meaning is plain, and anything else is `unknown`, never guessed at.
  * With no type, a completed or arrived appointment or a hospital admission time says
  * the event happened; a row stating none of these is `unknown`.
+ *
+ * A telephone or video visit is a visit. A plain telephone encounter may be one, or a
+ * staff note about a call, so `telephone` is offered as a visit for a person to choose.
+ * Its status counts the same way: a call still scheduled or marked invalid is not one.
  */
 final class EhiEncounterCategory
 {
@@ -39,10 +43,10 @@ final class EhiEncounterCategory
         'consult' => self::CLINICAL,
         'telemedicine' => self::CLINICAL,
         'video visit' => self::CLINICAL,
+        'telephone visit' => self::CLINICAL,
+        'phone visit' => self::CLINICAL,
         'telephone' => self::TELEPHONE,
-        'telephone visit' => self::TELEPHONE,
         'telephone encounter' => self::TELEPHONE,
-        'phone visit' => self::TELEPHONE,
         'patient message' => self::PORTAL,
         'portal message' => self::PORTAL,
         'mychart encounter' => self::PORTAL,
@@ -82,7 +86,7 @@ final class EhiEncounterCategory
         if ($type !== null && $typed === null && ! in_array($type, self::NEUTRAL_TYPES, true)) {
             return self::UNKNOWN;
         }
-        if ($typed !== null && $typed !== self::CLINICAL) {
+        if ($typed !== null && ! self::canBeAVisit($typed)) {
             return $typed;
         }
         if (self::fold($calculatedStatus) === 'invalid' || ($status !== null && in_array($status, self::NOT_YET_STATUSES, true))) {
@@ -91,8 +95,17 @@ final class EhiEncounterCategory
         if ($status !== null && ! in_array($status, self::HAPPENED_STATUSES, true)) {
             return self::UNKNOWN;
         }
+        if ($typed === self::TELEPHONE) {
+            return self::TELEPHONE;
+        }
 
         return $typed === self::CLINICAL || $status !== null || $hasAdmissionTime ? self::CLINICAL : self::UNKNOWN;
+    }
+
+    /** Whether a person can be offered this category as a visit. */
+    public static function canBeAVisit(string $category): bool
+    {
+        return $category === self::CLINICAL || $category === self::TELEPHONE;
     }
 
     private static function fold(?string $text): ?string
