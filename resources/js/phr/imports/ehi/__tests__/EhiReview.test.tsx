@@ -257,4 +257,39 @@ describe('EhiReview', () => {
     expect(screen.getByText(/This proposal changed since the review screen loaded/)).toBeInTheDocument()
     expect(mockPost).toHaveBeenCalledTimes(2)
   })
+
+  describe('phone calls', () => {
+    const phoneCall = (id: number) => makeEhiProposal({
+      id,
+      mapping: 'encounter',
+      proposed: { attributes: { visit_type: 'Telephone', visit_date: '2024-05-03', encounter_category: 'telephone' } },
+    })
+    const visit = makeEhiProposal({ id: 51, mapping: 'encounter', proposed: { attributes: { visit_type: 'Office Visit', visit_date: '2024-05-01', encounter_category: 'clinical' } } })
+
+    beforeEach(() => {
+      mockGet.mockResolvedValue({ proposals: [visit, phoneCall(52), phoneCall(53)], next_after_id: null })
+      mockPost.mockImplementation((url: string) => Promise.resolve({ proposal: { ...visit, id: Number(/\/(\d+)\/review$/.exec(url)?.[1]), status: 'accepted', reviewable: false }, record: null }))
+    })
+
+    const reviewedIds = (): string[] => mockPost.mock.calls.map(([url]) => /\/(\d+)\/review$/.exec(url as string)?.[1] ?? '')
+
+    it('leaves them out of accepting every new record', async () => {
+      render(<EhiReview patientId={EHI_PATIENT_ID} packageId={9} onBack={jest.fn()} />)
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Accept all 1 new records' }))
+
+      await waitFor(() => expect(reviewedIds()).toEqual(['51']))
+    })
+
+    it('adds them only when a person asks, one at a time or together', async () => {
+      render(<EhiReview patientId={EHI_PATIENT_ID} packageId={9} onBack={jest.fn()} />)
+      const calls = await screen.findByRole('region', { name: 'Phone calls' })
+
+      expect(within(calls).getAllByRole('button', { name: /^Add as visit/ })).toHaveLength(2)
+      fireEvent.click(within(calls).getByRole('button', { name: 'Add all 2 as visits' }))
+
+      await waitFor(() => expect(reviewedIds()).toEqual(['52', '53']))
+      expect(screen.queryByRole('button', { name: /^Add all/ })).not.toBeInTheDocument()
+    })
+  })
 })

@@ -17,7 +17,7 @@ import { displayUnits } from '@/lib/measureUnits'
 import { cn } from '@/lib/utils'
 import { AiResultDetails, type AiResultView,aiResultView } from '@/phr/imports/ai/AiImportReview'
 import { ehiFailureText, ehiImportsUrl,ehiReviewUrl } from '@/phr/imports/ehi/ehiApi'
-import { formatSourceDate, proposalView, retainReason } from '@/phr/imports/ehi/ehiProposalView'
+import { formatSourceDate, isOptionalVisit, proposalView, retainReason } from '@/phr/imports/ehi/ehiProposalView'
 import { pushPhrLocation } from '@/phr/shell/phrLocation'
 import { PHR_PAGES, type PhrListPageProps } from '@/phr/shell/phrPages'
 import { isPhrShellPath, patientPageUrl, type PhrPageId } from '@/phr/shell/phrRoutes'
@@ -108,8 +108,9 @@ export function reviewRow(item: ReviewItem, group: ReviewGroup, patientId: numbe
   const proposal = item.proposal
   const view = proposalView(proposal)
   const change: ChangeKind = proposal.kind === 'update' ? 'update' : proposal.kind === 'possible_duplicate' ? 'duplicate' : proposal.kind === 'corroborate' ? 'evidence' : proposal.kind === 'retain' ? 'kept' : 'new'
+  const optional = isOptionalVisit(proposal)
   const changeDetail = {
-    new: 'Not in the record yet',
+    new: optional ? 'A phone call or a note about one; approve it only if you want it as a visit' : 'Not in the record yet',
     update: view.changes.length > 0 ? view.changes.slice(0, 2).map((field) => `${field.field} ${field.before} → ${field.after}`).join('; ') : 'Changes a record already in PHR',
     duplicate: view.notice ?? 'Looks like a record already in PHR; approving adds it as a separate record',
     evidence: 'Matches a record already in PHR; approving adds the export as its evidence',
@@ -119,7 +120,7 @@ export function reviewRow(item: ReviewItem, group: ReviewGroup, patientId: numbe
     item, section, source, title: view.title, detail: joined([view.date, view.detail]), flags: [],
     change, changeDetail,
     action: { label: change === 'new' || change === 'kept' ? 'Open' : 'Compare', href: ehiReviewUrl(patientId, item.package_id) },
-    checkedByDefault: change !== 'duplicate' && (change !== 'update' || view.changes.length > 0),
+    checkedByDefault: !optional && change !== 'duplicate' && (change !== 'update' || view.changes.length > 0),
     ai: null,
     duplicate: null,
     eobCandidates: null,

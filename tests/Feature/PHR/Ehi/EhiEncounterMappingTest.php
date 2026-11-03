@@ -33,10 +33,12 @@ use App\Services\PHR\Import\Ehi\EhiPreviewQueue;
 use App\Services\PHR\Import\Ehi\EhiProposalService;
 use App\Services\PHR\Import\Ehi\EhiReviewRefused;
 use App\Services\PHR\Import\Ehi\EhiUploadService;
+use App\Services\PHR\Import\Ehi\Mapping\EhiApplyContext;
 use App\Services\PHR\Import\Ehi\Mapping\EhiEncounterMapping;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMappingContext;
 use App\Services\PHR\Import\Ehi\Mapping\EhiSourceIdBridge;
 use App\Services\PHR\Import\Ehi\Mapping\EhiTargetDigest;
+use App\Services\PHR\Import\Ehi\Mapping\Encounter\EhiEncounterApplyRefused;
 use App\Services\PHR\Import\Ehi\Mapping\Encounter\EhiEncounterCategory;
 use App\Services\PHR\NativeBackup\PhrNativeBackupService;
 use App\Services\PHR\NativeBackup\PhrNativeRestoreService;
@@ -75,18 +77,17 @@ class EhiEncounterMappingTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_only_a_clinical_encounter_is_proposed_as_a_visit_and_the_rest_stay_distinct_evidence(): void
+    public function test_only_an_encounter_that_can_be_a_visit_is_proposed_and_the_rest_stay_distinct_evidence(): void
     {
         [$owner, $patient] = $this->ownerAndPatient();
         $package = $this->previewed(EhiClinicalPackage::withEncounters()->build(), $owner, $patient);
 
-        foreach (['7101', '7102'] as $csn) {
-            $proposal = $this->proposal($package, $csn);
-            self::assertSame(PhrEhiProposal::KIND_CREATE, $proposal->kind, $csn);
-            self::assertSame(EhiEncounterCategory::CLINICAL, $proposal->proposed_json['attributes']['encounter_category']);
+        foreach (['7101' => EhiEncounterCategory::CLINICAL, '7102' => EhiEncounterCategory::CLINICAL, '7103' => EhiEncounterCategory::TELEPHONE] as $csn => $category) {
+            $proposal = $this->proposal($package, (string) $csn);
+            self::assertSame(PhrEhiProposal::KIND_CREATE, $proposal->kind, (string) $csn);
+            self::assertSame($category, $proposal->proposed_json['attributes']['encounter_category'], 'review tells the two apart by this');
         }
         foreach ([
-            '7103' => EhiEncounterCategory::TELEPHONE,
             '7104' => EhiEncounterCategory::PORTAL,
             '7105' => EhiEncounterCategory::CANCELLED,
             '7106' => EhiEncounterCategory::CANCELLED,
@@ -104,6 +105,102 @@ class EhiEncounterMappingTest extends TestCase
         // 7110, 7111, and standard()'s two encounters, which state nothing about their kind.
         self::assertSame(4, PhrEhiFinding::query()->where('package_id', $package->id)->where('code', EhiEncounterMapping::FINDING_UNCLASSIFIED)->count());
         self::assertSame(0, PhrOfficeVisit::query()->count(), 'a preview writes no clinical rows');
+    }
+
+    public function test_a_phone_call_a_person_adds_becomes_a_visit_that_still_says_it_was_a_call(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $package = $this->previewed(EhiClinicalPackage::withEncounters()->build(), $owner, $patient);
+
+        $this->accept($this->proposal($package, '7103'), $owner);
+
+        $visit = PhrOfficeVisit::query()->sole();
+        self::assertSame(EhiEncounterCategory::TELEPHONE, $visit->encounter_category);
+        self::assertSame('Telephone', $visit->visit_type);
+        self::assertSame('2024-05-03', $visit->visit_date?->format('Y-m-d'));
+        self::assertSame('Synthetic telephone diagnosis', $visit->encounter_diagnoses[0]['name'] ?? null);
+        self::assertSame(0, PhrCondition::query()->count(), 'its diagnoses stay on the visit');
+
+        $later = $this->previewed(EhiClinicalPackage::withEncounters()->build()->with('README.txt', "Synthetic later readme\n"), $owner, $patient, 'later', $package->source_id);
+        $again = $this->proposal($later, '7103');
+        self::assertSame(PhrEhiProposal::KIND_CORROBORATE, $again->kind, 'an unchanged row only adds evidence to the visit it became');
+        self::assertSame($visit->id, $again->target_id);
+    }
+
+    public function test_a_telephone_visit_is_an_ordinary_visit_proposal(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $package = $this->previewed(
+            EhiClinicalPackage::withEncounters()->changing('PAT_ENC', ['PAT_ENC_CSN_ID' => '7103'], ['ENC_TYPE_C_NAME' => 'Telephone Visit', 'APPT_STATUS_C_NAME' => 'Completed'])->build(),
+            $owner,
+            $patient,
+        );
+
+        $proposal = $this->proposal($package, '7103');
+        self::assertSame(PhrEhiProposal::KIND_CREATE, $proposal->kind);
+        self::assertSame(EhiEncounterCategory::CLINICAL, $proposal->proposed_json['attributes']['encounter_category']);
+    }
+
+    public function test_a_call_that_has_not_happened_is_not_offered_as_a_visit(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $package = $this->previewed(
+            EhiClinicalPackage::withEncounters()->changing('PAT_ENC', ['PAT_ENC_CSN_ID' => '7103'], ['APPT_STATUS_C_NAME' => 'Scheduled'])->build(),
+            $owner,
+            $patient,
+        );
+
+        $proposal = $this->proposal($package, '7103');
+        self::assertSame(PhrEhiProposal::KIND_RETAIN, $proposal->kind);
+        self::assertSame('category_'.EhiEncounterCategory::ADMINISTRATIVE, $proposal->proposed_json['retain_reason']);
+    }
+
+    public function test_a_phone_call_the_same_day_as_a_visit_in_phr_asks_whether_it_is_the_same_thing(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $existing = $this->legacy($owner, $patient, ['import_source' => 'manual', 'external_id' => 'visit-1', 'visit_date' => '2024-05-03']);
+        $package = $this->previewed(EhiClinicalPackage::withEncounters()->build(), $owner, $patient);
+
+        $proposal = $this->proposal($package, '7103');
+        self::assertSame(PhrEhiProposal::KIND_POSSIBLE_DUPLICATE, $proposal->kind);
+        self::assertSame([$existing->id], $proposal->candidate_ids_json);
+    }
+
+    public function test_rejecting_a_phone_call_sticks_across_packages_and_keeping_it_as_evidence_asks_again(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $build = EhiClinicalPackage::withEncounters()
+            ->changing('PAT_ENC', ['PAT_ENC_CSN_ID' => '7104'], ['ENC_TYPE_C_NAME' => 'Telephone']);
+        $package = $this->previewed($build->build(), $owner, $patient);
+        $rejected = $this->proposal($package, '7103');
+        $kept = $this->proposal($package, '7104');
+        app(EhiProposalService::class)->review($rejected, PhrEhiProposal::DECISION_REJECT, (int) $owner->id, $rejected->preview_digest);
+        $kept->refresh();
+        app(EhiProposalService::class)->review($kept, PhrEhiProposal::DECISION_RETAIN, (int) $owner->id, $kept->preview_digest);
+
+        $later = $this->previewed($build->build()->with('README.txt', "Synthetic later readme\n"), $owner, $patient, 'later', $package->source_id);
+
+        self::assertFalse(PhrEhiProposal::query()->where('package_id', $later->id)->where('subject_key', EhiMappingContext::keyDigest(['PAT_ENC_CSN_ID' => '7103']))->exists(), 'set aside');
+        self::assertSame(PhrEhiProposal::KIND_CREATE, $this->proposal($later, '7104')->kind);
+        self::assertSame(0, PhrOfficeVisit::query()->count());
+    }
+
+    public function test_the_apply_gate_still_refuses_a_category_that_cannot_be_a_visit(): void
+    {
+        [$owner, $patient] = $this->ownerAndPatient();
+        $package = $this->previewed(EhiClinicalPackage::withEncounters()->build(), $owner, $patient);
+        $proposal = $this->proposal($package, '7103');
+        $proposed = $proposal->proposed_json;
+        $proposed['attributes']['encounter_category'] = EhiEncounterCategory::PORTAL;
+        $proposal->forceFill(['proposed_json' => $proposed])->save();
+
+        try {
+            app(EhiEncounterMapping::class)->apply($proposal->refresh(), new EhiApplyContext($patient, (int) $owner->id, PhrEhiProposal::DECISION_ACCEPT, null, now()));
+            self::fail('a portal message must not become a visit');
+        } catch (EhiEncounterApplyRefused $refused) {
+            self::assertSame(EhiEncounterApplyRefused::MALFORMED_PROPOSAL, $refused->reason);
+        }
+        self::assertSame(0, PhrOfficeVisit::query()->count());
     }
 
     public function test_fields_keep_their_text_precision_and_zone_and_never_carry_billing_columns(): void
@@ -168,7 +265,7 @@ class EhiEncounterMappingTest extends TestCase
             app(EhiProposalService::class)->review($proposal, $decision, $owner->id, $proposal->preview_digest);
         }
 
-        self::assertSame(2, PhrOfficeVisit::query()->count());
+        self::assertSame(['PAT_ENC:7101', 'PAT_ENC:7102', 'PAT_ENC:7103'], PhrOfficeVisit::query()->orderBy('external_id')->pluck('external_id')->all(), 'two visits and the phone call this test chose to add');
         self::assertSame(0, PhrEob::query()->count());
         self::assertSame(0, PhrProcedure::query()->count());
         self::assertSame(0, PhrCondition::query()->count());

@@ -35,10 +35,12 @@ use Illuminate\Database\UniqueConstraintViolationException;
  *   encounter's diagnoses are, so its proposal carries none and an update leaves the
  *   visit's alone. A complete table with no row for an encounter does say it has none.
  *
- * Only a clinical encounter (EhiEncounterCategory) maps to a visit. Telephone,
- * portal, cancelled, administrative, and unclassified ones are retained as evidence
- * with their category shown, so no visit is claimed that the source does not state.
- * A later mapping version can propose them from the same revisions.
+ * A clinical encounter (EhiEncounterCategory) maps to a visit. A telephone encounter
+ * is proposed the same way and keeps its category, so review can treat it as optional:
+ * it may be a staff note about a call rather than a visit. Portal, cancelled,
+ * administrative, and unclassified ones are retained as evidence with their category
+ * shown, so no visit is claimed that the source does not state. A later mapping version
+ * can propose them from the same revisions.
  *
  * Column to field (a fixed list: billing columns such as CLAIM_ID, COPAY_DUE, and
  * HSP_ACCOUNT_ID are never read, and billing tables never reach this mapping):
@@ -64,7 +66,7 @@ final class EhiEncounterMapping implements EhiMapping
 {
     public const string NAME = 'encounter';
 
-    public const string VERSION = 'ehi-enc-1';
+    public const string VERSION = 'ehi-enc-2';
 
     public const string TABLE_ENCOUNTERS = 'PAT_ENC';
 
@@ -358,7 +360,7 @@ final class EhiEncounterMapping implements EhiMapping
         if ($category === EhiEncounterCategory::UNKNOWN) {
             $context->finding(self::FINDING_UNCLASSIFIED, $revision);
         }
-        if ($category !== EhiEncounterCategory::CLINICAL) {
+        if (! EhiEncounterCategory::canBeAVisit($category)) {
             if ($target['state'] === 'target') {
                 // A source status change never replaces an accepted assertion.
                 $context->finding(self::FINDING_LINKED_NOT_CLINICAL, $revision, ['category' => $category, 'record_id' => $target['record']->id]);
@@ -700,8 +702,8 @@ final class EhiEncounterMapping implements EhiMapping
         if (! $package instanceof PhrEhiPackage || $package->source_id === null
             || $importSource !== self::importSource((int) $package->source_id)
             || ! is_string($externalId) || ! str_starts_with($externalId, self::TABLE_ENCOUNTERS.':') || strlen($externalId) > self::MAX_EXTERNAL_ID_BYTES
-            || ($attributes['encounter_category'] ?? null) !== EhiEncounterCategory::CLINICAL) {
-            throw new EhiEncounterApplyRefused(EhiEncounterApplyRefused::MALFORMED_PROPOSAL, 'the proposal does not carry a usable import identity and clinical category');
+            || ! is_string($attributes['encounter_category'] ?? null) || ! EhiEncounterCategory::canBeAVisit($attributes['encounter_category'])) {
+            throw new EhiEncounterApplyRefused(EhiEncounterApplyRefused::MALFORMED_PROPOSAL, 'the proposal does not carry a usable import identity and a category that can be a visit');
         }
 
         $identity = ['patient_id' => $patient->id, 'import_source' => $importSource, 'external_id' => $externalId];
