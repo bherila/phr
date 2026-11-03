@@ -11,6 +11,7 @@ use App\Services\PHR\Import\Ehi\Mapping\EhiApplyOutcome;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMapping;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMappingContext;
 use App\Services\PHR\Import\Ehi\Mapping\EhiProposalDraft;
+use App\Services\PHR\Import\Ehi\Mapping\EhiTargetDigest;
 use App\Support\PHR\PhrReviewStatus;
 use Closure;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
@@ -93,6 +94,7 @@ final class EhiFakeMapping implements EhiMapping
                     'phr_immunizations',
                     (int) $link->immunization_id,
                     $target === null ? null : ['vaccine_name' => $target->vaccine_name, 'administered_on' => $target->administered_on?->toDateString()],
+                    targetDigest: $target === null ? hash('sha256', 'no such target') : EhiTargetDigest::of($target),
                 );
 
                 continue;

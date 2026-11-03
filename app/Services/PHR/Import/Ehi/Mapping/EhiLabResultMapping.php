@@ -932,6 +932,7 @@ final class EhiLabResultMapping implements EhiMapping
                 proposed: $proposed,
                 targetTable: self::RECORD_TABLE,
                 targetId: $record->id,
+                targetDigest: EhiTargetDigest::of($record),
             );
         }
 
@@ -943,6 +944,7 @@ final class EhiLabResultMapping implements EhiMapping
             targetTable: self::RECORD_TABLE,
             targetId: $record->id,
             before: $before,
+            targetDigest: EhiTargetDigest::of($record),
         );
     }
 
@@ -950,7 +952,7 @@ final class EhiLabResultMapping implements EhiMapping
      * What a matched source-ID bridge rule proposes. Only a single live record with
      * agreeing clinical values corroborates; anything else is a person's decision.
      *
-     * @param  non-empty-list<array{id: int, source: string|null, analyte: string|null, value: string|null, number: string|null, comparator: string|null, unit: string|null, dates: list<string>, live: bool}>  $bridged
+     * @param  non-empty-list<array{id: int, digest: string, source: string|null, analyte: string|null, value: string|null, number: string|null, comparator: string|null, unit: string|null, dates: list<string>, live: bool}>  $bridged
      * @param  list<int>  $revisionIds
      * @param  array<string, mixed>  $proposed
      * @param  array<string, string|null>  $fields
@@ -985,6 +987,7 @@ final class EhiLabResultMapping implements EhiMapping
             proposed: [...$proposed, 'bridge' => $bridge],
             targetTable: self::RECORD_TABLE,
             targetId: $live[0]['id'],
+            targetDigest: $live[0]['digest'],
         );
     }
 

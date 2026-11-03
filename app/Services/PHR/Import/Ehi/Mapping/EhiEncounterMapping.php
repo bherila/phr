@@ -630,14 +630,14 @@ final class EhiEncounterMapping implements EhiMapping
         }
 
         if ($changed === []) {
-            return new EhiProposalDraft($subject, PhrEhiProposal::KIND_CORROBORATE, $revisionIds, $proposed, self::RECORD_TABLE, $record->id);
+            return new EhiProposalDraft($subject, PhrEhiProposal::KIND_CORROBORATE, $revisionIds, $proposed, self::RECORD_TABLE, $record->id, targetDigest: EhiTargetDigest::of($record));
         }
 
-        return new EhiProposalDraft($subject, PhrEhiProposal::KIND_UPDATE, $revisionIds, [...$proposed, 'changed' => $changed], self::RECORD_TABLE, $record->id, $before);
+        return new EhiProposalDraft($subject, PhrEhiProposal::KIND_UPDATE, $revisionIds, [...$proposed, 'changed' => $changed], self::RECORD_TABLE, $record->id, $before, targetDigest: EhiTargetDigest::of($record));
     }
 
     /**
-     * @param  non-empty-list<array{id: int, source: string|null, provider: string|null, date: string|null, live: bool, rule: string|null}>  $bridged
+     * @param  non-empty-list<array{id: int, digest: string, source: string|null, provider: string|null, date: string|null, live: bool, rule: string|null}>  $bridged
      * @param  list<int>  $revisionIds
      * @param  array<string, mixed>  $proposed
      */
@@ -672,6 +672,7 @@ final class EhiEncounterMapping implements EhiMapping
             proposed: [...$proposed, 'bridge' => $bridge],
             targetTable: self::RECORD_TABLE,
             targetId: $live[0]['id'],
+            targetDigest: $live[0]['digest'],
         );
     }
 

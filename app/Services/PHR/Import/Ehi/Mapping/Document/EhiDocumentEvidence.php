@@ -2,26 +2,30 @@
 
 namespace App\Services\PHR\Import\Ehi\Mapping\Document;
 
+use App\Models\PhrEhiBlob;
 use App\Models\PhrEhiPackageMember;
 use App\Models\PhrEhiRevision;
 use App\Services\PHR\Import\Ehi\EhiMemberKind;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMappingContext;
-use App\Services\PHR\ResourceByteSize;
-use Illuminate\Support\Facades\DB;
 use LogicException;
 
 /**
- * One package's document evidence, indexed compactly and read back on demand.
+ * One package's document evidence, indexed once, so a note costs no query of its own.
  *
  * Rows come only from EhiMappingContext::lazyRevisions(), so only revisions this
  * package supplied are visible. Each joined table is streamed once, a page at a
- * time, and only its join value and revision ids are kept: column value =>
- * revision ids (for a grouped table, column value => group value => revision
- * ids), each list in the context's deterministic order. Rows themselves (note
- * text lines included) are read back by id only when a dependant is drafted,
- * in pages of at most the context's chunk. An entity with more than one revision
- * in the package is ambiguous; it stays indexed so dependants can see it and
- * refuse to guess. Note/media members are the package's own manifest rows.
+ * time: column value => revision ids (for a grouped table, column value => group
+ * value => revision ids), each list in the context's deterministic order.
+ *
+ * A row-sized join table (encounters, contacts, documents, patient links) is kept,
+ * without its empty cells, which every reader treats like absent ones. Note text
+ * lines are not kept: fetch() reads them by id, with the lines planNoteText() says the
+ * next notes will want, at most the context's chunk at a time and each handed out
+ * once, so a page of lines is one read and no more than a page is held.
+ *
+ * An entity with more than one revision in the package is ambiguous; it stays indexed
+ * so dependants can see it and refuse to guess. Note/media members are the package's
+ * own manifest rows, with their blobs read once.
  */
 final class EhiDocumentEvidence
 {
@@ -42,6 +46,18 @@ final class EhiDocumentEvidence
 
     /** @var array<string, list<PhrEhiPackageMember>> exact basename => members */
     private array $membersByBasename = [];
+
+    /** @var array<int, PhrEhiBlob> blob id => the members' blobs */
+    private array $blobs = [];
+
+    /** @var array<int, PhrEhiRevision> kept rows of the tables without a group */
+    private array $kept = [];
+
+    /** @var list<list<int>> line ids the next notes will want, in note order */
+    private array $plannedReads = [];
+
+    /** @var array<int, PhrEhiRevision> lines read ahead, until each is handed out */
+    private array $readAhead = [];
 
     private function __construct(private readonly EhiMappingContext $context) {}
 
@@ -69,20 +85,46 @@ final class EhiDocumentEvidence
         foreach ($evidence->members as $member) {
             $evidence->membersByBasename[self::basename($member->path)][] = $member;
         }
+        foreach (array_chunk(array_values(array_unique(array_map(static fn (PhrEhiPackageMember $member): int => (int) $member->blob_id, $evidence->members))), 500) as $page) {
+            foreach (PhrEhiBlob::query()->where('patient_id', $context->patient->id)->whereIn('id', $page)->get() as $blob) {
+                $evidence->blobs[$blob->id] = $blob;
+            }
+        }
 
         return $evidence;
     }
 
     /**
-     * Rows whose indexed column holds exactly this raw value, read back by id.
+     * Kept rows whose indexed column holds exactly this raw value.
      *
      * @return list<PhrEhiRevision>
      */
     public function where(string $table, string $column, string $value): array
     {
         $this->assertIndexed($table, $column, false);
+        $ids = $this->index[$table][$value] ?? [];
+        $this->context->budget->charge(count($ids), 0);
 
-        return $this->fetch($this->index[$table][$value] ?? []);
+        return array_map(fn (int $id): PhrEhiRevision => $this->kept[$id], $ids);
+    }
+
+    /** The member's blob, if the package's manifest names one this patient holds. */
+    public function blobOf(PhrEhiPackageMember $member): ?PhrEhiBlob
+    {
+        return $this->blobs[(int) $member->blob_id] ?? null;
+    }
+
+    /**
+     * The line ids the next notes will read first, in the order they will be read.
+     * Replaces any earlier plan, and drops what was read ahead for a note that never
+     * asked for it (one retained before reading its text).
+     *
+     * @param  list<list<int>>  $reads
+     */
+    public function planNoteText(array $reads): void
+    {
+        $this->plannedReads = $reads;
+        $this->readAhead = [];
     }
 
     /**
@@ -116,8 +158,7 @@ final class EhiDocumentEvidence
     }
 
     /**
-     * Revisions by id, read in pages of at most the context's chunk, returned in
-     * the order the ids were given.
+     * Text lines by id, in the order the ids were given, each handed out once.
      *
      * @param  list<int>  $ids
      * @return list<PhrEhiRevision>
@@ -125,29 +166,46 @@ final class EhiDocumentEvidence
     public function fetch(array $ids): array
     {
         $this->context->budget->charge(count($ids), 0);
-        $this->context->budget->assertPatient($this->context->patient->id);
-        $byId = [];
+        $missing = array_values(array_filter($ids, fn (int $id): bool => ! isset($this->readAhead[$id])));
+        if ($missing !== []) {
+            $this->read($missing);
+        }
+        $rows = [];
         $bytes = 0;
-        foreach (array_chunk($ids, max(1, $this->context->chunk)) as $page) {
-            $length = (new ResourceByteSize)->column('values_json');
-            $bytes += (int) DB::table('phr_ehi_revisions')->where('patient_id', $this->context->patient->id)->whereIn('id', $page)->sum(DB::raw($length));
-            $this->context->budget->charge(count($ids), $bytes);
+        foreach ($ids as $id) {
+            if (isset($this->readAhead[$id])) {
+                $bytes += strlen((string) $this->readAhead[$id]->getRawOriginal('values_json'));
+                $rows[] = $this->readAhead[$id];
+                unset($this->readAhead[$id]);
+            }
+        }
+        $this->context->budget->charge(count($ids), $bytes);
+
+        return $rows;
+    }
+
+    /**
+     * Read these lines, and as many planned ones as fit with them in one chunk.
+     *
+     * @param  list<int>  $ids
+     */
+    private function read(array $ids): void
+    {
+        $this->context->budget->assertPatient($this->context->patient->id);
+        $chunk = max(1, $this->context->chunk);
+        $wanted = array_flip($ids);
+        while ($this->plannedReads !== [] && count($this->readAhead) + count($wanted) + count($this->plannedReads[0]) <= $chunk) {
+            $wanted += array_flip((array) array_shift($this->plannedReads));
+        }
+        foreach (array_chunk(array_keys($wanted), $chunk) as $page) {
             foreach (PhrEhiRevision::query()
                 ->select(['id', 'entity_id', 'content_digest', 'values_json'])
                 ->where('patient_id', $this->context->patient->id)
                 ->whereIn('id', $page)
                 ->get() as $revision) {
-                $byId[$revision->id] = $revision;
+                $this->readAhead[$revision->id] = $revision;
             }
         }
-        $rows = [];
-        foreach ($ids as $id) {
-            if (isset($byId[$id])) {
-                $rows[] = $byId[$id];
-            }
-        }
-
-        return $rows;
     }
 
     public function isAmbiguous(PhrEhiRevision $revision): bool
@@ -201,11 +259,20 @@ final class EhiDocumentEvidence
             }
             if ($group === null) {
                 $this->index[$table][$value][] = $revision->id;
+                $this->kept[$revision->id] = self::withoutEmptyCells($revision);
             } else {
                 $this->grouped[$table][$value][EhiDocumentValues::cell($revision, $group) ?? ''][] = $revision->id;
             }
         }
         $this->markAmbiguous($entityIds);
+    }
+
+    /** Every reader goes through EhiDocumentValues::cell(), which reads an empty cell as absent. */
+    private static function withoutEmptyCells(PhrEhiRevision $revision): PhrEhiRevision
+    {
+        $revision->values_json = array_filter((array) $revision->values_json, static fn (mixed $value): bool => $value !== null && $value !== '');
+
+        return $revision;
     }
 
     /** @param  list<int>  $ids  every revision of one entity */
