@@ -302,6 +302,12 @@ function noticeOf(proposal: EhiProposal): string | null {
     if (unreadable['comments_unavailable'] === true || unreadable['narrative_unavailable'] === true) {
       return 'This export could not vouch for this result\'s comments or narrative, so a record in PHR keeps the ones it has.'
     }
+    if (unreadable['text_incomplete'] === true) {
+      return 'This export could not read all of this document\'s text, so the text here may be incomplete. A complete export can add the rest.'
+    }
+    if (proposal.kind === 'update' && unreadable['text_unavailable'] === true) {
+      return 'This export could not read all of this document\'s text, so the document in PHR keeps the text it has.'
+    }
   }
   if (proposed['withdrawn_match'] === true) {
     return 'A matching record was deleted, retracted, or rejected earlier. Adding this one is your choice; that record stays as it is.'

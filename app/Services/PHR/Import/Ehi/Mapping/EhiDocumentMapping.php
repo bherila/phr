@@ -71,7 +71,11 @@ use Throwable;
  *
  * Text: derived, never evidence. HNO_PLAIN_TEXT lines of the note's latest
  * contact that has text, in numeric LINE order (canonical integer strings
- * only); else the linked RTF member through EhiRtfText. Both are capped.
+ * only); else the linked RTF member through EhiRtfText. Both are capped. If the
+ * package could not read that text (lines withheld, missing, malformed, quarantined
+ * or unorderable, or an RTF member unreadable), it says nothing about it: an update
+ * built from it leaves the stored text alone, and the proposal is marked
+ * `text_unavailable`.
  *
  * Apply: a document is created with source "ehi_tables", import_source
  * "ehi:{source_id}", external_id "NOTE:{NOTE_ID}" or "DOC:{DOC_INFO_ID}". Its
@@ -204,6 +208,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
     {
         $evidence = EhiDocumentEvidence::load($context, self::JOINS);
         $records = new EhiDocumentRecordIndex($context);
+        $textGaps = $context->incompleteRows(self::HNO_PLAIN_TEXT, 'NOTE_ID');
         /** @var array<int, true> $linkedMembers */
         $linkedMembers = [];
 
@@ -214,7 +219,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
         foreach ($this->entityGroups($this->notesWithTextPlanned($context, $evidence)) as $revisions) {
             $draft = count($revisions) > 1
                 ? $this->ambiguousDraft($context, $revisions, self::HNO_INFO)
-                : $this->noteDraft($context, $evidence, $records, $revisions[0], $linkedMembers);
+                : $this->noteDraft($context, $evidence, $records, $revisions[0], $linkedMembers, $textGaps);
             foreach ($draft->revisionIds as $id) {
                 if (isset($noteDocuments[$id])) {
                     $consumed[$id] = true;
@@ -269,8 +274,11 @@ final readonly class EhiDocumentMapping implements EhiMapping
 
     // ---------------------------------------------------------------- notes
 
-    /** @param  array<int, true>  $linkedMembers */
-    private function noteDraft(EhiMappingContext $context, EhiDocumentEvidence $evidence, EhiDocumentRecordIndex $records, PhrEhiRevision $note, array &$linkedMembers): EhiProposalDraft
+    /**
+     * @param  array<int, true>  $linkedMembers
+     * @param  array{all: bool, keys: array<string, true>}  $textGaps  notes whose text lines this package could not all read
+     */
+    private function noteDraft(EhiMappingContext $context, EhiDocumentEvidence $evidence, EhiDocumentRecordIndex $records, PhrEhiRevision $note, array &$linkedMembers, array $textGaps): EhiProposalDraft
     {
         $entity = $note->entity;
         $noteId = (string) EhiDocumentValues::cell($note, 'NOTE_ID');
@@ -297,9 +305,11 @@ final readonly class EhiDocumentMapping implements EhiMapping
         }
         $file = $this->referencedFile($context, $evidence, $note, self::DOC_INFORMATION, 'DOC_HNO_ID', $noteId, $revisionIds, $linkedMembers);
         $text = $this->noteText($context, $evidence, $note, $noteId, $contacts['rows'], $revisionIds);
+        $unavailable = $text['unavailable'] || $textGaps['all'] || isset($textGaps['keys'][$noteId]);
         if ($text['text'] === null) {
             $text = $this->rtfText($context, $evidence, $note, $file);
         }
+        $text['unavailable'] = $unavailable || $text['unavailable'];
         if ($text['text'] === null && $file === null) {
             return $this->retainDraft($entity, $revisionIds, 'no_content', $reference);
         }
@@ -558,21 +568,21 @@ final readonly class EhiDocumentMapping implements EhiMapping
      *
      * @param  list<PhrEhiRevision>  $contacts  oldest first
      * @param  list<int>  $revisionIds
-     * @return array{text: string|null, provenance: array<string, mixed>|null}
+     * @return array{text: string|null, provenance: array<string, mixed>|null, unavailable: bool}
      */
     private function noteText(EhiMappingContext $context, EhiDocumentEvidence $evidence, PhrEhiRevision $note, string $noteId, array $contacts, array &$revisionIds): array
     {
         // Line ids by contact; lines are read back one contact at a time.
         $groups = $evidence->groups(self::HNO_PLAIN_TEXT, 'NOTE_ID', $noteId);
         if ($groups === []) {
-            return ['text' => null, 'provenance' => null];
+            return ['text' => null, 'provenance' => null, 'unavailable' => false];
         }
 
         $candidates = $this->textCandidates($contacts, $groups);
         if ($candidates === []) {
             $this->finding($context, EhiDocumentFinding::TEXT_UNORDERED, $note, ['table' => self::HNO_PLAIN_TEXT, 'reason' => 'no_contact']);
 
-            return ['text' => null, 'provenance' => null];
+            return ['text' => null, 'provenance' => null, 'unavailable' => true];
         }
 
         // A contact whose lines are all blank does not hide an older contact's
@@ -586,7 +596,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
                 if ($evidence->isAmbiguous($line) || $number === null || ! EhiDocumentValues::isExactInteger($number)) {
                     $this->finding($context, EhiDocumentFinding::TEXT_UNORDERED, $note, ['table' => self::HNO_PLAIN_TEXT, 'reason' => $evidence->isAmbiguous($line) ? 'ambiguous' : 'line']);
 
-                    return ['text' => null, 'provenance' => null];
+                    return ['text' => null, 'provenance' => null, 'unavailable' => true];
                 }
             }
             $lines = $this->sortedBy($lines, 'LINE');
@@ -609,39 +619,40 @@ final readonly class EhiDocumentMapping implements EhiMapping
                 'line_count' => count($lines),
                 'line_gaps' => $gaps,
                 'truncated' => $truncated,
-            ]];
+            ], 'unavailable' => false];
         }
 
-        return ['text' => null, 'provenance' => null];
+        return ['text' => null, 'provenance' => null, 'unavailable' => false];
     }
 
     /**
      * Derived text from a linked RTF member, when there is no table text.
      *
      * @param  array{member: PhrEhiPackageMember, via: string, doc_info_id: string}|null  $file
-     * @return array{text: string|null, provenance: array<string, mixed>|null}
+     * @return array{text: string|null, provenance: array<string, mixed>|null, unavailable: bool}
      */
     private function rtfText(EhiMappingContext $context, EhiDocumentEvidence $evidence, PhrEhiRevision $root, ?array $file): array
     {
         if ($file === null || $file['member']->kind !== EhiMemberKind::NOTE) {
-            return ['text' => null, 'provenance' => null];
+            return ['text' => null, 'provenance' => null, 'unavailable' => false];
         }
         $bytes = $this->files->readVerified($file['member'], EhiRtfText::MAX_INPUT_BYTES, $evidence->blobOf($file['member']));
         if ($bytes === null) {
             $this->finding($context, EhiDocumentFinding::MEMBER_UNVERIFIED, $root, ['reason' => 'rtf_unreadable']);
 
-            return ['text' => null, 'provenance' => null];
+            return ['text' => null, 'provenance' => null, 'unavailable' => true];
         }
         $result = $this->rtf->toText($bytes, self::maxTextBytes());
         if ($result->unsupported) {
             $this->finding($context, EhiDocumentFinding::RTF_UNSUPPORTED, $root, ['truncated' => $result->truncated]);
 
-            return ['text' => null, 'provenance' => ['derived' => true, 'source' => 'rtf', 'rtf' => $result->flags()]];
+            return ['text' => null, 'provenance' => ['derived' => true, 'source' => 'rtf', 'rtf' => $result->flags()], 'unavailable' => true];
         }
 
         return [
             'text' => trim($result->text) === '' ? null : $result->text,
             'provenance' => ['derived' => true, 'source' => 'rtf', 'member_id' => $file['member']->id, 'truncated' => $result->truncated, 'rtf' => $result->flags()],
+            'unavailable' => false,
         ];
     }
 
@@ -806,7 +817,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
     // --------------------------------------------------------------- shared
 
     /**
-     * @param  array{text: string|null, provenance: array<string, mixed>|null}  $text
+     * @param  array{text: string|null, provenance: array<string, mixed>|null, unavailable: bool}  $text
      * @param  array{member: PhrEhiPackageMember, via: string, doc_info_id: string}|null  $file
      * @param  array{column: string, timezone: string, precision: string, source_text: string, time_applied: bool, value: string}|null  $observed
      * @param  list<string>  $summary
@@ -824,6 +835,10 @@ final readonly class EhiDocumentMapping implements EhiMapping
         }
         if ($text['text'] !== null) {
             $summary[] = 'Text is derived from the source and is not the original.';
+        }
+        $incomplete = $text['unavailable'] && $text['text'] !== null && ($text['provenance']['source'] ?? null) === self::HNO_PLAIN_TEXT;
+        if ($incomplete) {
+            $summary[] = 'The source\'s text lines could not all be read, so this text may be incomplete.';
         }
         if ($file === null) {
             $summary[] = 'No original file is linked; the stored file is the derived text.';
@@ -855,6 +870,8 @@ final readonly class EhiDocumentMapping implements EhiMapping
             ],
             'ehi' => [
                 ...$ehi,
+                ...($text['unavailable'] ? ['text_unavailable' => true] : []),
+                ...($incomplete ? ['text_incomplete' => true] : []),
                 'observed' => $observed,
                 'text' => $text['provenance'],
                 'text_sha256' => $text['text'] === null ? null : hash('sha256', $text['text']),
@@ -896,6 +913,10 @@ final readonly class EhiDocumentMapping implements EhiMapping
         if ($live !== null) {
             $before = $live['comparable'];
             $after = $this->comparableProposed($attributes);
+            // What could not be read is no statement about the stored text.
+            if (($proposed['ehi']['text_unavailable'] ?? false) === true) {
+                $after['extracted_text_sha256'] = $before['extracted_text_sha256'];
+            }
             if ($records->linkedCount($live['id'], $revisionIds) === count($revisionIds) || $before === $after) {
                 return new EhiProposalDraft($entity->key_digest, PhrEhiProposal::KIND_CORROBORATE, $revisionIds, $proposed, self::RECORD_TABLE, $live['id'], targetDigest: $live['digest']);
             }
