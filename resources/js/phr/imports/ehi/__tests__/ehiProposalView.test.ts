@@ -146,6 +146,18 @@ describe('ehiProposalView', () => {
     expect(proposalView(proposal).notice).toMatch(/could not vouch.*comments or narrative/)
   })
 
+  it('says when a document\'s text could not all be read', () => {
+    const attributes = { title: 'Progress note', document_type: 'office_visit_note', observed_at: '2025-10-14', extracted_text: 'Part of it' }
+    const update = makeEhiProposal({ mapping: 'document', kind: 'update', before: { title: 'Old title' }, proposed: { changed: ['title'], attributes, ehi: { text_unavailable: true } } })
+    expect(proposalView(update).notice).toMatch(/could not read all of this document's text.*keeps the text it has/)
+
+    const created = makeEhiProposal({ mapping: 'document', proposed: { attributes, ehi: { text_unavailable: true, text_incomplete: true } } })
+    expect(proposalView(created).notice).toMatch(/may be incomplete/)
+
+    const whole = makeEhiProposal({ mapping: 'document', proposed: { attributes, ehi: {} } })
+    expect(proposalView(whole).notice).toBeNull()
+  })
+
   it('shows a month-precision date without a day', () => {
     expect(formatSourceDate('2004-08')).toBe('Aug 2004')
     expect(formatSourceDate(null)).toBeNull()

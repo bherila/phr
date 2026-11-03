@@ -13,6 +13,7 @@ use App\Models\PhrEhiProposalRevision;
 use App\Models\PhrEhiRecordLink;
 use App\Models\PhrEhiRevision;
 use App\Models\PhrEhiSource;
+use App\Models\PhrEhiTableAccount;
 use App\Models\PhrPatient;
 use App\Models\User;
 use App\Services\PHR\Import\Ehi\EhiMemberKind;
@@ -258,6 +259,8 @@ trait EhiDocumentFixtures
         if (! isset($this->docTableMembers[$key])) {
             $this->docTableMembers[$key] = $this->ehiDocMember("{$table}.tsv", EhiMemberKind::TABLE, "synthetic {$table} member {$package->id}\n", $package);
             $this->docTableMembers[$key]->forceFill(['table_name' => $table])->save();
+            // Projection accounts for every table it reads; a table without an account was not read.
+            PhrEhiTableAccount::query()->create(['patient_id' => $package->patient_id, 'package_id' => $package->id, 'member_id' => $this->docTableMembers[$key]->id, 'table_name' => $table, 'state' => PhrEhiTableAccount::STATE_PARSED, 'parser_version' => 'synthetic']);
         }
 
         return $this->docTableMembers[$key];

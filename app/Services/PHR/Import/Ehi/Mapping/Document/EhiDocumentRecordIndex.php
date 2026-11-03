@@ -3,9 +3,13 @@
 namespace App\Services\PHR\Import\Ehi\Mapping\Document;
 
 use App\Models\PhrDocument;
+use App\Models\PhrEhiPackage;
+use App\Models\PhrEhiProposal;
+use App\Services\PHR\Import\Ehi\Mapping\EhiDocumentMapping;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMappingContext;
 use App\Services\PHR\Import\Ehi\Mapping\EhiTargetDigest;
 use App\Support\PHR\PhrRecordLifecycle;
+use Illuminate\Database\Eloquent\Builder;
 
 /**
  * The patient's documents and their evidence links, read once, so reconciling a note
@@ -31,8 +35,12 @@ final class EhiDocumentRecordIndex
     /** @var array<int, array<int, true>> document id => revisions linked to it */
     private array $linkedRevisions = [];
 
+    /** @var array<string, true> subject key => its latest decision could not vouch for the text */
+    private array $textOwed = [];
+
     public function __construct(EhiMappingContext $context)
     {
+        $this->loadTextOwed($context);
         foreach ($context->linksByEntity('document_id') as $entityId => $links) {
             foreach ($links as $link) {
                 $documentId = (int) $link->document_id;
@@ -50,6 +58,16 @@ final class EhiDocumentRecordIndex
             $context->budget->charge(++$scanned, 0);
             $this->add($document);
         }
+    }
+
+    /**
+     * Whether this subject's latest accepted or linked proposal could not read its text.
+     * That decision linked the note's text lines without vouching for them, so a linked
+     * line says nothing here: a later package that can read them still has to compare.
+     */
+    public function textOwed(string $subject): bool
+    {
+        return isset($this->textOwed[$subject]);
     }
 
     /**
@@ -90,6 +108,29 @@ final class EhiDocumentRecordIndex
     public function sameText(string $documentType, string $day, string $textSha256): array
     {
         return $this->sameText[$documentType."\0".$day."\0".$textSha256] ?? [];
+    }
+
+    private function loadTextOwed(EhiMappingContext $context): void
+    {
+        $decided = static fn (): Builder => PhrEhiProposal::query()
+            ->where('patient_id', $context->patient->id)
+            ->where('mapping', EhiDocumentMapping::NAME)
+            ->whereIn('status', [PhrEhiProposal::STATUS_ACCEPTED, PhrEhiProposal::STATUS_LINKED])
+            ->whereIn('package_id', PhrEhiPackage::query()->select('id')->where('source_id', $context->source->id));
+
+        // The marker is only ever written when set, and no text is read to find it.
+        $unavailable = $decided()->whereNotNull('proposed_json->ehi->text_unavailable')->pluck('subject_key', 'id')->all();
+        foreach (array_chunk(array_values(array_unique($unavailable)), 500) as $subjects) {
+            $latest = [];
+            foreach (PhrEhiProposal::inDecisionOrder($decided()->whereIn('subject_key', $subjects))->select(['id', 'subject_key'])->cursor() as $proposal) {
+                $latest[$proposal->subject_key] = $proposal->id;
+            }
+            foreach ($latest as $subject => $id) {
+                if (isset($unavailable[$id])) {
+                    $this->textOwed[$subject] = true;
+                }
+            }
+        }
     }
 
     private function add(PhrDocument $document): void
