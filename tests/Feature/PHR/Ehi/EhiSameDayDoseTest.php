@@ -10,6 +10,7 @@ use App\Models\PhrPatientUserAccess;
 use App\Models\User;
 use App\Services\PHR\Import\Ehi\EhiBindingService;
 use App\Services\PHR\Import\Ehi\EhiProposalService;
+use App\Services\PHR\Import\Ehi\Mapping\EhiEncounterMapping;
 use App\Services\PHR\Import\Ehi\Mapping\EhiImmunizationMapping;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMappingContext;
 use App\Support\PHR\PhrReviewStatus;
@@ -55,6 +56,26 @@ class EhiSameDayDoseTest extends TestCase
         self::assertNull($second->candidate_ids_json);
         $this->actingAs($owner)->postJson("/api/phr/patients/{$patient->id}/ehi/proposals/{$second->id}/review", ['decision' => 'accept', 'preview_digest' => $second->preview_digest])->assertOk();
         self::assertSame(2, PhrImmunization::query()->where('vaccine_name', 'SYNTHETIC VACCINE A')->where('patient_id', $patient->id)->count());
+    }
+
+    public function test_a_second_visit_that_day_from_this_source_stays_new_once_the_first_is_accepted(): void
+    {
+        config(['phr.ehi_mappings' => [EhiEncounterMapping::class]]);
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        PhrPatientUserAccess::query()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'access_level' => PhrPatientUserAccess::LEVEL_OWNER, 'granted_by_user_id' => $owner->id, 'granted_at' => now()]);
+        $build = EhiClinicalPackage::withEncounters()->adding('PAT_ENC', ['PAT_ENC_CSN_ID' => '7201', 'PAT_ID' => EhiClinicalPackage::PATIENT_KEY, 'CONTACT_DATE' => '2024-05-01', 'ENC_TYPE_C_NAME' => 'Office Visit', 'APPT_STATUS_C_NAME' => 'Completed'])->build();
+        $package = $this->ehiIntakeDirectory($build, $patient, (int) $owner->id)->package;
+        $package = app(EhiBindingService::class)->bind($package, $patient, (int) $owner->id, null, 'Synthetic Clinic');
+        app(EhiProposalService::class)->preview($package, $patient, (int) $owner->id);
+        $visit = fn (string $csn): PhrEhiProposal => PhrEhiProposal::query()->where('package_id', $package->id)->where('subject_key', EhiMappingContext::keyDigest(['PAT_ENC_CSN_ID' => $csn]))->firstOrFail();
+
+        $first = $visit('7101');
+        $this->actingAs($owner)->postJson("/api/phr/patients/{$patient->id}/ehi/proposals/{$first->id}/review", ['decision' => 'accept', 'preview_digest' => $first->preview_digest])->assertOk();
+        app(EhiProposalService::class)->preview($package->refresh(), $patient, (int) $owner->id);
+
+        self::assertSame(PhrEhiProposal::KIND_CREATE, $visit('7201')->kind);
+        self::assertNull($visit('7201')->candidate_ids_json);
     }
 
     public function test_the_same_vaccine_that_day_from_elsewhere_is_still_a_question_for_a_person(): void
