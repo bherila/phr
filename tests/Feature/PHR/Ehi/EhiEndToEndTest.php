@@ -237,10 +237,12 @@ class EhiEndToEndTest extends TestCase
         self::assertSame(0, $exit);
         $preview2 = $service->preview($second, $patient, $owner->id);
         self::assertSame([
-            'immunization' => ['corroborate' => 3, 'create' => 1, 'retain' => 2, 'update' => 1],
+            'immunization' => ['corroborate' => 3, 'create' => 1, 'retain' => 1, 'update' => 1],
             'document' => ['corroborate' => 1, 'retain' => 1, 'update' => 1],
         ], $preview2->counts);
-        $kinds2 = ['601' => 'update', '602' => 'corroborate', '603' => 'corroborate', '604' => 'retain', '605' => 'retain', '606' => 'corroborate', '607' => 'create'];
+        // 605 was rejected in package 1 and has not changed, so it is not proposed again.
+        self::assertSame(0, PhrEhiProposal::query()->where('package_id', $second->id)->where('subject_key', $this->immune($package, '605')->subject_key)->count());
+        $kinds2 = ['601' => 'update', '602' => 'corroborate', '603' => 'corroborate', '604' => 'retain', '606' => 'corroborate', '607' => 'create'];
         foreach ($kinds2 as $immuneId => $kind) {
             self::assertSame($kind, $this->immune($second, $immuneId)->kind, "IMMUNE {$immuneId} in package 2");
         }
@@ -354,7 +356,7 @@ class EhiEndToEndTest extends TestCase
             self::assertSame($restoredId, (int) DB::table($table)->where('id', $link->immunization_id ?? $link->document_id)->value('patient_id'));
         }
         self::assertSame(
-            ['accepted' => 9, 'linked' => 1, 'pending' => 5, 'rejected' => 1, 'retained' => 3],
+            ['accepted' => 9, 'linked' => 1, 'pending' => 4, 'rejected' => 1, 'retained' => 3],
             DB::table('phr_ehi_proposals')->where('patient_id', $restoredId)->selectRaw('status, count(*) as c')->groupBy('status')->orderBy('status')->pluck('c', 'status')->map(fn ($c) => (int) $c)->all(),
         );
         foreach (PhrDocument::query()->where('patient_id', $restoredId)->get() as $document) {
@@ -372,7 +374,7 @@ class EhiEndToEndTest extends TestCase
         $restoredBridge = $this->immune($restoredSecond, '606');
         $this->assertRefused(EhiReviewRefused::PREVIEW_INCOMPLETE, fn () => $service->review($restoredBridge, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $restoredBridge->preview_digest));
         $restoredPreview = $service->preview($restoredSecond, $restoredPatient, $owner->id);
-        self::assertSame(['corroborate' => 4, 'retain' => 3], $restoredPreview->counts['immunization'], 'decided subjects now corroborate; 603 stays withdrawn');
+        self::assertSame(['corroborate' => 4, 'retain' => 2], $restoredPreview->counts['immunization'], 'decided subjects now corroborate; 603 stays withdrawn, and a rejection survives the restore');
         self::assertSame($counts, $this->evidenceCounts($restoredId));
         $restoredBridge->refresh();
         self::assertSame(PhrEhiProposal::KIND_CORROBORATE, $restoredBridge->kind);

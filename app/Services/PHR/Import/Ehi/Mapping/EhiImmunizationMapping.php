@@ -575,7 +575,9 @@ final class EhiImmunizationMapping implements EhiMapping
 
     /**
      * Live immunizations of the patient on the same date with a case-insensitively
-     * equal vaccine name or lot number. Never merged automatically.
+     * equal vaccine name or lot number. Never merged automatically. A record this source
+     * already holds is not one: a different IMMUNE_ID is a different dose, so a same-day
+     * repeat stays a new dose whatever order the two are accepted in.
      *
      * @param  array<string, string|null>  $fields
      */
