@@ -263,12 +263,14 @@ final class PhrEhiImportController extends Controller
         $page = $query->get();
         $more = $page->count() > $limit;
         $page = $page->take($limit);
+        $documentText = $this->presenter->documentText($page);
 
         return $this->privateJson([
             'preview_complete' => $packageModel->previewCompleted(),
             'proposals' => $page->map(fn (PhrEhiProposal $proposal): array => $this->presenter->proposal(
                 $proposal,
                 $proposal->status === PhrEhiProposal::STATUS_PENDING && $packageModel->completedPreviewIncludes($proposal),
+                $documentText,
             ))->values(),
             'next_after_id' => $more ? $page->last()?->id : null,
         ]);

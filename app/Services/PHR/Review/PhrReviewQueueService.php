@@ -770,7 +770,9 @@ final readonly class PhrReviewQueueService
             });
         $proposals = PhrEhiProposal::query()->where('patient_id', $patient->id)
             ->whereIn('id', array_merge([], ...array_values($firstIds)))
-            ->orderBy('id')->get()->groupBy('package_id');
+            ->orderBy('id')->get();
+        $documentText = $this->ehiPresenter->documentText($proposals);
+        $proposals = $proposals->groupBy('package_id');
 
         return $packages->map(fn (PhrEhiPackage $package): array => [
             'key' => "ehi:{$package->id}",
@@ -790,7 +792,7 @@ final readonly class PhrReviewQueueService
                 'id' => (int) $proposal->id,
                 'package_id' => (int) $package->id,
                 'section' => self::EHI_SECTIONS[$proposal->mapping] ?? 'documents',
-                'proposal' => $this->ehiPresenter->proposal($proposal, true),
+                'proposal' => $this->ehiPresenter->proposal($proposal, true, $documentText),
             ])->values()->all(),
         ])->values()->all();
     }

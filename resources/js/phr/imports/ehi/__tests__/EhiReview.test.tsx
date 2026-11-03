@@ -97,6 +97,52 @@ describe('EhiReview', () => {
     expect(await within(duplicates).findByText('Linked as evidence')).toBeInTheDocument()
   })
 
+  describe('a document update that changes the text', () => {
+    const attributes = { title: 'Synthetic note', document_type: 'office_visit_note', observed_at: '2024-03-05', extracted_text: 'Synthetic corrected line' }
+    const update = (status: 'pending' | 'accepted', before: Record<string, unknown>) => makeEhiProposal({
+      id: 43,
+      mapping: 'document',
+      kind: 'update',
+      status,
+      reviewable: status === 'pending',
+      allowed_decisions: status === 'pending' ? ['approve_update', 'reject', 'retain_evidence'] : [],
+      before: { title: 'Synthetic note', document_type: 'office_visit_note', observed_at: '2024-03-05', extracted_text_sha256: 'a'.repeat(64), ...before },
+      proposed: { changed: ['extracted_text'], attributes },
+    })
+    const textRow = async (proposal: ReturnType<typeof update>) => {
+      mockGet.mockImplementation((url: string) => (url === proposalsUrl ? Promise.resolve({ proposals: [proposal], next_after_id: null }) : Promise.reject(new Error(`unexpected ${url}`))))
+      render(<EhiReview patientId={EHI_PATIENT_ID} packageId={9} onBack={jest.fn()} />)
+
+      return within((await screen.findByText('Text')).closest('tr') as HTMLElement).getAllByRole('cell')
+    }
+
+    it('shows the text the record holds now beside the proposed text', async () => {
+      const [, before, after] = await textRow(update('pending', { extracted_text: 'Synthetic stored line' }))
+      expect(before).toHaveTextContent('Synthetic stored line')
+      expect(after).toHaveTextContent('Synthetic corrected line')
+    })
+
+    it('says when it is cut short, even if what is shown matches', async () => {
+      const [, before] = await textRow(update('pending', { extracted_text: 'Synthetic corrected line', extracted_text_truncated: true }))
+      expect(before).toHaveTextContent('Synthetic corrected line (cut short)')
+    })
+
+    it('says the record changed rather than that it holds no text', async () => {
+      const [, before] = await textRow(update('pending', { extracted_text_unavailable: true }))
+      expect(before).toHaveTextContent('Changed since this preview')
+    })
+
+    it('says the earlier text is gone once the update was accepted', async () => {
+      const [, before] = await textRow(update('accepted', { extracted_text_unavailable: true }))
+      expect(before).toHaveTextContent('No longer stored')
+    })
+
+    it('still says not recorded when the record had no text', async () => {
+      const [, before] = await textRow(update('pending', { extracted_text_sha256: null }))
+      expect(before).toHaveTextContent('Not recorded')
+    })
+  })
+
   it('shows an encounter next to the visit it may duplicate, fetched from the visits route', async () => {
     const duplicate = makeEhiProposal({ id: 42, mapping: 'encounter', kind: 'possible_duplicate', candidate_ids: [8], proposed: { attributes: { visit_type: 'Office Visit', visit_date: '2024-05-01' } } })
     mockGet.mockImplementation((url: string) => {
