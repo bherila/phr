@@ -2,6 +2,7 @@
 
 namespace App\Services\PHR\Import\Ehi;
 
+use App\Models\PhrEhiFinding;
 use App\Models\PhrEhiPackage;
 use App\Models\PhrEhiPreviewRun;
 use App\Models\PhrEhiProposal;
@@ -193,11 +194,11 @@ final class EhiImportPresenter
     }
 
     /**
-     * Counts by status, pending ones by mapping and kind, and pending ones that
-     * are not reviewable because they are outside the package's completed
-     * preview (left by a failed run, or restored).
+     * Counts by status, pending ones by mapping and kind, pending ones that are not
+     * reviewable because they are outside the package's completed preview (left by a
+     * failed run, or restored), and rows set aside as already rejected.
      *
-     * @return array{by_status: array<string, int>, pending: array<string, array<string, int>>, pending_unreviewable: int}
+     * @return array{by_status: array<string, int>, pending: array<string, array<string, int>>, pending_unreviewable: int, previously_rejected: int}
      */
     private function proposalCounts(PhrEhiPackage $package): array
     {
@@ -218,6 +219,13 @@ final class EhiImportPresenter
             });
         $allPending = PhrEhiProposal::query()->where('package_id', $package->id)->where('status', PhrEhiProposal::STATUS_PENDING)->count();
 
-        return ['by_status' => $byStatus, 'pending' => $pending, 'pending_unreviewable' => $allPending - $reviewable];
+        // Set aside by this preview because a person already rejected the same content.
+        $previouslyRejected = 0;
+        PhrEhiFinding::query()->where('package_id', $package->id)->where('code', EhiFindingCode::PREVIOUSLY_REJECTED)->get(['id', 'detail_json'])
+            ->each(function (PhrEhiFinding $finding) use (&$previouslyRejected): void {
+                $previouslyRejected += (int) ($finding->detail_json['count'] ?? 0);
+            });
+
+        return ['by_status' => $byStatus, 'pending' => $pending, 'pending_unreviewable' => $allPending - $reviewable, 'previously_rejected' => $previouslyRejected];
     }
 }

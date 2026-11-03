@@ -220,7 +220,8 @@ line), and clinical encounters (`PAT_ENC`, with `PAT_ENC_DX` diagnoses kept on t
 become proposals a person reviews on the Review and Imports pages. Telephone, portal,
 cancelled, and administrative encounters stay evidence, and billing tables produce nothing. A compatible
 identifier links evidence, a probable duplicate is a person's decision, and no decision
-overwrites a record or revives a deleted one.
+overwrites a record or revives a deleted one. A row a person rejected is not proposed
+again while the source says the same thing, and stays accounted for as evidence.
 
 ## Repository map
 

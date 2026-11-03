@@ -55,7 +55,7 @@ export function makeEhiPackage(overrides: Partial<EhiPackage> = {}): EhiPackage 
     },
     projection: null,
     preview: { state: 'not_started', generation: null },
-    proposals: { by_status: {}, pending: {}, pending_unreviewable: 0 },
+    proposals: { by_status: {}, pending: {}, pending_unreviewable: 0, previously_rejected: 0 },
     preview_run: null,
     ...overrides,
   }

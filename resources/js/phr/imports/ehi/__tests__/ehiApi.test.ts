@@ -10,7 +10,7 @@ describe('ehiApi helpers', () => {
   })
 
   it('counts pending proposals over every mapping and kind', () => {
-    const pkg = makeEhiPackage({ proposals: { by_status: {}, pending: { immunization: { create: 4, retain: 2 }, document: { create: 3 } }, pending_unreviewable: 1 } })
+    const pkg = makeEhiPackage({ proposals: { by_status: {}, pending: { immunization: { create: 4, retain: 2 }, document: { create: 3 } }, pending_unreviewable: 1, previously_rejected: 0 } })
     expect(pendingProposalCount(pkg)).toBe(9)
   })
 })
