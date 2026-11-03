@@ -252,6 +252,15 @@ function differenceOf(before: string | null, after: string | null): { before: st
   return { before: excerpt(before), after: excerpt(after) }
 }
 
+/** Why a document's stored text is not shown, when it is there but is not what this proposal was built from. */
+function unshownText(proposal: EhiProposal, field: string, before: Record<string, unknown>): string | null {
+  if (field !== 'extracted_text' || before['extracted_text_unavailable'] !== true) {
+    return null
+  }
+
+  return proposal.status === 'pending' ? 'Changed since this preview' : 'No longer stored'
+}
+
 function changesOf(proposal: EhiProposal, attributes: Record<string, unknown>): EhiProposalView['changes'] {
   if (proposal.kind !== 'update') {
     return []
@@ -266,8 +275,9 @@ function changesOf(proposal: EhiProposal, attributes: Record<string, unknown>): 
   for (const field of fields) {
     const storedBefore = storedForm(field, before)
     const storedAfter = storedForm(field, attributes)
+    const cutShort = field === 'extracted_text' && before['extracted_text_truncated'] === true
     // Only values that really are the same are no change.
-    if (storedBefore === storedAfter) {
+    if (storedBefore === storedAfter && !cutShort) {
       continue
     }
     let shown = differenceOf(displayUnits(fullText(field, before)) ?? null, displayUnits(fullText(field, attributes)) ?? null)
@@ -275,7 +285,11 @@ function changesOf(proposal: EhiProposal, attributes: Record<string, unknown>): 
       // The friendly form hides this difference, so show the stored values themselves.
       shown = differenceOf(storedBefore, storedAfter)
     }
-    rows.push({ field: UPDATE_FIELD_LABELS[field] ?? fieldLabel(field), before: shown.before ?? 'Not recorded', after: shown.after ?? 'Not recorded' })
+    rows.push({
+      field: UPDATE_FIELD_LABELS[field] ?? fieldLabel(field),
+      before: unshownText(proposal, field, before) ?? (cutShort ? `${shown.before ?? ''} (cut short)` : shown.before) ?? 'Not recorded',
+      after: shown.after ?? 'Not recorded',
+    })
   }
 
   return rows

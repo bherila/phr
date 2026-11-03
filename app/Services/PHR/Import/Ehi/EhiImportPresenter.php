@@ -2,11 +2,14 @@
 
 namespace App\Services\PHR\Import\Ehi;
 
+use App\Models\PhrDocument;
 use App\Models\PhrEhiPackage;
 use App\Models\PhrEhiPreviewRun;
 use App\Models\PhrEhiProposal;
 use App\Models\PhrEhiSource;
 use App\Models\PhrEhiUpload;
+use App\Services\PHR\Import\Ehi\Mapping\EhiDocumentMapping;
+use App\Support\PHR\PhrRecordLifecycle;
 
 /**
  * JSON shapes for the browser EHI import routes: the facts `phr:ehi:status` and
@@ -148,8 +151,11 @@ final class EhiImportPresenter
         ];
     }
 
-    /** @return array<string, mixed> */
-    public function proposal(PhrEhiProposal $proposal, bool $reviewable): array
+    /**
+     * @param  array<int, string|null>|null  $documentText  from documentText(), when presenting a page of proposals
+     * @return array<string, mixed>
+     */
+    public function proposal(PhrEhiProposal $proposal, bool $reviewable, ?array $documentText = null): array
     {
         $proposed = $proposal->proposed_json ?? [];
         $candidates = $proposed['_candidate_summary'] ?? null;
@@ -169,7 +175,7 @@ final class EhiImportPresenter
             'candidate_total' => is_array($candidates) ? (int) ($candidates['total'] ?? 0) : count($proposal->candidate_ids_json ?? []),
             'candidates_truncated' => is_array($candidates) && (bool) ($candidates['truncated'] ?? false),
             'proposed' => $proposed,
-            'before' => $proposal->before_json,
+            'before' => $this->before($proposal, $documentText ?? $this->documentText([$proposal])),
             'preview_digest' => $proposal->preview_digest,
             'decided_at' => $proposal->decided_at?->toIso8601String(),
         ];
@@ -190,6 +196,69 @@ final class EhiImportPresenter
         }
 
         return $counts;
+    }
+
+    /**
+     * The text of the documents these proposals propose to replace, read together. A
+     * proposal stores only its hash, so a clinical text is not held twice and a large
+     * one still restores from a backup. Deleted and retracted documents are left out.
+     *
+     * @param  iterable<PhrEhiProposal>  $proposals
+     * @return array<int, string|null> document id => stored text
+     */
+    public function documentText(iterable $proposals): array
+    {
+        $ids = [];
+        foreach ($proposals as $proposal) {
+            if ($this->replacesDocumentText($proposal)) {
+                $ids[(int) $proposal->patient_id][] = (int) $proposal->target_id;
+            }
+        }
+        $text = [];
+        foreach ($ids as $patientId => $documents) {
+            $live = PhrDocument::query()->where('patient_id', $patientId)->whereIn('id', $documents);
+            PhrRecordLifecycle::scopeLive($live);
+            foreach ($live->pluck('extracted_text', 'id') as $id => $stored) {
+                $text[(int) $id] = is_string($stored) ? $stored : null;
+            }
+        }
+
+        return $text;
+    }
+
+    private function replacesDocumentText(PhrEhiProposal $proposal): bool
+    {
+        return $proposal->mapping === EhiDocumentMapping::NAME
+            && $proposal->kind === PhrEhiProposal::KIND_UPDATE
+            && $proposal->target_table === EhiDocumentMapping::RECORD_TABLE
+            && $proposal->target_id !== null
+            && is_string($proposal->before_json['extracted_text_sha256'] ?? null)
+            && in_array('extracted_text', (array) ($proposal->proposed_json['changed'] ?? []), true);
+    }
+
+    /**
+     * What a reviewer compares with: the stored fields, and a document's text only
+     * while it is still the text this proposal was built from.
+     *
+     * @param  array<int, string|null>  $documentText  from documentText()
+     * @return array<string, mixed>|null
+     */
+    private function before(PhrEhiProposal $proposal, array $documentText): ?array
+    {
+        $before = $proposal->before_json;
+        if ($before === null || ! $this->replacesDocumentText($proposal)) {
+            return $before;
+        }
+        $stored = $documentText[(int) $proposal->target_id] ?? null;
+        if ($stored === null || ! hash_equals((string) $before['extracted_text_sha256'], hash('sha256', $stored))) {
+            return [...$before, 'extracted_text_unavailable' => true];
+        }
+        $limit = EhiDocumentMapping::maxTextBytes();
+        if (strlen($stored) <= $limit) {
+            return [...$before, 'extracted_text' => $stored];
+        }
+
+        return [...$before, 'extracted_text' => mb_strcut($stored, 0, $limit, 'UTF-8'), 'extracted_text_truncated' => true];
     }
 
     /**
