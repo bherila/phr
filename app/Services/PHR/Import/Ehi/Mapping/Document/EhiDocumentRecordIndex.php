@@ -4,16 +4,19 @@ namespace App\Services\PHR\Import\Ehi\Mapping\Document;
 
 use App\Models\PhrDocument;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMappingContext;
+use App\Services\PHR\Import\Ehi\Mapping\EhiTargetDigest;
 use App\Support\PHR\PhrRecordLifecycle;
 
 /**
  * The patient's documents and their evidence links, read once, so reconciling a note
  * costs no query of its own. Each document's text is read only to hash it and is not
- * kept: the comparison and the duplicate check need nothing but the digest.
+ * kept: the comparison and the duplicate check need nothing but the digest. A proposal
+ * carries the digest of the record as read here, so an edit after this read makes
+ * accepting it stale.
  */
 final class EhiDocumentRecordIndex
 {
-    /** @var array<int, array{id: int, active: bool, comparable: array{title: string|null, document_type: string|null, observed_at: string|null, extracted_text_sha256: string|null}}> */
+    /** @var array<int, array{id: int, active: bool, digest: string, comparable: array{title: string|null, document_type: string|null, observed_at: string|null, extracted_text_sha256: string|null}}> */
     private array $documents = [];
 
     /** @var array<string, array<string, int>> import source => external id => document id */
@@ -41,8 +44,8 @@ final class EhiDocumentRecordIndex
         // Before any text is read: the patient-wide check bounds what this can hold.
         $context->budget->assertPatient($context->patient->id);
         $scanned = 0;
-        $documents = PhrDocument::withTrashed()->where('patient_id', $context->patient->id)
-            ->select(['id', 'title', 'document_type', 'observed_at', 'extracted_text', 'import_source', 'external_id', 'deleted_at', 'retracted_at']);
+        // Every column, because the digest a proposal carries covers the whole record.
+        $documents = PhrDocument::withTrashed()->where('patient_id', $context->patient->id);
         foreach ($documents->lazyById(100) as $document) {
             $context->budget->charge(++$scanned, 0);
             $this->add($document);
@@ -52,7 +55,7 @@ final class EhiDocumentRecordIndex
     /**
      * Documents this entity is linked to, and the one holding this import identity.
      *
-     * @return list<array{id: int, active: bool, comparable: array{title: string|null, document_type: string|null, observed_at: string|null, extracted_text_sha256: string|null}}> by ascending id
+     * @return list<array{id: int, active: bool, digest: string, comparable: array{title: string|null, document_type: string|null, observed_at: string|null, extracted_text_sha256: string|null}}> by ascending id
      */
     public function targets(int $entityId, ?string $importSource, string $externalId): array
     {
@@ -95,6 +98,7 @@ final class EhiDocumentRecordIndex
         $this->documents[$document->id] = [
             'id' => $document->id,
             'active' => PhrRecordLifecycle::of($document) === PhrRecordLifecycle::ACTIVE,
+            'digest' => EhiTargetDigest::of($document),
             'comparable' => [
                 'title' => $document->title,
                 'document_type' => $document->document_type,

@@ -932,6 +932,7 @@ final class EhiLabResultMapping implements EhiMapping
                 proposed: $proposed,
                 targetTable: self::RECORD_TABLE,
                 targetId: $record->id,
+                targetDigest: EhiTargetDigest::of($record),
             );
         }
 
@@ -943,6 +944,7 @@ final class EhiLabResultMapping implements EhiMapping
             targetTable: self::RECORD_TABLE,
             targetId: $record->id,
             before: $before,
+            targetDigest: EhiTargetDigest::of($record),
         );
     }
 
@@ -985,6 +987,7 @@ final class EhiLabResultMapping implements EhiMapping
             proposed: [...$proposed, 'bridge' => $bridge],
             targetTable: self::RECORD_TABLE,
             targetId: $live[0]['id'],
+            targetDigest: $live[0]['digest'],
         );
     }
 

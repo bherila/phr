@@ -557,6 +557,7 @@ final class EhiImmunizationMapping implements EhiMapping
                 proposed: $proposed,
                 targetTable: self::RECORD_TABLE,
                 targetId: $record->id,
+                targetDigest: EhiTargetDigest::of($record),
             );
         }
 
@@ -568,6 +569,7 @@ final class EhiImmunizationMapping implements EhiMapping
             targetTable: self::RECORD_TABLE,
             targetId: $record->id,
             before: $before,
+            targetDigest: EhiTargetDigest::of($record),
         );
     }
 

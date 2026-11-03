@@ -897,7 +897,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
             $before = $live['comparable'];
             $after = $this->comparableProposed($attributes);
             if ($records->linkedCount($live['id'], $revisionIds) === count($revisionIds) || $before === $after) {
-                return new EhiProposalDraft($entity->key_digest, PhrEhiProposal::KIND_CORROBORATE, $revisionIds, $proposed, self::RECORD_TABLE, $live['id']);
+                return new EhiProposalDraft($entity->key_digest, PhrEhiProposal::KIND_CORROBORATE, $revisionIds, $proposed, self::RECORD_TABLE, $live['id'], targetDigest: $live['digest']);
             }
             $proposed['changed'] = array_keys(array_diff_assoc(
                 array_map(static fn (?string $value): string => (string) $value, $after),
@@ -905,7 +905,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
             ));
             $proposed['changed'] = array_map(static fn (string $field): string => $field === 'extracted_text_sha256' ? 'extracted_text' : $field, $proposed['changed']);
 
-            return new EhiProposalDraft($entity->key_digest, PhrEhiProposal::KIND_UPDATE, $revisionIds, $proposed, self::RECORD_TABLE, $live['id'], $before);
+            return new EhiProposalDraft($entity->key_digest, PhrEhiProposal::KIND_UPDATE, $revisionIds, $proposed, self::RECORD_TABLE, $live['id'], $before, targetDigest: $live['digest']);
         }
         if ($targets !== []) {
             $this->finding($context, EhiDocumentFinding::TARGET_WITHDRAWN, null, ['table' => (string) $entity->table_name]);

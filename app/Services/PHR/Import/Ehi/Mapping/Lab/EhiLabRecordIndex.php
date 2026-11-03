@@ -9,6 +9,7 @@ use App\Models\PhrLabResult;
 use App\Services\PHR\Import\Ehi\Mapping\EhiCandidateSummary;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMappingContext;
 use App\Services\PHR\Import\Ehi\Mapping\EhiSourceIdBridge;
+use App\Services\PHR\Import\Ehi\Mapping\EhiTargetDigest;
 use App\Support\PHR\PhrRecordLifecycle;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Builder;
@@ -31,7 +32,7 @@ use Illuminate\Support\Carbon;
  */
 final class EhiLabRecordIndex
 {
-    /** @var array<int, array{id: int, source: string|null, analyte: string|null, value: string|null, number: string|null, comparator: string|null, unit: string|null, dates: list<string>, live: bool}> */
+    /** @var array<int, array{id: int, digest: string, source: string|null, analyte: string|null, value: string|null, number: string|null, comparator: string|null, unit: string|null, dates: list<string>, live: bool}> */
     private array $rows = [];
 
     /** @var array<string, array<string, list<int>>> date => folded analyte => row positions */
@@ -65,8 +66,7 @@ final class EhiLabRecordIndex
         }
 
         $query = $this->inclusive($context)
-            ->where(static fn ($query) => $query->whereNull('import_source')->orWhere('import_source', '!=', $ownImportSource))
-            ->select(['id', 'import_source', 'external_id', 'review_status', 'analyte', 'value', 'value_numeric', 'value_comparator', 'unit', 'collection_datetime', 'result_datetime', 'deleted_at', 'retracted_at']);
+            ->where(static fn ($query) => $query->whereNull('import_source')->orWhere('import_source', '!=', $ownImportSource));
         foreach ($query->lazyById(500) as $record) {
             $context->budget->charge(++$scanned, 0);
             $this->add($record);
@@ -110,7 +110,7 @@ final class EhiLabRecordIndex
      * Records whose C-CDA id extension equals this order id and whose analyte matches.
      *
      * @param  list<string>  $analytes  folded names the result goes by
-     * @return list<array{id: int, source: string|null, analyte: string|null, value: string|null, number: string|null, comparator: string|null, unit: string|null, dates: list<string>, live: bool}>
+     * @return list<array{id: int, digest: string, source: string|null, analyte: string|null, value: string|null, number: string|null, comparator: string|null, unit: string|null, dates: list<string>, live: bool}>
      */
     public function bridged(string $orderProcId, array $analytes): array
     {
@@ -242,6 +242,7 @@ final class EhiLabRecordIndex
         $position = count($this->rows);
         $this->rows[] = [
             'id' => $record->id,
+            'digest' => EhiTargetDigest::of($record),
             'source' => $record->import_source,
             'analyte' => $analyte,
             'value' => self::fold($record->value),

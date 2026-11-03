@@ -9,6 +9,7 @@ use App\Models\PhrOfficeVisit;
 use App\Services\PHR\Import\Ehi\Mapping\EhiCandidateSummary;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMappingContext;
 use App\Services\PHR\Import\Ehi\Mapping\EhiSourceIdBridge;
+use App\Services\PHR\Import\Ehi\Mapping\EhiTargetDigest;
 use App\Support\PHR\PhrRecordLifecycle;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Builder;
@@ -25,7 +26,7 @@ use Illuminate\Support\Carbon;
  */
 final class EhiEncounterRecordIndex
 {
-    /** @var array<int, array{id: int, source: string|null, provider: string|null, date: string|null, live: bool, rule: string|null}> */
+    /** @var array<int, array{id: int, digest: string, source: string|null, provider: string|null, date: string|null, live: bool, rule: string|null}> */
     private array $rows = [];
 
     /** @var array<string, list<int>> Y-m-d => row positions */
@@ -59,8 +60,7 @@ final class EhiEncounterRecordIndex
         }
 
         $query = $this->inclusive($context)
-            ->where(static fn ($query) => $query->whereNull('import_source')->orWhere('import_source', '!=', $ownImportSource))
-            ->select(['id', 'import_source', 'external_id', 'review_status', 'provider_name', 'visit_date', 'visit_started_at', 'raw_text', 'deleted_at', 'retracted_at']);
+            ->where(static fn ($query) => $query->whereNull('import_source')->orWhere('import_source', '!=', $ownImportSource));
         foreach ($query->lazyById(200) as $record) {
             $context->budget->charge(++$scanned, strlen((string) $record->raw_text));
             $this->add($record);
@@ -97,7 +97,7 @@ final class EhiEncounterRecordIndex
     /**
      * Records an earlier import identified by this CSN, each with the rule that held.
      *
-     * @return list<array{id: int, source: string|null, provider: string|null, date: string|null, live: bool, rule: string|null}>
+     * @return list<array{id: int, digest: string, source: string|null, provider: string|null, date: string|null, live: bool, rule: string|null}>
      */
     public function bridged(string $csn): array
     {
@@ -199,6 +199,7 @@ final class EhiEncounterRecordIndex
         $identifiers = EhiSourceIdBridge::fhirEncounterIdentifiers($record->import_source, $record->raw_text);
         $this->rows[] = [
             'id' => $record->id,
+            'digest' => EhiTargetDigest::of($record),
             'source' => $record->import_source,
             'provider' => self::fold($record->provider_name),
             'date' => $date,

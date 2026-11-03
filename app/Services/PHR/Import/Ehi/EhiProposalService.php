@@ -544,6 +544,7 @@ final class EhiProposalService
             || ! in_array($draft->kind, self::KINDS, true)
             || $draft->revisionIds === []
             || ($draft->targetTable === null) !== ($draft->targetId === null)
+            || ($draft->targetTable === null) !== ($draft->targetDigest === null)
             || ($draft->targetTable !== null && ! isset(self::TARGETS[$draft->targetTable]))) {
             throw new LogicException("EHI mapping {$mapping} produced an invalid draft.");
         }
@@ -565,14 +566,6 @@ final class EhiProposalService
             array_push($contentDigests, ...$found->all());
         }
 
-        $targetDigest = null;
-        if ($draft->targetTable !== null) {
-            $class = self::TARGETS[$draft->targetTable]['model'];
-            $target = $class::query()->withoutGlobalScope(SoftDeletingScope::class)
-                ->where('patient_id', $package->patient_id)->whereKey($draft->targetId)->first();
-            $targetDigest = $target instanceof Model ? EhiTargetDigest::of($target) : null;
-        }
-
         $candidates = array_values(array_unique(array_map('intval', $draft->candidateIds)));
         sort($candidates);
         $candidateSummary = $draft->candidateSummary;
@@ -591,7 +584,7 @@ final class EhiProposalService
             'revision_digest' => $this->revisionDigest($contentDigests),
             'target_table' => $draft->targetTable,
             'target_id' => $draft->targetId,
-            'target_digest' => $targetDigest,
+            'target_digest' => $draft->targetDigest,
             'proposed_json' => $candidateSummary === null ? $draft->proposed : [...($draft->proposed ?? []), '_candidate_summary' => $candidateSummary->metadata()],
             'before_json' => $draft->before,
             'candidate_ids_json' => $candidates === [] ? null : $candidates,

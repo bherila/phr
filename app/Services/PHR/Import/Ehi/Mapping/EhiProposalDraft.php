@@ -14,6 +14,9 @@ final readonly class EhiProposalDraft
      * @param  array<string, mixed>|null  $proposed  target attributes after apply
      * @param  array<string, mixed>|null  $before  current target attributes, for updates
      * @param  list<int>  $candidateIds  possible-duplicate records a reviewer may link
+     * @param  string|null  $targetDigest  EhiTargetDigest of the target as this draft read it, required with a target:
+     *                                     apply refuses a record that has changed since, so a digest taken any later would
+     *                                     let this proposal overwrite an edit it never saw
      */
     public function __construct(
         public string $subjectKey,
@@ -25,5 +28,6 @@ final readonly class EhiProposalDraft
         public ?array $before = null,
         public array $candidateIds = [],
         public ?EhiCandidateSummary $candidateSummary = null,
+        public ?string $targetDigest = null,
     ) {}
 }
