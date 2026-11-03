@@ -637,7 +637,7 @@ final class EhiEncounterMapping implements EhiMapping
     }
 
     /**
-     * @param  non-empty-list<array{id: int, source: string|null, provider: string|null, date: string|null, live: bool, rule: string|null}>  $bridged
+     * @param  non-empty-list<array{id: int, digest: string, source: string|null, provider: string|null, date: string|null, live: bool, rule: string|null}>  $bridged
      * @param  list<int>  $revisionIds
      * @param  array<string, mixed>  $proposed
      */
