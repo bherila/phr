@@ -72,6 +72,7 @@ final class AgentEobController extends Controller
             (string) $request->validated('expected_version'),
             (array) $request->validated('data'),
             $request->validated('source_document_id') !== null ? (int) $request->validated('source_document_id') : null,
+            (int) $request->user('api')?->id,
         );
 
         return $this->respond($request, (int) $resolved->id, $result);

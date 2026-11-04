@@ -568,3 +568,29 @@ delivery acknowledgement, terminal work refusal, disabled identities, missing
 completion metadata and a same-user unlinked job. The 16 tests were run against
 the checkout's own sources with the Composer autoloader path verified. No
 authorization widening or code change was needed.
+
+### EOB corrections and Delta Dental CSV amounts
+
+`eobs.update` requires `clinical:read`, `clinical:write`, writable patient access,
+and the current `expected_version`. It accepts a correction regardless of the
+original import source, preserves `import_source` and `external_id`, and reopens
+review. Each effective correction appends an entry to the EOB's clinical
+`parsed_data.corrections` history, within the write transaction: actor user ID,
+OAuth client ID, timestamp, prior version, and before/after header and line values.
+No-ops and conflicts add no history. Existing parser provenance is retained.
+This clinical history is included in native patient backups; request audit logs
+remain metadata-only and API responses do not expose the history.
+
+A Delta Dental CSV can put claim totals in the first procedure row. `eobs.import`
+therefore rejects CSV-only imports with 422 and instructions to read the EOB PDF
+and use `eobs.upsert`. The directory importer requires an accompanying claim PDF
+with a matching claim number and an unambiguous `Cost Breakdown` section, with
+standalone `Accepted Fee`, `Claim Deductible`, `Delta Dental Pays`, and `You Pay`
+label/value lines (two decimal places, optional colon, dollar sign and thousands
+commas). Unfamiliar layouts, missing/ambiguous totals and inconsistent sums are
+reported as failures without storing the claim. A first row matching all four
+independent totals is derived as PDF total minus the remaining CSV lines; negative
+remainders are rejected. The original CSV row, derived amounts, independently
+read totals and PDF text digest are retained as provenance. Single-line and zero
+remaining-line claims still require independent totals. Existing imports are
+not rewritten: read the source EOB and correct them with `eobs.update`.

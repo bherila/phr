@@ -79,13 +79,15 @@ duplicating it. Do not merge fills yourself.
 ## EOBs
 
 Upload the EOB (above), then `eobs.import` with the `document_id`: PHR reads
-Meritain EOB PDFs and Delta Dental claim CSVs itself, idempotently. If it answers
+Meritain EOB PDFs itself, idempotently. Delta Dental CSVs alone return a validation
+error because their first row may contain claim totals: read the independent EOB
+PDF and use `eobs.upsert` with its true line amounts and totals. If it answers
 `unrecognised_format`, read the document, call `eobs.list`, then `eobs.upsert`
 with the claim, its lines and `source_document_id`; a claim PHR already holds
 comes back unchanged. For a pharmacy claim, give each line its `fill` in
 `eobs.upsert`, or after `eobs.import` read the lines with `eob_lines.list` and
 call `medication_fills.upsert` with each line as `eob_line_id`, so the fill is
-linked to the EOB line that adjudicated it. Correct your own claim with
+linked to the EOB line that adjudicated it. Correct a claim from any import source with
 `eobs.update` and its current `version`. `evidence.links` shows the links
 between a fill, its EOB line and its documents.
 

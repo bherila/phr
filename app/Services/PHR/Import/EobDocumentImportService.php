@@ -14,8 +14,9 @@ use RuntimeException;
 
 /**
  * Imports one stored document as an EOB with the server's own parsers, when it
- * is a format they read (a Meritain EOB PDF, or a Delta Dental claim CSV), and
+ * is a format they read (a Meritain EOB PDF), and
  * says so plainly when it is not so the caller can extract the claim itself.
+ * Delta Dental CSVs are rejected without independent EOB PDF totals.
  *
  * Idempotent on the claim fingerprint, across sources: a claim an agent upserted
  * earlier, or a console importer wrote, is the same claim and is not written
@@ -34,8 +35,6 @@ final class EobDocumentImportService
         private readonly MeritainEobFingerprint $meritainFingerprint,
         private readonly MeritainEobImporter $meritain,
         private readonly DeltaDentalEobCsvParser $deltaParser,
-        private readonly DeltaDentalEobFingerprint $deltaFingerprint,
-        private readonly DeltaDentalEobImporter $delta,
         private readonly EobPdfTextExtractor $pdf,
     ) {}
 
@@ -55,7 +54,7 @@ final class EobDocumentImportService
         }
         $firstLine = strtok(ltrim($prefix, "\xEF\xBB\xBF"), "\r\n");
         if (is_string($firstLine) && DeltaDentalEobCsvParser::isHeaderLine($firstLine)) {
-            return LocalObjectFile::with(PhrDocument::STORAGE_DISK, $document->storage_path, fn (string $path): array => $this->importDelta($patient, $document, $path));
+            return LocalObjectFile::with(PhrDocument::STORAGE_DISK, $document->storage_path, fn (string $path): array => $this->importDelta($path));
         }
 
         return $this->unrecognised();
@@ -90,33 +89,17 @@ final class EobDocumentImportService
     }
 
     /** @return array{outcome: string, format: ?string, eobs: list<array{eob: PhrEob, outcome: string}>} */
-    private function importDelta(PhrPatient $patient, PhrDocument $document, string $path): array
+    private function importDelta(string $path): array
     {
         try {
-            $claims = $this->deltaParser->parse($path);
+            $this->deltaParser->parse($path);
         } catch (RuntimeException $exception) {
             throw ValidationException::withMessages(['document_id' => 'The document is a Delta Dental claim export that could not be read: '.$exception->getMessage()]);
         }
 
-        $eobs = [];
-        foreach ($claims as $parsed) {
-            $fingerprint = $this->deltaFingerprint->fromParsed($parsed);
-            $rawText = implode("\n", array_map(static fn (array $line): string => (string) ($line['raw_text'] ?? ''), $parsed['lines']));
-            $result = $this->persist(
-                $patient,
-                $fingerprint,
-                DeltaDentalEobImporter::IMPORT_SOURCE,
-                'eob:delta-dental:'.$parsed['claim_number'],
-                'delta_dental',
-                fn (): PhrEob => $this->delta->persistClaim(
-                    $patient, $parsed, (int) $document->id, 'eob:delta-dental:'.$parsed['claim_number'], $fingerprint, $rawText, PhrReviewStatus::PENDING,
-                ),
-            );
-            array_push($eobs, ...$result['eobs']);
-        }
-        $created = array_filter($eobs, static fn (array $entry): bool => $entry['outcome'] === self::CREATED) !== [];
-
-        return ['outcome' => $created ? self::CREATED : self::UNCHANGED, 'format' => 'delta_dental', 'eobs' => $eobs];
+        throw ValidationException::withMessages([
+            'document_id' => 'Delta Dental CSV amounts are unverified: the first procedure row may contain claim totals. Read the independent EOB PDF and use eobs.upsert with its true line amounts and totals, or import the CSV with its claim PDFs using phr:import:delta-dental-eobs.',
+        ]);
     }
 
     /**
