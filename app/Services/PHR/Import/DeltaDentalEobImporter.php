@@ -8,7 +8,6 @@ use App\Models\PhrEobLine;
 use App\Models\PhrPatient;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
-use Symfony\Component\Process\Process;
 
 class DeltaDentalEobImporter
 {
@@ -18,6 +17,8 @@ class DeltaDentalEobImporter
         private DeltaDentalEobCsvParser $parser,
         private DeltaDentalEobFingerprint $fingerprint,
         private PhrDocumentImporter $documentImporter,
+        private DeltaDentalClaimAmounts $amounts,
+        private EobPdfTextExtractor $pdf,
     ) {}
 
     /**
@@ -62,10 +63,8 @@ class DeltaDentalEobImporter
                 if ($sha256 === false) {
                     throw new RuntimeException('Unable to hash the authoritative claim PDF.');
                 }
-                $pdfText = $this->extractText($path);
-                if (! str_contains($pdfText, $claimNumber)) {
-                    throw new RuntimeException('Claim number was not found in the authoritative claim PDF.');
-                }
+                $pdfText = $this->pdf->extract($path);
+                $parsed = $this->amounts->reconcile($parsed, $pdfText);
 
                 $claimFingerprint = $this->fingerprint->fromParsed($parsed);
                 if (PhrEob::query()
@@ -119,14 +118,16 @@ class DeltaDentalEobImporter
     }
 
     /**
-     * Writes one parsed claim and its lines. The directory import and the
-     * single-document import (agent API) share it, so a claim has one shape
-     * however it arrived.
+     * Writes a claim whose CSV amounts were reconciled against its PDF totals.
      *
      * @param  array<string, mixed>  $parsed
      */
     public function persistClaim(PhrPatient $patient, array $parsed, int $documentId, string $externalId, string $claimFingerprint, string $rawText, string $reviewStatus = 'confirmed'): PhrEob
     {
+        if (($parsed['parsed_data']['amount_validation']['source'] ?? null) !== 'authoritative_claim_pdf') {
+            throw new RuntimeException('Delta Dental CSV amounts require independent claim totals from the EOB PDF.');
+        }
+
         $eob = PhrEob::create([
             'patient_id' => $patient->id,
             'user_id' => $patient->owner_user_id,
@@ -177,22 +178,5 @@ class DeltaDentalEobImporter
         }
 
         return $eob;
-    }
-
-    private function extractText(string $path): string
-    {
-        $process = new Process(['pdftotext', '-layout', $path, '-']);
-        $process->setTimeout(120);
-        $process->run();
-        if (! $process->isSuccessful()) {
-            throw new RuntimeException('pdftotext failed: '.trim($process->getErrorOutput()));
-        }
-
-        $text = $process->getOutput();
-        if (trim($text) === '') {
-            throw new RuntimeException('The PDF has no extractable text.');
-        }
-
-        return $text;
     }
 }

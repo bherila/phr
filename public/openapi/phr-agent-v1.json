@@ -1730,8 +1730,8 @@
             },
             "patch": {
                 "operationId": "eobs.update",
-                "summary": "Partially correct an EOB this connection wrote",
-                "description": "Header fields to change, and optionally every line (matched by line_number and updated in place, so fills linked to a line stay linked). Requires the EOB's current version. An effective change reopens review. An EOB imported by another source cannot be corrected here.",
+                "summary": "Partially correct a patient EOB from any import source",
+                "description": "Header fields to change, and optionally every line (matched by line_number and updated in place, so fills linked to a line stay linked). Requires the EOB's current version. An effective change reopens review. Corrections across import sources preserve import identity and record the actor, OAuth connection, timestamp, and before/after values in the EOB history.",
                 "security": [
                     {
                         "oauth2": [
@@ -1797,7 +1797,7 @@
             "post": {
                 "operationId": "eobs.import",
                 "summary": "Import a stored document as an EOB with the server's own parsers",
-                "description": "Reads a Meritain EOB PDF or a Delta Dental claim CSV already stored as a document. Idempotent on the claim fingerprint, across sources. New claims land pending_review. A document in any other format answers outcome unrecognised_format: extract the claim and call eobs.upsert with source_document_id.",
+                "description": "Reads a Meritain EOB PDF already stored as a document. Delta Dental CSVs without independent EOB PDF totals return 422; read the EOB PDF and use eobs.upsert. Idempotent on the claim fingerprint, across sources. New claims land pending_review. A document in any other format answers outcome unrecognised_format: extract the claim and call eobs.upsert with source_document_id.",
                 "security": [
                     {
                         "oauth2": [

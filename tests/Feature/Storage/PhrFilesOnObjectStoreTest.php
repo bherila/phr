@@ -44,6 +44,7 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use LogicException;
 use Tests\Support\EhiClinicalPackage;
 use Tests\Support\EhiIntakeFixtures;
@@ -197,7 +198,7 @@ class PhrFilesOnObjectStoreTest extends TestCase
         $this->assertFalse($this->documents()->exists((string) $upload->refresh()->staging_path ?: 'none'));
     }
 
-    public function test_a_stored_claim_csv_is_imported_from_the_object_store(): void
+    public function test_a_stored_claim_csv_from_the_object_store_requires_independent_eob_totals(): void
     {
         $csv = <<<'CSV'
 Claim Number,Date of Service,Submission Date,Member Name,Dentist,Phone,Procedure,Procedure Code,Accepted Fee,Claim Deductible,Delta Dental Pays,You Pay
@@ -205,10 +206,14 @@ Claim Number,Date of Service,Submission Date,Member Name,Dentist,Phone,Procedure
 CSV;
         $document = $this->storedDocument('claims.txt', 'text/plain', $csv);
 
-        $result = app(EobDocumentImportService::class)->import($this->patient, $document);
-
-        $this->assertSame(EobDocumentImportService::CREATED, $result['outcome']);
-        $this->assertSame(1, PhrEob::query()->where('patient_id', $this->patient->id)->count());
+        $this->expectException(ValidationException::class);
+        $this->expectExceptionMessage('independent EOB PDF');
+        try {
+            app(EobDocumentImportService::class)->import($this->patient, $document);
+        } finally {
+            $this->assertSame(0, PhrEob::query()->where('patient_id', $this->patient->id)->count());
+            $this->assertSame($csv, $this->documents()->get($document->storage_path));
+        }
     }
 
     public function test_a_stored_pdf_with_no_text_layer_reaches_the_parser_and_is_reported_unrecognised(): void

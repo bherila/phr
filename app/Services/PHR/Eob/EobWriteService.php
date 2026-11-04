@@ -125,24 +125,21 @@ final readonly class EobWriteService
     }
 
     /**
-     * A partial correction of a claim this connection wrote. `data` carries only
+     * A versioned correction of a patient claim, regardless of its import source. `data` carries only
      * the header fields to change; `lines`, when present, replaces every line.
      *
      * @param  array<string, mixed>  $data
      */
-    public function update(PhrPatient $patient, AgentApiClientIdentity $client, int $eobId, string $expectedVersion, array $data, ?int $sourceDocumentId): EobUpsertResult
+    public function update(PhrPatient $patient, AgentApiClientIdentity $client, int $eobId, string $expectedVersion, array $data, ?int $sourceDocumentId, int $actorUserId): EobUpsertResult
     {
         if ($sourceDocumentId !== null) {
             PhrDocument::query()->where('patient_id', $patient->id)->findOrFail($sourceDocumentId);
         }
 
         /** @var array{0: PhrEob, 1: string} $written */
-        $written = DB::transaction(function () use ($patient, $client, $eobId, $expectedVersion, $data, $sourceDocumentId): array {
+        $written = DB::transaction(function () use ($patient, $client, $eobId, $expectedVersion, $data, $sourceDocumentId, $actorUserId): array {
             PhrPatient::query()->whereKey($patient->id)->lockForUpdate()->first();
             $eob = PhrEob::query()->where('patient_id', $patient->id)->lockForUpdate()->findOrFail($eobId);
-            if ($eob->import_source !== $client->importSource()) {
-                throw new ConflictHttpException('This EOB was imported by another source; only the connection that wrote an EOB can correct it.');
-            }
             if (! hash_equals($this->versions->for($eob), $expectedVersion)) {
                 throw new ConflictHttpException('The EOB changed; fetch it and retry with its current version.');
             }
@@ -170,7 +167,26 @@ final readonly class EobWriteService
             if ($other) {
                 throw new ConflictHttpException('Another EOB already holds exactly this claim.');
             }
+            $before = [
+                ...$stored,
+                'source_document_id' => $eob->source_document_id,
+                'review_status' => $eob->review_status,
+                'parser_version' => $eob->parser_version,
+            ];
             $this->apply($eob, $claim, $fingerprint, $sourceDocumentId ?? $eob->source_document_id);
+            // Clinical history belongs with the patient record, never in metadata-only
+            // request audits. Keep it in the same transaction as the corrected lines.
+            $provenance = (array) $eob->parsed_data;
+            $provenance['corrections'][] = [
+                'actor_user_id' => $actorUserId,
+                'oauth_client_id' => $client->id,
+                'corrected_at' => now()->toIso8601String(),
+                'previous_version' => $expectedVersion,
+                'before' => $before,
+                'after' => [...$this->stored($eob), 'source_document_id' => $eob->source_document_id],
+            ];
+            $eob->parsed_data = $provenance;
+            $eob->save();
 
             return [$eob->refresh(), ClinicalUpsertResult::UPDATED];
         }, 3);
@@ -214,7 +230,7 @@ final readonly class EobWriteService
             ...$claim['header'],
             'source_document_id' => $documentId,
             'claim_fingerprint' => $fingerprint,
-            'parsed_data' => ['written_by' => 'agent_api'],
+            'parsed_data' => [...(array) $eob->parsed_data, 'written_by' => 'agent_api'],
             'parser_version' => self::PARSER_VERSION,
             'lines_digest' => hash('sha256', json_encode($this->withoutFills($claim)['lines'], JSON_THROW_ON_ERROR)),
             // A claim that changed is a new claim for a reviewer to look at.

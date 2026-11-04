@@ -155,7 +155,7 @@ final class AgentMcpToolCatalog
             $this->write(
                 'eobs.import',
                 'Import an EOB document',
-                'Run PHR\'s own importer on a stored document when it is a Meritain EOB PDF or a Delta Dental claim CSV. Idempotent on the claim fingerprint (an EOB already imported, upserted or read by another source is unchanged); new EOBs land pending_review. Any other document answers unrecognised_format: read the document, extract the claim yourself and call eobs_upsert with source_document_id. After an import, write one fill per pharmacy line with medication_fills_upsert and eob_line_id.',
+                'Run PHR\'s own importer on a stored Meritain EOB PDF. Delta Dental CSVs without independent EOB PDF totals return a validation error; read the EOB PDF and use eobs_upsert. Idempotent on the claim fingerprint (an EOB already imported, upserted or read by another source is unchanged); new EOBs land pending_review. Any other document answers unrecognised_format: read the document, extract the claim yourself and call eobs_upsert with source_document_id. After an import, write one fill per pharmacy line with medication_fills_upsert and eob_line_id.',
                 [$writes, 'eobsImport'],
                 new WriteSafety(note: 'Idempotent on the claim fingerprint.'),
             ),
@@ -170,7 +170,7 @@ final class AgentMcpToolCatalog
             $this->write(
                 'eobs.update',
                 'Update an EOB',
-                'Partially correct an EOB this connection wrote, by its ID and current version (read it with eobs_get). data holds the header fields to change; lines, when present, replaces every line (matched by line_number, so linked fills stay linked). Reopens review.',
+                'Partially correct a patient EOB from any import source, by its ID and current version (read it with eobs_get). data holds the header fields to change; lines, when present, replaces every line (matched by line_number, so linked fills stay linked). Reopens review.',
                 [$writes, 'eobsUpdate'],
                 $byVersion,
                 effect: Effect::Destructive,

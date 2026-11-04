@@ -7,7 +7,7 @@ use RuntimeException;
 
 class DeltaDentalEobCsvParser
 {
-    public const string PARSER_VERSION = 'delta-dental-csv-v1';
+    public const string PARSER_VERSION = 'delta-dental-csv-v2';
 
     /** @var list<string> */
     private const array HEADERS = [

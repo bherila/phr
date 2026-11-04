@@ -295,16 +295,51 @@ final class AgentApiEobWriteTest extends TestCase
         $this->patchJson("{$this->url()}/{$id}", ['expected_version' => $created['version'], 'data' => ['provider_name' => 'Other']])->assertConflict();
     }
 
-    public function test_an_eob_another_source_imported_cannot_be_corrected(): void
+    public function test_an_imported_eob_can_be_corrected_with_attribution_and_prior_values(): void
     {
-        $normalized = EobClaim::normalize($this->claim($this->document())['data']);
-        $other = PhrEob::query()->create([
-            ...$normalized['header'], 'patient_id' => $this->patient->id, 'user_id' => $this->actor->id,
-            'import_source' => 'meritain_eob', 'external_id' => 'eob:x', 'claim_fingerprint' => EobClaim::fingerprint($normalized),
+        $created = $this->putJson($this->url(), $this->claim($this->document()))->assertCreated()->json();
+        $eob = PhrEob::query()->findOrFail($created['data']['id']);
+        $eob->update([
+            'import_source' => 'delta_dental_eob', 'review_status' => PhrReviewStatus::CONFIRMED,
+            'parsed_data' => ['source_csv' => 'claims.csv'],
         ]);
-        $version = $this->getJson("{$this->url()}/{$other->id}")->assertOk()->json('data.version');
+        $version = $this->getJson("{$this->url()}/{$eob->id}")->assertOk()->json('data.version');
+        $lines = $this->claim($this->document())['data']['lines'];
+        $lines[0]['total_charges'] = '55.00';
+        $patch = ['expected_version' => $version, 'data' => ['lines' => $lines]];
+        $this->actingWith([AgentApiScopes::CLINICAL_READ]);
+        $this->patchJson("{$this->url()}/{$eob->id}", $patch)->assertForbidden();
+        $this->actingWith([AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE]);
+        $otherPatient = PhrPatient::query()->create(['owner_user_id' => $this->actor->id, 'display_name' => 'Other patient']);
+        $this->patchJson("/api/v1/patients/{$otherPatient->id}/eobs/{$eob->id}", $patch)->assertNotFound();
+        $this->patchJson("{$this->url()}/{$eob->id}", [...$patch, 'expected_version' => $created['version']])->assertConflict();
+        $this->assertArrayNotHasKey('corrections', $eob->refresh()->parsed_data);
 
-        $this->patchJson("{$this->url()}/{$other->id}", ['expected_version' => $version, 'data' => ['provider_name' => 'X']])->assertConflict();
+        $updated = $this->patchJson("{$this->url()}/{$eob->id}", $patch)->assertOk()
+            ->assertJsonPath('data.total_charges', '115.00')
+            ->assertJsonPath('data.review_status', PhrReviewStatus::PENDING)->json();
+        $this->assertNotSame($version, $updated['version']);
+        $eob->refresh();
+        $this->assertSame('delta_dental_eob', $eob->import_source);
+        $this->assertSame('claims.csv', $eob->parsed_data['source_csv']);
+        $history = $eob->parsed_data['corrections'];
+        $this->assertCount(1, $history);
+        $this->assertSame($this->actor->id, $history[0]['actor_user_id']);
+        $this->assertSame($this->client->id, $history[0]['oauth_client_id']);
+        $this->assertNotEmpty($history[0]['corrected_at']);
+        $this->assertSame($version, $history[0]['previous_version']);
+        $this->assertSame('160.00', $history[0]['before']['total_charges']);
+        $this->assertSame('100.00', $history[0]['before']['lines'][0]['total_charges']);
+        $this->assertSame('55.00', $history[0]['after']['lines'][0]['total_charges']);
+        $this->assertSame('115.00', $history[0]['after']['total_charges']);
+        $this->patchJson("{$this->url()}/{$eob->id}", $patch)->assertConflict();
+        $this->patchJson("{$this->url()}/{$eob->id}", [...$patch, 'expected_version' => $updated['version']])
+            ->assertOk()->assertJsonPath('outcome', 'unchanged');
+        $this->assertCount(1, $eob->refresh()->parsed_data['corrections']);
+        $this->patchJson("{$this->url()}/{$eob->id}", ['expected_version' => $updated['version'], 'data' => ['provider_name' => 'Corrected Provider']])
+            ->assertOk()->assertJsonPath('outcome', 'updated');
+        $this->assertCount(2, $eob->refresh()->parsed_data['corrections']);
+        $this->assertSame($history[0], $eob->parsed_data['corrections'][0]);
     }
 
     // ---- pharmacy lines and the fill link --------------------------------------------------
@@ -416,40 +451,23 @@ EOB;
         $document = $this->storedDocument('claims.txt', 'text/plain', (string) stream_get_contents($stream));
 
         $this->postJson("{$this->url()}/import", ['document_id' => $document->id])
-            ->assertCreated()->assertJsonPath('data.format', 'delta_dental');
+            ->assertUnprocessable()->assertJsonValidationErrors('document_id');
     }
 
-    public function test_a_delta_dental_csv_is_imported_and_another_source_holding_it_is_unchanged(): void
+    public function test_a_delta_dental_csv_without_independent_totals_is_flagged_and_writes_nothing(): void
     {
         $csv = <<<'CSV'
 Claim Number,Date of Service,Submission Date,Member Name,Dentist,Phone,Procedure,Procedure Code,Accepted Fee,Claim Deductible,Delta Dental Pays,You Pay
-20300102000001,2030-01-02,2030-01-03,Synthetic Patient,EXAMPLE DENTIST,(555) 010-0200,Periodic oral evaluation established patient,D0120,100.00,0.00,80.00,20.00
-20300102000001,2030-01-02,2030-01-03,Synthetic Patient,EXAMPLE DENTIST,(555) 010-0200,Prophylaxis (cleaning) adult,D1110,75.00,5.00,70.00,0.00
+20300102000001,2030-01-02,2030-01-03,Synthetic Patient,EXAMPLE DENTIST,(555) 010-0200,Evaluation,D0120,178.00,0.00,178.00,0.00
+20300102000001,2030-01-02,2030-01-03,Synthetic Patient,EXAMPLE DENTIST,(555) 010-0200,Cleaning,D1110,46.00,0.00,46.00,0.00
+20300102000001,2030-01-02,2030-01-03,Synthetic Patient,EXAMPLE DENTIST,(555) 010-0200,Imaging,D0274,77.00,0.00,77.00,0.00
 CSV;
-        $document = $this->storedDocument('claims.txt', 'text/plain', $csv);
-
-        $this->postJson("{$this->url()}/import", ['document_id' => $document->id])
-            ->assertCreated()
-            ->assertJsonPath('data.format', 'delta_dental')
-            ->assertJsonPath('data.eobs.0.lines_count', 2);
-        $eob = PhrEob::query()->sole();
-        $this->assertSame('delta_dental_eob', $eob->import_source);
-        $this->assertSame(PhrReviewStatus::PENDING, $eob->review_status);
-        $this->assertSame('150.00', $eob->total_carrier_payment);
-
-        // An agent reading the same claim itself (same content) does not add a second copy.
-        $this->putJson($this->url(), [
-            'source_document_id' => $document->id,
-            'data' => [
-                'claim_type' => 'dental', 'claim_number' => '20300102000001', 'submission_date' => '2030-01-03', 'patient_name' => 'Synthetic Patient',
-                'provider_name' => 'EXAMPLE DENTIST', 'provider_phone' => '(555) 010-0200',
-                'lines' => [
-                    ['procedure_code' => 'D0120', 'description' => 'Periodic oral evaluation established patient', 'service_start' => '2030-01-02', 'accepted_fee' => '100.00', 'deductible_applied' => '0.00', 'carrier_payment' => '80.00', 'plan_payment' => '80.00', 'patient_responsibility' => '20.00'],
-                    ['procedure_code' => 'D1110', 'description' => 'Prophylaxis (cleaning) adult', 'service_start' => '2030-01-02', 'accepted_fee' => '75.00', 'deductible_applied' => '5.00', 'carrier_payment' => '70.00', 'plan_payment' => '70.00', 'patient_responsibility' => '0.00'],
-                ],
-            ],
-        ])->assertOk()->assertJsonPath('outcome', 'unchanged')->assertJsonPath('data.id', $eob->id);
-        $this->assertSame(1, PhrEob::query()->count());
+        $document = $this->storedDocument('claims.csv', 'text/csv', $csv);
+        $response = $this->postJson("{$this->url()}/import", ['document_id' => $document->id])
+            ->assertUnprocessable()->assertJsonValidationErrors('document_id');
+        $this->assertStringContainsString('independent EOB PDF', $response->json('errors.document_id.0'));
+        $this->assertSame(0, PhrEob::query()->count());
+        $this->assertSame(0, PhrEobLine::query()->count());
     }
 
     public function test_an_unrecognised_document_says_so_and_writes_nothing(): void
