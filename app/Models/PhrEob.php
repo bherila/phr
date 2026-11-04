@@ -25,6 +25,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $submission_date
  * @property Carbon|null $print_date
  * @property Carbon|null $processed_date
+ * @property array<string, mixed>|null $parsed_data
  * @property string $review_status
  * @property-read Collection<int, PhrEobLine> $lines
  */

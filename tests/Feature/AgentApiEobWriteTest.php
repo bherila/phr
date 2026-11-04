@@ -307,6 +307,11 @@ final class AgentApiEobWriteTest extends TestCase
         $lines = $this->claim($this->document())['data']['lines'];
         $lines[0]['total_charges'] = '55.00';
         $patch = ['expected_version' => $version, 'data' => ['lines' => $lines]];
+        $this->actingWith([AgentApiScopes::CLINICAL_READ]);
+        $this->patchJson("{$this->url()}/{$eob->id}", $patch)->assertForbidden();
+        $this->actingWith([AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE]);
+        $otherPatient = PhrPatient::query()->create(['owner_user_id' => $this->actor->id, 'display_name' => 'Other patient']);
+        $this->patchJson("/api/v1/patients/{$otherPatient->id}/eobs/{$eob->id}", $patch)->assertNotFound();
         $this->patchJson("{$this->url()}/{$eob->id}", [...$patch, 'expected_version' => $created['version']])->assertConflict();
         $this->assertArrayNotHasKey('corrections', $eob->refresh()->parsed_data);
 
@@ -331,6 +336,10 @@ final class AgentApiEobWriteTest extends TestCase
         $this->patchJson("{$this->url()}/{$eob->id}", [...$patch, 'expected_version' => $updated['version']])
             ->assertOk()->assertJsonPath('outcome', 'unchanged');
         $this->assertCount(1, $eob->refresh()->parsed_data['corrections']);
+        $this->patchJson("{$this->url()}/{$eob->id}", ['expected_version' => $updated['version'], 'data' => ['provider_name' => 'Corrected Provider']])
+            ->assertOk()->assertJsonPath('outcome', 'updated');
+        $this->assertCount(2, $eob->refresh()->parsed_data['corrections']);
+        $this->assertSame($history[0], $eob->parsed_data['corrections'][0]);
     }
 
     // ---- pharmacy lines and the fill link --------------------------------------------------
