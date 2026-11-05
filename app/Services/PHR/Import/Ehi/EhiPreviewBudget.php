@@ -26,7 +26,7 @@ final class EhiPreviewBudget
     public function checkpoint(): void
     {
         if ((hrtime(true) / 1_000_000_000) - $this->started > (int) config('phr.ehi_preview_max_seconds')) {
-            throw new EhiProjectionRefused(EhiProjectionRefused::RESOURCE_LIMIT, 'the preview time budget was exceeded');
+            throw new EhiProjectionRefused(EhiProjectionRefused::RESOURCE_LIMIT, 'the preview time budget was exceeded', resourceLimit: EhiPreviewLimit::Time);
         }
     }
 
@@ -34,7 +34,7 @@ final class EhiPreviewBudget
     {
         $this->checkpoint();
         if ($rows > (int) config('phr.ehi_preview_max_rows') || $bytes > (int) config('phr.ehi_preview_max_bytes')) {
-            throw new EhiProjectionRefused(EhiProjectionRefused::RESOURCE_LIMIT, 'the preview work set exceeds the supported row or byte limit');
+            throw new EhiProjectionRefused(EhiProjectionRefused::RESOURCE_LIMIT, 'the preview work set exceeds the supported row or byte limit', resourceLimit: EhiPreviewLimit::Capacity);
         }
     }
 

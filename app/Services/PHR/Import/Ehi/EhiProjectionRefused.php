@@ -8,7 +8,8 @@ use Throwable;
 /**
  * A projection that was refused or stopped. `reason` is a fixed code and the
  * message is structural; neither names a member, table, column, or value. Rows
- * already committed stay, and a retry converges on them.
+ * already committed stay. Projection keeps table checkpoints; proposal preview
+ * retries start a new generation and recompute mappings.
  */
 final class EhiProjectionRefused extends RuntimeException
 {
@@ -34,7 +35,7 @@ final class EhiProjectionRefused extends RuntimeException
 
     public const string RESOURCE_LIMIT = 'resource_limit';
 
-    public function __construct(public readonly string $reason, string $detail, ?Throwable $previous = null)
+    public function __construct(public readonly string $reason, string $detail, ?Throwable $previous = null, public readonly ?EhiPreviewLimit $resourceLimit = null)
     {
         parent::__construct(sprintf('EHI projection refused (%s): %s.', $reason, $detail), 0, $previous);
     }

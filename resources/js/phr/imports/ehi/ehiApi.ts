@@ -59,6 +59,7 @@ export const EhiPreviewRunSchema = z.object({
   package_id: z.number(),
   status: z.enum(['queued', 'running', 'completed', 'failed']),
   failure_reason: z.string().nullable(),
+  failure_details: z.object({ resource_limit: z.enum(['time', 'capacity']) }).nullable().optional().catch(null),
   counts: nestedCountMap.nullable(),
   statuses: countMap.nullable(),
   findings: countMap.nullable(),
@@ -343,7 +344,7 @@ const ERROR_TEXT: Record<string, string> = {
   preview_incomplete: 'The review is being prepared again. Wait for it to finish.',
   not_pending: 'This proposal was already decided.',
   decision_not_allowed: 'That decision does not apply to this proposal.',
-  resource_limit: 'This export is too large to prepare for review in one pass. Try again to continue.',
+  resource_limit: 'Review preparation reached a resource limit. Your export is stored, but review is incomplete. Contact support for help.',
   unexpected: 'Something went wrong. Try again.',
 }
 
@@ -368,7 +369,13 @@ export function ehiFailureText(caught: unknown): string {
 }
 
 /** A sentence for a fixed reason code, or the text as given when it is not one. */
-export function describeEhiError(reason: string | null | undefined): string {
+export function describeEhiError(reason: string | null | undefined, details?: EhiPreviewRun['failure_details']): string {
+  if (reason === 'resource_limit' && details?.resource_limit === 'time') {
+    return 'Review preparation reached its time limit. Your export is stored. You can restart preparation, but it may reach the same limit again.'
+  }
+  if (reason === 'resource_limit' && details?.resource_limit === 'capacity') {
+    return 'This export and the existing records exceed the supported review capacity. Your export is stored. With unchanged records and limits, preparing again will reach the same limit. Contact support for help.'
+  }
   if (!reason) {
     return 'Something went wrong. Try again.'
   }

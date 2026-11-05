@@ -383,15 +383,17 @@ export function EhiImportFlow({ patientId, canBind, job, uploadId, packageId, on
             {bound && previewRunning && <span className="text-sm text-muted-foreground">Preparing proposals from {pkg.source?.label ?? 'this export'}…</span>}
             {bound && previewFailed && (
               <span className="flex flex-wrap items-center gap-2 text-sm text-destructive">
-                {describeEhiError(pkg.preview_run?.failure_reason)}
-                <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void act(() => queueEhiPreview(patientId, pkg.id))}>Try again</Button>
+                {describeEhiError(pkg.preview_run?.failure_reason, pkg.preview_run?.failure_details)}
+                <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void act(() => queueEhiPreview(patientId, pkg.id))}>
+                  {pkg.preview_run?.failure_reason === 'resource_limit' ? 'Restart preparation' : 'Try again'}
+                </Button>
               </span>
             )}
             {bound && !previewRunning && !previewFailed && pkg.preview.state !== 'complete' && (
               <span className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                 {pkg.preview.state === 'incomplete' ? 'Preparing proposals stopped partway.' : 'Ready to prepare proposals.'}
                 <Button type="button" size="sm" disabled={busy} onClick={() => void act(() => queueEhiPreview(patientId, pkg.id))}>
-                  {pkg.preview.state === 'incomplete' ? 'Continue' : 'Prepare review'}
+                  {pkg.preview.state === 'incomplete' ? 'Prepare review again' : 'Prepare review'}
                 </Button>
               </span>
             )}

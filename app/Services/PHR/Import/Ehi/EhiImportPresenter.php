@@ -135,12 +135,16 @@ final class EhiImportPresenter
     public function previewRun(PhrEhiPreviewRun $run): array
     {
         $result = $run->result_json ?? [];
+        $detail = $result['failure_details']['resource_limit'] ?? null;
+        $limit = $run->status === PhrEhiPreviewRun::STATUS_FAILED && $run->failure_reason === EhiProjectionRefused::RESOURCE_LIMIT && is_string($detail)
+            ? EhiPreviewLimit::tryFrom($detail) : null;
 
         return [
             'id' => $run->id,
             'package_id' => $run->package_id,
             'status' => $run->status,
             'failure_reason' => $run->failure_reason,
+            'failure_details' => $limit === null ? null : ['resource_limit' => $limit->value],
             'counts' => $result['counts'] ?? null,
             'statuses' => $result['statuses'] ?? null,
             'findings' => $result['findings'] ?? null,
