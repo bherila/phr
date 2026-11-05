@@ -41,6 +41,74 @@ class PhrEhiProbeCommandTest extends TestCase
         self::assertSame(2, $report['tables']['pat_id']['distinct_values'], 'a blank is not a patient');
     }
 
+    public function test_patient_scope_counts_identify_public_tables_without_printing_unknown_names(): void
+    {
+        $dir = $this->writeTree('package', [
+            ...$this->syntheticPackage(),
+            'Tables/PAT_ENC.tsv' => "PAT_ID\tPAT_ENC_CSN_ID\n000777\t1\n\t2\n000777\t3\textra\n",
+            'Extra/pat_enc.tsv' => "PAT_ID\tPAT_ENC_CSN_ID\n\t4\n",
+            'Tables/ORDER_PROC.tsv' => "PAT_ID\tORDER_PROC_ID\n\t1\n000777\t2\n",
+            'Tables/SYNTH_'.self::MARKER.'.tsv' => "PAT_ID\tSYN_VALUE\n\t1\n000777\t2\textra\n",
+        ]);
+        foreach ([[], ['--json' => true]] as $extra) {
+            self::assertSame(0, Artisan::call('phr:ehi:probe', ['--dir' => $dir, ...$extra]));
+            $this->assertSafe(Artisan::output(), $dir);
+        }
+        $report = $this->jsonReport(['--dir' => $dir]);
+        self::assertSame('ehi-probe-3', $report['probe_version']);
+        $patient = $report['tables']['pat_id'];
+        self::assertSame(4, $patient['blank_value_rows']);
+        self::assertSame(2, $patient['malformed_rows']);
+        self::assertSame('refusal_observed', $patient['unscoped_patient_row_check']);
+        self::assertSame([
+            'table_members' => 2, 'tables_with_column' => 2, 'tables_with_unknown_scope' => 0,
+            'blank_value_rows' => 2, 'malformed_rows' => 1, 'unreadable_members' => 0,
+        ], $patient['by_table']['PAT_ENC']);
+        self::assertSame(1, $patient['by_table']['ORDER_PROC']['blank_value_rows']);
+        self::assertSame(0, $patient['by_table']['ORDER_PROC']['malformed_rows']);
+        self::assertSame(1, $patient['by_table']['(other)']['blank_value_rows']);
+        self::assertSame(1, $patient['by_table']['(other)']['malformed_rows']);
+        self::assertSame(0, $patient['by_table']['HNO_INFO']['table_members']);
+        self::assertSame(8, count($patient['by_table']), 'output is bounded by fixed public table buckets');
+    }
+
+    public function test_unusable_headers_count_rows_whose_patient_intake_cannot_establish(): void
+    {
+        foreach ([
+            'duplicate' => ["PAT_ID\tPAT_ID\n000777\t000777\n", 1, 0],
+            'undecodable' => ["PAT_ID\tSYN_VALUE\xFF\n000777\t1\n", 0, 1],
+        ] as $name => [$table, $declared, $unknown]) {
+            $dir = $this->writeTree($name, [...$this->syntheticPackage(), 'Tables/PAT_ENC.tsv' => $table]);
+            $patient = $this->jsonReport(['--dir' => $dir])['tables']['pat_id'];
+            self::assertSame(1, $patient['malformed_rows'], $name);
+            self::assertSame($unknown, $patient['tables_with_unknown_scope'], $name);
+            self::assertSame($declared, $patient['by_table']['PAT_ENC']['tables_with_column'], $name);
+            self::assertSame(1, $patient['by_table']['PAT_ENC']['malformed_rows'], $name);
+            self::assertSame('refusal_observed', $patient['unscoped_patient_row_check'], $name);
+        }
+    }
+
+    public function test_a_header_with_unknown_patient_scope_does_not_report_a_complete_check(): void
+    {
+        $dir = $this->writeTree('package', [...$this->syntheticPackage(), 'Tables/PAT_ENC.tsv' => "PAT_ID\tSYN_VALUE\xFF\n"]);
+        $patient = $this->jsonReport(['--dir' => $dir])['tables']['pat_id'];
+
+        self::assertSame(0, $patient['blank_value_rows']);
+        self::assertSame(0, $patient['malformed_rows']);
+        self::assertSame(1, $patient['tables_with_unknown_scope']);
+        self::assertSame('incomplete', $patient['unscoped_patient_row_check']);
+    }
+
+    public function test_malformed_rows_in_a_header_proven_to_have_no_patient_column_are_not_patient_refusals(): void
+    {
+        $dir = $this->writeTree('package', [...$this->syntheticPackage(), 'Tables/PAT_ENC.tsv' => "SYN_VALUE\tSYN_VALUE\n1\t2\n"]);
+        $patient = $this->jsonReport(['--dir' => $dir])['tables']['pat_id'];
+
+        self::assertSame(0, $patient['malformed_rows']);
+        self::assertSame(0, $patient['tables_with_unknown_scope']);
+        self::assertSame('not_observed', $patient['unscoped_patient_row_check']);
+    }
+
     public function test_directory_probe_prints_structure_without_planted_values(): void
     {
         $dir = $this->writeTree('package', $this->syntheticPackage());
