@@ -4,11 +4,13 @@
  * Synthetic, isolated resource runs. Prepare in one process, measure in another:
  * php -d memory_limit=1G scripts/measure-phr-resources.php --dir=/tmp/phr-resource-small --prepare --shape=small --records=20000
  * php -d memory_limit=1G scripts/measure-phr-resources.php --dir=/tmp/phr-resource-small --operation=backup
- * Operations: backup, validate, plan, apply, preview. Shape: small, wide, artifacts, ehi, fanout, dense.
+ * Operations: backup, validate, plan, apply, preview. Shape: small, wide, artifacts, ehi, labs, fanout, dense.
+ * --mysql-port selects a disposable loopback MariaDB schema; --history-records adds synthetic prior labs.
  * All files stay under the explicitly selected private temporary directory.
  */
 
 use App\Models\PhrEhiPackage;
+use App\Models\PhrLabResult;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Models\User;
@@ -36,7 +38,7 @@ use Tests\Support\EhiClinicalPackage;
 use Tests\Support\EhiSyntheticPackage;
 
 require dirname(__DIR__).'/vendor/autoload.php';
-$options = getopt('', ['dir:', 'prepare', 'shape:', 'records:', 'bytes:', 'operation:', 'new-patient', 'extra-identities:']);
+$options = getopt('', ['dir:', 'prepare', 'shape:', 'records:', 'bytes:', 'operation:', 'new-patient', 'extra-identities:', 'mysql-port:', 'history-records:']);
 $directory = $options['dir'] ?? '';
 $parent = is_string($directory) ? realpath(dirname($directory)) : false;
 if ($parent !== realpath(sys_get_temp_dir()) || ! str_starts_with(basename($directory), 'phr-resource-') || is_link($directory)) {
@@ -68,6 +70,26 @@ foreach (['phr_documents', 'phr_exports', 'phr_dicom'] as $disk) {
     config(['filesystems.disks.'.$disk => ['driver' => 'local', 'root' => $directory.'/'.$disk, 'throw' => true]]);
     Storage::forgetDisk($disk);
 }
+if (array_key_exists('mysql-port', $options)) {
+    $port = filter_var($options['mysql-port'], FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 65535]]);
+    if ($port === false) {
+        throw new InvalidArgumentException('--mysql-port must be a valid loopback TCP port.');
+    }
+    // Never select an existing application schema, host or credentials from .env.
+    // Every fixture receives a new private schema in the disposable CI service.
+    $schema = 'phr_resource_'.substr(hash('sha256', $directory), 0, 24);
+    $password = 'synthetic-resource-password';
+    if ($prepare) {
+        $server = new PDO('mysql:host=127.0.0.1;port='.$port, 'root', $password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+        $server->exec('CREATE DATABASE `'.$schema.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+    }
+    config([
+        'database.default' => 'mysql', 'database.connections.mysql.url' => null,
+        'database.connections.mysql.host' => '127.0.0.1', 'database.connections.mysql.port' => $port,
+        'database.connections.mysql.database' => $schema, 'database.connections.mysql.username' => 'root',
+        'database.connections.mysql.password' => $password,
+    ]);
+}
 DB::purge();
 DB::disableQueryLog();
 Queue::fake();
@@ -80,9 +102,9 @@ if ($prepare) {
     $shape = $options['shape'] ?? 'small';
     $records = max(2, (int) ($options['records'] ?? 1000));
     $packageId = null;
-    if (in_array($shape, ['ehi', 'fanout', 'dense'], true)) {
-        $clinical = EhiClinicalPackage::standard();
-        for ($i = 0; $i < $records; $i++) {
+    if (in_array($shape, ['ehi', 'labs', 'fanout', 'dense'], true)) {
+        $clinical = $shape === 'labs' ? EhiClinicalPackage::labCapacity($records) : EhiClinicalPackage::standard();
+        for ($i = 0; $shape !== 'labs' && $i < $records; $i++) {
             if (in_array($shape, ['fanout', 'dense'], true)) {
                 $clinical = $clinical->adding('HNO_PLAIN_TEXT', ['NOTE_CSN_ID' => '9102', 'LINE' => (string) ($i + 100), 'NOTE_ID' => '88001', 'NOTE_TEXT' => str_repeat('Synthetic note text ', max(1, (int) ($options['bytes'] ?? 1)))]);
             } else {
@@ -133,7 +155,17 @@ if ($prepare) {
             DB::table('phr_documents')->where('id', $document->id)->update(['storage_path' => $key, 'byte_size' => 9, 'file_hash' => hash('sha256', 'synthetic')]);
         }
     }
-    $state = ['patient' => $patient->id, 'owner' => $owner->id, 'package' => $packageId, 'shape' => $shape, 'requested_records' => $records];
+    $history = max(0, min(10000, (int) ($options['history-records'] ?? 0)));
+    for ($offset = 0; $offset < $history; $offset += 100) {
+        $rows = [];
+        for ($i = $offset; $i < min($offset + 100, $history); $i++) {
+            $rows[] = ['patient_id' => $patient->id, 'user_id' => $owner->id, 'import_source' => 'synthetic-resource-history',
+                'external_id' => 'synthetic-resource-'.$i, 'review_status' => 'confirmed', 'analyte' => 'SYNTHETIC PRIOR ANALYTE '.$i,
+                'value' => '1', 'unit' => 'synthetic', 'collection_datetime' => '2009-01-01 00:00:00', 'created_at' => now(), 'updated_at' => now()];
+        }
+        DB::table('phr_lab_results')->insert($rows);
+    }
+    $state = ['patient' => $patient->id, 'owner' => $owner->id, 'package' => $packageId, 'shape' => $shape, 'requested_records' => $records, 'history_records' => $history, 'database_driver' => DB::connection()->getDriverName()];
     try {
         $built = app(PhrNativeArchiveBuilder::class)->build($patient);
         rename($built->path, $directory.'/archive.zip');
@@ -189,6 +221,7 @@ $baseline = memory_get_usage(true);
 memory_reset_peak_usage();
 $started = microtime(true);
 $status = 'completed';
+$preview = null;
 try {
     switch ($operation) {
         case 'backup':
@@ -210,7 +243,7 @@ try {
             app(PhrNativeRestoreService::class)->apply($attempt);
             break;
         case 'preview':
-            app(EhiProposalService::class)->preview(PhrEhiPackage::findOrFail($state['package']), $patient, $state['owner']);
+            $preview = app(EhiProposalService::class)->preview(PhrEhiPackage::findOrFail($state['package']), $patient, $state['owner']);
             break;
         default:
             throw new InvalidArgumentException('Unknown operation.');
@@ -220,13 +253,25 @@ try {
 } catch (EhiProjectionRefused $refused) {
     $status = $refused->reason;
 }
+$elapsed = round(microtime(true) - $started, 3);
+$measuredQueries = $queries;
+$measuredBindings = $bindings;
+$previewPackage = $state['package'] === null ? null : PhrEhiPackage::findOrFail($state['package']);
 $usage = getrusage();
 $procStatus = is_file('/proc/self/status') ? file_get_contents('/proc/self/status') : '';
 preg_match('/VmHWM:\s+(\d+)/', $procStatus, $hwm);
 preg_match('/VmRSS:\s+(\d+)/', $procStatus, $rss);
 echo json_encode([
     'shape' => $state['shape'], 'operation' => $operation, 'requested_records' => $state['requested_records'],
-    'status' => $status, 'seconds' => round(microtime(true) - $started, 3),
+    'database_driver' => DB::connection()->getDriverName(), 'database_version' => DB::connection()->getServerVersion(),
+    'history_records' => $state['history_records'] ?? 0,
+    'status' => $status, 'seconds' => $elapsed,
+    'limits' => ['rows' => config('phr.ehi_preview_max_rows'), 'bytes' => config('phr.ehi_preview_max_bytes'), 'seconds' => config('phr.ehi_preview_max_seconds')],
+    'preview_counts' => $preview?->counts, 'preview_statuses' => $preview?->statuses,
+    'preview_complete' => $preview !== null,
+    'generation_complete' => $previewPackage !== null && $previewPackage->preview_generation_started > 0
+        && $previewPackage->preview_generation_started === $previewPackage->preview_generation_completed,
+    'clinical_lab_rows' => PhrLabResult::query()->where('patient_id', $state['patient'])->count(),
     'baseline_php_bytes' => $baseline, 'peak_php_bytes' => memory_get_peak_usage(true),
-    'max_rss_kib' => $hwm[1] ?? $usage['ru_maxrss'], 'current_rss_kib' => $rss[1] ?? null, 'queries' => $queries, 'max_bindings' => $bindings,
+    'max_rss_kib' => $hwm[1] ?? $usage['ru_maxrss'], 'current_rss_kib' => $rss[1] ?? null, 'queries' => $measuredQueries, 'max_bindings' => $measuredBindings,
 ], JSON_THROW_ON_ERROR)."\n";

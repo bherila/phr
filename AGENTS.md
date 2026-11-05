@@ -1,8 +1,22 @@
 # AGENTS.md
 
 Instructions for AI coding agents working in this repo. `README.md` is the primary
-reference for architecture, local setup, and the validation commands (type-check,
-lint, Jest, Pint, PHPUnit) that must pass before committing.
+reference for architecture, local setup, and available validation commands.
+
+## Validation workflow
+
+- Run heavy validation in CI: full PHPStan, full Pint, full test suites, and
+  mutation or coverage runs. Run these locally only when the user explicitly
+  requests local execution.
+- Keep local checks short and focused: relevant tests, formatting or linting of
+  changed files, and targeted browser verification. Push a focused candidate
+  promptly so CI can run the expensive jobs.
+- Required CI results on the exact candidate commit are the validation gate.
+  Inspect actual mutation artifacts when a green advisory job can hide escaped
+  mutations. Do not weaken checks or deadlines to make a candidate pass.
+
+These workflow preferences supersede older guidance requiring heavy local runs
+or all repository checks before committing.
 
 ## Cloud sessions
 

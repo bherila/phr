@@ -1,0 +1,100 @@
+name: EHI preview capacity
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/ehi-capacity.yml
+      - scripts/measure-phr-resources.php
+      - scripts/observe-phr-resources.py
+      - scripts/assert-ehi-capacity.py
+      - scripts/test-ehi-capacity.py
+      - tests/Support/EhiClinicalPackage.php
+      - app/Services/PHR/Import/Ehi/**
+      - config/phr.php
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ehi-capacity-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  capacity:
+    name: EHI capacity (${{ matrix.database }})
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [sqlite, mariadb]
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: synthetic-resource-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: pdo_mysql, simplexml
+          coverage: none
+      - name: Authorize private MCP bridge dependency
+        uses: webfactory/ssh-agent@e83874834305fe9a4a2997156cb26c5de65a8555
+        with:
+          ssh-private-key: ${{ secrets.MCP_BRIDGE_DEPLOY_KEY }}
+      - uses: actions/cache@v6
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+      - name: Install Composer dependencies
+        run: composer install --no-interaction
+      - name: Prepare an isolated application environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate --no-interaction
+          mkdir -p build/ehi-capacity
+      - name: Test capacity-result interpretation
+        run: python3 -B scripts/test-ehi-capacity.py
+      - name: Measure mixed lab packages and prior patient history
+        env:
+          CAPACITY_DATABASE: ${{ matrix.database }}
+          PHR_EHI_PREVIEW_MAX_SECONDS: '240'
+        run: |
+          set -euo pipefail
+          database_args=()
+          if [ "$CAPACITY_DATABASE" = mariadb ]; then
+            database_args+=(--mysql-port=3306)
+          fi
+          # The expanded profile is a measurement, not a new supported default.
+          # Preserve the current 240-second deadline in every profile.
+          for profile in '1000 0 10000 8388608' '2000 0 10000 8388608' '1000 2000 10000 8388608' '5000 2000 50000 67108864'; do
+            read -r records history rows bytes <<< "$profile"
+            export PHR_EHI_PREVIEW_MAX_ROWS="$rows" PHR_EHI_PREVIEW_MAX_BYTES="$bytes"
+            fixture="/tmp/phr-resource-capacity-${CAPACITY_DATABASE}-${records}-${history}-${rows}"
+            result="build/ehi-capacity/${CAPACITY_DATABASE}-${records}-${history}-${rows}.json"
+            timeout 300s php -d memory_limit=1G scripts/measure-phr-resources.php \
+              --dir="$fixture" --prepare --shape=labs --records="$records" --history-records="$history" "${database_args[@]}" \
+              > "${result%.json}-prepare.log"
+            timeout 300s python3 scripts/observe-phr-resources.py \
+              --dir="$fixture" --operation=preview "${database_args[@]}" > "$result"
+            python3 scripts/assert-ehi-capacity.py "$result" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+      - name: Retain capacity measurements
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ehi-capacity-${{ matrix.database }}
+          path: build/ehi-capacity/
+          if-no-files-found: error
+          retention-days: 14
