@@ -31,6 +31,14 @@ onlyBuiltDependencies:
   - unrs-resolver
 
 overrides:
+  # GHSA-g3hv-75wg-m249: glob 14 supports minimatch 11's Matcher objects.
+  # Older glob walkers assume RegExp entries, so migrate their parent too.
+  'glob@10.5.0': 14.0.3
+  'glob@13.0.6': 14.0.3
+  'test-exclude@7.0.2>minimatch': 11.0.4
+  # These exact consumers use the retained Minimatch constructor/match API.
+  'eslint@10.14.0>minimatch': 11.0.4
+  '@eslint/config-array@0.23.5>minimatch': 11.0.4
   # GHSA-rj75-hqrm-r3gf: typography 0.5.20 pins the vulnerable parser exactly.
   '@tailwindcss/typography@0.5.20>postcss-selector-parser': 6.1.5
   # concurrently 10.0.5 pins a shell-quote release affected by GHSA-pqg4-j6r4-53mv.
