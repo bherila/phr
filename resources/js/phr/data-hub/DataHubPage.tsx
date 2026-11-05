@@ -33,6 +33,7 @@ const CLINICAL_CATEGORIES: DataHubCategoryKey[] = [
   'vitals',
   'office_visits',
   'medications',
+  'medication_fills',
   'conditions',
   'procedures',
   'immunizations',
