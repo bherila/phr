@@ -350,3 +350,19 @@ boundary. It does **not** calibrate the production SQL connection or object-stor
 latency, and must not justify production limit increases by itself. Measuring
 MariaDB there needs a separately provisioned disposable schema and credentials;
 never use the application's schema or issue application migrations for this task.
+
+Host calibration first runs a bounded read-only prerequisite probe. It returns
+only finite command/Python/PHP/device refusal codes, validated runtime versions,
+and aggregate counts of canonical current-user-owned mode-0700 legacy roots with
+the old fixed sentinel, including how many fall within the failed first attempt's
+09:37:55–09:37:57 UTC creation window on 2026-11-05. No root paths or marker contents
+are returned, and a possible legacy root is never deleted by this audit. A zero
+count proves that no qualifying old-sentinel root remains; a positive count needs
+separate identification against that run/time window before any legacy cleanup.
+
+Only a validated preflight allows creation. The runner records a random root name
+and unique run nonce before requesting fresh noclobber mode-0700 creation. Runtime
+and cleanup require the same nonce in the private marker. If SSH fails immediately
+after creation, the runner still has the cleanup identity; a preexisting root or
+wrong nonce cannot be overwritten or cleaned. Sanitized stage proofs are retained
+on failure while unexpected SSH stdout, banners, stderr and paths remain private.
