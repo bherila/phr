@@ -17,10 +17,10 @@ capture_stage() {
         > "$RUNNER_TEMP/ehi-host-stage-raw" 2> "$RUNNER_TEMP/ehi-host-stage-error" || status=$?
     python3 "$script_dir/validate-host-stage.py" "$RUNNER_TEMP/ehi-host-stage-raw" "$stage" "$status" \
         > "$RUNNER_TEMP/ehi-host-stage-proof" || {
-        cat "$RUNNER_TEMP/ehi-host-stage-proof" | tee -a build/ehi-host/host-stages.jsonl
+        tee -a build/ehi-host/host-stages.jsonl < "$RUNNER_TEMP/ehi-host-stage-proof"
         return 1
     }
-    cat "$RUNNER_TEMP/ehi-host-stage-proof" | tee -a build/ehi-host/host-stages.jsonl
+    tee -a build/ehi-host/host-stages.jsonl < "$RUNNER_TEMP/ehi-host-stage-proof"
 }
 capture_stage prerequisites "$script_dir/inspect-host-prerequisites.sh" "$php_binary"
 # Persist ownership before the first write. Root/token are never printed or uploaded.
