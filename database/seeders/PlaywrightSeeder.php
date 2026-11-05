@@ -2,16 +2,25 @@
 
 namespace Database\Seeders;
 
+use App\Models\PhrDocument;
+use App\Models\PhrEhiProposal;
 use App\Models\PhrMedication;
 use App\Models\PhrMedicationFill;
 use App\Models\PhrPatient;
+use App\Models\PhrPatientUserAccess;
 use App\Models\User;
+use App\Services\PHR\Import\Ehi\EhiBindingService;
+use App\Services\PHR\Import\Ehi\EhiDirectorySource;
+use App\Services\PHR\Import\Ehi\EhiIntakeService;
+use App\Services\PHR\Import\Ehi\EhiProposalService;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\OAuthClientConsents;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Laravel\Passport\ClientRepository;
 use Laravel\Passport\Token;
+use Tests\Support\EhiClinicalPackage;
 use Tests\Support\PhrSyntheticChartFixture;
 
 /**
@@ -58,6 +67,7 @@ class PlaywrightSeeder extends Seeder
 
         $this->createMedicationLists();
         $this->createConnectedApps();
+        $this->createRecoverySources();
     }
 
     /**
@@ -110,6 +120,43 @@ class PlaywrightSeeder extends Seeder
                 'directions' => 'Take as directed by your prescriber.', 'prescriber_name' => $index % 2 === 0 ? 'Rivera, Ana Maria, MD' : 'Chen, Marcus',
                 'paid_cents' => 1250 + $index * 100, 'retail_cents' => $index % 5 === 0 ? 18999 : null,
                 'pharmacy_name' => $pharmacies[$index % 3], 'source_kind' => 'receipt',
+            ]);
+        }
+    }
+
+    /** Native recovery starts with existing review history; import UI has its own journey. */
+    private function createRecoverySources(): void
+    {
+        // Like the connected-app fixtures, retries need an untouched source.
+        foreach ([0, 1] as $attempt) {
+            $patient = PhrPatient::query()->create([
+                'owner_user_id' => 2, 'display_name' => "Synthetic Recovery Patient {$attempt}", 'relationship' => 'self',
+            ]);
+            PhrPatientUserAccess::query()->create([
+                'patient_id' => $patient->id, 'user_id' => 2, 'access_level' => PhrPatientUserAccess::LEVEL_OWNER,
+                'granted_by_user_id' => 2, 'granted_at' => now(),
+            ]);
+            $directory = EhiClinicalPackage::standard()->build()->writeDirectory(
+                storage_path("framework/testing/playwright-storage/recovery-source-{$attempt}"),
+            );
+            $package = app(EhiIntakeService::class)->intake(new EhiDirectorySource($directory), $patient, 2)->package;
+            $package = app(EhiBindingService::class)->bind($package, $patient, 2, null, 'Synthetic Recovery Export');
+            $proposals = app(EhiProposalService::class);
+            $proposals->preview($package, $patient, 2);
+            foreach (['A' => PhrEhiProposal::DECISION_ACCEPT, 'B' => PhrEhiProposal::DECISION_REJECT] as $vaccine => $decision) {
+                $proposal = PhrEhiProposal::query()->where('package_id', $package->id)
+                    ->where('mapping', 'immunization')->where('kind', PhrEhiProposal::KIND_CREATE)->where('proposed_json->vaccine_name', "SYNTHETIC VACCINE {$vaccine}")->sole();
+                $proposals->review($proposal, $decision, 2, $proposal->preview_digest);
+            }
+            $bytes = "%PDF-1.4\n% Synthetic browser recovery source. No patient data.\n";
+            $key = "e2e/recovery-{$attempt}/synthetic-recovery.pdf";
+            Storage::disk(PhrDocument::STORAGE_DISK)->put($key, $bytes);
+            PhrDocument::query()->create([
+                'patient_id' => $patient->id, 'user_id' => 2, 'uploaded_by_user_id' => 2,
+                'title' => 'Synthetic recovery source', 'document_type' => 'other',
+                'original_filename' => 'synthetic-recovery.pdf', 'storage_disk' => PhrDocument::STORAGE_DISK,
+                'storage_path' => $key, 'mime_type' => 'application/pdf', 'byte_size' => strlen($bytes),
+                'file_hash' => hash('sha256', $bytes), 'source' => 'manual_upload',
             ]);
         }
     }

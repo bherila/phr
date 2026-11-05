@@ -521,37 +521,20 @@ test.describe.serial('PHR browser journeys', () => {
   test('recovers a native backup through the browser and prepares restored EHI proposals before approving them', async ({ page }, testInfo) => {
     const patientName = `Synthetic Recovery Patient ${testInfo.retry}`
     await signIn(page, ownerCredentials)
-    await page.getByRole('link', { name: 'Add Patient' }).first().click()
-    await page.getByLabel('Name *').fill(patientName)
-    await page.getByLabel('Relationship').fill('self')
-    await page.getByRole('button', { name: 'Add Profile' }).click()
-    await expect(page.getByText(patientName, { exact: true })).toBeVisible()
     const originalId = await ownerPatientId(page, patientName)
-    await page.goto(`/phr/imports?patient_id=${originalId}`)
-    await page.getByLabel('File to import').setInputFiles(syntheticEhiZip())
-    await page.getByLabel(`This file belongs to ${patientName}`).check()
-    const intake = page.waitForResponse((response) => response.request().method() === 'POST'
-      && new URL(response.url()).pathname.startsWith(`/api/phr/patients/${originalId}/ehi/uploads/`)
-      && new URL(response.url()).pathname.endsWith('/intake'))
-    await page.getByRole('button', { name: 'Start import' }).click()
-    expect((await intake).status()).toBe(202)
-    await expect(page.getByText('Every row accounted for')).toBeVisible()
-    await page.getByRole('button', { name: 'Confirm source' }).click()
-    await page.getByRole('button', { name: /^Review \d+ proposals$/ }).click()
-    const newRecords = page.getByRole('region', { name: 'New records' })
-    await newRecords.getByRole('button', { name: 'Accept: SYNTHETIC VACCINE A', exact: true }).click()
-    await expect(newRecords.getByRole('listitem', { name: 'SYNTHETIC VACCINE A', exact: true })).toContainText('Accepted')
-    await newRecords.getByRole('button', { name: 'Reject: SYNTHETIC VACCINE B', exact: true }).click()
-    await expect(newRecords.getByRole('listitem', { name: 'SYNTHETIC VACCINE B', exact: true })).toContainText('Rejected')
-    await expect(newRecords.getByRole('button', { name: 'Accept: SYNTHETIC VACCINE C', exact: true })).toBeVisible()
-
-    // Keep a real source artifact, without sending anything to an AI provider.
-    await page.getByRole('button', { name: 'All imports', exact: true }).click()
     const sourceBytes = Buffer.from('%PDF-1.4\n% Synthetic browser recovery source. No patient data.\n')
-    await page.getByLabel('File to import').setInputFiles({ name: 'synthetic-recovery.pdf', mimeType: 'application/pdf', buffer: sourceBytes })
-    await page.getByLabel(`This file belongs to ${patientName}`).check()
-    await page.getByRole('button', { name: 'Keep as a document only' }).click()
-    await expect(page.getByText('Kept synthetic-recovery.pdf as a document. It is in the Documents tab.')).toBeVisible()
+    // Existing import/review UI has a separate journey. Recovery begins with
+    // a real, seeded EHI preview containing accepted, rejected and pending work.
+    const initialPackages = await page.request.get(`/api/phr/patients/${originalId}/ehi/packages`)
+    expect(initialPackages.ok()).toBeTruthy()
+    const initialPackage = (await initialPackages.json()).packages[0] as { id: number }
+    const initialProposals = await page.request.get(`/api/phr/patients/${originalId}/ehi/packages/${initialPackage.id}/proposals?limit=500&after_id=0`)
+    expect(initialProposals.ok()).toBeTruthy()
+    expect((await initialProposals.json()).proposals).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: 'accepted', proposed: expect.objectContaining({ vaccine_name: 'SYNTHETIC VACCINE A' }) }),
+      expect.objectContaining({ status: 'rejected', proposed: expect.objectContaining({ vaccine_name: 'SYNTHETIC VACCINE B' }) }),
+      expect.objectContaining({ status: 'pending', reviewable: true, proposed: expect.objectContaining({ vaccine_name: 'SYNTHETIC VACCINE C' }) }),
+    ]))
 
     await page.getByRole('link', { name: 'Data Hub', exact: true }).click()
     const patientCard = page.locator('article').filter({ has: page.getByRole('heading', { name: patientName, exact: true }) })
