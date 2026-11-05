@@ -57,7 +57,7 @@ jobs:
               'lock_sha256': hashlib.sha256(Path('composer.lock').read_bytes()).hexdigest(),
           }))
           PY
-          tar --dereference --exclude-vcs --exclude=bootstrap/cache -czf build/ehi-host/bundle.tar.gz \
+          tar --dereference --hard-dereference --exclude-vcs --exclude=bootstrap/cache -czf build/ehi-host/bundle.tar.gz \
             app bootstrap config database routes tests/Support scripts/measure-phr-resources.php \
             composer.json composer.lock artisan vendor calibration-source.json
           python3 scripts/calibrate/validate-host-bundle.py build/ehi-host/bundle.tar.gz
