@@ -25,11 +25,15 @@ cleanup() {
 trap cleanup EXIT
 umask 077
 export PATH=/usr/bin:/bin
+# Existing intake hashes into the null device. Allow precisely this verified
+# non-data character device, never /dev or another host filesystem directory.
+[[ ! -L /dev/null && -c /dev/null && $(realpath /dev/null) == /dev/null \
+    && $(stat -c '%t:%T' /dev/null) == 1:3 ]] || exit 2
 [[ -f "$root/bundle.tar.gz" && ! -L "$root/bundle.tar.gz" \
     && $(sha256sum "$root/bundle.tar.gz" | cut -d' ' -f1) == "$bundle_digest" ]] || exit 2
 # The validator is independently transferred from the reviewed main checkout.
 timeout --kill-after=5s 60s python3 "$root/validate-host-bundle.py" "$root/bundle.tar.gz" > "$root/bundle-size.json"
-mkdir "$root/application" "$root/tmp" "$root/home"
+mkdir "$root/application" "$root/tmp"
 tar --extract --gzip --file="$root/bundle.tar.gz" --directory="$root/application" --no-same-owner --no-same-permissions
 python3 - "$root/application" "$candidate" <<'PY'
 import hashlib
@@ -38,10 +42,10 @@ from pathlib import Path
 import sys
 app = Path(sys.argv[1])
 source = json.loads((app / "calibration-source.json").read_text())
-assert source["candidate"] == sys.argv[2]
-assert source["lock_sha256"] == hashlib.sha256((app / "composer.lock").read_bytes()).hexdigest()
-assert not (app / ".env").exists()
-assert not (app / "bootstrap/cache").exists()
+if source["candidate"] != sys.argv[2]: raise ValueError("Candidate mismatch")
+if source["lock_sha256"] != hashlib.sha256((app / "composer.lock").read_bytes()).hexdigest(): raise ValueError("Lock mismatch")
+if (app / ".env").exists(): raise ValueError("Unexpected environment file")
+if (app / "bootstrap/cache").exists(): raise ValueError("Unexpected compiled cache")
 PY
 mkdir -p "$root/application/bootstrap/cache" "$root/application/storage/framework/cache/data" \
     "$root/application/storage/framework/sessions" "$root/application/storage/framework/views" "$root/application/storage/logs"
@@ -60,12 +64,12 @@ cd "$root/application"
 fixture="$root/tmp/phr-resource-deployment-host"
 # No inherited deployment secrets/configuration reaches PHP, even during bootstrap.
 run_php() {
-    env -i PATH=/usr/bin:/bin HOME="$root/home" TMPDIR="$root/tmp" APP_ENV=testing \
+    env -i PATH=/usr/bin:/bin TMPDIR="$root/tmp" APP_ENV=testing \
         DB_CONNECTION=sqlite DB_DATABASE="$fixture/database.sqlite" LOG_CHANNEL=null \
         CACHE_STORE=array SESSION_DRIVER=array QUEUE_CONNECTION=sync PHR_STORAGE=local \
         PHR_EHI_PREVIEW_MAX_SECONDS=240 \
         timeout --kill-after=5s 300s "$php_binary" -d memory_limit=1G \
-        -d "open_basedir=$root" -d "sys_temp_dir=$root/tmp" -d "upload_tmp_dir=$root/tmp" \
+        -d "open_basedir=$root:/dev/null" -d "sys_temp_dir=$root/tmp" -d "upload_tmp_dir=$root/tmp" \
         -d display_errors=0 -d log_errors=0 scripts/measure-phr-resources.php --dir="$fixture" "$@"
 }
 # A single bounded baseline measures actual-host PHP/filesystem, not production SQL.
@@ -98,10 +102,10 @@ root = Path(sys.argv[1])
 size = json.loads((root / "bundle-size.json").read_text())
 for operation in ("preview", "lifecycle"):
     data = (root / f"{operation}.json").read_bytes()
-    assert len(data) <= 65536
+    if len(data) > 65536: raise ValueError("Aggregate output too large")
     result = json.loads(data)
-    assert result["operation"] == operation and result["shape"] == "labs"
-    assert result["database_driver"] == "sqlite"
+    if result["operation"] != operation or result["shape"] != "labs": raise ValueError("Unexpected operation")
+    if result["database_driver"] != "sqlite": raise ValueError("Unexpected database")
     result["measurement_kind"] = "deployment-host-isolated-sqlite"
     result["candidate"] = sys.argv[2]
     result["bundle_size"] = size

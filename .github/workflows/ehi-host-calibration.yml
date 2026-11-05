@@ -57,6 +57,7 @@ jobs:
               'lock_sha256': hashlib.sha256(Path('composer.lock').read_bytes()).hexdigest(),
           }))
           PY
+          python3 scripts/calibrate/validate-host-source.py .
           tar --dereference --hard-dereference --exclude-vcs --exclude=bootstrap/cache -czf build/ehi-host/bundle.tar.gz \
             app bootstrap config database routes tests/Support scripts/measure-phr-resources.php \
             composer.json composer.lock artisan vendor calibration-source.json
@@ -111,7 +112,7 @@ jobs:
           [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ && "$CANDIDATE" = "$EXPECTED_SHA" ]]
           test "$(gh api repos/bherila/phr/git/ref/heads/main --jq .object.sha)" = "$CANDIDATE"
           gh api "repos/bherila/phr/commits/$CANDIDATE/check-runs?per_page=100" \
-            --jq '[.check_runs[] | select(.name == "Run Tests" and .status == "completed" and .conclusion == "success")] | length > 0' | grep -qx true
+            --jq '[.check_runs[] | select(.name == "Run Tests" and .app.id == 15368 and .status == "completed" and .conclusion == "success")] | length > 0' | grep -qx true
           python3 scripts/calibrate/validate-host-bundle.py bundle/bundle.tar.gz
           (cd bundle && sha256sum --check bundle.sha256)
       - name: Configure the approved production-host SSH identity

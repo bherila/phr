@@ -327,13 +327,17 @@ It packages only selected application code plus development dependencies (needed
 for synthetic factories), never deployed `.env`, storage, application caches or
 clinical files. Admission rejects links, duplicate/traversing/absolute paths,
 private environment files, archives over 80 MiB compressed/500 MiB expanded and
-more than 50,000 members before extraction.
+more than 50,000 members before extraction. Before materialization, source/vendor
+symlinks must resolve within the candidate checkout and cannot name environment,
+Git metadata, storage or compiled-cache paths.
 
 Host execution uses a fresh private `/tmp/phr-calibration.*` root and the actual
 cPanel PHP 8.5 binary. A cleared process environment and entirely synthetic
 SQLite/cache/session/queue/storage settings apply **before** framework bootstrap.
 PHP has a 1 GiB ceiling, `open_basedir` and temporary-file directories restricted
-to the owned root; every phase is limited to 300 seconds and the remote operation
+to the owned root, plus only the verified canonical non-symlink `/dev/null`
+character device (Linux major/minor 1:3) used by existing intake hashing; no
+`/dev` directory access is allowed. Every phase is limited to 300 seconds and the remote operation
 to 1,000 seconds. It measures one 1,000-incoming/2,000-prior-lab profile at unchanged
 preview/native defaults. Only bounded aggregate JSON leaves the host; raw fixture
 DBs, source files, archives and exception logs are deleted. Cleanup requires a
