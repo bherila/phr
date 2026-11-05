@@ -594,3 +594,40 @@ remainders are rejected. The original CSV row, derived amounts, independently
 read totals and PDF text digest are retained as provenance. Single-line and zero
 remaining-line claims still require independent totals. Existing imports are
 not rewritten: read the source EOB and correct them with `eobs.update`.
+
+The read-only `phr:eobs:audit-delta-dental --patient=<id> --actor=<id>` command
+screens existing Delta Dental imports. The actor must currently have patient read
+access, including a viewer grant. It never updates claims, line values, review
+status, provenance, public identities, or source documents. Default output contains
+counts only. `--json` produces a structured report; `--details` adds at most 100
+existing opaque EOB public IDs and closed finding codes. Missing identities and
+additional findings increment `details_omitted` rather than creating identities.
+
+- `line_totals_mismatch` means stored totals and complete line amounts disagree.
+- `first_line_equals_header_total` flags the recognizable header/first-line shape
+  when other lines add a positive amount; it is a clue for review, not a correction.
+- `legacy_csv_first_row_unverified` means an unverified CSV's first row still
+  supplies the current first-line amounts and other lines are nonzero. It catches
+  old inflated headers even when their line sum is internally consistent.
+  `legacy_csv_unverified` reports missing or incomplete row provenance instead.
+  Neither code proves the CSV row is a claim total or authorizes a subtraction.
+- `incomplete_amounts`, `line_patient_mismatch`, and `line_limit_exceeded` prevent
+  unavailable or unsafe line data from appearing clean. Claims are read in batches
+  of 50, with at most 1,000 lines materialized for a claim.
+
+`--verify-pdfs` additionally checks the patient-scoped stored source PDF's size and
+SHA-256 before extracting its independently stated totals with the same strict
+Cost Breakdown reader used at import. PDFs are limited to 20 MiB; extraction stops
+at 1 MiB of stdout or 30 seconds. Stored objects are read through `LocalObjectFile`,
+including on S3-compatible storage. Missing, oversized, modified, unrecognized, or
+unreadable PDFs report `pdf_unavailable`; parser and filesystem exception text is
+never printed. `pdf_totals_mismatch` means the current header or line sum disagrees
+with the PDF totals; `pdf_totals_match` confirms those aggregates only, not every
+procedure's individual amount. A default scan without findings is not independent
+source verification. Counts overlap because one claim may have several findings.
+
+Use the report to select claims for private source review, then read the current
+record and correct verified values with `eobs.update` and `expected_version`.
+The audit has no repair/apply mode, and its successful exit means reporting
+completed, not that every claim is correct. All fixtures are synthetic; support for
+additional carrier PDF layouts still needs a sanitized representative example.
