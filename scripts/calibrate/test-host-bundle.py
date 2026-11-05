@@ -79,18 +79,19 @@ class SourceAndCleanupTest(unittest.TestCase):
         script = Path(__file__).with_name("cleanup-host-root.sh")
         root = Path("/tmp/phr-calibration." + secrets.token_hex(5))
         root.mkdir(mode=0o700)
+        nonce = "a" * 64
         try:
             marker = root / ".owned-synthetic-calibration"
             marker.write_text("wrong")
-            refused = subprocess.run(["bash", str(script), str(root)], capture_output=True)
+            refused = subprocess.run(["bash", str(script), str(root), nonce], capture_output=True)
             self.assertNotEqual(0, refused.returncode)
             self.assertTrue(marker.exists())
-            marker.write_text("phr-host-calibration-v1")
+            marker.write_text("phr-host-calibration-v1:" + nonce)
             with tempfile.TemporaryDirectory() as outside:
                 target = Path(outside) / "preserved"
                 target.write_text("synthetic")
                 (root / "link").symlink_to(outside, target_is_directory=True)
-                done = subprocess.run(["bash", str(script), str(root)], capture_output=True)
+                done = subprocess.run(["bash", str(script), str(root), nonce], capture_output=True)
                 self.assertEqual(0, done.returncode)
                 self.assertFalse(root.exists())
                 self.assertEqual("synthetic", target.read_text())

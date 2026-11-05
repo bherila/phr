@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 # Deliberately never inspect the application's directory, .env, database or disks.
 set -euo pipefail
-[[ $# == 4 && $1 =~ ^/tmp/phr-calibration\.[A-Za-z0-9]{10}$ && $2 =~ ^[a-f0-9]{64}$ \
-    && $3 =~ ^[a-f0-9]{40}$ && $4 =~ ^/[A-Za-z0-9/._-]+$ && -x $4 ]] || exit 2
+[[ $# == 5 && $1 =~ ^/tmp/phr-calibration\.[A-Za-z0-9]{10}$ && $2 =~ ^[a-f0-9]{64}$ \
+    && $3 =~ ^[a-f0-9]{40}$ && $4 =~ ^/[A-Za-z0-9/._-]+$ && -x $4 && $5 =~ ^[a-f0-9]{64}$ ]] || exit 2
 root=$1
 bundle_digest=$2
 candidate=$3
 php_binary=$4
+nonce=$5
 owned() {
     [[ -d "$root" && ! -L "$root" && $(realpath -- "$root") == "$root" \
         && $(stat -c %u -- "$root") == "$(id -u)" && $(stat -c %a -- "$root") == 700 \
         && -f "$root/.owned-synthetic-calibration" && ! -L "$root/.owned-synthetic-calibration" \
-        && $(cat "$root/.owned-synthetic-calibration") == phr-host-calibration-v1 ]]
+        && $(cat "$root/.owned-synthetic-calibration") == "phr-host-calibration-v1:$nonce" ]]
 }
 owned || exit 2
 cleanup() {
@@ -22,7 +23,15 @@ cleanup() {
         exit 1
     fi
 }
-trap cleanup EXIT
+stage=ownership
+finish() {
+    local status=$?
+    if [[ $status != 0 ]]; then
+        printf '{"stage":"%s","status":"refused","code":"phase_failed"}\n' "$stage"
+    fi
+    cleanup
+}
+trap finish EXIT
 umask 077
 export PATH=/usr/bin:/bin
 # Existing intake hashes into the null device. Allow precisely this verified
@@ -31,10 +40,13 @@ export PATH=/usr/bin:/bin
     && $(stat -c '%t:%T' /dev/null) == 1:3 ]] || exit 2
 [[ -f "$root/bundle.tar.gz" && ! -L "$root/bundle.tar.gz" \
     && $(sha256sum "$root/bundle.tar.gz" | cut -d' ' -f1) == "$bundle_digest" ]] || exit 2
+stage=archive_admission
 # The validator is independently transferred from the reviewed main checkout.
 timeout --kill-after=5s 60s python3 "$root/validate-host-bundle.py" "$root/bundle.tar.gz" > "$root/bundle-size.json"
 mkdir "$root/application" "$root/tmp"
+stage=extraction
 tar --extract --gzip --file="$root/bundle.tar.gz" --directory="$root/application" --no-same-owner --no-same-permissions
+stage=source_identity
 python3 - "$root/application" "$candidate" <<'PY'
 import hashlib
 import json
@@ -74,8 +86,12 @@ run_php() {
 }
 # A single bounded baseline measures actual-host PHP/filesystem, not production SQL.
 # Realistic 1,000 incoming + 2,000 prior lab history; current application defaults only.
+stage=prepare
 run_php --prepare --shape=labs --records=1000 --history-records=2000 > "$root/prepare.log" 2> "$root/errors.log"
+[[ -f "$fixture/state.json" ]] || exit 1
+stage=preview
 run_php --operation=preview > "$root/preview.json" 2> "$root/errors.log"
+stage=lifecycle
 run_php --operation=lifecycle > "$root/lifecycle.json" 2> "$root/errors.log"
 # CI fixtures contain only synthetic values and can expose a failed PHP exception
 # for debugging. The SSH host has no GITHUB_ACTIONS variable and never does this.
@@ -93,6 +109,7 @@ PYDEBUG
         exit 1
     }
 fi
+stage=publish
 # Never return raw fixtures, logs, DBs, source paths or archive bytes.
 python3 - "$root" "$candidate" <<'PY'
 import json

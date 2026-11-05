@@ -42,7 +42,9 @@ jobs:
       - name: Test bundle admission and shell guards
         run: |
           python3 -B scripts/calibrate/test-host-bundle.py
+          python3 -B scripts/calibrate/test-host-preflight.py
           shellcheck scripts/calibrate/*.sh
+          bash scripts/calibrate/inspect-host-prerequisites.sh "$(command -v php)"
       - name: Package only synthetic code and development dependencies
         env:
           CANDIDATE: ${{ github.sha }}
@@ -69,12 +71,13 @@ jobs:
         run: |
           set -euo pipefail
           fixture_root=$(mktemp -d /tmp/phr-calibration.XXXXXXXXXX)
-          printf '%s\n' phr-host-calibration-v1 > "$fixture_root/.owned-synthetic-calibration"
+          nonce=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+          printf 'phr-host-calibration-v1:%s\n' "$nonce" > "$fixture_root/.owned-synthetic-calibration"
           cp build/ehi-host/bundle.tar.gz "$fixture_root/bundle.tar.gz"
           cp scripts/calibrate/validate-host-bundle.py "$fixture_root/validate-host-bundle.py"
           digest=$(sha256sum build/ehi-host/bundle.tar.gz | cut -d' ' -f1)
           timeout --kill-after=10s 1000s bash scripts/calibrate/ehi-host-remote.sh \
-            "$fixture_root" "$digest" "$CANDIDATE" "$(command -v php)" > build/ehi-host/ci-results.jsonl
+            "$fixture_root" "$digest" "$CANDIDATE" "$(command -v php)" "$nonce" > build/ehi-host/ci-results.jsonl
           python3 scripts/calibrate/assert-host-results.py build/ehi-host/ci-results.jsonl "$CANDIDATE" | tee -a "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         with:
@@ -127,28 +130,18 @@ jobs:
         env:
           CANDIDATE: ${{ github.sha }}
         run: |
-          set -euo pipefail
-          mkdir -p build/ehi-host
-          ssh_options=(-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=2)
-          fixture_root=$(timeout 30s ssh "${ssh_options[@]}" phr-calibration 'set -eu; umask 077; command -v python3 >/dev/null; root=$(mktemp -d /tmp/phr-calibration.XXXXXXXXXX); printf "%s\n" phr-host-calibration-v1 > "$root/.owned-synthetic-calibration"; printf "%s\n" "$root"')
-          [[ "$fixture_root" =~ ^/tmp/phr-calibration\.[A-Za-z0-9]{10}$ ]]
-          printf '%s\n' "$fixture_root" > "$RUNNER_TEMP/ehi-host-owned-root"
-          digest=$(sha256sum bundle/bundle.tar.gz | cut -d' ' -f1)
-          timeout 120s scp "${ssh_options[@]}" bundle/bundle.tar.gz scripts/calibrate/validate-host-bundle.py scripts/calibrate/ehi-host-remote.sh "phr-calibration:$fixture_root/"
-          # All runtime output is synthetic aggregate JSON; raw exception/prepare logs remain private and are deleted.
-          (ulimit -f 384; timeout --kill-after=15s 1050s ssh "${ssh_options[@]}" phr-calibration \
-            "timeout --kill-after=10s 1000s bash $(printf '%q' "$fixture_root/ehi-host-remote.sh") $(printf '%q ' "$fixture_root" "$digest" "$CANDIDATE" /opt/cpanel/ea-php85/root/usr/bin/php)") \
-            > build/ehi-host/host-results.jsonl
-          python3 scripts/calibrate/assert-host-results.py build/ehi-host/host-results.jsonl "$CANDIDATE" | tee -a "$GITHUB_STEP_SUMMARY"
+          bash scripts/calibrate/run-host-calibration.sh
       - name: Confirm removal of only this run's private synthetic root
         if: always()
         run: |
           set -euo pipefail
           if [ ! -f "$RUNNER_TEMP/ehi-host-owned-root" ]; then exit 0; fi
-          fixture_root=$(cat "$RUNNER_TEMP/ehi-host-owned-root")
-          [[ "$fixture_root" =~ ^/tmp/phr-calibration\.[A-Za-z0-9]{10}$ ]]
+          mapfile -t ownership < "$RUNNER_TEMP/ehi-host-owned-root"
+          fixture_root=${ownership[0]}
+          nonce=${ownership[1]}
+          [[ "$fixture_root" =~ ^/tmp/phr-calibration\.[a-f0-9]{10}$ && "$nonce" =~ ^[a-f0-9]{64}$ ]]
           timeout 60s ssh -o BatchMode=yes -o ConnectTimeout=10 phr-calibration \
-            "bash -s -- $(printf '%q' "$fixture_root")" < scripts/calibrate/cleanup-host-root.sh
+            "bash -s -- $(printf '%q ' "$fixture_root" "$nonce")" < scripts/calibrate/cleanup-host-root.sh
       - name: Retain aggregate host observations only
         if: always()
         uses: actions/upload-artifact@v7
