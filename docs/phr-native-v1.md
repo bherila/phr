@@ -264,7 +264,7 @@ performance measurements.
 
 ### Lab-heavy EHI capacity calibration (#330)
 
-The `EHI preview capacity` workflow runs on changes to the resource harness or
+The `EHI lifecycle capacity` workflow runs on changes to the resource harness or
 EHI mappings and can also be dispatched manually. Heavy calibration belongs in
 CI, not a developer's local check loop. Its two independent lanes use PHP 8.5
 with a 1 GiB PHP memory ceiling, SQLite and a disposable loopback MariaDB 10.11
@@ -290,6 +290,27 @@ unchanged. A resource refusal must leave the generation incomplete; it is
 reported explicitly, never counted as a successful capacity result. The small
 1,000-result baseline is required to complete. Files and records from the fixture
 itself are not uploaded.
+
+After each completed preview the same isolated fixture accepts one lab proposal
+and rejects another through the normal review service, builds a **post-preview**
+native archive, removes only that synthetic patient, and restores through the
+production restore reader/planner/apply services. A second export must preserve
+every portable record's native identity/content hash and every artifact's size/hash.
+Clinical lab counts, proposal statuses, decision counts and owner access must also
+agree. Owner access is recreated by restore, so its generated timestamp and native
+identity are deliberately excluded from the content-hash comparison; its count is
+checked separately. Operational preview generations are intentionally reset by
+restore, leaving pending proposals in need of a new preview before review.
+
+Per-stage duration/PHP peak allocation, overall RSS, native archive record/byte
+counts and round-trip completion are retained alongside preview observations.
+The 5,000-result experiment first uses unchanged native defaults and reports any
+`record_count_limit`/`record_stream_size_limit` as a refusal. It then measures an
+explicit synthetic-only 50,000-record/64 MiB native envelope. A refused preview
+skips review/backup/restore and reports `preview_resource_limit`; no refused run
+counts as successful lifecycle capacity. This does not raise production limits.
+The small 11-result regression checks the same lifecycle locally; realistic
+histories run only in CI.
 
 Use these measurements to reproduce the bottleneck and choose the next
 calibration experiment. They do not replace measurement on the actual deployment

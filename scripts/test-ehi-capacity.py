@@ -24,6 +24,32 @@ class CapacityObservationTest(unittest.TestCase):
             "seconds": 1.0, "peak_php_bytes": 1000000, "sampled_rss_kib": 1024, "queries": 10,
         }
 
+    def lifecycle(self):
+        return self.result() | {"operation": "lifecycle", "native_limits": {"records": 20000, "record_stream_bytes": 33554432},
+            "lifecycle": {"status": "completed", "round_trip_verified": True, "verified_tables": 42,
+                "verified_artifacts": 1, "archive_records": 9000, "record_stream_bytes": 10000000, "stages": {},
+                "review_state": {"phr_lab_results": 1, "phr_ehi_proposal_decisions": 2,
+                    "phr_patient_user_access": 1, "proposal_statuses": {"accepted": 1, "rejected": 1}}}}
+
+    def test_lifecycle_requires_round_trip_clinical_review_and_budget_evidence(self):
+        result = self.lifecycle()
+        self.assertIn("**completed**", capacity.validate(result))
+        for change in [{"round_trip_verified": False}, {"verified_tables": 0}, {"verified_artifacts": 0},
+                       {"archive_records": 20001}, {"record_stream_bytes": 33554433},
+                       {"review_state": result["lifecycle"]["review_state"] | {"phr_lab_results": 0}}]:
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                capacity.validate(result | {"lifecycle": result["lifecycle"] | change})
+
+    def test_native_and_preview_refusals_never_claim_lifecycle_success(self):
+        for status, stages in [("record_count_limit", {"backup": {}}),
+                               ("record_stream_size_limit", {"backup": {}}), ("preview_resource_limit", {})]:
+            result = self.lifecycle() | {"requested_records": 5000, "status": status}
+            result["lifecycle"] |= {"status": status, "round_trip_verified": False, "stages": stages, "refused_stage": "backup"}
+            self.assertIn(status, capacity.validate(result))
+            result["lifecycle"]["round_trip_verified"] = True
+            with self.assertRaises(ValueError):
+                capacity.validate(result)
+
     def test_a_complete_result_reports_the_measured_profile(self):
         self.assertIn("**completed**", capacity.validate(self.result()))
 
