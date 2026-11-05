@@ -284,7 +284,7 @@ $measuredQueries = $queries;
 $measuredBindings = $bindings;
 $previewPackage = $state['package'] === null ? null : PhrEhiPackage::find($state['package']);
 $usage = getrusage();
-$procStatus = is_file('/proc/self/status') ? file_get_contents('/proc/self/status') : '';
+$procStatus = @is_file('/proc/self/status') ? file_get_contents('/proc/self/status') : '';
 preg_match('/VmHWM:\s+(\d+)/', $procStatus, $hwm);
 preg_match('/VmRSS:\s+(\d+)/', $procStatus, $rss);
 echo json_encode([

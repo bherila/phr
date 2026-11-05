@@ -1,0 +1,158 @@
+name: EHI deployment-host calibration
+
+on:
+  pull_request:
+    paths:
+      - .github/workflows/ehi-host-calibration.yml
+      - scripts/calibrate/**
+      - scripts/measure-phr-resources.php
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Exact reviewed main SHA with successful required CI
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  bundle:
+    name: Validate isolated host calibration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
+        with:
+          php-version: '8.5'
+          coverage: none
+      - uses: webfactory/ssh-agent@e83874834305fe9a4a2997156cb26c5de65a8555 # v0.10.0
+        with:
+          ssh-private-key: ${{ secrets.MCP_BRIDGE_DEPLOY_KEY }}
+      - uses: actions/cache@v6
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+      - run: composer install --no-interaction
+      - name: Test bundle admission and shell guards
+        run: |
+          python3 -B scripts/calibrate/test-host-bundle.py
+          shellcheck scripts/calibrate/*.sh
+      - name: Package only synthetic code and development dependencies
+        env:
+          CANDIDATE: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/ehi-host
+          python3 - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          Path('calibration-source.json').write_text(json.dumps({
+              'candidate': os.environ['CANDIDATE'],
+              'lock_sha256': hashlib.sha256(Path('composer.lock').read_bytes()).hexdigest(),
+          }))
+          PY
+          tar --dereference --exclude-vcs --exclude=bootstrap/cache -czf build/ehi-host/bundle.tar.gz \
+            app bootstrap config database routes tests/Support scripts/measure-phr-resources.php \
+            composer.json composer.lock artisan vendor calibration-source.json
+          python3 scripts/calibrate/validate-host-bundle.py build/ehi-host/bundle.tar.gz
+          (cd build/ehi-host && sha256sum bundle.tar.gz > bundle.sha256)
+      - name: Exercise exactly the remote isolation script on the disposable CI host
+        env:
+          CANDIDATE: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          fixture_root=$(mktemp -d /tmp/phr-calibration.XXXXXXXXXX)
+          printf '%s\n' phr-host-calibration-v1 > "$fixture_root/.owned-synthetic-calibration"
+          cp build/ehi-host/bundle.tar.gz "$fixture_root/bundle.tar.gz"
+          cp scripts/calibrate/validate-host-bundle.py "$fixture_root/validate-host-bundle.py"
+          digest=$(sha256sum build/ehi-host/bundle.tar.gz | cut -d' ' -f1)
+          timeout --kill-after=10s 1000s bash scripts/calibrate/ehi-host-remote.sh \
+            "$fixture_root" "$digest" "$CANDIDATE" "$(command -v php)" > build/ehi-host/ci-results.jsonl
+          python3 scripts/calibrate/assert-host-results.py build/ehi-host/ci-results.jsonl "$CANDIDATE" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: synthetic-ehi-host-bundle
+          path: build/ehi-host/
+          retention-days: 1
+          if-no-files-found: error
+
+  calibrate:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+    needs: bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    environment: prod
+    concurrency:
+      group: phr-production-files
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: synthetic-ehi-host-bundle
+          path: bundle
+      - name: Require exact reviewed main and its successful required CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          CANDIDATE: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ && "$CANDIDATE" = "$EXPECTED_SHA" ]]
+          test "$(gh api repos/bherila/phr/git/ref/heads/main --jq .object.sha)" = "$CANDIDATE"
+          gh api "repos/bherila/phr/commits/$CANDIDATE/check-runs?per_page=100" \
+            --jq '[.check_runs[] | select(.name == "Run Tests" and .status == "completed" and .conclusion == "success")] | length > 0' | grep -qx true
+          python3 scripts/calibrate/validate-host-bundle.py bundle/bundle.tar.gz
+          (cd bundle && sha256sum --check bundle.sha256)
+      - name: Configure the approved production-host SSH identity
+        uses: bherila/shared-cpanel-deployment/configure-ssh@5798879af588e2c786357b69b314d89932b75803 # v2.6.0
+        with:
+          alias: phr-calibration
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          private-key: ${{ secrets.PHR_PRODUCTION_SSH_KEY }}
+          known-hosts: ${{ secrets.SSH_KNOWN_HOSTS }}
+      - name: Measure isolated synthetic SQLite using the actual cPanel PHP binary
+        env:
+          CANDIDATE: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p build/ehi-host
+          ssh_options=(-o BatchMode=yes -o ConnectTimeout=10 -o ServerAliveInterval=10 -o ServerAliveCountMax=2)
+          fixture_root=$(timeout 30s ssh "${ssh_options[@]}" phr-calibration 'set -eu; umask 077; command -v python3 >/dev/null; root=$(mktemp -d /tmp/phr-calibration.XXXXXXXXXX); printf "%s\n" phr-host-calibration-v1 > "$root/.owned-synthetic-calibration"; printf "%s\n" "$root"')
+          [[ "$fixture_root" =~ ^/tmp/phr-calibration\.[A-Za-z0-9]{10}$ ]]
+          printf '%s\n' "$fixture_root" > "$RUNNER_TEMP/ehi-host-owned-root"
+          digest=$(sha256sum bundle/bundle.tar.gz | cut -d' ' -f1)
+          timeout 120s scp "${ssh_options[@]}" bundle/bundle.tar.gz scripts/calibrate/validate-host-bundle.py scripts/calibrate/ehi-host-remote.sh "phr-calibration:$fixture_root/"
+          # All runtime output is synthetic aggregate JSON; raw exception/prepare logs remain private and are deleted.
+          (ulimit -f 384; timeout --kill-after=15s 1050s ssh "${ssh_options[@]}" phr-calibration \
+            "timeout --kill-after=10s 1000s bash $(printf '%q' "$fixture_root/ehi-host-remote.sh") $(printf '%q ' "$fixture_root" "$digest" "$CANDIDATE" /opt/cpanel/ea-php85/root/usr/bin/php)") \
+            > build/ehi-host/host-results.jsonl
+          python3 scripts/calibrate/assert-host-results.py build/ehi-host/host-results.jsonl "$CANDIDATE" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Confirm removal of only this run's private synthetic root
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ ! -f "$RUNNER_TEMP/ehi-host-owned-root" ]; then exit 0; fi
+          fixture_root=$(cat "$RUNNER_TEMP/ehi-host-owned-root")
+          [[ "$fixture_root" =~ ^/tmp/phr-calibration\.[A-Za-z0-9]{10}$ ]]
+          timeout 60s ssh -o BatchMode=yes -o ConnectTimeout=10 phr-calibration \
+            "bash -s -- $(printf '%q' "$fixture_root")" < scripts/calibrate/cleanup-host-root.sh
+      - name: Retain aggregate host observations only
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ehi-deployment-host-observations
+          path: build/ehi-host/*.jsonl
+          retention-days: 14
+          if-no-files-found: warn
