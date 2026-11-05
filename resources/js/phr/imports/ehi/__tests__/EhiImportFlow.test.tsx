@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import { EhiImportFlow } from '../EhiImportFlow'
-import { EHI_PATIENT_ID, makeEhiUpload, makeEhiPackage } from './ehiFixtures'
+import { EHI_PATIENT_ID, makeEhiPackage, makeEhiUpload } from './ehiFixtures'
 
 const mockGet = jest.fn()
 const mockPost = jest.fn()

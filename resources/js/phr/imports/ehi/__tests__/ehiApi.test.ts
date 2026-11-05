@@ -1,4 +1,4 @@
-import { describeEhiError, EhiPreviewRunSchema, ehiFailureText, pendingProposalCount } from '../ehiApi'
+import { describeEhiError, ehiFailureText, EhiPreviewRunSchema, pendingProposalCount } from '../ehiApi'
 import { makeEhiPackage } from './ehiFixtures'
 
 describe('ehiApi helpers', () => {
