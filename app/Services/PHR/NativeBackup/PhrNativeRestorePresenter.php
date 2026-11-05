@@ -18,7 +18,8 @@ final class PhrNativeRestorePresenter
             'uploaded_bytes' => (int) $attempt->uploaded_bytes,
             'chunk_size_bytes' => (int) config('phr.native_restore_chunk_bytes'),
             'target' => $attempt->patient_native_id === null ? null : ($attempt->target_patient_root_id === null ? 'new_patient' : 'existing_patient'),
-            'tables' => $attempt->plan_counts_json['tables'] ?? [],
+            // Table names form a JSON map even before a preview has populated it.
+            'tables' => (object) ($attempt->plan_counts_json['tables'] ?? []),
             'artifacts' => $attempt->plan_counts_json['artifacts'] ?? ['create' => 0, 'skip' => 0, 'block' => 0, 'bytes' => 0],
             'access_grant_count' => (int) $attempt->access_grant_count,
             'restore_access_grants' => (bool) $attempt->restore_access_grants,

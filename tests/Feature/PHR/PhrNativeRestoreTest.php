@@ -127,6 +127,7 @@ final class PhrNativeRestoreTest extends TestCase
             ->assertHeader('Cache-Control', 'max-age=0, no-store, private')
             ->assertJsonPath('restore.status', PhrNativeRestoreAttempt::STATUS_UPLOADING)
             ->assertJsonPath('restore.uploaded_bytes', 0);
+        $this->assertStringContainsString('"tables":{}', (string) $upload->getContent());
         $attemptId = (int) $upload->json('restore.id');
 
         $this->actingAs($owner)->post("/api/phr/data-hub/native-restores/{$attemptId}/chunks", [
@@ -137,6 +138,7 @@ final class PhrNativeRestoreTest extends TestCase
             ->assertAccepted()
             ->assertJsonPath('restore.status', PhrNativeRestoreAttempt::STATUS_PREVIEW_PENDING)
             ->assertJsonPath('restore.target', null);
+        $this->assertStringContainsString('"tables":{}', (string) $queuedPreview->getContent());
 
         Queue::assertPushed(PreviewPhrNativeRestoreJob::class, fn (PreviewPhrNativeRestoreJob $job): bool => $job->attemptId === $attemptId);
         app(PhrNativeRestoreService::class)->preview(PhrNativeRestoreAttempt::query()->findOrFail($attemptId));
