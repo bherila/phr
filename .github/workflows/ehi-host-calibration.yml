@@ -43,6 +43,7 @@ jobs:
         run: |
           python3 -B scripts/calibrate/test-host-bundle.py
           python3 -B scripts/calibrate/test-host-preflight.py
+          python3 -B scripts/calibrate/test-host-tree.py
           shellcheck scripts/calibrate/*.sh
           bash scripts/calibrate/inspect-host-prerequisites.sh "$(command -v php)"
       - name: Package only synthetic code and development dependencies
@@ -65,6 +66,8 @@ jobs:
             composer.json composer.lock artisan vendor calibration-source.json
           python3 scripts/calibrate/validate-host-bundle.py build/ehi-host/bundle.tar.gz
           (cd build/ehi-host && sha256sum bundle.tar.gz > bundle.sha256)
+          python3 scripts/calibrate/materialize-host-bundle.py build/ehi-host/bundle.tar.gz "$RUNNER_TEMP/ehi-host-payload" "$CANDIDATE"
+          cp "$RUNNER_TEMP/ehi-host-payload/tree-manifest.json" build/ehi-host/tree-manifest.json
       - name: Exercise exactly the remote isolation script on the disposable CI host
         env:
           CANDIDATE: ${{ github.sha }}
@@ -73,12 +76,16 @@ jobs:
           fixture_root=$(mktemp -d /tmp/phr-calibration.XXXXXXXXXX)
           nonce=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
           printf 'phr-host-calibration-v1:%s\n' "$nonce" > "$fixture_root/.owned-synthetic-calibration"
-          cp build/ehi-host/bundle.tar.gz "$fixture_root/bundle.tar.gz"
-          cp scripts/calibrate/validate-host-bundle.py "$fixture_root/validate-host-bundle.py"
-          digest=$(sha256sum build/ehi-host/bundle.tar.gz | cut -d' ' -f1)
+          transfer_started=$(date +%s)
+          timeout 120s rsync -r --perms --no-links --no-specials --no-devices --chmod=Du=rwx,Dgo=,Fu=rw,Fgo= \
+            "$RUNNER_TEMP/ehi-host-payload/" "$fixture_root/"
+          printf '{"stage":"transfer","status":"ready","seconds":%s}\n' "$(( $(date +%s) - transfer_started ))" > build/ehi-host/ci-transfer.jsonl
+          digest=$(sha256sum "$RUNNER_TEMP/ehi-host-payload/tree-manifest.json" | cut -d' ' -f1)
+          verifier_digest=$(sha256sum scripts/calibrate/verify-host-tree.php | cut -d' ' -f1)
           timeout --kill-after=10s 1000s bash scripts/calibrate/ehi-host-remote.sh \
-            "$fixture_root" "$digest" "$CANDIDATE" "$(command -v php)" "$nonce" > build/ehi-host/ci-results.jsonl
-          python3 scripts/calibrate/assert-host-results.py build/ehi-host/ci-results.jsonl "$CANDIDATE" | tee -a "$GITHUB_STEP_SUMMARY"
+            "$fixture_root" "$digest" "$CANDIDATE" "$(command -v php)" "$nonce" "$verifier_digest" > "$RUNNER_TEMP/ehi-host-raw.jsonl"
+          python3 scripts/calibrate/validate-host-runtime.py "$RUNNER_TEMP/ehi-host-raw.jsonl" "$CANDIDATE" 0 \
+            build/ehi-host/ci-results.jsonl "$GITHUB_STEP_SUMMARY" "$RUNNER_TEMP/ehi-host-payload/tree-manifest.json"
       - uses: actions/upload-artifact@v7
         with:
           name: synthetic-ehi-host-bundle
@@ -118,6 +125,8 @@ jobs:
             --jq '[.check_runs[] | select(.name == "Run Tests" and .app.id == 15368 and .status == "completed" and .conclusion == "success")] | length > 0' | grep -qx true
           python3 scripts/calibrate/validate-host-bundle.py bundle/bundle.tar.gz
           (cd bundle && sha256sum --check bundle.sha256)
+          python3 scripts/calibrate/materialize-host-bundle.py bundle/bundle.tar.gz "$RUNNER_TEMP/ehi-host-payload" "$CANDIDATE"
+          cmp "$RUNNER_TEMP/ehi-host-payload/tree-manifest.json" bundle/tree-manifest.json
       - name: Configure the approved production-host SSH identity
         uses: bherila/shared-cpanel-deployment/configure-ssh@5798879af588e2c786357b69b314d89932b75803 # v2.6.0
         with:

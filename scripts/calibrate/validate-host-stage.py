@@ -5,9 +5,8 @@ from pathlib import Path
 import re
 import sys
 
-COMMANDS = {"env", "timeout", "realpath", "stat", "id", "sha256sum", "cut", "tar", "find", "mkdir", "cat", "unlink", "rmdir"}
-CODES = {"ready", "python_runtime_missing", "python_version_failed", "python_version_invalid",
-         "python_version_unsupported", "php_binary_missing", "php_version_failed", "php_version_invalid",
+COMMANDS = {"env", "timeout", "realpath", "stat", "id", "sha256sum", "cut", "rsync", "find", "mkdir", "cat", "unlink", "rmdir"}
+CODES = {"ready", "php_binary_missing", "php_version_failed", "php_version_invalid",
          "null_device_invalid", "legacy_scan_failed", "legacy_scan_invalid", "mkdir_failed"} | {"command_missing_" + command for command in COMMANDS}
 
 
@@ -29,19 +28,14 @@ def validate(path, stage, exit_code):
             return refused
         allowed = {"stage", "status", "code"}
         if stage == "prerequisites":
-            allowed |= {"python_login", "legacy_roots", "legacy_window_matches"}
+            allowed |= {"legacy_roots", "legacy_window_matches"}
             for key in ("legacy_roots", "legacy_window_matches"):
                 if row.get(key) is not None and (type(row[key]) is not int or not 0 <= row[key] <= 1000):
                     return refused
-            if row.get("python_login") not in ("available", "missing"):
+            allowed.add("php_version")
+            value = row.get("php_version", "")
+            if not (value == "unknown" and row["status"] == "refused") and not re.fullmatch(r"8\.5\.[0-9]{1,2}", value):
                 return refused
-            allowed |= {"python_version", "php_version"}
-            for key in ("python_version", "php_version"):
-                value = row.get(key, "")
-                if value == "unknown" and row["status"] == "refused":
-                    continue
-                if not re.fullmatch(r"[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}", value):
-                    return refused
         if set(row) != allowed:
             return refused
         return row

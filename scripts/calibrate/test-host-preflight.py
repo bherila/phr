@@ -18,11 +18,11 @@ spec.loader.exec_module(stage)
 
 
 class PreflightTest(unittest.TestCase):
-    def test_python_refusal_and_unknown_ssh_output_are_sanitized(self):
+    def test_prerequisite_refusal_and_unknown_ssh_output_are_sanitized(self):
         with tempfile.TemporaryDirectory() as directory:
             raw = Path(directory) / "raw"
-            proof = {"stage": "prerequisites", "status": "refused", "code": "python_runtime_missing",
-                     "python_login": "missing", "python_version": "unknown", "php_version": "8.5.12", "legacy_roots": 0, "legacy_window_matches": 0}
+            proof = {"stage": "prerequisites", "status": "refused", "code": "php_binary_missing",
+                     "php_version": "8.5.12", "legacy_roots": 0, "legacy_window_matches": 0}
             raw.write_text(json.dumps(proof))
             self.assertEqual(proof, stage.validate(raw, "prerequisites", 1))
             for value in ("PRIVATE_BANNER", "", json.dumps(proof | {"raw_error": "PRIVATE"})):
@@ -56,8 +56,7 @@ class PreflightTest(unittest.TestCase):
 import json, subprocess, sys
 payload = sys.stdin.read()
 if "# Read only fixed runtime prerequisites" in payload:
-    print(json.dumps({"stage":"prerequisites","status":"ready","code":"ready","python_login":"available",
-        "python_version":"3.12.0","php_version":"8.5.12","legacy_roots":0,"legacy_window_matches":0}))
+    print(json.dumps({"stage":"prerequisites","status":"ready","code":"ready","php_version":"8.5.12","legacy_roots":0,"legacy_window_matches":0}))
 else:
     result = subprocess.run(["bash", "-c", sys.argv[-1]], input=payload, text=True, capture_output=True)
     sys.stdout.write(result.stdout)
