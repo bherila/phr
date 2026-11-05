@@ -283,6 +283,7 @@ preg_match('/VmHWM:\s+(\d+)/', $procStatus, $hwm);
 preg_match('/VmRSS:\s+(\d+)/', $procStatus, $rss);
 echo json_encode([
     'shape' => $state['shape'], 'operation' => $operation, 'requested_records' => $state['requested_records'],
+    'php_version' => PHP_VERSION, 'composer_lock_sha256' => hash_file('sha256', dirname(__DIR__).'/composer.lock'),
     'database_driver' => DB::connection()->getDriverName(), 'database_version' => DB::connection()->getServerVersion(),
     'history_records' => $state['history_records'] ?? 0,
     'status' => $status, 'seconds' => $elapsed,
