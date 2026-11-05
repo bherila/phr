@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Deliberately never inspect the application's directory, .env, database or disks.
 set -euo pipefail
-[[ $# == 5 && $1 =~ ^/tmp/phr-calibration\.[A-Za-z0-9]{10}$ && $2 =~ ^[a-f0-9]{64}$ \
-    && $3 =~ ^[a-f0-9]{40}$ && $4 =~ ^/[A-Za-z0-9/._-]+$ && -x $4 && $5 =~ ^[a-f0-9]{64}$ ]] || exit 2
+[[ $# == 6 && $1 =~ ^/tmp/phr-calibration\.[A-Za-z0-9]{10}$ && $2 =~ ^[a-f0-9]{64}$ \
+    && $3 =~ ^[a-f0-9]{40}$ && $4 =~ ^/[A-Za-z0-9/._-]+$ && -x $4 && $5 =~ ^[a-f0-9]{64}$ && $6 =~ ^[a-f0-9]{64}$ ]] || exit 2
 root=$1
-bundle_digest=$2
+manifest_digest=$2
 candidate=$3
 php_binary=$4
 nonce=$5
+verifier_digest=$6
 owned() {
     [[ -d "$root" && ! -L "$root" && $(realpath -- "$root") == "$root" \
         && $(stat -c %u -- "$root") == "$(id -u)" && $(stat -c %a -- "$root") == 700 \
@@ -38,27 +39,14 @@ export PATH=/usr/bin:/bin
 # non-data character device, never /dev or another host filesystem directory.
 [[ ! -L /dev/null && -c /dev/null && $(realpath /dev/null) == /dev/null \
     && $(stat -c '%t:%T' /dev/null) == 1:3 ]] || exit 2
-[[ -f "$root/bundle.tar.gz" && ! -L "$root/bundle.tar.gz" \
-    && $(sha256sum "$root/bundle.tar.gz" | cut -d' ' -f1) == "$bundle_digest" ]] || exit 2
-stage=archive_admission
-# The validator is independently transferred from the reviewed main checkout.
-timeout --kill-after=5s 60s python3 "$root/validate-host-bundle.py" "$root/bundle.tar.gz" > "$root/bundle-size.json"
-mkdir "$root/application" "$root/tmp"
-stage=extraction
-tar --extract --gzip --file="$root/bundle.tar.gz" --directory="$root/application" --no-same-owner --no-same-permissions
-stage=source_identity
-python3 - "$root/application" "$candidate" <<'PY'
-import hashlib
-import json
-from pathlib import Path
-import sys
-app = Path(sys.argv[1])
-source = json.loads((app / "calibration-source.json").read_text())
-if source["candidate"] != sys.argv[2]: raise ValueError("Candidate mismatch")
-if source["lock_sha256"] != hashlib.sha256((app / "composer.lock").read_bytes()).hexdigest(): raise ValueError("Lock mismatch")
-if (app / ".env").exists(): raise ValueError("Unexpected environment file")
-if (app / "bootstrap/cache").exists(): raise ValueError("Unexpected compiled cache")
-PY
+stage=tree_admission
+[[ -f "$root/verify-host-tree.php" && ! -L "$root/verify-host-tree.php" \
+    && $(sha256sum "$root/verify-host-tree.php" | cut -d' ' -f1) == "$verifier_digest" ]] || exit 1
+# No archive extraction or application bootstrap on the host before full verification.
+timeout --kill-after=5s 60s env -i PATH=/usr/bin:/bin "$php_binary" -n \
+    -d memory_limit=1G -d "open_basedir=$root" -d display_errors=0 -d log_errors=0 \
+    "$root/verify-host-tree.php" "$root" "$manifest_digest" "$candidate" > "$root/bundle-size.json"
+mkdir "$root/tmp"
 mkdir -p "$root/application/bootstrap/cache" "$root/application/storage/framework/cache/data" \
     "$root/application/storage/framework/sessions" "$root/application/storage/framework/views" "$root/application/storage/logs"
 cat > "$root/application/.env" <<'ENV'
@@ -93,39 +81,17 @@ stage=preview
 run_php --operation=preview > "$root/preview.json" 2> "$root/errors.log"
 stage=lifecycle
 run_php --operation=lifecycle > "$root/lifecycle.json" 2> "$root/errors.log"
-# CI fixtures contain only synthetic values and can expose a failed PHP exception
-# for debugging. The SSH host has no GITHUB_ACTIONS variable and never does this.
-if [[ ${GITHUB_ACTIONS:-} == true ]]; then
-    python3 - "$root" <<'PYDEBUG' || {
-import json
-from pathlib import Path
-import sys
-for name in ("preview.json", "lifecycle.json"):
-    json.loads((Path(sys.argv[1]) / name).read_text())
-PYDEBUG
-        head -c 16384 "$root/prepare.log" >&2
-        head -c 16384 "$root/preview.json" >&2
-        head -c 16384 "$root/lifecycle.json" >&2
-        exit 1
-    }
-fi
 stage=publish
-# Never return raw fixtures, logs, DBs, source paths or archive bytes.
-python3 - "$root" "$candidate" <<'PY'
-import json
-from pathlib import Path
-import sys
-root = Path(sys.argv[1])
-size = json.loads((root / "bundle-size.json").read_text())
-for operation in ("preview", "lifecycle"):
-    data = (root / f"{operation}.json").read_bytes()
-    if len(data) > 65536: raise ValueError("Aggregate output too large")
-    result = json.loads(data)
-    if result["operation"] != operation or result["shape"] != "labs": raise ValueError("Unexpected operation")
-    if result["database_driver"] != "sqlite": raise ValueError("Unexpected database")
-    result["measurement_kind"] = "deployment-host-isolated-sqlite"
-    result["candidate"] = sys.argv[2]
-    result["bundle_size"] = size
-    result["sampled_rss_kib"] = None  # PHP ru_maxrss is retained; /proc is outside open_basedir.
-    print(json.dumps(result))
-PY
+# Emit only bounded operation aggregates. The CI runner validates and decorates them.
+# shellcheck disable=SC2016 # Dollar variables belong to the embedded PHP program.
+env -i PATH=/usr/bin:/bin "$php_binary" -n -d memory_limit=1G -d "open_basedir=$root" \
+    -d display_errors=0 -d log_errors=0 -r '
+foreach (["preview", "lifecycle"] as $operation) {
+    $path = $argv[1]."/".$operation.".json";
+    if (!is_file($path) || is_link($path) || filesize($path) > 65536) { exit(1); }
+    $result = json_decode(file_get_contents($path), true, 32, JSON_THROW_ON_ERROR);
+    if (($result["operation"] ?? null) !== $operation || ($result["shape"] ?? null) !== "labs"
+        || ($result["database_driver"] ?? null) !== "sqlite") { exit(1); }
+    echo json_encode($result, JSON_THROW_ON_ERROR), "\n";
+}
+' -- "$root"

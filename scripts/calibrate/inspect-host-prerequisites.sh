@@ -3,18 +3,15 @@
 set -euo pipefail
 [[ $# == 1 && $1 =~ ^/[A-Za-z0-9/._-]+$ ]] || exit 2
 php_binary=$1
-python_login=missing
-if command -v python3 >/dev/null 2>&1; then python_login=available; fi
 export PATH=/usr/bin:/bin
-python_version=unknown
 php_version=unknown
 legacy_roots=null
 legacy_window_matches=null
 refuse() {
-    printf '{"stage":"prerequisites","status":"refused","code":"%s","python_login":"%s","python_version":"%s","php_version":"%s","legacy_roots":%s,"legacy_window_matches":%s}\n' "$1" "$python_login" "$python_version" "$php_version" "$legacy_roots" "$legacy_window_matches"
+    printf '{"stage":"prerequisites","status":"refused","code":"%s","php_version":"%s","legacy_roots":%s,"legacy_window_matches":%s}\n' "$1" "$php_version" "$legacy_roots" "$legacy_window_matches"
     exit 1
 }
-for required in env timeout realpath stat id sha256sum cut tar find mkdir cat unlink rmdir; do
+for required in env timeout realpath stat id sha256sum cut rsync find mkdir cat unlink rmdir; do
     command -v "$required" >/dev/null 2>&1 || refuse "command_missing_$required"
 done
 [[ -x "$php_binary" ]] || refuse php_binary_missing
@@ -46,11 +43,6 @@ PHP
 [[ "$legacy" =~ ^([0-9]{1,4}):([0-9]{1,4})$ ]] || refuse legacy_scan_invalid
 legacy_roots=${BASH_REMATCH[1]}
 legacy_window_matches=${BASH_REMATCH[2]}
-command -v python3 >/dev/null 2>&1 || refuse python_runtime_missing
-python_probe=$(timeout --kill-after=1s 5s python3 -c 'import sys; print("%d.%d.%d" % sys.version_info[:3])' 2>/dev/null) || refuse python_version_failed
-[[ "$python_probe" =~ ^[0-9]{1,2}\.[0-9]{1,2}\.[0-9]{1,2}$ ]] || refuse python_version_invalid
-python_version=$python_probe
-timeout --kill-after=1s 5s python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 8) else 1)' 2>/dev/null || refuse python_version_unsupported
 [[ ! -L /dev/null && -c /dev/null && $(realpath /dev/null) == /dev/null \
     && $(stat -c '%t:%T' /dev/null) == 1:3 ]] || refuse null_device_invalid
-printf '{"stage":"prerequisites","status":"ready","code":"ready","python_login":"%s","python_version":"%s","php_version":"%s","legacy_roots":%s,"legacy_window_matches":%s}\n' "$python_login" "$python_version" "$php_version" "$legacy_roots" "$legacy_window_matches"
+printf '{"stage":"prerequisites","status":"ready","code":"ready","php_version":"%s","legacy_roots":%s,"legacy_window_matches":%s}\n' "$php_version" "$legacy_roots" "$legacy_window_matches"

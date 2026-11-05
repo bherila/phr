@@ -22,12 +22,13 @@ def validate(path):
             name = member.name.rstrip("/")
             parts = PurePosixPath(name).parts
             if (not name or name.startswith("/") or ".." in parts or "\\" in name
+                    or name != str(PurePosixPath(name)) or any(ord(c) < 32 or ord(c) == 127 for c in name)
                     or not parts or parts[0] not in ROOTS or name in names
                     or not (member.isdir() or member.isfile())):
                 raise ValueError("Unsafe synthetic bundle member")
             if any(part in (".env", ".git") for part in parts):
                 raise ValueError("Environment/private metadata in synthetic bundle")
-            if name.startswith("bootstrap/cache/"):
+            if name == "bootstrap/cache" or name.startswith("bootstrap/cache/"):
                 raise ValueError("Compiled application cache in synthetic bundle")
             names.add(name)
             size += member.size

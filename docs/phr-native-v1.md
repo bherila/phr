@@ -352,7 +352,7 @@ MariaDB there needs a separately provisioned disposable schema and credentials;
 never use the application's schema or issue application migrations for this task.
 
 Host calibration first runs a bounded read-only prerequisite probe. It returns
-only finite command/Python/PHP/device refusal codes, validated runtime versions,
+only finite command/PHP/device refusal codes, a validated PHP version,
 and aggregate counts of canonical current-user-owned mode-0700 legacy roots with
 the old fixed sentinel, including how many fall within the failed first attempt's
 09:37:55–09:37:57 UTC creation window on 2026-11-05. No root paths or marker contents
@@ -366,3 +366,24 @@ and cleanup require the same nonce in the private marker. If SSH fails immediate
 after creation, the runner still has the cleanup identity; a preexisting root or
 wrong nonce cannot be overwritten or cleaned. Sanitized stage proofs are retained
 on failure while unexpected SSH stdout, banners, stderr and paths remain private.
+
+The deployment host does not need Python. CI admits the compressed archive under
+its existing path/type/80 MiB compressed/500 MiB expanded/50,000-member/128 MiB-file
+limits, then normalizes only regular files and admitted directories into a fresh
+transfer tree. It preserves empty directories and emits a deterministic bounded
+SHA256/size inventory pinned to the source candidate and Composer lock digest.
+A 120-second rsync transfers only that tree into the nonce-owned private root,
+never deployment or public directories. Transfer duration is retained explicitly.
+
+Before creating `.env`, cache, storage or fixtures, standalone PHP core (`-n`)
+checks the out-of-band manifest/verifier digests, every path/type/size/hash, exact
+candidate/lock identity and the complete tree, rejecting missing/extra files,
+unknown empty directories, special files and file/directory links without following
+them. The unchanged 60-second admission, 1 GiB memory and existing byte/member/file
+caps apply. There is no remote archive extraction. Bash/PHP run the isolated
+lifecycle and emit bounded aggregate JSON; Python validation/decoration remains on
+the CI runner only. No global host installation or production SQL access occurs.
+
+Archive member count and normalized tree entry count are reported separately:
+normalization may add implicit parent directories. Both counts remain bounded by
+50,000; exact host verification matches the normalized tree inventory.
