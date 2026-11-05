@@ -384,11 +384,9 @@ export function EhiImportFlow({ patientId, canBind, job, uploadId, packageId, on
             {bound && previewFailed && (
               <span className="flex flex-wrap items-center gap-2 text-sm text-destructive">
                 {describeEhiError(pkg.preview_run?.failure_reason, pkg.preview_run?.failure_details)}
-                {!(pkg.preview_run?.failure_reason === 'resource_limit' && pkg.preview_run.failure_details?.resource_limit === 'capacity') && (
-                  <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void act(() => queueEhiPreview(patientId, pkg.id))}>
-                    {pkg.preview_run?.failure_reason === 'resource_limit' ? 'Restart preparation' : 'Try again'}
-                  </Button>
-                )}
+                <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => void act(() => queueEhiPreview(patientId, pkg.id))}>
+                  {pkg.preview_run?.failure_reason === 'resource_limit' ? 'Restart preparation' : 'Try again'}
+                </Button>
               </span>
             )}
             {bound && !previewRunning && !previewFailed && pkg.preview.state !== 'complete' && (

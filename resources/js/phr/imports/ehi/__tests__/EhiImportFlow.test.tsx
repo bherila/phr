@@ -34,15 +34,13 @@ describe('EhiImportFlow', () => {
     mockPost.mockResolvedValue({ preview_run: pkg.preview_run, package: pkg })
     render(<EhiImportFlow patientId={EHI_PATIENT_ID} canBind packageId={9} onReview={jest.fn()} />)
     if (kind === 'capacity') {
-      expect(await screen.findByText(/Retrying will not resolve this limit/)).toBeInTheDocument()
-      expect(screen.queryByRole('button', { name: /Try again|Restart preparation|Continue/ })).not.toBeInTheDocument()
-      expect(mockPost).not.toHaveBeenCalled()
-    } else {
-      const restart = await screen.findByRole('button', { name: 'Restart preparation' })
-      expect(screen.queryByText(/Try again to continue/)).not.toBeInTheDocument()
-      fireEvent.click(restart)
-      await waitFor(() => expect(mockPost).toHaveBeenCalledWith(`/api/phr/patients/${EHI_PATIENT_ID}/ehi/packages/9/preview`, {}))
+      expect(await screen.findByText(/With unchanged records and limits/)).toBeInTheDocument()
     }
+    const restart = await screen.findByRole('button', { name: 'Restart preparation' })
+    expect(screen.queryByText(/Try again to continue/)).not.toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
+    fireEvent.click(restart)
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith(`/api/phr/patients/${EHI_PATIENT_ID}/ehi/packages/9/preview`, {}))
   })
 
   it('offers to finish a direct upload whose last request failed, with nothing to send again', async () => {

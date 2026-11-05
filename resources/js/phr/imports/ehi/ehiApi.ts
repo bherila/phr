@@ -374,7 +374,7 @@ export function describeEhiError(reason: string | null | undefined, details?: Eh
     return 'Review preparation reached its time limit. Your export is stored. You can restart preparation, but it may reach the same limit again.'
   }
   if (reason === 'resource_limit' && details?.resource_limit === 'capacity') {
-    return 'This export and the existing records exceed the supported review capacity. Your export is stored. Retrying will not resolve this limit; contact support for help.'
+    return 'This export and the existing records exceed the supported review capacity. Your export is stored. With unchanged records and limits, preparing again will reach the same limit. Contact support for help.'
   }
   if (!reason) {
     return 'Something went wrong. Try again.'

@@ -11,7 +11,7 @@ describe('ehiApi helpers', () => {
 
   it('distinguishes time restart guidance from hard capacity and legacy failures', () => {
     expect(describeEhiError('resource_limit', { resource_limit: 'time' })).toMatch(/restart preparation.*same limit/)
-    expect(describeEhiError('resource_limit', { resource_limit: 'capacity' })).toMatch(/Retrying will not resolve.*contact support/)
+    expect(describeEhiError('resource_limit', { resource_limit: 'capacity' })).toMatch(/unchanged records and limits.*same limit.*Contact support/)
     expect(describeEhiError('resource_limit')).toMatch(/Contact support/)
     expect(describeEhiError('resource_limit')).not.toMatch(/continue|Try again/)
     expect(describeEhiError('not_bound', { resource_limit: 'capacity' })).toBe(describeEhiError('not_bound'))
