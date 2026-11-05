@@ -38,8 +38,9 @@ use Throwable;
  *   - a file extension from EXTENSIONS or an HTML tag name from HTML_TAGS (any
  *     other tag is "(other)"); CSS class tokens are only counted, by fixed shape
  *     bucket (CLASS_SHAPES), never printed, since any token could be a name;
- *   - presence (yes/no) of the well-known table names in
- *     EhiPackageDetector::KNOWN_TABLE_NAMES.
+ *   - presence and patient-scope counts for the well-known table names in
+ *     EhiPackageDetector::KNOWN_TABLE_NAMES; every other table shares one
+ *     anonymous '(other)' count bucket.
  * It never prints a member path or file name, any other table or column name, a
  * cell value, dictionary or readme text, or an exception message. PAT_ID values
  * are hashed in memory only to count them. Any unexpected failure prints only a
@@ -52,7 +53,7 @@ use Throwable;
 #[Description('Print the structure (never values or names) of an EHI Tables package, safe to share publicly')]
 final class PhrEhiProbeCommand extends Command
 {
-    public const string VERSION = 'ehi-probe-2';
+    public const string VERSION = 'ehi-probe-3';
 
     /** Shape buckets for CSS class tokens; a token's text is never printed. */
     public const array CLASS_SHAPES = ['lowercase', 'lowercase_hyphenated', 'uppercase', 'mixed_case', 'contains_digits', 'other'];
@@ -226,6 +227,15 @@ final class PhrEhiProbeCommand extends Command
         // Either refuses intake (unscoped_patient_row), so the probe shows it first.
         $patIdBlankRows = 0;
         $patIdMalformedRows = 0;
+        $patIdUnknownScopeTables = 0;
+        $patIdByTable = array_fill_keys([...EhiPackageDetector::KNOWN_TABLE_NAMES, '(other)'], [
+            'table_members' => 0,
+            'tables_with_column' => 0,
+            'tables_with_unknown_scope' => 0,
+            'blank_value_rows' => 0,
+            'malformed_rows' => 0,
+            'unreadable_members' => 0,
+        ]);
         /** @var array<string, true> $patIds hashes only */
         $patIds = [];
         $patIdCapped = false;
@@ -238,8 +248,11 @@ final class PhrEhiProbeCommand extends Command
                 continue;
             }
             $tableCount++;
-            if ($item['table'] !== null && EhiPackageDetector::isKnownTableName($item['table'])) {
-                $known[strtoupper($item['table'])] = true;
+            $tableBucket = $item['table'] !== null && EhiPackageDetector::isKnownTableName($item['table'])
+                ? strtoupper($item['table']) : '(other)';
+            $patIdByTable[$tableBucket]['table_members']++;
+            if ($tableBucket !== '(other)') {
+                $known[$tableBucket] = true;
             }
 
             try {
@@ -265,7 +278,17 @@ final class PhrEhiProbeCommand extends Command
                         }
                     }
                     $patIdIndex = array_search('PAT_ID', $header, true);
-                    $patIdTables += $patIdIndex === false ? 0 : 1;
+                    // Match intake's scope check even for an unusable header. A
+                    // header we cannot split may have PAT_ID, so its malformed
+                    // rows are unsafe too; a valid header can prove its absence.
+                    $declaresPatient = $reader->declaresColumn('PAT_ID');
+                    if ($declaresPatient === true) {
+                        $patIdTables++;
+                        $patIdByTable[$tableBucket]['tables_with_column']++;
+                    } elseif ($declaresPatient === null) {
+                        $patIdUnknownScopeTables++;
+                        $patIdByTable[$tableBucket]['tables_with_unknown_scope']++;
+                    }
 
                     if ($header !== [] && $item['table'] !== null) {
                         $documented = $dictionary->table($item['table']) ?? $dictionary->table(strtoupper($item['table']));
@@ -280,12 +303,16 @@ final class PhrEhiProbeCommand extends Command
 
                     foreach ($reader->rows() as $row) {
                         if ($row instanceof EhiTsvMalformedRow) {
-                            $patIdMalformedRows += $patIdIndex === false ? 0 : 1;
+                            if ($declaresPatient !== false) {
+                                $patIdMalformedRows++;
+                                $patIdByTable[$tableBucket]['malformed_rows']++;
+                            }
 
                             continue;
                         }
                         if ($patIdIndex !== false && in_array($row->values[$patIdIndex] ?? null, [null, ''], true)) {
                             $patIdBlankRows++;
+                            $patIdByTable[$tableBucket]['blank_value_rows']++;
                         }
                         foreach ($row->values as $index => $value) {
                             if ($value !== null && isset($nullCandidates[$value])) {
@@ -332,6 +359,7 @@ final class PhrEhiProbeCommand extends Command
                 }
             } catch (EhiPackageRejected) {
                 $unreadable++;
+                $patIdByTable[$tableBucket]['unreadable_members']++;
             }
         }
 
@@ -379,6 +407,13 @@ final class PhrEhiProbeCommand extends Command
                 'distinct_values_capped' => $patIdCapped,
                 'blank_value_rows' => $patIdBlankRows,
                 'malformed_rows' => $patIdMalformedRows,
+                'tables_with_unknown_scope' => $patIdUnknownScopeTables,
+                'unscoped_patient_row_check' => match (true) {
+                    $patIdBlankRows > 0 || $patIdMalformedRows > 0 => 'refusal_observed',
+                    $unreadable > 0 || $patIdUnknownScopeTables > 0 => 'incomplete',
+                    default => 'not_observed',
+                },
+                'by_table' => $patIdByTable,
             ],
             'dictionary_coverage' => $coverage,
         ];
