@@ -318,3 +318,35 @@ runtime: its PHP configuration, SQL/network latency and artifact throughput can
 differ. The production defaults remain unchanged until that evidence supports a
 safe limit or work-partitioning change. Consequently #330 remains open while
 that deployment-runtime calibration is outstanding.
+
+The separate `EHI deployment-host calibration` workflow is manual and main-only
+for its host lane, pins the reviewed source SHA and required CI gate, and uses the
+`prod` environment/production-files concurrency gate. Its PR lane exercises the
+same isolation script on a disposable CI runner before any host execution.
+It packages only selected application code plus development dependencies (needed
+for synthetic factories), never deployed `.env`, storage, application caches or
+clinical files. Admission rejects links, duplicate/traversing/absolute paths,
+private environment files, archives over 80 MiB compressed/500 MiB expanded and
+more than 50,000 members before extraction. Before materialization, source/vendor
+symlinks must resolve within the candidate checkout and cannot name environment,
+Git metadata, storage or compiled-cache paths.
+
+Host execution uses a fresh private `/tmp/phr-calibration.*` root and the actual
+cPanel PHP 8.5 binary. A cleared process environment and entirely synthetic
+SQLite/cache/session/queue/storage settings apply **before** framework bootstrap.
+PHP has a 1 GiB ceiling, `open_basedir` and temporary-file directories restricted
+to the owned root, plus only the verified canonical non-symlink `/dev/null`
+character device (Linux major/minor 1:3) used by existing intake hashing; no
+`/dev` directory access is allowed. Every phase is limited to 300 seconds and the remote operation
+to 1,000 seconds. It measures one 1,000-incoming/2,000-prior-lab profile at unchanged
+preview/native defaults. Only bounded aggregate JSON leaves the host; raw fixture
+DBs, source files, archives and exception logs are deleted. Cleanup requires a
+canonical, current-user-owned mode-0700 root plus its ownership sentinel and never
+follows links; transfer/transport failures also have an idempotent cleanup step.
+
+This provides actual-host PHP allocation/time and local-filesystem artifact
+throughput evidence, with PHP `ru_maxrss` when `/proc` is outside the isolation
+boundary. It does **not** calibrate the production SQL connection or object-store
+latency, and must not justify production limit increases by itself. Measuring
+MariaDB there needs a separately provisioned disposable schema and credentials;
+never use the application's schema or issue application migrations for this task.
