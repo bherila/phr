@@ -273,6 +273,7 @@ try {
     $status = $refused->reason;
 }
 $elapsed = round(microtime(true) - $started, 3);
+$peakPhpBytes = memory_get_peak_usage(true);
 $measuredQueries = $queries;
 $measuredBindings = $bindings;
 $previewPackage = $state['package'] === null ? null : PhrEhiPackage::findOrFail($state['package']);
@@ -292,6 +293,6 @@ echo json_encode([
     'generation_complete' => $previewPackage !== null && $previewPackage->preview_generation_started > 0
         && $previewPackage->preview_generation_started === $previewPackage->preview_generation_completed,
     'clinical_lab_rows' => PhrLabResult::query()->where('patient_id', $state['patient'])->count(),
-    'baseline_php_bytes' => $baseline, 'peak_php_bytes' => memory_get_peak_usage(true),
+    'baseline_php_bytes' => $baseline, 'peak_php_bytes' => $peakPhpBytes,
     'max_rss_kib' => $hwm[1] ?? $usage['ru_maxrss'], 'current_rss_kib' => $rss[1] ?? null, 'queries' => $measuredQueries, 'max_bindings' => $measuredBindings,
 ], JSON_THROW_ON_ERROR)."\n";
