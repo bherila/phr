@@ -261,3 +261,39 @@ immunization rows in 37.2 seconds with 22 MiB peak PHP allocation. A projection 
 findings, and used at most two reconciliation bindings. A multibyte SQL probe counted
 `é😀` as six bytes. These are local driver compatibility checks, not production
 performance measurements.
+
+### Lab-heavy EHI capacity calibration (#330)
+
+The `EHI preview capacity` workflow runs on changes to the resource harness or
+EHI mappings and can also be dispatched manually. Heavy calibration belongs in
+CI, not a developer's local check loop. Its two independent lanes use PHP 8.5
+with a 1 GiB PHP memory ceiling, SQLite and a disposable loopback MariaDB 10.11
+service. Fixtures are wholly synthetic, use private temporary artifact disks,
+and MariaDB schemas are newly created with a fixed `phr_resource_` prefix; the
+harness never selects an existing application schema or a database host from
+`.env`. No production data or deployment service is contacted.
+
+The mixed package includes notes and immunizations plus ten lab components per
+order, and optionally prior clinical lab history. Profiles measure 1,000 and
+2,000 incoming results at the current 10,000-row/8 MiB limits, 1,000 results with
+2,000 prior results, and an **experimental synthetic-only** 5,000-result package
+with 2,000 prior results at 50,000 rows/64 MiB. Every profile retains the existing
+240-second preview deadline. The experimental admission settings are not new
+application defaults or a claim of supported production capacity.
+
+Each lane uploads `ehi-capacity-*` observations containing its database version,
+configured limits, the measured admission work rows/bytes before and after,
+completion or `resource_limit` outcome, elapsed time, peak PHP allocation, process
+RSS, query counts and full proposal counts. A completed
+preview must include every supplied lab result and leave prior clinical records
+unchanged. A resource refusal must leave the generation incomplete; it is
+reported explicitly, never counted as a successful capacity result. The small
+1,000-result baseline is required to complete. Files and records from the fixture
+itself are not uploaded.
+
+Use these measurements to reproduce the bottleneck and choose the next
+calibration experiment. They do not replace measurement on the actual deployment
+runtime: its PHP configuration, SQL/network latency and artifact throughput can
+differ. The production defaults remain unchanged until that evidence supports a
+safe limit or work-partitioning change. Consequently #330 remains open while
+that deployment-runtime calibration is outstanding.

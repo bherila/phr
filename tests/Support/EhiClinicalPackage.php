@@ -261,6 +261,45 @@ final class EhiClinicalPackage
     }
 
     /**
+     * Mixed notes/immunizations plus a bounded lab history for resource calibration.
+     * Ten component results per order make source fanout explicit (about 6.3
+     * persisted work rows per result after preview, before prior patient history).
+     */
+    public static function labCapacity(int $results): self
+    {
+        if ($results < 1 || $results > 10000) {
+            throw new LogicException('Synthetic lab capacity must be between 1 and 10000 results.');
+        }
+        $standard = self::standard();
+        $rows = $standard->rows;
+        $rows['ORDER_PROC'] = [];
+        $rows['ORDER_RESULTS'] = [];
+        $rows['ORDER_RES_COMMENT'] = [];
+        $rows['ORDER_NARRATIVE'] = [];
+        for ($index = 0; $index < $results; $index++) {
+            $panel = intdiv($index, 10);
+            $order = (string) (100000 + $panel);
+            $line = (string) ($index % 10 + 1);
+            $date = (new \DateTimeImmutable('2010-01-01'))->modify('+'.($panel * 7).' days')->format('Y-m-d');
+            if ($index % 10 === 0) {
+                $rows['ORDER_PROC'][] = [
+                    'ORDER_PROC_ID' => $order, 'PAT_ID' => self::PATIENT_KEY,
+                    'PAT_ENC_CSN_ID' => '7001', 'DISPLAY_NAME' => 'SYNTHETIC CAPACITY PANEL',
+                    'ORDER_TYPE_C_NAME' => 'Lab', 'ORDER_STATUS_C_NAME' => 'Completed',
+                ];
+            }
+            $rows['ORDER_RESULTS'][] = [
+                'ORDER_PROC_ID' => $order, 'ORD_DATE_REAL' => (string) (60000 + $panel), 'LINE' => $line,
+                'COMPONENT_ID' => 'SYN-CAPACITY-'.$line, 'COMPONENT_ID_NAME' => 'SYNTHETIC CAPACITY ANALYTE '.$line,
+                'ORD_VALUE' => '95.0', 'REFERENCE_LOW' => '70', 'REFERENCE_HIGH' => '99',
+                'REFERENCE_UNIT' => 'mg/dL', 'RESULT_STATUS_C_NAME' => 'Final', 'RESULT_DATE' => $date,
+            ];
+        }
+
+        return new self($rows, $standard->files);
+    }
+
+    /**
      * standard() plus encounter kinds, keyed so each says what it is:
      * - 7101 office visit with a time, two diagnoses stored out of order, billing cells
      * - 7102 hospital encounter with admission and discharge times
