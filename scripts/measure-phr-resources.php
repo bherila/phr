@@ -279,7 +279,7 @@ try {
     $status = $refused->reason;
 }
 $elapsed = round(microtime(true) - $started, 3);
-$peakPhpBytes = max(memory_get_peak_usage(true), ...array_column($lifecycle['stages'] ?? [], 'peak_php_bytes'));
+$peakPhpBytes = max([memory_get_peak_usage(true), ...array_column($lifecycle['stages'] ?? [], 'peak_php_bytes')]);
 $measuredQueries = $queries;
 $measuredBindings = $bindings;
 $previewPackage = $state['package'] === null ? null : PhrEhiPackage::find($state['package']);
