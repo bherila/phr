@@ -47,7 +47,10 @@ function verifySyntheticTree(string $root, string $expectedDigest, string $candi
     }
     $size = $manifest['bundle_size'] ?? [];
     if (! is_int($size['compressed_bytes'] ?? null) || $size['compressed_bytes'] <= 0 || $size['compressed_bytes'] > 80 * 1024 * 1024
-        || ($size['expanded_bytes'] ?? null) !== $bytes || ($size['members'] ?? null) !== count($manifest['files']) + count($expectedDirectories)) {
+        || ($size['expanded_bytes'] ?? null) !== $bytes || ! is_int($size['members'] ?? null)
+        || $size['members'] < count($manifest['files']) || $size['members'] > 50000
+        || ($manifest['tree_members'] ?? null) !== count($manifest['files']) + count($expectedDirectories)
+        || $size['members'] > $manifest['tree_members']) {
         throw new RuntimeException('tree_budget');
     }
     $seenFiles = [];

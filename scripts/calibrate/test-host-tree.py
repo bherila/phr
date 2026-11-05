@@ -24,7 +24,8 @@ class TreeTest(unittest.TestCase):
         archive = directory / "bundle.tar.gz"
         lock = b"synthetic lock"
         content = {"artisan": b"synthetic", "vendor/autoload.php": b"synthetic",
-                   "composer.lock": lock, "calibration-source.json": json.dumps({
+                   "composer.lock": lock, "tests/Support/nested.php": b"synthetic", "scripts/measure.php": b"synthetic",
+                   "calibration-source.json": json.dumps({
                        "candidate": CANDIDATE, "lock_sha256": hashlib.sha256(lock).hexdigest()}).encode()}
         with tarfile.open(archive, "w:gz") as target:
             for name in ("vendor", "app", "app/empty"):
@@ -51,6 +52,9 @@ class TreeTest(unittest.TestCase):
             self.assertEqual((root / "tree-manifest.json").read_bytes(), (other / "tree-manifest.json").read_bytes())
             self.assertEqual(0, self.verify(root, digest).returncode)
             self.assertTrue((root / "application/app/empty").is_dir())
+            manifest = json.loads((root / "tree-manifest.json").read_text())
+            self.assertGreater(manifest["tree_members"], manifest["bundle_size"]["members"])
+            self.assertTrue((root / "application/tests/Support").is_dir())
 
     def test_tampering_missing_files_extras_file_and_directory_links_are_refused(self):
         mutations = [lambda app: (app / "artisan").write_text("tampered"),

@@ -47,7 +47,7 @@ def materialize(archive_path, output, candidate):
     if source != {"candidate": candidate, "lock_sha256": lock}:
         raise ValueError("Source/candidate/lock identity mismatch")
     manifest = {"format": "synthetic-phr-tree-v1", "candidate": candidate, "lock_sha256": lock,
-                "bundle_size": size, "directories": sorted(directories), "files": dict(sorted(files.items()))}
+                "bundle_size": size, "tree_members": len(files) + len(directories), "directories": sorted(directories), "files": dict(sorted(files.items()))}
     raw = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
     if len(raw) > 16 * 1024 * 1024 or len(files) + len(directories) > 50000:
         raise ValueError("Tree inventory exceeds admission")

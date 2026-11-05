@@ -352,7 +352,7 @@ MariaDB there needs a separately provisioned disposable schema and credentials;
 never use the application's schema or issue application migrations for this task.
 
 Host calibration first runs a bounded read-only prerequisite probe. It returns
-only finite command/Python/PHP/device refusal codes, validated runtime versions,
+only finite command/PHP/device refusal codes, a validated PHP version,
 and aggregate counts of canonical current-user-owned mode-0700 legacy roots with
 the old fixed sentinel, including how many fall within the failed first attempt's
 09:37:55–09:37:57 UTC creation window on 2026-11-05. No root paths or marker contents
@@ -383,3 +383,7 @@ them. The unchanged 60-second admission, 1 GiB memory and existing byte/member/f
 caps apply. There is no remote archive extraction. Bash/PHP run the isolated
 lifecycle and emit bounded aggregate JSON; Python validation/decoration remains on
 the CI runner only. No global host installation or production SQL access occurs.
+
+Archive member count and normalized tree entry count are reported separately:
+normalization may add implicit parent directories. Both counts remain bounded by
+50,000; exact host verification matches the normalized tree inventory.

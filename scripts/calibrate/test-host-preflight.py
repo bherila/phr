@@ -76,6 +76,45 @@ else:
                 subprocess.run(["bash", str(HERE / "cleanup-host-root.sh"), root, nonce], capture_output=True, check=True)
                 self.assertFalse(Path(root).exists())
 
+    def test_partial_rsync_transfer_keeps_nonce_owned_cleanup_recoverable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run = Path(directory)
+            fake = run / "fake-ssh"
+            fake.write_text('''#!/usr/bin/env python3
+import json, subprocess, sys
+payload = sys.stdin.read()
+if "# Read only fixed runtime prerequisites" in payload:
+    print(json.dumps({"stage":"prerequisites","status":"ready","code":"ready",
+        "php_version":"8.5.12","legacy_roots":0,"legacy_window_matches":0}))
+else:
+    sys.exit(subprocess.run(["bash", "-c", sys.argv[-1]], input=payload, text=True).returncode)
+''')
+            fake.chmod(0o700)
+            rsync = run / "fake-rsync"
+            rsync.write_text('''#!/usr/bin/env python3
+from pathlib import Path
+import sys
+root = Path(sys.argv[-1].split(":", 1)[1])
+(root / "application").mkdir()
+(root / "application/partial").write_text("synthetic partial transfer")
+sys.exit(12)
+''')
+            rsync.chmod(0o700)
+            (run / "ehi-host-payload").mkdir()
+            (run / "ehi-host-payload/tree-manifest.json").write_text("synthetic")
+            env = os.environ | {"CANDIDATE": "a" * 40, "RUNNER_TEMP": str(run),
+                                "GITHUB_STEP_SUMMARY": str(run / "summary"), "EHI_HOST_SSH_BIN": str(fake),
+                                "EHI_HOST_RSYNC_BIN": str(rsync)}
+            result = subprocess.run(["bash", str(HERE / "run-host-calibration.sh")], cwd=run, env=env, capture_output=True)
+            root, nonce = (run / "ehi-host-owned-root").read_text().splitlines()
+            try:
+                self.assertNotEqual(0, result.returncode)
+                self.assertTrue((Path(root) / "application/partial").exists())
+                self.assertIn(b"transport_failed", result.stdout)
+            finally:
+                subprocess.run(["bash", str(HERE / "cleanup-host-root.sh"), root, nonce], capture_output=True, check=True)
+                self.assertFalse(Path(root).exists())
+
     def test_runtime_banner_is_never_published(self):
         spec = importlib.util.spec_from_file_location("runtime", HERE / "validate-host-runtime.py")
         runtime = importlib.util.module_from_spec(spec)
