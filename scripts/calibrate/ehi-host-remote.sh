@@ -83,6 +83,7 @@ stage=lifecycle
 run_php --operation=lifecycle > "$root/lifecycle.json" 2> "$root/errors.log"
 stage=publish
 # Emit only bounded operation aggregates. The CI runner validates and decorates them.
+# shellcheck disable=SC2016 # Dollar variables belong to the embedded PHP program.
 env -i PATH=/usr/bin:/bin "$php_binary" -n -d memory_limit=1G -d "open_basedir=$root" \
     -d display_errors=0 -d log_errors=0 -r '
 foreach (["preview", "lifecycle"] as $operation) {

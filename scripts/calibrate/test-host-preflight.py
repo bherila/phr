@@ -127,7 +127,8 @@ sys.exit(12)
         lifecycle = case.lifecycle() | {"history_records": 2000}
         lifecycle["lifecycle"]["review_state"]["phr_lab_results"] = 2001
         for row in (preview, lifecycle):
-            row.update({"composer_lock_sha256": "c" * 64, "php_version": "8.5.12", "max_rss_kib": 1000})
+            row.update({"composer_lock_sha256": "c" * 64, "php_version": "8.5.12", "max_rss_kib": 1000,
+                        "native_limits": {"records": 20000, "record_stream_bytes": 33554432}})
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             manifest = root / "manifest"
