@@ -8,6 +8,8 @@ use App\Services\PHR\Import\Ehi\EhiBindingService;
 use App\Services\PHR\Import\Ehi\EhiProposalService;
 use App\Services\PHR\Import\Ehi\Mapping\EhiLabResultMapping;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\Storage;
+use Tests\Support\EhiCapacityLifecycle;
 use Tests\Support\EhiClinicalPackage;
 use Tests\Support\EhiIntakeFixtures;
 use Tests\TestCase;
@@ -21,6 +23,8 @@ final class EhiLabCapacityFixtureTest extends TestCase
     {
         $this->setUpEhi();
         Queue::fake();
+        Storage::fake('phr_exports');
+        Storage::fake('phr_dicom');
         try {
             $owner = User::factory()->create(['user_role' => 'user']);
             $patient = $this->ehiPatient($owner);
@@ -31,6 +35,12 @@ final class EhiLabCapacityFixtureTest extends TestCase
             self::assertNotEmpty($preview->counts['document']);
             self::assertNotEmpty($preview->counts['immunization']);
             self::assertSame(11, PhrEhiProposal::query()->where('package_id', $package->id)->where('mapping', EhiLabResultMapping::NAME)->count());
+            $lifecycle = (new EhiCapacityLifecycle)->run($patient, (int) $owner->id, 0);
+            self::assertSame('completed', $lifecycle['status']);
+            self::assertTrue($lifecycle['round_trip_verified']);
+            self::assertGreaterThan(0, $lifecycle['record_stream_bytes']);
+            self::assertSame(1, $lifecycle['review_state']['phr_lab_results']);
+            self::assertSame(2, $lifecycle['review_state']['phr_ehi_proposal_decisions']);
         } finally {
             $this->tearDownEhi();
         }

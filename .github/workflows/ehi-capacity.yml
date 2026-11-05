@@ -1,4 +1,4 @@
-name: EHI preview capacity
+name: EHI lifecycle capacity
 
 on:
   pull_request:
@@ -8,7 +8,9 @@ on:
       - scripts/observe-phr-resources.py
       - scripts/assert-ehi-capacity.py
       - scripts/test-ehi-capacity.py
+      - tests/Support/EhiCapacityLifecycle.php
       - tests/Support/EhiClinicalPackage.php
+      - app/Services/PHR/NativeBackup/**
       - app/Services/PHR/Import/Ehi/**
       - config/phr.php
   workflow_dispatch:
@@ -89,6 +91,18 @@ jobs:
             timeout 300s python3 scripts/observe-phr-resources.py \
               --dir="$fixture" --operation=preview "${database_args[@]}" > "$result"
             python3 scripts/assert-ehi-capacity.py "$result" | tee -a "$GITHUB_STEP_SUMMARY"
+            lifecycle="${result%.json}-lifecycle.json"
+            timeout 300s python3 scripts/observe-phr-resources.py \
+              --dir="$fixture" --operation=lifecycle "${database_args[@]}" > "$lifecycle"
+            python3 scripts/assert-ehi-capacity.py "$lifecycle" | tee -a "$GITHUB_STEP_SUMMARY"
+            if [ "$records" = 5000 ]; then
+              # First observe the unchanged native defaults above. Then measure a
+              # coherent synthetic-only envelope; neither setting changes defaults.
+              PHR_NATIVE_MAX_RECORDS=50000 PHR_NATIVE_MAX_RECORD_STREAM_BYTES=67108864 \
+                timeout 300s python3 scripts/observe-phr-resources.py \
+                  --dir="$fixture" --operation=lifecycle "${database_args[@]}" > "${lifecycle%.json}-expanded.json"
+              python3 scripts/assert-ehi-capacity.py "${lifecycle%.json}-expanded.json" | tee -a "$GITHUB_STEP_SUMMARY"
+            fi
           done
       - name: Retain capacity measurements
         if: always()

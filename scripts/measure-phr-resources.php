@@ -4,7 +4,7 @@
  * Synthetic, isolated resource runs. Prepare in one process, measure in another:
  * php -d memory_limit=1G scripts/measure-phr-resources.php --dir=/tmp/phr-resource-small --prepare --shape=small --records=20000
  * php -d memory_limit=1G scripts/measure-phr-resources.php --dir=/tmp/phr-resource-small --operation=backup
- * Operations: backup, validate, plan, apply, preview. Shape: small, wide, artifacts, ehi, labs, fanout, dense.
+ * Operations: backup, validate, plan, apply, preview, lifecycle. Shape: small, wide, artifacts, ehi, labs, fanout, dense.
  * --mysql-port selects a disposable loopback MariaDB schema; --history-records adds synthetic prior labs.
  * All files stay under the explicitly selected private temporary directory.
  */
@@ -36,6 +36,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Tests\Support\EhiCapacityLifecycle;
 use Tests\Support\EhiClinicalPackage;
 use Tests\Support\EhiSyntheticPackage;
 
@@ -241,8 +242,13 @@ memory_reset_peak_usage();
 $started = microtime(true);
 $status = 'completed';
 $preview = null;
+$lifecycle = null;
 try {
     switch ($operation) {
+        case 'lifecycle':
+            $lifecycle = (new EhiCapacityLifecycle)->run($patient, (int) $state['owner'], (int) $state['history_records']);
+            $status = $lifecycle['status'];
+            break;
         case 'backup':
             $built = app(PhrNativeArchiveBuilder::class)->build($patient);
             @unlink($built->path);
@@ -273,10 +279,10 @@ try {
     $status = $refused->reason;
 }
 $elapsed = round(microtime(true) - $started, 3);
-$peakPhpBytes = memory_get_peak_usage(true);
+$peakPhpBytes = max([memory_get_peak_usage(true), ...array_column($lifecycle['stages'] ?? [], 'peak_php_bytes')]);
 $measuredQueries = $queries;
 $measuredBindings = $bindings;
-$previewPackage = $state['package'] === null ? null : PhrEhiPackage::findOrFail($state['package']);
+$previewPackage = $state['package'] === null ? null : PhrEhiPackage::find($state['package']);
 $usage = getrusage();
 $procStatus = is_file('/proc/self/status') ? file_get_contents('/proc/self/status') : '';
 preg_match('/VmHWM:\s+(\d+)/', $procStatus, $hwm);
@@ -287,13 +293,15 @@ echo json_encode([
     'database_driver' => DB::connection()->getDriverName(), 'database_version' => DB::connection()->getServerVersion(),
     'history_records' => $state['history_records'] ?? 0,
     'status' => $status, 'seconds' => $elapsed,
+    'lifecycle' => $lifecycle,
+    'native_limits' => ['records' => config('phr.native_max_records'), 'record_stream_bytes' => config('phr.native_max_record_stream_bytes')],
     'limits' => ['rows' => config('phr.ehi_preview_max_rows'), 'bytes' => config('phr.ehi_preview_max_bytes'), 'seconds' => config('phr.ehi_preview_max_seconds')],
     'preview_counts' => $preview?->counts, 'preview_statuses' => $preview?->statuses,
     'preview_complete' => $preview !== null,
     'work_before' => $workBefore, 'work_after' => $operation === 'preview' ? previewWorkUsage((int) $state['patient']) : null,
     'generation_complete' => $previewPackage !== null && $previewPackage->preview_generation_started > 0
         && $previewPackage->preview_generation_started === $previewPackage->preview_generation_completed,
-    'clinical_lab_rows' => PhrLabResult::query()->where('patient_id', $state['patient'])->count(),
+    'clinical_lab_rows' => PhrLabResult::query()->where('patient_id', $lifecycle['restored_patient_id'] ?? $state['patient'])->count(),
     'baseline_php_bytes' => $baseline, 'peak_php_bytes' => $peakPhpBytes,
     'max_rss_kib' => $hwm[1] ?? $usage['ru_maxrss'], 'current_rss_kib' => $rss[1] ?? null, 'queries' => $measuredQueries, 'max_bindings' => $measuredBindings,
 ], JSON_THROW_ON_ERROR)."\n";
