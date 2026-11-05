@@ -5,6 +5,8 @@ import io
 from pathlib import Path
 import tarfile
 import tempfile
+import subprocess
+import secrets
 import unittest
 
 spec = importlib.util.spec_from_file_location("bundle", Path(__file__).with_name("validate-host-bundle.py"))
@@ -51,6 +53,51 @@ class BundleTest(unittest.TestCase):
                     bundle.validate(path)
             finally:
                 bundle.MAX_COMPRESSED = old
+
+source_spec = importlib.util.spec_from_file_location("source", Path(__file__).with_name("validate-host-source.py"))
+source = importlib.util.module_from_spec(source_spec)
+source_spec.loader.exec_module(source)
+source.SELECTED = ["app"]
+
+
+class SourceAndCleanupTest(unittest.TestCase):
+    def test_source_links_must_remain_in_the_candidate_and_avoid_private_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "app").mkdir()
+            (root / "app/safe").write_text("synthetic")
+            link = root / "app/link"
+            link.symlink_to(root / "app/safe")
+            self.assertTrue(source.validate(root))
+            for target in (Path("/etc/passwd"), root / ".env", root / "app"):
+                if target.name == ".env": target.write_text("synthetic")
+                link.unlink()
+                link.symlink_to(target)
+                with self.subTest(target=target), self.assertRaises(ValueError): source.validate(root)
+
+    def test_cleanup_never_follows_links_or_deletes_an_unowned_root(self):
+        script = Path(__file__).with_name("cleanup-host-root.sh")
+        root = Path("/tmp/phr-calibration." + secrets.token_hex(5))
+        root.mkdir(mode=0o700)
+        try:
+            marker = root / ".owned-synthetic-calibration"
+            marker.write_text("wrong")
+            refused = subprocess.run(["bash", str(script), str(root)], capture_output=True)
+            self.assertNotEqual(0, refused.returncode)
+            self.assertTrue(marker.exists())
+            marker.write_text("phr-host-calibration-v1")
+            with tempfile.TemporaryDirectory() as outside:
+                target = Path(outside) / "preserved"
+                target.write_text("synthetic")
+                (root / "link").symlink_to(outside, target_is_directory=True)
+                done = subprocess.run(["bash", str(script), str(root)], capture_output=True)
+                self.assertEqual(0, done.returncode)
+                self.assertFalse(root.exists())
+                self.assertEqual("synthetic", target.read_text())
+        finally:
+            if root.exists():
+                for child in root.iterdir(): child.unlink()
+                root.rmdir()
 
 
 if __name__ == "__main__":

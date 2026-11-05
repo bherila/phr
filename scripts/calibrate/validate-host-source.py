@@ -26,6 +26,8 @@ def validate(root):
                 target = entry.resolve(strict=True)
                 if not target.is_relative_to(root):
                     raise ValueError("Synthetic source link escapes the candidate checkout")
+                if target.is_dir():
+                    raise ValueError("Synthetic bundles do not materialize directory links")
                 target_parts = target.relative_to(root).parts
                 if (any(part in (".env", ".git", "storage") for part in target_parts)
                         or target_parts[:2] == ("bootstrap", "cache")):
