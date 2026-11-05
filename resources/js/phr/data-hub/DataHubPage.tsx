@@ -400,7 +400,9 @@ function RestorePanel({ onCompleted }: { onCompleted: () => Promise<void> }): Re
         plan_digest: restore.plan_digest,
         restore_access_grants: restore.restore_access_grants,
       })
-      setRestore(NativeRestoreResponseSchema.parse(raw).restore)
+      const next = NativeRestoreResponseSchema.parse(raw).restore
+      setRestore(next)
+      if (next.status === 'completed') await onCompleted()
     } catch (caught) {
       setError(restoreMessage(caught))
     } finally {

@@ -296,6 +296,31 @@ describe('DataHubPage', () => {
     expect(await screen.findByRole('button', { name: 'Check restore status' })).toBeInTheDocument()
   })
 
+  it('refreshes inventory and the mounted patient picker when apply already completed', async () => {
+    const originalGet = mockGet.getMockImplementation()!
+    const originalPost = mockPost.getMockImplementation()!
+    mockGet.mockImplementation(async (url: string) => {
+      if (url === '/api/phr/patients') return { patients: [listPatient()] }
+      return originalGet(url)
+    })
+    mockPost.mockImplementation(async (url: string, body: unknown) => {
+      if (url === '/api/phr/data-hub/native-restores/31/apply') return { restore: { ...restorePreview, status: 'completed' } }
+      return originalPost(url, body)
+    })
+    renderWithPatientList([])
+    fireEvent.change(await screen.findByLabelText('Native backup archive'), {
+      target: { files: [new File(['synthetic archive one'], 'synthetic.zip', { type: 'application/zip' })] },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Preview restore' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Check restore status' }))
+    fireEvent.change(await screen.findByLabelText('Type RESTORE to confirm'), { target: { value: 'RESTORE' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Restore patient data' }))
+    await waitFor(() => expect(screen.getByTestId('shared-patients')).toHaveTextContent('Synthetic Record Owner'))
+    expect(mockGet.mock.calls.filter(([url]: [string]) => url === '/api/phr/patients')).toHaveLength(1)
+    expect(mockGet.mock.calls.filter(([url]: [string]) => url === '/api/phr/data-hub')).toHaveLength(2)
+    expect(screen.queryByRole('button', { name: 'Check restore status' })).not.toBeInTheDocument()
+  })
+
   it('refreshes the shared patient list only after a restore reports completion', async () => {
     const originalGet = mockGet.getMockImplementation()!
     mockGet.mockImplementation(async (url: string) => {
