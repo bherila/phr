@@ -22,6 +22,10 @@ def validate(path, candidate, manifest_path=None):
         if manifest["candidate"] != candidate:
             raise ValueError("Candidate manifest mismatch")
         for row in rows[:2]:
+            if row.get("composer_lock_sha256") != manifest["lock_sha256"]:
+                raise ValueError("Observed runtime lock digest mismatch")
+            if "candidate" in row and row["candidate"] != candidate:
+                raise ValueError("Observed runtime candidate mismatch")
             row["measurement_kind"] = "deployment-host-isolated-sqlite"
             row["candidate"] = candidate
             row["bundle_size"] = manifest["bundle_size"]

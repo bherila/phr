@@ -115,6 +115,34 @@ sys.exit(12)
                 subprocess.run(["bash", str(HERE / "cleanup-host-root.sh"), root, nonce], capture_output=True, check=True)
                 self.assertFalse(Path(root).exists())
 
+    def test_foreign_runtime_lock_or_candidate_cannot_be_tagged_as_expected_source(self):
+        fixture_spec = importlib.util.spec_from_file_location("capacity_fixture", HERE.parent / "test-ehi-capacity.py")
+        fixture = importlib.util.module_from_spec(fixture_spec)
+        fixture_spec.loader.exec_module(fixture)
+        case = fixture.CapacityObservationTest()
+        runtime_spec = importlib.util.spec_from_file_location("runtime", HERE / "validate-host-runtime.py")
+        runtime = importlib.util.module_from_spec(runtime_spec)
+        runtime_spec.loader.exec_module(runtime)
+        preview = case.result() | {"history_records": 2000, "clinical_lab_rows": 2000}
+        lifecycle = case.lifecycle() | {"history_records": 2000}
+        lifecycle["lifecycle"]["review_state"]["phr_lab_results"] = 2001
+        for row in (preview, lifecycle):
+            row.update({"composer_lock_sha256": "c" * 64, "php_version": "8.5.12", "max_rss_kib": 1000})
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = root / "manifest"
+            manifest.write_text(json.dumps({"candidate": "a" * 40, "lock_sha256": "c" * 64, "bundle_size": {}}))
+            raw = root / "raw"
+            for change in ({}, {"composer_lock_sha256": "d" * 64}, {"candidate": "b" * 40}):
+                raw.write_text("\n".join(json.dumps(row) for row in
+                    (preview | change, lifecycle, {"cleanup": "confirmed", "scope": "owned-synthetic-root"})))
+                output = root / "published"
+                output.unlink(missing_ok=True)
+                with contextlib.redirect_stdout(io.StringIO()):
+                    success = runtime.publish(raw, "a" * 40, 0, output, root / "summary", manifest)
+                self.assertEqual(not change, success)
+                self.assertEqual(not change, output.exists())
+
     def test_runtime_banner_is_never_published(self):
         spec = importlib.util.spec_from_file_location("runtime", HERE / "validate-host-runtime.py")
         runtime = importlib.util.module_from_spec(spec)
