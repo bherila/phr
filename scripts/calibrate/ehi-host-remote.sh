@@ -73,6 +73,22 @@ run_php() {
 run_php --prepare --shape=labs --records=1000 --history-records=2000 > "$root/prepare.log" 2> "$root/errors.log"
 run_php --operation=preview > "$root/preview.json" 2> "$root/errors.log"
 run_php --operation=lifecycle > "$root/lifecycle.json" 2> "$root/errors.log"
+# CI fixtures contain only synthetic values and can expose a failed PHP exception
+# for debugging. The SSH host has no GITHUB_ACTIONS variable and never does this.
+if [[ ${GITHUB_ACTIONS:-} == true ]]; then
+    python3 - "$root" <<'PYDEBUG' || {
+import json
+from pathlib import Path
+import sys
+for name in ("preview.json", "lifecycle.json"):
+    json.loads((Path(sys.argv[1]) / name).read_text())
+PYDEBUG
+        head -c 16384 "$root/prepare.log" >&2
+        head -c 16384 "$root/preview.json" >&2
+        head -c 16384 "$root/lifecycle.json" >&2
+        exit 1
+    }
+fi
 # Never return raw fixtures, logs, DBs, source paths or archive bytes.
 python3 - "$root" "$candidate" <<'PY'
 import json
