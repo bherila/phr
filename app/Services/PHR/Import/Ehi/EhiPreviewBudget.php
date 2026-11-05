@@ -8,7 +8,8 @@ use Illuminate\Support\Facades\DB;
 /** Conservative patient-scoped M2 work set, including history reachable by a new package. */
 final class EhiPreviewBudget
 {
-    private const array TABLES = [
+    /** Tables charged by admission; also used by the isolated calibration harness. */
+    public const array TABLES = [
         'phr_ehi_sources', 'phr_ehi_packages', 'phr_ehi_package_members',
         'phr_ehi_entities', 'phr_ehi_revisions', 'phr_ehi_occurrences',
         'phr_ehi_proposals', 'phr_ehi_proposal_revisions', 'phr_ehi_record_links',

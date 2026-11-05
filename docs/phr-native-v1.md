@@ -282,8 +282,9 @@ with 2,000 prior results at 50,000 rows/64 MiB. Every profile retains the existi
 application defaults or a claim of supported production capacity.
 
 Each lane uploads `ehi-capacity-*` observations containing its database version,
-configured limits, completion or `resource_limit` outcome, elapsed time, peak PHP
-allocation, process RSS, query counts and full proposal counts. A completed
+configured limits, the measured admission work rows/bytes before and after,
+completion or `resource_limit` outcome, elapsed time, peak PHP allocation, process
+RSS, query counts and full proposal counts. A completed
 preview must include every supplied lab result and leave prior clinical records
 unchanged. A resource refusal must leave the generation incomplete; it is
 reported explicitly, never counted as a successful capacity result. The small

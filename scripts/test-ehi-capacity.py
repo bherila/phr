@@ -20,6 +20,7 @@ class CapacityObservationTest(unittest.TestCase):
             "preview_counts": {"lab_result": {"create": 1000}},
             "database_driver": "sqlite", "database_version": "synthetic",
             "limits": {"rows": 10000, "bytes": 8388608, "seconds": 240},
+            "work_before": {"rows": 1000, "bytes": 1000000}, "work_after": {"rows": 6300, "bytes": 5000000},
             "seconds": 1.0, "peak_php_bytes": 1000000, "sampled_rss_kib": 1024, "queries": 10,
         }
 
@@ -37,6 +38,8 @@ class CapacityObservationTest(unittest.TestCase):
         changes = [
             {"preview_counts": {"lab_result": {"create": 999}}},
             {"clinical_lab_rows": 1},
+            {"work_after": {"rows": 10001, "bytes": 5000000}},
+            {"work_after": {"rows": 6300, "bytes": 8388609}},
             {"generation_complete": False},
             {"preview_complete": False},
             {"status": "resource_limit"},

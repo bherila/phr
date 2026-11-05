@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Services\PHR\Import\Ehi\EhiBindingService;
 use App\Services\PHR\Import\Ehi\EhiDirectorySource;
 use App\Services\PHR\Import\Ehi\EhiIntakeService;
+use App\Services\PHR\Import\Ehi\EhiPreviewBudget;
 use App\Services\PHR\Import\Ehi\EhiProjectionRefused;
 use App\Services\PHR\Import\Ehi\EhiProjectionService;
 use App\Services\PHR\Import\Ehi\EhiProposalService;
@@ -26,6 +27,7 @@ use App\Services\PHR\NativeBackup\PhrNativeArchiveBuilder;
 use App\Services\PHR\NativeBackup\PhrNativeRestoreArchiveReader;
 use App\Services\PHR\NativeBackup\PhrNativeRestorePlanner;
 use App\Services\PHR\NativeBackup\PhrNativeRestoreService;
+use App\Services\PHR\ResourceByteSize;
 use Illuminate\Contracts\Console\Kernel;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\UploadedFile;
@@ -211,6 +213,23 @@ if (in_array($operation, ['plan', 'apply'], true)) {
         $attempt = $service->preview($service->createPreview($upload, $state['owner'], false));
     }
 }
+/** SQL aggregates report the admission work set, never clinical values or hydrated JSON. */
+function previewWorkUsage(int $patientId): array
+{
+    $rowSizes = new ResourceByteSize;
+    $rows = 0;
+    $bytes = 0;
+    foreach (EhiPreviewBudget::TABLES as $table) {
+        $size = $rowSizes->row($table);
+        $totals = DB::table($table)->where('patient_id', $patientId)
+            ->selectRaw('COUNT(*) AS row_count, COALESCE(SUM('.$size.'), 0) AS raw_bytes')->first();
+        $rows += (int) $totals->row_count;
+        $bytes += (int) $totals->raw_bytes;
+    }
+
+    return ['rows' => $rows, 'bytes' => $bytes];
+}
+$workBefore = $operation === 'preview' ? previewWorkUsage((int) $state['patient']) : null;
 $queries = 0;
 $bindings = 0;
 DB::listen(static function (QueryExecuted $query) use (&$queries, &$bindings): void {
@@ -269,6 +288,7 @@ echo json_encode([
     'limits' => ['rows' => config('phr.ehi_preview_max_rows'), 'bytes' => config('phr.ehi_preview_max_bytes'), 'seconds' => config('phr.ehi_preview_max_seconds')],
     'preview_counts' => $preview?->counts, 'preview_statuses' => $preview?->statuses,
     'preview_complete' => $preview !== null,
+    'work_before' => $workBefore, 'work_after' => $operation === 'preview' ? previewWorkUsage((int) $state['patient']) : null,
     'generation_complete' => $previewPackage !== null && $previewPackage->preview_generation_started > 0
         && $previewPackage->preview_generation_started === $previewPackage->preview_generation_completed,
     'clinical_lab_rows' => PhrLabResult::query()->where('patient_id', $state['patient'])->count(),
