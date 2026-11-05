@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import { EhiImportFlow } from '../EhiImportFlow'
-import { EHI_PATIENT_ID, makeEhiUpload } from './ehiFixtures'
+import { EHI_PATIENT_ID, makeEhiUpload, makeEhiPackage } from './ehiFixtures'
 
 const mockGet = jest.fn()
 const mockPost = jest.fn()
@@ -24,6 +24,27 @@ beforeEach(() => {
 })
 
 describe('EhiImportFlow', () => {
+  it.each(['time', 'capacity', undefined] as const)('gives accurate next steps for %s resource failures', async (kind) => {
+    const pkg = makeEhiPackage({ binding_status: 'bound', source: { id: 1, label: 'Synthetic source' },
+      preview: { state: 'incomplete', generation: 1 }, preview_run: { id: 1, package_id: 9, status: 'failed',
+        failure_reason: 'resource_limit', failure_details: kind ? { resource_limit: kind } : null,
+        counts: null, statuses: null, findings: null, preview_digest: null, replayed: null,
+        requested_at: null, started_at: null, completed_at: null } })
+    mockGet.mockResolvedValue({ package: pkg })
+    mockPost.mockResolvedValue({ preview_run: pkg.preview_run, package: pkg })
+    render(<EhiImportFlow patientId={EHI_PATIENT_ID} canBind packageId={9} onReview={jest.fn()} />)
+    if (kind === 'capacity') {
+      expect(await screen.findByText(/Retrying will not resolve this limit/)).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /Try again|Restart preparation|Continue/ })).not.toBeInTheDocument()
+      expect(mockPost).not.toHaveBeenCalled()
+    } else {
+      const restart = await screen.findByRole('button', { name: 'Restart preparation' })
+      expect(screen.queryByText(/Try again to continue/)).not.toBeInTheDocument()
+      fireEvent.click(restart)
+      await waitFor(() => expect(mockPost).toHaveBeenCalledWith(`/api/phr/patients/${EHI_PATIENT_ID}/ehi/packages/9/preview`, {}))
+    }
+  })
+
   it('offers to finish a direct upload whose last request failed, with nothing to send again', async () => {
     let queued = false
     mockGet.mockImplementation(() => Promise.resolve({

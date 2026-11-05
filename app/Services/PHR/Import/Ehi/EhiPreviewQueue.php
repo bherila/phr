@@ -116,7 +116,7 @@ final class EhiPreviewQueue
         try {
             $preview = $this->proposals->preview($package, $patient, $run->requested_by_user_id);
         } catch (EhiProjectionRefused $refused) {
-            $this->finish($run, $refused->reason);
+            $this->finish($run, $refused->reason, $refused->resourceLimit);
 
             return;
         } catch (AuthorizationException|ModelNotFoundException) {
@@ -153,8 +153,12 @@ final class EhiPreviewQueue
             ->update(['status' => PhrEhiPreviewRun::STATUS_FAILED, 'failure_reason' => $reason, 'completed_at' => now(), 'updated_at' => now()]);
     }
 
-    private function finish(PhrEhiPreviewRun $run, string $reason): void
+    private function finish(PhrEhiPreviewRun $run, string $reason, ?EhiPreviewLimit $limit = null): void
     {
-        $run->update(['status' => PhrEhiPreviewRun::STATUS_FAILED, 'failure_reason' => $reason, 'completed_at' => now()]);
+        $run->update([
+            'status' => PhrEhiPreviewRun::STATUS_FAILED, 'failure_reason' => $reason, 'completed_at' => now(),
+            'result_json' => $reason === EhiProjectionRefused::RESOURCE_LIMIT && $limit !== null
+                ? ['failure_details' => ['resource_limit' => $limit->value]] : null,
+        ]);
     }
 }

@@ -387,3 +387,14 @@ the CI runner only. No global host installation or production SQL access occurs.
 Archive member count and normalized tree entry count are reported separately:
 normalization may add implicit parent directories. Both counts remain bounded by
 50,000; exact host verification matches the normalized tree inventory.
+
+EHI preview failures retain the existing `resource_limit` reason for compatibility.
+New failed preview runs may include `failure_details: {resource_limit: "time"}` or
+`"capacity"`; these are closed public codes, never exception text or source values.
+Older runs without details and unknown stored details return null. Row/byte caps
+are capacity refusals: repeating the same request cannot overcome those limits.
+A time-budget stop keeps durable evidence and leaves its generation incomplete.
+A retry preserves completed projection-table checkpoints but starts a new proposal
+generation and recomputes mappings from the beginning; it may reach the same time
+limit again. The API does not promise cursor-based continuation. Successful runs
+clear the failure detail. Limits and deadlines are unchanged.

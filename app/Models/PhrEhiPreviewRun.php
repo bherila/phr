@@ -15,7 +15,7 @@ use Illuminate\Support\Carbon;
  * @property int|null $requested_by_user_id
  * @property string $status
  * @property string|null $failure_reason
- * @property array{counts?: array<string, array<string, int>>, statuses?: array<string, int>, findings?: array<string, int>, preview_digest?: string, replayed?: bool}|null $result_json
+ * @property array{failure_details?: array{resource_limit: string}, counts?: array<string, array<string, int>>, statuses?: array<string, int>, findings?: array<string, int>, preview_digest?: string, replayed?: bool}|null $result_json
  * @property Carbon|null $started_at
  * @property Carbon|null $completed_at
  * @property Carbon|null $created_at
