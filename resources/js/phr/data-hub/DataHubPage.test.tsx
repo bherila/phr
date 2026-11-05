@@ -53,7 +53,7 @@ function inventoryPayload() {
       id: 42,
       display_name: 'Synthetic Record Owner',
       relationship: 'self',
-      record_counts: counts({ lab_results: 3, documents: 2, original_dicom_files: 4, ehi_pending_proposals: 5 }),
+      record_counts: counts({ lab_results: 3, medication_fills: 2, documents: 2, original_dicom_files: 4, ehi_pending_proposals: 5 }),
       storage_bytes: { documents: 1024, original_dicom: 2048, ehi: 0, total: 3072 },
       last_updated_at: '2026-08-02T01:00:00+00:00',
       active_share_count: 1,
@@ -215,7 +215,8 @@ describe('DataHubPage', () => {
 
     const ownerHeading = await screen.findByRole('heading', { name: 'Synthetic Record Owner' })
     expect(ownerHeading).toBeInTheDocument()
-    expect(ownerHeading.parentElement).toHaveTextContent('9 authoritative records')
+    expect(ownerHeading.parentElement).toHaveTextContent('11 authoritative records')
+    expect(screen.getByText('Medication fills').nextElementSibling).toHaveTextContent('2')
     expect(screen.getAllByText('3.00 KB')).toHaveLength(2)
     expect(screen.getByText('EHI proposals awaiting review')).toBeInTheDocument()
     expect(screen.getByText('Synthetic Shared Profile')).toBeInTheDocument()
@@ -294,6 +295,31 @@ describe('DataHubPage', () => {
       })
     })
     expect(await screen.findByRole('button', { name: 'Check restore status' })).toBeInTheDocument()
+  })
+
+  it('refreshes inventory and the mounted patient picker when apply already completed', async () => {
+    const originalGet = mockGet.getMockImplementation()!
+    const originalPost = mockPost.getMockImplementation()!
+    mockGet.mockImplementation(async (url: string) => {
+      if (url === '/api/phr/patients') return { patients: [listPatient()] }
+      return originalGet(url)
+    })
+    mockPost.mockImplementation(async (url: string, body: unknown) => {
+      if (url === '/api/phr/data-hub/native-restores/31/apply') return { restore: { ...restorePreview, status: 'completed' } }
+      return originalPost(url, body)
+    })
+    renderWithPatientList([])
+    fireEvent.change(await screen.findByLabelText('Native backup archive'), {
+      target: { files: [new File(['synthetic archive one'], 'synthetic.zip', { type: 'application/zip' })] },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Preview restore' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Check restore status' }))
+    fireEvent.change(await screen.findByLabelText('Type RESTORE to confirm'), { target: { value: 'RESTORE' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Restore patient data' }))
+    await waitFor(() => expect(screen.getByTestId('shared-patients')).toHaveTextContent('Synthetic Record Owner'))
+    expect(mockGet.mock.calls.filter(([url]: [string]) => url === '/api/phr/patients')).toHaveLength(1)
+    expect(mockGet.mock.calls.filter(([url]: [string]) => url === '/api/phr/data-hub')).toHaveLength(2)
+    expect(screen.queryByRole('button', { name: 'Check restore status' })).not.toBeInTheDocument()
   })
 
   it('refreshes the shared patient list only after a restore reports completion', async () => {
