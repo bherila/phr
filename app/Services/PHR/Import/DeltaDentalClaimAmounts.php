@@ -24,23 +24,7 @@ final class DeltaDentalClaimAmounts
      */
     public function reconcile(array $claim, string $pdfText): array
     {
-        if (preg_match('/\b'.preg_quote((string) $claim['claim_number'], '/').'\b/', $pdfText) !== 1) {
-            throw new RuntimeException('Claim number was not found in the authoritative claim PDF.');
-        }
-        $sections = preg_split('/^\h*Cost\h+Breakdown\h*:?\h*$/im', $pdfText);
-        if ($sections === false || count($sections) !== 2) {
-            throw new RuntimeException('Independent claim totals could not be read: expected one Cost Breakdown section. Read the EOB and use eobs.upsert or eobs.update.');
-        }
-        $totals = [];
-        foreach (self::COLUMNS as $label => $column) {
-            // Only an explicit, standalone summary label/value pair is supported.
-            // Never grab a matching amount from the procedure table elsewhere.
-            preg_match_all('/^\h*'.preg_quote($label, '/').'\h*:?\h*\$?([0-9]+(?:,[0-9]{3})*\.[0-9]{2})\h*$/im', $sections[1], $matches);
-            if (count($matches[1]) !== 1) {
-                throw new RuntimeException("Independent claim total for {$label} is missing or ambiguous.");
-            }
-            $totals[$column] = $this->cents(str_replace(',', '', $matches[1][0]));
-        }
+        $totals = $this->totalsFromPdf((string) $claim['claim_number'], $pdfText);
 
         $lines = $claim['lines'];
         if ($lines === []) {
@@ -89,6 +73,34 @@ final class DeltaDentalClaimAmounts
         ];
 
         return $claim;
+    }
+
+    /**
+     * Independently stated PDF totals, shared by import and the read-only audit.
+     *
+     * @return array<string, int> line column => integer cents
+     */
+    public function totalsFromPdf(string $claimNumber, string $pdfText): array
+    {
+        if (preg_match('/\b'.preg_quote($claimNumber, '/').'\b/', $pdfText) !== 1) {
+            throw new RuntimeException('Claim number was not found in the authoritative claim PDF.');
+        }
+        $sections = preg_split('/^\h*Cost\h+Breakdown\h*:?\h*$/im', $pdfText);
+        if ($sections === false || count($sections) !== 2) {
+            throw new RuntimeException('Independent claim totals could not be read: expected one Cost Breakdown section. Read the EOB and use eobs.upsert or eobs.update.');
+        }
+        $totals = [];
+        foreach (self::COLUMNS as $label => $column) {
+            // Only an explicit, standalone summary label/value pair is supported.
+            // Never grab a matching amount from the procedure table elsewhere.
+            preg_match_all('/^\h*'.preg_quote($label, '/').'\h*:?\h*\$?([0-9]+(?:,[0-9]{3})*\.[0-9]{2})\h*$/im', $sections[1], $matches);
+            if (count($matches[1]) !== 1) {
+                throw new RuntimeException("Independent claim total for {$label} is missing or ambiguous.");
+            }
+            $totals[$column] = $this->cents(str_replace(',', '', $matches[1][0]));
+        }
+
+        return $totals;
     }
 
     private function cents(string $amount): int

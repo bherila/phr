@@ -63,6 +63,7 @@ class LocalDiskAssumptionsTest extends TestCase
         'app/Services/PHR/Documents/SignedDocumentUploadService.php' => [1, self::OWN_TEMPORARY_FILE],
         'app/Services/PHR/Export/PhrExportArchiveBuilder.php' => [6, self::OWN_TEMPORARY_FILE],
         'app/Services/PHR/Export/PhrExportService.php' => [9, self::OWN_TEMPORARY_FILE],
+        'app/Services/PHR/Import/DeltaDentalEobAudit.php' => [1, self::FROM_LOCAL_OBJECT_FILE],
         'app/Services/PHR/Import/DeltaDentalEobCsvParser.php' => [2, self::FROM_LOCAL_OBJECT_FILE],
         'app/Services/PHR/Import/DeltaDentalEobImporter.php' => [5, self::OPERATOR_PATH],
         'app/Services/PHR/Import/Ehi/EhiDirectorySource.php' => [4, self::OPERATOR_PATH],
