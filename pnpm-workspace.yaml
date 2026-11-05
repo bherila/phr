@@ -31,6 +31,8 @@ onlyBuiltDependencies:
   - unrs-resolver
 
 overrides:
+  # GHSA-rj75-hqrm-r3gf: typography 0.5.20 pins the vulnerable parser exactly.
+  '@tailwindcss/typography@0.5.20>postcss-selector-parser': 6.1.5
   # concurrently 10.0.5 pins a shell-quote release affected by GHSA-pqg4-j6r4-53mv.
   'concurrently>shell-quote': 1.12.0
   'brace-expansion@<2.0.0': 1.1.21
