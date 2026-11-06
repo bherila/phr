@@ -502,6 +502,37 @@ class EhiProposalServiceTest extends TestCase
         self::assertSame(PhrEhiProposal::STATUS_RETAINED, $added->refresh()->status);
     }
 
+    public function test_revocation_during_preparation_keeps_the_generation_incomplete_and_prior_decisions_intact(): void
+    {
+        config(['phr.ehi_mappings' => [EhiInterleavedMapping::class]]);
+        [$owner, $patient, $package] = $this->previewable('revocation');
+        $manager = $this->createUser();
+        $grant = PhrPatientUserAccess::query()->create(['patient_id' => $patient->id, 'user_id' => $manager->id, 'access_level' => PhrPatientUserAccess::LEVEL_MANAGER]);
+        $service = app(EhiProposalService::class);
+        $service->preview($package, $patient, $owner->id);
+        $decided = PhrEhiProposal::query()->where('package_id', $package->id)->sole();
+        $service->review($decided, PhrEhiProposal::DECISION_RETAIN, $owner->id, $decided->preview_digest);
+        $decidedState = $decided->refresh()->getAttributes();
+        EhiInterleavedMapping::$during = function () use ($owner, $patient, $grant): void {
+            $this->actingAs($owner)->deleteJson("/api/phr/patients/{$patient->id}/access/{$grant->id}")->assertOk();
+        };
+
+        try {
+            $service->preview($package->refresh(), $patient, $manager->id);
+            self::fail('Revoked access must stop the next proposal chunk.');
+        } catch (AuthorizationException) {
+            self::assertSame([2, 1], [$package->refresh()->preview_generation_started, $package->preview_generation_completed]);
+        }
+        self::assertSame($decidedState, $decided->refresh()->getAttributes());
+        self::assertSame(1, PhrEhiProposalDecision::query()->count());
+        self::assertSame(0, PhrImmunization::query()->count());
+
+        $service->preview($package->refresh(), $patient, $owner->id);
+        self::assertSame([3, 3], [$package->refresh()->preview_generation_started, $package->preview_generation_completed]);
+        self::assertSame($decidedState, $decided->refresh()->getAttributes());
+        self::assertSame(1, PhrEhiProposalDecision::query()->count());
+    }
+
     public function test_a_revision_shared_by_two_proposals_keeps_its_strongest_disposition_in_either_review_order(): void
     {
         config(['phr.ehi_mappings' => [EhiSharedRevisionMapping::class]]);
