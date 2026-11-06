@@ -1,11 +1,12 @@
-import { DataHubResponseSchema, NativeRestoreResponseSchema, NativeRestoresResponseSchema } from '../../resources/js/phr/data-hub/dataHub.ts'
+import { DataHubResponseSchema, NativeRestoreResponseSchema, NativeRestoresResponseSchema, NativeBackupResponseSchema, NativeBackupsResponseSchema } from '../../resources/js/phr/data-hub/dataHub.ts'
 import { ContractFailure, requireContract, SCHEMA_IDS } from '../../scripts/contracts/protocol.mjs'
 
-const schemas = { DataHubResponseSchema, NativeRestoreResponseSchema, NativeRestoresResponseSchema }
+const schemas = { DataHubResponseSchema, NativeRestoreResponseSchema, NativeRestoresResponseSchema, NativeBackupResponseSchema, NativeBackupsResponseSchema }
 requireContract(JSON.stringify(Object.keys(schemas).sort()) === JSON.stringify([...SCHEMA_IDS].sort()), 'schema_registry')
 
 // Unknown/dynamic keys are deliberately masked, even if they look like identifiers.
 const publicFields = new Set([
+  'backup', 'backups', 'patient_id', 'file_size_bytes', 'archive_sha256', 'counts', 'generated_at', 'created_at', 'download_url',
   'owned_patients', 'shared_patients', 'record_counts', 'storage_bytes', 'restore', 'restores', 'tables',
   'id', 'display_name', 'relationship', 'last_updated_at', 'active_share_count', 'operations', 'access_level',
   'clinical_export', 'native_backup', 'aggregate_delete', 'eligible', 'status', 'format', 'schema_version',
