@@ -1,4 +1,4 @@
-import { DataHubResponseSchema, NativeRestoreResponseSchema, NativeRestoresResponseSchema, NativeBackupResponseSchema, NativeBackupsResponseSchema } from '../../resources/js/phr/data-hub/dataHub.ts'
+import { DataHubResponseSchema, NativeBackupResponseSchema, NativeBackupsResponseSchema,NativeRestoreResponseSchema, NativeRestoresResponseSchema } from '../../resources/js/phr/data-hub/dataHub.ts'
 import { ContractFailure, requireContract, SCHEMA_IDS } from '../../scripts/contracts/protocol.mjs'
 
 const schemas = { DataHubResponseSchema, NativeRestoreResponseSchema, NativeRestoresResponseSchema, NativeBackupResponseSchema, NativeBackupsResponseSchema }

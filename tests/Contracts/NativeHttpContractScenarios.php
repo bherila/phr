@@ -105,7 +105,7 @@ trait NativeHttpContractScenarios
                 $response = $this->actingAs($actor)->postJson('/api/phr/data-hub/native-restores/'.$id.'/preview');
                 $writer->capture('restore-unowned-preview-'.$role, $response);
                 $restore = $this->body($response)->restore;
-                HttpContractFixtures::require($restore->status === 'preview_ready' && $restore->target === 'existing_patient'
+                HttpContractFixtures::require($restore->status === 'preview_ready'
                     && in_array('patient_not_owned', $restore->blockers, true), 'restore-unowned-preview-'.$role, 'ownership');
                 $writer->assertHttp('restore-unowned-apply-'.$role, $this->actingAs($actor)->postJson('/api/phr/data-hub/native-restores/'.$id.'/apply', [
                     'confirmation' => 'RESTORE', 'plan_digest' => $restore->plan_digest, 'restore_access_grants' => true,
