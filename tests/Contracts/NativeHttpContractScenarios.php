@@ -111,9 +111,31 @@ trait NativeHttpContractScenarios
                     'confirmation' => 'RESTORE', 'plan_digest' => $restore->plan_digest, 'restore_access_grants' => true,
                 ]));
             }
+            Queue::swap($realQueue);
+            $response = $this->nativeUpload($owner, $copy, true);
+            $id = $this->body($response)->restore->id;
+            $route = '/api/phr/data-hub/native-restores/'.$id;
+            $writer->capture('restore-chunk-sync', $this->nativeChunk($owner, $id, $copy));
+            $response = $this->actingAs($owner)->postJson($route.'/preview');
+            $writer->capture('restore-preview-sync', $response);
+            $restore = $this->body($response)->restore;
+            HttpContractFixtures::require($restore->status === 'preview_ready' && $restore->target === 'existing_patient'
+                && $restore->tables->phr_medication_fills->skip === 1 && $restore->artifacts->skip === 1
+                && $restore->tables->phr_patient_user_access->skip === 3 && $restore->tables->phr_patient_user_access->create === 0 && $restore->restore_access_grants,
+                'restore-preview-sync', 'counts');
+            $response = $this->actingAs($owner)->postJson($route.'/apply', [
+                'confirmation' => 'RESTORE', 'plan_digest' => $restore->plan_digest, 'restore_access_grants' => true,
+            ]);
+            $writer->capture('restore-apply-sync', $response);
+            HttpContractFixtures::require($this->body($response)->restore->status === 'completed', 'restore-apply-sync', 'state');
+            $writer->capture('restore-sync-completed-poll', $this->actingAs($owner)->getJson($route));
+            $syncPatient = $this->patient($owner);
+            $response = $this->actingAs($owner)->postJson('/api/phr/patients/'.$syncPatient->id.'/native-backups');
+            $writer->capture('backup-sync', $response);
+            HttpContractFixtures::require($this->body($response)->backup->status === 'ready', 'backup-sync', 'state');
             Queue::fake();
-            // A real archive restores into a new root, then a second synchronous pass exercises
-            // existing-root skip counts and opt-in grant restoration.
+            // The synchronous pass above keeps existing identities and opt-in grants.
+            // This queued pass restores a new root with grants disabled.
             DB::table('phr_patients')->where('id', $patient->id)->delete();
             $response = $this->nativeUpload($owner, $copy, false);
             $id = $this->body($response)->restore->id;
@@ -146,28 +168,7 @@ trait NativeHttpContractScenarios
             $response = $this->actingAs($owner)->getJson($route);
             $writer->capture('restore-completed-poll', $response);
             HttpContractFixtures::require($this->body($response)->restore->status === 'completed', 'restore-completed-poll', 'state');
-            Queue::swap($realQueue);
-            $response = $this->nativeUpload($owner, $copy, true);
-            $id = $this->body($response)->restore->id;
-            $route = '/api/phr/data-hub/native-restores/'.$id;
-            $writer->capture('restore-chunk-sync', $this->nativeChunk($owner, $id, $copy));
-            $response = $this->actingAs($owner)->postJson($route.'/preview');
-            $writer->capture('restore-preview-sync', $response);
-            $restore = $this->body($response)->restore;
-            HttpContractFixtures::require($restore->status === 'preview_ready' && $restore->target === 'existing_patient'
-                && $restore->tables->phr_medication_fills->skip === 1 && $restore->artifacts->skip === 1
-                && $restore->tables->phr_patient_user_access->create === 2 && $restore->restore_access_grants,
-                'restore-preview-sync', 'counts');
-            $response = $this->actingAs($owner)->postJson($route.'/apply', [
-                'confirmation' => 'RESTORE', 'plan_digest' => $restore->plan_digest, 'restore_access_grants' => true,
-            ]);
-            $writer->capture('restore-apply-sync', $response);
-            HttpContractFixtures::require($this->body($response)->restore->status === 'completed', 'restore-apply-sync', 'state');
-            $writer->capture('restore-sync-completed-poll', $this->actingAs($owner)->getJson($route));
-            $syncPatient = $this->patient($owner);
-            $response = $this->actingAs($owner)->postJson('/api/phr/patients/'.$syncPatient->id.'/native-backups');
-            $writer->capture('backup-sync', $response);
-            HttpContractFixtures::require($this->body($response)->backup->status === 'ready', 'backup-sync', 'state');
+
         } finally {
             @unlink($copy);
             Queue::swap($realQueue);
