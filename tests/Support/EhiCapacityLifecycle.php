@@ -63,8 +63,19 @@ final class EhiCapacityLifecycle
                     }
                 }
             });
+            if (isset($options['after_initial_review'])) {
+                $options['after_initial_review']($patient, $stage);
+            }
             if (isset($options['exercise'])) {
                 $options['exercise']($patient, $stage);
+            }
+            if (isset($options['artifact_target'])) {
+                $count = DB::table('phr_ehi_blobs')->where('patient_id', $patient->id)->count()
+                    + DB::table('phr_documents')->where('patient_id', $patient->id)->whereNotNull('storage_path')->count();
+                if ($count !== $options['artifact_target']) {
+                    throw new RuntimeException('Synthetic artifact candidate count differs from its declaration.');
+                }
+                $result['candidate_artifacts'] = $count;
             }
             $before = $this->reviewState((int) $patient->id);
             $accessBefore = $this->accessState($patient, $actor);
@@ -296,7 +307,8 @@ final class EhiCapacityLifecycle
                         PhrEhiProposal::KIND_UPDATE => PhrEhiProposal::DECISION_APPROVE_UPDATE,
                         default => PhrEhiProposal::DECISION_RETAIN,
                     };
-                    if (! $rejected && $proposal->mapping === 'lab_result' && $proposal->kind === PhrEhiProposal::KIND_CREATE) {
+                    if (! $rejected && $proposal->mapping === 'lab_result' && $proposal->kind === PhrEhiProposal::KIND_CREATE
+                        && ($proposal->proposed_json['attributes']['external_id'] ?? null) === 'ORDER_RESULTS:100000:60000:1') {
                         $decision = PhrEhiProposal::DECISION_REJECT;
                         $rejected = true;
                     }

@@ -26,6 +26,8 @@ def validate(result):
                 raise ValueError("Manifest-only replay duplicated clinical data")
             if replay.get("cycles_completed", 0) != declaration.get("cycles", 0):
                 raise ValueError("Declared changed cycles did not complete")
+        if declaration.get("artifact_boundary") == "exact" and lifecycle.get("verified_artifacts") != declaration["artifact_limit"]:
+            raise ValueError("Exact artifact-count boundary did not complete at its declared cap")
         if lifecycle["verified_tables"] < 40 or lifecycle["verified_artifacts"] < 1:
             raise ValueError("Portable content/source evidence missing")
     elif status not in RESOURCE_REFUSALS:
@@ -38,6 +40,8 @@ def validate(result):
     if expectation == "must_refuse_at_stage":
         if status != declaration["refusal"] or lifecycle.get("refused_stage", result.get("refused_stage")) != declaration["refused_stage"]:
             raise ValueError("Expected boundary refusal was not observed at its declared stage")
+        if declaration.get("artifact_boundary") == "over" and lifecycle.get("candidate_artifacts") != declaration["artifact_limit"] + 1:
+            raise ValueError("One-over artifact count was not attained")
         if lifecycle.get("round_trip_verified") or lifecycle.get("cleanup_verified"):
             raise ValueError("Expected refusal claims completed recovery")
     met = status == "completed"

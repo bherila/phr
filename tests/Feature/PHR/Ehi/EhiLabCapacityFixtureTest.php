@@ -8,9 +8,12 @@ use App\Models\User;
 use App\Services\PHR\Import\Ehi\EhiBindingService;
 use App\Services\PHR\Import\Ehi\EhiProposalService;
 use App\Services\PHR\Import\Ehi\Mapping\EhiLabResultMapping;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use RuntimeException;
 use Tests\Support\EhiCapacityLifecycle;
+use Tests\Support\EhiCapacityOracle;
 use Tests\Support\EhiClinicalPackage;
 use Tests\Support\EhiIntakeFixtures;
 use Tests\TestCase;
@@ -48,6 +51,40 @@ final class EhiLabCapacityFixtureTest extends TestCase
             self::assertGreaterThan(0, $lifecycle['record_stream_bytes']);
             self::assertSame(1, $lifecycle['review_state']['phr_lab_results']);
             self::assertSame(2, $lifecycle['review_state']['phr_ehi_proposal_decisions']);
+        } finally {
+            $this->tearDownEhi();
+        }
+    }
+
+    public function test_independent_oracle_refuses_missing_changed_values_and_overwritten_prior_decisions(): void
+    {
+        $this->setUpEhi();
+        Queue::fake();
+        try {
+            $owner = User::factory()->create(['user_role' => 'user']);
+            $patient = $this->ehiPatient($owner);
+            $package = $this->ehiIntakeDirectory(EhiClinicalPackage::labCapacity(3)->build(), $patient, $owner->id)->package;
+            $package = app(EhiBindingService::class)->bind($package, $patient, $owner->id, null, 'Synthetic oracle source');
+            app(EhiProposalService::class)->preview($package, $patient, $owner->id);
+            (new EhiCapacityLifecycle)->reviewAll($patient, $owner->id);
+            $oracle = new EhiCapacityOracle;
+            $oracle->assertLabs($patient, 3, 0);
+            $before = $oracle->snapshot($patient);
+            try {
+                $oracle->assertLabs($patient, 3, 0, 1, 1);
+                self::fail('An ignored declared changed value must not qualify.');
+            } catch (RuntimeException $failure) {
+                self::assertStringContainsString('independent declaration', $failure->getMessage());
+            }
+            $decision = DB::table('phr_ehi_proposal_decisions')->where('patient_id', $patient->id)->orderBy('id')->value('id');
+            DB::table('phr_ehi_proposal_decisions')->where('id', $decision)->update(['mapping_version' => 'synthetic-overwritten']);
+            try {
+                $oracle->assertPriorPreserved($before, $oracle->snapshot($patient));
+                self::fail('Overwritten decisions with unchanged counts must not qualify.');
+            } catch (RuntimeException $failure) {
+                self::assertStringContainsString('overwritten or removed', $failure->getMessage());
+                self::assertStringNotContainsString('synthetic-overwritten', $failure->getMessage());
+            }
         } finally {
             $this->tearDownEhi();
         }

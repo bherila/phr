@@ -415,7 +415,7 @@ Owner/access rows use explicit actor/role policy normalization, not only row cou
 small full-review/replay/share control and exact native boundary must complete;
 one-over boundaries must refuse at their declared backup stage. The 2,000+2,000
 full-review/change target, 200+20,000 history, three changed cycles, 5,000+2,000
-stretch, wide rows, evidence fanout and artifact-count experiments are explicitly
+stretch, wide rows, evidence fanout and many-artifact experiments are explicitly
 experimental. Full review accepts unambiguous creates/corroborations and approved
 updates, rejects the first lab deliberately, and retains ambiguous/unmapped
 proposals; other mappings are explicitly reviewed. Changed cycles preserve that
@@ -452,3 +452,18 @@ invent user mappings or delete identities to force success. These are distinct
 policy outcomes, not a claim that unknown shared actors can be resurrected.
 Production SQL/object-store calibration and R1 remain pending; no schema,
 credentials, production data or capacity-default changes are part of E0.
+
+Independent pre-backup oracles derive every expected synthetic lab identity/value
+from the declared result/history/change counts. Clinical content and prior decision
+and decided-proposal hashes must remain stable across re-preview and exact/repacked
+replay. Manifest-only review may append decisions but cannot overwrite prior rows
+or change clinical contents. Changed cycles may update only declared lab values,
+retain prior nonvalue fields/identities/decisions, and create only declared new labs.
+Only verification flags/hashes/counts leave the fixture, never source values.
+
+Artifact count boundaries explicitly use a lowered synthetic count cap of 64:
+source blobs plus the two declared published document artifacts must attain exactly
+64 (must complete) or65 (must refuse at backup). The separate2,000-count profile is
+experimental because the independent1MiB artifact-metadata ceiling may bind first;
+it is not labeled successful exact-boundary proof if refused. Production artifact
+settings remain unchanged.

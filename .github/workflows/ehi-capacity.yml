@@ -10,6 +10,7 @@ on:
       - scripts/test-ehi-capacity.py
       - tests/Support/EhiCapacityLifecycle.php
       - tests/Support/EhiCapacityMetrics.php
+      - tests/Support/EhiCapacityOracle.php
       - tests/Support/EhiCapacityQualification.php
       - scripts/ehi-qualification-profiles.json
       - scripts/run-ehi-qualification.py
@@ -174,7 +175,7 @@ jobs:
           case "$BATCH" in
             replay) profiles=(small-full target-2000 three-cycles) ;;
             history) profiles=(large-history stretch-full) ;;
-            stress) profiles=(wide-rows fanout) ;;
+            stress) profiles=(wide-rows fanout many-artifacts) ;;
             boundaries) profiles=(native-exact native-one-over artifact-exact artifact-one-over) ;;
           esac
           for profile in "${profiles[@]}"; do

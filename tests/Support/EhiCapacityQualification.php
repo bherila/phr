@@ -30,6 +30,10 @@ final class EhiCapacityQualification
         $patient = null;
         $events = [];
         $lifecycle = new EhiCapacityLifecycle;
+        $oracle = new EhiCapacityOracle;
+        if (isset($profile['artifact_limit'])) {
+            config(['phr.native_max_artifacts' => $profile['artifact_limit']]);
+        }
         $result = ['status' => 'completed', 'round_trip_verified' => false];
         try {
             [$owner, $patient] = $metrics->stage('seed', function () use ($profile): array {
@@ -60,7 +64,7 @@ final class EhiCapacityQualification
             if (isset($profile['artifact_boundary'])) {
                 // Unique source bytes: avoid blob deduplication hiding the artifact boundary.
                 $extra = (int) config('phr.native_max_artifacts');
-                $base = count(array_unique(array_map(static fn ($bytes) => hash('sha256', $bytes), $synthetic->files)));
+                $base = count(array_unique(array_map(static fn ($bytes) => hash('sha256', $bytes), $synthetic->files))) + 2; // Two declared published document artifacts.
                 for ($i = 0; $i < $extra - $base + ($profile['artifact_boundary'] === 'over' ? 1 : 0); $i++) {
                     $synthetic = $synthetic->with('artifacts/synthetic-'.$i.'.bin', 'Synthetic unique artifact '.$i);
                 }
@@ -71,18 +75,22 @@ final class EhiCapacityQualification
             $stage('preview', fn () => app(EhiProposalService::class)->preview($package, $patient, $owner->id));
             $options = ['review' => $profile['review'], 'directory' => $directory, 'metrics' => $metrics,
                 'sharing' => $profile['sharing'], 'native_boundary' => $profile['native_boundary'] ?? null];
+            $options['after_initial_review'] = fn (PhrPatient $patient, callable $stage) => $stage('oracle_initial', fn () => $oracle->assertLabs($patient, $profile['records'], $profile['history']));
+            if (isset($profile['artifact_boundary'])) {
+                $options['artifact_target'] = (int) config('phr.native_max_artifacts') + ($profile['artifact_boundary'] === 'over' ? 1 : 0);
+            }
             if ($profile['exercise']) {
-                $options['exercise'] = function (PhrPatient $patient, callable $stage) use ($directory, $profile, $synthetic, $zip, $package, $owner, $lifecycle, &$events): void {
-                    $baseline = $this->clinicalState($patient);
+                $options['exercise'] = function (PhrPatient $patient, callable $stage) use ($directory, $profile, $synthetic, $zip, $package, $owner, $lifecycle, $oracle, &$events): void {
+                    $baseline = $stage('oracle_baseline', fn () => $oracle->snapshot($patient));
                     $stage('repreview', fn () => app(EhiProposalService::class)->preview($package->refresh(), $patient, $owner->id));
-                    if ($this->clinicalState($patient) !== $baseline) {
-                        throw new RuntimeException('Re-preview changed clinical records or decisions.');
-                    }
+                    $stage('oracle_repreview', fn () => $oracle->assertUnchanged($baseline, $oracle->snapshot($patient)));
                     foreach (['identical' => $zip, 'repacked' => $this->zip($directory.'/repacked.zip', $synthetic, true)] as $kind => $path) {
                         $replayed = $stage('replay_'.$kind, fn () => $this->intake($path, $patient, $owner->id));
-                        if ($replayed->id !== $package->id || $this->clinicalState($patient) !== $baseline) {
+                        if ($replayed->id !== $package->id) {
                             throw new RuntimeException('Semantic replay did not converge.');
                         }
+                        $stage('replay_'.$kind.'_preview', fn () => app(EhiProposalService::class)->preview($replayed, $patient, $owner->id));
+                        $stage('oracle_'.$kind, fn () => $oracle->assertUnchanged($baseline, $oracle->snapshot($patient)));
                         $events[$kind] = ['same_package' => true, 'archive_bytes_identical' => hash_file('sha256', $path) === hash_file('sha256', $zip)];
                     }
                     if (! $events['identical']['archive_bytes_identical'] || $events['repacked']['archive_bytes_identical']) {
@@ -94,23 +102,30 @@ final class EhiCapacityQualification
                         throw new RuntimeException('Changed manifest was mistaken for identical input.');
                     }
                     $stage('manifest_only_preview', fn () => app(EhiProposalService::class)->preview($next, $patient, $owner->id));
-                    if ($this->clinicalState($patient) !== $baseline) {
-                        throw new RuntimeException('Manifest-only preview changed clinical state.');
-                    }
+                    $stage('oracle_manifest_preview', fn () => $oracle->assertUnchanged($baseline, $oracle->snapshot($patient)));
                     $stage('manifest_only_review', fn () => $lifecycle->reviewAll($patient, $owner->id));
-                    $events['changed_manifest'] = ['new_package' => true, 'clinical_rows_unchanged' => $this->clinicalState($patient)['labs'] === $baseline['labs']];
-                    if (! $events['changed_manifest']['clinical_rows_unchanged']) {
-                        throw new RuntimeException('Unchanged clinical content created duplicate clinical rows.');
-                    }
+                    $prior = $stage('oracle_manifest_review', function () use ($oracle, $baseline, $patient, $profile): array {
+                        $after = $oracle->snapshot($patient);
+                        $oracle->assertPriorPreserved($baseline, $after);
+                        $oracle->assertLabs($patient, $profile['records'], $profile['history']);
+
+                        return $after;
+                    });
+                    $events['changed_manifest'] = ['new_package' => true, 'clinical_rows_unchanged' => true, 'prior_decisions_preserved' => true];
                     for ($cycle = 1; $cycle <= ($profile['cycles'] ?? 0); $cycle++) {
                         $count = $profile['records'] + $cycle * $profile['new'];
                         $changed = EhiClinicalPackage::labCapacity($count, $profile['changed'], $cycle)->build();
                         $next = $stage('cycle_'.$cycle.'_intake', fn () => $this->intake($this->zip($directory.'/changed-'.$cycle.'.zip', $changed), $patient, $owner->id));
                         $stage('cycle_'.$cycle.'_preview', fn () => app(EhiProposalService::class)->preview($next, $patient, $owner->id));
+                        $stage('oracle_cycle_'.$cycle.'_preview', fn () => $oracle->assertUnchanged($prior, $oracle->snapshot($patient)));
                         $stage('cycle_'.$cycle.'_review', fn () => $lifecycle->reviewAll($patient, $owner->id));
-                        if ($this->clinicalState($patient)['labs'] !== $profile['history'] + $count - 1) {
-                            throw new RuntimeException('Changed export clinical count differs from declared policy.');
-                        }
+                        $prior = $stage('oracle_cycle_'.$cycle.'_review', function () use ($oracle, $prior, $patient, $profile, $count, $cycle): array {
+                            $after = $oracle->snapshot($patient);
+                            $oracle->assertPriorPreserved($prior, $after, true);
+                            $oracle->assertLabs($patient, $count, $profile['history'], $profile['changed'], $cycle);
+
+                            return $after;
+                        });
                         $events['cycles_completed'] = $cycle;
                     }
                 };
@@ -141,12 +156,6 @@ final class EhiCapacityQualification
             'composer_lock_sha256' => hash_file('sha256', dirname(__DIR__, 2).'/composer.lock'),
             'limits' => ['rows' => config('phr.ehi_preview_max_rows'), 'bytes' => config('phr.ehi_preview_max_bytes'), 'seconds' => config('phr.ehi_preview_max_seconds'),
                 'native_records' => config('phr.native_max_records'), 'native_stream_bytes' => config('phr.native_max_record_stream_bytes')]];
-    }
-
-    private function clinicalState(PhrPatient $patient): array
-    {
-        return ['labs' => DB::table('phr_lab_results')->where('patient_id', $patient->id)->count(),
-            'decisions' => DB::table('phr_ehi_proposal_decisions')->where('patient_id', $patient->id)->count()];
     }
 
     private function intake(string $path, PhrPatient $patient, int $actor): PhrEhiPackage
