@@ -16,5 +16,12 @@
   "composer.lock",
   "pnpm-lock.yaml",
   "package.json",
-  ".github/workflows/ci.yml"
+  ".github/workflows/ci.yml",
+  "tests/Contracts/NativeHttpContractScenarios.php",
+  "app/Http/Controllers/PHR/PhrNativeBackupController.php",
+  "app/Services/PHR/NativeBackup/PhrNativeBackupService.php",
+  "app/Services/PHR/NativeBackup/PhrNativeRestoreService.php",
+  "app/Services/PHR/Access/PhrPatientAccessService.php",
+  "app/Models/PhrNativeBackup.php",
+  "app/Models/PhrNativeRestoreAttempt.php"
 ]

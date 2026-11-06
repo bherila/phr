@@ -15,6 +15,8 @@ use Tests\TestCase;
 /** Dedicated producer: ordinary Unit/Feature suites never generate these files. */
 final class HttpResponseFixturesTest extends TestCase
 {
+    use NativeHttpContractScenarios;
+
     public function test_generate_authenticated_http_fixtures(): void
     {
         $this->travelTo(now()->setDate(2026, 1, 2)->setTime(3, 4, 5));
@@ -84,7 +86,8 @@ final class HttpResponseFixturesTest extends TestCase
         $writer->capture('restore-index-uploading', $response);
         $body = $this->body($response);
         HttpContractFixtures::require(count($body->restores) === 1 && $body->restores[0]->status === 'uploading', 'restore-index-uploading', 'state');
-        $this->assertSame(8, $writer->finish());
+        $this->nativeScenarios($writer);
+        $this->assertSame(38, $writer->finish());
     }
 
     private function patient(User $owner): PhrPatient

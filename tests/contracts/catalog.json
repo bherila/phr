@@ -1,15 +1,549 @@
 {
   "version": 1,
   "cases": [
-    {"id":"inventory-no-patients","schema":"DataHubResponseSchema","role":"authenticated","state":"no-patients","status":200},
-    {"id":"inventory-owned-empty","schema":"DataHubResponseSchema","role":"owner","state":"empty","status":200},
-    {"id":"inventory-owned-populated","schema":"DataHubResponseSchema","role":"owner","state":"nonzero-medication-fill","status":200},
-    {"id":"inventory-shared-viewer","schema":"DataHubResponseSchema","role":"viewer","state":"metadata-only","status":200},
-    {"id":"inventory-shared-manager","schema":"DataHubResponseSchema","role":"manager","state":"metadata-only","status":200},
-    {"id":"restore-uploading","schema":"NativeRestoreResponseSchema","role":"owner","state":"uploading","status":201},
-    {"id":"restore-index-empty","schema":"NativeRestoresResponseSchema","role":"owner","state":"empty","status":200},
-    {"id":"restore-index-uploading","schema":"NativeRestoresResponseSchema","role":"owner","state":"uploading","status":200}
+    {
+      "id": "inventory-no-patients",
+      "schema": "DataHubResponseSchema",
+      "role": "authenticated",
+      "state": "no-patients",
+      "status": 200
+    },
+    {
+      "id": "inventory-owned-empty",
+      "schema": "DataHubResponseSchema",
+      "role": "owner",
+      "state": "empty",
+      "status": 200
+    },
+    {
+      "id": "inventory-owned-populated",
+      "schema": "DataHubResponseSchema",
+      "role": "owner",
+      "state": "nonzero-medication-fill",
+      "status": 200
+    },
+    {
+      "id": "inventory-shared-viewer",
+      "schema": "DataHubResponseSchema",
+      "role": "viewer",
+      "state": "metadata-only",
+      "status": 200
+    },
+    {
+      "id": "inventory-shared-manager",
+      "schema": "DataHubResponseSchema",
+      "role": "manager",
+      "state": "metadata-only",
+      "status": 200
+    },
+    {
+      "id": "restore-uploading",
+      "schema": "NativeRestoreResponseSchema",
+      "role": "owner",
+      "state": "uploading",
+      "status": 201
+    },
+    {
+      "id": "restore-index-empty",
+      "schema": "NativeRestoresResponseSchema",
+      "role": "owner",
+      "state": "empty",
+      "status": 200
+    },
+    {
+      "id": "restore-index-uploading",
+      "schema": "NativeRestoresResponseSchema",
+      "role": "owner",
+      "state": "uploading",
+      "status": 200
+    },
+    {
+      "id": "backup-index-empty",
+      "schema": "NativeBackupsResponseSchema",
+      "role": "owner",
+      "state": "empty",
+      "status": 200
+    },
+    {
+      "id": "backup-queued",
+      "schema": "NativeBackupResponseSchema",
+      "role": "owner",
+      "state": "pending",
+      "status": 202
+    },
+    {
+      "id": "backup-processing",
+      "schema": "NativeBackupResponseSchema",
+      "role": "owner",
+      "state": "processing",
+      "status": 202
+    },
+    {
+      "id": "backup-index-states",
+      "schema": "NativeBackupsResponseSchema",
+      "role": "owner",
+      "state": "all-states-and-expiry",
+      "status": 200
+    },
+    {
+      "id": "backup-sync",
+      "schema": "NativeBackupResponseSchema",
+      "role": "owner",
+      "state": "ready",
+      "status": 202
+    },
+    {
+      "id": "restore-poll-uploading",
+      "schema": "NativeRestoreResponseSchema",
+      "role": "operation-owner",
+      "state": "uploading",
+      "status": 200
+    },
+    {
+      "id": "restore-poll-preview-pending",
+      "schema": "NativeRestoreResponseSchema",
+      "role": "operation-owner",
+      "state": "preview-pending",
+      "status": 200
+    },
+    {
+      "id": "restore-poll-preview-processing",
+      "schema": "NativeRestoreResponseSchema",
+      "role": "operation-owner",
+      "state": "preview-processing",
+      "status": 200
+    },
+    {
+      "id": "restore-poll-preview-ready",
+      "schema": "NativeRestoreResponseSchema",
+      "role": "operation-owner",
+      "state": "preview-ready",
+      "status": 200
+    },
+    {
+      "id": "restore-poll-pending-restore",
+      "schema": "NativeRestoreResponseSchema",
+      "role": "operation-owner",
+      "state": "pending-restore",
+      "status": 200
+    },
+    {
+      "id": "restore-poll-restore-processing",
+      "schema": "NativeRestoreResponseSchema",
+      "role": "operation-owner",
+      "state": "restore-processing",
+      "status": 200
+    },
+    {
+      "id": "restore-poll-restore-finalizing",
+      "schema": "NativeRestoreResponseSchema",
+      "role": "operation-owner",
+      "state": "restore-finalizing",
+      "status": 200
+    },
+    {
+      "id": "restore-poll-restore-failed",
+      "schema": "NativeRestoreResponseSchema",
+      "role": "operation-owner",
+      "state": "restore-failed",
+      "status": 200
+    },
+    {
+      "id": "restore-poll-completed",
+      "schema": "NativeRestoreResponseSchema",
+      "role": "operation-owner",
+      "state": "completed",
+      "status": 200
+    },
+    {
+      "id": "restore-index-all-states",
+      "schema": "NativeRestoresResponseSchema",
+      "role": "operation-owner",
+      "state": "all-nine-states",
+      "status": 200
+    },
+    {
+      "id": "restore-chunk-queued",
+      "schema": "NativeRestoreResponseSchema",
+      "role": "operation-owner",
+      "state": "uploading",
+      "status": 200
+    },
+    {
+      "id": "restore-preview-queued",
+      "schema": "NativeRestoreResponseSchema",
+      "role": "operation-owner",
+      "state": "preview-pending",
+      "status": 202
+    },
+    {
+      "id": "restore-preview-poll",
+      "schema": "NativeRestoreResponseSchema",
+      "role": "operation-owner",
+      "state": "preview-ready",
+      "status": 200
+    },
+    {
+      "id": "restore-apply-queued",
+      "schema": "NativeRestoreResponseSchema",
+      "role": "operation-owner",
+      "state": "pending-restore",
+      "status": 202
+    },
+    {
+      "id": "restore-completed-poll",
+      "schema": "NativeRestoreResponseSchema",
+      "role": "operation-owner",
+      "state": "completed",
+      "status": 200
+    },
+    {
+      "id": "restore-chunk-sync",
+      "schema": "NativeRestoreResponseSchema",
+      "role": "operation-owner",
+      "state": "uploading",
+      "status": 200
+    },
+    {
+      "id": "restore-preview-sync",
+      "schema": "NativeRestoreResponseSchema",
+      "role": "operation-owner",
+      "state": "preview-ready",
+      "status": 202
+    },
+    {
+      "id": "restore-apply-sync",
+      "schema": "NativeRestoreResponseSchema",
+      "role": "operation-owner",
+      "state": "completed",
+      "status": 202
+    },
+    {
+      "id": "restore-sync-completed-poll",
+      "schema": "NativeRestoreResponseSchema",
+      "role": "operation-owner",
+      "state": "completed",
+      "status": 200
+    },
+    {
+      "id": "restore-upload-viewer",
+      "schema": "NativeRestoreResponseSchema",
+      "role": "viewer",
+      "state": "uploading",
+      "status": 201
+    },
+    {
+      "id": "restore-unowned-preview-viewer",
+      "schema": "NativeRestoreResponseSchema",
+      "role": "viewer",
+      "state": "blocked-unowned-existing",
+      "status": 202
+    },
+    {
+      "id": "restore-upload-manager",
+      "schema": "NativeRestoreResponseSchema",
+      "role": "manager",
+      "state": "uploading",
+      "status": 201
+    },
+    {
+      "id": "restore-unowned-preview-manager",
+      "schema": "NativeRestoreResponseSchema",
+      "role": "manager",
+      "state": "blocked-unowned-existing",
+      "status": 202
+    },
+    {
+      "id": "restore-upload-outsider",
+      "schema": "NativeRestoreResponseSchema",
+      "role": "outsider",
+      "state": "uploading",
+      "status": 201
+    },
+    {
+      "id": "restore-unowned-preview-outsider",
+      "schema": "NativeRestoreResponseSchema",
+      "role": "outsider",
+      "state": "blocked-unowned-existing",
+      "status": 202
+    }
   ],
-  "inventory_keys": ["lab_results","vitals","office_visits","medications","medication_fills","conditions","procedures","immunizations","allergies","portal_messages","negative_assertions","health_logs","health_log_entries","respiratory_events","sinus_settings","sinus_enrollments","documents","dicom_studies","dicom_series","dicom_instances","original_dicom_files","ehi_packages","ehi_preserved_files","ehi_pending_proposals"],
-  "checks": ["missing-manifest","zero-catalog","duplicate-catalog","zero-fixtures","missing-case","extra-case","duplicate-case","missing-file","extra-file","duplicate-file","unsafe-file","symlink-file","stale-candidate","mixed-candidate","stale-generation","mixed-generation","stale-catalog","stale-generator","wrong-hash","wrong-size","invalid-manifest","invalid-json","unknown-schema","shared-private-field","zero-tests","missing-test","extra-test","duplicate-test","skipped-test"]
+  "inventory_keys": [
+    "lab_results",
+    "vitals",
+    "office_visits",
+    "medications",
+    "medication_fills",
+    "conditions",
+    "procedures",
+    "immunizations",
+    "allergies",
+    "portal_messages",
+    "negative_assertions",
+    "health_logs",
+    "health_log_entries",
+    "respiratory_events",
+    "sinus_settings",
+    "sinus_enrollments",
+    "documents",
+    "dicom_studies",
+    "dicom_series",
+    "dicom_instances",
+    "original_dicom_files",
+    "ehi_packages",
+    "ehi_preserved_files",
+    "ehi_pending_proposals"
+  ],
+  "checks": [
+    "missing-manifest",
+    "zero-catalog",
+    "duplicate-catalog",
+    "zero-fixtures",
+    "missing-case",
+    "extra-case",
+    "duplicate-case",
+    "missing-file",
+    "extra-file",
+    "duplicate-file",
+    "unsafe-file",
+    "symlink-file",
+    "stale-candidate",
+    "mixed-candidate",
+    "stale-generation",
+    "mixed-generation",
+    "stale-catalog",
+    "stale-generator",
+    "wrong-hash",
+    "wrong-size",
+    "invalid-manifest",
+    "invalid-json",
+    "unknown-schema",
+    "shared-private-field",
+    "zero-tests",
+    "missing-test",
+    "extra-test",
+    "duplicate-test",
+    "skipped-test",
+    "missing-assertion",
+    "extra-assertion",
+    "duplicate-assertion",
+    "mixed-assertion-candidate",
+    "mixed-assertion-generation",
+    "wrong-assertion-status",
+    "wrong-assertion-error",
+    "zero-assertions",
+    "duplicate-assertion-catalog"
+  ],
+  "http_assertions": [
+    {
+      "id": "backup-index-viewer",
+      "role": "viewer",
+      "state": "refused",
+      "status": 403,
+      "error": null
+    },
+    {
+      "id": "backup-create-viewer",
+      "role": "viewer",
+      "state": "refused",
+      "status": 403,
+      "error": null
+    },
+    {
+      "id": "backup-download-viewer",
+      "role": "viewer",
+      "state": "refused",
+      "status": 403,
+      "error": null
+    },
+    {
+      "id": "restore-foreign-poll-viewer",
+      "role": "viewer",
+      "state": "refused",
+      "status": 404,
+      "error": null
+    },
+    {
+      "id": "restore-foreign-chunk-viewer",
+      "role": "viewer",
+      "state": "refused",
+      "status": 404,
+      "error": null
+    },
+    {
+      "id": "restore-foreign-preview-viewer",
+      "role": "viewer",
+      "state": "refused",
+      "status": 404,
+      "error": null
+    },
+    {
+      "id": "restore-foreign-apply-viewer",
+      "role": "viewer",
+      "state": "refused",
+      "status": 404,
+      "error": null
+    },
+    {
+      "id": "restore-unowned-apply-viewer",
+      "role": "viewer",
+      "state": "refused",
+      "status": 409,
+      "error": "restore_blocked"
+    },
+    {
+      "id": "backup-index-manager",
+      "role": "manager",
+      "state": "refused",
+      "status": 403,
+      "error": null
+    },
+    {
+      "id": "backup-create-manager",
+      "role": "manager",
+      "state": "refused",
+      "status": 403,
+      "error": null
+    },
+    {
+      "id": "backup-download-manager",
+      "role": "manager",
+      "state": "refused",
+      "status": 403,
+      "error": null
+    },
+    {
+      "id": "restore-foreign-poll-manager",
+      "role": "manager",
+      "state": "refused",
+      "status": 404,
+      "error": null
+    },
+    {
+      "id": "restore-foreign-chunk-manager",
+      "role": "manager",
+      "state": "refused",
+      "status": 404,
+      "error": null
+    },
+    {
+      "id": "restore-foreign-preview-manager",
+      "role": "manager",
+      "state": "refused",
+      "status": 404,
+      "error": null
+    },
+    {
+      "id": "restore-foreign-apply-manager",
+      "role": "manager",
+      "state": "refused",
+      "status": 404,
+      "error": null
+    },
+    {
+      "id": "restore-unowned-apply-manager",
+      "role": "manager",
+      "state": "refused",
+      "status": 409,
+      "error": "restore_blocked"
+    },
+    {
+      "id": "backup-index-outsider",
+      "role": "outsider",
+      "state": "refused",
+      "status": 404,
+      "error": null
+    },
+    {
+      "id": "backup-create-outsider",
+      "role": "outsider",
+      "state": "refused",
+      "status": 404,
+      "error": null
+    },
+    {
+      "id": "backup-download-outsider",
+      "role": "outsider",
+      "state": "refused",
+      "status": 404,
+      "error": null
+    },
+    {
+      "id": "restore-foreign-poll-outsider",
+      "role": "outsider",
+      "state": "refused",
+      "status": 404,
+      "error": null
+    },
+    {
+      "id": "restore-foreign-chunk-outsider",
+      "role": "outsider",
+      "state": "refused",
+      "status": 404,
+      "error": null
+    },
+    {
+      "id": "restore-foreign-preview-outsider",
+      "role": "outsider",
+      "state": "refused",
+      "status": 404,
+      "error": null
+    },
+    {
+      "id": "restore-foreign-apply-outsider",
+      "role": "outsider",
+      "state": "refused",
+      "status": 404,
+      "error": null
+    },
+    {
+      "id": "restore-unowned-apply-outsider",
+      "role": "outsider",
+      "state": "refused",
+      "status": 409,
+      "error": "restore_blocked"
+    },
+    {
+      "id": "backup-download-owner",
+      "role": "owner",
+      "state": "ready",
+      "status": 200,
+      "error": null
+    },
+    {
+      "id": "backup-download-expired",
+      "role": "owner",
+      "state": "expired",
+      "status": 410,
+      "error": null
+    },
+    {
+      "id": "backup-download-unsigned",
+      "role": "owner",
+      "state": "invalid-signature",
+      "status": 403,
+      "error": null
+    },
+    {
+      "id": "restore-bad-offset",
+      "role": "operation-owner",
+      "state": "refused",
+      "status": 409,
+      "error": "upload_state_invalid"
+    },
+    {
+      "id": "restore-stale-digest",
+      "role": "operation-owner",
+      "state": "refused",
+      "status": 409,
+      "error": "preview_changed"
+    },
+    {
+      "id": "restore-changed-grants",
+      "role": "operation-owner",
+      "state": "refused",
+      "status": 409,
+      "error": "preview_changed"
+    }
+  ]
 }

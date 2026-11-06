@@ -15,6 +15,12 @@ final class HttpContractFixtures
     /** @var list<array<string, mixed>> */
     private array $fixtures = [];
 
+    /** @var array<string, array<string, mixed>> */
+    private array $assertions = [];
+
+    /** @var array<string, array<string, mixed>> */
+    private array $observedAssertions = [];
+
     private readonly string $directory;
 
     private readonly string $candidate;
@@ -40,6 +46,26 @@ final class HttpContractFixtures
             $this->cases[$case['id']] = $case;
         }
         self::require(count($this->cases) > 0, 'catalog', 'empty');
+        foreach ($catalog['http_assertions'] as $assertion) {
+            self::require(! isset($this->assertions[$assertion['id']]) && ! isset($this->cases[$assertion['id']]), 'catalog', 'case');
+            $this->assertions[$assertion['id']] = $assertion;
+        }
+    }
+
+    /** Assert actual HTTP permissions/errors without retaining an unused error DTO or body.
+     * @param  TestResponse<Response>  $response
+     */
+    public function assertHttp(string $id, TestResponse $response): void
+    {
+        self::require(isset($this->assertions[$id]), 'catalog', 'unknown_case');
+        self::require(! isset($this->observedAssertions[$id]), $id, 'duplicate');
+        $assertion = $this->assertions[$id];
+        self::require($response->getStatusCode() === $assertion['status'], $id, 'http_status');
+        if ($assertion['error'] !== null) {
+            $body = json_decode((string) $response->getContent(), false, 32, JSON_THROW_ON_ERROR);
+            self::require(is_object($body) && ($body->error ?? null) === $assertion['error'], $id, 'error_category');
+        }
+        $this->observedAssertions[$id] = [...$assertion, 'candidate' => $this->candidate, 'generation' => $this->generation];
     }
 
     /** @param TestResponse<Response> $response */
@@ -66,6 +92,7 @@ final class HttpContractFixtures
     public function finish(): int
     {
         self::require(count($this->fixtures) === count($this->cases), 'generation', 'incomplete');
+        self::require(count($this->observedAssertions) === count($this->assertions), 'generation', 'incomplete');
         $sources = json_decode(file_get_contents(base_path('tests/contracts/sources.json')), true, 32, JSON_THROW_ON_ERROR);
         $fingerprints = [];
         foreach ($sources as $source) {
@@ -76,6 +103,7 @@ final class HttpContractFixtures
             'version' => 1, 'candidate' => $this->candidate, 'generation' => $this->generation,
             'catalog_sha256' => hash_file('sha256', base_path('tests/contracts/catalog.json')),
             'generator_fingerprints' => $fingerprints, 'fixtures' => $this->fixtures,
+            'http_assertions' => array_values($this->observedAssertions),
         ];
         file_put_contents($this->directory.'/manifest.tmp', json_encode($manifest, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), LOCK_EX);
         rename($this->directory.'/manifest.tmp', $this->directory.'/manifest.json');

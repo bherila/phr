@@ -4,7 +4,7 @@ import { lstatSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 
 export const ROOT = process.cwd()
-export const SCHEMA_IDS = ['DataHubResponseSchema', 'NativeRestoreResponseSchema', 'NativeRestoresResponseSchema']
+export const SCHEMA_IDS = ['DataHubResponseSchema', 'NativeRestoreResponseSchema', 'NativeRestoresResponseSchema', 'NativeBackupResponseSchema', 'NativeBackupsResponseSchema']
 const ID = /^[a-z][a-z0-9-]{1,80}$/
 const SHA = /^[a-f0-9]{64}$/
 const own = (value, key) => Object.hasOwn(value, key)
@@ -47,7 +47,7 @@ function json(bytes, code, id) {
 
 export function readCatalog(root = ROOT, supplied) {
   const catalog = supplied ?? json(regularFile(path.join(root, 'tests/contracts/catalog.json'), 'catalog_invalid'), 'catalog_invalid')
-  exactKeys(catalog, ['version', 'cases', 'inventory_keys', 'checks'], 'catalog_invalid')
+  exactKeys(catalog, ['version', 'cases', 'inventory_keys', 'checks', 'http_assertions'], 'catalog_invalid')
   requireContract(catalog.version === 1 && Array.isArray(catalog.cases) && catalog.cases.length > 0, 'catalog_empty')
   requireContract(catalog.cases.length <= 200, 'catalog_invalid')
   const seen = new Set()
@@ -57,12 +57,21 @@ export function readCatalog(root = ROOT, supplied) {
     requireContract(!seen.has(item.id), 'catalog_duplicate')
     seen.add(item.id)
     requireContract(SCHEMA_IDS.includes(item.schema) && typeof item.role === 'string' && ID.test(item.role)
-      && typeof item.state === 'string' && ID.test(item.state) && [200, 201].includes(item.status), 'catalog_invalid')
+      && typeof item.state === 'string' && ID.test(item.state) && [200, 201, 202].includes(item.status), 'catalog_invalid')
   }
   requireContract(Array.isArray(catalog.inventory_keys) && catalog.inventory_keys.length === 24
     && new Set(catalog.inventory_keys).size === 24 && catalog.inventory_keys.every(key => typeof key === 'string' && /^[a-z_]+$/.test(key)), 'catalog_invalid')
   requireContract(Array.isArray(catalog.checks) && catalog.checks.length > 0 && new Set(catalog.checks).size === catalog.checks.length
     && catalog.checks.every(check => typeof check === 'string' && ID.test(check)), 'catalog_invalid')
+  requireContract(Array.isArray(catalog.http_assertions) && catalog.http_assertions.length > 0 && catalog.http_assertions.length <= 200, 'assertions_empty')
+  for (const item of catalog.http_assertions) {
+    exactKeys(item, ['id', 'role', 'state', 'status', 'error'], 'catalog_invalid')
+    requireContract(typeof item.id === 'string' && ID.test(item.id) && !seen.has(item.id), 'assertion_catalog_duplicate')
+    seen.add(item.id)
+    requireContract(typeof item.role === 'string' && ID.test(item.role) && typeof item.state === 'string' && ID.test(item.state)
+      && [200, 403, 404, 409, 410, 422].includes(item.status)
+      && (item.error === null || typeof item.error === 'string' && /^[a-z_]+$/.test(item.error)), 'catalog_invalid')
+  }
   return catalog
 }
 
@@ -93,7 +102,7 @@ export function loadBundle(directory, expected) {
       && realpathSync(directory) === path.resolve(directory), 'directory_invalid')
   } catch { throw new ContractFailure('directory_invalid') }
   const manifest = json(regularFile(path.join(directory, 'manifest.json'), 'manifest_missing'), 'manifest_invalid')
-  exactKeys(manifest, ['version', 'candidate', 'generation', 'catalog_sha256', 'generator_fingerprints', 'fixtures'], 'manifest_invalid')
+  exactKeys(manifest, ['version', 'candidate', 'generation', 'catalog_sha256', 'generator_fingerprints', 'fixtures', 'http_assertions'], 'manifest_invalid')
   requireContract(manifest.version === 1 && Array.isArray(manifest.fixtures), 'manifest_invalid')
   requireContract(manifest.fixtures.length > 0, 'fixtures_empty')
   requireContract(manifest.fixtures.length <= 200, 'manifest_invalid')
@@ -101,6 +110,20 @@ export function loadBundle(directory, expected) {
   requireContract(manifest.generation === expected.generation, 'generation_stale')
   requireContract(manifest.catalog_sha256 === digest(regularFile(path.join(expected.root, 'tests/contracts/catalog.json'), 'catalog_invalid')), 'catalog_stale')
   requireContract(JSON.stringify(manifest.generator_fingerprints) === JSON.stringify(fingerprints(expected.root)), 'generator_stale')
+  requireContract(Array.isArray(manifest.http_assertions) && manifest.http_assertions.length > 0, 'assertions_empty')
+  const assertionIds = new Set()
+  for (const entry of manifest.http_assertions) {
+    exactKeys(entry, ['id', 'role', 'state', 'status', 'error', 'candidate', 'generation'], 'manifest_invalid')
+    requireContract(!assertionIds.has(entry.id), 'assertion_duplicate')
+    assertionIds.add(entry.id)
+    const scenario = catalog.http_assertions.find(item => item.id === entry.id)
+    requireContract(scenario, 'assertion_extra')
+    requireContract(entry.candidate === expected.candidate, 'assertion_candidate_mixed', scenario.id)
+    requireContract(entry.generation === expected.generation, 'assertion_generation_mixed', scenario.id)
+    requireContract(entry.role === scenario.role && entry.state === scenario.state && entry.status === scenario.status, 'assertion_metadata', scenario.id)
+    requireContract(entry.error === scenario.error, 'assertion_error', scenario.id)
+  }
+  requireContract(same([...assertionIds], catalog.http_assertions.map(item => item.id)), 'assertion_missing')
   const ids = new Set()
   const files = new Set()
   for (const entry of manifest.fixtures) {
