@@ -1,0 +1,20 @@
+[
+  "tests/contracts/catalog.json",
+  "tests/contracts/sources.json",
+  "tests/Contracts/HttpResponseFixturesTest.php",
+  "tests/Support/HttpContractFixtures.php",
+  "tests/contracts/validateResponses.mjs",
+  "tests/contracts/responses.contract.ts",
+  "tests/contracts/harness.contract.ts",
+  "scripts/contracts/protocol.mjs",
+  "scripts/contracts/run-http-contracts.mjs",
+  "jest.contract.config.cjs",
+  "resources/js/phr/data-hub/dataHub.ts",
+  "app/Http/Controllers/PHR/PhrNativeRestoreController.php",
+  "app/Services/PHR/NativeBackup/PhrNativeRestorePresenter.php",
+  "app/Services/PHR/DataHub/PhrDataInventoryService.php",
+  "composer.lock",
+  "pnpm-lock.yaml",
+  "package.json",
+  ".github/workflows/ci.yml"
+]

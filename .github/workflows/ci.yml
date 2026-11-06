@@ -86,6 +86,47 @@ jobs:
       - name: Run Jest
         run: pnpm run test
 
+  http-contracts:
+    name: HTTP Response Contracts
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Setup pnpm + Node dependencies
+        uses: ./.github/actions/setup-pnpm-node
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+      - name: Authorize private MCP bridge dependency
+        uses: webfactory/ssh-agent@e83874834305fe9a4a2997156cb26c5de65a8555
+        with:
+          ssh-private-key: ${{ secrets.MCP_BRIDGE_DEPLOY_KEY }}
+      - name: Cache Composer dependencies
+        uses: actions/cache@v6
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+      - name: Install Composer dependencies
+        run: composer install --no-interaction
+      - name: Validate actual HTTP contracts and historical failure detection
+        env:
+          PHR_HTTP_CONTRACT_CANDIDATE: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: pnpm run test:http-contracts -- --prove-historical-mutations
+      - name: Retain sanitized contract proof only
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: http-contract-proof
+          path: build/http-contracts/proof.json
+          if-no-files-found: warn
+          retention-days: 7
+
   backend-static:
     name: Backend Static Checks
     runs-on: ubuntu-24.04-arm
@@ -473,6 +514,7 @@ jobs:
       - frontend-build
       - frontend-static
       - frontend-tests
+      - http-contracts
       - backend-static
       - backend-tests
       - backend-tests-postgres
@@ -497,6 +539,7 @@ jobs:
           check "frontend-build" "${{ needs.frontend-build.result }}"
           check "frontend-static" "${{ needs.frontend-static.result }}"
           check "frontend-tests" "${{ needs.frontend-tests.result }}"
+          check "http-contracts" "${{ needs.http-contracts.result }}"
           check "backend-static" "${{ needs.backend-static.result }}"
           check "backend-tests" "${{ needs.backend-tests.result }}"
           check "backend-tests-postgres" "${{ needs.backend-tests-postgres.result }}"
