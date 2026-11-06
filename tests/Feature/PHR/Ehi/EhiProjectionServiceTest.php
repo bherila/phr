@@ -19,6 +19,7 @@ use App\Services\PHR\Import\Ehi\EhiProjectionService;
 use App\Services\PHR\Import\Ehi\EhiProposalService;
 use App\Services\PHR\Import\Ehi\Mapping\EhiApplyContext;
 use App\Services\PHR\Import\Ehi\Mapping\EhiApplyOutcome;
+use App\Services\PHR\Import\Ehi\Mapping\EhiCanonicalJson;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMapping;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMappingContext;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMappingRegistry;
@@ -113,6 +114,190 @@ class EhiProjectionServiceTest extends TestCase
         self::assertNull(EhiFakeMapping::revisionFor($package->id, '100', '2'));
         self::assertSame([3], PhrEhiFinding::query()->where('code', EhiFindingCode::REVISION_TOO_LARGE)->pluck('line_number')->all());
         self::assertSame(['projected' => 0, 'corroborating' => 0, 'pending_review' => 1, 'retained' => 0, 'quarantined' => 1], $result->dispositions);
+        self::assertSame(0, EhiPackageSummary::forPackage($package)->unreconciledTables);
+    }
+
+    public function test_projection_flushes_before_wide_entries_and_their_metadata_cross_four_mib(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        $rows = [];
+        for ($i = 0; $i < 9; $i++) {
+            // Eight values payloads fit in 4 MiB; their keys/digests/locators
+            // do not. Every revision remains below the default 512 KiB cap.
+            $rows[] = [(string) $i, '1', str_repeat('x', 524100), '', 'A'];
+        }
+        $package = $this->boundPackage($this->itemPackage($rows), $patient, $owner);
+        $writes = [];
+        $this->observeProjectionWrites($writes);
+        $service = app(EhiProjectionService::class);
+        $result = $service->project($package, $owner->id);
+
+        self::assertSame([['rows', 7], ['rows', 2]], $writes);
+        $this->assertProjectedRowsUnchanged($package, $rows);
+        self::assertSame(['projected' => 0, 'corroborating' => 0, 'pending_review' => 9, 'retained' => 0, 'quarantined' => 0], $result->dispositions);
+        self::assertSame([EhiFakeMapping::TABLE => 'projected'], $result->package->checkpoint_json['projection']['tables']);
+        self::assertNull($result->package->lease_token);
+        self::assertNull($result->package->lease_expires_at);
+
+        $snapshot = $this->snapshot();
+        $writes = [];
+        self::assertTrue($service->project($package->refresh(), $owner->id)->replayed);
+        self::assertSame([], $writes);
+        self::assertSame($snapshot, $this->snapshot());
+        // A lost lease before the table checkpoint must replay across byte
+        // boundaries without changing identities, values or accounting.
+        $package->forceFill([
+            'clinical_status' => PhrEhiPackage::CLINICAL_PROJECTING,
+            'lease_token' => '00000000-0000-4000-8000-00000000dead',
+            'lease_expires_at' => now()->subMinute(),
+            'checkpoint_json' => ['projection' => ['registry' => 'old', 'tables' => []]],
+        ])->save();
+        $service->project($package, $owner->id);
+        self::assertSame([['rows', 7], ['rows', 2]], $writes);
+        self::assertSame($snapshot, $this->snapshot());
+        $this->assertProjectedRowsUnchanged($package, $rows);
+    }
+
+    public function test_projection_findings_share_the_byte_target_with_buffered_rows(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        $rows = [];
+        for ($i = 0; $i < 8; $i++) {
+            $rows[] = [(string) $i, '1', str_repeat('x', 523700), '', 'A'];
+        }
+        $keyless = ['', '1', 'Synthetic keyless', '', 'A'];
+        $rows = [...$rows, ...array_fill(0, 100, $keyless)];
+        $package = $this->boundPackage($this->itemPackage($rows), $patient, $owner);
+        $writes = [];
+        $this->observeProjectionWrites($writes);
+
+        $result = app(EhiProjectionService::class)->project($package, $owner->id);
+
+        self::assertCount(3, $writes);
+        self::assertSame('findings', $writes[0][0]);
+        self::assertGreaterThan(0, $writes[0][1]);
+        self::assertLessThan(100, $writes[0][1]);
+        self::assertSame(['rows', 8], $writes[1]);
+        self::assertSame(['findings', 100 - $writes[0][1]], $writes[2]);
+        // Independently reconstruct the encoded first buffer from persisted
+        // evidence: it fits, while one more finding would cross the target.
+        $member = $package->members()->where('table_name', EhiFakeMapping::TABLE)->sole();
+        $bufferRows = PhrEhiOccurrence::query()->where('member_id', $member->id)->with('revision.entity')->orderBy('line_number')->get()
+            ->map(static fn (PhrEhiOccurrence $occurrence): array => [
+                'line' => $occurrence->line_number,
+                'offset' => $occurrence->byte_offset,
+                'key' => $occurrence->revision->entity->key_json,
+                'key_digest' => $occurrence->revision->entity->key_digest,
+                'values' => $occurrence->revision->values_json,
+                'content_digest' => $occurrence->revision->content_digest,
+            ])->all();
+        $bufferFindings = PhrEhiFinding::query()->where('member_id', $member->id)->where('code', EhiFindingCode::MISSING_KEY)->orderBy('line_number')->get()
+            ->map(static fn (PhrEhiFinding $finding): array => [$finding->code, $finding->line_number, $finding->byte_offset, []])->all();
+        $payload = [
+            'package_id' => $package->id, 'member_id' => $member->id, 'source_id' => (int) $package->source_id,
+            'table' => EhiFakeMapping::TABLE, 'dictionary_fingerprint' => PhrEhiRevision::query()->firstOrFail()->dictionary_fingerprint,
+            'rows' => $bufferRows, 'findings' => array_slice($bufferFindings, 0, $writes[0][1]),
+        ];
+        self::assertLessThanOrEqual(4 * 1024 * 1024, strlen(EhiCanonicalJson::encode($payload)));
+        $payload['findings'][] = $bufferFindings[$writes[0][1]];
+        self::assertGreaterThan(4 * 1024 * 1024, strlen(EhiCanonicalJson::encode($payload)));
+        self::assertSame(range(10, 109), PhrEhiFinding::query()->where('code', EhiFindingCode::MISSING_KEY)->orderBy('line_number')->pluck('line_number')->all());
+        self::assertSame(['projected' => 0, 'corroborating' => 0, 'pending_review' => 8, 'retained' => 0, 'quarantined' => 100], $result->dispositions);
+        self::assertSame(0, EhiPackageSummary::forPackage($package)->unreconciledTables);
+    }
+
+    public function test_projection_keeps_the_combined_row_cap_and_finding_omission_budget(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        $rows = [];
+        for ($i = 0; $i < 499; $i++) {
+            $rows[] = [(string) $i, '1', 'Synthetic compact', '', 'A'];
+        }
+        $rows = [...$rows, ...array_fill(0, 4, ['', '1', 'Synthetic keyless', '', 'A'])];
+        $package = $this->boundPackage($this->itemPackage($rows), $patient, $owner);
+        config(['phr.ehi_max_findings_per_member' => 2]);
+        $writes = [];
+        $this->observeProjectionWrites($writes);
+
+        $result = app(EhiProjectionService::class)->project($package, $owner->id);
+
+        self::assertSame([['findings', 1], ['rows', 499], ['findings', 1], ['findings', 1]], $writes);
+        self::assertSame([501, 502], PhrEhiFinding::query()->where('code', EhiFindingCode::MISSING_KEY)->orderBy('line_number')->pluck('line_number')->all());
+        self::assertSame(2, PhrEhiFinding::query()->where('code', EhiFindingCode::FINDINGS_TRUNCATED)->sole()->detail_json['omitted']);
+        self::assertSame(['projected' => 0, 'corroborating' => 0, 'pending_review' => 499, 'retained' => 0, 'quarantined' => 4], $result->dispositions);
+        self::assertSame(0, EhiPackageSummary::forPackage($package)->unreconciledTables);
+    }
+
+    public function test_a_legal_entry_larger_than_the_buffer_target_is_written_alone(): void
+    {
+        config([
+            'phr.native_restore_max_record_bytes' => 32 * 1024 * 1024,
+            'phr.ehi_max_value_bytes' => 6 * 1024 * 1024,
+        ]);
+        $owner = $this->createUser();
+        $patient = $this->ehiPatient($owner);
+        $rows = [
+            ['1', '1', 'Synthetic before', '', 'A'],
+            ['2', '1', str_repeat('x', 4 * 1024 * 1024 + 1), '', 'A'],
+            ['3', '1', 'Synthetic after', '', 'A'],
+        ];
+        $package = $this->boundPackage($this->itemPackage($rows), $patient, $owner);
+        $writes = [];
+        $this->observeProjectionWrites($writes);
+
+        $result = app(EhiProjectionService::class)->project($package, $owner->id);
+
+        self::assertSame([['rows', 1], ['rows', 1], ['rows', 1]], $writes);
+        self::assertSame(0, PhrEhiFinding::query()->where('code', EhiFindingCode::REVISION_TOO_LARGE)->count());
+        self::assertSame(3, $result->dispositions['pending_review']);
+        $this->assertProjectedRowsUnchanged($package, $rows);
+    }
+
+    /** Observe actual database insert batches, rather than an estimated row-size formula.
+     * @param  list<array{string, int}>  $writes
+     */
+    private function observeProjectionWrites(array &$writes): void
+    {
+        DB::listen(static function (QueryExecuted $query) use (&$writes): void {
+            if (! str_starts_with(strtolower($query->sql), 'insert')) {
+                return;
+            }
+            if (str_contains($query->sql, 'phr_ehi_occurrences')) {
+                $writes[] = ['rows', intdiv(count($query->bindings), 9)];
+            } elseif (str_contains($query->sql, 'phr_ehi_findings')) {
+                $writes[] = ['findings', intdiv(count($query->bindings), 11)];
+            }
+        });
+    }
+
+    /** @param list<list<string>> $rows */
+    private function assertProjectedRowsUnchanged(PhrEhiPackage $package, array $rows): void
+    {
+        $header = "ITEM_ID\tLINE\tNAME\tGIVEN_ON\tSTATUS\n";
+        $offset = strlen($header);
+        $sourceHash = hash_init('sha256');
+        hash_update($sourceHash, $header);
+        $occurrences = PhrEhiOccurrence::query()->where('package_id', $package->id)->with('revision.entity')->orderBy('line_number')->get();
+        self::assertCount(count($rows), $occurrences);
+        foreach ($rows as $index => $row) {
+            $values = array_combine(['ITEM_ID', 'LINE', 'NAME', 'GIVEN_ON', 'STATUS'], $row);
+            $occurrence = $occurrences[$index];
+            self::assertSame($index + 2, $occurrence->line_number);
+            self::assertSame($offset, $occurrence->byte_offset);
+            self::assertSame($values, $occurrence->revision->values_json);
+            self::assertSame(EhiCanonicalJson::digest($values), $occurrence->revision->content_digest);
+            self::assertSame(['ITEM_ID' => $row[0], 'LINE' => $row[1]], $occurrence->revision->entity->key_json);
+            $sourceRow = implode("\t", $row)."\n";
+            $offset += strlen($sourceRow);
+            hash_update($sourceHash, $sourceRow);
+        }
+        $member = $package->members()->where('table_name', EhiFakeMapping::TABLE)->sole();
+        self::assertSame($offset, $member->byte_size);
+        self::assertSame(hash_final($sourceHash), $member->sha256);
+        self::assertSame(count($rows), PhrEhiTableAccount::query()->where('member_id', $member->id)->sole()->source_row_count);
         self::assertSame(0, EhiPackageSummary::forPackage($package)->unreconciledTables);
     }
 

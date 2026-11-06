@@ -70,6 +70,9 @@ final class EhiProjectionService
 
     private const int CHUNK_ROWS = 500;
 
+    /** Encoded payload target, not a PHP allocation/parser/dictionary bound. */
+    private const int CHUNK_BYTES = 4 * 1024 * 1024;
+
     public function __construct(
         private readonly PhrPatientArtifactWriteGuard $writeGuard,
         private readonly PhrPatientAccessService $access,
@@ -300,6 +303,19 @@ final class EhiProjectionService
             $malformed = 0;
             $chunk = [];
             $findings = [];
+            // Count the JSON envelope and each entry, including locators, keys,
+            // digests and findings. Additive accounting avoids encoding the
+            // entire accumulated buffer again for every row.
+            $emptyBytes = strlen(json_encode([
+                'package_id' => $package->id,
+                'member_id' => $member->id,
+                'source_id' => $source,
+                'table' => $table,
+                'dictionary_fingerprint' => $fingerprint,
+                'rows' => [],
+                'findings' => [],
+            ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+            $bufferBytes = $emptyBytes;
             foreach ($reader->rows() as $row) {
                 $rows++;
                 if ($row instanceof EhiTsvMalformedRow) {
@@ -318,15 +334,18 @@ final class EhiProjectionService
                 $values = $complete ? array_combine($columns, $row->values) : [];
                 $tooLarge = $complete
                     && strlen(json_encode($values, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR)) > $recordBytes;
-                if (! $complete || $tooLarge) {
+                $isFinding = ! $complete || $tooLarge;
+                if ($isFinding) {
                     if ($budget > 0) {
                         $budget--;
-                        $findings[] = [$complete ? EhiFindingCode::REVISION_TOO_LARGE : EhiFindingCode::MISSING_KEY, $row->lineNumber, $row->byteOffset, []];
+                        $entry = [$complete ? EhiFindingCode::REVISION_TOO_LARGE : EhiFindingCode::MISSING_KEY, $row->lineNumber, $row->byteOffset, []];
                     } else {
                         $omitted++;
+
+                        continue;
                     }
                 } else {
-                    $chunk[] = [
+                    $entry = [
                         'line' => $row->lineNumber,
                         'offset' => $row->byteOffset,
                         'key' => $keyValues,
@@ -336,10 +355,30 @@ final class EhiProjectionService
                     ];
                 }
 
-                if (count($chunk) + count($findings) >= self::CHUNK_ROWS) {
+                $entryBytes = strlen(json_encode($entry, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR));
+                $separatorBytes = ($isFinding ? $findings !== [] : $chunk !== []) ? 1 : 0;
+                if (($chunk !== [] || $findings !== []) && $bufferBytes + $entryBytes + $separatorBytes > self::CHUNK_BYTES) {
                     $this->flush($package, $member, $source, $table, $fingerprint, $chunk, $findings, $token, $actorUserId);
                     $chunk = [];
                     $findings = [];
+                    $bufferBytes = $emptyBytes;
+                    $separatorBytes = 0;
+                }
+                if ($isFinding) {
+                    $findings[] = $entry;
+                } else {
+                    $chunk[] = $entry;
+                }
+                $bufferBytes += $entryBytes + $separatorBytes;
+
+                // Raised per-record settings may admit one entry larger than
+                // the target. Preserve that legal revision, but write it alone
+                // immediately; the buffer target is not an admission limit.
+                if (count($chunk) + count($findings) >= self::CHUNK_ROWS || $bufferBytes >= self::CHUNK_BYTES) {
+                    $this->flush($package, $member, $source, $table, $fingerprint, $chunk, $findings, $token, $actorUserId);
+                    $chunk = [];
+                    $findings = [];
+                    $bufferBytes = $emptyBytes;
                 }
             }
             $this->flush($package, $member, $source, $table, $fingerprint, $chunk, $findings, $token, $actorUserId);
