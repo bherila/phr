@@ -4,15 +4,20 @@ namespace App\Http\Controllers\PHR;
 
 use App\Http\Controllers\Controller;
 use App\Http\Requests\PHR\StorePatientAccessRequest;
+use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Models\User;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class PatientAccessController extends Controller
 {
-    public function __construct(private PhrPatientAccessService $accessService) {}
+    public function __construct(
+        private PhrPatientAccessService $accessService,
+        private PhrPatientArtifactWriteGuard $writeGuard,
+    ) {}
 
     /**
      * Grant a user access to a patient the caller owns.
@@ -27,26 +32,25 @@ class PatientAccessController extends Controller
     public function store(StorePatientAccessRequest $request, int $patient): JsonResponse
     {
         $userId = (int) $request->user()?->id;
-        $resolvedPatient = $this->accessService->ownedPatient($patient, $userId);
+        $this->accessService->ownedPatient($patient, $userId);
 
         $validated = $request->validated();
-        $targetUser = User::query()->where('email', $validated['email'])->first();
+        $this->writeGuard->run($patient, function (PhrPatient $locked) use ($userId, $validated): void {
+            $this->accessService->ensureOwner($locked, $userId);
+            $targetUser = User::query()->where('email', $validated['email'])->first();
 
-        // A missing account and the owner's own address are both no-ops. The
-        // owner already has access, so re-granting would be meaningless.
-        if ($targetUser !== null && (int) $targetUser->id !== $userId) {
-            PhrPatientUserAccess::updateOrCreate(
-                [
-                    'patient_id' => $resolvedPatient->id,
-                    'user_id' => $targetUser->id,
-                ],
-                [
-                    'access_level' => $validated['access_level'],
-                    'granted_by_user_id' => $userId,
-                    'granted_at' => now(),
-                ],
-            );
-        }
+            // Missing accounts and the owner's own address remain uniform no-ops.
+            if ($targetUser !== null && (int) $targetUser->id !== $userId) {
+                PhrPatientUserAccess::updateOrCreate(
+                    ['patient_id' => $locked->id, 'user_id' => $targetUser->id],
+                    [
+                        'access_level' => $validated['access_level'],
+                        'granted_by_user_id' => $userId,
+                        'granted_at' => now(),
+                    ],
+                );
+            }
+        });
 
         return response()->json(['ok' => true], 201);
     }
@@ -54,13 +58,16 @@ class PatientAccessController extends Controller
     public function destroy(Request $request, int $patient, int $access): JsonResponse
     {
         $userId = (int) $request->user()?->id;
-        $resolvedPatient = $this->accessService->ownedPatient($patient, $userId);
+        $this->accessService->ownedPatient($patient, $userId);
 
-        PhrPatientUserAccess::query()
-            ->where('patient_id', $resolvedPatient->id)
-            ->where('access_level', '!=', PhrPatientUserAccess::LEVEL_OWNER)
-            ->findOrFail($access)
-            ->delete();
+        $this->writeGuard->run($patient, function (PhrPatient $locked) use ($userId, $access): void {
+            $this->accessService->ensureOwner($locked, $userId);
+            PhrPatientUserAccess::query()
+                ->where('patient_id', $locked->id)
+                ->where('access_level', '!=', PhrPatientUserAccess::LEVEL_OWNER)
+                ->findOrFail($access)
+                ->delete();
+        });
 
         return response()->json(['ok' => true]);
     }

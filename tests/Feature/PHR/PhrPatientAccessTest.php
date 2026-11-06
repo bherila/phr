@@ -2,9 +2,12 @@
 
 namespace Tests\Feature\PHR;
 
+use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Models\User;
+use App\Services\PHR\Access\PhrPatientAccessService;
 use Illuminate\Testing\TestResponse;
+use Mockery\MockInterface;
 use Tests\TestCase;
 
 class PhrPatientAccessTest extends TestCase
@@ -126,6 +129,81 @@ class PhrPatientAccessTest extends TestCase
 
         $this->grant($owner, $patientId, 'probe-too-many@example.test')
             ->assertStatus(429);
+    }
+
+    public function test_grant_mutation_rechecks_the_owner_after_the_initial_lookup(): void
+    {
+        $owner = $this->createUser();
+        $replacementOwner = $this->createUser();
+        $target = $this->createUser();
+        $patientId = $this->createPatientFor($owner);
+        $stale = app(PhrPatientAccessService::class)->ownedPatient($patientId, $owner->id);
+        $this->partialMock(PhrPatientAccessService::class, function (MockInterface $mock) use ($stale, $replacementOwner): void {
+            $mock->shouldReceive('ownedPatient')->once()->andReturnUsing(function () use ($stale, $replacementOwner): PhrPatient {
+                PhrPatient::query()->whereKey($stale->id)->update(['owner_user_id' => $replacementOwner->id]);
+
+                return $stale;
+            });
+        });
+
+        $this->grant($owner, $patientId, $target->email)->assertForbidden();
+
+        $this->assertDatabaseMissing('phr_patient_user_access', ['patient_id' => $patientId, 'user_id' => $target->id]);
+    }
+
+    public function test_revocation_rechecks_the_owner_after_the_initial_lookup(): void
+    {
+        $owner = $this->createUser();
+        $replacementOwner = $this->createUser();
+        $target = $this->createUser();
+        $patientId = $this->createPatientFor($owner);
+        $this->grant($owner, $patientId, $target->email, 'manager')->assertCreated();
+        $grant = PhrPatientUserAccess::query()->where('patient_id', $patientId)->where('user_id', $target->id)->sole();
+        $stale = app(PhrPatientAccessService::class)->ownedPatient($patientId, $owner->id);
+        $this->partialMock(PhrPatientAccessService::class, function (MockInterface $mock) use ($stale, $replacementOwner): void {
+            $mock->shouldReceive('ownedPatient')->once()->andReturnUsing(function () use ($stale, $replacementOwner): PhrPatient {
+                PhrPatient::query()->whereKey($stale->id)->update(['owner_user_id' => $replacementOwner->id]);
+
+                return $stale;
+            });
+        });
+
+        $this->actingAs($owner)->deleteJson("/api/phr/patients/{$patientId}/access/{$grant->id}")->assertForbidden();
+
+        $this->assertDatabaseHas('phr_patient_user_access', ['id' => $grant->id, 'access_level' => 'manager']);
+    }
+
+    public function test_a_patient_deleted_after_the_initial_lookup_cannot_receive_a_grant(): void
+    {
+        $owner = $this->createUser();
+        $target = $this->createUser();
+        $patientId = $this->createPatientFor($owner);
+        $stale = app(PhrPatientAccessService::class)->ownedPatient($patientId, $owner->id);
+        $this->partialMock(PhrPatientAccessService::class, function (MockInterface $mock) use ($stale): void {
+            $mock->shouldReceive('ownedPatient')->once()->andReturnUsing(function () use ($stale): PhrPatient {
+                $stale->delete();
+
+                return $stale;
+            });
+        });
+
+        $this->grant($owner, $patientId, $target->email)->assertNotFound();
+
+        $this->assertDatabaseMissing('phr_patient_user_access', ['patient_id' => $patientId]);
+    }
+
+    public function test_the_owner_grant_and_another_patients_grant_cannot_be_revoked(): void
+    {
+        $owner = $this->createUser();
+        $patientId = $this->createPatientFor($owner);
+        $anotherPatientId = $this->createPatientFor($owner);
+        $ownGrant = PhrPatientUserAccess::query()->where('patient_id', $patientId)->sole();
+        $otherGrant = PhrPatientUserAccess::query()->where('patient_id', $anotherPatientId)->sole();
+
+        foreach ([$ownGrant, $otherGrant] as $grant) {
+            $this->actingAs($owner)->deleteJson("/api/phr/patients/{$patientId}/access/{$grant->id}")->assertNotFound();
+            $this->assertDatabaseHas('phr_patient_user_access', ['id' => $grant->id, 'access_level' => 'owner']);
+        }
     }
 
     private function grant(User $actor, int $patientId, string $email, string $level = 'viewer'): TestResponse
