@@ -9,7 +9,8 @@ const ID = /^[a-z][a-z0-9-]{1,80}$/
 const SHA = /^[a-f0-9]{64}$/
 const own = (value, key) => Object.hasOwn(value, key)
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value)
-const sorted = values => [...values].sort()
+export const compareText = (left, right) => left < right ? -1 : left > right ? 1 : 0
+const sorted = values => [...values].sort(compareText)
 const same = (left, right) => JSON.stringify(sorted(left)) === JSON.stringify(sorted(right))
 export const digest = bytes => createHash('sha256').update(bytes).digest('hex')
 

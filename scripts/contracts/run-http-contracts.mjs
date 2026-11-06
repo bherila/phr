@@ -27,6 +27,7 @@ function runGeneration(label, { responsesOnly = false, expectedFailures = [] } =
   const reportFile = path.join(directory, 'responses.json')
   const jestFile = path.join(directory, 'jest.json')
   const env = { ...process.env, PHR_TEST_DATABASE: '', PHR_TEST_S3_ENDPOINT: '',
+    APP_KEY: 'base64:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=', APP_DEBUG: 'false', APP_URL: 'http://localhost',
     PHR_HTTP_CONTRACT_CANDIDATE: candidate, PHR_HTTP_CONTRACT_GENERATION: generation,
     PHR_HTTP_CONTRACT_DIR: fixtures, PHR_HTTP_CONTRACT_REPORT: reportFile,
   }
@@ -36,7 +37,15 @@ function runGeneration(label, { responsesOnly = false, expectedFailures = [] } =
   })
   // These private logs are never uploaded or printed. PHPUnit/Jest can include observed values.
   writeFileSync(path.join(directory, 'producer.log'), (producer.stdout ?? '') + (producer.stderr ?? ''), { mode: 0o600 })
-  requireContract(producer.status === 0, 'producer_failed')
+  if (producer.status !== 0) {
+    const diagnostic = ((producer.stdout ?? '') + (producer.stderr ?? '')).match(/http-contract case=([a-z0-9-]+) code=([a-z0-9_]+)/)
+    const allowedCases = new Set(['generation', 'catalog', ...catalog.cases.map(item => item.id)])
+    const allowedCodes = new Set(['candidate', 'directory', 'case', 'empty', 'unknown_case', 'duplicate', 'http_status', 'content_type', 'body_size', 'incomplete', 'inventory', 'category_keys', 'medication_fill_count', 'role', 'private_field', 'state'])
+    if (diagnostic && allowedCases.has(diagnostic[1]) && allowedCodes.has(diagnostic[2])) {
+      proof.producer_failure = { case_id: diagnostic[1], code: diagnostic[2] }
+    }
+    throw new ContractFailure('producer_failed')
+  }
   stage = 'consumer'
   const args = ['node_modules/jest/bin/jest.js', '--config', 'jest.contract.config.cjs', '--runInBand', '--no-cache', '--json', '--outputFile', jestFile]
   if (responsesOnly) args.push('--runTestsByPath', 'tests/contracts/responses.contract.ts')

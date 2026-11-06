@@ -2,7 +2,7 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, wri
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
-import { context, digest, loadBundle, readCatalog, requireContract, verifyTests } from '../../scripts/contracts/protocol.mjs'
+import { compareText, context, digest, loadBundle, readCatalog, requireContract, verifyTests } from '../../scripts/contracts/protocol.mjs'
 import { assertResponse } from './validateResponses.mjs'
 
 const expected = context()
@@ -96,5 +96,5 @@ const checks: Record<string, () => void> = {
   },
 }
 
-requireContract(JSON.stringify(Object.keys(checks).sort()) === JSON.stringify([...catalog.checks].sort()), 'harness_catalog')
+requireContract(JSON.stringify(Object.keys(checks).sort(compareText)) === JSON.stringify([...catalog.checks].sort(compareText)), 'harness_catalog')
 for (const [id, check] of Object.entries(checks)) test(`harness/${id}`, check)
