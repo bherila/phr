@@ -47,7 +47,7 @@ const checks: Record<string, () => void> = {
   'duplicate-assertion': () => altered(manifest => { manifest.http_assertions.push(manifest.http_assertions[0]) }, 'assertion_duplicate'),
   'mixed-assertion-candidate': () => altered(manifest => { manifest.http_assertions[0].candidate = '0'.repeat(40) }, 'assertion_candidate_mixed'),
   'mixed-assertion-generation': () => altered(manifest => { manifest.http_assertions[0].generation = '0'.repeat(32) }, 'assertion_generation_mixed'),
-  'wrong-assertion-status': () => altered(manifest => { manifest.http_assertions[0].status = 200 }, 'assertion_metadata'),
+  'wrong-assertion-status': () => altered(manifest => { manifest.http_assertions[0].status = 418 }, 'assertion_metadata'),
   'wrong-assertion-error': () => altered(manifest => { manifest.http_assertions[0].error = 'wrong_error' }, 'assertion_error'),
   'zero-assertions': () => altered(manifest => { manifest.http_assertions = [] }, 'assertions_empty'),
   'duplicate-assertion-catalog': () => expect(() => readCatalog(expected.root, { ...catalog, http_assertions: [...catalog.http_assertions, catalog.http_assertions[0]] })).toThrow('code=assertion_catalog_duplicate'),
