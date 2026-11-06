@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "cases": [
+    {"id":"inventory-no-patients","schema":"DataHubResponseSchema","role":"authenticated","state":"no-patients","status":200},
+    {"id":"inventory-owned-empty","schema":"DataHubResponseSchema","role":"owner","state":"empty","status":200},
+    {"id":"inventory-owned-populated","schema":"DataHubResponseSchema","role":"owner","state":"nonzero-medication-fill","status":200},
+    {"id":"inventory-shared-viewer","schema":"DataHubResponseSchema","role":"viewer","state":"metadata-only","status":200},
+    {"id":"inventory-shared-manager","schema":"DataHubResponseSchema","role":"manager","state":"metadata-only","status":200},
+    {"id":"restore-uploading","schema":"NativeRestoreResponseSchema","role":"owner","state":"uploading","status":201},
+    {"id":"restore-index-empty","schema":"NativeRestoresResponseSchema","role":"owner","state":"empty","status":200},
+    {"id":"restore-index-uploading","schema":"NativeRestoresResponseSchema","role":"owner","state":"uploading","status":200}
+  ],
+  "inventory_keys": ["lab_results","vitals","office_visits","medications","medication_fills","conditions","procedures","immunizations","allergies","portal_messages","negative_assertions","health_logs","health_log_entries","respiratory_events","sinus_settings","sinus_enrollments","documents","dicom_studies","dicom_series","dicom_instances","original_dicom_files","ehi_packages","ehi_preserved_files","ehi_pending_proposals"],
+  "checks": ["missing-manifest","zero-catalog","duplicate-catalog","zero-fixtures","missing-case","extra-case","duplicate-case","missing-file","extra-file","duplicate-file","unsafe-file","symlink-file","stale-candidate","mixed-candidate","stale-generation","mixed-generation","stale-catalog","stale-generator","wrong-hash","wrong-size","invalid-manifest","invalid-json","unknown-schema","shared-private-field","zero-tests","missing-test","extra-test","duplicate-test","skipped-test"]
+}
