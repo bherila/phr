@@ -37,11 +37,12 @@ use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Tests\Support\EhiCapacityLifecycle;
+use Tests\Support\EhiCapacityQualification;
 use Tests\Support\EhiClinicalPackage;
 use Tests\Support\EhiSyntheticPackage;
 
 require dirname(__DIR__).'/vendor/autoload.php';
-$options = getopt('', ['dir:', 'prepare', 'shape:', 'records:', 'bytes:', 'operation:', 'new-patient', 'extra-identities:', 'mysql-port:', 'history-records:']);
+$options = getopt('', ['dir:', 'prepare', 'shape:', 'records:', 'bytes:', 'operation:', 'new-patient', 'extra-identities:', 'mysql-port:', 'history-records:', 'qualification:']);
 $directory = $options['dir'] ?? '';
 $parent = is_string($directory) ? realpath(dirname($directory)) : false;
 if ($parent !== realpath(sys_get_temp_dir()) || ! str_starts_with(basename($directory), 'phr-resource-') || is_link($directory)) {
@@ -69,7 +70,7 @@ config([
     'cache.default' => 'array', 'session.driver' => 'array', 'queue.default' => 'sync',
     'auth_provider.cache_user_on_validation' => false,
 ]);
-foreach (['phr_documents', 'phr_exports', 'phr_dicom'] as $disk) {
+foreach (['phr_documents', 'phr_exports', 'phr_dicom', 'phr_uploads', 'phr_upload_spool'] as $disk) {
     config(['filesystems.disks.'.$disk => ['driver' => 'local', 'root' => $directory.'/'.$disk, 'throw' => true]]);
     Storage::forgetDisk($disk);
 }
@@ -96,6 +97,13 @@ if (array_key_exists('mysql-port', $options)) {
 DB::purge();
 DB::disableQueryLog();
 Queue::fake();
+if (isset($options['qualification'])) {
+    ob_start();
+    $result = (new EhiCapacityQualification)->run($directory, $options['qualification']);
+    ob_end_clean();
+    echo json_encode($result, JSON_THROW_ON_ERROR)."\n";
+    exit(0);
+}
 
 if ($prepare) {
     Artisan::call('migrate', ['--force' => true]);

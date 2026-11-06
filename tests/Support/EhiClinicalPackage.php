@@ -265,7 +265,7 @@ final class EhiClinicalPackage
      * Ten component results per order make source fanout explicit (about 6.3
      * persisted work rows per result after preview, before prior patient history).
      */
-    public static function labCapacity(int $results): self
+    public static function labCapacity(int $results, int $changed = 0, int $cycle = 1, int $width = 0, int $fanout = 0): self
     {
         if ($results < 1 || $results > 10000) {
             throw new LogicException('Synthetic lab capacity must be between 1 and 10000 results.');
@@ -291,9 +291,14 @@ final class EhiClinicalPackage
             $rows['ORDER_RESULTS'][] = [
                 'ORDER_PROC_ID' => $order, 'ORD_DATE_REAL' => (string) (60000 + $panel), 'LINE' => $line,
                 'COMPONENT_ID' => 'SYN-CAPACITY-'.$line, 'COMPONENT_ID_NAME' => 'SYNTHETIC CAPACITY ANALYTE '.$line,
-                'ORD_VALUE' => '95.0', 'REFERENCE_LOW' => '70', 'REFERENCE_HIGH' => '99',
+                'ORD_VALUE' => $index > 0 && $index <= $changed ? (string) (95 + $cycle).'.0' : '95.0', 'REFERENCE_LOW' => '70', 'REFERENCE_HIGH' => '99',
                 'REFERENCE_UNIT' => 'mg/dL', 'RESULT_STATUS_C_NAME' => 'Final', 'RESULT_DATE' => $date,
+                'COMPONENT_COMMENT' => $width > 0 ? str_repeat('x', $width) : '',
             ];
+            for ($comment = 1; $comment <= $fanout; $comment++) {
+                $rows['ORDER_RES_COMMENT'][] = ['ORDER_ID' => $order, 'CONTACT_DATE_REAL' => (string) (60000 + $panel),
+                    'LINE' => $line, 'LINE_COMMENT' => (string) $comment, 'RESULTS_CMT' => 'Synthetic fanout '.$comment];
+            }
         }
 
         return new self($rows, $standard->files);

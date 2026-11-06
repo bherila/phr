@@ -3,6 +3,7 @@
 namespace Tests\Feature\PHR\Ehi;
 
 use App\Models\PhrEhiProposal;
+use App\Models\PhrPatientUserAccess;
 use App\Models\User;
 use App\Services\PHR\Import\Ehi\EhiBindingService;
 use App\Services\PHR\Import\Ehi\EhiProposalService;
@@ -28,6 +29,7 @@ final class EhiLabCapacityFixtureTest extends TestCase
         try {
             $owner = User::factory()->create(['user_role' => 'user']);
             $patient = $this->ehiPatient($owner);
+            PhrPatientUserAccess::create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'access_level' => 'owner', 'granted_by_user_id' => $owner->id, 'granted_at' => now()]);
             $package = $this->ehiIntakeDirectory(EhiClinicalPackage::labCapacity(11)->build(), $patient, $owner->id)->package;
             $package = app(EhiBindingService::class)->bind($package, $patient, $owner->id, null, 'Synthetic Capacity Source');
             $preview = app(EhiProposalService::class)->preview($package, $patient, $owner->id);
@@ -38,6 +40,9 @@ final class EhiLabCapacityFixtureTest extends TestCase
             $lifecycle = (new EhiCapacityLifecycle)->run($patient, (int) $owner->id, 0);
             self::assertSame('completed', $lifecycle['status']);
             self::assertTrue($lifecycle['round_trip_verified']);
+            self::assertTrue($lifecycle['cleanup_verified']);
+            self::assertTrue($lifecycle['independent_download_verified']);
+            self::assertTrue($lifecycle['access_semantics_verified']);
             self::assertGreaterThan(0, $lifecycle['record_stream_bytes']);
             self::assertSame(1, $lifecycle['review_state']['phr_lab_results']);
             self::assertSame(2, $lifecycle['review_state']['phr_ehi_proposal_decisions']);

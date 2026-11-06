@@ -3,33 +3,37 @@
 namespace Tests\Support;
 
 use App\Models\PhrEhiProposal;
+use App\Models\PhrNativeBackup;
 use App\Models\PhrPatient;
+use App\Models\PhrPatientUserAccess;
+use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Services\PHR\DataHub\PhrPatientDeletionCleanupService;
+use App\Services\PHR\DataHub\PhrPatientDeletionService;
 use App\Services\PHR\Import\Ehi\EhiProposalService;
 use App\Services\PHR\NativeBackup\NativeBackupException;
 use App\Services\PHR\NativeBackup\NativeRestoreException;
 use App\Services\PHR\NativeBackup\PhrNativeArchiveBuilder;
+use App\Services\PHR\NativeBackup\PhrNativeBackupService;
+use App\Services\PHR\NativeBackup\PhrNativeRestoreArchiveReader;
+use App\Services\PHR\NativeBackup\PhrNativeRestorePlanner;
 use App\Services\PHR\NativeBackup\PhrNativeRestoreService;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 use ZipArchive;
 
 /** Synthetic-only lifecycle observation; no clinical content leaves the private fixture. */
 final class EhiCapacityLifecycle
 {
-    public function run(PhrPatient $patient, int $actor, int $history): array
+    public function run(PhrPatient $patient, int $actor, int $history, array $options = []): array
     {
         $result = ['status' => 'completed', 'stages' => [], 'round_trip_verified' => false];
-        $stage = function (string $name, callable $operation) use (&$result): mixed {
-            memory_reset_peak_usage();
-            $started = microtime(true);
-            try {
-                return $operation();
-            } finally {
-                $result['stages'][$name] = ['seconds' => round(microtime(true) - $started, 3), 'peak_php_bytes' => memory_get_peak_usage(true)];
-            }
-        };
-        $archive = null;
+        $metrics = $options['metrics'] ?? new EhiCapacityMetrics;
+        $stage = fn (string $name, callable $operation): mixed => $metrics->stage($name, $operation, (int) $patient->id);
+        $download = null;
+        $inspected = null;
+        $inspectionPath = null;
         $rebuilt = null;
         try {
             // A refused preview cannot authorize review or claim lifecycle readiness.
@@ -37,33 +41,115 @@ final class EhiCapacityLifecycle
             if ($package->preview_generation_started < 1 || $package->preview_generation_started !== $package->preview_generation_completed) {
                 $result['status'] = 'preview_resource_limit';
 
+                $result['stages'] = $metrics->stages;
+
                 return $result;
             }
-            $stage('review', function () use ($patient, $actor, $history): void {
-                $proposals = PhrEhiProposal::query()->where('patient_id', $patient->id)->where('mapping', 'lab_result')->orderBy('id')->limit(2)->get();
-                if ($proposals->count() !== 2) {
-                    throw new RuntimeException('Synthetic review proposals missing.');
-                }
-                foreach ([PhrEhiProposal::DECISION_ACCEPT, PhrEhiProposal::DECISION_REJECT] as $index => $decision) {
-                    $proposal = $proposals[$index];
-                    app(EhiProposalService::class)->review($proposal, $decision, $actor, $proposal->preview_digest);
-                }
-                if (DB::table('phr_lab_results')->where('patient_id', $patient->id)->count() !== $history + 1) {
-                    throw new RuntimeException('Synthetic review changed unexpected clinical rows.');
+            $stage('review', function () use ($patient, $actor, $history, $options): void {
+                if (($options['review'] ?? 'two') === 'full') {
+                    $this->reviewAll($patient, $actor);
+                } else {
+                    $proposals = PhrEhiProposal::query()->where('patient_id', $patient->id)->where('mapping', 'lab_result')->orderBy('id')->limit(2)->get();
+                    if ($proposals->count() !== 2) {
+                        throw new RuntimeException('Synthetic review proposals missing.');
+                    }
+                    foreach ([PhrEhiProposal::DECISION_ACCEPT, PhrEhiProposal::DECISION_REJECT] as $index => $decision) {
+                        $proposal = $proposals[$index];
+                        app(EhiProposalService::class)->review($proposal, $decision, $actor, $proposal->preview_digest);
+                    }
+                    if (DB::table('phr_lab_results')->where('patient_id', $patient->id)->count() !== $history + 1) {
+                        throw new RuntimeException('Synthetic review changed unexpected clinical rows.');
+                    }
                 }
             });
+            if (isset($options['exercise'])) {
+                $options['exercise']($patient, $stage);
+            }
             $before = $this->reviewState((int) $patient->id);
-            $archive = $stage('backup', fn () => app(PhrNativeArchiveBuilder::class)->build($patient));
-            $result['archive_records'] = array_sum($archive->counts);
-            $result['archive_bytes'] = $archive->fileSize;
-            $fingerprint = $stage('fingerprint_before', fn () => $this->fingerprint($archive->path, $archive->manifest));
+            $accessBefore = $this->accessState($patient, $actor);
+            if (($options['native_boundary'] ?? null) !== null) {
+                $count = $metrics->durable((int) $patient->id)['rows'];
+                config(['phr.native_max_records' => $count - ($options['native_boundary'] === 'over' ? 1 : 0)]);
+                $result['boundary_native_records'] = config('phr.native_max_records');
+            }
+            $backup = $stage('backup', function () use ($patient, $actor): PhrNativeBackup {
+                $service = app(PhrNativeBackupService::class);
+
+                return $service->generate($service->createQueuedBackup($patient, $actor));
+            });
+            $download = $stage('download', function () use ($backup, $options): string {
+                $path = isset($options['directory']) ? $options['directory'].'/independent-recovery.zip' : tempnam(sys_get_temp_dir(), 'phr-capacity-download-');
+                $source = Storage::disk($backup->storage_disk)->readStream($backup->storage_path);
+                $target = fopen($path, 'wb');
+                if (! is_resource($source) || ! is_resource($target)) {
+                    throw new RuntimeException('Synthetic independent download could not open.');
+                }
+                try {
+                    stream_copy_to_stream($source, $target);
+                } finally {
+                    fclose($source);
+                    fclose($target);
+                }
+                if (! hash_equals($backup->archive_sha256, hash_file('sha256', $path))) {
+                    throw new RuntimeException('Synthetic independent download differs.');
+                }
+
+                return $path;
+            });
+            $inspectionPath = tempnam(sys_get_temp_dir(), 'phr-capacity-inspect-');
+            copy($download, $inspectionPath);
+            $inspected = app(PhrNativeRestoreArchiveReader::class)->openLocal($inspectionPath);
+            $result['archive_records'] = array_sum($backup->counts_json);
+            $result['archive_bytes'] = $backup->file_size_bytes;
+            $fingerprint = $stage('fingerprint_before', fn () => $this->fingerprint($download, $inspected->manifest));
             $result['record_stream_bytes'] = $fingerprint['record_stream_bytes'];
-            // Only this fixture's patient is deleted; this harness uses a fresh private DB.
-            DB::table('phr_native_record_identities')->where('patient_id', $patient->id)->delete();
-            $patient->delete();
+            if (($options['sharing'] ?? false) === true) {
+                $service = app(PhrNativeRestoreService::class);
+                $optIn = $stage('existing_opt_in_preview', fn () => $service->preview($service->createPreview(
+                    new UploadedFile($download, 'synthetic.zip', 'application/zip', null, true), $actor, true,
+                )));
+                if (($optIn->plan_counts_json['blockers'] ?? []) !== [] || $optIn->access_grant_count !== count($accessBefore['shares'])) {
+                    throw new RuntimeException('Existing-patient explicit share restore was not admitted.');
+                }
+                $stage('existing_opt_in_apply', fn () => $service->apply($optIn));
+                if ($this->accessState($patient, $actor) !== $accessBefore) {
+                    throw new RuntimeException('Explicit existing-patient restore changed sharing semantics.');
+                }
+                $result['existing_opt_in_shares_preserved'] = true;
+            }
+
+            $plan = app(PhrPatientDeletionService::class)->preview($patient);
+            if ($plan->blockers !== [] || $plan->artifacts === []) {
+                throw new RuntimeException('Synthetic deletion plan is not usable.');
+            }
+            $stage('delete', function () use ($patient, $actor, $plan, $download, $backup, &$result): void {
+                $deleted = app(PhrPatientDeletionService::class)->delete($patient, $actor, $plan->digest, true);
+                app(PhrPatientDeletionCleanupService::class)->cleanup($deleted->id);
+                foreach ($plan->artifacts as $artifact) {
+                    if (Storage::disk($artifact['disk'])->exists($artifact['key'])) {
+                        throw new RuntimeException('Managed synthetic object survived deletion.');
+                    }
+                }
+                if ($deleted->refresh()->status !== 'completed' || PhrPatient::query()->whereKey($patient->id)->exists()
+                    || DB::table('phr_native_record_identities')->where('patient_id', $patient->id)->exists()
+                    || ! is_file($download) || ! hash_equals($backup->archive_sha256, hash_file('sha256', $download))) {
+                    throw new RuntimeException('Synthetic deletion/recovery isolation failed.');
+                }
+                $result['cleanup_verified'] = true;
+                $result['deleted_managed_artifacts'] = count($plan->artifacts);
+                $result['managed_artifact_bytes_before_delete'] = $plan->artifactBytes;
+                $result['independent_download_verified'] = true;
+            });
+            if (($options['sharing'] ?? false) === true) {
+                $optInPlan = $stage('new_patient_opt_in_plan', fn () => app(PhrNativeRestorePlanner::class)->plan($inspected, $actor, true));
+                if (! in_array('actor_mapping_missing', $optInPlan->blockers, true)) {
+                    throw new RuntimeException('Unknown shared actors were not refused for a new patient.');
+                }
+                $result['new_patient_opt_in_blocked'] = true;
+            }
             $service = app(PhrNativeRestoreService::class);
             $attempt = $stage('restore_preview', fn () => $service->preview($service->createPreview(
-                new UploadedFile($archive->path, 'synthetic.zip', 'application/zip', null, true), $actor, false,
+                new UploadedFile($download, 'synthetic.zip', 'application/zip', null, true), $actor, false,
             )));
             if (($attempt->plan_counts_json['blockers'] ?? []) !== []) {
                 throw new RuntimeException('Synthetic restore has blockers.');
@@ -74,6 +160,12 @@ final class EhiCapacityLifecycle
             }
             $restored = PhrPatient::findOrFail($attempt->target_patient_root_id);
             $after = $this->reviewState((int) $restored->id);
+            $metrics->stages['restore_apply']['durable'] = $metrics->durable((int) $restored->id);
+            $accessAfter = $this->accessState($restored, $actor, array_keys($accessBefore['shares']));
+            if ($accessAfter['owner'] !== $accessBefore['owner'] || $accessAfter['shares'] !== [] || ! $accessAfter['former_shares_denied']) {
+                throw new RuntimeException('Default new-patient access policy changed.');
+            }
+            $before['phr_patient_user_access'] = 1;
             if ($before !== $after) {
                 throw new RuntimeException('Synthetic clinical/review state changed on restore.');
             }
@@ -84,16 +176,22 @@ final class EhiCapacityLifecycle
                 throw new RuntimeException('Synthetic archive changed on restore: '.implode(',', $changed));
             }
             $result['round_trip_verified'] = true;
+            $result['access_semantics_verified'] = true;
             $result['verified_tables'] = count($fingerprint['tables']);
             $result['verified_artifacts'] = count($fingerprint['artifacts']);
             $result['review_state'] = $after;
             $result['restored_patient_id'] = (int) $restored->id;
         } catch (NativeBackupException|NativeRestoreException $refused) {
             $result['status'] = $refused->failureCategory;
-            $result['refused_stage'] = array_key_last($result['stages']);
+            $result['refused_stage'] = array_key_last($metrics->stages);
         } finally {
-            if ($archive !== null) {
-                @unlink($archive->path);
+            $result['stages'] = $metrics->stages;
+            unset($inspected);
+            if ($inspectionPath !== null) {
+                @unlink($inspectionPath);
+            }
+            if ($download !== null) {
+                @unlink($download);
             }
             if ($rebuilt !== null) {
                 @unlink($rebuilt->path);
@@ -104,7 +202,7 @@ final class EhiCapacityLifecycle
     }
 
     /** Stable archive identities/content hashes verify every portable relationship and value. */
-    private function fingerprint(string $path, array $manifest): array
+    public function fingerprint(string $path, array $manifest): array
     {
         $zip = new ZipArchive;
         if ($zip->open($path, ZipArchive::RDONLY) !== true) {
@@ -115,10 +213,6 @@ final class EhiCapacityLifecycle
             $recordStreamBytes = 0;
             foreach ($manifest['tables'] as $table => $entry) {
                 $recordStreamBytes += $zip->statName($entry['path'])['size'];
-                // Owner access is deliberately recreated by restore, never replayed implicitly.
-                if ($table === 'phr_patient_user_access') {
-                    continue;
-                }
                 $records = [];
                 $stream = $zip->getStream($entry['path']);
                 if (! is_resource($stream)) {
@@ -127,7 +221,13 @@ final class EhiCapacityLifecycle
                 try {
                     while (($line = fgets($stream)) !== false) {
                         $row = json_decode($line, true, flags: JSON_THROW_ON_ERROR);
-                        $records[$row['nativeId']] = $row['contentHash'];
+                        if ($table === 'phr_patient_user_access') {
+                            if (($row['attributes']['access_level'] ?? null) === 'owner') {
+                                $records['owner'] = hash('sha256', json_encode(['role' => 'owner', 'actor' => $row['relationships']['user_id']], JSON_THROW_ON_ERROR));
+                            }
+                        } else {
+                            $records[$row['nativeId']] = $row['contentHash'];
+                        }
                     }
                 } finally {
                     fclose($stream);
@@ -140,11 +240,70 @@ final class EhiCapacityLifecycle
                 $artifacts[$entry['path']] = [$entry['size'], $entry['sha256']];
             }
             ksort($artifacts);
+            ksort($tables);
 
             return ['tables' => $tables, 'artifacts' => $artifacts, 'record_stream_bytes' => $recordStreamBytes];
         } finally {
             $zip->close();
         }
+    }
+
+    public function reviewAll(PhrPatient $patient, int $actor): void
+    {
+        $rejected = DB::table('phr_ehi_proposals')->where('patient_id', $patient->id)->where('mapping', 'lab_result')->where('status', 'rejected')->exists();
+        PhrEhiProposal::query()->where('patient_id', $patient->id)->where('status', PhrEhiProposal::STATUS_PENDING)->orderBy('id')
+            ->chunkById(100, function ($proposals) use ($actor, &$rejected): void {
+                foreach ($proposals as $proposal) {
+                    $decision = match ($proposal->kind) {
+                        PhrEhiProposal::KIND_CREATE, PhrEhiProposal::KIND_CORROBORATE => PhrEhiProposal::DECISION_ACCEPT,
+                        PhrEhiProposal::KIND_UPDATE => PhrEhiProposal::DECISION_APPROVE_UPDATE,
+                        default => PhrEhiProposal::DECISION_RETAIN,
+                    };
+                    if (! $rejected && $proposal->mapping === 'lab_result' && $proposal->kind === PhrEhiProposal::KIND_CREATE) {
+                        $decision = PhrEhiProposal::DECISION_REJECT;
+                        $rejected = true;
+                    }
+                    app(EhiProposalService::class)->review($proposal, $decision, $actor, $proposal->preview_digest);
+                }
+            });
+        if (PhrEhiProposal::query()->where('patient_id', $patient->id)->where('status', PhrEhiProposal::STATUS_PENDING)->exists()) {
+            throw new RuntimeException('Full synthetic review left an undecided proposal.');
+        }
+    }
+
+    private function accessState(PhrPatient $patient, int $actor, array $formerShares = []): array
+    {
+        $access = app(PhrPatientAccessService::class);
+        if ((int) $patient->owner_user_id !== $actor || ! $access->canWrite($patient, $actor)) {
+            throw new RuntimeException('Restored owner authorization differs.');
+        }
+        $grants = PhrPatientUserAccess::query()->where('patient_id', $patient->id)->orderBy('user_id')->get();
+        $owner = [];
+        $shares = [];
+        foreach ($grants as $grant) {
+            $entry = ['role' => $grant->access_level, 'actor' => $grant->user_id, 'granted_by' => $grant->granted_by_user_id];
+            if ($grant->user_id === $actor) {
+                $owner = $entry;
+                if ($grant->access_level !== 'owner') {
+                    throw new RuntimeException('Synthetic owner grant differs.');
+                }
+            } else {
+                $shares[$grant->user_id] = $entry;
+                if (! $access->accessiblePatientsQuery($grant->user_id)->whereKey($patient->id)->exists()
+                    || $access->canWrite($patient, $grant->user_id) !== ($grant->access_level === 'manager')) {
+                    throw new RuntimeException('Synthetic shared role authorization differs.');
+                }
+            }
+        }
+        if ($owner === []) {
+            throw new RuntimeException('Synthetic owner grant is missing.');
+        }
+        $denied = true;
+        foreach ($formerShares as $user) {
+            $denied = $denied && ! $access->accessiblePatientsQuery($user)->whereKey($patient->id)->exists() && ! $access->canWrite($patient, $user);
+        }
+
+        return ['owner' => $owner, 'shares' => $shares, 'former_shares_denied' => $denied];
     }
 
     private function reviewState(int $patient): array

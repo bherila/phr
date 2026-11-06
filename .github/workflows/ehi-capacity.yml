@@ -9,6 +9,12 @@ on:
       - scripts/assert-ehi-capacity.py
       - scripts/test-ehi-capacity.py
       - tests/Support/EhiCapacityLifecycle.php
+      - tests/Support/EhiCapacityMetrics.php
+      - tests/Support/EhiCapacityQualification.php
+      - scripts/ehi-qualification-profiles.json
+      - scripts/run-ehi-qualification.py
+      - scripts/assert-ehi-qualification.py
+      - scripts/test-ehi-qualification.py
       - tests/Support/EhiClinicalPackage.php
       - app/Services/PHR/NativeBackup/**
       - app/Services/PHR/Import/Ehi/**
@@ -110,5 +116,84 @@ jobs:
         with:
           name: ehi-capacity-${{ matrix.database }}
           path: build/ehi-capacity/
+          if-no-files-found: error
+          retention-days: 14
+
+  qualification:
+    name: E0 qualification (${{ matrix.database }}, ${{ matrix.batch }})
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        database: [sqlite, mariadb]
+        batch: [replay, history, stress, boundaries]
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: synthetic-resource-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          extensions: pdo_mysql, simplexml
+          coverage: none
+      - uses: webfactory/ssh-agent@e83874834305fe9a4a2997156cb26c5de65a8555
+        with:
+          ssh-private-key: ${{ secrets.MCP_BRIDGE_DEPLOY_KEY }}
+      - uses: actions/cache@v6
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+      - run: composer install --no-interaction
+      - name: Prepare only an isolated synthetic environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate --no-interaction
+          mkdir -p build/ehi-qualification
+          python3 -B scripts/test-ehi-qualification.py
+      - name: Qualify declared full-review and recovery targets
+        env:
+          DATABASE: ${{ matrix.database }}
+          BATCH: ${{ matrix.batch }}
+          PHR_EHI_PREVIEW_MAX_SECONDS: '240'
+        run: |
+          set -euo pipefail
+          database_args=()
+          if [ "$DATABASE" = mariadb ]; then database_args+=(--mysql-port=3306); fi
+          case "$BATCH" in
+            replay) profiles=(small-full target-2000 three-cycles) ;;
+            history) profiles=(large-history stretch-full) ;;
+            stress) profiles=(wide-rows fanout) ;;
+            boundaries) profiles=(native-exact native-one-over artifact-exact artifact-one-over) ;;
+          esac
+          for profile in "${profiles[@]}"; do
+            envelope=$(python3 -c 'import json,sys;print(json.load(open("scripts/ehi-qualification-profiles.json"))[sys.argv[1]]["envelope"])' "$profile")
+            export PHR_EHI_PREVIEW_MAX_ROWS=10000 PHR_EHI_PREVIEW_MAX_BYTES=8388608
+            export PHR_NATIVE_MAX_RECORDS=20000 PHR_NATIVE_MAX_RECORD_STREAM_BYTES=33554432
+            if [ "$envelope" = expanded ]; then
+              export PHR_EHI_PREVIEW_MAX_ROWS=50000 PHR_EHI_PREVIEW_MAX_BYTES=67108864
+              export PHR_NATIVE_MAX_RECORDS=50000 PHR_NATIVE_MAX_RECORD_STREAM_BYTES=67108864
+            fi
+            result="build/ehi-qualification/${DATABASE}-${profile}.json"
+            python3 scripts/run-ehi-qualification.py "$profile" "/tmp/phr-resource-${DATABASE}-${profile}" "${database_args[@]}" > "$result"
+            python3 scripts/assert-ehi-qualification.py "$result" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+      - name: Retain aggregate qualification results only
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ehi-qualification-${{ matrix.database }}-${{ matrix.batch }}
+          path: build/ehi-qualification/*.json
           if-no-files-found: error
           retention-days: 14
