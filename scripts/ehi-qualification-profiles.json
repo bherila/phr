@@ -1,0 +1,152 @@
+{
+  "small-full": {
+    "records": 11,
+    "history": 3,
+    "review": "full",
+    "exercise": true,
+    "new": 2,
+    "changed": 2,
+    "cycles": 1,
+    "sharing": true,
+    "expectation": "must_complete",
+    "envelope": "default"
+  },
+  "target-2000": {
+    "records": 2000,
+    "history": 2000,
+    "review": "full",
+    "exercise": true,
+    "new": 200,
+    "changed": 100,
+    "cycles": 1,
+    "sharing": true,
+    "expectation": "experimental",
+    "envelope": "expanded"
+  },
+  "large-history": {
+    "records": 200,
+    "history": 20000,
+    "review": "full",
+    "exercise": true,
+    "new": 0,
+    "changed": 0,
+    "cycles": 0,
+    "sharing": true,
+    "expectation": "experimental",
+    "envelope": "expanded"
+  },
+  "three-cycles": {
+    "records": 2000,
+    "history": 2000,
+    "review": "full",
+    "exercise": true,
+    "new": 200,
+    "changed": 100,
+    "cycles": 3,
+    "sharing": false,
+    "expectation": "experimental",
+    "envelope": "expanded"
+  },
+  "stretch-full": {
+    "records": 5000,
+    "history": 2000,
+    "review": "full",
+    "exercise": false,
+    "sharing": false,
+    "expectation": "experimental",
+    "envelope": "expanded",
+    "forecast": "Full review is forecast near63695 native records, above50000; timeout or earlier admission is an unmet target, never success."
+  },
+  "wide-rows": {
+    "records": 48,
+    "history": 0,
+    "review": "full",
+    "width": 262144,
+    "exercise": false,
+    "sharing": false,
+    "expectation": "experimental",
+    "envelope": "expanded"
+  },
+  "fanout": {
+    "records": 100,
+    "history": 100,
+    "review": "full",
+    "fanout": 24,
+    "exercise": false,
+    "sharing": false,
+    "expectation": "experimental",
+    "envelope": "expanded"
+  },
+  "native-exact": {
+    "records": 11,
+    "history": 3,
+    "review": "full",
+    "exercise": false,
+    "sharing": false,
+    "native_boundary": "exact",
+    "expectation": "must_complete",
+    "envelope": "default"
+  },
+  "native-one-over": {
+    "records": 11,
+    "history": 3,
+    "review": "full",
+    "exercise": false,
+    "sharing": false,
+    "native_boundary": "over",
+    "expectation": "must_refuse_at_stage",
+    "refused_stage": "backup",
+    "refusal": "record_count_limit",
+    "envelope": "default"
+  },
+  "artifact-exact": {
+    "records": 11,
+    "history": 0,
+    "review": "full",
+    "exercise": false,
+    "sharing": false,
+    "artifact_boundary": "exact",
+    "expectation": "must_complete",
+    "envelope": "expanded",
+    "artifact_limit": 64
+  },
+  "artifact-one-over": {
+    "records": 11,
+    "history": 0,
+    "review": "full",
+    "exercise": false,
+    "sharing": false,
+    "artifact_boundary": "over",
+    "expectation": "must_refuse_at_stage",
+    "refused_stage": "backup",
+    "refusal": "artifact_metadata_limit",
+    "envelope": "expanded",
+    "artifact_limit": 64
+  },
+  "many-artifacts": {
+    "records": 11,
+    "history": 0,
+    "review": "full",
+    "exercise": false,
+    "sharing": false,
+    "artifact_boundary": "exact",
+    "expectation": "experimental",
+    "envelope": "expanded",
+    "artifact_limit": 2000
+  },
+  "mixed-mapping": {
+    "records": 50,
+    "history": 100,
+    "review": "full",
+    "mixed": true,
+    "exercise": false,
+    "sharing": true,
+    "expectation": "must_complete",
+    "envelope": "default",
+    "expected_clinical_counts": {
+      "phr_documents": 2,
+      "phr_immunizations": 4,
+      "phr_office_visits": 3
+    }
+  }
+}

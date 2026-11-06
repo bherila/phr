@@ -398,3 +398,72 @@ A retry preserves completed projection-table checkpoints but starts a new propos
 generation and recomputes mappings from the beginning; it may reach the same time
 limit again. The API does not promise cursor-based continuation. Successful runs
 clear the failure detail. Limits and deadlines are unchanged.
+
+### E0 complete-lifecycle qualification
+
+The retained capacity controls still declare **two lab decisions** (one accept,
+one reject). Their operation/job time guards and production settings are unchanged;
+full-review support must not be inferred from those controls. The control lifecycle
+now uses managed backup generation, an independently streamed/verified download,
+`PhrPatientDeletionService` plus storage cleanup, and proves all deletion-plan
+objects (including the managed backup and source objects) disappear while that
+independent copy survives. Restore/re-export compares exact native identities and
+content hashes for non-access portable records and original artifact bytes.
+Owner/access rows use explicit actor/role policy normalization, not only row counts.
+
+`scripts/ehi-qualification-profiles.json` separately declares E0 targets. The
+small full-review/replay/share control and exact native boundary must complete;
+one-over boundaries must refuse at their declared backup stage. The 2,000+2,000
+full-review/change target, 200+20,000 history, three changed cycles, 5,000+2,000
+stretch, wide rows, evidence fanout and many-artifact experiments are explicitly
+experimental. Full review accepts unambiguous creates/corroborations and approved
+updates, rejects the first lab deliberately, and retains ambiguous/unmapped
+proposals; other mappings are explicitly reviewed. Changed cycles preserve that
+rejected lab's content, add the declared new results and change the declared other
+values. Re-preview and byte-identical/equivalently repacked ZIP replay must not add
+clinical rows or decisions; a changed nonclinical manifest must not duplicate
+clinical rows. Repacked containers have different archive bytes but the same
+semantic package identity. No export is split or edited outside synthetic fixtures.
+
+The existing 50,000-row/64 MiB preview/native experiment remains a **control**, not
+a selected production envelope. Full review of the 5,000-result case was forecast
+near 63,695 native records before richer mappings/history, above 50,000; the
+forecast must be replaced by actual observed counts. Each qualification has the
+unchanged 300-second **overall process ceiling**, including seed/intake/project,
+and retains the separate 240-second proposal budget. A timed-out or resource-refused
+experiment is reported as an **unmet qualification**, never capacity success.
+Unknown/invariant failures fail CI even for an experimental profile. The existing
+30-minute job ceiling remains; batches are bounded and independently inspectable.
+
+Stage telemetry reports time, query count and hashed shapes (never SQL/bindings),
+largest parameter batch, transaction count/lifetime, locking-statement time, PHP
+peak and portable durable row/byte counts. Transaction lifetime is a conservative
+lock-holding window, not a production server lock-wait measurement. The external
+sampler records per-stage RSS/native temporary-file high-water and separate
+private-fixture disk high-water (inputs/DB/managed outputs included). Total profile
+wall cost and incomplete timeout telemetry remain visible. Large histories and all
+realistic benchmarks run in CI; local tests use tiny synthetic controls only.
+
+Sharing qualification preserves existing-patient opt-in grants and checks real
+viewer/manager/owner authorization. After real deletion, default new-patient
+restore omits nonowner grants and denies both former nonowners. Explicit opt-in
+new-patient planning must retain `actor_mapping_missing`; the harness does not
+invent user mappings or delete identities to force success. These are distinct
+policy outcomes, not a claim that unknown shared actors can be resurrected.
+Production SQL/object-store calibration and R1 remain pending; no schema,
+credentials, production data or capacity-default changes are part of E0.
+
+Independent pre-backup oracles derive every expected synthetic lab identity/value
+from the declared result/history/change counts. Clinical content and prior decision
+and decided-proposal hashes must remain stable across re-preview and exact/repacked
+replay. Manifest-only review may append decisions but cannot overwrite prior rows
+or change clinical contents. Changed cycles may update only declared lab values,
+retain prior nonvalue fields/identities/decisions, and create only declared new labs.
+Only verification flags/hashes/counts leave the fixture, never source values.
+
+Artifact count boundaries explicitly use a lowered synthetic count cap of 64:
+source blobs plus the two declared published document artifacts must attain exactly
+64 (must complete) or65 (must refuse at backup). The separate2,000-count profile is
+experimental because the independent1MiB artifact-metadata ceiling may bind first;
+it is not labeled successful exact-boundary proof if refused. Production artifact
+settings remain unchanged.

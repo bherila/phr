@@ -26,7 +26,7 @@ class CapacityObservationTest(unittest.TestCase):
 
     def lifecycle(self):
         return self.result() | {"operation": "lifecycle", "native_limits": {"records": 20000, "record_stream_bytes": 33554432},
-            "lifecycle": {"status": "completed", "round_trip_verified": True, "verified_tables": 42,
+            "lifecycle": {"status": "completed", "round_trip_verified": True, "cleanup_verified": True, "independent_download_verified": True, "access_semantics_verified": True, "verified_tables": 42,
                 "verified_artifacts": 1, "archive_records": 9000, "record_stream_bytes": 10000000, "stages": {},
                 "review_state": {"phr_lab_results": 1, "phr_ehi_proposal_decisions": 2,
                     "phr_patient_user_access": 1, "proposal_statuses": {"accepted": 1, "rejected": 1}}}}

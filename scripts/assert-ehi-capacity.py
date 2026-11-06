@@ -14,6 +14,8 @@ def validate_lifecycle(result):
     if status == "completed":
         if not lifecycle["round_trip_verified"] or lifecycle["verified_tables"] < 40 or lifecycle["verified_artifacts"] < 1:
             raise ValueError("Lifecycle completion omitted round-trip evidence")
+        if not all(lifecycle.get(key) is True for key in ("cleanup_verified", "independent_download_verified", "access_semantics_verified")):
+            raise ValueError("Control did not exercise independent recovery after real cleanup")
         state = lifecycle["review_state"]
         if state["phr_lab_results"] != result["history_records"] + 1 or state["phr_ehi_proposal_decisions"] != 2:
             raise ValueError("Clinical/review lifecycle counts changed")
