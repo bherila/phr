@@ -50,7 +50,13 @@ function ehiPrivacy({ scenario, value }) {
     const extra = Object.keys(item).find(key => !keys.includes(key))
     return extra === undefined ? [] : privacyIssue(scenario, item[extra], [...parts, extra])
   }
-  let issue = []
+  const envelopeFields = {
+    EhiUploadResponseSchema: ['upload'], EhiUploadsResponseSchema: ['uploads'],
+    EhiPackageResponseSchema: ['package', 'preview_run'], EhiPackagesResponseSchema: ['packages'],
+    EhiPendingSchema: ['pending'], EhiProposalsResponseSchema: ['proposals', 'preview_complete', 'next_after_id'],
+  }
+  let issue = closed(value, envelopeFields[scenario.schema], [])
+  if (issue.length) return issue
   for (const [index, upload] of (value.uploads ?? (value.upload ? [value.upload] : [])).entries()) {
     issue = closed(upload, uploadFields, value.upload ? ['upload'] : ['uploads', index])
     if (issue.length) return issue

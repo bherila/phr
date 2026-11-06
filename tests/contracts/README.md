@@ -1,4 +1,4 @@
-# PHR HTTP contracts — C1/C2
+# PHR HTTP contracts — C1/C2/C3
 
 Run `pnpm run test:http-contracts` from a clean candidate checkout with matching
 Composer/Node dependencies. The command creates a new ignored generation under
@@ -52,7 +52,39 @@ archive targeting an existing patient they do not own. An owner has a successful
 download; expired/unsigned downloads and stale digest/changed grant opt-in fail.
 No error response body or download URL is included in retained proof output.
 
-When adding C3 scenarios, update the independently reviewed catalog, actual HTTP
-setup, and relevant production-schema registry together. EHI legacy compatibility remains
-a separate follow-up PR under #359. Do not broaden native parsing to coerce arrays
+C3 adds EHI upload uploading/queued/processing/completed/rejected/failed and preview
+queued/running/completed/failed wire states. A real tiny synthetic upload is chunked,
+queued and taken in, then bound and previewed. Prepared processing/rejected/failed
+upload states, running preview and failed resource outcomes are explicitly fixture
+state polls; these are not new resource calibration or concurrency proofs. Current
+HTTP cases cover time/capacity/null resource details, unknown stored strings/shapes,
+known details with private extra fields, and a detail attached to the wrong reason.
+The producer and consumer independently inspect raw summary fields and closed
+failure details; production Zod stripping/`.catch(null)` cannot conceal a leak.
+Package source keys must remain masked, and synthetic source/exception markers
+must never appear in current HTTP summary bytes. Proposal payloads intentionally
+hold review values; this suite uses empty synthetic values for their compatibility
+case rather than claiming that review DTOs contain no source content.
+
+The browser's existing inline EHI envelopes are mechanically extracted as named
+exports, used by both actual client parse calls and the contract registry. Payload
+schemas and parsing behavior are unchanged. Incomplete-generation cases check
+actual package/proposal/pending routes and a refused review, not just enum parsing.
+
+The independent `compatibility` catalog labels two **derived legacy inputs**:
+omitting `package.preview_run.failure_details`, and changing an empty `pending`
+object to the historically accepted empty array. Each derives only from its
+verified HTTP parent after checking candidate/generation and the exact raw parent
+hash. The manifest records parent/derivation identity; derived bodies are neither
+published as current HTTP output nor written as raw fixtures. Missing/extra,
+duplicate/zero, wrong derivation/hash and mixed provenance fail closed. Real EHI
+empty-map counts and empty proposal maps still parse; nonempty EHI arrays and
+native `tables: []` are expressly refused. Stable inventory enums stay strict.
+
+Current scope: 66 current HTTP/Zod cases, two derived compatibility tests,
+34 HTTP producer assertions and 51 harness checks. Both historical application
+mutation proofs still run in CI with exact intended failure sets.
+
+When adding scenarios, update the independently reviewed catalog, actual HTTP
+setup, and relevant shared production-schema exports together. Do not broaden native parsing to coerce arrays
 into maps or replace strict inventory enums to make contract tests pass.
