@@ -120,6 +120,28 @@ both. Anything talking to the store about uploads goes through `UploadUrlSigner`
 
 ## PR review
 
+After the initial review, let finding severity determine whether to run another
+Codex review:
+
+- **P0/P1 findings:** fix confirmed P0/P1 issues on the same PR branch, push the
+  updated candidate, then re-request Codex review. While making those fixes, you
+  may opportunistically fix related P2+ findings. Repeat the fix/push/review cycle
+  only while P0/P1 findings remain.
+- **Only P2+ findings:** do not start another fix/push/review cycle solely for
+  these findings. Defer them to follow-up work; do not request another review
+  merely because the PR head changed.
+- **Remaining P2 findings:** create or update one consolidated follow-up issue
+  for the PR. Start its title with `P2:` and explicitly state `Priority: P2` in
+  the body. Include links to the PR and each finding, the impact, and acceptance
+  criteria. Link the issue from the PR and affected review threads. Any P3+
+  notes included in that issue must retain their actual priority.
+- **Finding disposition:** inspect issue comments, review submissions and inline
+  comments. Reply with the fixing commit or the follow-up issue and deferral
+  rationale; resolve affected threads after that disposition is recorded.
+- **Merge gate:** require successful CI for the exact candidate commit and no
+  merge conflicts. This severity policy does not waive required checks or allow
+  unresolved P0/P1 issues to merge.
+
 - A bot comment reading "You have reached your Codex usage limits for security
   reviews" is scoped to **security reviews only** and says nothing about code-review
   availability. Disregard it when judging whether a code review ran, and never report
