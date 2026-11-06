@@ -11,6 +11,8 @@ use Illuminate\Support\Facades\Storage;
 
 final class PhrNativeRestorePlanner
 {
+    private const int PROJECTION_IDENTITY_CACHE_SIZE = 512;
+
     /**
      * Unique keys a created row could collide on with a row the target already
      * holds under another identity (blob rows are content-addressed per patient,
@@ -83,6 +85,11 @@ final class PhrNativeRestorePlanner
     /** @param list<string> $blockers */
     private function planRecords(PhrNativeRestoreArchive $archive, int $actorUserId, bool $restoreAccessGrants, bool $lockCurrentRows, string $patientNativeId, string $ownerNativeId, ?int $targetPatientId, array $blockers): PhrNativeRestorePlan
     {
+        // Only inverse identity reads used by current-row projection are reused.
+        // Method-local state is discarded on every return/exception, including
+        // preview -> target edit -> apply on the same planner instance. Target
+        // rows and actor authorization are always read through their live paths.
+        $projectionIdentities = [];
         $actorIds = [$ownerNativeId => $actorUserId];
         $tables = [];
         $actions = [];
@@ -145,7 +152,9 @@ final class PhrNativeRestorePlanner
                     $current = $this->snapshotService->rowById($targetPatientId, $table, $recordId, $lockCurrentRows);
                     if ($current !== null) {
                         try {
-                            $projected = $this->projector->project($targetPatientId, $table, $definition, $current, fn (string $relatedTable, int $id): ?string => $this->identities->existingNativeId($targetPatientId, $relatedTable, $id));
+                            $projected = $this->projector->project($targetPatientId, $table, $definition, $current, function (string $relatedTable, int $id) use ($targetPatientId, &$projectionIdentities): ?string {
+                                return $this->projectionNativeId($targetPatientId, $relatedTable, $id, $projectionIdentities);
+                            });
                             // The archived record had its legacy document values mapped
                             // on read; map the current row the same way, so a row that
                             // still holds one compares equal to its own unchanged backup.
@@ -211,6 +220,24 @@ final class PhrNativeRestorePlanner
         $digest = hash('sha256', PhrNativeRecordCodec::canonicalJson($digestPayload));
 
         return new PhrNativeRestorePlan($patientNativeId, $targetPatientId, $tables, $artifactPlan, $shareCount, $restoreAccessGrants, $blockers, $digest, $actions, $actorIds);
+    }
+
+    /** @param array<string, string|null> $cache */
+    private function projectionNativeId(int $patientId, string $table, int $recordId, array &$cache): ?string
+    {
+        $key = $patientId.':'.$table.':'.$recordId;
+        if (array_key_exists($key, $cache)) {
+            $nativeId = $cache[$key];
+            // Move a hit to the end so frequently reused FKs survive eviction.
+            unset($cache[$key]);
+        } else {
+            $nativeId = $this->identities->existingNativeId($patientId, $table, $recordId);
+            if (count($cache) >= self::PROJECTION_IDENTITY_CACHE_SIZE) {
+                unset($cache[array_key_first($cache)]);
+            }
+        }
+
+        return $cache[$key] = $nativeId;
     }
 
     /**
