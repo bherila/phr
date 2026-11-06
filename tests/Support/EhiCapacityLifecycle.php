@@ -4,6 +4,7 @@ namespace Tests\Support;
 
 use App\Models\PhrEhiProposal;
 use App\Models\PhrNativeBackup;
+use App\Models\PhrNativeRestoreAttempt;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Services\PHR\Access\PhrPatientAccessService;
@@ -105,9 +106,7 @@ final class EhiCapacityLifecycle
             $result['record_stream_bytes'] = $fingerprint['record_stream_bytes'];
             if (($options['sharing'] ?? false) === true) {
                 $service = app(PhrNativeRestoreService::class);
-                $optIn = $stage('existing_opt_in_preview', fn () => $service->preview($service->createPreview(
-                    new UploadedFile($download, 'synthetic.zip', 'application/zip', null, true), $actor, true,
-                )));
+                $optIn = $stage('existing_opt_in_preview', fn () => $this->previewArchive($download, $actor, true));
                 if (($optIn->plan_counts_json['blockers'] ?? []) !== [] || $optIn->access_grant_count !== count($accessBefore['shares'])) {
                     throw new RuntimeException('Existing-patient explicit share restore was not admitted.');
                 }
@@ -148,9 +147,7 @@ final class EhiCapacityLifecycle
                 $result['new_patient_opt_in_blocked'] = true;
             }
             $service = app(PhrNativeRestoreService::class);
-            $attempt = $stage('restore_preview', fn () => $service->preview($service->createPreview(
-                new UploadedFile($download, 'synthetic.zip', 'application/zip', null, true), $actor, false,
-            )));
+            $attempt = $stage('restore_preview', fn () => $this->previewArchive($download, $actor, false));
             if (($attempt->plan_counts_json['blockers'] ?? []) !== []) {
                 throw new RuntimeException('Synthetic restore has blockers.');
             }
@@ -246,6 +243,46 @@ final class EhiCapacityLifecycle
         } finally {
             $zip->close();
         }
+    }
+
+    private function previewArchive(string $path, int $actor, bool $shares): PhrNativeRestoreAttempt
+    {
+        $service = app(PhrNativeRestoreService::class);
+        $bytes = filesize($path);
+        $attempt = $service->startUpload($actor, $bytes, $shares);
+        $source = fopen($path, 'rb');
+        if (! is_resource($source)) {
+            throw new RuntimeException('Independent recovery source is unreadable.');
+        }
+        try {
+            $offset = 0;
+            while ($offset < $bytes) {
+                $part = tempnam(sys_get_temp_dir(), 'phr-capacity-part-');
+                $target = fopen($part, 'wb');
+                if (! is_resource($target)) {
+                    throw new RuntimeException('Synthetic recovery chunk could not open.');
+                }
+                try {
+                    $copied = stream_copy_to_stream($source, $target, min((int) config('phr.native_restore_chunk_bytes'), $bytes - $offset));
+                    fclose($target);
+                    $target = null;
+                    if (! is_int($copied) || $copied < 1) {
+                        throw new RuntimeException('Synthetic recovery source stopped early.');
+                    }
+                    $attempt = $service->appendChunk($attempt, $actor, new UploadedFile($part, 'synthetic-part', 'application/octet-stream', null, true), $offset);
+                    $offset += $copied;
+                } finally {
+                    if (is_resource($target)) {
+                        fclose($target);
+                    }
+                    @unlink($part);
+                }
+            }
+        } finally {
+            fclose($source);
+        }
+
+        return $service->preview($service->queuePreview($attempt, $actor));
     }
 
     public function reviewAll(PhrPatient $patient, int $actor): void

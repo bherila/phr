@@ -24,6 +24,8 @@ final class EhiLabCapacityFixtureTest extends TestCase
     {
         $this->setUpEhi();
         Queue::fake();
+        // Force the tiny archive through multiple real upload chunks, without raising a guard.
+        config(['phr.native_restore_chunk_bytes' => 16384]);
         Storage::fake('phr_exports');
         Storage::fake('phr_dicom');
         try {

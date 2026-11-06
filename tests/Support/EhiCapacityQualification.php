@@ -15,6 +15,7 @@ use App\Services\PHR\Import\Ehi\EhiZipSource;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
+use Throwable;
 use ZipArchive;
 
 /** Explicit synthetic qualification, not a supported production capacity claim. */
@@ -123,6 +124,11 @@ final class EhiCapacityQualification
                 $package = PhrEhiPackage::query()->where('patient_id', $patient->id)->latest('id')->first();
                 $result['generation_complete'] = $package?->previewCompleted() ?? false;
             }
+        } catch (Throwable $failure) {
+            // Preserve aggregate failure evidence; never emit source-bearing exception messages.
+            $result['status'] = 'unexpected_failure';
+            $result['refused_stage'] = array_key_last($metrics->stages);
+            $result['exception_class'] = $failure::class;
         }
 
         return ['profile' => $name, 'declaration' => $profile, 'status' => $result['status'],
