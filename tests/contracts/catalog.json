@@ -266,6 +266,202 @@
       "role": "outsider",
       "state": "blocked-unowned-existing",
       "status": 202
+    },
+    {
+      "id": "ehi-upload-start",
+      "schema": "EhiUploadResponseSchema",
+      "state": "uploading",
+      "status": 201,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-upload-chunk",
+      "schema": "EhiUploadResponseSchema",
+      "state": "uploading",
+      "status": 200,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-upload-queued",
+      "schema": "EhiUploadResponseSchema",
+      "state": "queued",
+      "status": 202,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-upload-processing",
+      "schema": "EhiUploadResponseSchema",
+      "state": "processing",
+      "status": 200,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-upload-completed",
+      "schema": "EhiUploadResponseSchema",
+      "state": "completed",
+      "status": 200,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-upload-rejected",
+      "schema": "EhiUploadResponseSchema",
+      "state": "rejected",
+      "status": 200,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-upload-failed",
+      "schema": "EhiUploadResponseSchema",
+      "state": "failed",
+      "status": 200,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-uploads-empty",
+      "schema": "EhiUploadsResponseSchema",
+      "state": "empty",
+      "status": 200,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-uploads-all-states",
+      "schema": "EhiUploadsResponseSchema",
+      "state": "all-six-states",
+      "status": 200,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-package-empty",
+      "schema": "EhiPackageResponseSchema",
+      "state": "not-started",
+      "status": 200,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-packages-list",
+      "schema": "EhiPackagesResponseSchema",
+      "state": "populated",
+      "status": 200,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-preview-queued",
+      "schema": "EhiPackageResponseSchema",
+      "state": "queued",
+      "status": 202,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-preview-running",
+      "schema": "EhiPackageResponseSchema",
+      "state": "running",
+      "status": 200,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-preview-completed",
+      "schema": "EhiPackageResponseSchema",
+      "state": "completed",
+      "status": 200,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-preview-incomplete",
+      "schema": "EhiPackageResponseSchema",
+      "state": "incomplete",
+      "status": 200,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-preview-empty-maps",
+      "schema": "EhiPackageResponseSchema",
+      "state": "completed",
+      "status": 200,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-preview-resource-time",
+      "schema": "EhiPackageResponseSchema",
+      "state": "failed",
+      "status": 200,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-preview-resource-capacity",
+      "schema": "EhiPackageResponseSchema",
+      "state": "failed",
+      "status": 200,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-preview-resource-null",
+      "schema": "EhiPackageResponseSchema",
+      "state": "failed",
+      "status": 200,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-preview-resource-unknown-string",
+      "schema": "EhiPackageResponseSchema",
+      "state": "failed",
+      "status": 200,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-preview-resource-unknown-shape",
+      "schema": "EhiPackageResponseSchema",
+      "state": "failed",
+      "status": 200,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-preview-resource-known-extra",
+      "schema": "EhiPackageResponseSchema",
+      "state": "failed",
+      "status": 200,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-preview-resource-wrong-reason",
+      "schema": "EhiPackageResponseSchema",
+      "state": "failed",
+      "status": 200,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-pending-empty",
+      "schema": "EhiPendingSchema",
+      "state": "empty",
+      "status": 200,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-pending-completed",
+      "schema": "EhiPendingSchema",
+      "state": "completed",
+      "status": 200,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-pending-incomplete",
+      "schema": "EhiPendingSchema",
+      "state": "incomplete",
+      "status": 200,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-proposals-empty-map",
+      "schema": "EhiProposalsResponseSchema",
+      "state": "empty-map",
+      "status": 200,
+      "role": "owner"
+    },
+    {
+      "id": "ehi-proposals-incomplete",
+      "schema": "EhiProposalsResponseSchema",
+      "state": "incomplete",
+      "status": 200,
+      "role": "owner"
     }
   ],
   "inventory_keys": [
@@ -332,7 +528,20 @@
     "wrong-assertion-status",
     "wrong-assertion-error",
     "zero-assertions",
-    "duplicate-assertion-catalog"
+    "duplicate-assertion-catalog",
+    "missing-compatibility",
+    "extra-compatibility",
+    "duplicate-compatibility",
+    "zero-compatibility",
+    "mixed-compatibility-candidate",
+    "mixed-compatibility-generation",
+    "wrong-compatibility-parent-hash",
+    "wrong-compatibility-derivation",
+    "ehi-raw-detail-privacy",
+    "ehi-raw-extra-privacy",
+    "ehi-nonempty-array-refused",
+    "native-array-refused",
+    "ehi-empty-map-compatibility"
   ],
   "http_assertions": [
     {
@@ -544,6 +753,48 @@
       "state": "refused",
       "status": 409,
       "error": "preview_changed"
+    },
+    {
+      "id": "ehi-viewer-upload",
+      "role": "viewer",
+      "state": "refused",
+      "status": 403,
+      "error": null
+    },
+    {
+      "id": "ehi-viewer-preview",
+      "role": "viewer",
+      "state": "refused",
+      "status": 403,
+      "error": null
+    },
+    {
+      "id": "ehi-outsider-package",
+      "role": "outsider",
+      "state": "refused",
+      "status": 404,
+      "error": null
+    },
+    {
+      "id": "ehi-incomplete-review",
+      "role": "owner",
+      "state": "refused",
+      "status": 409,
+      "error": "preview_incomplete"
+    }
+  ],
+  "compatibility": [
+    {
+      "id": "ehi-legacy-failure-details-omitted",
+      "schema": "EhiPackageResponseSchema",
+      "base_case": "ehi-preview-resource-null",
+      "derivation": "omit-failure-details"
+    },
+    {
+      "id": "ehi-legacy-pending-empty-array",
+      "schema": "EhiPendingSchema",
+      "base_case": "ehi-pending-empty",
+      "derivation": "pending-empty-array"
     }
   ]
 }

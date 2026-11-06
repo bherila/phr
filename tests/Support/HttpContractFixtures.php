@@ -99,11 +99,19 @@ final class HttpContractFixtures
             $fingerprints[$source] = hash_file('sha256', base_path($source));
         }
         ksort($fingerprints);
+        $catalog = json_decode(file_get_contents(base_path('tests/contracts/catalog.json')), true, 32, JSON_THROW_ON_ERROR);
+        $byId = array_column($this->fixtures, null, 'id');
+        $compatibility = [];
+        foreach ($catalog['compatibility'] as $scenario) {
+            self::require(isset($byId[$scenario['base_case']]), 'generation', 'incomplete');
+            $compatibility[] = [...$scenario, 'candidate' => $this->candidate, 'generation' => $this->generation,
+                'base_sha256' => $byId[$scenario['base_case']]['sha256']];
+        }
         $manifest = [
             'version' => 1, 'candidate' => $this->candidate, 'generation' => $this->generation,
             'catalog_sha256' => hash_file('sha256', base_path('tests/contracts/catalog.json')),
             'generator_fingerprints' => $fingerprints, 'fixtures' => $this->fixtures,
-            'http_assertions' => array_values($this->observedAssertions),
+            'http_assertions' => array_values($this->observedAssertions), 'compatibility' => $compatibility,
         ];
         file_put_contents($this->directory.'/manifest.tmp', json_encode($manifest, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES), LOCK_EX);
         rename($this->directory.'/manifest.tmp', $this->directory.'/manifest.json');

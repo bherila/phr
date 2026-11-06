@@ -150,6 +150,13 @@ export const EhiPendingSchema = z.object({
 })
 export type EhiPending = z.infer<typeof EhiPendingSchema>['pending']
 
+/** Shared wire envelopes used by both the browser client and HTTP contract checks. */
+export const EhiUploadsResponseSchema = z.object({ uploads: z.array(EhiUploadSchema) })
+export const EhiUploadResponseSchema = z.object({ upload: EhiUploadSchema })
+export const EhiPackagesResponseSchema = z.object({ packages: z.array(EhiPackageSchema) })
+export const EhiPackageResponseSchema = z.object({ package: EhiPackageSchema })
+export const EhiProposalsResponseSchema = z.object({ proposals: z.array(EhiProposalSchema), next_after_id: z.number().nullable() })
+
 /** Query parameter a record page's banner links with, to open one package's review. */
 export const EHI_PACKAGE_QUERY = 'ehi_package'
 
@@ -167,17 +174,17 @@ function base(patientId: number): string {
 
 export async function listEhiUploads(patientId: number): Promise<EhiUpload[]> {
   const data: unknown = await fetchWrapper.get(`${base(patientId)}/uploads`)
-  return z.object({ uploads: z.array(EhiUploadSchema) }).parse(data).uploads
+  return EhiUploadsResponseSchema.parse(data).uploads
 }
 
 export async function getEhiUpload(patientId: number, uploadId: number): Promise<EhiUpload> {
   const data: unknown = await fetchWrapper.get(`${base(patientId)}/uploads/${uploadId}`)
-  return z.object({ upload: EhiUploadSchema }).parse(data).upload
+  return EhiUploadResponseSchema.parse(data).upload
 }
 
 export async function startEhiUpload(patientId: number, fileSizeBytes: number): Promise<EhiUpload> {
   const data: unknown = await fetchWrapper.post(`${base(patientId)}/uploads`, { file_size_bytes: fileSizeBytes })
-  return z.object({ upload: EhiUploadSchema }).parse(data).upload
+  return EhiUploadResponseSchema.parse(data).upload
 }
 
 export async function appendEhiChunk(patientId: number, uploadId: number, chunk: Blob, offset: number, signal?: AbortSignal): Promise<EhiUpload> {
@@ -185,7 +192,7 @@ export async function appendEhiChunk(patientId: number, uploadId: number, chunk:
   form.append('chunk', chunk, 'chunk.bin')
   form.append('offset', String(offset))
   const data: unknown = await fetchWrapper.post(`${base(patientId)}/uploads/${uploadId}/chunks`, form, signal ? { signal } : {})
-  return z.object({ upload: EhiUploadSchema }).parse(data).upload
+  return EhiUploadResponseSchema.parse(data).upload
 }
 
 const EhiSignedPartSchema = z.object({
@@ -210,17 +217,17 @@ export interface EhiUploadedPart {
 /** `parts` finishes a direct upload first; a chunked upload has none. */
 export async function queueEhiIntake(patientId: number, uploadId: number, parts?: EhiUploadedPart[]): Promise<EhiUpload> {
   const data: unknown = await fetchWrapper.post(`${base(patientId)}/uploads/${uploadId}/intake`, parts ? { parts } : {})
-  return z.object({ upload: EhiUploadSchema }).parse(data).upload
+  return EhiUploadResponseSchema.parse(data).upload
 }
 
 export async function listEhiPackages(patientId: number): Promise<EhiPackage[]> {
   const data: unknown = await fetchWrapper.get(`${base(patientId)}/packages`)
-  return z.object({ packages: z.array(EhiPackageSchema) }).parse(data).packages
+  return EhiPackagesResponseSchema.parse(data).packages
 }
 
 export async function getEhiPackage(patientId: number, packageId: number): Promise<EhiPackage> {
   const data: unknown = await fetchWrapper.get(`${base(patientId)}/packages/${packageId}`)
-  return z.object({ package: EhiPackageSchema }).parse(data).package
+  return EhiPackageResponseSchema.parse(data).package
 }
 
 export async function getEhiBindingSuggestions(patientId: number, packageId: number): Promise<EhiSourceSuggestion[]> {
@@ -232,14 +239,14 @@ export type EhiBindChoice = { source_id: number } | { new_source_label: string }
 
 export async function bindEhiPackage(patientId: number, packageId: number, choice: EhiBindChoice): Promise<EhiPackage> {
   const data: unknown = await fetchWrapper.post(`${base(patientId)}/packages/${packageId}/binding`, choice)
-  return z.object({ package: EhiPackageSchema }).parse(data).package
+  return EhiPackageResponseSchema.parse(data).package
 }
 
 export async function queueEhiPreview(patientId: number, packageId: number): Promise<EhiPackage> {
   const data: unknown = await fetchWrapper.post(`${base(patientId)}/packages/${packageId}/preview`, {})
   // A new preview replaces the export's proposals.
   void reviewStateChanged(patientId)
-  return z.object({ package: EhiPackageSchema }).parse(data).package
+  return EhiPackageResponseSchema.parse(data).package
 }
 
 const PROPOSAL_PAGE = 500
@@ -250,7 +257,7 @@ export async function listAllEhiProposals(patientId: number, packageId: number):
   let afterId = 0
   for (;;) {
     const data: unknown = await fetchWrapper.get(`${base(patientId)}/packages/${packageId}/proposals?limit=${PROPOSAL_PAGE}&after_id=${afterId}`)
-    const page = z.object({ proposals: z.array(EhiProposalSchema), next_after_id: z.number().nullable() }).parse(data)
+    const page = EhiProposalsResponseSchema.parse(data)
     all.push(...page.proposals)
     if (page.next_after_id === null) {
       return all

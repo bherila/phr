@@ -39,7 +39,7 @@ function runGeneration(label, { responsesOnly = false, expectedFailures = [] } =
   writeFileSync(path.join(directory, 'producer.log'), (producer.stdout ?? '') + (producer.stderr ?? ''), { mode: 0o600 })
   if (producer.status !== 0) {
     const diagnostic = ((producer.stdout ?? '') + (producer.stderr ?? '')).match(/http-contract case=([a-z0-9-]+) code=([a-z0-9_]+)/)
-    const allowedCases = new Set(['generation', 'catalog', ...catalog.cases.map(item => item.id), ...catalog.http_assertions.map(item => item.id)])
+    const allowedCases = new Set(['generation', 'catalog', ...catalog.cases.map(item => item.id), ...catalog.http_assertions.map(item => item.id), ...catalog.compatibility.map(item => item.id)])
     const allowedCodes = new Set(['candidate', 'directory', 'case', 'empty', 'unknown_case', 'duplicate', 'http_status', 'content_type', 'body_size', 'incomplete', 'inventory', 'category_keys', 'medication_fill_count', 'role', 'private_field', 'state', 'error_category', 'metadata', 'archive', 'ownership', 'counts'])
     if (diagnostic && allowedCases.has(diagnostic[1]) && allowedCodes.has(diagnostic[2])) {
       proof.producer_failure = { case_id: diagnostic[1], code: diagnostic[2] }
@@ -56,13 +56,13 @@ function runGeneration(label, { responsesOnly = false, expectedFailures = [] } =
   requireContract(expectedFailures.length ? consumer.status !== 0 : consumer.status === 0, 'consumer_status')
   const report = readReport(reportFile)
   requireContract(report.candidate === candidate && report.generation === generation, 'report_provenance')
-  requireContract(Array.isArray(report.results) && report.results.length === catalog.cases.length
-    && new Set(report.results.map(result => result.case_id)).size === catalog.cases.length
-    && report.results.every(result => catalog.cases.some(item => item.id === result.case_id && item.schema === result.schema)), 'report_cases')
+  requireContract(Array.isArray(report.results) && report.results.length === catalog.cases.length + catalog.compatibility.length
+    && new Set(report.results.map(result => result.case_id)).size === catalog.cases.length + catalog.compatibility.length
+    && report.results.every(result => [...catalog.cases, ...catalog.compatibility].some(item => item.id === result.case_id && item.schema === result.schema)), 'report_cases')
   const issues = report.results.flatMap(result => result.issues)
   const normalize = values => JSON.stringify([...values].sort((left, right) => left.case_id.localeCompare(right.case_id)))
   requireContract(normalize(issues) === normalize(expectedFailures), 'unintended_failure')
-  return { label, generation, cases: catalog.cases.length, http_assertions: catalog.http_assertions.length, checks: responsesOnly ? 0 : catalog.checks.length, issues }
+  return { label, generation, cases: catalog.cases.length, compatibility_cases: catalog.compatibility.length, http_assertions: catalog.http_assertions.length, checks: responsesOnly ? 0 : catalog.checks.length, issues }
 }
 
 const mutations = [
@@ -131,7 +131,7 @@ try {
   proof.source_hashes_restored = true
   proof.status = 'passed'
   writeFileSync(proofFile, JSON.stringify(proof, null, 2) + '\n', { mode: 0o600 })
-  console.log(`http-contract status=passed cases=${catalog.cases.length} checks=${catalog.checks.length} http_assertions=${catalog.http_assertions.length} historical_proofs=${proof.mutants.length}`)
+  console.log(`http-contract status=passed cases=${catalog.cases.length} compatibility=${catalog.compatibility.length} checks=${catalog.checks.length} http_assertions=${catalog.http_assertions.length} historical_proofs=${proof.mutants.length}`)
 } catch (error) {
   proof.status = 'failed'
   proof.stage = stage

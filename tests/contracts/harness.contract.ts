@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 
 import { compareText, context, digest, loadBundle, readCatalog, requireContract, verifyTests } from '../../scripts/contracts/protocol.mjs'
-import { assertResponse } from './validateResponses.mjs'
+import { assertResponse, schemas } from './validateResponses.mjs'
 
 const expected = context()
 const catalog = readCatalog()
@@ -30,7 +30,7 @@ function replaced(change: (directory: string) => void, code: string): void {
 }
 
 function testReport() {
-  const names = [...catalog.cases.map((item: { id: string }) => `response/${item.id}`), ...catalog.checks.map((check: string) => `harness/${check}`)]
+  const names = [...catalog.cases.map((item: { id: string }) => `response/${item.id}`), ...catalog.compatibility.map((item: { id: string }) => `compatibility/${item.id}`), ...catalog.checks.map((check: string) => `harness/${check}`)]
   return { numTotalTests: names.length, testResults: [{ assertionResults: names.map(fullName => ({ fullName, status: 'passed' })) }] }
 }
 
@@ -51,6 +51,49 @@ const checks: Record<string, () => void> = {
   'wrong-assertion-error': () => altered(manifest => { manifest.http_assertions[0].error = 'wrong_error' }, 'assertion_error'),
   'zero-assertions': () => altered(manifest => { manifest.http_assertions = [] }, 'assertions_empty'),
   'duplicate-assertion-catalog': () => expect(() => readCatalog(expected.root, { ...catalog, http_assertions: [...catalog.http_assertions, catalog.http_assertions[0]] })).toThrow('code=assertion_catalog_duplicate'),
+  'missing-compatibility': () => altered(manifest => { manifest.compatibility.pop() }, 'compatibility_missing'),
+  'extra-compatibility': () => altered(manifest => { manifest.compatibility.push({ ...manifest.compatibility[0], id: 'unlisted-compatibility' }) }, 'compatibility_extra'),
+  'duplicate-compatibility': () => altered(manifest => { manifest.compatibility.push(manifest.compatibility[0]) }, 'compatibility_duplicate'),
+  'zero-compatibility': () => altered(manifest => { manifest.compatibility = [] }, 'compatibility_empty'),
+  'mixed-compatibility-candidate': () => altered(manifest => { manifest.compatibility[0].candidate = '0'.repeat(40) }, 'compatibility_candidate_mixed'),
+  'mixed-compatibility-generation': () => altered(manifest => { manifest.compatibility[0].generation = '0'.repeat(32) }, 'compatibility_generation_mixed'),
+  'wrong-compatibility-parent-hash': () => altered(manifest => { manifest.compatibility[0].base_sha256 = '0'.repeat(64) }, 'compatibility_parent_hash'),
+  'wrong-compatibility-derivation': () => altered(manifest => { manifest.compatibility[0].derivation = 'unknown-derivation' }, 'compatibility_derivation'),
+  'ehi-raw-detail-privacy': () => {
+    const response = loadBundle(generated, expected).responses.get('ehi-preview-resource-unknown-string')!
+    response.value.package.preview_run.failure_details = { resource_limit: 'synthetic-private-value' }
+    expect(schemas.EhiPackageResponseSchema.safeParse(response.value).success).toBe(true)
+    expect(() => assertResponse(response)).toThrow('path=package.preview_run.failure_details kind=object code=private_field')
+  },
+  'ehi-raw-extra-privacy': () => {
+    const response = loadBundle(generated, expected).responses.get('ehi-preview-resource-null')!
+    response.value.package.raw_exception = 'synthetic-private-value'
+    expect(schemas.EhiPackageResponseSchema.safeParse(response.value).success).toBe(true)
+    expect(() => assertResponse(response)).toThrow('path=package.* kind=string code=private_field')
+  },
+  'ehi-nonempty-array-refused': () => {
+    const response = loadBundle(generated, expected).responses.get('ehi-preview-empty-maps')!
+    response.value.package.preview_run.counts = [1]
+    expect(() => assertResponse(response)).toThrow('path=package.preview_run.counts kind=array code=invalid_type')
+  },
+  'native-array-refused': () => {
+    const response = loadBundle(generated, expected).responses.get('restore-uploading')!
+    response.value.restore.tables = []
+    expect(() => assertResponse(response)).toThrow('path=restore.tables kind=array code=invalid_type')
+  },
+  'ehi-empty-map-compatibility': () => {
+    const bundle = loadBundle(generated, expected)
+    const raw = bundle.responses.get('ehi-preview-empty-maps')!.value
+    expect(raw.package.preview_run.counts.synthetic_contract_mapping).toEqual([])
+    expect(raw.package.preview_run.statuses).toEqual([])
+    const parsed = schemas.EhiPackageResponseSchema.parse(raw).package.preview_run!
+    expect(parsed.counts!.synthetic_contract_mapping).toEqual({})
+    expect(parsed.statuses).toEqual({})
+    expect(parsed.findings).toEqual({})
+    const proposals = schemas.EhiProposalsResponseSchema.parse(bundle.responses.get('ehi-proposals-empty-map')!.value)
+    expect(proposals.proposals[0]!.proposed).toEqual({})
+    expect(proposals.proposals[0]!.before).toEqual({})
+  },
   'missing-file': () => replaced(directory => unlinkSync(path.join(directory, catalog.cases[0].id + '.json')), 'file_missing'),
   'extra-file': () => replaced(directory => writeFileSync(path.join(directory, 'unexpected.json'), '{}'), 'file_extra'),
   'duplicate-file': () => altered(manifest => { manifest.fixtures[1].file = manifest.fixtures[0].file }, 'file_duplicate'),
