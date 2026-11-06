@@ -270,8 +270,11 @@ CI, not a developer's local check loop. Its two independent lanes use PHP 8.5
 with a 1 GiB PHP memory ceiling, SQLite and a disposable loopback MariaDB 10.11
 service. Fixtures are wholly synthetic, use private temporary artifact disks,
 and MariaDB schemas are newly created with a fixed `phr_resource_` prefix; the
-harness never selects an existing application schema or a database host from
-`.env`. No production data or deployment service is contacted.
+harness sets an isolated schema and loopback TCP host instead of selecting an
+application schema/host from `.env`. The inherited `DB_SOCKET` caveat below still
+applies: clean CI has no socket configured, and these CI measurements contacted
+no production data or deployment service. Do not treat the harness as universally
+isolated from arbitrary ambient socket configuration until #365 is addressed.
 
 The mixed package includes notes and immunizations plus ten lab components per
 order, and optionally prior clinical lab history. Profiles measure 1,000 and
@@ -428,7 +431,9 @@ semantic package identity. No export is split or edited outside synthetic fixtur
 The existing 50,000-row/64 MiB preview/native experiment remains a **control**, not
 a selected production envelope. Full review of the 5,000-result case was forecast
 near 63,695 native records before richer mappings/history, above 50,000; the
-forecast must be replaced by actual observed counts. Each qualification has the
+November 6 full-review runs observed 63,732 catalog records before backup refused
+at the 50,000-record experiment limit. This is a measured refusal, not a successful
+native round trip. Each qualification has the
 unchanged 300-second **overall process ceiling**, including seed/intake/project,
 and retains the separate 240-second proposal budget. A timed-out or resource-refused
 experiment is reported as an **unmet qualification**, never capacity success.
@@ -463,7 +468,125 @@ Only verification flags/hashes/counts leave the fixture, never source values.
 
 Artifact count boundaries explicitly use a lowered synthetic count cap of 64:
 source blobs plus the two declared published document artifacts must attain exactly
-64 (must complete) or65 (must refuse at backup). The separate2,000-count profile is
-experimental because the independent1MiB artifact-metadata ceiling may bind first;
+64 (must complete) or 65 (must refuse at backup). The separate 2,000-count profile is
+experimental because the independent 1 MiB artifact-metadata ceiling may bind first;
 it is not labeled successful exact-boundary proof if refused. Production artifact
 settings remain unchanged.
+
+### Bounded processing and authorization changes (November 2026)
+
+The initial implementation keeps the generation/review architecture, archive
+format, production admission limits and deadlines unchanged:
+
+- [#367](https://github.com/bherila/phr/pull/367) adds a 4 MiB encoded-payload
+  flush target alongside projection's existing 500-row/finding cap. Accounting
+  includes buffered revision/finding metadata, and flush happens before the next
+  entry crosses the target. An individually legal entry larger than the target
+  is written alone immediately. This bounds batching, not total PHP memory:
+  parser allocations, the next entry/JSON encoding, PHP/SQL allocations,
+  dictionaries, candidate/evidence indexes and durable aggregate growth remain
+  separate resource dimensions. Per-component allocation
+  attribution for parser, dictionary and buffer memory is not measured; retained
+  stage PHP/RSS peaks combine them. Source bytes, offsets, oversized-revision
+  findings, accounting and table checkpoints are preserved.
+- [#361](https://github.com/bherila/phr/pull/361) serializes grant creation,
+  downgrade and revocation through the existing patient write guard and checks
+  ownership afresh under that lock. Real two-connection PostgreSQL regressions
+  distinguish the legacy parent-touch interleaving from the fixed atomic grant
+  mutation. An acknowledged revocation cannot be followed by a newly committed
+  guarded chunk authorized through that revoked grant. This does not establish
+  a new archive/worker coordination protocol; the archive-during-generation
+  characterization remains a [P2 follow-up](https://github.com/bherila/phr/issues/362).
+- [#368](https://github.com/bherila/phr/pull/368) adds a plan-local 512-entry LRU
+  for inverse native-identity lookups used to project current target rows.
+  Null misses are cached too; the key includes patient, table and record ID.
+  Current target rows, actor mappings, forward identity lookups and restore
+  writes retain their existing paths. Cache state expires when each plan returns
+  or throws, so a subsequent plan sees target and identity edits. No archive
+  format, transaction boundary or restore visibility rule changes.
+
+The measured N1 comparison uses the E0 candidate `e39578f` and optimized candidate
+`7c0fd1e`; it is distinct from final integrated qualification. In disposable
+MariaDB, the 200-incoming/20,000-prior full lifecycle fell from 464,903 to 357,269
+queries (23.15%) and from 295.766 to 242.880 seconds of process wall time (17.88%).
+The existing-target preview and apply stages each avoid 53,817 repeated identity
+queries. New-patient restore still issues 108,510 queries, so its timing variation
+is not evidence that its apply path was optimized. PHP peak remained 143,388,672
+bytes on MariaDB; SQLite's peak rose 2 MiB. This is a query/runtime improvement,
+not a demonstrated peak-memory reduction. All qualification outcomes and
+recovery checks remained unchanged. Retained evidence:
+[E0 run](https://github.com/bherila/phr/actions/runs/42191613859),
+[N1 run](https://github.com/bherila/phr/actions/runs/42195227289).
+
+Interpret retained telemetry with the known
+[P2 harness limitations](https://github.com/bherila/phr/issues/365): cleanup checks
+currently start from the production deletion plan's object inventory rather than
+an independent pre-delete inventory; the disposable SQL connection inherits a
+possible `DB_SOCKET`; and post-restore `rebackup`/`fingerprint_after` durable
+snapshots still use the deleted patient ID. Do not use those false-zero snapshots
+as capacity evidence. The explicit restored-patient `restore_apply` snapshot and
+archive/source/access/hash checks are separate and usable. Clean CI uses no
+socket; production SQL calibration remains unmeasured.
+
+R1 remains pending. The 50,000-row/64 MiB preview plus 50,000-record/64 MiB native
+pair is an experiment, not a selected production envelope: the declared
+2,000-result changed-import and three-cycle profiles refuse at the first changed
+preview, and full review of the 5,000-result profile exceeds native admission.
+Do not infer successful changed-cycle capacity from completed initial review or
+green expected-refusal jobs. No durable cursors or partial mapping review were
+introduced. A future admission change needs a jointly qualified review/replay
+policy and sufficient SQL/storage evidence. Rollback must restrict new admission
+while preserving a recovery-capable native envelope for graphs already admitted;
+lowering restore limits beneath existing archives can strand recoverable data.
+
+### V1 integrated evidence and capacity decision — 2026-11-06
+
+The integrated application candidate is
+`e528f24d417c818bca0c236556af8895141c4bee`, including S1/E0/E1/N1 and #359 C1–C3.
+[Final qualification run 42196863191](https://github.com/bherila/phr/actions/runs/42196863191)
+passed all ten jobs. All 26 qualification JSON files and 18 historical control
+JSON files were inspected. Results agree across SQLite and disposable MariaDB:
+
+| Declared profile | Observed outcome | Capacity interpretation |
+| --- | --- | --- |
+| Small full-review/replay/share; 200 incoming/20,000 prior; wide rows; fanout; mixed mappings; 2,000 artifacts | Full recovery completes | `qualification_met=true` for these synthetic profiles only |
+| Exact native-record and 64-artifact boundaries | Full recovery completes at the declared cap | Synthetic exact-boundary proof |
+| 2,000 incoming/2,000 prior plus changed import; three changed cycles | `resource_limit` at `cycle_1_preview`; zero changed cycles complete | Both targets remain unmet |
+| 5,000 incoming/2,000 prior, full review | `record_count_limit` at backup; 63,732 catalog records observed | Expanded native envelope is insufficient |
+| Native-record and artifact one-over controls | `record_count_limit` / `artifact_metadata_limit` at backup | Expected safe refusal; `qualification_met=false` |
+
+The completed profiles verify independent download, deletion-plan cleanup,
+portable/source hashes and access policy. The sharing profiles preserve existing
+opt-in grants, block unmapped actors during new-patient opt-in planning, and omit
+nonowner grants during default new-patient recovery. The #365 limitations above
+still apply; completion is not an independent proof that the deletion plan covers
+every object family.
+
+Final MariaDB large-history cost is 243.042 seconds of process wall time,
+357,268 queries and 143,388,672 bytes PHP peak, within the unchanged 300-second
+qualification ceiling. SQLite is 99.258 seconds / 358,221 queries. These are
+single CI observations, not production latency guarantees or new capacity limits.
+
+The integrated wide-row projection demonstrates E1's batching tradeoff against
+N1's candidate without E1. MariaDB projection PHP peak falls from 118,054,912 to
+81,821,696 bytes, largest binding batch from 432 to 135, and queries rise from
+287 to 315; stage time changes from 0.718 to 0.856 seconds. Whole-profile PHP peak
+falls from 118,054,912 to 99,434,496 bytes. SQLite projection PHP peak falls from
+92,807,168 to 73,932,800 bytes, but its whole-profile peak stays 101,531,648 bytes.
+This supports the encoded-buffer change without establishing constant memory or
+separate parser/dictionary/index allocation bounds.
+
+The integrated [HTTP contract proof](https://github.com/bherila/phr/actions/runs/42196976354)
+(artifact `13492900420`) pins the same candidate: 66 current HTTP responses,
+two derived compatibility cases, 34 HTTP assertions, 51 pristine harness guards,
+five independent generations, both historical mutation failures at the intended
+paths, and restored source hashes. Contract tests complement the required
+browser recovery journey; its 30-second deadline remains unchanged.
+
+**Decision:** ship the bounded processing, lock alignment, query improvement and
+qualification infrastructure under unchanged production defaults. Do not select
+the experimental pair as a supported production envelope. #330 stays open for
+the unmet replay/full-review targets and sufficient production SQL/storage
+evidence; R1 remains pending. The unavailable representative export (#331) and
+disposable deployment SQL schema remain deferred. No production application
+schema, credentials, data or privileged host calibration was used for V1.
