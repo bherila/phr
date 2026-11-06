@@ -104,7 +104,7 @@ final class HttpResponseFixturesTest extends TestCase
     {
         PhrMedicationFill::query()->create([
             'patient_id' => $patient->id, 'user_id' => $owner->id, 'source_kind' => 'receipt',
-            'review_status' => 'confirmed', 'pharmacy_name' => 'Synthetic contract pharmacy',
+            'review_status' => 'confirmed', 'pharmacy_name' => 'Synthetic contract pharmacy', 'filled_on' => '2026-01-01', 'quantity' => '1.000',
         ]);
     }
 

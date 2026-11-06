@@ -26,7 +26,7 @@ function runGeneration(label, { responsesOnly = false, expectedFailures = [] } =
   mkdirSync(fixtures, { mode: 0o700 })
   const reportFile = path.join(directory, 'responses.json')
   const jestFile = path.join(directory, 'jest.json')
-  const env = { ...process.env,
+  const env = { ...process.env, PHR_TEST_DATABASE: '', PHR_TEST_S3_ENDPOINT: '',
     PHR_HTTP_CONTRACT_CANDIDATE: candidate, PHR_HTTP_CONTRACT_GENERATION: generation,
     PHR_HTTP_CONTRACT_DIR: fixtures, PHR_HTTP_CONTRACT_REPORT: reportFile,
   }
