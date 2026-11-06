@@ -265,12 +265,12 @@ final class EhiClinicalPackage
      * Ten component results per order make source fanout explicit (about 6.3
      * persisted work rows per result after preview, before prior patient history).
      */
-    public static function labCapacity(int $results, int $changed = 0, int $cycle = 1, int $width = 0, int $fanout = 0): self
+    public static function labCapacity(int $results, int $changed = 0, int $cycle = 1, int $width = 0, int $fanout = 0, bool $mixed = false): self
     {
         if ($results < 1 || $results > 10000) {
             throw new LogicException('Synthetic lab capacity must be between 1 and 10000 results.');
         }
-        $standard = self::standard();
+        $standard = $mixed ? self::withEncounters() : self::standard();
         $rows = $standard->rows;
         $rows['ORDER_PROC'] = [];
         $rows['ORDER_RESULTS'] = [];

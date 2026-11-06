@@ -63,10 +63,12 @@ final class EhiLabCapacityFixtureTest extends TestCase
         try {
             $owner = User::factory()->create(['user_role' => 'user']);
             $patient = $this->ehiPatient($owner);
-            $package = $this->ehiIntakeDirectory(EhiClinicalPackage::labCapacity(3)->build(), $patient, $owner->id)->package;
+            $package = $this->ehiIntakeDirectory(EhiClinicalPackage::labCapacity(3, mixed: true)->build(), $patient, $owner->id)->package;
             $package = app(EhiBindingService::class)->bind($package, $patient, $owner->id, null, 'Synthetic oracle source');
             app(EhiProposalService::class)->preview($package, $patient, $owner->id);
             (new EhiCapacityLifecycle)->reviewAll($patient, $owner->id);
+            // Office, hospital and the explicitly accepted telephone encounter.
+            self::assertSame(3, DB::table('phr_office_visits')->where('patient_id', $patient->id)->count());
             $oracle = new EhiCapacityOracle;
             $oracle->assertLabs($patient, 3, 0);
             $before = $oracle->snapshot($patient);

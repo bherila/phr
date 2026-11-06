@@ -133,5 +133,20 @@
     "expectation": "experimental",
     "envelope": "expanded",
     "artifact_limit": 2000
+  },
+  "mixed-mapping": {
+    "records": 50,
+    "history": 100,
+    "review": "full",
+    "mixed": true,
+    "exercise": false,
+    "sharing": true,
+    "expectation": "must_complete",
+    "envelope": "default",
+    "expected_clinical_counts": {
+      "phr_documents": 2,
+      "phr_immunizations": 4,
+      "phr_office_visits": 3
+    }
   }
 }

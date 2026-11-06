@@ -26,6 +26,9 @@ def validate(result):
                 raise ValueError("Manifest-only replay duplicated clinical data")
             if replay.get("cycles_completed", 0) != declaration.get("cycles", 0):
                 raise ValueError("Declared changed cycles did not complete")
+        for table, expected in declaration.get("expected_clinical_counts", {}).items():
+            if lifecycle["review_state"][table] != expected:
+                raise ValueError("Declared mixed mapping clinical output differs")
         if declaration.get("artifact_boundary") == "exact" and lifecycle.get("verified_artifacts") != declaration["artifact_limit"]:
             raise ValueError("Exact artifact-count boundary did not complete at its declared cap")
         if lifecycle["verified_tables"] < 40 or lifecycle["verified_artifacts"] < 1:

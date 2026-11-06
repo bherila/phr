@@ -175,7 +175,7 @@ jobs:
           case "$BATCH" in
             replay) profiles=(small-full target-2000 three-cycles) ;;
             history) profiles=(large-history stretch-full) ;;
-            stress) profiles=(wide-rows fanout many-artifacts) ;;
+            stress) profiles=(wide-rows fanout many-artifacts mixed-mapping) ;;
             boundaries) profiles=(native-exact native-one-over artifact-exact artifact-one-over) ;;
           esac
           for profile in "${profiles[@]}"; do

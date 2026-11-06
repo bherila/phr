@@ -358,7 +358,7 @@ final class EhiCapacityLifecycle
     private function reviewState(int $patient): array
     {
         $counts = [];
-        foreach (['phr_lab_results', 'phr_ehi_proposal_decisions', 'phr_ehi_record_links', 'phr_patient_user_access'] as $table) {
+        foreach (['phr_lab_results', 'phr_documents', 'phr_immunizations', 'phr_office_visits', 'phr_ehi_proposal_decisions', 'phr_ehi_record_links', 'phr_patient_user_access'] as $table) {
             $counts[$table] = DB::table($table)->where('patient_id', $patient)->count();
         }
         $counts['proposal_statuses'] = DB::table('phr_ehi_proposals')->where('patient_id', $patient)->groupBy('status')->orderBy('status')

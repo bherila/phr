@@ -60,7 +60,7 @@ final class EhiCapacityQualification
                 return [$owner, $patient];
             });
             $stage = fn (string $phase, callable $operation): mixed => $metrics->stage($phase, $operation, (int) $patient->id);
-            $synthetic = EhiClinicalPackage::labCapacity($profile['records'], width: $profile['width'] ?? 0, fanout: $profile['fanout'] ?? 0)->build();
+            $synthetic = EhiClinicalPackage::labCapacity($profile['records'], width: $profile['width'] ?? 0, fanout: $profile['fanout'] ?? 0, mixed: $profile['mixed'] ?? false)->build();
             if (isset($profile['artifact_boundary'])) {
                 // Unique source bytes: avoid blob deduplication hiding the artifact boundary.
                 $extra = (int) config('phr.native_max_artifacts');
