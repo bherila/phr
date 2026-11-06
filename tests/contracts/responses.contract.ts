@@ -4,7 +4,7 @@ import { context, loadBundle, requireContract } from '../../scripts/contracts/pr
 import { assertResponse, inspectResponse } from './validateResponses.mjs'
 
 const bundle = loadBundle(process.env.PHR_HTTP_CONTRACT_DIR, context())
-const results = [...bundle.responses.values()].map(response => ({
+const results = [...bundle.responses.values(), ...bundle.compatible.values()].map(response => ({
   case_id: response.scenario.id,
   schema: response.scenario.schema,
   issues: inspectResponse(response),
@@ -22,5 +22,11 @@ afterAll(() => {
 for (const scenario of bundle.catalog.cases) {
   test(`response/${scenario.id}`, () => {
     assertResponse(bundle.responses.get(scenario.id))
+  })
+}
+
+for (const scenario of bundle.catalog.compatibility) {
+  test(`compatibility/${scenario.id}`, () => {
+    assertResponse(bundle.compatible.get(scenario.id))
   })
 }

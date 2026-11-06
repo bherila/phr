@@ -4,7 +4,7 @@ import { lstatSync, readdirSync, readFileSync, realpathSync } from 'node:fs'
 import path from 'node:path'
 
 export const ROOT = process.cwd()
-export const SCHEMA_IDS = ['DataHubResponseSchema', 'NativeRestoreResponseSchema', 'NativeRestoresResponseSchema', 'NativeBackupResponseSchema', 'NativeBackupsResponseSchema']
+export const SCHEMA_IDS = ['DataHubResponseSchema', 'NativeRestoreResponseSchema', 'NativeRestoresResponseSchema', 'NativeBackupResponseSchema', 'NativeBackupsResponseSchema', 'EhiUploadResponseSchema', 'EhiUploadsResponseSchema', 'EhiPackageResponseSchema', 'EhiPackagesResponseSchema', 'EhiPendingSchema', 'EhiProposalsResponseSchema']
 const ID = /^[a-z][a-z0-9-]{1,80}$/
 const SHA = /^[a-f0-9]{64}$/
 const own = (value, key) => Object.hasOwn(value, key)
@@ -47,7 +47,7 @@ function json(bytes, code, id) {
 
 export function readCatalog(root = ROOT, supplied) {
   const catalog = supplied ?? json(regularFile(path.join(root, 'tests/contracts/catalog.json'), 'catalog_invalid'), 'catalog_invalid')
-  exactKeys(catalog, ['version', 'cases', 'inventory_keys', 'checks', 'http_assertions'], 'catalog_invalid')
+  exactKeys(catalog, ['version', 'cases', 'inventory_keys', 'checks', 'http_assertions', 'compatibility'], 'catalog_invalid')
   requireContract(catalog.version === 1 && Array.isArray(catalog.cases) && catalog.cases.length > 0, 'catalog_empty')
   requireContract(catalog.cases.length <= 200, 'catalog_invalid')
   const seen = new Set()
@@ -71,6 +71,20 @@ export function readCatalog(root = ROOT, supplied) {
     requireContract(typeof item.role === 'string' && ID.test(item.role) && typeof item.state === 'string' && ID.test(item.state)
       && [200, 403, 404, 409, 410, 422].includes(item.status)
       && (item.error === null || typeof item.error === 'string' && /^[a-z_]+$/.test(item.error)), 'catalog_invalid')
+  }
+  requireContract(Array.isArray(catalog.compatibility) && catalog.compatibility.length > 0
+    && catalog.cases.length + catalog.compatibility.length <= 200, 'compatibility_empty')
+  const approved = {
+    'omit-failure-details': ['ehi-preview-resource-null', 'EhiPackageResponseSchema'],
+    'pending-empty-array': ['ehi-pending-empty', 'EhiPendingSchema'],
+  }
+  for (const item of catalog.compatibility) {
+    exactKeys(item, ['id', 'schema', 'base_case', 'derivation'], 'catalog_invalid')
+    requireContract(typeof item.id === 'string' && ID.test(item.id) && !seen.has(item.id), 'compatibility_duplicate')
+    seen.add(item.id)
+    requireContract(Object.hasOwn(approved, item.derivation)
+      && approved[item.derivation][0] === item.base_case && approved[item.derivation][1] === item.schema
+      && catalog.cases.some(parent => parent.id === item.base_case && parent.schema === item.schema), 'compatibility_derivation')
   }
   return catalog
 }
@@ -102,7 +116,7 @@ export function loadBundle(directory, expected) {
       && realpathSync(directory) === path.resolve(directory), 'directory_invalid')
   } catch { throw new ContractFailure('directory_invalid') }
   const manifest = json(regularFile(path.join(directory, 'manifest.json'), 'manifest_missing'), 'manifest_invalid')
-  exactKeys(manifest, ['version', 'candidate', 'generation', 'catalog_sha256', 'generator_fingerprints', 'fixtures', 'http_assertions'], 'manifest_invalid')
+  exactKeys(manifest, ['version', 'candidate', 'generation', 'catalog_sha256', 'generator_fingerprints', 'fixtures', 'http_assertions', 'compatibility'], 'manifest_invalid')
   requireContract(manifest.version === 1 && Array.isArray(manifest.fixtures), 'manifest_invalid')
   requireContract(manifest.fixtures.length > 0, 'fixtures_empty')
   requireContract(manifest.fixtures.length <= 200, 'manifest_invalid')
@@ -153,12 +167,37 @@ export function loadBundle(directory, expected) {
     responses.set(scenario.id, { scenario, value: json(raw, 'json_invalid', scenario.id) })
   }
   requireContract(same(readdirSync(directory), ['manifest.json', ...files]), 'file_extra')
-  return { catalog, responses }
+  requireContract(Array.isArray(manifest.compatibility) && manifest.compatibility.length > 0, 'compatibility_empty')
+  const compatible = new Map()
+  for (const entry of manifest.compatibility) {
+    exactKeys(entry, ['id', 'schema', 'base_case', 'derivation', 'candidate', 'generation', 'base_sha256'], 'manifest_invalid')
+    requireContract(!compatible.has(entry.id), 'compatibility_duplicate')
+    const scenario = catalog.compatibility.find(item => item.id === entry.id)
+    requireContract(scenario, 'compatibility_extra')
+    requireContract(entry.candidate === expected.candidate, 'compatibility_candidate_mixed', scenario.id)
+    requireContract(entry.generation === expected.generation, 'compatibility_generation_mixed', scenario.id)
+    requireContract(entry.schema === scenario.schema && entry.base_case === scenario.base_case && entry.derivation === scenario.derivation,
+      'compatibility_derivation', scenario.id)
+    requireContract(entry.base_sha256 === manifest.fixtures.find(parent => parent.id === scenario.base_case).sha256,
+      'compatibility_parent_hash', scenario.id)
+    // These are deliberately derived compatibility inputs, never represented as current HTTP bytes.
+    const value = structuredClone(responses.get(scenario.base_case).value)
+    if (scenario.derivation === 'omit-failure-details') {
+      requireContract(value.package.preview_run.failure_details === null, 'compatibility_parent_shape', scenario.id)
+      delete value.package.preview_run.failure_details
+    } else {
+      requireContract(object(value.pending) && Object.keys(value.pending).length === 0, 'compatibility_parent_shape', scenario.id)
+      value.pending = []
+    }
+    compatible.set(scenario.id, { scenario, value })
+  }
+  requireContract(same([...compatible.keys()], catalog.compatibility.map(item => item.id)), 'compatibility_missing')
+  return { catalog, responses, compatible }
 }
 
 /** Actual Jest results must contain every catalog test once, with no skip/pass-with-no-tests escape. */
 export function verifyTests(report, catalog, { responsesOnly = false, failures = [] } = {}) {
-  const wanted = catalog.cases.map(item => `response/${item.id}`)
+  const wanted = [...catalog.cases.map(item => `response/${item.id}`), ...catalog.compatibility.map(item => `compatibility/${item.id}`)]
   if (!responsesOnly) wanted.push(...catalog.checks.map(check => `harness/${check}`))
   const assertions = (report.testResults ?? []).flatMap(result => result.assertionResults ?? [])
   requireContract(assertions.length > 0 && report.numTotalTests > 0, 'tests_empty')

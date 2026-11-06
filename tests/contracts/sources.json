@@ -23,5 +23,15 @@
   "app/Services/PHR/NativeBackup/PhrNativeRestoreService.php",
   "app/Services/PHR/Access/PhrPatientAccessService.php",
   "app/Models/PhrNativeBackup.php",
-  "app/Models/PhrNativeRestoreAttempt.php"
+  "app/Models/PhrNativeRestoreAttempt.php",
+  "tests/Contracts/EhiHttpContractScenarios.php",
+  "resources/js/phr/imports/ehi/ehiApi.ts",
+  "app/Http/Controllers/PHR/PhrEhiImportController.php",
+  "app/Services/PHR/Import/Ehi/EhiImportPresenter.php",
+  "app/Services/PHR/Import/Ehi/EhiUploadService.php",
+  "app/Services/PHR/Import/Ehi/EhiPreviewQueue.php",
+  "app/Models/PhrEhiUpload.php",
+  "app/Models/PhrEhiPackage.php",
+  "app/Models/PhrEhiPreviewRun.php",
+  "tests/Support/EhiSyntheticPackage.php"
 ]
