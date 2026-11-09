@@ -34,6 +34,9 @@ const SKIP_FILES = new Set([
   'pnpm-lock.yaml',
   'package-lock.json',
   'composer.lock',
+  // Generated DDL (foreign keys on member_id trip the insurance-id rule); no patient data.
+  'database/schema/mysql-schema.sql',
+  'database/schema/sqlite-schema.sql',
   'scripts/scan-sensitive.mjs',
   'scripts/sensitive-scan-allow.txt',
 ])
