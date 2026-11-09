@@ -31,7 +31,10 @@ final class EhiCapacityLifecycle
     {
         $result = ['status' => 'completed', 'stages' => [], 'round_trip_verified' => false];
         $metrics = $options['metrics'] ?? new EhiCapacityMetrics;
-        $stage = fn (string $name, callable $operation): mixed => $metrics->stage($name, $operation, (int) $patient->id);
+        $activePatientId = (int) $patient->id;
+        $stage = function (string $name, callable $operation) use ($metrics, &$activePatientId): mixed {
+            return $metrics->stage($name, $operation, $activePatientId);
+        };
         $download = null;
         $inspected = null;
         $inspectionPath = null;
@@ -128,13 +131,48 @@ final class EhiCapacityLifecycle
                 $result['existing_opt_in_shares_preserved'] = true;
             }
 
+            $knownArtifacts = $this->snapshotKnownArtifacts($patient, $backup);
+            if ($knownArtifacts === []) {
+                throw new RuntimeException('Synthetic known managed references missing.');
+            }
+
             $plan = app(PhrPatientDeletionService::class)->preview($patient);
             if ($plan->blockers !== [] || $plan->artifacts === []) {
                 throw new RuntimeException('Synthetic deletion plan is not usable.');
             }
-            $stage('delete', function () use ($patient, $actor, $plan, $download, $backup, &$result): void {
+            if (isset($options['omit_plan_artifact_family'])) {
+                $family = $options['omit_plan_artifact_family'];
+                $filteredArtifacts = array_values(array_filter($plan->artifacts, function (array $art) use ($backup, $family): bool {
+                    if ($family === 'backup') {
+                        return ! ($art['disk'] === $backup->storage_disk && $art['key'] === $backup->storage_path);
+                    }
+                    if ($family === 'blob') {
+                        return ! (str_contains($art['key'], 'blob') || str_contains($art['key'], 'ehi'));
+                    }
+                    if ($family === 'document') {
+                        return ! str_contains($art['key'], 'document');
+                    }
+
+                    return true;
+                }));
+                $plan = new \App\Services\PHR\DataHub\PhrPatientDeletionPlan(
+                    $plan->patientId,
+                    $plan->recordCounts,
+                    $plan->activeShareCount,
+                    $filteredArtifacts,
+                    array_sum(array_column($filteredArtifacts, 'bytes')),
+                    $plan->blockers,
+                    $plan->digest,
+                );
+            }
+            $this->assertPlanCoversArtifacts($plan, $knownArtifacts);
+            $stage('delete', function () use ($patient, $actor, $plan, $download, $backup, $knownArtifacts, $options, &$result): void {
                 $deleted = app(PhrPatientDeletionService::class)->delete($patient, $actor, $plan->digest, true);
                 app(PhrPatientDeletionCleanupService::class)->cleanup($deleted->id);
+                if (($options['negative_control_surviving_artifact'] ?? false) === true) {
+                    Storage::disk($backup->storage_disk)->put($backup->storage_path, 'synthetic-surviving-object');
+                }
+                $this->assertArtifactsAbsent($knownArtifacts, $backup);
                 foreach ($plan->artifacts as $artifact) {
                     if (Storage::disk($artifact['disk'])->exists($artifact['key'])) {
                         throw new RuntimeException('Managed synthetic object survived deletion.');
@@ -167,8 +205,9 @@ final class EhiCapacityLifecycle
                 throw new RuntimeException('Synthetic restore did not complete.');
             }
             $restored = PhrPatient::findOrFail($attempt->target_patient_root_id);
-            $after = $this->reviewState((int) $restored->id);
-            $metrics->stages['restore_apply']['durable'] = $metrics->durable((int) $restored->id);
+            $activePatientId = (int) $restored->id;
+            $after = $this->reviewState($activePatientId);
+            $metrics->stages['restore_apply']['durable'] = $metrics->durable($activePatientId);
             $accessAfter = $this->accessState($restored, $actor, array_keys($accessBefore['shares']));
             if ($accessAfter['owner'] !== $accessBefore['owner'] || $accessAfter['shares'] !== [] || ! $accessAfter['former_shares_denied']) {
                 throw new RuntimeException('Default new-patient access policy changed.');
@@ -365,5 +404,90 @@ final class EhiCapacityLifecycle
             ->selectRaw('status, COUNT(*) AS total')->pluck('total', 'status')->map(fn ($count): int => (int) $count)->all();
 
         return $counts;
+    }
+
+    /**
+     * Snapshots the fixture's independently known managed source/blob and backup references before aggregate deletion.
+     *
+     * @return list<array{disk: string, key: string}>
+     */
+    public function snapshotKnownArtifacts(PhrPatient $patient, PhrNativeBackup $backup): array
+    {
+        $patientId = (int) $patient->id;
+        $known = [];
+        $record = static function (string $disk, ?string $key) use (&$known): void {
+            if ($key !== null && $key !== '') {
+                $known[$disk."\0".$key] = ['disk' => $disk, 'key' => $key];
+            }
+        };
+
+        $record((string) $backup->storage_disk, (string) $backup->storage_path);
+
+        DB::table('phr_native_backups')->where('patient_id', $patientId)->whereNotNull('storage_path')
+            ->orderBy('id')->each(fn ($row) => $record((string) $row->storage_disk, (string) $row->storage_path));
+
+        DB::table('phr_ehi_blobs')->where('patient_id', $patientId)->whereNotNull('storage_path')
+            ->orderBy('id')->each(fn ($row) => $record((string) $row->storage_disk, (string) $row->storage_path));
+
+        DB::table('phr_documents')->where('patient_id', $patientId)->whereNotNull('storage_path')
+            ->orderBy('id')->each(fn ($row) => $record((string) $row->storage_disk, (string) $row->storage_path));
+
+        DB::table('phr_dicom_files')->where('patient_id', $patientId)->whereNotNull('r2_key')
+            ->orderBy('id')->each(fn ($row) => $record('phr_dicom', (string) $row->r2_key));
+
+        DB::table('phr_exports')->where('patient_id', $patientId)->whereNotNull('storage_path')
+            ->orderBy('id')->each(fn ($row) => $record((string) $row->storage_disk, (string) $row->storage_path));
+
+        DB::table('phr_ehi_uploads')->where('patient_id', $patientId)->whereNotNull('storage_path')
+            ->orderBy('id')->each(fn ($row) => $record((string) $row->storage_disk, (string) $row->storage_path));
+
+        DB::table('phr_document_uploads')->where('patient_id', $patientId)->whereNotNull('staging_path')
+            ->orderBy('id')->each(fn ($row) => $record((string) $row->storage_disk, (string) $row->staging_path));
+
+        DB::table('phr_blob_migrations')->where('patient_id', $patientId)->orderBy('id')->each(function ($row) use ($record): void {
+            if ($row->legacy_deleted_at === null && $row->source_key !== null) {
+                $record((string) $row->storage_disk, (string) $row->source_key);
+            }
+            if ($row->destination_key !== null) {
+                $record((string) $row->storage_disk, (string) $row->destination_key);
+            }
+        });
+
+        return array_values($known);
+    }
+
+    /**
+     * Asserts that the deletion plan covers all independently known managed references.
+     *
+     * @param  list<array{disk: string, key: string}>  $knownArtifacts
+     */
+    public function assertPlanCoversArtifacts(object $plan, array $knownArtifacts): void
+    {
+        $planKeys = [];
+        foreach ($plan->artifacts as $artifact) {
+            $planKeys[$artifact['disk']."\0".$artifact['key']] = true;
+        }
+        foreach ($knownArtifacts as $artifact) {
+            if (! isset($planKeys[$artifact['disk']."\0".$artifact['key']])) {
+                throw new RuntimeException('Synthetic deletion plan omitted known managed reference.');
+            }
+        }
+    }
+
+    /**
+     * Verifies that every independently known managed object and backup is absent from storage.
+     *
+     * @param  list<array{disk: string, key: string}>  $knownArtifacts
+     */
+    public function assertArtifactsAbsent(array $knownArtifacts, ?PhrNativeBackup $backup = null): void
+    {
+        foreach ($knownArtifacts as $artifact) {
+            if (Storage::disk($artifact['disk'])->exists($artifact['key'])) {
+                throw new RuntimeException('Managed synthetic object survived deletion.');
+            }
+        }
+        if ($backup !== null && Storage::disk($backup->storage_disk)->exists($backup->storage_path)) {
+            throw new RuntimeException('Managed synthetic backup survived deletion.');
+        }
     }
 }

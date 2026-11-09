@@ -36,6 +36,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Tests\Support\DisposableResourceConnection;
 use Tests\Support\EhiCapacityLifecycle;
 use Tests\Support\EhiCapacityQualification;
 use Tests\Support\EhiClinicalPackage;
@@ -81,17 +82,16 @@ if (array_key_exists('mysql-port', $options)) {
     }
     // Never select an existing application schema, host or credentials from .env.
     // Every fixture receives a new private schema in the disposable CI service.
-    $schema = 'phr_resource_'.substr(hash('sha256', $directory), 0, 24);
-    $password = 'synthetic-resource-password';
+    $mysqlConfig = DisposableResourceConnection::mysql($port, $directory);
+    $schema = $mysqlConfig['database'];
+    $password = $mysqlConfig['password'];
     if ($prepare) {
         $server = new PDO('mysql:host=127.0.0.1;port='.$port, 'root', $password, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
         $server->exec('CREATE DATABASE `'.$schema.'` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
     }
     config([
-        'database.default' => 'mysql', 'database.connections.mysql.url' => null,
-        'database.connections.mysql.host' => '127.0.0.1', 'database.connections.mysql.port' => $port,
-        'database.connections.mysql.database' => $schema, 'database.connections.mysql.username' => 'root',
-        'database.connections.mysql.password' => $password,
+        'database.default' => 'mysql',
+        'database.connections.mysql' => $mysqlConfig,
     ]);
 }
 DB::purge();
