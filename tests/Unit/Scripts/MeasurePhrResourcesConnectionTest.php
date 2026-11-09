@@ -4,8 +4,8 @@ namespace Tests\Unit\Scripts;
 
 use Illuminate\Database\Connectors\MySqlConnector;
 use InvalidArgumentException;
+use PHPUnit\Framework\TestCase;
 use Tests\Support\DisposableResourceConnection;
-use Tests\TestCase;
 
 final class MeasurePhrResourcesConnectionTest extends TestCase
 {
@@ -14,21 +14,10 @@ final class MeasurePhrResourcesConnectionTest extends TestCase
         $directory = '/tmp/phr-resource-synthetic-'.bin2hex(random_bytes(8));
         $inheritedSocket = '/var/run/mysqld/synthetic-inherited.sock';
 
-        config([
-            'database.connections.mysql.unix_socket' => $inheritedSocket,
-            'database.connections.mysql.host' => '10.0.0.99',
-            'database.connections.mysql.database' => 'production_phr',
-            'database.connections.mysql.username' => 'prod_user',
-            'database.connections.mysql.password' => 'prod_secret',
-        ]);
-
-        $disposable = DisposableResourceConnection::mysql(3307, $directory);
-        config([
-            'database.default' => 'mysql',
-            'database.connections.mysql' => $disposable,
-        ]);
-
-        $configured = config('database.connections.mysql');
+        // Pure array assertions: never touch the application's config or connections,
+        // which would leak a MySQL default into every later test in the process.
+        $configured = DisposableResourceConnection::mysql(3307, $directory);
+        self::assertSame('mysql', $configured['driver']);
         self::assertSame('', $configured['unix_socket']);
         self::assertSame('127.0.0.1', $configured['host']);
         self::assertSame(3307, $configured['port']);
