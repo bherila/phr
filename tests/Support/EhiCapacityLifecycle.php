@@ -9,6 +9,7 @@ use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\DataHub\PhrPatientDeletionCleanupService;
+use App\Services\PHR\DataHub\PhrPatientDeletionPlan;
 use App\Services\PHR\DataHub\PhrPatientDeletionService;
 use App\Services\PHR\Import\Ehi\EhiProposalService;
 use App\Services\PHR\NativeBackup\NativeBackupException;
@@ -155,7 +156,7 @@ final class EhiCapacityLifecycle
 
                     return true;
                 }));
-                $plan = new \App\Services\PHR\DataHub\PhrPatientDeletionPlan(
+                $plan = new PhrPatientDeletionPlan(
                     $plan->patientId,
                     $plan->recordCounts,
                     $plan->activeShareCount,
