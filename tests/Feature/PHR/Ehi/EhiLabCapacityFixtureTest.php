@@ -51,9 +51,63 @@ final class EhiLabCapacityFixtureTest extends TestCase
             self::assertGreaterThan(0, $lifecycle['record_stream_bytes']);
             self::assertSame(1, $lifecycle['review_state']['phr_lab_results']);
             self::assertSame(2, $lifecycle['review_state']['phr_ehi_proposal_decisions']);
+
+            $restoredDurableRows = $lifecycle['stages']['restore_apply']['durable']['rows'];
+            self::assertGreaterThan(0, $restoredDurableRows);
+            self::assertSame($restoredDurableRows, $lifecycle['stages']['rebackup']['durable']['rows']);
+            self::assertSame($restoredDurableRows, $lifecycle['stages']['fingerprint_after']['durable']['rows']);
+            self::assertSame(1, $lifecycle['stages']['rebackup']['durable']['tables']['phr_lab_results']['rows']);
+            self::assertSame(2, $lifecycle['stages']['rebackup']['durable']['tables']['phr_ehi_proposal_decisions']['rows']);
+            self::assertSame(1, $lifecycle['stages']['rebackup']['durable']['tables']['phr_patients']['rows']);
         } finally {
             $this->tearDownEhi();
         }
+    }
+
+    public function test_synthetic_negative_control_refuses_omitted_artifact_family_and_surviving_objects(): void
+    {
+        $lifecycle = new EhiCapacityLifecycle;
+        Storage::fake('phr_exports');
+
+        // Negative control: deletion plan omits a known managed artifact reference.
+        $knownArtifacts = [
+            ['disk' => 'phr_exports', 'key' => 'synthetic-backup.zip'],
+            ['disk' => 'phr_documents', 'key' => 'synthetic-document.pdf'],
+        ];
+        $incompletePlan = (object) [
+            'artifacts' => [
+                ['disk' => 'phr_documents', 'key' => 'synthetic-document.pdf'],
+            ],
+        ];
+
+        try {
+            $lifecycle->assertPlanCoversArtifacts($incompletePlan, $knownArtifacts);
+            self::fail('A deletion plan omitting a known artifact family must fail qualification.');
+        } catch (RuntimeException $omission) {
+            self::assertStringContainsString('omitted known managed reference', $omission->getMessage());
+        }
+
+        // Complete plan covers all known artifacts.
+        $completePlan = (object) [
+            'artifacts' => [
+                ['disk' => 'phr_exports', 'key' => 'synthetic-backup.zip'],
+                ['disk' => 'phr_documents', 'key' => 'synthetic-document.pdf'],
+            ],
+        ];
+        $lifecycle->assertPlanCoversArtifacts($completePlan, $knownArtifacts);
+
+        // Negative control: a managed artifact survives post-cleanup.
+        Storage::disk('phr_exports')->put('synthetic-backup.zip', 'surviving-content');
+        try {
+            $lifecycle->assertArtifactsAbsent($knownArtifacts);
+            self::fail('A surviving managed artifact must fail qualification.');
+        } catch (RuntimeException $survived) {
+            self::assertStringContainsString('survived deletion', $survived->getMessage());
+        }
+
+        // Once removed, verification passes.
+        Storage::disk('phr_exports')->delete('synthetic-backup.zip');
+        $lifecycle->assertArtifactsAbsent($knownArtifacts);
     }
 
     public function test_independent_oracle_refuses_missing_changed_values_and_overwritten_prior_decisions(): void
