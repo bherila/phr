@@ -46,9 +46,24 @@ Counts describe the provisional TSV dialect used by current intake. The report's
 separate RFC 4180 comparison helps investigate whether quoting changes the shape;
 it does not select a different dialect or approve ownership automatically.
 
-## Policy remains evidence-driven
+## Decision: intake keeps refusing unscoped patient rows
 
-This tooling does not relax intake. A real export's structure-only report is still
-needed to settle issue #331. If affected public tables appear, investigate whether
-a documented join can prove ownership before proposing a narrowly scoped rule.
-Do not preserve an unowned row under a patient merely to let the rest import.
+Issue #331 is closed as working as intended. Intake refuses a whole package when a
+table with a `PAT_ID` column has a blank or unreadable patient value
+(`unscoped_patient_row`, `EhiIntakeService::observePatientKey()`), and nothing is
+stored for a refused package. Such a row could belong to another patient, so it is
+refused rather than preserved or quarantined under this one. Tables without a
+`PAT_ID` column are not refused; their malformed rows are counted and reported as
+findings. `EhiIntakeServiceTest` pins this behaviour.
+
+The refusal is a deliberate fail-closed privacy rule, and its cost is visible and
+reversible: if real exports do contain such rows, imports fail loudly and the rule
+can be revisited with evidence.
+
+**Reopen the question when** a real export is refused with `unscoped_patient_row`,
+or a representative export becomes available. Then run the structure-only probe
+privately and, if affected public tables appear, investigate whether a documented
+join or another column can prove ownership before proposing a narrowly scoped rule
+for those named tables. Do not preserve an unowned row under a patient merely to
+let the rest import, and do not relax intake because the probe reports
+`not_observed`.
