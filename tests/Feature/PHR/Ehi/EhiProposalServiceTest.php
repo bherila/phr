@@ -533,6 +533,48 @@ class EhiProposalServiceTest extends TestCase
         self::assertSame(1, PhrEhiProposalDecision::query()->count());
     }
 
+    public function test_archiving_the_patient_during_preparation_refuses_the_next_write_and_a_restart_after_unarchive_completes(): void
+    {
+        config(['phr.ehi_mappings' => [EhiInterleavedMapping::class]]);
+        [$owner, $patient, $package] = $this->previewable('archived');
+        $service = app(EhiProposalService::class);
+        $service->preview($package, $patient, $owner->id);
+        $decided = PhrEhiProposal::query()->where('package_id', $package->id)->sole();
+        $service->review($decided, PhrEhiProposal::DECISION_RETAIN, $owner->id, $decided->preview_digest);
+        $decidedState = $decided->refresh()->getAttributes();
+        $before = PhrEhiProposal::query()->count();
+        EhiInterleavedMapping::$during = function () use ($patient): void {
+            PhrPatient::query()->whereKey($patient->id)->update(['archived_at' => now()]);
+        };
+
+        try {
+            $service->preview($package->refresh(), $patient, $owner->id);
+            self::fail('Archiving the patient must stop the next preview write.');
+        } catch (EhiProjectionRefused $refused) {
+            self::assertSame('patient_archived', $refused->reason);
+        }
+
+        self::assertSame([2, 1], [$package->refresh()->preview_generation_started, $package->preview_generation_completed], 'the generation never completes');
+        self::assertSame($decidedState, $decided->refresh()->getAttributes(), 'prior decisions are untouched');
+        self::assertSame($before, PhrEhiProposal::query()->count());
+        self::assertSame(1, PhrEhiProposalDecision::query()->count());
+        self::assertSame(0, PhrImmunization::query()->count());
+
+        try {
+            $service->preview($package->refresh(), PhrPatient::query()->findOrFail($patient->id), $owner->id);
+            self::fail('An archived patient must refuse a new preview before it takes a generation.');
+        } catch (EhiProjectionRefused $refused) {
+            self::assertSame('patient_archived', $refused->reason);
+        }
+        self::assertSame(2, $package->refresh()->preview_generation_started);
+
+        PhrPatient::query()->whereKey($patient->id)->update(['archived_at' => null]);
+        $service->preview($package->refresh(), $patient->refresh(), $owner->id);
+        self::assertSame([3, 3], [$package->refresh()->preview_generation_started, $package->preview_generation_completed]);
+        self::assertSame($decidedState, $decided->refresh()->getAttributes());
+        self::assertSame(0, PhrImmunization::query()->count());
+    }
+
     public function test_a_revision_shared_by_two_proposals_keeps_its_strongest_disposition_in_either_review_order(): void
     {
         config(['phr.ehi_mappings' => [EhiSharedRevisionMapping::class]]);

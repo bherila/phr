@@ -657,7 +657,7 @@ final class EhiProposalService
             return;
         }
         $this->writeGuard->run((int) $package->patient_id, function (PhrPatient $patient) use ($package, $actorUserId, $mapping, $version, $generation, $rows): void {
-            $this->access->ensureCanWrite($patient, $actorUserId);
+            $this->ensurePreviewWritable($patient, $actorUserId);
             (new EhiPreviewBudget)->assertPatient($patient->id);
             $existing = PhrEhiProposal::query()->where('package_id', $package->id)->where('mapping', $mapping)
                 ->where('mapping_version', $version)
@@ -749,7 +749,7 @@ final class EhiProposalService
     {
         foreach (array_chunk($ids, self::CHUNK) as $chunk) {
             $this->writeGuard->run((int) $package->patient_id, function (PhrPatient $patient) use ($actorUserId, $chunk, $generation): void {
-                $this->access->ensureCanWrite($patient, $actorUserId);
+                $this->ensurePreviewWritable($patient, $actorUserId);
                 PhrEhiProposal::query()->whereIn('id', $chunk)->where('patient_id', $patient->id)
                     ->where('status', PhrEhiProposal::STATUS_PENDING)
                     ->where(fn ($stamped) => $this->stampedBefore($stamped, $generation))
@@ -767,11 +767,28 @@ final class EhiProposalService
         return $query->whereNull('preview_generation')->orWhere('preview_generation', '<', $generation);
     }
 
+    /**
+     * The write boundary of in-flight preview work, checked on the freshly locked patient before every
+     * preview write: the actor may still write, and the patient is not archived. Archiving mid-run stops
+     * the next write; what already committed stays operational (unreviewable until a preview completes),
+     * and a new preview after unarchive starts a fresh generation.
+     *
+     * @throws AuthorizationException
+     * @throws EhiProjectionRefused
+     */
+    private function ensurePreviewWritable(PhrPatient $patient, int $actorUserId): void
+    {
+        $this->access->ensureCanWrite($patient, $actorUserId);
+        if ($patient->archived_at !== null) {
+            throw new EhiProjectionRefused(EhiProjectionRefused::PATIENT_ARCHIVED, 'the patient is archived');
+        }
+    }
+
     /** Take the package's next preview generation; its pending proposals are unreviewable until it completes. */
     private function startPreview(PhrEhiPackage $package, int $actorUserId): int
     {
         return $this->writeGuard->run((int) $package->patient_id, function (PhrPatient $patient) use ($package, $actorUserId): int {
-            $this->access->ensureCanWrite($patient, $actorUserId);
+            $this->ensurePreviewWritable($patient, $actorUserId);
             $started = PhrEhiPackage::query()->whereKey($package->id)->where('patient_id', $patient->id)->lockForUpdate()
                 ->firstOrFail()->preview_generation_started;
             $generation = ($started ?? 0) + 1;
@@ -791,7 +808,7 @@ final class EhiProposalService
     private function completePreview(PhrEhiPackage $package, int $actorUserId, int $generation, array $findingRows): void
     {
         $this->writeGuard->run((int) $package->patient_id, function (PhrPatient $patient) use ($package, $actorUserId, $generation, $findingRows): void {
-            $this->access->ensureCanWrite($patient, $actorUserId);
+            $this->ensurePreviewWritable($patient, $actorUserId);
             $current = PhrEhiPackage::query()->whereKey($package->id)->where('patient_id', $patient->id)->lockForUpdate()->firstOrFail();
             if ($current->preview_generation_started !== $generation) {
                 throw new EhiProjectionRefused(EhiProjectionRefused::PREVIEW_SUPERSEDED, 'a newer preview owns the results');
