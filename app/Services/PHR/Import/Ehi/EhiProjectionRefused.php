@@ -33,6 +33,9 @@ final class EhiProjectionRefused extends RuntimeException
 
     public const string PREVIEW_SUPERSEDED = 'preview_superseded';
 
+    /** The patient was archived before or during preparation: no preview write lands for an archived patient. */
+    public const string PATIENT_ARCHIVED = 'patient_archived';
+
     public const string RESOURCE_LIMIT = 'resource_limit';
 
     public function __construct(public readonly string $reason, string $detail, ?Throwable $previous = null, public readonly ?EhiPreviewLimit $resourceLimit = null)
