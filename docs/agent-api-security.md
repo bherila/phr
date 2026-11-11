@@ -474,8 +474,8 @@ The `changes.list` tool uses the same REST feed and tells clients to carry the r
 watermark across all cursor pages, rather than implementing a second synchronization
 path in the MCP server.
 
-The transport is locked to `bherila/mcp-laravel-bridge` v0.2.0 and the official
-`mcp/sdk` v0.7.1. Its hardened Laravel edge profile compares a
+The transport is locked to `bherila/mcp-laravel-bridge` v0.4.4 and the official
+`mcp/sdk` v0.8.1, as pinned in `composer.lock`. Its hardened Laravel edge profile compares a
 present browser Origin as an exact scheme/host/port origin, validates the service Host
 independently against `APP_URL`, the OAuth resource, or an explicit service-authority
 allow-list, rejects query-string credentials before authentication, and applies the
