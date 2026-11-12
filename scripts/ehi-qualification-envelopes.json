@@ -1,0 +1,26 @@
+{
+  "default": {
+    "rows": 10000,
+    "bytes": 8388608,
+    "native_records": 20000,
+    "native_stream_bytes": 33554432
+  },
+  "expanded": {
+    "rows": 50000,
+    "bytes": 67108864,
+    "native_records": 50000,
+    "native_stream_bytes": 67108864
+  },
+  "paired-100k": {
+    "rows": 100000,
+    "bytes": 134217728,
+    "native_records": 100000,
+    "native_stream_bytes": 134217728
+  },
+  "paired-150k": {
+    "rows": 150000,
+    "bytes": 201326592,
+    "native_records": 150000,
+    "native_stream_bytes": 201326592
+  }
+}

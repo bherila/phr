@@ -17,7 +17,7 @@
         "bherila/mcp-laravel-bridge": "^0.5.1",
         "helgesverre/toon": "^3.3.0",
         "laravel/framework": "^13.42.0",
-        "laravel/passport": "^13.11.0",
+        "laravel/passport": "^13.10.0",
         "laravel/tinker": "^3.1.0",
         "league/flysystem-aws-s3-v3": "^3.35.3",
         "maennchen/zipstream-php": "^3.2.2",

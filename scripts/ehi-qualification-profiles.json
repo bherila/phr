@@ -148,5 +148,79 @@
       "phr_immunizations": 4,
       "phr_office_visits": 3
     }
+  },
+  "target-2000-100k": {
+    "records": 2000,
+    "history": 2000,
+    "review": "full",
+    "exercise": true,
+    "new": 200,
+    "changed": 100,
+    "cycles": 1,
+    "sharing": true,
+    "expectation": "experimental",
+    "envelope": "paired-100k",
+    "baseline_profile": "target-2000"
+  },
+  "three-cycles-100k": {
+    "records": 2000,
+    "history": 2000,
+    "review": "full",
+    "exercise": true,
+    "new": 200,
+    "changed": 100,
+    "cycles": 3,
+    "sharing": false,
+    "expectation": "experimental",
+    "envelope": "paired-100k",
+    "baseline_profile": "three-cycles"
+  },
+  "stretch-full-100k": {
+    "records": 5000,
+    "history": 2000,
+    "review": "full",
+    "exercise": false,
+    "sharing": false,
+    "expectation": "experimental",
+    "envelope": "paired-100k",
+    "forecast": "The baseline observed 63732 native records. This larger synthetic pair does not establish timing, growth headroom or production capacity.",
+    "baseline_profile": "stretch-full"
+  },
+  "target-2000-150k": {
+    "records": 2000,
+    "history": 2000,
+    "review": "full",
+    "exercise": true,
+    "new": 200,
+    "changed": 100,
+    "cycles": 1,
+    "sharing": true,
+    "expectation": "experimental",
+    "envelope": "paired-150k",
+    "baseline_profile": "target-2000"
+  },
+  "three-cycles-150k": {
+    "records": 2000,
+    "history": 2000,
+    "review": "full",
+    "exercise": true,
+    "new": 200,
+    "changed": 100,
+    "cycles": 3,
+    "sharing": false,
+    "expectation": "experimental",
+    "envelope": "paired-150k",
+    "baseline_profile": "three-cycles"
+  },
+  "stretch-full-150k": {
+    "records": 5000,
+    "history": 2000,
+    "review": "full",
+    "exercise": false,
+    "sharing": false,
+    "expectation": "experimental",
+    "envelope": "paired-150k",
+    "forecast": "The baseline observed 63732 native records. This larger synthetic pair does not establish timing, growth headroom or production capacity.",
+    "baseline_profile": "stretch-full"
   }
 }

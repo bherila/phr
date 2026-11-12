@@ -3,6 +3,8 @@ name: EHI lifecycle capacity
 on:
   pull_request:
     paths:
+      - composer.json
+      - composer.lock
       - .github/workflows/ehi-capacity.yml
       - scripts/measure-phr-resources.php
       - scripts/observe-phr-resources.py
@@ -13,6 +15,7 @@ on:
       - tests/Support/EhiCapacityOracle.php
       - tests/Support/EhiCapacityQualification.php
       - scripts/ehi-qualification-profiles.json
+      - scripts/ehi-qualification-envelopes.json
       - scripts/run-ehi-qualification.py
       - scripts/assert-ehi-qualification.py
       - scripts/test-ehi-qualification.py
@@ -128,7 +131,7 @@ jobs:
       fail-fast: false
       matrix:
         database: [sqlite, mariadb]
-        batch: [replay, history, stress, boundaries]
+        batch: [replay, history, stress, boundaries, paired-100k, paired-150k]
     services:
       mariadb:
         image: mariadb:10.11
@@ -177,15 +180,12 @@ jobs:
             history) profiles=(large-history stretch-full) ;;
             stress) profiles=(wide-rows fanout many-artifacts mixed-mapping) ;;
             boundaries) profiles=(native-exact native-one-over artifact-exact artifact-one-over) ;;
+            paired-100k) profiles=(target-2000-100k three-cycles-100k stretch-full-100k) ;;
+            paired-150k) profiles=(target-2000-150k three-cycles-150k stretch-full-150k) ;;
           esac
           for profile in "${profiles[@]}"; do
-            envelope=$(python3 -c 'import json,sys;print(json.load(open("scripts/ehi-qualification-profiles.json"))[sys.argv[1]]["envelope"])' "$profile")
-            export PHR_EHI_PREVIEW_MAX_ROWS=10000 PHR_EHI_PREVIEW_MAX_BYTES=8388608
-            export PHR_NATIVE_MAX_RECORDS=20000 PHR_NATIVE_MAX_RECORD_STREAM_BYTES=33554432
-            if [ "$envelope" = expanded ]; then
-              export PHR_EHI_PREVIEW_MAX_ROWS=50000 PHR_EHI_PREVIEW_MAX_BYTES=67108864
-              export PHR_NATIVE_MAX_RECORDS=50000 PHR_NATIVE_MAX_RECORD_STREAM_BYTES=67108864
-            fi
+            # The runner applies the closed declared synthetic envelope, including
+            # unchanged 240s proposal / 300s whole-profile deadlines.
             result="build/ehi-qualification/${DATABASE}-${profile}.json"
             python3 scripts/run-ehi-qualification.py "$profile" "/tmp/phr-resource-${DATABASE}-${profile}" "${database_args[@]}" > "$result"
             python3 scripts/assert-ehi-qualification.py "$result" | tee -a "$GITHUB_STEP_SUMMARY"
