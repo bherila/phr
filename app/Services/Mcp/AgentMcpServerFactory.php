@@ -165,7 +165,7 @@ final class AgentMcpServerFactory
                 // A plain validator: the shape-aware subclass consumes the queued
                 // wire arguments, which belong to input validation only. Null
                 // logger because the SDK logs data and schema on internal errors.
-                new SchemaValidator($logger),
+                new SchemaValidator(logger: $logger),
                 $schemaIds,
                 $driftLogger,
                 'The PHR API returned a response that failed its output contract.',
