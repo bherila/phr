@@ -7,6 +7,31 @@ import sys
 RESOURCE_REFUSALS = {"resource_limit", "record_count_limit", "record_stream_size_limit", "artifact_metadata_limit", "timeout"}
 
 
+def capacity_observation(result):
+    """Persisted margin is an upper bound; pending reservations are not measured."""
+    limits = result.get("limits")
+    if not limits:
+        return None
+    snapshots = {name: stage["durable"] for name, stage in result.get("stages", {}).items() if "durable" in stage}
+    work = [snapshot["persisted_preview_work"] for snapshot in snapshots.values() if "persisted_preview_work" in snapshot]
+    lifecycle = result.get("lifecycle", {})
+    native = None
+    if "archive_records" in lifecycle and "record_stream_bytes" in lifecycle:
+        native = {"archive_records": lifecycle["archive_records"], "record_stream_bytes": lifecycle["record_stream_bytes"],
+                  "record_margin": limits["native_records"] - lifecycle["archive_records"],
+                  "stream_byte_margin": limits["native_stream_bytes"] - lifecycle["record_stream_bytes"],
+                  "round_trip_verified": lifecycle.get("round_trip_verified", False)}
+    peak_rows = max((entry["rows"] for entry in work), default=None)
+    peak_bytes = max((entry["bytes"] for entry in work), default=None)
+    return {"persisted_preview_work": {"observed_peak_rows": peak_rows, "observed_peak_bytes": peak_bytes,
+                "row_margin_upper_bound": None if peak_rows is None else limits["rows"] - peak_rows,
+                "byte_margin_upper_bound": None if peak_bytes is None else limits["bytes"] - peak_bytes,
+                "includes_in_flight_reservations": False, "metrics_incomplete": result["status"] == "timeout"},
+            "durable_growth": {name: {key: value for key, value in snapshot.items() if key != "tables"}
+                               for name, snapshot in snapshots.items()},
+            "native": native, "whole_profile_time_margin_seconds": round(result["operation_ceiling_seconds"] - result["profile_wall_seconds"], 6)}
+
+
 def validate(result):
     declaration = result["declaration"]
     status = result["status"]
@@ -49,6 +74,7 @@ def validate(result):
             raise ValueError("Expected refusal claims completed recovery")
     met = status == "completed"
     result["qualification_met"] = met
+    result["capacity_observation"] = capacity_observation(result)
     return (f"- {result['profile']} ({expectation}): **{status}**, qualification_met={met}, "
             f"stage={lifecycle.get('refused_stage', result.get('refused_stage', 'complete'))}, "
             f"wall={result['profile_wall_seconds']}s / ceiling={result['operation_ceiling_seconds']}s, "

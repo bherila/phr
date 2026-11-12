@@ -77,6 +77,21 @@ def observe(arguments, timeout_seconds=None):
         except (OSError, ValueError):
             partial = {"stages": {}}
         result = partial | {"status": "timeout", "refused_stage": current_stage, "metrics_incomplete": True}
+        # A killed stage cannot run PHP's finally block. Retain its periodically
+        # published aggregate lower bounds alongside the completed stages.
+        try:
+            path = directory / "qualification-active.json"
+            active = json.loads(path.read_text())
+            if isinstance(active.get("stage"), str) and active["stage"] not in result["stages"]:
+                active["snapshot_age_seconds"] = round(max(0, time.time() - path.stat().st_mtime), 6)
+                active["metrics_incomplete"] = True
+                result["active_stage_metrics"] = active
+                result["refused_stage"] = active["stage"]
+        except (OSError, ValueError, KeyError):
+            pass
+        result["queries"] = sum(stage["queries"] for stage in result["stages"].values()) + result.get("active_stage_metrics", {}).get("queries", 0)
+        result["peak_php_bytes"] = max([0, *[stage.get("peak_php_bytes", 0) for stage in result["stages"].values()],
+                                        result.get("active_stage_metrics", {}).get("peak_php_bytes", 0)])
     else:
         if process.returncode:
             if qualification:

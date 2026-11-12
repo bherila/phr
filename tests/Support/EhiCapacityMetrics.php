@@ -2,6 +2,7 @@
 
 namespace Tests\Support;
 
+use App\Services\PHR\Import\Ehi\EhiPreviewBudget;
 use App\Services\PHR\NativeBackup\PhrNativeBackupCatalog;
 use App\Services\PHR\ResourceByteSize;
 use Illuminate\Database\Events\QueryExecuted;
@@ -32,6 +33,12 @@ final class EhiCapacityMetrics
 
     private int $transactionCount = 0;
 
+    private ?string $activeStage = null;
+
+    private int $activeStarted = 0;
+
+    private int $lastActivePublished = 0;
+
     public function __construct(private readonly ?string $directory = null)
     {
         DB::listen(function (QueryExecuted $event): void {
@@ -43,6 +50,7 @@ final class EhiCapacityMetrics
             }
             $shape = hash('sha256', preg_replace('/\s+/', ' ', $event->sql));
             $this->shapes[$shape] = ($this->shapes[$shape] ?? 0) + 1;
+            $this->publishActive();
         });
         Event::listen(TransactionBeginning::class, function (TransactionBeginning $event): void {
             $this->transactions[$event->connection->transactionLevel()] = hrtime(true);
@@ -67,10 +75,14 @@ final class EhiCapacityMetrics
         $this->shapes = [];
         memory_reset_peak_usage();
         $start = hrtime(true);
+        $this->activeStage = $name;
+        $this->activeStarted = $start;
+        $this->publishActive(true);
         $this->marker($name);
         try {
             return $operation();
         } finally {
+            $this->publishActive(true);
             arsort($this->shapes);
             $this->stages[$name] = [
                 'seconds' => round((hrtime(true) - $start) / 1e9, 6),
@@ -82,13 +94,15 @@ final class EhiCapacityMetrics
                 'query_shape_counts' => array_slice($this->shapes, 0, 20, true),
                 'peak_php_bytes' => memory_get_peak_usage(true),
             ];
-            $this->marker(null);
+            $this->activeStage = null;
             if ($patient !== null) {
                 $this->stages[$name]['durable'] = $this->durable($patient);
             }
             if ($this->directory !== null) {
                 file_put_contents($this->directory.'/qualification-progress.json', json_encode(['stages' => $this->stages], JSON_THROW_ON_ERROR));
+                $this->writeActive(['stage' => null]);
             }
+            $this->marker(null);
         }
     }
 
@@ -102,7 +116,45 @@ final class EhiCapacityMetrics
             $tables[$table] = ['rows' => (int) $sum->n, 'bytes' => (int) $sum->bytes];
         }
 
-        return ['rows' => array_sum(array_column($tables, 'rows')), 'bytes' => array_sum(array_column($tables, 'bytes')), 'tables' => $tables];
+        $previewTables = array_intersect_key($tables, array_flip(EhiPreviewBudget::TABLES));
+
+        return ['rows' => array_sum(array_column($tables, 'rows')), 'bytes' => array_sum(array_column($tables, 'bytes')), 'tables' => $tables,
+            // Persisted lower bound only: admission also reserves transient work.
+            'persisted_preview_work' => ['rows' => array_sum(array_column($previewTables, 'rows')), 'bytes' => array_sum(array_column($previewTables, 'bytes'))]];
+    }
+
+    /** At most one aggregate checkpoint per two seconds; no SQL or source values. */
+    private function publishActive(bool $force = false): void
+    {
+        if ($this->directory === null || $this->activeStage === null) {
+            return;
+        }
+        $now = hrtime(true);
+        if (! $force && $now - $this->lastActivePublished < 2_000_000_000) {
+            return;
+        }
+        $this->lastActivePublished = $now;
+        $shapes = $this->shapes;
+        arsort($shapes);
+        $openSeconds = 0;
+        foreach ($this->transactions as $started) {
+            $openSeconds = max($openSeconds, ($now - $started) / 1e9);
+        }
+        $this->writeActive(['stage' => $this->activeStage, 'metrics_incomplete' => true,
+            'seconds' => round(($now - $this->activeStarted) / 1e9, 6),
+            'queries' => $this->queries, 'max_bindings' => $this->bindings,
+            'query_seconds' => round($this->queryMilliseconds / 1000, 6),
+            'max_locking_statement_seconds' => round($this->lockingQueryMilliseconds / 1000, 6),
+            'transactions' => $this->transactionCount, 'max_transaction_seconds' => round($this->longestTransaction, 6),
+            'max_open_transaction_seconds' => round($openSeconds, 6),
+            'query_shape_counts' => array_slice($shapes, 0, 20, true), 'peak_php_bytes' => memory_get_peak_usage(true)]);
+    }
+
+    private function writeActive(array $value): void
+    {
+        $path = $this->directory.'/qualification-active.json';
+        file_put_contents($path.'.tmp', json_encode($value, JSON_THROW_ON_ERROR));
+        rename($path.'.tmp', $path);
     }
 
     private function marker(?string $stage): void

@@ -590,3 +590,59 @@ the unmet replay/full-review targets and sufficient production SQL/storage
 evidence; R1 remains pending. The unavailable representative export (#331) and
 disposable deployment SQL schema remain deferred. No production application
 schema, credentials, data or privileged host calibration was used for V1.
+
+
+### Additional paired synthetic experiments — #378 (November 2026)
+
+The initial build work in #330 is closed. The production capacity decision and its
+unavailable SQL/object-store and representative-export evidence are tracked in
+[#378](https://github.com/bherila/phr/issues/378). The subsequent #373 fixes make
+cleanup inventory coverage independent, pin the disposable SQL socket setting,
+and attribute post-restore durable snapshots to the restored patient; the old
+V1 false-zero snapshot caveat above applies only to those historical artifacts.
+
+Two additional **synthetic-only** pairs bracket admission beyond the retained
+50,000-row/64 MiB experiment:
+
+| Declared pair | Preview rows / raw work bytes | Native records / structured stream bytes |
+| --- | --- | --- |
+| `paired-100k` | 100,000 / 128 MiB | 100,000 / 128 MiB |
+| `paired-150k` | 150,000 / 192 MiB | 150,000 / 192 MiB |
+
+Each pair runs the original 2,000 incoming/2,000 prior full-review/replay target
+with 200 new results/100 changed values (including its sharing checks), the
+original three changed cycles, and the 5,000/2,000 full-review stretch fixture on
+both SQLite and disposable MariaDB. The input/review/source/access contracts are
+identical to the corresponding baseline declarations. All added outcomes remain
+`experimental`: completed recovery qualifies only that measured fixture; a
+capacity refusal, native refusal or timeout is an unmet target even when CI's
+result-contract assertion passes. None of these settings changes application
+configuration defaults or establishes a production envelope.
+
+`scripts/ehi-qualification-envelopes.json` declares all four closed experiments,
+including the unchanged default and 50k controls. The runner applies the declared
+process environment and checks completed runtime limits match it. Existing
+historical controls, large-history, stress and boundary fixtures remain. The
+matrix adds four jobs (two pairs by two databases), at most three 300-second
+profiles per added job. The 240-second proposal budget, 300-second whole-profile
+clock, 30-minute job ceiling and 1 GiB PHP cap remain. No lifecycle stage is split
+to reset a clock. Dependency manifest/lock changes also trigger this workflow.
+
+Durable snapshots now identify the persisted subset charged by
+`EhiPreviewBudget::TABLES` without additional SQL probes. Reported persisted
+row/byte margins are **upper bounds on remaining admission headroom**, because
+transient reservations and between-snapshot growth are not measured. They may
+be negative after review growth; they are never clamped or called supported
+capacity. Native count/stream margins use actual built archive measurements,
+not forecasts from durable row counts. Overall time margin and per-stage durable
+growth remain separate from PHP/RSS and private-fixture/native-spool peaks.
+
+For timeout diagnosis, PHP publishes bounded aggregate active-stage checkpoints
+at most once per two seconds, plus start/final snapshots, without source values
+or SQL text. The sampler retains completed stages, the last active checkpoint,
+its age and explicit incomplete/lower-bound status. A long non-SQL operation may
+leave an older checkpoint; external RSS/temp sampling and the total wall clock
+remain separate observations. A killed or incomplete stage never gains a
+round-trip or complete-generation claim. Exact-candidate artifacts and measured
+outcomes must be inspected before choosing any subsequent experiment; R1 remains
+pending until its independent production evidence requirements are met.
