@@ -38,6 +38,15 @@ return [
         'authorize_path' => '/oauth/authorize',
         'token_path' => '/oauth/token',
         'identity_path' => '/api/oauth/user',
+        // PHR's web and API guards share the users provider. Keep the package's
+        // single global-ID realm so existing sign-in authentication context
+        // remains valid. A host adding guards or tenants with overlapping user
+        // IDs must bind IdentityNamespaceResolver before enabling named connect.
+        'identity_namespace' => 'legacy',
+        // Named connect servers are not configured here. If one is added, its
+        // pending flows are bounded across sessions per realm/user/server;
+        // reaching this limit refuses a new flow rather than evicting one.
+        'pending_flow_max_active' => 10,
         // Signing out locally leaves the provider still recognising the person, so the next
         // sign-in returns them without a prompt and the button reads as having done nothing.
         // Named here because this block is restated in full: `mergeConfigFrom` is a shallow

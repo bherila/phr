@@ -129,6 +129,12 @@ its components, and everything else comes from `app/Support/AgentApi/AgentRestDo
 authenticate with OAuth or with a personal API token; both are created by the signed-in
 person under **Config → API Access**, limited to the permissions they choose.
 
+The shared MCP bridge distinguishes schema positions from literal `const`, `enum`,
+`default` and example values, preserving their JSON object/array shapes. Actual
+external schema references remain rejected without network or filesystem resolution.
+Generated OpenAPI and MCP tool snapshots, runtime schema validation and the HTTP
+contract checks qualify shared bridge updates together.
+
 Every agent operation is declared once in a capability registry. One evaluation per request decides which MCP tools a connection sees,
 and `/api/v1/me` reports the same result: the operations the credential can use now, and
 each withheld one with its reason (a missing scope, or depending on a withheld operation). See
@@ -275,6 +281,20 @@ php artisan user:set-password you@example.com
 ```
 
 ## Self-hosting
+
+PHR uses the default OAuth sign-in flow and has no named OAuth connect servers
+configured. Its web and API guards share one users provider, so the explicit
+`oauth_client.identity_namespace = legacy` retains existing authentication context.
+Before adding named connect servers, a host with overlapping user IDs across guards
+or tenants must bind the auth package's `IdentityNamespaceResolver` to a stable,
+trusted realm at both redirect and callback. Changing realms requires fresh
+authentication and restarting pending flows. Drain workers running the previous
+auth package before relying on its new admission bound: by default, ten active
+flows per realm/user/server across sessions, with additional starts refused rather
+than valid flows evicted. Named flows also need owner-aware cache locks; database
+cache and lock connections must be outside application transactions, using an
+independent autocommit connection when needed. The normal sign-in session flow
+keeps its existing behavior.
 
 PHR is self-contained apart from sign-in: a fork deploys with its own identity
 provider instance and needs no code changes. Every agent-API URL (OAuth issuer,
