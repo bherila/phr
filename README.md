@@ -252,7 +252,8 @@ are valid initial data. Both HTML and the list API use private, no-store respons
 
 ## Running locally
 
-Requirements are PHP 8.4–8.5, Composer, Node.js, and pnpm 11.
+Requirements are PHP 8.4–8.5, Composer, Node.js 24 (24.11 or later), and the pnpm
+version pinned in `package.json` (currently 12.18.0). Type checking uses TypeScript 7.
 
 ```bash
 composer install

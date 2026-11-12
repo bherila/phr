@@ -81,7 +81,7 @@ jobs:
         run: |
           set -euo pipefail
           corepack enable
-          corepack prepare pnpm@12.11.2 --activate
+          corepack prepare "$(node -p "require('./package.json').packageManager")" --activate
           composer install --no-dev --no-interaction --optimize-autoloader
           pnpm install --frozen-lockfile --prefer-offline
           pnpm run build
