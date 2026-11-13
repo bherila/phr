@@ -77,6 +77,11 @@ test('only a parsed foreign-key keyword gets the insurance-pattern exemption', (
   assert.match(result.output, /insurance-member-id/)
   // The generic scanner's existing redaction policy is deliberately unchanged.
   assert.ok(!result.output.includes(identifier))
+  // A SQL-looking keyword in ordinary source must not gain a global exemption.
+  repo.write('ordinary.txt', `"${memberColumn}") REFERENCES "items"("id")`)
+  const ordinaryKeyword = repo.scan()
+  assert.equal(ordinaryKeyword.status, 1)
+  assert.match(ordinaryKeyword.output, /insurance-member-id/)
 })
 
 test('all non-ledger writes and unsupported statements are rejected', (t) => {
