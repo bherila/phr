@@ -25,8 +25,10 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { readFileSync, statSync } from 'node:fs'
+import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, readSync, statSync } from 'node:fs'
 import path from 'node:path'
+
+import { inspectSchemaDump, MAX_SCHEMA_BYTES, SCHEMA_PATHS } from './schema-dump-scan.mjs'
 
 /** Files whose contents are never scanned — generated, vendored, or binary by nature. */
 const SKIP_DIRS = new Set(['node_modules', 'vendor', '.git', 'dist', 'build', 'coverage'])
@@ -106,8 +108,7 @@ const RULES = [
   {
     name: 'insurance-member-id',
     why: 'A member/policy/subscriber id next to its label.',
-    // (?!references\b): `member_id` ... REFERENCES in schema dumps is DDL, not an id.
-    re: /\b(?:member|policy|subscriber|insurance)[ _-]?(?:id|number|no)\b[^A-Za-z0-9]{0,4}(?!references\b)([A-Z0-9]{8,})/gi,
+    re: /\b(?:member|policy|subscriber|insurance)[ _-]?(?:id|number|no)\b[^A-Za-z0-9]{0,4}([A-Z0-9]{8,})/gi,
   },
   {
     name: 'real-email',
@@ -160,11 +161,86 @@ function shouldScan(file) {
   return true
 }
 
+/** Known dumps are bounded inputs, never generic size/binary/ignore exclusions. */
+function readSchema(file, stagedOnly) {
+  let bytes
+  if (stagedOnly) {
+    const git = (args, maxBuffer = MAX_SCHEMA_BYTES + 1) => execFileSync('git', args, {
+      stdio: ['ignore', 'pipe', 'pipe'], maxBuffer, timeout: 5000,
+    })
+    const entry = git(['ls-files', '--stage', '--', file], 1024).toString('utf8')
+    if (!/^(100644|100755) [a-f0-9]{40,64} 0\t/.test(entry) || entry.split('\n').filter(Boolean).length !== 1) throw new Error('schema-input')
+    const size = git(['cat-file', '-s', `:${file}`], 64).toString('ascii').trim()
+    if (!/^\d+$/.test(size) || Number(size) > MAX_SCHEMA_BYTES) throw new Error('schema-size')
+    bytes = git(['show', `:${file}`])
+  } else {
+    const parts = file.split('/')
+    for (let i = 1; i < parts.length; i++) {
+      const dir = lstatSync(parts.slice(0, i).join('/'))
+      if (!dir.isDirectory() || dir.isSymbolicLink()) throw new Error('schema-input')
+    }
+    const fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
+    try {
+      const stat = fstatSync(fd)
+      if (!stat.isFile()) throw new Error('schema-input')
+      if (stat.size > MAX_SCHEMA_BYTES) throw new Error('schema-size')
+      const buffer = Buffer.alloc(MAX_SCHEMA_BYTES + 1)
+      let length = 0
+      while (length < buffer.length) {
+        const count = readSync(fd, buffer, length, buffer.length - length, null)
+        if (count === 0) break
+        length += count
+      }
+      bytes = buffer.subarray(0, length)
+    } finally { closeSync(fd) }
+  }
+  if (bytes.length > MAX_SCHEMA_BYTES) throw new Error('schema-size')
+  const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  if (text.includes('\u0000')) throw new Error('schema-input')
+  return text
+}
+
+function scanSchema(file, stagedOnly, allow) {
+  const results = []
+  const add = (rule, line, why) => {
+    if (results.length < 100 && !results.some((f) => f.rule === rule && f.line === line)) results.push({ file, line, rule, why, shown: '<redacted>' })
+  }
+  let text
+  try { text = readSchema(file, stagedOnly) } catch (error) {
+    add(error.message === 'schema-size' ? 'schema-size' : 'schema-input', 1, 'Known schema dump must be a readable regular UTF-8 file without NUL, at most 2 MiB.')
+    return results
+  }
+  const inspection = inspectSchemaDump(text, SCHEMA_PATHS.get(file))
+  if (inspection.error) add(inspection.error.rule, inspection.error.line, 'Schema dump contains data, unsupported SQL, or malformed generated DDL; only migration-ledger rows are permitted.')
+  const scan = (content, line, raw = false) => {
+    for (const rule of RULES) {
+      rule.re.lastIndex = 0
+      let match
+      while (results.length < 100 && (match = rule.re.exec(content)) !== null) {
+        const value = match[1] ?? match[0]
+        if (allow.has(value) || (rule.ignore && rule.ignore.test(match[0]))) continue
+        const valueOffset = match.index + match[0].lastIndexOf(value)
+        if (raw && rule.name === 'insurance-member-id' && value.toLowerCase() === 'references' && inspection.references.has(valueOffset)) continue
+        add(rule.name, line + (content.slice(0, match.index).match(/\n/g) ?? []).length, rule.why)
+      }
+    }
+  }
+  // No inline-ignore escape. Also inspect decoded literals and labelled defaults;
+  // SQL escaping or line breaks must not obscure an existing disclosure pattern.
+  scan(text, 1, true)
+  for (const segment of inspection.segments) scan(segment.text, segment.line)
+  return results
+}
+
 const stagedOnly = process.argv.includes('--staged')
 const allow = loadAllowlist()
 const findings = []
 
 for (const file of trackedFiles(stagedOnly)) {
+  if (SCHEMA_PATHS.has(file)) {
+    findings.push(...scanSchema(file, stagedOnly, allow))
+    continue
+  }
   const ext = path.extname(file).toLowerCase()
   if (FORBIDDEN_EXT.has(ext)) {
     findings.push({ file, line: 0, rule: 'clinical-payload-file', why: `A ${ext} file must never be committed; generate fixtures at runtime instead.`, shown: ext })
@@ -214,7 +290,7 @@ console.error(`
 If a match is synthetic and safe:
   - prefer changing the fixture to an obviously-fake value (Faker, 000-00-0000, user@example.com)
   - or append the exact value to scripts/sensitive-scan-allow.txt
-  - or add a 'sensitive-scan-ignore' comment on that line
+  - or add a 'sensitive-scan-ignore' comment on that line (never for known schema dumps)
 
 Do NOT allowlist a value that is real. Committing it to a public repo cannot be undone by
 deleting it later — the value stays in history, and in every fork and mirror.
