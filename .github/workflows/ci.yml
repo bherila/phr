@@ -65,6 +65,9 @@ jobs:
       # committed identifier cannot be walked back: deleting it later leaves it in
       # history and in every fork. The scanner redacts its own output because CI logs
       # for a public repository are public too.
+      - name: Test sensitive-data scanner
+        run: node --test scripts/scan-sensitive.test.mjs
+
       - name: Scan for sensitive data
         run: pnpm run scan-sensitive
 
