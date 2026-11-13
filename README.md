@@ -405,6 +405,21 @@ isn't local, and each worker creates and rebuilds its own `phr_test_<n>` databas
 `PHR_TEST_S3_ENDPOINT` similarly runs the storage tests against a local S3-compatible
 store; see [Testing against a real store](docs/storage.md#testing-against-a-real-store).
 
+The schema-dump parity feature test builds two isolated SQLite in-memory databases:
+Laravel loads the committed dump plus pending migrations in one, and replays all
+migrations without a dump in the other. It requires the real `SchemaLoaded` event
+only on the dump path, then compares migration names, schema SQL tokens (including
+constraints, indexes and triggers), and hashes/counts of every durable table's rows.
+Both paths use the same frozen framework clock. No timestamp column or seed table
+is excluded; only migration IDs/batches and SQL layout/comments are incidental.
+This proof also runs inside PostgreSQL CI using its own SQLite connections. Full
+migration replay is heavy validation: run it in CI, not as a local focused test.
+PHR has no schema-loaded seed-restoration hook today. A future migration that seeds
+required state must preserve it through dump bootstrap; a mismatch requires an
+explicit repair, never silently omitting that table from parity. Durable auth
+lineage revocation remains disabled and its unpublished migration is not exercised
+or enabled by this test.
+
 CI runs PHPUnit in three separate runner jobs to isolate their in-memory databases,
 fake disks and cached Laravel configuration. PHPUnit's `--list-tests-xml` inventory
 is partitioned by class using `.github/phpunit-timings.json`; new classes are
