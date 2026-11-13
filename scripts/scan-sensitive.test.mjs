@@ -154,6 +154,7 @@ test('disclosure rules inspect comments and decoded labelled defaults without in
     `CREATE TABLE x("${memberColumn}" varchar DEFAULT '${identifier}');`,
     `CREATE TABLE x(birth_date varchar DEFAULT '${dob}');`,
     `CREATE TABLE x(note text DEFAULT '${record}');`,
+    `CREATE TABLE x("${record.slice(0, 3)}" integer DEFAULT ${record.split(': ')[1]});`,
     `CREATE TABLE x(note text DEFAULT '${record.replace(': ', ':\n')}');`,
   ]
   for (const sql of cases) {

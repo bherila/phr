@@ -209,7 +209,10 @@ class Grammar {
         if (t?.kind === 'string') {
           this.i++
           this.segments.push({ text: `${column.value}: ${t.value}`, line: t.line })
-        } else if (t?.kind === 'number') this.i++
+        } else if (t?.kind === 'number') {
+          this.i++
+          this.segments.push({ text: `${column.value}: ${t.value}`, line: t.line })
+        }
         else if (this.eat('null')) { /* no data */ }
         else if (this.eat('current_timestamp')) {
           if (this.eat('(')) this.need(')')
