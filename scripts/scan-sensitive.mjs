@@ -34,9 +34,6 @@ const SKIP_FILES = new Set([
   'pnpm-lock.yaml',
   'package-lock.json',
   'composer.lock',
-  // Generated DDL (foreign keys on member_id trip the insurance-id rule); no patient data.
-  'database/schema/mysql-schema.sql',
-  'database/schema/sqlite-schema.sql',
   'scripts/scan-sensitive.mjs',
   'scripts/sensitive-scan-allow.txt',
 ])
@@ -109,7 +106,8 @@ const RULES = [
   {
     name: 'insurance-member-id',
     why: 'A member/policy/subscriber id next to its label.',
-    re: /\b(?:member|policy|subscriber|insurance)[ _-]?(?:id|number|no)\b[^A-Za-z0-9]{0,4}([A-Z0-9]{8,})/gi,
+    // (?!references\b): `member_id` ... REFERENCES in schema dumps is DDL, not an id.
+    re: /\b(?:member|policy|subscriber|insurance)[ _-]?(?:id|number|no)\b[^A-Za-z0-9]{0,4}(?!references\b)([A-Z0-9]{8,})/gi,
   },
   {
     name: 'real-email',
