@@ -411,7 +411,12 @@ migrations without a dump in the other. It requires the real `SchemaLoaded` even
 only on the dump path, then compares migration names, schema SQL tokens (including
 constraints, indexes and triggers), and hashes/counts of every durable table's rows.
 Both paths use the same frozen framework clock. No timestamp column or seed table
-is excluded; only migration IDs/batches and SQL layout/comments are incidental.
+is excluded. Migration IDs/batches and SQL layout/comments are incidental.
+SQLite allocation entries with integer `seq = 0` are equivalent to absence: empty
+`INSERT ... SELECT` table rebuilds (such as the November 1 document-type default
+migration) create them, and both forms allocate the next ID as 1. Only those zero
+entries are normalized; advanced counters remain compared even after row deletion,
+and null, negative or non-integer counters are refused.
 This proof also runs inside PostgreSQL CI using its own SQLite connections. Full
 migration replay is heavy validation: run it in CI, not as a local focused test.
 PHR has no schema-loaded seed-restoration hook today. A future migration that seeds

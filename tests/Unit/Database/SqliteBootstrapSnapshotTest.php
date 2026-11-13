@@ -69,6 +69,50 @@ final class SqliteBootstrapSnapshotTest extends TestCase
         $this->assertStringNotContainsString('SYNTHETIC_PRIVATE_SENTINEL', json_encode($snapshot, JSON_THROW_ON_ERROR));
     }
 
+    public function test_zero_allocation_entries_from_empty_table_copies_are_equivalent_to_absent_entries(): void
+    {
+        $one = new PDO('sqlite::memory:');
+        $two = new PDO('sqlite::memory:');
+        foreach ([$one, $two] as $db) {
+            $db->exec('CREATE TABLE allocation_target (id INTEGER PRIMARY KEY AUTOINCREMENT, value TEXT); CREATE TABLE empty_source (value TEXT)');
+        }
+        $one->exec('INSERT INTO allocation_target(value) SELECT value FROM empty_source');
+        $this->assertSame(0, $one->query("SELECT seq FROM sqlite_sequence WHERE name = 'allocation_target'")->fetchColumn());
+        $this->assertFalse($two->query("SELECT seq FROM sqlite_sequence WHERE name = 'allocation_target'")->fetchColumn());
+        $this->assertSame($this->snapshot($one), $this->snapshot($two));
+        foreach ([$one, $two] as $db) {
+            $db->exec("INSERT INTO allocation_target(value) VALUES ('synthetic')");
+            $this->assertSame('1', $db->lastInsertId());
+        }
+    }
+
+    public function test_advanced_allocation_state_survives_even_after_its_rows_are_deleted(): void
+    {
+        $one = new PDO('sqlite::memory:');
+        $two = new PDO('sqlite::memory:');
+        foreach ([$one, $two] as $db) {
+            $db->exec('CREATE TABLE allocation_target (id INTEGER PRIMARY KEY AUTOINCREMENT)');
+        }
+        $one->exec('INSERT INTO allocation_target VALUES (7); DELETE FROM allocation_target');
+        $this->assertNotSame($this->snapshot($one)['rows'], $this->snapshot($two)['rows']);
+    }
+
+    public function test_invalid_allocation_values_are_refused_instead_of_normalized(): void
+    {
+        foreach (['NULL', '-1', "'invalid'", '1.5', "'0'"] as $invalid) {
+            $db = new PDO('sqlite::memory:');
+            $db->exec('CREATE TABLE allocation_target (id INTEGER PRIMARY KEY AUTOINCREMENT); INSERT INTO allocation_target DEFAULT VALUES; UPDATE sqlite_sequence SET seq = '.$invalid);
+            try {
+                $this->snapshot($db);
+            } catch (\RuntimeException $exception) {
+                $this->assertSame('Invalid SQLite allocation state.', $exception->getMessage());
+
+                continue;
+            }
+            $this->fail('An invalid allocation counter must be refused.');
+        }
+    }
+
     private function database(): PDO
     {
         $db = new PDO('sqlite::memory:');

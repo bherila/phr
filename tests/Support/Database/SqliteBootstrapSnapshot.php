@@ -36,9 +36,18 @@ final class SqliteBootstrapSnapshot
             }
             $rows[$name] = self::rowFingerprint($pdo->query('SELECT * FROM '.$quoted)->fetchAll(PDO::FETCH_ASSOC));
         }
-        // Preserve advanced allocation state too; only migration bookkeeping is excluded.
         if ($pdo->query("SELECT count(*) FROM sqlite_schema WHERE name = 'sqlite_sequence'")->fetchColumn() > 0) {
-            $rows['sqlite_sequence'] = self::rowFingerprint($pdo->query("SELECT name, seq FROM sqlite_sequence WHERE name != 'migrations'")->fetchAll(PDO::FETCH_ASSOC));
+            $allocations = $pdo->query("SELECT name, seq FROM sqlite_sequence WHERE name != 'migrations'")->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($allocations as $allocation) {
+                if (! is_int($allocation['seq']) || $allocation['seq'] < 0) {
+                    throw new RuntimeException('Invalid SQLite allocation state.');
+                }
+            }
+            // Empty INSERT...SELECT rebuilds (e.g. the 2026_11_01 document-type
+            // migration) leave seq=0. Dump bootstrap omits it; both next IDs are 1.
+            // Keep every advanced counter, even when its table is now empty.
+            $advanced = array_values(array_filter($allocations, static fn (array $row): bool => $row['seq'] !== 0));
+            $rows['sqlite_sequence'] = self::rowFingerprint($advanced);
         }
         ksort($structure);
         ksort($rows);
