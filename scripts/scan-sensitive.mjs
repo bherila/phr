@@ -26,8 +26,9 @@
 
 import { execFileSync } from 'node:child_process'
 import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, readSync, statSync } from 'node:fs'
-import { inspectSchemaDump, MAX_SCHEMA_BYTES, SCHEMA_PATHS } from './schema-dump-scan.mjs'
 import path from 'node:path'
+
+import { inspectSchemaDump, MAX_SCHEMA_BYTES, SCHEMA_PATHS } from './schema-dump-scan.mjs'
 
 /** Files whose contents are never scanned — generated, vendored, or binary by nature. */
 const SKIP_DIRS = new Set(['node_modules', 'vendor', '.git', 'dist', 'build', 'coverage'])
