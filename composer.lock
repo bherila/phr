@@ -299,16 +299,16 @@
         },
         {
             "name": "bherila/genai-laravel",
-            "version": "v0.3.0",
+            "version": "v0.3.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/bherila/genai-laravel.git",
-                "reference": "bf231bfa479423fd81d013c1166d8c2cfd73465f"
+                "reference": "f17c11e181f9b6b6d10468e31958fcf08c0f4238"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/bherila/genai-laravel/zipball/bf231bfa479423fd81d013c1166d8c2cfd73465f",
-                "reference": "bf231bfa479423fd81d013c1166d8c2cfd73465f",
+                "url": "https://api.github.com/repos/bherila/genai-laravel/zipball/f17c11e181f9b6b6d10468e31958fcf08c0f4238",
+                "reference": "f17c11e181f9b6b6d10468e31958fcf08c0f4238",
                 "shasum": ""
             },
             "require": {
@@ -390,10 +390,10 @@
                 "mcp"
             ],
             "support": {
-                "source": "https://github.com/bherila/genai-laravel/tree/v0.3.0",
+                "source": "https://github.com/bherila/genai-laravel/tree/v0.3.1",
                 "issues": "https://github.com/bherila/genai-laravel/issues"
             },
-            "time": "2026-11-12T20:30:35+00:00"
+            "time": "2026-11-14T06:19:49+00:00"
         },
         {
             "name": "bherila/mcp-laravel-bridge",

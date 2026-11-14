@@ -276,7 +276,7 @@ final class AgentMcpServerFactory
         if ($hasGenAiWork) {
             // In PHR this queue is the person's AI Agent Inbox: the documents they
             // send to AI from PHR wait in it for their own agent to process.
-            $details[] = 'In PHR this queue is the AI Agent Inbox: documents the person sends to AI from PHR wait here for you to process.';
+            $details[] = 'In PHR this queue is the AI Agent Inbox: the documents the person sends to AI from PHR, waiting for their own client.';
             $details[] = $this->genAiCatalog->instructions();
         } elseif ($hasGenAiStatus) {
             $details[] = 'You may inspect the private external GenAI queue status, but this connection was not granted permission to claim or complete work.';
