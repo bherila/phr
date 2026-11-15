@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\AuditAgentApiRequest;
+use App\Http\Middleware\AuthenticateBrowserSession;
 use App\Http\Middleware\EnsureOAuthAuthorizationUserCanLogin;
 use App\Http\Middleware\ExpectAnyOAuthResource;
 use App\Http\Middleware\GenAiRestHttpSecurityMiddleware;
@@ -39,7 +40,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // Ends a browser session whose identity ended at the identity provider.
         // A no-op until BHERILA_AUTH_PROVIDER_IDENTITY_ENABLED; bearer requests
         // carry no session user and are checked by the token repositories.
-        $middleware->web(append: [RequireActiveProviderSession::class]);
+        $middleware->web(append: [AuthenticateBrowserSession::class, RequireActiveProviderSession::class]);
 
         // Agent API audits must wrap throttling so rejected 429 attempts retain the
         // same metadata-only evidence as successful authenticated requests.
