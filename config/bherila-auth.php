@@ -14,6 +14,7 @@ return [
         'passkeys' => false,
         'password_resets' => false,
         'change_password' => false,
+        'confirm_password' => false,
         'two_factor' => false,
     ],
 

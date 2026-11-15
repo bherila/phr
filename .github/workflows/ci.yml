@@ -86,6 +86,9 @@ jobs:
       - name: Setup pnpm + Node dependencies
         uses: ./.github/actions/setup-pnpm-node
 
+      - name: Verify patched dependency behavior
+        run: pnpm run test:dependency-security
+
       - name: Run Jest
         run: pnpm run test
 
