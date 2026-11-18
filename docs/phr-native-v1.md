@@ -594,9 +594,10 @@ schema, credentials, data or privileged host calibration was used for V1.
 
 ### Additional paired synthetic experiments — #378 (November 2026)
 
-The initial build work in #330 is closed. The production capacity decision and its
-unavailable SQL/object-store and representative-export evidence are tracked in
-[#378](https://github.com/bherila/phr/issues/378). The subsequent #373 fixes make
+The initial build work in #330 is closed. The decision to retain current production
+defaults is recorded below for [#378](https://github.com/bherila/phr/issues/378).
+SQL/object-store calibration and representative-export evidence remain prerequisites
+for reconsidering an expanded production envelope. The subsequent #373 fixes make
 cleanup inventory coverage independent, pin the disposable SQL socket setting,
 and attribute post-restore durable snapshots to the restored patient; the old
 V1 false-zero snapshot caveat above applies only to those historical artifacts.
@@ -644,8 +645,9 @@ its age and explicit incomplete/lower-bound status. A long non-SQL operation may
 leave an older checkpoint; external RSS/temp sampling and the total wall clock
 remain separate observations. A killed or incomplete stage never gains a
 round-trip or complete-generation claim. Exact-candidate artifacts and measured
-outcomes must be inspected before choosing any subsequent experiment; R1 remains
-pending until its independent production evidence requirements are met.
+outcomes must be inspected before choosing any subsequent experiment. The production
+decision below retains current defaults while independent production evidence is
+unavailable.
 
 The independent download's copy and ArchiveReader admission run in the explicit
 `inspection` stage on that same whole-profile clock. Before fixture work, an
@@ -664,3 +666,38 @@ aggregates without claiming round-trip, access, cleanup or qualification success
 Capacity CI checks out the exact candidate head so retained provenance identifies
 the source that was measured. The 240-second proposal and 300-second whole-profile
 deadlines and production limits are unchanged.
+
+### Production envelope decision — #378, 2026-11-18
+
+Keep the current paired production configuration:
+
+| Boundary | Retained default |
+| --- | --- |
+| EHI preview work | 10,000 rows / 8 MiB / 240 seconds |
+| Native backup/restore structured records | 20,000 records / 32 MiB of record streams |
+
+This selects the existing defaults rather than an expanded production envelope.
+It does not claim that the original 2,000-record changed-import, three-cycle or
+5,000-record full-review targets fit those defaults. The retained observations
+above show explicit refusals for targets that exceed them. Refused or timed-out
+work does not acquire review, recovery, cleanup or access proof.
+
+The rationale is the absence of deployment SQL/object-store calibration and a
+representative export or its structure-only probe. Synthetic SQLite and MariaDB
+measurements can identify and verify performance fixes, but cannot establish
+production latency, real-package shape or sustained history-growth margins.
+Even an expanded synthetic pair completing every declared lifecycle does not
+justify changing production admission without that missing evidence. The
+240-second proposal and 300-second qualification clocks stay unchanged.
+
+No configuration migration or rollback is needed for this decision. Keep native
+restore capacity sufficient for archives already admitted by a deployment; never
+lower restore limits below its existing archives. If a deployment needs tighter
+admission, restrict new preview/import work while preserving recovery capacity.
+
+Revisit the capacity decision when both representative package structure and
+disposable production-like SQL/object-store measurements are available. Retain
+exact-candidate full-lifecycle artifacts on SQLite and MariaDB, including actual
+archive counts/bytes and review/source/identity/access/cleanup proofs, before
+selecting a different paired envelope. Do not use the application schema,
+production records or requested production credentials as substitutes.
