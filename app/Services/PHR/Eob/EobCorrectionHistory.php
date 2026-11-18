@@ -30,12 +30,14 @@ final readonly class EobCorrectionHistory
         }
     }
 
-    /** Called only inside the patient's write transaction. */
-    public function normalize(PhrEob $eob): void
+    /** Called only inside the patient's write transaction.
+     * @return array<string, list<string>> identities produced by this conversion only
+     */
+    public function normalize(PhrEob $eob): array
     {
         $parsed = $eob->parsed_data;
         if (! is_array($parsed) || ! array_key_exists('corrections', $parsed)) {
-            return;
+            return [];
         }
         $this->requireTransaction();
         $legacy = $parsed['corrections'];
@@ -53,15 +55,21 @@ final readonly class EobCorrectionHistory
         $restored = DB::table('phr_native_record_identities')->where('patient_id', $patientId)
             ->where('record_table', 'phr_eobs')->where('record_id', $eob->id)
             ->where(fn ($query) => $query->whereNotNull('restored_at')->orWhereNotNull('restore_attempt_id'))->exists();
+        $produced = [];
         foreach ($legacy as $position => $entry) {
             self::assertLegacy($entry);
             $actorId = $entry['actor_user_id'];
             $actor = ! $restored && DB::table('users')->where('id', $actorId)->exists()
                 ? ['kind' => 'native_actor', 'native_id' => $this->nativeId($patientId, 'users', $actorId)]
                 : self::unresolved($patientNativeId, 'actor', $actorId);
-            $this->store($eob, $position + 1, $entry['before'], $entry['after'], $actor,
+            $inserted = $this->store($eob, $position + 1, $entry['before'], $entry['after'], $actor,
                 self::client($patientNativeId, $entry['oauth_client_id']), $entry['corrected_at'], $entry['previous_version'],
-                self::legacyId($eobNativeId, $position + 1), ! $restored);
+                self::legacyId($eobNativeId, $position + 1), ! $restored, self::legacyProvenance($patientNativeId, $entry));
+            foreach ($inserted as $table => $nativeIds) {
+                foreach ($nativeIds as $nativeId) {
+                    $produced[$table][] = $nativeId;
+                }
+            }
         }
         unset($parsed['corrections']);
         // This is a representation migration, not a new clinical correction.
@@ -71,6 +79,8 @@ final readonly class EobCorrectionHistory
         DB::table('phr_eobs')->where('id', $eob->id)->update(['parsed_data' => $eob->getAttributes()['parsed_data'], 'correction_revision' => count($legacy)]);
         $eob->syncOriginalAttribute('parsed_data');
         $eob->syncOriginalAttribute('correction_revision');
+
+        return $produced;
     }
 
     /** @param array<string, mixed> $before
@@ -117,14 +127,20 @@ final readonly class EobCorrectionHistory
      * @param  array<string, mixed>  $after
      * @param  array<string, mixed>  $actor
      * @param  array<string, mixed>  $client
+     * @param  array<string, mixed>|null  $legacyProvenance
+     * @return array<string, list<string>>
      */
-    private function store(PhrEob $eob, int $ordinal, array $before, array $after, array $actor, array $client, string $correctedAt, string $previousVersion, ?string $nativeId = null, bool $resolveDocuments = true): void
+    private function store(PhrEob $eob, int $ordinal, array $before, array $after, array $actor, array $client, string $correctedAt, string $previousVersion, ?string $nativeId = null, bool $resolveDocuments = true, ?array $legacyProvenance = null): array
     {
         $patientId = (int) $eob->patient_id;
         $event = ['patient_id' => $patientId, 'eob_id' => $eob->id, 'ordinal' => $ordinal,
             'corrected_at' => $correctedAt, 'previous_version' => $previousVersion,
             'actor_provenance' => $actor, 'client_provenance' => $client];
         $lines = [];
+        $produced = [];
+        if ($legacyProvenance !== null && $actor['kind'] === 'native_actor') {
+            $legacyProvenance['resolved']['actor_native_id'] = $actor['native_id'];
+        }
         foreach (['before' => $before, 'after' => $after] as $side => $snapshot) {
             $lines[$side] = $snapshot['lines'];
             $documentId = $snapshot['source_document_id'] ?? null;
@@ -134,9 +150,14 @@ final readonly class EobCorrectionHistory
             $event[$side.'_document_provenance'] = $documentId !== null && ! $known
                 ? self::unresolved($this->nativeId($patientId, 'phr_patients', $patientId), 'document', $documentId) : null;
             $event[$side.'_data'] = $snapshot;
+            if ($known && $legacyProvenance !== null) {
+                $legacyProvenance['resolved'][$side.'_document_native_id'] = $this->nativeId($patientId, 'phr_documents', $documentId);
+            }
         }
+        $event['legacy_provenance'] = $legacyProvenance;
         $correction = PhrEobCorrection::query()->create($event);
         if ($nativeId !== null) {
+            $produced['phr_eob_corrections'][] = $nativeId;
             DB::table('phr_native_record_identities')->insert(['patient_id' => $patientId, 'record_table' => 'phr_eob_corrections',
                 'record_id' => $correction->id, 'native_id' => $nativeId, 'created_at' => now(), 'updated_at' => now()]);
         }
@@ -154,11 +175,14 @@ final readonly class EobCorrectionHistory
                         ->where('side', $side)->whereIn('position', array_keys($chunk))->get(['id', 'position']) as $line) {
                         $identities[] = ['patient_id' => $patientId, 'record_table' => 'phr_eob_correction_lines', 'record_id' => $line->id,
                             'native_id' => self::legacyLineId($nativeId, $side, (int) $line->position), 'created_at' => now(), 'updated_at' => now()];
+                        $produced['phr_eob_correction_lines'][] = self::legacyLineId($nativeId, $side, (int) $line->position);
                     }
                     DB::table('phr_native_record_identities')->insert($identities);
                 }
             }
         }
+
+        return $produced;
     }
 
     public static function assertLegacy(mixed $entry): void
@@ -202,6 +226,21 @@ final readonly class EobCorrectionHistory
     public static function legacyLineId(string $correctionNativeId, string $side, int $position): string
     {
         return Uuid::uuid5($correctionNativeId, $side.':'.$position)->toString();
+    }
+
+    /** Source-only aliases let old archives compare to a locally resolved conversion.
+     * @param  array<string, mixed>  $entry
+     * @return array<string, mixed>
+     */
+    public static function legacyProvenance(string $patientNativeId, array $entry): array
+    {
+        $source = ['actor' => self::unresolved($patientNativeId, 'actor', $entry['actor_user_id'])];
+        foreach (['before', 'after'] as $side) {
+            $id = $entry[$side]['source_document_id'] ?? null;
+            $source[$side.'_document'] = $id === null ? null : self::unresolved($patientNativeId, 'document', $id);
+        }
+
+        return ['source' => $source, 'resolved' => []];
     }
 
     private function nativeId(int $patientId, string $table, int $recordId): string

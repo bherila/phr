@@ -15,6 +15,7 @@ use App\Services\PHR\Eob\EobCorrectionHistory;
 use App\Services\PHR\Import\EobPdfTextExtractor;
 use App\Services\PHR\NativeBackup\NativeRestoreException;
 use App\Services\PHR\NativeBackup\PhrNativeArchiveBuilder;
+use App\Services\PHR\NativeBackup\PhrNativeEobCorrectionCompatibility;
 use App\Services\PHR\NativeBackup\PhrNativeIdentityRepository;
 use App\Services\PHR\NativeBackup\PhrNativeRecordCodec;
 use App\Services\PHR\NativeBackup\PhrNativeRestoreArchiveReader;
@@ -515,6 +516,70 @@ final class AgentApiEobWriteTest extends TestCase
             config(['phr.native_max_records' => $maximum]);
         }
         self::assertSame($identityCount, DB::table('phr_native_record_identities')->count());
+        $copy = tempnam(sys_get_temp_dir(), 'synthetic-eob-admission-');
+        copy($archive->path, $copy);
+        $admitted = app(PhrNativeRestoreArchiveReader::class)->openLocal($copy);
+        $virtual = iterator_to_array($admitted->records('phr_eob_corrections'), false)[0];
+        $reservedBytes = PhrNativeEobCorrectionCompatibility::admissionBytes($virtual);
+        unset($admitted);
+        // The same pre-upgrade patient may still hold the byte-equivalent JSON.
+        // Preview must compare that representation without changing any rows.
+        DB::table('phr_eobs')->where('id', $eob->id)->update(['parsed_data' => $record['attributes']['parsed_data']]);
+        $original = $eob->refresh()->getAttributes();
+        $sourcePreview = $this->historyPreview($archive->path, $this->actor->id);
+        self::assertSame('preview_ready', $sourcePreview->status, (string) $sourcePreview->failure_category);
+        self::assertSame(0, array_sum(array_column($sourcePreview->plan_counts_json['tables'], 'block')));
+        self::assertSame($original, $eob->refresh()->getAttributes());
+        self::assertSame(0, DB::table('phr_eob_corrections')->count());
+        $sourceAgain = $this->historyPreview($archive->path, $this->actor->id);
+        self::assertSame($sourcePreview->plan_digest, $sourceAgain->plan_digest);
+        $edited = $legacy;
+        $edited[0]['before']['provider_name'] = 'Concurrent source history edit';
+        DB::table('phr_eobs')->where('id', $eob->id)->update(['parsed_data' => json_encode(['written_by' => 'agent_api', 'corrections' => $edited], JSON_THROW_ON_ERROR)]);
+        try {
+            app(PhrNativeRestoreService::class)->apply($sourcePreview);
+            self::fail('A source history edit must invalidate the approved conversion.');
+        } catch (NativeRestoreException $exception) {
+            self::assertSame('preview_changed', $exception->failureCategory);
+        }
+        self::assertSame(0, DB::table('phr_eob_corrections')->count());
+        self::assertSame($edited, $eob->refresh()->parsed_data['corrections']);
+        DB::table('phr_eobs')->where('id', $eob->id)->update(['parsed_data' => $original['parsed_data']]);
+        $sourcePreview = $this->historyPreview($archive->path, $this->actor->id);
+        app(PhrNativeRestoreService::class)->apply($sourcePreview);
+        self::assertSame('completed', $sourcePreview->refresh()->status, (string) $sourcePreview->failure_category);
+        self::assertSame(1, DB::table('phr_eob_corrections')->count());
+        self::assertSame(2, DB::table('phr_eob_correction_lines')->count());
+        $sourceAfter = $this->historyPreview($archive->path, $this->actor->id);
+        self::assertSame(0, array_sum(array_column($sourceAfter->plan_counts_json['tables'], 'create')));
+        self::assertSame(0, array_sum(array_column($sourceAfter->plan_counts_json['tables'], 'block')));
+        $converted = DB::table('phr_eob_corrections')->sole();
+        self::assertSame($document->id, $converted->before_document_id, 'Known local document identity is preserved.');
+        $convertedBackup = app(PhrNativeArchiveBuilder::class)->build($this->patient);
+        $newGeneration = $this->historyPreview($convertedBackup->path, $this->actor->id);
+        self::assertSame(0, array_sum(array_column($newGeneration->plan_counts_json['tables'], 'block')));
+        $zip = new ZipArchive;
+        self::assertTrue($zip->open($convertedBackup->path));
+        self::assertLessThanOrEqual($reservedBytes, strlen((string) $zip->getFromName('records/phr_eob_corrections.ndjson')));
+        $zip->close();
+        $otherDocument = $this->document();
+        $otherNativeId = app(PhrNativeIdentityRepository::class)->forRecord($eob->patient_id, 'phr_documents', $otherDocument->id);
+        DB::table('phr_eob_corrections')->where('id', $converted->id)->update(['before_document_id' => $otherDocument->id]);
+        $wrongDocument = $this->historyPreview($archive->path, $this->actor->id);
+        self::assertContains('record_conflict', $wrongDocument->plan_counts_json['blockers']);
+        $wrongNewGeneration = $this->historyPreview($convertedBackup->path, $this->actor->id);
+        self::assertContains('record_conflict', $wrongNewGeneration->plan_counts_json['blockers']);
+        unlink($convertedBackup->path);
+        DB::table('phr_eob_corrections')->where('id', $converted->id)->update(['before_document_id' => $converted->before_document_id]);
+        $badBridge = json_decode($converted->legacy_provenance, true, flags: JSON_THROW_ON_ERROR);
+        $badBridge['resolved']['before_document_native_id'] = $otherNativeId;
+        DB::table('phr_eob_corrections')->where('id', $converted->id)->update(['legacy_provenance' => json_encode($badBridge, JSON_THROW_ON_ERROR)]);
+        $wrongBridge = $this->historyPreview($archive->path, $this->actor->id);
+        self::assertContains('record_conflict', $wrongBridge->plan_counts_json['blockers']);
+        DB::table('phr_eob_corrections')->where('id', $converted->id)->update(['legacy_provenance' => $converted->legacy_provenance]);
+        app(PhrNativeRestoreService::class)->apply($sourceAfter);
+        self::assertSame(1, DB::table('phr_eob_corrections')->count());
+        self::assertSame(2, DB::table('phr_eob_correction_lines')->count());
         $restorer = $this->createUser();
         DB::table('phr_patients')->where('id', $this->patient->id)->delete();
         // Occupy the old source document ID under another patient. Embedded

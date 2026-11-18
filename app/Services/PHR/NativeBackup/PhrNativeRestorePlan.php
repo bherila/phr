@@ -10,6 +10,7 @@ final readonly class PhrNativeRestorePlan
      * @param  list<string>  $blockers
      * @param  array<string, array<string, string>>  $actions
      * @param  array<string, int>  $actorIds
+     * @param  array<string, array{record_id: int, history_hash: string}>  $legacyMigrations
      */
     public function __construct(
         public string $patientNativeId,
@@ -22,6 +23,7 @@ final readonly class PhrNativeRestorePlan
         public string $digest,
         public array $actions,
         public array $actorIds,
+        public array $legacyMigrations = [],
     ) {}
 
     /** @return array<string, mixed> */

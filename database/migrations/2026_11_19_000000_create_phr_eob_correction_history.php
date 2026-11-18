@@ -20,6 +20,7 @@ return new class extends Migration
             $table->text('previous_version');
             $table->json('actor_provenance');
             $table->json('client_provenance');
+            $table->json('legacy_provenance')->nullable();
             $table->json('before_data');
             $table->json('after_data');
             $table->foreignId('before_document_id')->nullable()->constrained('phr_documents')->nullOnDelete();

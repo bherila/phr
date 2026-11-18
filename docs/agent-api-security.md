@@ -574,9 +574,13 @@ authorization widening or code change was needed.
 `eobs.update` requires `clinical:read`, `clinical:write`, writable patient access,
 and the current `expected_version`. It accepts a correction regardless of the
 original import source, preserves `import_source` and `external_id`, and reopens
-review. Each effective correction appends an entry to the EOB's clinical
-`parsed_data.corrections` history, within the write transaction: actor user ID,
-OAuth client ID, timestamp, prior version, and before/after header and line values.
+review. Each effective versioned update appends patient-owned immutable correction
+metadata and separate before/after line snapshots within the write transaction.
+Actor attribution uses an opaque patient-scoped native principal reference; OAuth
+client references are explicitly source-only provenance and never authorize or
+identify a destination client. Historical documents use remappable native relationships
+where identity is known. Legacy embedded IDs with uncertain origin remain opaque
+unresolved source references, never guesses based on local row numbers.
 No-ops and conflicts add no history. Existing parser provenance is retained.
 This clinical history is included in native patient backups; request audit logs
 remain metadata-only and API responses do not expose the history.

@@ -5,8 +5,10 @@ namespace App\Services\PHR\NativeBackup;
 use App\Jobs\PHR\ApplyPhrNativeRestoreJob;
 use App\Jobs\PHR\PreviewPhrNativeRestoreJob;
 use App\Models\PhrDocument;
+use App\Models\PhrEob;
 use App\Models\PhrNativeRecordIdentity;
 use App\Models\PhrNativeRestoreAttempt;
+use App\Services\PHR\Eob\EobCorrectionHistory;
 use App\Services\PHR\Storage\BlobStorageQuota;
 use App\Support\PHR\PhrDocumentSource;
 use App\Support\PHR\PhrDocumentType;
@@ -417,6 +419,21 @@ final class PhrNativeRestoreService
         int $restoreAttemptId,
     ): int {
         $patientId = $plan->targetPatientId ?? 0;
+        $materialized = [];
+        foreach ($plan->legacyMigrations as $proof) {
+            $eob = PhrEob::query()->where('patient_id', $patientId)->lockForUpdate()->findOrFail($proof['record_id']);
+            $parsed = $eob->parsed_data;
+            $legacy = is_array($parsed) ? ($parsed['corrections'] ?? []) : [];
+            if (! is_array($legacy) || ! array_is_list($legacy)
+                || ! hash_equals($proof['history_hash'], PhrNativeEobCorrectionCompatibility::historyHash($legacy))) {
+                throw new NativeRestoreException('preview_changed');
+            }
+            foreach (app(EobCorrectionHistory::class)->normalize($eob) as $table => $nativeIds) {
+                foreach ($nativeIds as $nativeId) {
+                    $materialized[$table][$nativeId] = true;
+                }
+            }
+        }
         $artifacts = [];
         foreach ($archive->manifest['artifacts'] as $artifact) {
             if (is_array($artifact) && is_string($artifact['recordNativeId'] ?? null)) {
@@ -442,6 +459,11 @@ final class PhrNativeRestoreService
                 foreach ($page as $record) {
                     $nativeId = (string) $record['nativeId'];
                     $action = $plan->actions[$table][$nativeId] ?? 'block';
+                    if ($action === 'create' && isset($materialized[$table][$nativeId])) {
+                        // Only this transaction's verified representation
+                        // conversion may satisfy a planned history creation.
+                        $action = 'skip';
+                    }
                     if ($action === 'omit') {
                         continue;
                     }

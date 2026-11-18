@@ -112,7 +112,9 @@ final class PhrNativeRestoreArchiveReader
                     // compatibility records use the codec's insertion order.
                     ksort($record);
                     $this->validateRecord($table, $definition, $record);
-                    $budget->charge(strlen(PhrNativeRecordCodec::canonicalJson($record)."\n"));
+                    $budget->charge($table === 'phr_eob_corrections'
+                        ? PhrNativeEobCorrectionCompatibility::admissionBytes($record)
+                        : strlen(PhrNativeRecordCodec::canonicalJson($record)."\n"));
                     if (isset($ids[$record['nativeId']]) || isset($actors[$record['nativeId']])) {
                         throw new NativeRestoreException('invalid_archive');
                     }

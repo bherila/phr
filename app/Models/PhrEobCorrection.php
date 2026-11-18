@@ -22,6 +22,7 @@ class PhrEobCorrection extends Model
             'patient_id' => 'integer', 'eob_id' => 'integer', 'ordinal' => 'integer',
             'before_document_id' => 'integer', 'after_document_id' => 'integer',
             'actor_provenance' => 'array', 'client_provenance' => 'array',
+            'legacy_provenance' => 'array',
             'before_data' => 'array', 'after_data' => 'array',
             'before_document_provenance' => 'array', 'after_document_provenance' => 'array',
         ];

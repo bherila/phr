@@ -113,6 +113,16 @@ policy applies to legacy JSON already copied by an older restore. Known local hi
 retain their attributable actor UUIDs and remappable document relationships. A second
 preview of the old archive compares against the same normalized projection.
 
+Previewing an old archive against its unchanged source JSON is also read-only. The
+planner verifies the complete source history against the hash-verified archive and
+includes the exact conversion set and source-history hashes in its approval digest.
+Apply repeats that proof under the patient lock before materializing the history once.
+A bounded provenance bridge retains source-only aliases alongside any locally resolved
+principal/document UUIDs. Only old-generation comparisons use that bridge, and only
+when current strong references still match it. New archives retain exact comparisons.
+Source-history edits after preview and mismatches between strong references and the
+bridge block restore; deterministic virtual identities alone establish no attribution.
+
 Schema version 1 stays 1 when a table is added. The reader requires the manifest's
 table set to equal the catalog, except that a table generation added after v1 shipped
 (`PhrNativeTableCompatibility::LATER_GENERATIONS`: today `ehi_tables`, the six EHI

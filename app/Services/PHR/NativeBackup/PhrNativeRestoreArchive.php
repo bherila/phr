@@ -50,6 +50,20 @@ final class PhrNativeRestoreArchive
         }
     }
 
+    /** The original, hash-verified source history, never inferred from destination IDs.
+     * @return list<array<string, mixed>>
+     */
+    public function legacyHistoryFor(string $eobNativeId): array
+    {
+        foreach ($this->rawRecords('phr_eobs') as $record) {
+            if ($record['nativeId'] === $eobNativeId) {
+                return PhrNativeEobCorrectionCompatibility::legacy($record);
+            }
+        }
+
+        return [];
+    }
+
     /** @return Generator<int, array<string, mixed>> */
     private function rawRecords(string $table): Generator
     {
