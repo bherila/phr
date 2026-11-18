@@ -49,6 +49,7 @@ final class PhrNativeTableCompatibility
         'medication_fill_evidence' => [
             'phr_medication_fill_evidence',
         ],
+        'eob_corrections' => ['phr_eob_corrections', 'phr_eob_correction_lines'],
     ];
 
     /**

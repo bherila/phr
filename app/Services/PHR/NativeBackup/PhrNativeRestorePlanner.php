@@ -22,6 +22,8 @@ final class PhrNativeRestorePlanner
      * @var array<string, list<list<string>>>
      */
     private const array UNIQUE_KEYS = [
+        'phr_eob_corrections' => [['eob_id', 'ordinal']],
+        'phr_eob_correction_lines' => [['correction_id', 'side', 'position']],
         'phr_ehi_sources' => [['patient_id', 'label']],
         'phr_ehi_packages' => [['patient_id', 'manifest_digest']],
         'phr_ehi_blobs' => [['patient_id', 'sha256']],
@@ -87,6 +89,8 @@ final class PhrNativeRestorePlanner
         $tables = [];
         $actions = [];
         $shareCount = 0;
+        $legacyMigrations = [];
+        $legacyHistoryArchive = ! isset($archive->manifest['tables']['phr_eob_corrections']);
         foreach (PhrNativeBackupCatalog::included() as $table => $definition) {
             $tables[$table] = ['create' => 0, 'skip' => 0, 'block' => 0];
             foreach ($archive->recordPages($table) as $page) {
@@ -154,7 +158,24 @@ final class PhrNativeRestorePlanner
                                     // on read; map the current row the same way, so a row that
                                     // still holds one compares equal to its own unchanged backup.
                                     $projected = PhrNativeDocumentCompatibility::normalize($table, $projected);
+                                    if ($legacyHistoryArchive && $table === 'phr_eobs') {
+                                        $legacy = PhrNativeEobCorrectionCompatibility::legacy($projected);
+                                        if ($legacy !== []) {
+                                            $historyHash = PhrNativeEobCorrectionCompatibility::historyHash($legacy);
+                                            if (! hash_equals($historyHash, PhrNativeEobCorrectionCompatibility::historyHash($archive->legacyHistoryFor($nativeId)))
+                                                || DB::table('phr_eob_corrections')->where('patient_id', $targetPatientId)->where('eob_id', $recordId)->exists()) {
+                                                throw new NativeRestoreException('record_conflict');
+                                            }
+                                            $legacyMigrations[$nativeId] = ['record_id' => $recordId, 'history_hash' => $historyHash];
+                                        }
+                                        $projected = PhrNativeEobCorrectionCompatibility::normalize($projected);
+                                    } elseif ($legacyHistoryArchive && $table === 'phr_eob_corrections') {
+                                        $projected = PhrNativeEobCorrectionCompatibility::legacyView($projected);
+                                    }
                                     $action = hash_equals((string) $projected['contentHash'], (string) $record['contentHash']) ? 'skip' : 'block';
+                                    if ($action === 'block') {
+                                        unset($legacyMigrations[$nativeId]);
+                                    }
                                 } catch (NativeRestoreException $exception) {
                                     $blockers[] = $exception->failureCategory;
                                     $action = 'block';
@@ -181,6 +202,8 @@ final class PhrNativeRestorePlanner
                 }
             }
         }
+
+        $legacyMigrations = PhrNativeEobCorrectionCompatibility::reserveConversions($archive, $targetPatientId ?? 0, $legacyMigrations, $lockCurrentRows);
 
         $artifactPlan = ['create' => 0, 'skip' => 0, 'block' => 0, 'bytes' => 0];
         foreach ($archive->manifest['artifacts'] as $artifact) {
@@ -213,10 +236,11 @@ final class PhrNativeRestorePlanner
             'accessGrantCount' => $shareCount,
             'restoreAccessGrants' => $restoreAccessGrants,
             'blockers' => $blockers,
+            'legacyMigrations' => $legacyMigrations,
         ];
         $digest = hash('sha256', PhrNativeRecordCodec::canonicalJson($digestPayload));
 
-        return new PhrNativeRestorePlan($patientNativeId, $targetPatientId, $tables, $artifactPlan, $shareCount, $restoreAccessGrants, $blockers, $digest, $actions, $actorIds);
+        return new PhrNativeRestorePlan($patientNativeId, $targetPatientId, $tables, $artifactPlan, $shareCount, $restoreAccessGrants, $blockers, $digest, $actions, $actorIds, $legacyMigrations);
     }
 
     /**

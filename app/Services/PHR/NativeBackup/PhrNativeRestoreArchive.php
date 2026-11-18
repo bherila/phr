@@ -31,6 +31,42 @@ final class PhrNativeRestoreArchive
     /** @return Generator<int, array<string, mixed>> */
     public function records(string $table): Generator
     {
+        $legacyHistory = ! isset($this->manifest['tables']['phr_eob_corrections']);
+        if ($legacyHistory && in_array($table, PhrNativeEobCorrectionCompatibility::TABLES, true)) {
+            foreach ($this->rawRecords('phr_eobs') as $eob) {
+                yield from PhrNativeEobCorrectionCompatibility::records($table, $eob, $this->manifest['patientNativeId']);
+            }
+
+            return;
+        }
+        foreach ($this->rawRecords($table) as $record) {
+            if ($table === 'phr_eobs') {
+                if (! $legacyHistory && PhrNativeEobCorrectionCompatibility::legacy($record) !== []) {
+                    throw new NativeRestoreException('invalid_archive');
+                }
+                $record = PhrNativeEobCorrectionCompatibility::normalize($record);
+            }
+            yield $record;
+        }
+    }
+
+    /** The original, hash-verified source history, never inferred from destination IDs.
+     * @return list<array<string, mixed>>
+     */
+    public function legacyHistoryFor(string $eobNativeId): array
+    {
+        foreach ($this->rawRecords('phr_eobs') as $record) {
+            if ($record['nativeId'] === $eobNativeId) {
+                return PhrNativeEobCorrectionCompatibility::legacy($record);
+            }
+        }
+
+        return [];
+    }
+
+    /** @return Generator<int, array<string, mixed>> */
+    private function rawRecords(string $table): Generator
+    {
         $entry = $this->manifest['tables'][$table] ?? null;
         if ($entry === null && PhrNativeTableCompatibility::readsAsEmpty($table)) {
             // The reader admitted this archive as predating the table.

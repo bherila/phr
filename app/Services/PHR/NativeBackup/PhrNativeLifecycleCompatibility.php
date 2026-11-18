@@ -51,7 +51,7 @@ final class PhrNativeLifecycleCompatibility
             'administration_status',
         ],
         // The review status an agent-written EOB waits in (#268). Older EOBs were all confirmed.
-        'phr_eobs' => ['review_status', 'lines_digest'],
+        'phr_eobs' => ['review_status', 'lines_digest', 'correction_revision'],
         // Whether each lab reference bound is inclusive (#259); null is "not stated".
         // EHI lab provenance (#213 M3): null on every result an older archive holds.
         'phr_lab_results' => [
@@ -101,9 +101,9 @@ final class PhrNativeLifecycleCompatibility
      * What a column holds for a record of an archive that predates it, where that is not null
      * (the column is NOT NULL with a default).
      *
-     * @var array<string, array<string, string>>
+     * @var array<string, array<string, string|int>>
      */
-    private const array LEGACY_VALUES = ['phr_eobs' => ['review_status' => 'confirmed']];
+    private const array LEGACY_VALUES = ['phr_eobs' => ['review_status' => 'confirmed', 'correction_revision' => 0]];
 
     /** @var array<string, list<string>> */
     private static array $columnsByTable = [];

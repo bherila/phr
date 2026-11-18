@@ -33,6 +33,7 @@ final readonly class EobWriteService
     public function __construct(
         private AgentClinicalRecordVersion $versions,
         private MedicationFillUpsertService $fills,
+        private EobCorrectionHistory $history,
     ) {}
 
     /**
@@ -174,20 +175,12 @@ final readonly class EobWriteService
                 'review_status' => $eob->review_status,
                 'parser_version' => $eob->parser_version,
             ];
+            $this->history->normalize($eob);
             $this->apply($eob, $claim, $fingerprint, $sourceDocumentId ?? $eob->source_document_id);
             // Clinical history belongs with the patient record, never in metadata-only
             // request audits. Keep it in the same transaction as the corrected lines.
-            $provenance = (array) $eob->parsed_data;
-            $provenance['corrections'][] = [
-                'actor_user_id' => $actorUserId,
-                'oauth_client_id' => $client->id,
-                'corrected_at' => now()->toIso8601String(),
-                'previous_version' => $expectedVersion,
-                'before' => $before,
-                'after' => [...$this->stored($eob), 'source_document_id' => $eob->source_document_id],
-            ];
-            $eob->parsed_data = $provenance;
-            $eob->save();
+            $this->history->append($eob, $before, [...$this->stored($eob), 'source_document_id' => $eob->source_document_id],
+                $actorUserId, $client, $expectedVersion);
 
             return [$eob->refresh(), ClinicalUpsertResult::UPDATED];
         }, 3);
