@@ -92,7 +92,10 @@ final class PhrNativeRestoreArchive
         $page = [];
         $bytes = 0;
         foreach ($this->records($table) as $record) {
-            $size = strlen(PhrNativeRecordCodec::canonicalJson($record));
+            // Key order does not change encoded size for catalog records. For
+            // unusual numeric maps the unsorted representation can be larger,
+            // so this remains conservative without sorting every payload again.
+            $size = strlen(json_encode($record, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
             if ($page !== [] && (count($page) >= PhrNativeSnapshotService::chunkSize()
                 || $size > (int) config('phr.native_page_bytes') - $bytes)) {
                 yield $page;

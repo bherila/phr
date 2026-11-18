@@ -8,6 +8,8 @@ use App\Services\PHR\NativeBackup\NativeBackupException;
 use App\Services\PHR\NativeBackup\NativeResourceBudget;
 use App\Services\PHR\NativeBackup\NativeRestoreException;
 use App\Services\PHR\NativeBackup\PhrNativeArchiveBuilder;
+use App\Services\PHR\NativeBackup\PhrNativeRecordCodec;
+use App\Services\PHR\NativeBackup\PhrNativeRestoreArchive;
 use App\Services\PHR\NativeBackup\PhrNativeRestoreArchiveReader;
 use App\Services\PHR\NativeBackup\PhrNativeRestorePlanner;
 use App\Services\PHR\NativeBackup\PhrNativeSnapshotService;
@@ -139,6 +141,63 @@ class PhrNativeResourceLimitsTest extends TestCase
             self::assertSame('record_size_limit', $exception->failureCategory);
         }
         self::assertFalse($hydrated);
+    }
+
+    public function test_archive_pages_keep_record_order_and_conservatively_bound_unsorted_json(): void
+    {
+        $record = ['nativeId' => 'synthetic-page', 'contentHash' => str_repeat('a', 64),
+            'attributes' => ['text' => 'Synthetic é / path', 'nested' => [1 => ['list' => ['é', '/']], 0 => ['tail' => true]]],
+            'relationships' => []];
+        $records = [$record, $record, $record];
+        $canonical = strlen(PhrNativeRecordCodec::canonicalJson($record));
+        $unsorted = strlen(json_encode($record, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+        self::assertGreaterThan($canonical, $unsorted, 'Sorting this numeric map changes its object representation into a shorter list.');
+        config(['phr.native_page_bytes' => 2 * $canonical, 'phr.native_backup_chunk_size' => 500]);
+        $archive = $this->pageArchive($records, 4096);
+        $pages = iterator_to_array($archive->recordPages('synthetic_rows'), false);
+        self::assertSame([1, 1, 1], array_map('count', $pages));
+        self::assertSame($records, array_merge(...$pages), 'Sizing must not sort or otherwise mutate payload order or content.');
+        foreach ($pages as $page) {
+            $rawBytes = array_sum(array_map(static fn (array $row): int => strlen(json_encode($row, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)), $page));
+            self::assertLessThanOrEqual(2 * $canonical, $rawBytes);
+            self::assertLessThanOrEqual($rawBytes, array_sum(array_map(static fn (array $row): int => strlen(PhrNativeRecordCodec::canonicalJson($row)), $page)));
+        }
+    }
+
+    public function test_archive_page_budget_keeps_single_admitted_large_records_and_the_record_cap(): void
+    {
+        $record = ['attributes' => ['text' => str_repeat('Synthetic é / ', 40)], 'relationships' => []];
+        config(['phr.native_page_bytes' => 100, 'phr.native_backup_chunk_size' => 500]);
+        $archive = $this->pageArchive([$record, $record], 4096);
+        self::assertSame([[$record], [$record]], iterator_to_array($archive->recordPages('synthetic_rows'), false));
+        $tooSmall = $this->pageArchive([$record], 32);
+        try {
+            iterator_to_array($tooSmall->recordPages('synthetic_rows'), false);
+            self::fail('Paging must not bypass the admitted individual-record cap.');
+        } catch (NativeRestoreException $exception) {
+            self::assertSame('record_size_limit', $exception->failureCategory);
+        }
+    }
+
+    /**
+     * Exercise the archive container's paging independently of catalog admission;
+     * reader count/size/content validation is covered by the admission tests.
+     *
+     * @param  list<array<string, mixed>>  $records
+     */
+    private function pageArchive(array $records, int $recordCap): PhrNativeRestoreArchive
+    {
+        $path = tempnam(sys_get_temp_dir(), 'phr-resource-page-test-');
+        self::assertIsString($path);
+        $zip = new ZipArchive;
+        self::assertTrue($zip->open($path, ZipArchive::OVERWRITE));
+        $lines = array_map(static fn (array $record): string => json_encode($record, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)."\n", $records);
+        self::assertTrue($zip->addFromString('records/synthetic.ndjson', implode('', $lines)));
+        self::assertTrue($zip->close());
+        $size = filesize($path);
+        self::assertIsInt($size);
+
+        return new PhrNativeRestoreArchive($path, ['tables' => ['synthetic_rows' => ['path' => 'records/synthetic.ndjson']]], $size, hash_file('sha256', $path), $recordCap);
     }
 
     public function test_artifact_metadata_and_manifest_limits_are_explicit_resource_refusals(): void
