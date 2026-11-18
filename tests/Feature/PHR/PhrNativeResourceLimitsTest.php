@@ -249,13 +249,21 @@ class PhrNativeResourceLimitsTest extends TestCase
         foreach ($built->manifest['tables'] as $table => $entry) {
             $requested[$table] = DB::table('phr_native_record_identities')->where('patient_id', $patient->id)->where('record_table', $table)->pluck('native_id')->all();
         }
+        $requestedIds = [];
+        foreach ($requested as $table => $nativeIds) {
+            $requestedIds[$table] = DB::table('phr_native_record_identities')->where('patient_id', $patient->id)->where('record_table', $table)->whereIn('native_id', $nativeIds)->pluck('record_id')->all();
+        }
+        $requestedIds['users'] = [$patient->owner_user_id];
         $unbounded = [];
         $pageReads = [];
-        DB::listen(static function (QueryExecuted $event) use (&$unbounded, &$pageReads): void {
+        $inverseReads = [];
+        DB::listen(static function (QueryExecuted $event) use (&$unbounded, &$pageReads, &$inverseReads): void {
             if (str_starts_with($event->sql, 'select') && str_contains($event->sql, 'from "phr_native_record_identities"')
                 && ! str_contains($event->sql, '"native_id" = ?') && ! str_contains($event->sql, '"record_id" = ?')) {
                 if (str_contains($event->sql, '"native_id" in (') && str_contains($event->sql, '"patient_id" = ?') && str_contains($event->sql, '"record_table" = ?')) {
                     $pageReads[] = $event->bindings;
+                } elseif (str_contains($event->sql, '"record_id" in (') && str_contains($event->sql, '"patient_id" = ?') && str_contains($event->sql, '"record_table" = ?')) {
+                    $inverseReads[] = $event->bindings;
                 } else {
                     $unbounded[] = $event->sql;
                 }
@@ -272,6 +280,12 @@ class PhrNativeResourceLimitsTest extends TestCase
             self::assertLessThanOrEqual(PhrNativeSnapshotService::chunkSize(), count($nativeIds));
             self::assertSame([], array_values(array_diff($nativeIds, $requested[$bindings[1]] ?? [])), 'Only identities requested by this archive page may be loaded.');
             self::assertNotSame('phr_lab_results', $bindings[1], 'Unrelated target history must never be read.');
+        }
+        foreach ($inverseReads as $bindings) {
+            self::assertSame($patient->id, $bindings[0]);
+            self::assertLessThanOrEqual(500, count($bindings) - 2);
+            self::assertSame([], array_values(array_diff(array_slice($bindings, 2), $requestedIds[$bindings[1]] ?? [])));
+            self::assertNotSame('phr_lab_results', $bindings[1]);
         }
         self::assertSame(1, $plan->tables['phr_documents']['skip']);
     }

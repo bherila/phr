@@ -26,6 +26,7 @@ use App\Services\PHR\Import\Ehi\Mapping\EhiMappingContext;
 use App\Services\PHR\Import\Ehi\Mapping\EhiProposalDraft;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Tests\Support\EhiFakeMapping;
@@ -274,6 +275,32 @@ class EhiProposalServiceTest extends TestCase
         self::assertNotNull($record->retracted_at);
         self::assertSame(PhrEhiProposal::STATUS_PENDING, $update->refresh()->status);
         self::assertSame(1, PhrEhiProposalDecision::query()->count());
+    }
+
+    public function test_verified_revisions_are_reused_only_inside_one_locked_decision(): void
+    {
+        [$owner, $patient, $package] = $this->previewable('first');
+        $service = app(EhiProposalService::class);
+        $service->preview($package, $patient, $owner->id);
+        $first = $this->proposalFor($package, '100', '1');
+        $second = $this->proposalFor($package, '100', '2');
+        $expected = PhrEhiProposalRevision::idsFor($first);
+        $reads = 0;
+        DB::listen(static function (QueryExecuted $event) use (&$reads): void {
+            $sql = str_replace(['"', '`'], '', $event->sql);
+            if (str_starts_with($sql, 'select ') && str_contains($sql, ' from phr_ehi_proposal_revisions ')) {
+                $reads++;
+            }
+        });
+        $service->review($first, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $first->preview_digest);
+        self::assertSame(2, $reads, 'One bounded count and one ordered id read serve verification, linking and settlement.');
+        self::assertSame($expected, PhrEhiRecordLink::where('proposal_id', $first->id)->orderBy('revision_id')->pluck('revision_id')->all());
+        self::assertSame([PhrEhiOccurrence::DISPOSITION_PROJECTED], PhrEhiOccurrence::where('package_id', $package->id)->whereIn('revision_id', $expected)->distinct()->pluck('disposition')->all());
+        PhrEhiProposalRevision::where('proposal_id', $second->id)->delete();
+        $this->assertRefused(EhiReviewRefused::STALE_SOURCE, fn () => $service->review($second, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $second->preview_digest));
+        self::assertSame(4, $reads, 'The reused service must reread revisions for the next decision.');
+        self::assertSame(1, PhrImmunization::count());
+        self::assertSame(PhrEhiProposal::STATUS_PENDING, $second->fresh()->status);
     }
 
     public function test_a_proposal_whose_evidence_is_no_longer_projected_is_refused(): void

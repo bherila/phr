@@ -67,6 +67,20 @@ final class PhrNativeIdentityRepository
         return $found;
     }
 
+    /**
+     * @param  list<int>  $recordIds
+     * @return array<int, string>
+     */
+    public function existingNativeIds(int $patientId, string $table, array $recordIds): array
+    {
+        $found = [];
+        foreach (array_chunk(array_values(array_unique($recordIds)), PhrNativeSnapshotService::DEFAULT_CHUNK_SIZE) as $chunk) {
+            $found += $this->existing($patientId, $table, $chunk);
+        }
+
+        return $found;
+    }
+
     public function existingNativeId(int $patientId, string $table, int $recordId): ?string
     {
         $id = DB::table('phr_native_record_identities')->where('patient_id', $patientId)

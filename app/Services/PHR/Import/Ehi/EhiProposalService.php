@@ -272,11 +272,13 @@ final class EhiProposalService
             if (! in_array($decision, self::ALLOWED_DECISIONS[$current->kind] ?? [], true)) {
                 throw new EhiReviewRefused(EhiReviewRefused::DECISION_NOT_ALLOWED, 'the decision is not allowed for this proposal kind');
             }
-            $this->verifyRevisions($current);
+            // The patient/proposal lock serializes source revision replacement.
+            // Reuse only this decision's verified list for links and settlement.
+            $revisionIds = $this->verifyRevisions($current);
 
             $outcome = null;
             if (in_array($decision, [PhrEhiProposal::DECISION_ACCEPT, PhrEhiProposal::DECISION_APPROVE_UPDATE, PhrEhiProposal::DECISION_LINK], true)) {
-                $outcome = $this->apply($current, $patient, $decision, $actorUserId, $linkTargetId, $published);
+                $outcome = $this->apply($current, $patient, $decision, $actorUserId, $linkTargetId, $published, $revisionIds);
             }
 
             $now = now();
@@ -300,7 +302,7 @@ final class EhiProposalService
                 'decided_by_user_id' => $actorUserId,
                 'decided_at' => $now,
             ])->save();
-            $this->settleOccurrences($current, $outcome, $now);
+            $this->settleOccurrences($current, $outcome, $now, $revisionIds);
 
             return $current;
         });
@@ -309,8 +311,10 @@ final class EhiProposalService
     /**
      * Run the mapping's apply() against a locked, live, unchanged target and link
      * every revision to the record it produced or chose.
+     *
+     * @param  list<int>  $revisionIds
      */
-    private function apply(PhrEhiProposal $proposal, PhrPatient $patient, string $decision, int $actorUserId, ?int $linkTargetId, EhiPublishedObjects $published): EhiApplyOutcome
+    private function apply(PhrEhiProposal $proposal, PhrPatient $patient, string $decision, int $actorUserId, ?int $linkTargetId, EhiPublishedObjects $published, array $revisionIds): EhiApplyOutcome
     {
         $mapping = $this->registry->get($proposal->mapping);
         if ($mapping === null || $mapping->version() !== $proposal->mapping_version) {
@@ -356,7 +360,7 @@ final class EhiProposalService
         // Whatever the mapping wrote or chose must be a live record of this patient.
         $this->lockLive($patient, $outcome->recordTable, $outcome->recordId);
 
-        foreach (array_chunk(PhrEhiProposalRevision::idsFor($proposal), self::CHUNK) as $chunk) {
+        foreach (array_chunk($revisionIds, self::CHUNK) as $chunk) {
             PhrEhiRecordLink::query()->insertOrIgnore(array_map(fn (int $revisionId): array => [
                 'patient_id' => $patient->id,
                 'revision_id' => $revisionId,
@@ -478,8 +482,12 @@ final class EhiProposalService
         return $record;
     }
 
-    /** Every relied-on revision still exists for this patient and hashes as previewed. */
-    private function verifyRevisions(PhrEhiProposal $proposal): void
+    /**
+     * Every relied-on revision still exists for this patient and hashes as previewed.
+     *
+     * @return list<int>
+     */
+    private function verifyRevisions(PhrEhiProposal $proposal): array
     {
         // A deleted revision takes its proposal row with it (cascade), so a
         // shorter list fails the digest just as changed content does.
@@ -506,6 +514,8 @@ final class EhiProposalService
         if ($occurring !== count($ids)) {
             throw new EhiReviewRefused(EhiReviewRefused::STALE_SOURCE, 'the source evidence is no longer projected for this package');
         }
+
+        return $ids;
     }
 
     private function alreadyDecided(PhrEhiProposal $proposal, string $decision, ?int $linkTargetId): bool
@@ -527,8 +537,10 @@ final class EhiProposalService
      * ownership for two notes), so a disposition only ever rises along
      * OCCURRENCE_PRECEDENCE: each occurrence ends at the strongest disposition
      * any decision gave it, whatever order the proposals were reviewed in.
+     *
+     * @param  list<int>  $revisionIds
      */
-    private function settleOccurrences(PhrEhiProposal $proposal, ?EhiApplyOutcome $outcome, Carbon $now): void
+    private function settleOccurrences(PhrEhiProposal $proposal, ?EhiApplyOutcome $outcome, Carbon $now, array $revisionIds): void
     {
         $disposition = match (true) {
             $outcome === null => PhrEhiOccurrence::DISPOSITION_RETAINED,
@@ -537,7 +549,7 @@ final class EhiProposalService
         };
         $weaker = array_slice(self::OCCURRENCE_PRECEDENCE, 0, (int) array_search($disposition, self::OCCURRENCE_PRECEDENCE, true));
         $members = [];
-        foreach (array_chunk(PhrEhiProposalRevision::idsFor($proposal), self::CHUNK) as $chunk) {
+        foreach (array_chunk($revisionIds, self::CHUNK) as $chunk) {
             $occurrences = PhrEhiOccurrence::query()->where('package_id', $proposal->package_id)
                 ->whereIn('revision_id', $chunk)
                 ->whereIn('disposition', $weaker);

@@ -11,8 +11,6 @@ use Illuminate\Support\Facades\Storage;
 
 final class PhrNativeRestorePlanner
 {
-    private const int PROJECTION_IDENTITY_CACHE_SIZE = 512;
-
     /**
      * Unique keys a created row could collide on with a row the target already
      * holds under another identity (blob rows are content-addressed per patient,
@@ -85,11 +83,6 @@ final class PhrNativeRestorePlanner
     /** @param list<string> $blockers */
     private function planRecords(PhrNativeRestoreArchive $archive, int $actorUserId, bool $restoreAccessGrants, bool $lockCurrentRows, string $patientNativeId, string $ownerNativeId, ?int $targetPatientId, array $blockers): PhrNativeRestorePlan
     {
-        // Only inverse identity reads used by current-row projection are reused.
-        // Method-local state is discarded on every return/exception, including
-        // preview -> target edit -> apply on the same planner instance. Target
-        // rows and actor authorization are always read through their live paths.
-        $projectionIdentities = [];
         $actorIds = [$ownerNativeId => $actorUserId];
         $tables = [];
         $actions = [];
@@ -99,6 +92,7 @@ final class PhrNativeRestorePlanner
             foreach ($archive->recordPages($table) as $page) {
                 $recordIds = $targetPatientId === null ? [] : $this->identities->existingRecordIds($targetPatientId, $table, array_column($page, 'nativeId'));
                 foreach ($this->currentRecordPages($page, $recordIds, $targetPatientId, $table, $lockCurrentRows) as [$records, $currentRows]) {
+                    $projectionIdentities = $targetPatientId === null ? [] : $this->projectionIdentities($targetPatientId, $table, $definition, $currentRows);
                     foreach ($records as $record) {
                         $nativeId = (string) $record['nativeId'];
                         $action = 'create';
@@ -155,9 +149,7 @@ final class PhrNativeRestorePlanner
                             $current = $currentRows[$recordId] ?? null;
                             if ($current !== null) {
                                 try {
-                                    $projected = $this->projector->project($targetPatientId, $table, $definition, $current, function (string $relatedTable, int $id) use ($targetPatientId, &$projectionIdentities): ?string {
-                                        return $this->projectionNativeId($targetPatientId, $relatedTable, $id, $projectionIdentities);
-                                    });
+                                    $projected = $this->projector->project($targetPatientId, $table, $definition, $current, fn (string $relatedTable, int $id): ?string => $projectionIdentities[$relatedTable][$id] ?? null);
                                     // The archived record had its legacy document values mapped
                                     // on read; map the current row the same way, so a row that
                                     // still holds one compares equal to its own unchanged backup.
@@ -256,22 +248,37 @@ final class PhrNativeRestorePlanner
         }
     }
 
-    /** @param array<string, string|null> $cache */
-    private function projectionNativeId(int $patientId, string $table, int $recordId, array &$cache): ?string
+    /**
+     * Resolve inverse identities only for this bounded payload page and its FKs.
+     * Every invocation rereads current state; neither positive nor missing IDs
+     * survive the page/plan, and no unrelated patient history is materialized.
+     *
+     * @param  array<string, mixed>  $definition
+     * @param  array<int, \stdClass>  $rows
+     * @return array<string, array<int, string>>
+     */
+    private function projectionIdentities(int $patientId, string $table, array $definition, array $rows): array
     {
-        $key = $patientId.':'.$table.':'.$recordId;
-        if (array_key_exists($key, $cache)) {
-            $nativeId = $cache[$key];
-            // Move a hit to the end so frequently reused FKs survive eviction.
-            unset($cache[$key]);
-        } else {
-            $nativeId = $this->identities->existingNativeId($patientId, $table, $recordId);
-            if (count($cache) >= self::PROJECTION_IDENTITY_CACHE_SIZE) {
-                unset($cache[array_key_first($cache)]);
+        if ($rows === []) {
+            return [];
+        }
+        $requested = [$table => array_keys($rows)];
+        if (! ($definition['root'] ?? false)) {
+            $requested['phr_patients'][] = $patientId;
+        }
+        foreach ($rows as $row) {
+            foreach ($definition['relationships'] ?? [] as $column => $relationship) {
+                if ($row->{$column} !== null) {
+                    $requested[$relationship['target']][] = (int) $row->{$column};
+                }
             }
         }
+        $identities = [];
+        foreach ($requested as $relatedTable => $ids) {
+            $identities[$relatedTable] = $this->identities->existingNativeIds($patientId, $relatedTable, $ids);
+        }
 
-        return $cache[$key] = $nativeId;
+        return $identities;
     }
 
     /**
