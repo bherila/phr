@@ -116,7 +116,9 @@ preview of the old archive compares against the same normalized projection.
 Previewing an old archive against its unchanged source JSON is also read-only. The
 planner verifies the complete source history against the hash-verified archive and
 includes the exact conversion set and source-history hashes in its approval digest.
-Apply repeats that proof under the patient lock before materializing the history once.
+The read-only plan also admits the exact chosen local-resolution record widths and
+includes those predictions in the digest. Apply repeats both proofs under the patient
+lock before materializing the history once.
 A bounded provenance bridge retains source-only aliases alongside any locally resolved
 principal/document UUIDs. Only old-generation comparisons use that bridge, and only
 when current strong references still match it. New archives retain exact comparisons.

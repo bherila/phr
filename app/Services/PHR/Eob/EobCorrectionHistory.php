@@ -7,6 +7,7 @@ use App\Models\PhrEobCorrection;
 use App\Models\PhrEobCorrectionLine;
 use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
 use App\Services\PHR\NativeBackup\PhrNativeIdentityRepository;
+use App\Services\PHR\NativeBackup\PhrNativeSnapshotService;
 use App\Support\AgentApi\AgentApiClientIdentity;
 use Illuminate\Support\Facades\DB;
 use LogicException;
@@ -20,14 +21,17 @@ final readonly class EobCorrectionHistory
     /** Normalize existing local JSON before native snapshot byte preflight, without advancing the clinical version. */
     public function normalizePatient(int $patientId): void
     {
-        // Probe only IDs here: an oversized legacy EOB must be split before the
-        // native snapshot's existing per-record byte preflight hydrates it.
-        foreach (DB::table('phr_eobs')->where('patient_id', $patientId)->select('id')->orderBy('id')->lazyById(100, 'id') as $candidate) {
-            $this->guard->run($patientId, function () use ($patientId, $candidate): void {
+        $this->guard->run($patientId, function () use ($patientId): void {
+            // Take the patient lock before the first ordinary read. In a repeatable-
+            // read backup this pins the snapshot only after any earlier EOB writer
+            // has committed, so the migration and subsequent records agree.
+            foreach (DB::table('phr_eobs')->where('patient_id', $patientId)->select('id')->orderBy('id')->lazyById(PhrNativeSnapshotService::chunkSize(), 'id') as $candidate) {
+                // Hydrate just one legacy candidate before the native per-record
+                // preflight: oversized old JSON is split into bounded rows here.
                 $eob = PhrEob::query()->where('patient_id', $patientId)->lockForUpdate()->findOrFail($candidate->id);
                 $this->normalize($eob);
-            });
-        }
+            }
+        });
     }
 
     /** Called only inside the patient's write transaction.

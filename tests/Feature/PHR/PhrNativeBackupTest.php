@@ -205,7 +205,7 @@ class PhrNativeBackupTest extends TestCase
         // or a lookup of at most one page's related ids.
         foreach ($selects as $table => $tableSelects) {
             foreach ($tableSelects as [$sql]) {
-                $paged = str_contains($sql, 'limit 2');
+                $paged = preg_match('/\blimit ([0-9]+)\b/', $sql, $limit) === 1 && (int) $limit[1] >= 1 && (int) $limit[1] <= 2;
                 $lookup = preg_match('/"id" in \(([?, ]+)\)/', $sql, $ids) === 1 && substr_count($ids[1], '?') <= 2;
                 $this->assertTrue($paged || $lookup, $table.' was read without a page bound: '.$sql);
             }

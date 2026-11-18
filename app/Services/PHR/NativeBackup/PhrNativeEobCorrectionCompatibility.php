@@ -4,6 +4,7 @@ namespace App\Services\PHR\NativeBackup;
 
 use App\Services\PHR\Eob\EobCorrectionHistory;
 use Generator;
+use Illuminate\Support\Facades\DB;
 use LogicException;
 
 /** Lift old v1 JSON after physical hashes have been verified. No source integer is a destination identity. */
@@ -143,36 +144,92 @@ final class PhrNativeEobCorrectionCompatibility
         return hash('sha256', PhrNativeRecordCodec::canonicalJson(['history' => $entries]));
     }
 
-    /** Reserve the largest possible local-resolution representation before any conversion writes.
-     * UUID values have fixed encoded width; these placeholders are used only for byte accounting.
+    /** Exact width of the chosen local-resolution representation. UUID placeholders
+     * are used only for accounting when a known local actor has no assigned UUID yet.
      *
      * @param  array<string, mixed>  $record
      */
-    public static function admissionBytes(array $record): int
+    public static function resolvedBytes(array $record, int $mask): int
     {
-        $maximum = strlen(PhrNativeRecordCodec::canonicalJson($record)."\n");
-        $bridge = json_decode($record['attributes']['legacy_provenance'], true, flags: JSON_THROW_ON_ERROR);
+        $attributes = $record['attributes'];
+        $relationships = $record['relationships'];
+        $bridge = json_decode($attributes['legacy_provenance'], true, flags: JSON_THROW_ON_ERROR);
         $placeholder = '00000000-0000-4000-8000-000000000000';
-        for ($mask = 1; $mask < 8; $mask++) {
-            $attributes = $record['attributes'];
-            $relationships = $record['relationships'];
-            $variant = $bridge;
-            if ($mask & 1) {
-                $attributes['actor_provenance'] = json_encode(['kind' => 'native_actor', 'native_id' => $placeholder], JSON_THROW_ON_ERROR);
-                $variant['resolved']['actor_native_id'] = $placeholder;
+        if ($mask & 1) {
+            $attributes['actor_provenance'] = json_encode(['kind' => 'native_actor', 'native_id' => $placeholder], JSON_THROW_ON_ERROR);
+            $bridge['resolved']['actor_native_id'] = $placeholder;
+        }
+        foreach (['before' => 2, 'after' => 4] as $side => $bit) {
+            if ($mask & $bit) {
+                $attributes[$side.'_document_provenance'] = null;
+                $relationships[$side.'_document_id'] = ['kind' => 'record', 'table' => 'phr_documents', 'nativeId' => $placeholder];
+                $bridge['resolved'][$side.'_document_native_id'] = $placeholder;
             }
-            foreach (['before' => 2, 'after' => 4] as $side => $bit) {
-                if (($mask & $bit) && $bridge['source'][$side.'_document'] !== null) {
-                    $attributes[$side.'_document_provenance'] = null;
-                    $relationships[$side.'_document_id'] = ['kind' => 'record', 'table' => 'phr_documents', 'nativeId' => $placeholder];
-                    $variant['resolved'][$side.'_document_native_id'] = $placeholder;
+        }
+        $attributes['legacy_provenance'] = json_encode($bridge, JSON_THROW_ON_ERROR);
+        $resolved = (new PhrNativeRecordCodec)->record($record['nativeId'], $attributes, $relationships);
+
+        return strlen(PhrNativeRecordCodec::canonicalJson($resolved)."\n");
+    }
+
+    /** Charge the exact chosen conversion before any materialization. These choices
+     * participate in the approval digest and are recomputed under the apply lock.
+     *
+     * @param  array<string, array{record_id: int, history_hash: string, resolutions?: array<string, array{mask: int, bytes: int}>}>  $migrations
+     * @return array<string, array{record_id: int, history_hash: string, resolutions?: array<string, array{mask: int, bytes: int}>}>
+     */
+    public static function reserveConversions(PhrNativeRestoreArchive $archive, int $patientId, array $migrations, bool $locking): array
+    {
+        if ($migrations === []) {
+            return [];
+        }
+        $predictions = [];
+        foreach ($migrations as $eobNativeId => $proof) {
+            $eob = DB::table('phr_eobs')->where('patient_id', $patientId)->where('id', $proof['record_id'])->first();
+            if ($eob === null) {
+                throw new NativeRestoreException('preview_changed');
+            }
+            $legacy = self::legacy(['attributes' => ['parsed_data' => $eob->parsed_data]]);
+            if (! hash_equals($proof['history_hash'], self::historyHash($legacy))) {
+                throw new NativeRestoreException('preview_changed');
+            }
+            $restored = DB::table('phr_native_record_identities')->where('patient_id', $patientId)
+                ->where('record_table', 'phr_eobs')->where('record_id', $proof['record_id'])
+                ->where(fn ($query) => $query->whereNotNull('restored_at')->orWhereNotNull('restore_attempt_id'))->exists();
+            foreach ($legacy as $index => $entry) {
+                $mask = 0;
+                if (! $restored) {
+                    $actor = DB::table('users')->where('id', $entry['actor_user_id'])->select('id');
+                    if ($locking) {
+                        $actor->lockForUpdate();
+                    }
+                    $mask = $actor->first() !== null ? 1 : 0;
+                    foreach (['before' => 2, 'after' => 4] as $side => $bit) {
+                        $document = DB::table('phr_documents')->where('patient_id', $patientId)
+                            ->where('id', $entry[$side]['source_document_id'] ?? null)->select('id');
+                        if ($locking) {
+                            $document->lockForUpdate();
+                        }
+                        if ($document->first() !== null) {
+                            $mask |= $bit;
+                        }
+                    }
+                }
+                $predictions[EobCorrectionHistory::legacyId($eobNativeId, $index + 1)] = ['eob' => $eobNativeId, 'mask' => $mask];
+            }
+        }
+        $budget = new NativeResourceBudget(true);
+        foreach (PhrNativeBackupCatalog::included() as $table => $definition) {
+            foreach ($archive->records($table) as $record) {
+                $prediction = $table === 'phr_eob_corrections' ? ($predictions[$record['nativeId']] ?? null) : null;
+                $bytes = $prediction === null ? strlen(PhrNativeRecordCodec::canonicalJson($record)."\n") : self::resolvedBytes($record, $prediction['mask']);
+                $budget->charge($bytes);
+                if ($prediction !== null) {
+                    $migrations[$prediction['eob']]['resolutions'][$record['nativeId']] = ['mask' => $prediction['mask'], 'bytes' => $bytes];
                 }
             }
-            $attributes['legacy_provenance'] = json_encode($variant, JSON_THROW_ON_ERROR);
-            $resolved = (new PhrNativeRecordCodec)->record($record['nativeId'], $attributes, $relationships);
-            $maximum = max($maximum, strlen(PhrNativeRecordCodec::canonicalJson($resolved)."\n"));
         }
 
-        return $maximum;
+        return $migrations;
     }
 }

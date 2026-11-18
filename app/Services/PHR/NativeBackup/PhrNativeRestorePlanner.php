@@ -203,6 +203,8 @@ final class PhrNativeRestorePlanner
             }
         }
 
+        $legacyMigrations = PhrNativeEobCorrectionCompatibility::reserveConversions($archive, $targetPatientId ?? 0, $legacyMigrations, $lockCurrentRows);
+
         $artifactPlan = ['create' => 0, 'skip' => 0, 'block' => 0, 'bytes' => 0];
         foreach ($archive->manifest['artifacts'] as $artifact) {
             $table = PhrNativeBackupCatalog::artifactKinds()[(string) $artifact['kind']] ?? throw new NativeRestoreException('invalid_archive');

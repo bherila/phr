@@ -10,7 +10,7 @@ final readonly class PhrNativeRestorePlan
      * @param  list<string>  $blockers
      * @param  array<string, array<string, string>>  $actions
      * @param  array<string, int>  $actorIds
-     * @param  array<string, array{record_id: int, history_hash: string}>  $legacyMigrations
+     * @param  array<string, array{record_id: int, history_hash: string, resolutions?: array<string, array{mask: int, bytes: int}>}>  $legacyMigrations
      */
     public function __construct(
         public string $patientNativeId,

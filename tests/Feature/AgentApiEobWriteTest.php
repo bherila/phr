@@ -15,6 +15,7 @@ use App\Services\PHR\Eob\EobCorrectionHistory;
 use App\Services\PHR\Import\EobPdfTextExtractor;
 use App\Services\PHR\NativeBackup\NativeRestoreException;
 use App\Services\PHR\NativeBackup\PhrNativeArchiveBuilder;
+use App\Services\PHR\NativeBackup\PhrNativeBackupCatalog;
 use App\Services\PHR\NativeBackup\PhrNativeEobCorrectionCompatibility;
 use App\Services\PHR\NativeBackup\PhrNativeIdentityRepository;
 use App\Services\PHR\NativeBackup\PhrNativeRecordCodec;
@@ -520,7 +521,13 @@ final class AgentApiEobWriteTest extends TestCase
         copy($archive->path, $copy);
         $admitted = app(PhrNativeRestoreArchiveReader::class)->openLocal($copy);
         $virtual = iterator_to_array($admitted->records('phr_eob_corrections'), false)[0];
-        $reservedBytes = PhrNativeEobCorrectionCompatibility::admissionBytes($virtual);
+        $reservedBytes = PhrNativeEobCorrectionCompatibility::resolvedBytes($virtual, 7);
+        $exactVirtualBytes = 0;
+        foreach (array_keys(PhrNativeBackupCatalog::included()) as $table) {
+            foreach ($admitted->records($table) as $row) {
+                $exactVirtualBytes += strlen(PhrNativeRecordCodec::canonicalJson($row)."\n");
+            }
+        }
         unset($admitted);
         // The same pre-upgrade patient may still hold the byte-equivalent JSON.
         // Preview must compare that representation without changing any rows.
@@ -560,7 +567,7 @@ final class AgentApiEobWriteTest extends TestCase
         self::assertSame(0, array_sum(array_column($newGeneration->plan_counts_json['tables'], 'block')));
         $zip = new ZipArchive;
         self::assertTrue($zip->open($convertedBackup->path));
-        self::assertLessThanOrEqual($reservedBytes, strlen((string) $zip->getFromName('records/phr_eob_corrections.ndjson')));
+        self::assertSame($reservedBytes, strlen((string) $zip->getFromName('records/phr_eob_corrections.ndjson')));
         $zip->close();
         $otherDocument = $this->document();
         $otherNativeId = app(PhrNativeIdentityRepository::class)->forRecord($eob->patient_id, 'phr_documents', $otherDocument->id);
@@ -587,7 +594,10 @@ final class AgentApiEobWriteTest extends TestCase
         $other = PhrPatient::query()->create(['owner_user_id' => $restorer->id, 'display_name' => 'Unrelated synthetic patient']);
         DB::table('phr_documents')->insert(['id' => $document->id, 'patient_id' => $other->id, 'user_id' => $restorer->id,
             'title' => 'Unrelated synthetic document', 'document_type' => 'other', 'source' => 'manual_upload', 'byte_size' => 0]);
+        $ordinaryByteLimit = config('phr.native_max_record_stream_bytes');
+        config(['phr.native_max_record_stream_bytes' => $exactVirtualBytes]);
         $attempt = $this->historyPreview($archive->path, $restorer->id);
+        config(['phr.native_max_record_stream_bytes' => $ordinaryByteLimit]);
         self::assertSame('preview_ready', $attempt->status, (string) $attempt->failure_category);
         app(PhrNativeRestoreService::class)->apply($attempt);
         self::assertSame('completed', $attempt->refresh()->status, (string) $attempt->failure_category);

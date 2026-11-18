@@ -21,7 +21,6 @@ final class PhrNativeArchiveBuilder
     public function build(PhrPatient $patient): NativeBackupBuildResult
     {
         $patientId = (int) $patient->id;
-        app(EobCorrectionHistory::class)->normalizePatient($patientId);
         $maxBytes = (int) config('phr.native_backup_max_uncompressed_bytes', 20 * 1024 * 1024 * 1024);
         /** @var array<string, array{stream: resource, count: int, size: int}> $records */
         $records = [];
@@ -34,6 +33,8 @@ final class PhrNativeArchiveBuilder
                 $patientId,
                 false,
                 function () use ($patientId, $maxBytes, &$records): array {
+                    app(EobCorrectionHistory::class)->normalizePatient($patientId);
+
                     return $this->writeRecords($patientId, $maxBytes, $records);
                 },
             );
