@@ -222,6 +222,21 @@ final class AgentApiEobLineCorrectionTest extends TestCase
         }
     }
 
+    public function test_obsolete_automatic_evidence_is_removed_before_replacing_a_service(): void
+    {
+        $lines = $this->lines(true);
+        $created = $this->createClaim($lines);
+        $fill = $this->fill();
+        $old = PhrMedicationFillEvidence::query()->firstOrCreate([
+            'fill_id' => $fill->id, 'eob_line_id' => $created['lines'][0]['id'],
+            'source_kind' => PhrMedicationFillEvidence::KIND_AUTO_EOB_LINK,
+        ], ['patient_id' => $this->patient->id, 'source_locator' => 'synthetic inferred service', 'evidence_key' => substr(hash('sha256', 'synthetic-auto'), 0, 40)]);
+        $lines[0]['procedure_code'] = 'SYNTH-C';
+        $this->correct('update', $created, $lines)->assertOk();
+        self::assertFalse(PhrMedicationFillEvidence::query()->whereKey($old->id)->exists(), 'The original inference was invalidated, rather than silently retargeted.');
+        self::assertSame('SYNTH-C', PhrEobLine::query()->findOrFail($created['lines'][0]['id'])->procedure_code);
+    }
+
     /** @param list<array<string, mixed>> $lines
      * @return array<string, mixed>
      */
@@ -260,10 +275,15 @@ final class AgentApiEobLineCorrectionTest extends TestCase
     /** @return array{PhrMedicationFill, PhrMedicationFillEvidence} */
     private function link(int $lineId): array
     {
-        $fill = PhrMedicationFill::query()->create(['patient_id' => $this->patient->id, 'user_id' => $this->actor->id, 'filled_on' => '2026-10-28', 'quantity' => '1', 'ndc_status' => PhrMedicationFill::NDC_MANUAL, 'drug_as_printed' => 'Synthetic drug', 'review_status' => PhrReviewStatus::PENDING, 'source_kind' => 'manual']);
+        $fill = $this->fill();
         $evidence = PhrMedicationFillEvidence::query()->create(['patient_id' => $this->patient->id, 'fill_id' => $fill->id, 'document_id' => $this->document->id, 'eob_line_id' => $lineId, 'source_kind' => 'eob', 'source_locator' => 'synthetic original service', 'evidence_key' => substr(hash('sha256', 'synthetic-evidence'), 0, 40)]);
 
         return [$fill, $evidence];
+    }
+
+    private function fill(): PhrMedicationFill
+    {
+        return PhrMedicationFill::query()->create(['patient_id' => $this->patient->id, 'user_id' => $this->actor->id, 'filled_on' => '2026-10-28', 'quantity' => '1', 'ndc_status' => PhrMedicationFill::NDC_MANUAL, 'drug_as_printed' => 'Synthetic drug', 'review_status' => PhrReviewStatus::PENDING, 'source_kind' => 'manual']);
     }
 
     /** @return array<string, mixed> */

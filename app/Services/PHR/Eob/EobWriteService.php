@@ -234,9 +234,19 @@ final readonly class EobWriteService
             $previous[] = ['id' => $line->id, 'attributes' => $normalized[$index]];
         }
         $linkedIds = PhrMedicationFillEvidence::query()->where('patient_id', $eob->patient_id)
+            ->where('source_kind', '!=', PhrMedicationFillEvidence::KIND_AUTO_EOB_LINK)
             ->whereIn('eob_line_id', $existing->keys()->all())->lockForUpdate()->pluck('eob_line_id')
             ->map(static fn ($id): int => (int) $id)->unique()->values()->all();
         $plan = EobLineCorrespondence::plan($previous, $claim['lines'], $linkedIds);
+
+        // Inferences belong to the linker, while a person's/client's evidence
+        // must survive or refuse above. Remove obsolete inferences in the same
+        // transaction, so a failed after-commit recomputation cannot leave an
+        // old inference vouching for a replacement service. Normal model events
+        // recompute automatic links from the corrected claim after commit.
+        PhrMedicationFillEvidence::query()->where('patient_id', $eob->patient_id)
+            ->whereIn('eob_line_id', $existing->keys()->all())
+            ->where('source_kind', PhrMedicationFillEvidence::KIND_AUTO_EOB_LINK)->delete();
 
         $eob->fill([
             ...$claim['header'],
