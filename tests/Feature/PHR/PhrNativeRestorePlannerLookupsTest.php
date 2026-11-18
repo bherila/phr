@@ -79,7 +79,7 @@ class PhrNativeRestorePlannerLookupsTest extends TestCase
         self::assertSame(2, $plan->tables['phr_eobs']['skip']);
         self::assertSame([500, 20, 2], array_map('count', $reads));
         self::assertSame([$first, $last], $reads[2], 'A later page resolves only its actual distant references.');
-        self::assertSame($documents->all(), [...$reads[0], ...$reads[1]]);
+        self::assertEqualsCanonicalizing($documents->all(), [...$reads[0], ...$reads[1]], 'Pages request exactly the document IDs, regardless of unordered SQL result order.');
     }
 
     public function test_reused_planner_observes_target_edits_and_removed_then_restored_identities(): void
