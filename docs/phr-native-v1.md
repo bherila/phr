@@ -646,3 +646,21 @@ remain separate observations. A killed or incomplete stage never gains a
 round-trip or complete-generation claim. Exact-candidate artifacts and measured
 outcomes must be inspected before choosing any subsequent experiment; R1 remains
 pending until its independent production evidence requirements are met.
+
+The independent download's copy and ArchiveReader admission run in the explicit
+`inspection` stage on that same whole-profile clock. Before fixture work, an
+atomic checkpoint records `runtime_provenance`: actual checkout candidate,
+Composer-lock hash, PHP/database versions, PHP memory limit and initial runtime
+resource limits. These start-time values do not change when a native boundary
+profile later lowers its effective cap. Missing Git provenance remains null.
+Timeouts distinguish this measured runtime checkpoint from limits known only from
+the declared process environment.
+
+`completed_archive` is checkpointed as soon as backup generation succeeds, with
+actual archive record count and compressed bytes. Record-stream bytes remain
+null until the independently downloaded, hash-verified ZIP directory is measured;
+they are never inferred from persisted rows. A later timeout retains these known
+aggregates without claiming round-trip, access, cleanup or qualification success.
+Capacity CI checks out the exact candidate head so retained provenance identifies
+the source that was measured. The 240-second proposal and 300-second whole-profile
+deadlines and production limits are unchanged.

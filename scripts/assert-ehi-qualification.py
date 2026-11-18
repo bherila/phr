@@ -15,11 +15,13 @@ def capacity_observation(result):
     snapshots = {name: stage["durable"] for name, stage in result.get("stages", {}).items() if "durable" in stage}
     work = [snapshot["persisted_preview_work"] for snapshot in snapshots.values() if "persisted_preview_work" in snapshot]
     lifecycle = result.get("lifecycle", {})
+    archive = lifecycle if "archive_records" in lifecycle else result.get("completed_archive", {})
     native = None
-    if "archive_records" in lifecycle and "record_stream_bytes" in lifecycle:
-        native = {"archive_records": lifecycle["archive_records"], "record_stream_bytes": lifecycle["record_stream_bytes"],
-                  "record_margin": limits["native_records"] - lifecycle["archive_records"],
-                  "stream_byte_margin": limits["native_stream_bytes"] - lifecycle["record_stream_bytes"],
+    if "archive_records" in archive:
+        stream_bytes = archive.get("record_stream_bytes")
+        native = {"archive_records": archive["archive_records"], "record_stream_bytes": stream_bytes,
+                  "record_margin": limits["native_records"] - archive["archive_records"],
+                  "stream_byte_margin": None if stream_bytes is None else limits["native_stream_bytes"] - stream_bytes,
                   "round_trip_verified": lifecycle.get("round_trip_verified", False)}
     peak_rows = max((entry["rows"] for entry in work), default=None)
     peak_bytes = max((entry["bytes"] for entry in work), default=None)

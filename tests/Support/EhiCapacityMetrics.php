@@ -11,6 +11,8 @@ use Illuminate\Database\Events\TransactionCommitted;
 use Illuminate\Database\Events\TransactionRolledBack;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Symfony\Component\Process\Process;
+use Throwable;
 
 /** Aggregate-only synthetic telemetry. SQL text, bindings and source values never leave the fixture. */
 final class EhiCapacityMetrics
@@ -38,6 +40,8 @@ final class EhiCapacityMetrics
     private int $activeStarted = 0;
 
     private int $lastActivePublished = 0;
+
+    private array $checkpoints = [];
 
     public function __construct(private readonly ?string $directory = null)
     {
@@ -99,11 +103,82 @@ final class EhiCapacityMetrics
                 $this->stages[$name]['durable'] = $this->durable($patient);
             }
             if ($this->directory !== null) {
-                file_put_contents($this->directory.'/qualification-progress.json', json_encode(['stages' => $this->stages], JSON_THROW_ON_ERROR));
+                $this->publishProgress();
                 $this->writeActive(['stage' => null]);
             }
             $this->marker(null);
         }
+    }
+
+    /** Capture once, before fixture work; later configuration changes cannot rewrite provenance. */
+    public function startQualification(): void
+    {
+        if (isset($this->checkpoints['runtime_provenance'])) {
+            return;
+        }
+        $root = dirname(__DIR__, 2);
+        $candidate = null;
+        try {
+            $git = new Process(['git', 'rev-parse', 'HEAD'], $root);
+            $git->run();
+            $sha = trim($git->getOutput());
+            if ($git->isSuccessful() && preg_match('/^[a-f0-9]{40}$/D', $sha) === 1) {
+                $candidate = $sha;
+            }
+        } catch (Throwable) {
+            // A source archive may have no Git executable or checkout; never invent its revision.
+        }
+        $runtime = [
+            'candidate' => $candidate, 'php_version' => PHP_VERSION,
+            'database_driver' => DB::connection()->getDriverName(),
+            'database_version' => DB::connection()->getServerVersion(),
+            'composer_lock_sha256' => hash_file('sha256', $root.'/composer.lock'),
+            'php_memory_limit' => ini_get('memory_limit'),
+            'limits' => ['rows' => config('phr.ehi_preview_max_rows'), 'bytes' => config('phr.ehi_preview_max_bytes'),
+                'seconds' => config('phr.ehi_preview_max_seconds'), 'native_records' => config('phr.native_max_records'),
+                'native_stream_bytes' => config('phr.native_max_record_stream_bytes')],
+        ];
+        $this->checkpoints = $runtime + ['runtime_provenance' => $runtime];
+        $this->publishProgress();
+    }
+
+    /** Only successful archive output supplies these counts, never durable-row estimates. */
+    public function completedArchive(int $records, int $bytes): void
+    {
+        $this->checkpoints['completed_archive'] = ['archive_records' => $records, 'archive_bytes' => $bytes,
+            'record_stream_bytes' => null, 'download_completed' => false];
+        $this->publishProgress();
+    }
+
+    public function completedDownload(int $recordStreamBytes): void
+    {
+        $this->checkpoints['completed_archive']['record_stream_bytes'] = $recordStreamBytes;
+        $this->checkpoints['completed_archive']['download_completed'] = true;
+        $this->publishProgress();
+    }
+
+    public function nativeBoundary(int $records): void
+    {
+        $this->checkpoints['boundary_native_records'] = $records;
+        if (isset($this->checkpoints['limits'])) {
+            $this->checkpoints['limits']['native_records'] = $records;
+        }
+        $this->publishProgress();
+    }
+
+    public function checkpoints(): array
+    {
+        return $this->checkpoints;
+    }
+
+    private function publishProgress(): void
+    {
+        if ($this->directory === null) {
+            return;
+        }
+        $path = $this->directory.'/qualification-progress.json';
+        file_put_contents($path.'.tmp', json_encode(['stages' => $this->stages] + $this->checkpoints, JSON_THROW_ON_ERROR));
+        rename($path.'.tmp', $path);
     }
 
     public function durable(int $patient): array
