@@ -8,6 +8,7 @@ use App\DataTransferObjects\AgentApi\EobUpsertResult;
 use App\Models\PhrDocument;
 use App\Models\PhrEob;
 use App\Models\PhrEobLine;
+use App\Models\PhrMedicationFillEvidence;
 use App\Models\PhrPatient;
 use App\Services\AgentApi\MedicationFillUpsertService;
 use App\Services\PHR\Fills\MedicationFillExternalId;
@@ -226,6 +227,17 @@ final readonly class EobWriteService
      */
     private function apply(PhrEob $eob, array $claim, string $fingerprint, ?int $documentId): void
     {
+        $existing = $eob->lines()->where('patient_id', $eob->patient_id)->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+        $normalized = EobClaim::normalize(['lines' => $existing->values()->map(fn (PhrEobLine $line): array => $line->attributesToArray())->all()], false)['lines'];
+        $previous = [];
+        foreach ($existing->values() as $index => $line) {
+            $previous[] = ['id' => $line->id, 'attributes' => $normalized[$index]];
+        }
+        $linkedIds = PhrMedicationFillEvidence::query()->where('patient_id', $eob->patient_id)
+            ->whereIn('eob_line_id', $existing->keys()->all())->lockForUpdate()->pluck('eob_line_id')
+            ->map(static fn ($id): int => (int) $id)->unique()->values()->all();
+        $plan = EobLineCorrespondence::plan($previous, $claim['lines'], $linkedIds);
+
         $eob->fill([
             ...$claim['header'],
             'source_document_id' => $documentId,
@@ -238,21 +250,35 @@ final readonly class EobWriteService
         ]);
         $eob->save();
 
-        // Lines are matched by number and updated in place, so what points at a line
-        // (the fills it adjudicated) keeps pointing at it when the claim is corrected.
-        $existing = $eob->lines()->get()->keyBy('line_number');
-        $kept = [];
-        foreach ($claim['lines'] as $line) {
+        $keptIds = array_values(array_filter($plan->existingIds, static fn (?int $id): bool => $id !== null));
+        // Refused linked removals were checked before any write. Remove unused,
+        // unlinked rows first so their numbers can be reused by new services.
+        $eob->lines()->where('patient_id', $eob->patient_id)->whereNotIn('id', $keptIds)->delete();
+
+        $occupied = array_fill_keys([...$existing->pluck('line_number')->all(), ...array_column($claim['lines'], 'line_number')], true);
+        $temporary = 1;
+        foreach ($claim['lines'] as $index => $line) {
+            $row = $existing->get($plan->existingIds[$index]);
+            if ($row instanceof PhrEobLine && $row->line_number !== $line['line_number']) {
+                while (isset($occupied[$temporary])) {
+                    $temporary++;
+                }
+                // Positive unused numbers work on unsigned MariaDB columns too.
+                // Stage only a number; the final model save runs normal events.
+                DB::table('phr_eob_lines')->where('patient_id', $eob->patient_id)->where('eob_id', $eob->id)
+                    ->where('id', $row->id)->update(['line_number' => $temporary]);
+                $occupied[$temporary++] = true;
+            }
+        }
+        foreach ($claim['lines'] as $index => $line) {
             $attributes = array_diff_key($line, ['fill' => true]);
-            $row = $existing->get($line['line_number']);
+            $row = $existing->get($plan->existingIds[$index]);
             if ($row instanceof PhrEobLine) {
                 $row->fill($attributes)->save();
             } else {
-                $row = PhrEobLine::query()->create(['eob_id' => $eob->id, 'patient_id' => $eob->patient_id, ...$attributes]);
+                PhrEobLine::query()->create(['eob_id' => $eob->id, 'patient_id' => $eob->patient_id, ...$attributes]);
             }
-            $kept[] = $row->id;
         }
-        PhrEobLine::query()->where('eob_id', $eob->id)->whereNotIn('id', $kept)->delete();
     }
 
     /**
