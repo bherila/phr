@@ -17,31 +17,44 @@ use Tests\TestCase;
 
 class PhrNativeRestorePlannerLookupsTest extends TestCase
 {
-    public function test_shared_projection_identities_are_read_once_without_changing_the_plan(): void
+    public function test_projection_identities_are_batched_and_fresh_for_every_plan(): void
     {
         [$patient, $archive] = $this->fixture(24);
         $planner = app(PhrNativeRestorePlanner::class);
-        $inverseReads = 0;
-        DB::listen(static function (QueryExecuted $event) use (&$inverseReads): void {
+        $inverseReads = [];
+        $forwardReads = 0;
+        $payloadReads = 0;
+        DB::listen(static function (QueryExecuted $event) use (&$inverseReads, &$forwardReads, &$payloadReads): void {
             $sql = str_replace(['"', '`'], '', $event->sql);
-            if (str_starts_with($sql, 'select native_id from phr_native_record_identities ')) {
-                $inverseReads++;
+            if (str_starts_with($sql, 'select record_id, native_id from phr_native_record_identities ')) {
+                $inverseReads[] = $event->bindings;
+            }
+            if (str_starts_with($sql, 'select native_id, record_id from phr_native_record_identities ')) {
+                $forwardReads++;
+            }
+            if (str_starts_with($sql, 'select * from phr_documents ')) {
+                $payloadReads++;
             }
         });
         $identityCount = DB::table('phr_native_record_identities')->count();
         $plan = $planner->plan($archive, $patient->owner_user_id, false);
         self::assertSame([], $plan->blockers);
         self::assertSame(['create' => 0, 'skip' => 24, 'block' => 0], $plan->tables['phr_documents']);
-        // Each document has its own identity; root and owner references repeat.
-        self::assertLessThanOrEqual(28, $inverseReads);
-        $inverseReads = 0;
+        self::assertLessThanOrEqual(2, $forwardReads);
+        self::assertSame(1, $payloadReads);
+        self::assertLessThanOrEqual(5, count($inverseReads), 'Inverse lookups scale with pages and relationship tables, not individual records.');
+        foreach ($inverseReads as $bindings) {
+            self::assertSame($patient->id, $bindings[0]);
+            self::assertLessThanOrEqual(500, count($bindings) - 2);
+        }
+        $inverseReads = [];
         self::assertEquals($plan, $planner->plan($archive, $patient->owner_user_id, false));
-        self::assertGreaterThan(0, $inverseReads, 'A new plan must reread its identities.');
-        self::assertLessThanOrEqual(28, $inverseReads);
+        self::assertNotEmpty($inverseReads, 'A new plan must reread its identities.');
+        self::assertLessThanOrEqual(5, count($inverseReads));
         self::assertSame($identityCount, DB::table('phr_native_record_identities')->count());
     }
 
-    public function test_projection_identity_cache_evicts_cold_entries_but_keeps_hot_relationships(): void
+    public function test_projection_pages_bound_identity_reads_and_resolve_distant_relationships(): void
     {
         [$patient, $initialArchive] = $this->fixture(520);
         $documents = PhrDocument::query()->where('patient_id', $patient->id)->orderBy('id')->pluck('id');
@@ -56,18 +69,17 @@ class PhrNativeRestorePlannerLookupsTest extends TestCase
         $reads = [];
         DB::listen(static function (QueryExecuted $event) use (&$reads): void {
             $sql = str_replace(['"', '`'], '', $event->sql);
-            if (str_starts_with($sql, 'select native_id from phr_native_record_identities ')) {
-                $key = implode(':', $event->bindings);
-                $reads[$key] = ($reads[$key] ?? 0) + 1;
+            if (str_starts_with($sql, 'select record_id, native_id from phr_native_record_identities ') && ($event->bindings[1] ?? null) === 'phr_documents') {
+                $reads[] = array_slice($event->bindings, 2);
             }
         });
         $plan = app(PhrNativeRestorePlanner::class)->plan($archive, $patient->owner_user_id, false);
         self::assertSame([], $plan->blockers);
         self::assertSame(520, $plan->tables['phr_documents']['skip']);
         self::assertSame(2, $plan->tables['phr_eobs']['skip']);
-        self::assertSame(2, $reads[$patient->id.':phr_documents:'.$first], 'A cold entry beyond the 512-entry bound must be reread.');
-        self::assertSame(1, $reads[$patient->id.':phr_documents:'.$last]);
-        self::assertSame(1, $reads[$patient->id.':users:'.$patient->owner_user_id], 'The repeatedly used actor must stay hot.');
+        self::assertSame([500, 20, 2], array_map('count', $reads));
+        self::assertSame([$first, $last], $reads[2], 'A later page resolves only its actual distant references.');
+        self::assertSame($documents->all(), [...$reads[0], ...$reads[1]]);
     }
 
     public function test_reused_planner_observes_target_edits_and_removed_then_restored_identities(): void
@@ -89,14 +101,35 @@ class PhrNativeRestorePlannerLookupsTest extends TestCase
         $missingReads = 0;
         DB::listen(static function (QueryExecuted $event) use (&$missingReads): void {
             $sql = str_replace(['"', '`'], '', $event->sql);
-            if (str_starts_with($sql, 'select native_id from phr_native_record_identities ') && ($event->bindings[1] ?? null) === 'users') {
+            if (str_starts_with($sql, 'select record_id, native_id from phr_native_record_identities ') && ($event->bindings[1] ?? null) === 'users') {
                 $missingReads++;
             }
         });
         self::assertContains('current_identity_missing', $planner->plan($archive, $patient->owner_user_id, false)->blockers);
-        self::assertSame(1, $missingReads, 'Repeated missing projection identities are bounded within one plan.');
+        self::assertSame(2, $missingReads, 'A missing actor is read once per root/document page, never once per document.');
         DB::table('phr_native_record_identities')->insert((array) $identity);
         self::assertEquals($original, $planner->plan($archive, $patient->owner_user_id, false));
+    }
+
+    public function test_policy_excluded_current_rows_block_but_deleted_rows_keep_their_durable_identity(): void
+    {
+        [$patient, $initialArchive] = $this->fixture(1);
+        unset($initialArchive);
+        $uploadId = DB::table('phr_dicom_uploads')->insertGetId(['patient_id' => $patient->id,
+            'uploaded_by_user_id' => $patient->owner_user_id, 'status' => 'processed',
+            'total_files' => 0, 'stored_files' => 0, 'total_bytes' => 0, 'stored_bytes' => 0,
+            'r2_prefix' => 'synthetic-policy-upload', 'created_at' => now(), 'updated_at' => now()]);
+        $built = app(PhrNativeArchiveBuilder::class)->build($patient);
+        $archive = app(PhrNativeRestoreArchiveReader::class)->openLocal($built->path);
+        $planner = app(PhrNativeRestorePlanner::class);
+        DB::table('phr_dicom_uploads')->where('id', $uploadId)->update(['status' => 'failed']);
+        $excluded = $planner->plan($archive, $patient->owner_user_id, false, true);
+        self::assertSame(['create' => 0, 'skip' => 0, 'block' => 1], $excluded->tables['phr_dicom_uploads']);
+        self::assertContains('record_conflict', $excluded->blockers);
+        DB::table('phr_dicom_uploads')->where('id', $uploadId)->delete();
+        $deleted = $planner->plan($archive, $patient->owner_user_id, false, true);
+        self::assertSame(['create' => 1, 'skip' => 0, 'block' => 0], $deleted->tables['phr_dicom_uploads']);
+        self::assertSame([], $deleted->blockers);
     }
 
     public function test_actor_mappings_and_patient_scope_are_rechecked_between_invocations(): void

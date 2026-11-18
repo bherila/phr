@@ -6,17 +6,22 @@ use App\Models\PhrEhiFinding;
 use App\Models\PhrEhiPreviewRun;
 use App\Models\PhrEhiProposal;
 use App\Models\PhrEhiSource;
+use App\Models\PhrLabResult;
 use App\Models\PhrPatientUserAccess;
+use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
 use App\Services\PHR\Import\Ehi\EhiImportPresenter;
 use App\Services\PHR\Import\Ehi\EhiPreviewBudget;
+use App\Services\PHR\Import\Ehi\EhiPreviewLimit;
 use App\Services\PHR\Import\Ehi\EhiPreviewQueue;
 use App\Services\PHR\Import\Ehi\EhiProjectionRefused;
+use App\Services\PHR\Import\Ehi\EhiProjectionService;
 use App\Services\PHR\Import\Ehi\EhiProposalService;
 use App\Services\PHR\Import\Ehi\Mapping\EhiApplyContext;
 use App\Services\PHR\Import\Ehi\Mapping\EhiApplyOutcome;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMapping;
 use App\Services\PHR\Import\Ehi\Mapping\EhiMappingContext;
 use App\Services\PHR\Import\Ehi\Mapping\EhiProposalDraft;
+use App\Services\PHR\ResourceByteSize;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\DB;
 use Tests\Support\EhiFakeMapping;
@@ -35,10 +40,12 @@ class EhiResourceBoundariesTest extends TestCase
         EhiFindingFloodMapping::$drafts = false;
         EhiFindingFloodMapping::$timeoutAfterChunk = false;
         EhiFindingFloodMapping::$starts = 0;
+        EhiFindingFloodMapping::$afterFirstChunk = null;
     }
 
     protected function tearDown(): void
     {
+        EhiFindingFloodMapping::$afterFirstChunk = null;
         $this->tearDownEhiProjection();
         parent::tearDown();
     }
@@ -205,6 +212,123 @@ class EhiResourceBoundariesTest extends TestCase
         }
     }
 
+    public function test_chunk_reservation_preserves_exact_row_and_one_over_boundaries(): void
+    {
+        [, $patient] = $this->fixture();
+        $usage = $this->patientUsage($patient->id);
+        $budget = new EhiPreviewBudget;
+        $evidence = $budget->measurePatient($patient->id);
+        config(['phr.ehi_preview_max_rows' => $usage['rows'] + 3]);
+        $budget->reservePatient($evidence, 3, 0);
+
+        $this->expectException(EhiProjectionRefused::class);
+        $budget->reservePatient($evidence, 4, 0);
+    }
+
+    public function test_chunk_reservation_preserves_exact_raw_byte_and_one_over_boundaries(): void
+    {
+        [$owner, $patient] = $this->fixture();
+        PhrLabResult::query()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'analyte' => 'Synthetic UTF-8', 'value' => 'é']);
+        $usage = $this->patientUsage($patient->id);
+        $budget = new EhiPreviewBudget;
+        $evidence = $budget->measurePatient($patient->id);
+        config(['phr.ehi_preview_max_bytes' => $usage['bytes'] + 7]);
+        $budget->reservePatient($evidence, 0, 7);
+
+        $this->expectException(EhiProjectionRefused::class);
+        $budget->reservePatient($evidence, 0, 8);
+    }
+
+    public function test_chunk_reservation_remeasures_clinical_utf8_growth_after_evidence_measurement(): void
+    {
+        [$owner, $patient] = $this->fixture();
+        $lab = PhrLabResult::query()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'analyte' => 'Synthetic UTF-8', 'value' => 'é']);
+        $usage = $this->patientUsage($patient->id);
+        $budget = new EhiPreviewBudget;
+        $evidence = $budget->measurePatient($patient->id);
+        // Existing clinical updates do not all lock the patient. Under READ
+        // COMMITTED the old second scan could see this two-byte growth, so a
+        // cached evidence measurement must still re-read the clinical tables.
+        $lab->update(['value' => 'éé']);
+        config(['phr.ehi_preview_max_bytes' => $usage['bytes'] + 1]);
+
+        $this->expectException(EhiProjectionRefused::class);
+        $budget->reservePatient($evidence, 0, 0);
+    }
+
+    public function test_chunk_reservation_keeps_other_patients_out_of_the_budget(): void
+    {
+        [$owner, $patient] = $this->fixture();
+        $usage = $this->patientUsage($patient->id);
+        $other = $this->ehiPatient($owner);
+        PhrLabResult::query()->create(['patient_id' => $other->id, 'user_id' => $owner->id, 'analyte' => 'Synthetic other patient', 'notes' => str_repeat('é', 4096)]);
+        config(['phr.ehi_preview_max_rows' => $usage['rows'], 'phr.ehi_preview_max_bytes' => $usage['bytes']]);
+        $budget = new EhiPreviewBudget;
+        $evidence = $budget->measurePatient($patient->id);
+        $budget->reservePatient($evidence, 0, 0);
+
+        self::assertSame($patient->id, $evidence->patientId);
+    }
+
+    public function test_chunk_reservation_checks_the_original_time_budget_before_reusing_usage(): void
+    {
+        [, $patient] = $this->fixture();
+        $budget = new EhiPreviewBudget;
+        $evidence = $budget->measurePatient($patient->id);
+        config(['phr.ehi_preview_max_seconds' => -1]);
+        try {
+            $budget->reservePatient($evidence, 0, 0);
+            self::fail('Reusing evidence must still enforce the original clock.');
+        } catch (EhiProjectionRefused $exception) {
+            self::assertSame(EhiPreviewLimit::Time, $exception->resourceLimit);
+        }
+    }
+
+    public function test_a_later_chunk_remeasures_evidence_committed_between_patient_guards(): void
+    {
+        [$owner, $patient, $package] = $this->fixture();
+        app(EhiProjectionService::class)->project($package, $owner->id);
+        $usage = $this->patientUsage($patient->id);
+        $sources = PhrEhiSource::query()->where('patient_id', $patient->id)->count();
+        config(['phr.ehi_mappings' => [EhiFindingFloodMapping::class], 'phr.ehi_preview_max_rows' => $usage['rows'] + 402]);
+        EhiFindingFloodMapping::$events = 201;
+        EhiFindingFloodMapping::$drafts = true;
+        EhiFindingFloodMapping::$afterFirstChunk = static function () use ($patient, $owner): void {
+            app(PhrPatientArtifactWriteGuard::class)->run($patient->id, static function () use ($patient, $owner): void {
+                PhrEhiSource::query()->create([
+                    'patient_id' => $patient->id, 'created_by_user_id' => $owner->id,
+                    'label' => 'Synthetic concurrent source', 'source_patient_key' => 'SYNTHETIC-second',
+                    'dictionary_fingerprint' => hash('sha256', 'synthetic second dictionary'),
+                ]);
+            });
+        };
+        try {
+            app(EhiProposalService::class)->preview($package, $patient, $owner->id);
+            self::fail('The next chunk must reserve against the newly committed evidence.');
+        } catch (EhiProjectionRefused $exception) {
+            self::assertSame('resource_limit', $exception->reason);
+        }
+        self::assertSame(200, PhrEhiProposal::query()->where('package_id', $package->id)->count());
+        self::assertSame($sources + 1, PhrEhiSource::query()->where('patient_id', $patient->id)->count());
+        self::assertFalse($package->refresh()->previewCompleted());
+    }
+
+    /** Unbounded aggregate oracle over the deliberately tiny synthetic fixture. */
+    private function patientUsage(int $patientId): array
+    {
+        $rows = 0;
+        $bytes = 0;
+        $sizes = new ResourceByteSize;
+        foreach (EhiPreviewBudget::TABLES as $table) {
+            $totals = DB::table($table)->where('patient_id', $patientId)
+                ->selectRaw('COUNT(*) AS row_count, COALESCE(SUM('.$sizes->row($table).'), 0) AS byte_count')->first();
+            $rows += (int) $totals->row_count;
+            $bytes += (int) $totals->byte_count;
+        }
+
+        return ['rows' => $rows, 'bytes' => $bytes];
+    }
+
     private function fixture(): array
     {
         $owner = $this->createUser();
@@ -224,6 +348,8 @@ class EhiFindingFloodMapping implements EhiMapping
     public static bool $timeoutAfterChunk = false;
 
     public static int $starts = 0;
+
+    public static ?\Closure $afterFirstChunk = null;
 
     public function name(): string
     {
@@ -245,6 +371,11 @@ class EhiFindingFloodMapping implements EhiMapping
         self::$starts++;
         $revision = $context->revisionByKey(EhiFakeMapping::TABLE, ['ITEM_ID' => '100', 'LINE' => '1']);
         for ($i = 0; $i < self::$events; $i++) {
+            if ($i === 200 && self::$afterFirstChunk !== null) {
+                $after = self::$afterFirstChunk;
+                self::$afterFirstChunk = null;
+                $after();
+            }
             if (self::$timeoutAfterChunk && $i === 200) {
                 config(['phr.ehi_preview_max_seconds' => -1]);
                 $context->budget->checkpoint();

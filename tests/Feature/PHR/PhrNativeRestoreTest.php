@@ -28,6 +28,7 @@ use App\Services\PHR\NativeBackup\PhrNativeTableCompatibility;
 use App\Support\PHR\PhrReviewStatus;
 use App\Support\Storage\PhrStorageKey;
 use Illuminate\Contracts\Filesystem\Filesystem;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -48,6 +49,83 @@ final class PhrNativeRestoreTest extends TestCase
         Storage::fake('phr_dicom');
         Storage::fake('phr_exports');
         Queue::fake();
+    }
+
+    public function test_restore_pages_preserve_relationships_and_stable_identities_across_page_boundaries(): void
+    {
+        config(['phr.native_backup_chunk_size' => 3, 'phr.native_page_bytes' => 3000]);
+        $owner = $this->createUser();
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        $documents = [];
+        for ($index = 0; $index < 11; $index++) {
+            $documents[] = PhrDocument::create(['patient_id' => $patient->id, 'user_id' => $owner->id,
+                'title' => 'Synthetic paged document '.$index, 'document_type' => 'other', 'source' => 'manual_upload', 'byte_size' => 0]);
+        }
+        foreach ([$documents[0], $documents[10]] as $document) {
+            PhrEob::create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'source_document_id' => $document->id,
+                'import_source' => 'synthetic', 'external_id' => 'paged-'.$document->id, 'claim_type' => 'medical', 'review_status' => 'confirmed']);
+        }
+        $archive = $this->archiveCopy($patient, (int) $owner->id);
+        $identities = PhrNativeRecordIdentity::query()->where('patient_id', $patient->id)->where('record_table', 'phr_documents')->pluck('native_id')->sort()->values()->all();
+        // Keep durable identities, but remove their records. The restore must
+        // recreate them instead of allocating replacement archive identities.
+        DB::table('phr_eobs')->where('patient_id', $patient->id)->delete();
+        DB::table('phr_documents')->where('patient_id', $patient->id)->delete();
+        $service = app(PhrNativeRestoreService::class);
+        $attempt = $service->preview($service->createPreview($this->upload($archive), (int) $owner->id, false));
+        self::assertSame([], $attempt->plan_counts_json['blockers']);
+        $restored = $service->apply($attempt);
+        self::assertSame(PhrNativeRestoreAttempt::STATUS_COMPLETED, $restored->status);
+        self::assertSame($identities, PhrNativeRecordIdentity::query()->where('patient_id', $patient->id)->where('record_table', 'phr_documents')->pluck('native_id')->sort()->values()->all());
+        self::assertSame(11, PhrDocument::where('patient_id', $patient->id)->count());
+        self::assertSame(['Synthetic paged document 0', 'Synthetic paged document 10'], DB::table('phr_eobs')->join('phr_documents', 'phr_documents.id', '=', 'phr_eobs.source_document_id')->where('phr_eobs.patient_id', $patient->id)->orderBy('phr_eobs.id')->pluck('phr_documents.title')->all());
+        self::assertSame(0, PhrNativeRecordIdentity::where('patient_id', $patient->id)->whereNull('restored_at')->whereNotNull('restore_attempt_id')->count());
+
+        DB::table('phr_patients')->where('id', $patient->id)->delete();
+        $attempt = $service->preview($service->createPreview($this->upload($archive), (int) $owner->id, false));
+        $identityInserts = 0;
+        DB::listen(static function (QueryExecuted $event) use (&$identityInserts): void {
+            if (str_starts_with(str_replace(['"', '`'], '', $event->sql), 'insert into phr_native_record_identities ')) {
+                $identityInserts++;
+            }
+        });
+        $restored = $service->apply($attempt);
+        self::assertSame(PhrNativeRestoreAttempt::STATUS_COMPLETED, $restored->status);
+        self::assertNotSame($patient->id, $restored->target_patient_root_id);
+        self::assertSame($identities, PhrNativeRecordIdentity::where('patient_id', $restored->target_patient_root_id)->where('record_table', 'phr_documents')->pluck('native_id')->sort()->values()->all());
+        self::assertLessThanOrEqual(8, $identityInserts, 'Fresh identities are inserted once per bounded page, not once per record.');
+        self::assertSame(2, DB::table('phr_eobs')->join('phr_documents', 'phr_documents.id', '=', 'phr_eobs.source_document_id')->where('phr_eobs.patient_id', $restored->target_patient_root_id)->count());
+        @unlink($archive);
+    }
+
+    public function test_restore_identity_collision_rolls_back_without_repointing_another_patient(): void
+    {
+        $owner = $this->createUser();
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        $document = PhrDocument::create(['patient_id' => $patient->id, 'user_id' => $owner->id,
+            'title' => 'Synthetic collision document', 'document_type' => 'other', 'source' => 'manual_upload', 'byte_size' => 0]);
+        $archive = $this->archiveCopy($patient, (int) $owner->id);
+        $nativeId = PhrNativeRecordIdentity::where('patient_id', $patient->id)->where('record_table', 'phr_documents')->where('record_id', $document->id)->value('native_id');
+        DB::table('phr_patients')->where('id', $patient->id)->delete();
+        $otherPatient = $this->patientWithOwnerGrant((int) $owner->id);
+        $otherDocument = PhrDocument::create(['patient_id' => $otherPatient->id, 'user_id' => $owner->id,
+            'title' => 'Synthetic unrelated document', 'document_type' => 'other', 'source' => 'manual_upload', 'byte_size' => 0]);
+        $identity = PhrNativeRecordIdentity::where('patient_id', $otherPatient->id)->where('record_table', 'phr_documents')->where('record_id', $otherDocument->id)->firstOrFail();
+        $identity->update(['native_id' => $nativeId]);
+        $before = $identity->getRawOriginal();
+        $service = app(PhrNativeRestoreService::class);
+        $attempt = $service->preview($service->createPreview($this->upload($archive), (int) $owner->id, false));
+        try {
+            $service->apply($attempt);
+            self::fail('A UUID collision must fail the whole restore transaction.');
+        } catch (NativeRestoreException $exception) {
+            self::assertSame('internal_error', $exception->failureCategory);
+        }
+        self::assertSame($before, $identity->fresh()->getRawOriginal());
+        self::assertSame(1, PhrPatient::where('owner_user_id', $owner->id)->count());
+        self::assertSame(1, PhrDocument::where('patient_id', $otherPatient->id)->count());
+        self::assertSame(PhrNativeRestoreAttempt::STATUS_FAILED, $attempt->fresh()->status);
+        @unlink($archive);
     }
 
     public function test_queue_retry_window_exceeds_native_restore_timeouts(): void

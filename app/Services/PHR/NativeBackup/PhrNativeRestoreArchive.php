@@ -81,6 +81,35 @@ final class PhrNativeRestoreArchive
         }
     }
 
+    /**
+     * Bound restored payload buffers by both record count and encoded bytes.
+     * A single admitted record may exceed the page budget, as in snapshots.
+     *
+     * @return Generator<int, list<array<string, mixed>>>
+     */
+    public function recordPages(string $table): Generator
+    {
+        $page = [];
+        $bytes = 0;
+        foreach ($this->records($table) as $record) {
+            // Key order does not change encoded size for catalog records. For
+            // unusual numeric maps the unsorted representation can be larger,
+            // so this remains conservative without sorting every payload again.
+            $size = strlen(json_encode($record, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+            if ($page !== [] && (count($page) >= PhrNativeSnapshotService::chunkSize()
+                || $size > (int) config('phr.native_page_bytes') - $bytes)) {
+                yield $page;
+                $page = [];
+                $bytes = 0;
+            }
+            $page[] = $record;
+            $bytes += $size;
+        }
+        if ($page !== []) {
+            yield $page;
+        }
+    }
+
     public function copyArtifactTo(string $path, string $disk, string $targetPath): bool
     {
         $zip = $this->open();

@@ -155,6 +155,42 @@ final class PhrNativeSnapshotService
         return $query->first();
     }
 
+    /**
+     * Hydrate only requested, policy-visible rows, after byte preflight. Locking
+     * preflights protect their sizes until the subsequent payload read.
+     *
+     * @param  list<int>  $ids
+     * @return \Generator<int, array<int, \stdClass>>
+     */
+    public function rowsByIds(int $patientId, string $table, array $ids, bool $lockForUpdate): \Generator
+    {
+        foreach (array_chunk(array_values(array_unique($ids)), self::chunkSize()) as $chunk) {
+            $query = $this->query($patientId, $table)->whereIn('id', $chunk);
+            if ($lockForUpdate) {
+                $query->lockForUpdate();
+            }
+            $page = [];
+            $bytes = 0;
+            $size = $this->rowSizes->row($table);
+            foreach ((clone $query)->select('id')->selectRaw($size.' AS native_row_bytes')->orderBy('id')->get() as $probe) {
+                $rowBytes = (int) $probe->native_row_bytes;
+                if ($rowBytes > (int) config('phr.native_restore_max_record_bytes')) {
+                    throw new NativeRestoreException('record_size_limit');
+                }
+                if ($page !== [] && $rowBytes > (int) config('phr.native_page_bytes') - $bytes) {
+                    yield (clone $query)->whereIn('id', $page)->get()->keyBy('id')->all();
+                    $page = [];
+                    $bytes = 0;
+                }
+                $page[] = (int) $probe->id;
+                $bytes += $rowBytes;
+            }
+            if ($page !== []) {
+                yield (clone $query)->whereIn('id', $page)->get()->keyBy('id')->all();
+            }
+        }
+    }
+
     public static function chunkSize(): int
     {
         return max(1, min(self::DEFAULT_CHUNK_SIZE, (int) config('phr.native_backup_chunk_size', self::DEFAULT_CHUNK_SIZE)));

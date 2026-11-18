@@ -48,6 +48,39 @@ final class PhrNativeIdentityRepository
         return $id === null ? null : (int) $id;
     }
 
+    /**
+     * Read one bounded page without assigning identities or retaining stale state.
+     *
+     * @param  list<string>  $nativeIds
+     * @return array<string, int>
+     */
+    public function existingRecordIds(int $patientId, string $table, array $nativeIds): array
+    {
+        $found = [];
+        foreach (array_chunk(array_values(array_unique($nativeIds)), PhrNativeSnapshotService::DEFAULT_CHUNK_SIZE) as $chunk) {
+            foreach (DB::table('phr_native_record_identities')->where('patient_id', $patientId)
+                ->where('record_table', $table)->whereIn('native_id', $chunk)->get(['native_id', 'record_id']) as $identity) {
+                $found[(string) $identity->native_id] = (int) $identity->record_id;
+            }
+        }
+
+        return $found;
+    }
+
+    /**
+     * @param  list<int>  $recordIds
+     * @return array<int, string>
+     */
+    public function existingNativeIds(int $patientId, string $table, array $recordIds): array
+    {
+        $found = [];
+        foreach (array_chunk(array_values(array_unique($recordIds)), PhrNativeSnapshotService::DEFAULT_CHUNK_SIZE) as $chunk) {
+            $found += $this->existing($patientId, $table, $chunk);
+        }
+
+        return $found;
+    }
+
     public function existingNativeId(int $patientId, string $table, int $recordId): ?string
     {
         $id = DB::table('phr_native_record_identities')->where('patient_id', $patientId)

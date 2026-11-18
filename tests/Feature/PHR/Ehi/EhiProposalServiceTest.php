@@ -26,6 +26,7 @@ use App\Services\PHR\Import\Ehi\Mapping\EhiMappingContext;
 use App\Services\PHR\Import\Ehi\Mapping\EhiProposalDraft;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Tests\Support\EhiFakeMapping;
@@ -56,9 +57,24 @@ class EhiProposalServiceTest extends TestCase
     {
         [$owner, $patient, $package] = $this->previewable();
         $service = app(EhiProposalService::class);
+        $newInserts = ['phr_ehi_proposals' => 0, 'phr_ehi_proposal_revisions' => 0];
+        $emptyDependencyDeletes = 0;
+        DB::listen(static function (QueryExecuted $event) use (&$newInserts, &$emptyDependencyDeletes): void {
+            $sql = str_replace(['"', '`'], '', $event->sql);
+            foreach (array_keys($newInserts) as $table) {
+                if (str_starts_with($sql, 'insert into '.$table.' ')) {
+                    $newInserts[$table]++;
+                }
+            }
+            if (str_starts_with($sql, 'delete from phr_ehi_proposal_revisions where proposal_id = ')) {
+                $emptyDependencyDeletes++;
+            }
+        });
 
         $preview = $service->preview($package, $patient, $owner->id);
 
+        self::assertSame(['phr_ehi_proposals' => 1, 'phr_ehi_proposal_revisions' => 1], $newInserts, 'An entirely new chunk inserts bounded proposal/dependency batches.');
+        self::assertSame(0, $emptyDependencyDeletes, 'New proposal IDs cannot already have dependency rows.');
         self::assertSame(['synthetic' => ['create' => 3, 'retain' => 1]], $preview->counts);
         self::assertSame(['pending' => 4], $preview->statuses);
         self::assertSame(['synthetic_deleted_row' => 1], $preview->findings);
@@ -161,6 +177,12 @@ class EhiProposalServiceTest extends TestCase
         $rejected = $this->proposalFor($package, '100', '1');
         $retained = $this->proposalFor($package, '300', '1');
         self::assertSame(PhrEhiProposal::KIND_RETAIN, $retained->kind);
+        $emptyAccountReads = 0;
+        DB::listen(static function (QueryExecuted $event) use (&$emptyAccountReads): void {
+            if (str_contains($event->sql, 'phr_ehi_table_accounts') && str_contains($event->sql, '0 = 1')) {
+                $emptyAccountReads++;
+            }
+        });
 
         $service->review($rejected, PhrEhiProposal::DECISION_REJECT, $owner->id, $rejected->preview_digest);
         $this->assertRefused(EhiReviewRefused::DECISION_NOT_ALLOWED, fn () => $service->review($retained, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $retained->preview_digest));
@@ -172,6 +194,7 @@ class EhiProposalServiceTest extends TestCase
         self::assertSame(0, PhrEhiRecordLink::query()->count());
         self::assertSame(2, PhrEhiProposalDecision::query()->whereNull('linked_immunization_id')->count());
         self::assertSame(2, PhrEhiOccurrence::query()->where('disposition', PhrEhiOccurrence::DISPOSITION_RETAINED)->count());
+        self::assertSame(0, $emptyAccountReads, 'No changed source members means there are no accounts to read or reconcile.');
     }
 
     public function test_link_existing_bridges_to_a_prior_record(): void
@@ -274,6 +297,39 @@ class EhiProposalServiceTest extends TestCase
         self::assertNotNull($record->retracted_at);
         self::assertSame(PhrEhiProposal::STATUS_PENDING, $update->refresh()->status);
         self::assertSame(1, PhrEhiProposalDecision::query()->count());
+    }
+
+    public function test_verified_revisions_are_reused_only_inside_one_locked_decision(): void
+    {
+        [$owner, $patient, $package] = $this->previewable('first');
+        $service = app(EhiProposalService::class);
+        $service->preview($package, $patient, $owner->id);
+        $first = $this->proposalFor($package, '100', '1');
+        $second = $this->proposalFor($package, '100', '2');
+        $third = $this->proposalFor($package, '0100', '1');
+        $thirdIds = PhrEhiProposalRevision::idsFor($third);
+        $expected = PhrEhiProposalRevision::idsFor($first);
+        $reads = 0;
+        DB::listen(static function (QueryExecuted $event) use (&$reads): void {
+            $sql = str_replace(['"', '`'], '', $event->sql);
+            if (str_starts_with($sql, 'select ') && str_contains($sql, ' from phr_ehi_proposal_revisions ')) {
+                $reads++;
+            }
+        });
+        $service->review($first, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $first->preview_digest);
+        self::assertSame(2, $reads, 'One bounded count and one ordered id read serve verification, linking and settlement.');
+        self::assertSame($expected, PhrEhiRecordLink::where('proposal_id', $first->id)->orderBy('revision_id')->pluck('revision_id')->all());
+        self::assertSame([PhrEhiOccurrence::DISPOSITION_PROJECTED], PhrEhiOccurrence::where('package_id', $package->id)->whereIn('revision_id', $expected)->distinct()->pluck('disposition')->all());
+        PhrEhiProposalRevision::where('proposal_id', $second->id)->delete();
+        $this->assertRefused(EhiReviewRefused::STALE_SOURCE, fn () => $service->review($second, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $second->preview_digest));
+        self::assertSame(4, $reads, 'The reused service must reread revisions for the next decision.');
+        self::assertSame(1, PhrImmunization::count());
+        self::assertSame(PhrEhiProposal::STATUS_PENDING, $second->fresh()->status);
+        PhrEhiOccurrence::where('package_id', $package->id)->whereIn('revision_id', $thirdIds)->update(['disposition' => PhrEhiOccurrence::DISPOSITION_QUARANTINED]);
+        $this->assertRefused(EhiReviewRefused::STALE_SOURCE, fn () => $service->review($third, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $third->preview_digest));
+        self::assertSame(6, $reads);
+        self::assertSame(1, PhrImmunization::count());
+        self::assertSame(PhrEhiProposal::STATUS_PENDING, $third->fresh()->status);
     }
 
     public function test_a_proposal_whose_evidence_is_no_longer_projected_is_refused(): void
