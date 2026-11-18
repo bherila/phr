@@ -168,7 +168,8 @@ final class EhiProposalService
             // preview no longer proposes is whatever it did not stamp.
             /** @var array<string, true> $produced */
             $produced = [];
-            $rows = [];
+            /** @var EhiPreviewChunk<array{attributes: array<string, mixed>, revisions: list<int>}> $chunk */
+            $chunk = new EhiPreviewChunk;
             $rejected = $this->rejectedContent($package, $name, $mapping->version());
             $setAside = 0;
             foreach ($mapping->propose($context) as $draft) {
@@ -185,14 +186,14 @@ final class EhiProposalService
 
                     continue;
                 }
-                $rows[$draft->subjectKey] = $row;
+                $chunk->put($draft->subjectKey, $row);
                 $counts[$name][$draft->kind] = ($counts[$name][$draft->kind] ?? 0) + 1;
-                if (count($rows) >= self::CHUNK || strlen(json_encode($rows, JSON_THROW_ON_ERROR)) >= 1024 * 1024) {
-                    $this->persistChunk($package, $actorUserId, $name, $mapping->version(), $generation, $rows, $budget);
-                    $rows = [];
+                if ($chunk->count() >= self::CHUNK || $chunk->bytes() >= 1024 * 1024) {
+                    $this->persistChunk($package, $actorUserId, $name, $mapping->version(), $generation, $chunk->rows(), $budget);
+                    $chunk->clear();
                 }
             }
-            $this->persistChunk($package, $actorUserId, $name, $mapping->version(), $generation, $rows, $budget);
+            $this->persistChunk($package, $actorUserId, $name, $mapping->version(), $generation, $chunk->rows(), $budget);
             $this->supersedeNotProduced($package, $actorUserId, $name, $generation);
             $counts[$name] ??= [];
             ksort($counts[$name], SORT_STRING);
@@ -669,7 +670,7 @@ final class EhiProposalService
      * rewritten; an unchanged pending one keeps its content and preview digest.
      * A row a later-started preview already stamped belongs to that preview.
      *
-     * @param  array<string, array{attributes: array<string, mixed>, revisions: list<int>}>  $rows  subject key => proposal
+     * @param  array<array-key, array{attributes: array<string, mixed>, revisions: list<int>}>  $rows  subject key => proposal
      */
     private function persistChunk(PhrEhiPackage $package, int $actorUserId, string $mapping, string $version, int $generation, array $rows, EhiPreviewBudget $budget): void
     {
