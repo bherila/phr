@@ -96,92 +96,97 @@ final class PhrNativeRestorePlanner
         $shareCount = 0;
         foreach (PhrNativeBackupCatalog::included() as $table => $definition) {
             $tables[$table] = ['create' => 0, 'skip' => 0, 'block' => 0];
-            foreach ($archive->records($table) as $record) {
-                $nativeId = (string) $record['nativeId'];
-                $action = 'create';
-                $recordBlocked = false;
+            foreach ($archive->recordPages($table) as $page) {
+                $recordIds = $targetPatientId === null ? [] : $this->identities->existingRecordIds($targetPatientId, $table, array_column($page, 'nativeId'));
+                foreach ($this->currentRecordPages($page, $recordIds, $targetPatientId, $table, $lockCurrentRows) as [$records, $currentRows]) {
+                    foreach ($records as $record) {
+                        $nativeId = (string) $record['nativeId'];
+                        $action = 'create';
+                        $recordBlocked = false;
 
-                $isShare = false;
-                if ($table === 'phr_patient_user_access') {
-                    $grantActorNativeId = (string) ($record['relationships']['user_id']['nativeId'] ?? '');
-                    $accessLevel = $record['attributes']['access_level'] ?? null;
-                    $isShare = $grantActorNativeId !== $ownerNativeId;
-                    if ($isShare) {
-                        $shareCount++;
-                    }
-                    if ($isShare && ! $restoreAccessGrants) {
-                        $action = 'omit';
-                    }
-                    $validAccessLevel = $isShare
-                        ? in_array($accessLevel, [PhrPatientUserAccess::LEVEL_MANAGER, PhrPatientUserAccess::LEVEL_VIEWER], true)
-                        : $accessLevel === PhrPatientUserAccess::LEVEL_OWNER;
-                    if (! $validAccessLevel && $action !== 'omit') {
-                        $recordBlocked = true;
-                        $blockers[] = 'invalid_access_grant';
-                    }
-                }
-
-                foreach ($record['relationships'] as $column => $relationship) {
-                    if ($relationship === null) {
-                        continue;
-                    }
-                    $relatedNativeId = (string) $relationship['nativeId'];
-                    if ($relationship['kind'] === 'record') {
-                        if (! isset($actions[$relationship['table']][$relatedNativeId])) {
-                            $recordBlocked = true;
-                            $blockers[] = 'relationship_missing';
+                        $isShare = false;
+                        if ($table === 'phr_patient_user_access') {
+                            $grantActorNativeId = (string) ($record['relationships']['user_id']['nativeId'] ?? '');
+                            $accessLevel = $record['attributes']['access_level'] ?? null;
+                            $isShare = $grantActorNativeId !== $ownerNativeId;
+                            if ($isShare) {
+                                $shareCount++;
+                            }
+                            if ($isShare && ! $restoreAccessGrants) {
+                                $action = 'omit';
+                            }
+                            $validAccessLevel = $isShare
+                                ? in_array($accessLevel, [PhrPatientUserAccess::LEVEL_MANAGER, PhrPatientUserAccess::LEVEL_VIEWER], true)
+                                : $accessLevel === PhrPatientUserAccess::LEVEL_OWNER;
+                            if (! $validAccessLevel && $action !== 'omit') {
+                                $recordBlocked = true;
+                                $blockers[] = 'invalid_access_grant';
+                            }
                         }
-                    } elseif (! isset($actorIds[$relatedNativeId])) {
-                        $actorId = $targetPatientId === null ? null : $this->identities->existingRecordId($targetPatientId, 'users', $relatedNativeId);
-                        if ($actorId !== null && DB::table('users')->where('id', $actorId)->exists()) {
-                            $actorIds[$relatedNativeId] = $actorId;
 
-                            continue;
-                        }
-                        if ($action !== 'omit') {
-                            $recordBlocked = true;
-                            $blockers[] = 'actor_mapping_missing';
-                        }
-                    }
-                }
+                        foreach ($record['relationships'] as $column => $relationship) {
+                            if ($relationship === null) {
+                                continue;
+                            }
+                            $relatedNativeId = (string) $relationship['nativeId'];
+                            if ($relationship['kind'] === 'record') {
+                                if (! isset($actions[$relationship['table']][$relatedNativeId])) {
+                                    $recordBlocked = true;
+                                    $blockers[] = 'relationship_missing';
+                                }
+                            } elseif (! isset($actorIds[$relatedNativeId])) {
+                                $actorId = $targetPatientId === null ? null : $this->identities->existingRecordId($targetPatientId, 'users', $relatedNativeId);
+                                if ($actorId !== null && DB::table('users')->where('id', $actorId)->exists()) {
+                                    $actorIds[$relatedNativeId] = $actorId;
 
-                $recordId = $targetPatientId === null ? null : $this->identities->existingRecordId($targetPatientId, $table, $nativeId);
-                if ($recordBlocked && $action !== 'omit') {
-                    $action = 'block';
-                } elseif ($action !== 'omit' && $recordId !== null) {
-                    $current = $this->snapshotService->rowById($targetPatientId, $table, $recordId, $lockCurrentRows);
-                    if ($current !== null) {
-                        try {
-                            $projected = $this->projector->project($targetPatientId, $table, $definition, $current, function (string $relatedTable, int $id) use ($targetPatientId, &$projectionIdentities): ?string {
-                                return $this->projectionNativeId($targetPatientId, $relatedTable, $id, $projectionIdentities);
-                            });
-                            // The archived record had its legacy document values mapped
-                            // on read; map the current row the same way, so a row that
-                            // still holds one compares equal to its own unchanged backup.
-                            $projected = PhrNativeDocumentCompatibility::normalize($table, $projected);
-                            $action = hash_equals((string) $projected['contentHash'], (string) $record['contentHash']) ? 'skip' : 'block';
-                        } catch (NativeRestoreException $exception) {
-                            $blockers[] = $exception->failureCategory;
+                                    continue;
+                                }
+                                if ($action !== 'omit') {
+                                    $recordBlocked = true;
+                                    $blockers[] = 'actor_mapping_missing';
+                                }
+                            }
+                        }
+
+                        $recordId = $recordIds[$nativeId] ?? null;
+                        if ($recordBlocked && $action !== 'omit') {
                             $action = 'block';
+                        } elseif ($action !== 'omit' && $recordId !== null) {
+                            $current = $currentRows[$recordId] ?? null;
+                            if ($current !== null) {
+                                try {
+                                    $projected = $this->projector->project($targetPatientId, $table, $definition, $current, function (string $relatedTable, int $id) use ($targetPatientId, &$projectionIdentities): ?string {
+                                        return $this->projectionNativeId($targetPatientId, $relatedTable, $id, $projectionIdentities);
+                                    });
+                                    // The archived record had its legacy document values mapped
+                                    // on read; map the current row the same way, so a row that
+                                    // still holds one compares equal to its own unchanged backup.
+                                    $projected = PhrNativeDocumentCompatibility::normalize($table, $projected);
+                                    $action = hash_equals((string) $projected['contentHash'], (string) $record['contentHash']) ? 'skip' : 'block';
+                                } catch (NativeRestoreException $exception) {
+                                    $blockers[] = $exception->failureCategory;
+                                    $action = 'block';
+                                }
+                            } else {
+                                // Durable identity rows intentionally outlive record-level
+                                // deletes. A missing row is recreated with that identity;
+                                // a row merely excluded by a catalog row policy is a
+                                // non-identical conflict and remains blocked.
+                                $outsidePolicy = isset($definition['row_policy']) && DB::table($table)->where('id', $recordId)->exists();
+                                $action = $outsidePolicy ? 'block' : 'create';
+                            }
+                            if ($action === 'block') {
+                                $blockers[] = 'record_conflict';
+                            }
                         }
-                    } else {
-                        // Durable identity rows intentionally outlive record-level
-                        // deletes. A missing row is recreated with that identity;
-                        // a row merely excluded by a catalog row policy is a
-                        // non-identical conflict and remains blocked.
-                        $outsidePolicy = isset($definition['row_policy']) && DB::table($table)->where('id', $recordId)->exists();
-                        $action = $outsidePolicy ? 'block' : 'create';
-                    }
-                    if ($action === 'block') {
-                        $blockers[] = 'record_conflict';
+                        if ($action === 'create' && $targetPatientId !== null && $this->collidesOnUniqueKey($table, $record, $targetPatientId, $actions)) {
+                            $action = 'block';
+                            $blockers[] = 'record_conflict';
+                        }
+                        $actions[$table][$nativeId] = $action;
+                        $tables[$table][$action === 'omit' ? 'skip' : $action]++;
                     }
                 }
-                if ($action === 'create' && $targetPatientId !== null && $this->collidesOnUniqueKey($table, $record, $targetPatientId, $actions)) {
-                    $action = 'block';
-                    $blockers[] = 'record_conflict';
-                }
-                $actions[$table][$nativeId] = $action;
-                $tables[$table][$action === 'omit' ? 'skip' : $action]++;
             }
         }
 
@@ -220,6 +225,35 @@ final class PhrNativeRestorePlanner
         $digest = hash('sha256', PhrNativeRecordCodec::canonicalJson($digestPayload));
 
         return new PhrNativeRestorePlan($patientNativeId, $targetPatientId, $tables, $artifactPlan, $shareCount, $restoreAccessGrants, $blockers, $digest, $actions, $actorIds);
+    }
+
+    /**
+     * Keep both archived and live payloads bounded even if target rows grew since
+     * backup. Missing/policy-excluded rows retain their original conflict path.
+     *
+     * @param  list<array<string, mixed>>  $page
+     * @param  array<string, int>  $recordIds
+     * @return \Generator<int, array{list<array<string, mixed>>, array<int, \stdClass>}>
+     */
+    private function currentRecordPages(array $page, array $recordIds, ?int $patientId, string $table, bool $lockCurrentRows): \Generator
+    {
+        if ($patientId !== null) {
+            $pending = array_column($page, null, 'nativeId');
+            $nativeIds = array_flip($recordIds);
+            foreach ($this->snapshotService->rowsByIds($patientId, $table, array_values($recordIds), $lockCurrentRows) as $currentRows) {
+                $records = [];
+                foreach ($currentRows as $id => $row) {
+                    $nativeId = $nativeIds[$id];
+                    $records[] = $pending[$nativeId];
+                    unset($pending[$nativeId]);
+                }
+                yield [$records, $currentRows];
+            }
+            $page = array_values($pending);
+        }
+        if ($page !== []) {
+            yield [$page, []];
+        }
     }
 
     /** @param array<string, string|null> $cache */

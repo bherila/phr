@@ -424,80 +424,101 @@ final class PhrNativeRestoreService
         }
 
         foreach (PhrNativeBackupCatalog::included() as $table => $definition) {
-            foreach ($archive->records($table) as $record) {
-                $nativeId = (string) $record['nativeId'];
-                $action = $plan->actions[$table][$nativeId] ?? 'block';
-                if ($action === 'omit') {
-                    continue;
-                }
-                if ($action === 'block') {
-                    throw new NativeRestoreException('restore_blocked');
-                }
-                if ($action === 'skip') {
-                    if ($this->identities->existingRecordId($patientId, $table, $nativeId) === null) {
-                        throw new NativeRestoreException('current_identity_missing');
+            foreach ($archive->recordPages($table) as $page) {
+                $references = [$table => array_column($page, 'nativeId')];
+                foreach ($page as $record) {
+                    foreach ($record['relationships'] as $relationship) {
+                        if (is_array($relationship) && $relationship['kind'] === 'record') {
+                            $references[$relationship['table']][] = (string) $relationship['nativeId'];
+                        }
                     }
-
-                    continue;
                 }
-
-                $data = [];
-                foreach ($record['attributes'] as $column => $value) {
-                    $data[$column] = PhrNativeRecordCodec::decodeValue($value);
+                $recordIds = [];
+                foreach ($references as $relatedTable => $nativeIds) {
+                    $recordIds[$relatedTable] = $this->identities->existingRecordIds($patientId, $relatedTable, $nativeIds);
                 }
-                foreach ($record['relationships'] as $column => $relationship) {
-                    if ($relationship === null) {
-                        $data[$column] = null;
+                $identityRows = [];
+                foreach ($page as $record) {
+                    $nativeId = (string) $record['nativeId'];
+                    $action = $plan->actions[$table][$nativeId] ?? 'block';
+                    if ($action === 'omit') {
+                        continue;
+                    }
+                    if ($action === 'block') {
+                        throw new NativeRestoreException('restore_blocked');
+                    }
+                    if ($action === 'skip') {
+                        if (! isset($recordIds[$table][$nativeId])) {
+                            throw new NativeRestoreException('current_identity_missing');
+                        }
 
                         continue;
                     }
-                    $relatedNativeId = (string) $relationship['nativeId'];
-                    if ($relationship['kind'] === 'actor') {
-                        $data[$column] = $plan->actorIds[$relatedNativeId] ?? throw new NativeRestoreException('actor_mapping_missing');
+
+                    $data = [];
+                    foreach ($record['attributes'] as $column => $value) {
+                        $data[$column] = PhrNativeRecordCodec::decodeValue($value);
+                    }
+                    foreach ($record['relationships'] as $column => $relationship) {
+                        if ($relationship === null) {
+                            $data[$column] = null;
+
+                            continue;
+                        }
+                        $relatedNativeId = (string) $relationship['nativeId'];
+                        if ($relationship['kind'] === 'actor') {
+                            $data[$column] = $plan->actorIds[$relatedNativeId] ?? throw new NativeRestoreException('actor_mapping_missing');
+                        } else {
+                            $data[$column] = $recordIds[$relationship['table']][$relatedNativeId] ?? throw new NativeRestoreException('relationship_missing');
+                        }
+                    }
+
+                    $artifact = $artifacts[$nativeId] ?? null;
+                    $this->setOperationalColumns($table, $nativeId, $patientId, $record, $data, is_array($artifact) ? $artifact : null);
+                    $newId = (int) DB::table($table)->insertGetId($data);
+                    if ($table === 'phr_patients') {
+                        $patientId = $newId;
+                    }
+                    $identityData = [
+                        'record_id' => $newId,
+                        'restored_at' => null,
+                        'restore_attempt_id' => $restoreAttemptId,
+                        'updated_at' => now(),
+                    ];
+                    if (isset($recordIds[$table][$nativeId])) {
+                        // A durable identity outlives a deleted record. Scope the
+                        // update explicitly; a global UUID collision must still
+                        // fail an insert, never repoint another patient's identity.
+                        DB::table('phr_native_record_identities')->where('patient_id', $patientId)
+                            ->where('record_table', $table)->where('native_id', $nativeId)->update($identityData);
                     } else {
-                        $data[$column] = $this->identities->existingRecordId($patientId, $relationship['table'], $relatedNativeId) ?? throw new NativeRestoreException('relationship_missing');
+                        $identityRows[] = $identityData + [
+                            'patient_id' => $patientId,
+                            'record_table' => $table,
+                            'native_id' => $nativeId,
+                            'created_at' => now(),
+                        ];
+                    }
+                    $recordIds[$table][$nativeId] = $newId;
+                    $this->markRestoredApiParent($table, $data, $patientId, $restoreAttemptId);
+
+                    if (is_array($artifact)) {
+                        [$disk, $path] = match ($table) {
+                            'phr_documents' => [PhrDocument::STORAGE_DISK, $data['storage_path']],
+                            'phr_ehi_blobs' => [$data['storage_disk'], $data['storage_path']],
+                            default => ['phr_dicom', $data['r2_key']],
+                        };
+                        $written->add($disk, $path);
+                        if (! $archive->copyArtifactTo((string) $artifact['path'], $disk, $path)) {
+                            throw new NativeRestoreException('artifact_write_failed');
+                        }
                     }
                 }
-
-                $artifact = $artifacts[$nativeId] ?? null;
-                $this->setOperationalColumns($table, $nativeId, $patientId, $record, $data, is_array($artifact) ? $artifact : null);
-                $newId = (int) DB::table($table)->insertGetId($data);
-                if ($table === 'phr_patients') {
-                    $patientId = $newId;
-                }
-                $identity = PhrNativeRecordIdentity::query()
-                    ->where('patient_id', $patientId)
-                    ->where('record_table', $table)
-                    ->where('native_id', $nativeId)
-                    ->first();
-                if ($identity === null) {
-                    PhrNativeRecordIdentity::query()->create([
-                        'patient_id' => $patientId,
-                        'record_table' => $table,
-                        'record_id' => $newId,
-                        'native_id' => $nativeId,
-                        'restored_at' => null,
-                        'restore_attempt_id' => $restoreAttemptId,
-                    ]);
-                } else {
-                    $identity->update([
-                        'record_id' => $newId,
-                        'restored_at' => null,
-                        'restore_attempt_id' => $restoreAttemptId,
-                    ]);
-                }
-                $this->markRestoredApiParent($table, $data, $patientId, $restoreAttemptId);
-
-                if (is_array($artifact)) {
-                    [$disk, $path] = match ($table) {
-                        'phr_documents' => [PhrDocument::STORAGE_DISK, $data['storage_path']],
-                        'phr_ehi_blobs' => [$data['storage_disk'], $data['storage_path']],
-                        default => ['phr_dicom', $data['r2_key']],
-                    };
-                    $written->add($disk, $path);
-                    if (! $archive->copyArtifactTo((string) $artifact['path'], $disk, $path)) {
-                        throw new NativeRestoreException('artifact_write_failed');
-                    }
+                if ($identityRows !== []) {
+                    // Existing identities intentionally survive record-level deletion.
+                    // Repoint those identities and publish new ones in the same graph
+                    // transaction, before the next page can refer to their records.
+                    DB::table('phr_native_record_identities')->insert($identityRows);
                 }
             }
         }

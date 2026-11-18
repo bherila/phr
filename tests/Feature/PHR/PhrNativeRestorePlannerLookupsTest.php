@@ -22,16 +22,26 @@ class PhrNativeRestorePlannerLookupsTest extends TestCase
         [$patient, $archive] = $this->fixture(24);
         $planner = app(PhrNativeRestorePlanner::class);
         $inverseReads = 0;
-        DB::listen(static function (QueryExecuted $event) use (&$inverseReads): void {
+        $forwardPageReads = 0;
+        $payloadReads = 0;
+        DB::listen(static function (QueryExecuted $event) use (&$inverseReads, &$forwardPageReads, &$payloadReads): void {
             $sql = str_replace(['"', '`'], '', $event->sql);
             if (str_starts_with($sql, 'select native_id from phr_native_record_identities ')) {
                 $inverseReads++;
+            }
+            if (str_starts_with($sql, 'select native_id, record_id from phr_native_record_identities ')) {
+                $forwardPageReads++;
+            }
+            if (str_starts_with($sql, 'select * from phr_documents ')) {
+                $payloadReads++;
             }
         });
         $identityCount = DB::table('phr_native_record_identities')->count();
         $plan = $planner->plan($archive, $patient->owner_user_id, false);
         self::assertSame([], $plan->blockers);
         self::assertSame(['create' => 0, 'skip' => 24, 'block' => 0], $plan->tables['phr_documents']);
+        self::assertLessThanOrEqual(2, $forwardPageReads, 'Forward identity reads scale with archive pages, not records.');
+        self::assertSame(1, $payloadReads, 'One byte-bounded current page is hydrated once.');
         // Each document has its own identity; root and owner references repeat.
         self::assertLessThanOrEqual(28, $inverseReads);
         $inverseReads = 0;

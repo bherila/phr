@@ -110,6 +110,37 @@ class PhrNativeResourceLimitsTest extends TestCase
         self::assertSame([1, 1, 1, 1], $pages);
     }
 
+    public function test_restore_current_rows_are_byte_bounded_and_oversized_rows_are_refused_before_hydration(): void
+    {
+        $patient = $this->patient();
+        $ids = [];
+        for ($i = 0; $i < 4; $i++) {
+            $ids[] = $this->document($patient, str_repeat('x', 2000))->id;
+        }
+        config(['phr.native_page_bytes' => 3000]);
+        $snapshot = app(PhrNativeSnapshotService::class);
+        $sizes = [];
+        foreach ($snapshot->rowsByIds($patient->id, 'phr_documents', $ids, true) as $page) {
+            $sizes[] = count($page);
+        }
+        self::assertSame([1, 1, 1, 1], $sizes);
+        DB::table('phr_documents')->where('id', $ids[0])->update(['extracted_text' => str_repeat('x', 4000)]);
+        config(['phr.native_restore_max_record_bytes' => 3000]);
+        $hydrated = false;
+        DB::listen(static function (QueryExecuted $event) use (&$hydrated): void {
+            if (str_starts_with($event->sql, 'select * from "phr_documents"')) {
+                $hydrated = true;
+            }
+        });
+        try {
+            iterator_to_array($snapshot->rowsByIds($patient->id, 'phr_documents', $ids, true));
+            self::fail('An oversized current row must be refused.');
+        } catch (NativeRestoreException $exception) {
+            self::assertSame('record_size_limit', $exception->failureCategory);
+        }
+        self::assertFalse($hydrated);
+    }
+
     public function test_artifact_metadata_and_manifest_limits_are_explicit_resource_refusals(): void
     {
         $patient = $this->patient();
@@ -214,17 +245,34 @@ class PhrNativeResourceLimitsTest extends TestCase
         for ($i = 1; $i <= 600; $i++) {
             DB::table('phr_native_record_identities')->insert(['patient_id' => $patient->id, 'record_table' => 'phr_lab_results', 'record_id' => $i, 'native_id' => (string) Str::uuid()]);
         }
+        $requested = [];
+        foreach ($built->manifest['tables'] as $table => $entry) {
+            $requested[$table] = DB::table('phr_native_record_identities')->where('patient_id', $patient->id)->where('record_table', $table)->pluck('native_id')->all();
+        }
         $unbounded = [];
-        DB::listen(static function (QueryExecuted $event) use (&$unbounded): void {
+        $pageReads = [];
+        DB::listen(static function (QueryExecuted $event) use (&$unbounded, &$pageReads): void {
             if (str_starts_with($event->sql, 'select') && str_contains($event->sql, 'from "phr_native_record_identities"')
                 && ! str_contains($event->sql, '"native_id" = ?') && ! str_contains($event->sql, '"record_id" = ?')) {
-                $unbounded[] = $event->sql;
+                if (str_contains($event->sql, '"native_id" in (') && str_contains($event->sql, '"patient_id" = ?') && str_contains($event->sql, '"record_table" = ?')) {
+                    $pageReads[] = $event->bindings;
+                } else {
+                    $unbounded[] = $event->sql;
+                }
             }
         });
         $archive = app(PhrNativeRestoreArchiveReader::class)->openLocal($built->path);
         $plan = app(PhrNativeRestorePlanner::class)->plan($archive, $patient->owner_user_id, false);
         self::assertSame([], $plan->blockers);
         self::assertSame([], $unbounded);
+        self::assertNotEmpty($pageReads);
+        foreach ($pageReads as $bindings) {
+            self::assertSame($patient->id, $bindings[0]);
+            $nativeIds = array_slice($bindings, 2);
+            self::assertLessThanOrEqual(PhrNativeSnapshotService::chunkSize(), count($nativeIds));
+            self::assertSame([], array_values(array_diff($nativeIds, $requested[$bindings[1]] ?? [])), 'Only identities requested by this archive page may be loaded.');
+            self::assertNotSame('phr_lab_results', $bindings[1], 'Unrelated target history must never be read.');
+        }
         self::assertSame(1, $plan->tables['phr_documents']['skip']);
     }
 
