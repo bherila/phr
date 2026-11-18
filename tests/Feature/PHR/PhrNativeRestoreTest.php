@@ -110,7 +110,8 @@ final class PhrNativeRestoreTest extends TestCase
         $otherPatient = $this->patientWithOwnerGrant((int) $owner->id);
         $otherDocument = PhrDocument::create(['patient_id' => $otherPatient->id, 'user_id' => $owner->id,
             'title' => 'Synthetic unrelated document', 'document_type' => 'other', 'source' => 'manual_upload', 'byte_size' => 0]);
-        $identity = PhrNativeRecordIdentity::create(['patient_id' => $otherPatient->id, 'record_table' => 'phr_documents', 'record_id' => $otherDocument->id, 'native_id' => $nativeId]);
+        $identity = PhrNativeRecordIdentity::where('patient_id', $otherPatient->id)->where('record_table', 'phr_documents')->where('record_id', $otherDocument->id)->firstOrFail();
+        $identity->update(['native_id' => $nativeId]);
         $before = $identity->getRawOriginal();
         $service = app(PhrNativeRestoreService::class);
         $attempt = $service->preview($service->createPreview($this->upload($archive), (int) $owner->id, false));
