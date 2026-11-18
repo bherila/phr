@@ -85,6 +85,8 @@ final class AgentApiEobLineCorrectionTest extends TestCase
             yield $path.' removes linked service' => [$path, 'remove'];
             yield $path.' replaces linked procedure' => [$path, 'procedure'];
             yield $path.' ambiguous repeated services' => [$path, 'ambiguous'];
+            yield $path.' repeated amount crossover' => [$path, 'crossover'];
+            yield $path.' repeated amount correction' => [$path, 'repeated_amount'];
         }
     }
 
@@ -92,7 +94,7 @@ final class AgentApiEobLineCorrectionTest extends TestCase
     public function test_ambiguous_or_missing_linked_services_refuse_atomically(string $path, string $case): void
     {
         $lines = $this->lines(true);
-        if ($case === 'ambiguous') {
+        if (in_array($case, ['ambiguous', 'crossover', 'repeated_amount'], true)) {
             $lines[1]['procedure_code'] = $lines[0]['procedure_code'];
         }
         $created = $this->createClaim($lines);
@@ -102,6 +104,11 @@ final class AgentApiEobLineCorrectionTest extends TestCase
             $lines = [$lines[1]];
         } elseif ($case === 'procedure') {
             $lines[0]['procedure_code'] = 'SYNTH-C';
+        } elseif ($case === 'crossover') {
+            $lines[0]['plan_payment'] = '20.00';
+            $lines[1]['plan_payment'] = '30.00';
+        } elseif ($case === 'repeated_amount') {
+            $lines[0]['plan_payment'] = '30.00';
         } else {
             $lines[0]['plan_payment'] = '30.00';
             $lines[1]['plan_payment'] = '40.00';
@@ -114,8 +121,6 @@ final class AgentApiEobLineCorrectionTest extends TestCase
     {
         yield 'update unique' => ['update', false];
         yield 'upsert unique' => ['upsert', false];
-        yield 'update repeated with unchanged anchor' => ['update', true];
-        yield 'upsert repeated with unchanged anchor' => ['upsert', true];
     }
 
     #[DataProvider('amountCorrections')]
@@ -144,10 +149,11 @@ final class AgentApiEobLineCorrectionTest extends TestCase
         self::assertSame($before, $this->persisted());
     }
 
-    public function test_repeated_codes_can_follow_distinct_unchanged_service_content(): void
+    public function test_repeated_codes_on_distinct_dates_keep_their_service_identity(): void
     {
         $lines = $this->lines(false);
         $lines[1]['procedure_code'] = $lines[0]['procedure_code'];
+        $lines[1]['service_start'] = '2026-10-29';
         $created = $this->createClaim($lines);
         [$fill] = $this->link($created['lines'][0]['id']);
         $updated = $this->correct('update', $created, array_reverse($lines))->assertOk()->json();

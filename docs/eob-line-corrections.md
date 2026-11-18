@@ -7,10 +7,11 @@ reordered. They are not sufficient evidence that two services are the same.
 
 The writer first compares normalized procedure code, code type, revenue code,
 description and service dates. Unique services retain their existing line IDs
-when moved. Identical full line content can anchor repeated services; an
-otherwise unique remaining service can receive amount or note corrections.
-Identical repeated lines can remain at their original numbers. The writer does
-not guess between ambiguous remaining services.
+when moved. A unique service can receive amount or note corrections. When that service
+identity repeats, linked rows must retain both their original numbers and full
+content; mutable amounts cannot establish which repeated service moved or was
+corrected. Repeated codes on distinct service dates can still be unambiguous.
+The writer refuses ambiguous linked changes for review.
 
 If an existing medication evidence link has no unique correspondence, including
 when its service was removed or its procedure changed, the correction returns

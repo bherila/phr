@@ -29,8 +29,31 @@ final readonly class EobLineCorrespondence
         }
         $matches = array_fill(0, count($incoming), null);
         $used = [];
+        $linked = array_fill_keys($linkedIds, true);
         foreach ($newGroups as $key => $indices) {
             $ids = $oldGroups[$key] ?? [];
+            if (count($ids) > 1 || count($indices) > 1) {
+                // Amounts are mutable: a repeated service's old amount appearing
+                // elsewhere is not proof that its evidence should move there.
+                foreach ($ids as $id) {
+                    if (! isset($linked[$id])) {
+                        continue;
+                    }
+                    foreach ($indices as $index) {
+                        if ($old[$id]['line_number'] === $incoming[$index]['line_number']
+                            && self::contentKey($old[$id]) === self::contentKey($incoming[$index])) {
+                            $matches[$index] = $id;
+                            $used[$id] = true;
+                            break;
+                        }
+                    }
+                    if (! isset($used[$id])) {
+                        self::refuse();
+                    }
+                }
+                $ids = array_values(array_filter($ids, static fn (int $id): bool => ! isset($used[$id])));
+                $indices = array_values(array_filter($indices, static fn (int $index): bool => $matches[$index] === null));
+            }
             $fullOld = [];
             $fullNew = [];
             foreach ($ids as $id) {
@@ -69,7 +92,7 @@ final readonly class EobLineCorrespondence
         }
         foreach ($linkedIds as $id) {
             if (! isset($used[$id])) {
-                throw new ConflictHttpException('The corrected lines do not uniquely identify a service linked to a medication fill. Review and unlink or relink that evidence before replacing the service.');
+                self::refuse();
             }
         }
         // Unlinked rows retain the existing number-based editing behavior.
@@ -86,6 +109,11 @@ final readonly class EobLineCorrespondence
         }
 
         return new self($matches);
+    }
+
+    private static function refuse(): never
+    {
+        throw new ConflictHttpException('The corrected lines do not uniquely identify a service linked to a medication fill. Review and unlink or relink that evidence before replacing the service.');
     }
 
     /** @param array<string, mixed> $line */
