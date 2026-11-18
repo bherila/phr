@@ -57,9 +57,24 @@ class EhiProposalServiceTest extends TestCase
     {
         [$owner, $patient, $package] = $this->previewable();
         $service = app(EhiProposalService::class);
+        $newInserts = ['phr_ehi_proposals' => 0, 'phr_ehi_proposal_revisions' => 0];
+        $emptyDependencyDeletes = 0;
+        DB::listen(static function (QueryExecuted $event) use (&$newInserts, &$emptyDependencyDeletes): void {
+            $sql = str_replace(['"', '`'], '', $event->sql);
+            foreach (array_keys($newInserts) as $table) {
+                if (str_starts_with($sql, 'insert into '.$table.' ')) {
+                    $newInserts[$table]++;
+                }
+            }
+            if (str_starts_with($sql, 'delete from phr_ehi_proposal_revisions where proposal_id = ')) {
+                $emptyDependencyDeletes++;
+            }
+        });
 
         $preview = $service->preview($package, $patient, $owner->id);
 
+        self::assertSame(['phr_ehi_proposals' => 1, 'phr_ehi_proposal_revisions' => 1], $newInserts, 'An entirely new chunk inserts bounded proposal/dependency batches.');
+        self::assertSame(0, $emptyDependencyDeletes, 'New proposal IDs cannot already have dependency rows.');
         self::assertSame(['synthetic' => ['create' => 3, 'retain' => 1]], $preview->counts);
         self::assertSame(['pending' => 4], $preview->statuses);
         self::assertSame(['synthetic_deleted_row' => 1], $preview->findings);

@@ -150,6 +150,26 @@ final class EhiNewProposalWriterTest extends TestCase
         self::assertSame(['synthetic-writer', 'synthetic-other'], $proposals->pluck('mapping')->all());
     }
 
+    public function test_short_or_space_ended_subject_keys_keep_individual_inserts(): void
+    {
+        [$patientId, $packageId] = $this->fixture();
+        $rows = [$this->row('one', []), $this->row('two', [])];
+        $rows[0]['attributes']['subject_key'] = 'short';
+        $rows[1]['attributes']['subject_key'] = 'short with space ';
+        $inserts = [];
+        $measuring = true;
+        DB::listen(static function (QueryExecuted $query) use (&$inserts, &$measuring): void {
+            if ($measuring && str_starts_with($query->sql, 'insert into "phr_ehi_proposals"')) {
+                $inserts[] = count($query->bindings);
+            }
+        });
+        DB::transaction(fn () => (new EhiNewProposalWriter)->insert($patientId, $packageId, 1, $rows));
+        $measuring = false;
+        self::assertCount(2, $inserts);
+        self::assertSame($inserts[0], $inserts[1]);
+        self::assertSame(['short', 'short with space '], PhrEhiProposal::query()->orderBy('id')->pluck('subject_key')->all());
+    }
+
     public function test_model_observers_retain_per_row_create_and_dependency_order(): void
     {
         [$patientId, $packageId, $revisions] = $this->fixture();

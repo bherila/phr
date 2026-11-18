@@ -138,6 +138,7 @@ final class EhiProposalService
         private readonly PhrPatientAccessService $access,
         private readonly EhiMappingRegistry $registry,
         private readonly EhiProjectionService $projection,
+        private readonly EhiNewProposalWriter $newProposals,
     ) {}
 
     /**
@@ -699,6 +700,14 @@ final class EhiProposalService
                 $additionalBytes += 512 + strlen(json_encode($attributes, JSON_THROW_ON_ERROR)) + 160 * count($revisionIds);
             }
             $budget->reservePatient($evidenceUsage, $additionalRows, $additionalBytes);
+            if ($existing->isEmpty()) {
+                // Keep mixed/existing chunks on their original model path. Only
+                // a wholly new chunk can batch creation without moving model
+                // effects relative to an existing proposal's update.
+                $this->newProposals->insert((int) $patient->id, (int) $package->id, $generation, $rows);
+
+                return;
+            }
             $unchanged = [];
             foreach ($rows as $subject => ['attributes' => $row, 'revisions' => $revisionIds]) {
                 $proposal = $existing->get($subject);

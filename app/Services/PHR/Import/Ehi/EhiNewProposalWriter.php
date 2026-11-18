@@ -104,7 +104,7 @@ final class EhiNewProposalWriter
                 }
             }
         }
-        if ($prototype->getTouchedRelations() !== [] || $prototype->usesUniqueIds()) {
+        if ($prototype->getTouchedRelations() !== [] || $prototype->usesUniqueIds() || $prototype->dispatchesEvents() !== []) {
             return false;
         }
         $first = reset($rows)['attributes'];
@@ -117,6 +117,7 @@ final class EhiNewProposalWriter
             $keys = array_keys($row['attributes']);
             sort($keys);
             if ($keys !== $columns || ! is_string($row['attributes']['subject_key'] ?? null)
+                || preg_match('/\A[0-9a-f]{64}\z/', $row['attributes']['subject_key']) !== 1
                 || ($row['attributes']['mapping'] ?? null) !== ($first['mapping'] ?? null)
                 || ($row['attributes']['mapping_version'] ?? null) !== ($first['mapping_version'] ?? null)) {
                 return false;
