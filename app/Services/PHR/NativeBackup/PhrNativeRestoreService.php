@@ -27,6 +27,7 @@ final class PhrNativeRestoreService
         private readonly PhrNativeRestoreArchiveReader $reader,
         private readonly PhrNativeRestorePlanner $planner,
         private readonly PhrNativeIdentityRepository $identities,
+        private readonly PhrNativeRestoreRecordWriter $records,
     ) {}
 
     public function createPreview(UploadedFile $upload, int $actorUserId, bool $restoreAccessGrants): PhrNativeRestoreAttempt
@@ -437,7 +438,7 @@ final class PhrNativeRestoreService
                 foreach ($references as $relatedTable => $nativeIds) {
                     $recordIds[$relatedTable] = $this->identities->existingRecordIds($patientId, $relatedTable, $nativeIds);
                 }
-                $identityRows = [];
+                $creates = [];
                 foreach ($page as $record) {
                     $nativeId = (string) $record['nativeId'];
                     $action = $plan->actions[$table][$nativeId] ?? 'block';
@@ -475,7 +476,15 @@ final class PhrNativeRestoreService
 
                     $artifact = $artifacts[$nativeId] ?? null;
                     $this->setOperationalColumns($table, $nativeId, $patientId, $record, $data, is_array($artifact) ? $artifact : null);
-                    $newId = (int) DB::table($table)->insertGetId($data);
+                    $creates[] = ['native_id' => $nativeId, 'data' => $data, 'artifact' => $artifact];
+                }
+                // Catalog relationships point to earlier tables. Resolve and
+                // insert this bounded page before publishing its identities;
+                // keyed EHI rows can be inserted together without guessing IDs.
+                $newIds = $this->records->insertPage($patientId, $table, array_column($creates, 'data'));
+                $identityRows = [];
+                foreach ($creates as $index => ['native_id' => $nativeId, 'data' => $data, 'artifact' => $artifact]) {
+                    $newId = $newIds[$index];
                     if ($table === 'phr_patients') {
                         $patientId = $newId;
                     }

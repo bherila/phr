@@ -14,6 +14,7 @@ use App\Services\PHR\Import\Ehi\Mapping\EhiMappingContext;
 use App\Services\PHR\NativeBackup\PhrNativeBackupService;
 use App\Services\PHR\NativeBackup\PhrNativeRestoreService;
 use App\Services\PHR\NativeBackup\PhrNativeTableCompatibility;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
@@ -68,8 +69,16 @@ class EhiEvidenceRestoreTest extends TestCase
         $restore = app(PhrNativeRestoreService::class);
         $attempt = $restore->preview($restore->createPreview(new UploadedFile($archive, 'synthetic-native.zip', 'application/zip', null, true), $owner->id, false));
         self::assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $attempt->status, (string) $attempt->failure_category);
+        $insertCounts = [];
+        DB::listen(static function (QueryExecuted $event) use (&$insertCounts): void {
+            $sql = str_replace(['"', '`'], '', $event->sql);
+            if (preg_match('/^insert into (phr_ehi_entities|phr_ehi_revisions|phr_ehi_occurrences|phr_ehi_proposals|phr_ehi_proposal_revisions) /', $sql, $match)) {
+                $insertCounts[$match[1]] = ($insertCounts[$match[1]] ?? 0) + 1;
+            }
+        });
         $restore->apply($attempt->refresh());
         self::assertSame(PhrNativeRestoreAttempt::STATUS_COMPLETED, $attempt->refresh()->status);
+        self::assertSame(array_fill_keys(['phr_ehi_entities', 'phr_ehi_revisions', 'phr_ehi_occurrences', 'phr_ehi_proposals', 'phr_ehi_proposal_revisions'], 1), $insertCounts, 'Keyed evidence rows are inserted once per page, with real ids mapped back to their native identities.');
         @unlink($archive);
 
         $restoredId = (int) $attempt->target_patient_root_id;
