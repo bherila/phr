@@ -699,6 +699,32 @@ final class AgentApiEobWriteTest extends TestCase
             $history[0]['oauth_client']['source_patient_native_id']);
     }
 
+    public function test_imported_higher_revision_is_preserved_advanced_and_never_overflows(): void
+    {
+        $created = $this->putJson($this->url(), $this->claim($this->document()))->assertCreated()->json();
+        $eob = PhrEob::query()->findOrFail($created['data']['id']);
+        $snapshot = ['lines' => [], 'provider_name' => 'Synthetic earlier provider'];
+        $eob->parsed_data = ['corrections' => [['actor_user_id' => $this->actor->id, 'oauth_client_id' => $this->client->id,
+            'corrected_at' => now()->toIso8601String(), 'previous_version' => 'source-version', 'before' => $snapshot, 'after' => $snapshot]]];
+        $eob->correction_revision = 40;
+        $eob->save();
+        $version = app(AgentClinicalRecordVersion::class)->for($eob);
+        app(EobCorrectionHistory::class)->normalizePatient($eob->patient_id);
+        self::assertSame(40, $eob->refresh()->correction_revision);
+        self::assertSame($version, app(AgentClinicalRecordVersion::class)->for($eob));
+        $this->patchJson("{$this->url()}/{$eob->id}", ['expected_version' => $version,
+            'data' => ['provider_name' => 'Synthetic next provider']])->assertOk()->assertJsonPath('outcome', 'updated');
+        self::assertSame(41, $eob->refresh()->correction_revision);
+        self::assertSame([1, 2], DB::table('phr_eob_corrections')->where('eob_id', $eob->id)->orderBy('ordinal')->pluck('ordinal')->all());
+        $eob->correction_revision = 2_147_483_647;
+        $eob->save();
+        $original = $eob->getAttributes();
+        $this->patchJson("{$this->url()}/{$eob->id}", ['expected_version' => app(AgentClinicalRecordVersion::class)->for($eob),
+            'data' => ['provider_name' => 'Synthetic overflow correction']])->assertConflict();
+        self::assertSame($original, $eob->refresh()->getAttributes());
+        self::assertCount(2, app(EobCorrectionHistory::class)->forEob($eob));
+    }
+
     private function historyPreview(string $path, int $actorId): PhrNativeRestoreAttempt
     {
         $service = app(PhrNativeRestoreService::class);

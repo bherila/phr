@@ -100,6 +100,8 @@ complete line snapshots are retained. Known local documents become catalog relat
 The monotonic `correction_revision` participates in clinical versions, with a legacy
 history-count projection before backfill: normalization preserves the clinical version
 and timestamps, while actual A → B → A corrections still invalidate the first version.
+Higher imported revisions are preserved and advanced independently of history ordinals;
+an exhausted portable counter refuses the correction atomically instead of wrapping.
 No-op and stale requests append no history. Unrecognized legacy history fails closed
 without discarding or partially converting it.
 

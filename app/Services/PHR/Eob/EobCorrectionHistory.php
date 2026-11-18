@@ -12,10 +12,14 @@ use App\Support\AgentApi\AgentApiClientIdentity;
 use Illuminate\Support\Facades\DB;
 use LogicException;
 use Ramsey\Uuid\Uuid;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 /** Lossless ordered snapshots, with one row per historical line rather than one growing JSON record. */
 final readonly class EobCorrectionHistory
 {
+    // PostgreSQL's INTEGER ceiling also bounds the unsigned columns on other engines.
+    private const int MAX_REVISION = 2_147_483_647;
+
     public function __construct(private PhrNativeIdentityRepository $identities, private PhrPatientArtifactWriteGuard $guard) {}
 
     /** Normalize existing local JSON before native snapshot byte preflight, without advancing the clinical version. */
@@ -79,8 +83,9 @@ final readonly class EobCorrectionHistory
         // This is a representation migration, not a new clinical correction.
         // Leave timestamps, review status and the clinical version unchanged.
         $eob->parsed_data = $parsed;
-        $eob->correction_revision = count($legacy);
-        DB::table('phr_eobs')->where('id', $eob->id)->update(['parsed_data' => $eob->getAttributes()['parsed_data'], 'correction_revision' => count($legacy)]);
+        $revision = max((int) $eob->getAttribute('correction_revision'), count($legacy));
+        $eob->correction_revision = $revision;
+        DB::table('phr_eobs')->where('id', $eob->id)->update(['parsed_data' => $eob->getAttributes()['parsed_data'], 'correction_revision' => $revision]);
         $eob->syncOriginalAttribute('parsed_data');
         $eob->syncOriginalAttribute('correction_revision');
 
@@ -93,13 +98,20 @@ final readonly class EobCorrectionHistory
     public function append(PhrEob $eob, array $before, array $after, int $actorUserId, AgentApiClientIdentity $client, string $previousVersion): void
     {
         $this->requireTransaction();
+        $currentRevision = (int) $eob->getAttribute('correction_revision');
+        if ($currentRevision >= self::MAX_REVISION) {
+            throw new ConflictHttpException('The EOB correction revision is exhausted; the correction was not written.');
+        }
         $patientId = (int) $eob->patient_id;
         $patientNativeId = $this->nativeId($patientId, 'phr_patients', $patientId);
         $ordinal = (int) PhrEobCorrection::query()->where('eob_id', $eob->id)->max('ordinal') + 1;
+        if ($ordinal > self::MAX_REVISION) {
+            throw new ConflictHttpException('The EOB correction history ordinal is exhausted; the correction was not written.');
+        }
         $this->store($eob, $ordinal, $before, $after,
             ['kind' => 'native_actor', 'native_id' => $this->nativeId($patientId, 'users', $actorUserId)],
             self::client($patientNativeId, $client->id), now()->toIso8601String(), $previousVersion);
-        $eob->correction_revision = $ordinal;
+        $eob->correction_revision = max($currentRevision + 1, $ordinal);
         $eob->save();
     }
 
