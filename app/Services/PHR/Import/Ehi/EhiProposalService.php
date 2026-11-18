@@ -188,11 +188,11 @@ final class EhiProposalService
                 $rows[$draft->subjectKey] = $row;
                 $counts[$name][$draft->kind] = ($counts[$name][$draft->kind] ?? 0) + 1;
                 if (count($rows) >= self::CHUNK || strlen(json_encode($rows, JSON_THROW_ON_ERROR)) >= 1024 * 1024) {
-                    $this->persistChunk($package, $actorUserId, $name, $mapping->version(), $generation, $rows);
+                    $this->persistChunk($package, $actorUserId, $name, $mapping->version(), $generation, $rows, $budget);
                     $rows = [];
                 }
             }
-            $this->persistChunk($package, $actorUserId, $name, $mapping->version(), $generation, $rows);
+            $this->persistChunk($package, $actorUserId, $name, $mapping->version(), $generation, $rows, $budget);
             $this->supersedeNotProduced($package, $actorUserId, $name, $generation);
             $counts[$name] ??= [];
             ksort($counts[$name], SORT_STRING);
@@ -671,14 +671,14 @@ final class EhiProposalService
      *
      * @param  array<string, array{attributes: array<string, mixed>, revisions: list<int>}>  $rows  subject key => proposal
      */
-    private function persistChunk(PhrEhiPackage $package, int $actorUserId, string $mapping, string $version, int $generation, array $rows): void
+    private function persistChunk(PhrEhiPackage $package, int $actorUserId, string $mapping, string $version, int $generation, array $rows, EhiPreviewBudget $budget): void
     {
         if ($rows === []) {
             return;
         }
-        $this->writeGuard->run((int) $package->patient_id, function (PhrPatient $patient) use ($package, $actorUserId, $mapping, $version, $generation, $rows): void {
+        $this->writeGuard->run((int) $package->patient_id, function (PhrPatient $patient) use ($package, $actorUserId, $mapping, $version, $generation, $rows, $budget): void {
             $this->ensurePreviewWritable($patient, $actorUserId);
-            (new EhiPreviewBudget)->assertPatient($patient->id);
+            $evidenceUsage = $budget->measurePatient($patient->id);
             $existing = PhrEhiProposal::query()->where('package_id', $package->id)->where('mapping', $mapping)
                 ->where('mapping_version', $version)
                 ->whereIn('subject_key', array_keys($rows))->lockForUpdate()->get()->keyBy('subject_key');
@@ -697,7 +697,7 @@ final class EhiProposalService
                 $additionalRows += 1 + count($revisionIds);
                 $additionalBytes += 512 + strlen(json_encode($attributes, JSON_THROW_ON_ERROR)) + 160 * count($revisionIds);
             }
-            (new EhiPreviewBudget)->assertPatient($patient->id, $additionalRows, $additionalBytes);
+            $budget->reservePatient($evidenceUsage, $additionalRows, $additionalBytes);
             $unchanged = [];
             foreach ($rows as $subject => ['attributes' => $row, 'revisions' => $revisionIds]) {
                 $proposal = $existing->get($subject);
