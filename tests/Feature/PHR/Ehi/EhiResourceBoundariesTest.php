@@ -261,7 +261,7 @@ class EhiResourceBoundariesTest extends TestCase
         [$owner, $patient] = $this->fixture();
         $usage = $this->patientUsage($patient->id);
         $other = $this->ehiPatient($owner);
-        PhrLabResult::query()->create(['patient_id' => $other->id, 'user_id' => $owner->id, 'analyte' => 'Synthetic other patient', 'value' => str_repeat('é', 4096)]);
+        PhrLabResult::query()->create(['patient_id' => $other->id, 'user_id' => $owner->id, 'analyte' => 'Synthetic other patient', 'notes' => str_repeat('é', 4096)]);
         config(['phr.ehi_preview_max_rows' => $usage['rows'], 'phr.ehi_preview_max_bytes' => $usage['bytes']]);
         $budget = new EhiPreviewBudget;
         $evidence = $budget->measurePatient($patient->id);
