@@ -562,6 +562,9 @@ final class EhiProposalService
             $occurrences->update(['disposition' => $disposition, 'updated_at' => $now]);
         }
         $members = array_values(array_unique($members));
+        if ($members === []) {
+            return;
+        }
 
         PhrEhiTableAccount::query()->where('package_id', $proposal->package_id)->whereIn('member_id', $members)
             ->orderBy('id')->each(static fn (PhrEhiTableAccount $account) => EhiDispositionCounter::recount($account));

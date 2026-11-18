@@ -162,6 +162,12 @@ class EhiProposalServiceTest extends TestCase
         $rejected = $this->proposalFor($package, '100', '1');
         $retained = $this->proposalFor($package, '300', '1');
         self::assertSame(PhrEhiProposal::KIND_RETAIN, $retained->kind);
+        $emptyAccountReads = 0;
+        DB::listen(static function (QueryExecuted $event) use (&$emptyAccountReads): void {
+            if (str_contains($event->sql, 'phr_ehi_table_accounts') && str_contains($event->sql, '0 = 1')) {
+                $emptyAccountReads++;
+            }
+        });
 
         $service->review($rejected, PhrEhiProposal::DECISION_REJECT, $owner->id, $rejected->preview_digest);
         $this->assertRefused(EhiReviewRefused::DECISION_NOT_ALLOWED, fn () => $service->review($retained, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $retained->preview_digest));
@@ -173,6 +179,7 @@ class EhiProposalServiceTest extends TestCase
         self::assertSame(0, PhrEhiRecordLink::query()->count());
         self::assertSame(2, PhrEhiProposalDecision::query()->whereNull('linked_immunization_id')->count());
         self::assertSame(2, PhrEhiOccurrence::query()->where('disposition', PhrEhiOccurrence::DISPOSITION_RETAINED)->count());
+        self::assertSame(0, $emptyAccountReads, 'No changed source members means there are no accounts to read or reconcile.');
     }
 
     public function test_link_existing_bridges_to_a_prior_record(): void
