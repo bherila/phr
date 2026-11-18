@@ -1340,6 +1340,7 @@ final class PhrNativeRestoreTest extends TestCase
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['ehi_evidence'],
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['medication_fills'],
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['medication_fill_evidence'],
+            ...PhrNativeTableCompatibility::LATER_GENERATIONS['eob_corrections'],
         ]);
         DB::table('phr_patients')->where('id', $patient->id)->delete();
 
@@ -1378,6 +1379,7 @@ final class PhrNativeRestoreTest extends TestCase
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['ehi_evidence'],
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['medication_fills'],
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['medication_fill_evidence'],
+            ...PhrNativeTableCompatibility::LATER_GENERATIONS['eob_corrections'],
         ]);
         $this->mutateTableRecords($archivePath, 'phr_immunizations', static function (array $record): array {
             foreach (PhrNativeLifecycleCompatibility::TABLE_COLUMNS['phr_immunizations'] as $column) {
@@ -1546,6 +1548,7 @@ final class PhrNativeRestoreTest extends TestCase
         $this->removeTables($archivePath, [
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['medication_fills'],
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['medication_fill_evidence'],
+            ...PhrNativeTableCompatibility::LATER_GENERATIONS['eob_corrections'],
         ]);
         DB::table('phr_patients')->where('id', $patient->id)->delete();
 
@@ -1641,7 +1644,7 @@ final class PhrNativeRestoreTest extends TestCase
 
         $current = $this->archiveCopy($patient, (int) $owner->id);
         $older = $this->archiveCopy($patient, (int) $owner->id);
-        $this->removeTables($older, PhrNativeTableCompatibility::LATER_GENERATIONS['medication_fill_evidence']);
+        $this->removeTables($older, [...PhrNativeTableCompatibility::LATER_GENERATIONS['medication_fill_evidence'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['eob_corrections']]);
         // An EOB archived before it had a review status has no such attribute, and was confirmed.
         $this->mutateTableRecords($older, 'phr_eobs', static function (array $record): array {
             unset($record['attributes']['review_status'], $record['attributes']['lines_digest']);

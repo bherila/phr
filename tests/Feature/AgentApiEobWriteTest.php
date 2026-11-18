@@ -6,21 +6,35 @@ use App\Models\PhrDocument;
 use App\Models\PhrEob;
 use App\Models\PhrEobLine;
 use App\Models\PhrMedicationFill;
+use App\Models\PhrNativeRestoreAttempt;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Models\User;
 use App\Services\PHR\Eob\EobClaim;
+use App\Services\PHR\Eob\EobCorrectionHistory;
 use App\Services\PHR\Import\EobPdfTextExtractor;
+use App\Services\PHR\NativeBackup\NativeRestoreException;
+use App\Services\PHR\NativeBackup\PhrNativeArchiveBuilder;
+use App\Services\PHR\NativeBackup\PhrNativeIdentityRepository;
+use App\Services\PHR\NativeBackup\PhrNativeRecordCodec;
+use App\Services\PHR\NativeBackup\PhrNativeRestoreArchiveReader;
+use App\Services\PHR\NativeBackup\PhrNativeRestoreService;
+use App\Services\PHR\NativeBackup\PhrNativeTableCompatibility;
 use App\Support\AgentApi\AgentApiScopes;
+use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Laravel\Passport\Client;
 use Laravel\Passport\Passport;
 use Tests\Concerns\ConfiguresPassportKeys;
 use Tests\Support\FakesOpenFda;
 use Tests\TestCase;
+use ZipArchive;
 
 /** EOB writes over the versioned REST API: import with the server's parsers, upsert, update and the fill link. */
 final class AgentApiEobWriteTest extends TestCase
@@ -322,10 +336,10 @@ final class AgentApiEobWriteTest extends TestCase
         $eob->refresh();
         $this->assertSame('delta_dental_eob', $eob->import_source);
         $this->assertSame('claims.csv', $eob->parsed_data['source_csv']);
-        $history = $eob->parsed_data['corrections'];
+        $history = app(EobCorrectionHistory::class)->forEob($eob);
         $this->assertCount(1, $history);
-        $this->assertSame($this->actor->id, $history[0]['actor_user_id']);
-        $this->assertSame($this->client->id, $history[0]['oauth_client_id']);
+        $this->assertSame(['kind' => 'native_actor', 'native_id' => app(PhrNativeIdentityRepository::class)->existingNativeId($eob->patient_id, 'users', $this->actor->id)], $history[0]['actor']);
+        $this->assertSame($this->client->id, $history[0]['oauth_client']['reference']);
         $this->assertNotEmpty($history[0]['corrected_at']);
         $this->assertSame($version, $history[0]['previous_version']);
         $this->assertSame('160.00', $history[0]['before']['total_charges']);
@@ -335,11 +349,287 @@ final class AgentApiEobWriteTest extends TestCase
         $this->patchJson("{$this->url()}/{$eob->id}", $patch)->assertConflict();
         $this->patchJson("{$this->url()}/{$eob->id}", [...$patch, 'expected_version' => $updated['version']])
             ->assertOk()->assertJsonPath('outcome', 'unchanged');
-        $this->assertCount(1, $eob->refresh()->parsed_data['corrections']);
+        $this->assertCount(1, app(EobCorrectionHistory::class)->forEob($eob->refresh()));
         $this->patchJson("{$this->url()}/{$eob->id}", ['expected_version' => $updated['version'], 'data' => ['provider_name' => 'Corrected Provider']])
             ->assertOk()->assertJsonPath('outcome', 'updated');
-        $this->assertCount(2, $eob->refresh()->parsed_data['corrections']);
-        $this->assertSame($history[0], $eob->parsed_data['corrections'][0]);
+        $this->assertCount(2, app(EobCorrectionHistory::class)->forEob($eob->refresh()));
+        $this->assertSame($history[0], app(EobCorrectionHistory::class)->forEob($eob)[0]);
+    }
+
+    public function test_five_large_corrections_round_trip_bounded_history_and_document_identities_at_current_limits(): void
+    {
+        Queue::fake();
+        Storage::fake('phr_exports');
+        Storage::fake('phr_dicom');
+        $first = $this->document();
+        $second = $this->document();
+        $second->update(['title' => 'Second synthetic EOB source']);
+        $claim = $this->claim($first);
+        $claim['data']['lines'] = array_map(static fn (int $n): array => ['procedure_code' => '99213',
+            'description' => 'Synthetic service '.$n, 'total_charges' => '10.00'], range(1, 500));
+        $created = $this->putJson($this->url(), $claim)->assertCreated()->json();
+        $version = $created['version'];
+        $eob = PhrEob::query()->findOrFail($created['data']['id']);
+        $archive = null;
+        for ($number = 1; $number <= 5; $number++) {
+            $updated = $this->patchJson("{$this->url()}/{$eob->id}", ['expected_version' => $version,
+                'source_document_id' => $number % 2 ? $second->id : $first->id,
+                'data' => ['provider_name' => 'Synthetic corrected provider '.$number]])->assertOk()->assertJsonPath('outcome', 'updated')->json();
+            $version = $updated['version'];
+            if ($archive !== null) {
+                unlink($archive->path);
+            }
+            $archive = app(PhrNativeArchiveBuilder::class)->build($this->patient);
+            self::assertSame($version, app(AgentClinicalRecordVersion::class)->for($eob->refresh()));
+            $zip = new ZipArchive;
+            self::assertTrue($zip->open($archive->path));
+            $records = 0;
+            $bytes = 0;
+            foreach ($archive->manifest['tables'] as $entry) {
+                $stream = (string) $zip->getFromName($entry['path']);
+                $bytes += strlen($stream);
+                foreach (array_filter(explode("\n", $stream)) as $line) {
+                    self::assertLessThanOrEqual(config('phr.native_restore_max_record_bytes'), strlen($line) + 1);
+                    $records++;
+                }
+            }
+            self::assertLessThanOrEqual(config('phr.native_max_records'), $records);
+            self::assertLessThanOrEqual(config('phr.native_max_record_stream_bytes'), $bytes);
+            $zip->close();
+        }
+        self::assertNotNull($archive);
+        $history = app(EobCorrectionHistory::class)->forEob($eob);
+        self::assertCount(5, $history);
+        self::assertCount(500, $history[4]['before']['lines']);
+        self::assertCount(500, $history[4]['after']['lines']);
+        self::assertArrayNotHasKey('corrections', $eob->parsed_data);
+        $restorer = $this->createUser();
+        $oldPatientId = $this->patient->id;
+        DB::table('phr_patients')->where('id', $oldPatientId)->delete();
+        $attempt = $this->historyPreview($archive->path, $restorer->id);
+        self::assertSame('preview_ready', $attempt->status, (string) $attempt->failure_category);
+        app(PhrNativeRestoreService::class)->apply($attempt);
+        self::assertSame('completed', $attempt->refresh()->status, (string) $attempt->failure_category);
+        $restored = PhrEob::query()->where('patient_id', $attempt->target_patient_root_id)->sole();
+        self::assertNotSame($eob->id, $restored->id);
+        $documents = PhrDocument::query()->where('patient_id', $restored->patient_id)->get()->keyBy('title');
+        $docIds = [$first->id => $documents[$first->title]->id, $second->id => $documents[$second->title]->id];
+        foreach ($history as &$entry) {
+            foreach (['before', 'after'] as $side) {
+                $entry[$side]['source_document_id'] = $docIds[$entry[$side]['source_document_id']];
+            }
+        }
+        unset($entry);
+        self::assertNotSame($first->id, $docIds[$first->id]);
+        self::assertNotSame($second->id, $docIds[$second->id]);
+        self::assertSame($history, app(EobCorrectionHistory::class)->forEob($restored));
+        self::assertSame($restorer->id, app(PhrNativeIdentityRepository::class)->existingRecordId($restored->patient_id,
+            'users', $history[0]['actor']['native_id']));
+        $again = $this->historyPreview($archive->path, $restorer->id);
+        self::assertSame(0, array_sum(array_column($again->plan_counts_json['tables'], 'create')));
+        self::assertSame(0, array_sum(array_column($again->plan_counts_json['tables'], 'block')));
+        $rebackup = app(PhrNativeArchiveBuilder::class)->build(PhrPatient::query()->findOrFail($restored->patient_id));
+        foreach (PhrNativeTableCompatibility::LATER_GENERATIONS['eob_corrections'] as $table) {
+            self::assertSame($archive->manifest['tables'][$table], $rebackup->manifest['tables'][$table]);
+        }
+        unlink($archive->path);
+        unlink($rebackup->path);
+    }
+
+    public function test_history_backfill_preserves_version_and_real_corrections_prevent_aba(): void
+    {
+        $created = $this->putJson($this->url(), $this->claim($this->document()))->assertCreated()->json();
+        $eob = PhrEob::query()->findOrFail($created['data']['id']);
+        $snapshot = ['provider_name' => 'Legacy synthetic provider', 'source_document_id' => $eob->source_document_id,
+            'lines' => [['line_number' => 1, 'procedure_code' => '99213', 'total_charges' => '10.00']]];
+        $legacy = [['actor_user_id' => $this->actor->id, 'oauth_client_id' => $this->client->id,
+            'corrected_at' => now()->toIso8601String(), 'previous_version' => 'legacy-opaque-version',
+            'before' => $snapshot, 'after' => [...$snapshot, 'provider_name' => 'Example Provider']]];
+        $eob->parsed_data = ['written_by' => 'agent_api', 'corrections' => $legacy];
+        $eob->save();
+        $versions = app(AgentClinicalRecordVersion::class);
+        $before = $versions->for($eob);
+        $timestamp = $eob->updated_at;
+        app(EobCorrectionHistory::class)->normalizePatient($eob->patient_id);
+        self::assertSame($before, $versions->for($eob->refresh()));
+        self::assertEquals($timestamp, $eob->updated_at);
+        $history = app(EobCorrectionHistory::class)->forEob($eob);
+        self::assertSame('Legacy synthetic provider', $history[0]['before']['provider_name']);
+        self::assertSame($this->actor->id, app(PhrNativeIdentityRepository::class)->existingRecordId($eob->patient_id, 'users', $history[0]['actor']['native_id']));
+        app(EobCorrectionHistory::class)->normalizePatient($eob->patient_id);
+        self::assertSame($history, app(EobCorrectionHistory::class)->forEob($eob));
+        $this->freezeTime();
+        $first = $versions->for($eob);
+        $second = $this->patchJson("{$this->url()}/{$eob->id}", ['expected_version' => $first,
+            'data' => ['provider_name' => 'Different synthetic provider']])->assertOk()->json('version');
+        $third = $this->patchJson("{$this->url()}/{$eob->id}", ['expected_version' => $second,
+            'data' => ['provider_name' => 'Example Provider']])->assertOk()->json('version');
+        self::assertNotSame($first, $third);
+        $this->patchJson("{$this->url()}/{$eob->id}", ['expected_version' => $first,
+            'data' => ['provider_name' => 'Stale replacement']])->assertConflict();
+        self::assertCount(3, app(EobCorrectionHistory::class)->forEob($eob));
+    }
+
+    public function test_old_v1_history_uses_unresolved_source_references_and_charges_expanded_rows(): void
+    {
+        Queue::fake();
+        Storage::fake('phr_exports');
+        Storage::fake('phr_dicom');
+        $document = $this->document();
+        $created = $this->putJson($this->url(), $this->claim($document))->assertCreated()->json();
+        $eob = PhrEob::query()->findOrFail($created['data']['id']);
+        $snapshot = ['provider_name' => 'Old synthetic provider', 'source_document_id' => $document->id,
+            'lines' => [['line_number' => 1, 'procedure_code' => '99213', 'total_charges' => '10.00']]];
+        $legacy = [['actor_user_id' => $this->actor->id, 'oauth_client_id' => $this->client->id,
+            'corrected_at' => now()->toIso8601String(), 'previous_version' => 'old-source-version',
+            'before' => $snapshot, 'after' => [...$snapshot, 'provider_name' => 'Example Provider']]];
+        $archive = app(PhrNativeArchiveBuilder::class)->build($this->patient);
+        $zip = new ZipArchive;
+        self::assertTrue($zip->open($archive->path));
+        $manifest = $archive->manifest;
+        foreach (PhrNativeTableCompatibility::LATER_GENERATIONS['eob_corrections'] as $table) {
+            $zip->deleteName($manifest['tables'][$table]['path']);
+            unset($manifest['tables'][$table]);
+        }
+        $path = $manifest['tables']['phr_eobs']['path'];
+        $record = json_decode(trim((string) $zip->getFromName($path)), true, flags: JSON_THROW_ON_ERROR);
+        $record['attributes']['parsed_data'] = json_encode(['written_by' => 'agent_api', 'corrections' => $legacy], JSON_THROW_ON_ERROR);
+        unset($record['attributes']['correction_revision']);
+        $record = (new PhrNativeRecordCodec)->record($record['nativeId'], $record['attributes'], $record['relationships']);
+        $bytes = PhrNativeRecordCodec::canonicalJson($record)."\n";
+        $zip->addFromString($path, $bytes);
+        $manifest['tables']['phr_eobs']['sha256'] = hash('sha256', $bytes);
+        $zip->addFromString('manifest.json', json_encode($manifest, JSON_THROW_ON_ERROR));
+        $zip->close();
+        $maximum = config('phr.native_max_records');
+        config(['phr.native_max_records' => array_sum(array_column($manifest['tables'], 'count')) + 1]);
+        $copy = tempnam(sys_get_temp_dir(), 'synthetic-eob-legacy-');
+        copy($archive->path, $copy);
+        $identityCount = DB::table('phr_native_record_identities')->count();
+        try {
+            app(PhrNativeRestoreArchiveReader::class)->openLocal($copy);
+            self::fail('Expanded correction rows must be admitted before any restore writes.');
+        } catch (NativeRestoreException $exception) {
+            self::assertSame('record_count_limit', $exception->failureCategory);
+        } finally {
+            config(['phr.native_max_records' => $maximum]);
+        }
+        self::assertSame($identityCount, DB::table('phr_native_record_identities')->count());
+        $restorer = $this->createUser();
+        DB::table('phr_patients')->where('id', $this->patient->id)->delete();
+        // Occupy the old source document ID under another patient. Embedded
+        // integers in an old v1 archive cannot establish this row's identity.
+        $other = PhrPatient::query()->create(['owner_user_id' => $restorer->id, 'display_name' => 'Unrelated synthetic patient']);
+        DB::table('phr_documents')->insert(['id' => $document->id, 'patient_id' => $other->id, 'user_id' => $restorer->id,
+            'title' => 'Unrelated synthetic document', 'document_type' => 'other', 'source' => 'manual_upload', 'byte_size' => 0]);
+        $attempt = $this->historyPreview($archive->path, $restorer->id);
+        self::assertSame('preview_ready', $attempt->status, (string) $attempt->failure_category);
+        app(PhrNativeRestoreService::class)->apply($attempt);
+        self::assertSame('completed', $attempt->refresh()->status, (string) $attempt->failure_category);
+        $restored = PhrEob::query()->where('patient_id', $attempt->target_patient_root_id)->sole();
+        $history = app(EobCorrectionHistory::class)->forEob($restored);
+        self::assertCount(1, $history);
+        self::assertSame('unresolved_source_actor', $history[0]['actor']['kind']);
+        self::assertArrayNotHasKey('actor_user_id', $history[0]);
+        self::assertNull(app(PhrNativeIdentityRepository::class)->existingRecordId($restored->patient_id, 'users', $history[0]['actor']['reference']));
+        self::assertNull($history[0]['before']['source_document_id']);
+        self::assertSame('unresolved_source_document', $history[0]['before']['source_document_provenance']['kind']);
+        self::assertSame($snapshot['lines'], $history[0]['before']['lines']);
+        self::assertNotSame($document->id, $restored->source_document_id);
+        $again = $this->historyPreview($archive->path, $restorer->id);
+        self::assertSame(0, array_sum(array_column($again->plan_counts_json['tables'], 'create')));
+        self::assertSame(0, array_sum(array_column($again->plan_counts_json['tables'], 'block')));
+        $rebackup = app(PhrNativeArchiveBuilder::class)->build(PhrPatient::query()->findOrFail($restored->patient_id));
+        self::assertSame($history, app(EobCorrectionHistory::class)->forEob($restored->refresh()));
+        unlink($archive->path);
+        unlink($rebackup->path);
+    }
+
+    public function test_oversized_local_legacy_json_is_split_before_native_byte_preflight(): void
+    {
+        $claim = $this->claim($this->document());
+        $claim['data']['lines'] = array_map(static fn (int $number): array => ['procedure_code' => '99213',
+            'description' => str_repeat('S', 180), 'total_charges' => '10.00'], range(1, 500));
+        $created = $this->putJson($this->url(), $claim)->assertCreated()->json();
+        $eob = PhrEob::query()->findOrFail($created['data']['id']);
+        $normalized = EobClaim::normalize($claim['data']);
+        $snapshot = [...$normalized['header'], 'lines' => $normalized['lines'], 'source_document_id' => $eob->source_document_id];
+        $legacy = [];
+        for ($number = 1; $number <= 5; $number++) {
+            $legacy[] = ['actor_user_id' => $this->actor->id, 'oauth_client_id' => $this->client->id,
+                'corrected_at' => now()->toIso8601String(), 'previous_version' => 'legacy-version-'.$number,
+                'before' => [...$snapshot, 'provider_name' => 'Before '.$number],
+                'after' => [...$snapshot, 'provider_name' => 'After '.$number]];
+        }
+        $eob->parsed_data = ['corrections' => $legacy];
+        $eob->save();
+        self::assertGreaterThan(config('phr.native_restore_max_record_bytes'), strlen($eob->getRawOriginal('parsed_data')));
+        $version = app(AgentClinicalRecordVersion::class)->for($eob);
+        $archive = app(PhrNativeArchiveBuilder::class)->build($this->patient);
+        self::assertSame(5, $archive->counts['phr_eob_corrections']);
+        self::assertSame(5000, $archive->counts['phr_eob_correction_lines']);
+        self::assertSame($version, app(AgentClinicalRecordVersion::class)->for($eob->refresh()));
+        self::assertSame([], $eob->parsed_data);
+        $history = app(EobCorrectionHistory::class)->forEob($eob);
+        self::assertCount(5, $history);
+        self::assertSame($legacy[4]['before']['lines'], $history[4]['before']['lines']);
+        self::assertSame($legacy[4]['after']['lines'], $history[4]['after']['lines']);
+        unlink($archive->path);
+    }
+
+    public function test_pre_fix_restored_json_never_resolves_embedded_ids_against_local_rows(): void
+    {
+        $created = $this->putJson($this->url(), $this->claim($this->document()))->assertCreated()->json();
+        $eob = PhrEob::query()->findOrFail($created['data']['id']);
+        app(PhrNativeIdentityRepository::class)->forRecord($eob->patient_id, 'phr_eobs', $eob->id);
+        DB::table('phr_native_record_identities')->where('record_table', 'phr_eobs')->where('record_id', $eob->id)->update(['restored_at' => now()]);
+        $snapshot = ['lines' => [], 'source_document_id' => $eob->source_document_id];
+        $eob->parsed_data = ['corrections' => [['actor_user_id' => $this->actor->id, 'oauth_client_id' => $this->client->id,
+            'corrected_at' => now()->toIso8601String(), 'previous_version' => 'source-version', 'before' => $snapshot, 'after' => $snapshot]]];
+        $eob->save();
+        app(EobCorrectionHistory::class)->normalizePatient($eob->patient_id);
+        $entry = app(EobCorrectionHistory::class)->forEob($eob)[0];
+        self::assertSame('unresolved_source_actor', $entry['actor']['kind']);
+        self::assertNull($entry['before']['source_document_id']);
+        self::assertNull($entry['after']['source_document_id']);
+        self::assertSame('unresolved_source_document', $entry['before']['source_document_provenance']['kind']);
+    }
+
+    public function test_unrecognized_legacy_history_rolls_back_instead_of_discarding_entries(): void
+    {
+        $created = $this->putJson($this->url(), $this->claim($this->document()))->assertCreated()->json();
+        $eob = PhrEob::query()->findOrFail($created['data']['id']);
+        $valid = ['actor_user_id' => $this->actor->id, 'oauth_client_id' => $this->client->id,
+            'corrected_at' => now()->toIso8601String(), 'previous_version' => 'source-version', 'before' => ['lines' => []], 'after' => ['lines' => []]];
+        $eob->parsed_data = ['corrections' => [$valid, ['unrecognized_clinical_history' => 'Keep this intact']]];
+        $eob->save();
+        $original = $eob->getRawOriginal('parsed_data');
+        $identities = DB::table('phr_native_record_identities')->count();
+        $service = app(EobCorrectionHistory::class);
+        try {
+            $service->normalizePatient($eob->patient_id);
+            self::fail('Unknown history cannot be silently discarded.');
+        } catch (\LogicException) {
+            self::assertSame($original, $eob->refresh()->getRawOriginal('parsed_data'));
+            self::assertSame(0, DB::table('phr_eob_corrections')->count());
+            self::assertSame($identities, DB::table('phr_native_record_identities')->count());
+        }
+        // Reuse the same service after an explicit repair: identities assigned
+        // in the failed transaction must not survive in a cached mapping.
+        $eob->parsed_data = ['corrections' => [$valid]];
+        $eob->save();
+        $service->normalizePatient($eob->patient_id);
+        $history = $service->forEob($eob);
+        self::assertSame(app(PhrNativeIdentityRepository::class)->existingNativeId($eob->patient_id, 'phr_patients', $eob->patient_id),
+            $history[0]['oauth_client']['source_patient_native_id']);
+    }
+
+    private function historyPreview(string $path, int $actorId): PhrNativeRestoreAttempt
+    {
+        $service = app(PhrNativeRestoreService::class);
+        $attempt = $service->createPreview(new UploadedFile($path, 'synthetic-eob-history.zip', 'application/zip', null, true), $actorId, false);
+
+        return $service->preview($attempt);
     }
 
     // ---- pharmacy lines and the fill link --------------------------------------------------

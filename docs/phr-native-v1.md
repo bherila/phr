@@ -77,6 +77,42 @@ converging on the restored rows.
 
 ## Archives older than a table
 
+EOB corrections are patient-owned immutable history in `phr_eob_corrections` and
+`phr_eob_correction_lines`. Each correction retains its ordered before/after header
+and document relationships, with a separate record for every historical line on each
+side. A header correction does not repeatedly grow the current EOB's exported JSON
+record. These rows count toward the existing record-count and total-byte admission
+limits; individual records retain the existing size bound. Clinical history is never
+truncated to fit an archive.
+This retains the existing history scope of explicit versioned `eobs.update` calls;
+correcting upserts retain their existing write behavior.
+
+Actor attribution is an opaque patient-scoped native principal UUID. It identifies
+a local user only when that patient's durable native identity mapping establishes
+the correspondence; an unknown historical actor remains unresolved and grants no
+access. OAuth client references explicitly identify a **source** client in the source
+patient namespace. They are retained as provenance and never resolve to or authorize
+a destination OAuth client.
+
+Legacy local `parsed_data.corrections` snapshots are moved atomically under the patient
+lock before correction writes or backup byte preflight. Their order, header values and
+complete line snapshots are retained. Known local documents become catalog relationships.
+The monotonic `correction_revision` participates in clinical versions, with a legacy
+history-count projection before backfill: normalization preserves the clinical version
+and timestamps, while actual A → B → A corrections still invalidate the first version.
+No-op and stale requests append no history. Unrecognized legacy history fails closed
+without discarding or partially converting it.
+
+An older v1 archive can contain correction JSON without the two history tables. Its
+original record and stream hashes are verified first; a deterministic compatibility
+projection then splits history into bounded records and charges the expanded count
+and bytes before preview or apply. Embedded user/document integers have no trustworthy
+source-ID registry in that format. They become stable opaque source-scoped references
+marked unresolved, never guesses based on destination row numbers. The same conservative
+policy applies to legacy JSON already copied by an older restore. Known local histories
+retain their attributable actor UUIDs and remappable document relationships. A second
+preview of the old archive compares against the same normalized projection.
+
 Schema version 1 stays 1 when a table is added. The reader requires the manifest's
 table set to equal the catalog, except that a table generation added after v1 shipped
 (`PhrNativeTableCompatibility::LATER_GENERATIONS`: today `ehi_tables`, the six EHI

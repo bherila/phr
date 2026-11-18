@@ -291,6 +291,18 @@ final class PhrNativeBackupCatalog
                     'granted_by_user_id' => self::actor(true),
                 ],
             ],
+            'phr_eob_corrections' => [
+                'patient_column' => 'patient_id',
+                'relationships' => [
+                    'eob_id' => self::record('phr_eobs', false),
+                    'before_document_id' => self::record('phr_documents', true),
+                    'after_document_id' => self::record('phr_documents', true),
+                ],
+            ],
+            'phr_eob_correction_lines' => [
+                'patient_column' => 'patient_id',
+                'relationships' => ['correction_id' => self::record('phr_eob_corrections', false)],
+            ],
         ];
     }
 

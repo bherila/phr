@@ -5,6 +5,7 @@ namespace App\Services\PHR\NativeBackup;
 use App\Models\PhrDicomFile;
 use App\Models\PhrDocument;
 use App\Models\PhrPatient;
+use App\Services\PHR\Eob\EobCorrectionHistory;
 use Illuminate\Support\Facades\Storage;
 use ZipStream\CompressionMethod;
 use ZipStream\ZipStream;
@@ -20,6 +21,7 @@ final class PhrNativeArchiveBuilder
     public function build(PhrPatient $patient): NativeBackupBuildResult
     {
         $patientId = (int) $patient->id;
+        app(EobCorrectionHistory::class)->normalizePatient($patientId);
         $maxBytes = (int) config('phr.native_backup_max_uncompressed_bytes', 20 * 1024 * 1024 * 1024);
         /** @var array<string, array{stream: resource, count: int, size: int}> $records */
         $records = [];

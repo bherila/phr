@@ -98,7 +98,38 @@ final class PhrNativeRestoreArchiveReader
         }
         $zip->close();
 
-        return new PhrNativeRestoreArchive($localPath, $manifest, $fileSize, $sha256, $maxRecordBytes);
+        $archive = new PhrNativeRestoreArchive($localPath, $manifest, $fileSize, $sha256, $maxRecordBytes);
+        if (! isset($manifest['tables']['phr_eob_corrections'])) {
+            // Physical hashes and declarations above remain authoritative. The
+            // deterministic compatibility projection can add bounded historical
+            // rows, so admit its actual count/bytes before preview or apply.
+            $budget = new NativeResourceBudget(true);
+            $ids = [];
+            $actors = [];
+            foreach (PhrNativeBackupCatalog::included() as $table => $definition) {
+                foreach ($archive->records($table) as $record) {
+                    // Physical record key order was checked above. Generated
+                    // compatibility records use the codec's insertion order.
+                    ksort($record);
+                    $this->validateRecord($table, $definition, $record);
+                    $budget->charge(strlen(PhrNativeRecordCodec::canonicalJson($record)."\n"));
+                    if (isset($ids[$record['nativeId']]) || isset($actors[$record['nativeId']])) {
+                        throw new NativeRestoreException('invalid_archive');
+                    }
+                    $ids[$record['nativeId']] = true;
+                    foreach ($record['relationships'] as $relationship) {
+                        if (($relationship['kind'] ?? null) === 'actor') {
+                            if (isset($ids[$relationship['nativeId']])) {
+                                throw new NativeRestoreException('invalid_archive');
+                            }
+                            $actors[$relationship['nativeId']] = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return $archive;
     }
 
     /** @param array<string, mixed> $manifest */

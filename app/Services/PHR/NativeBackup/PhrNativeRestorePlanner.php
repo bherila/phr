@@ -22,6 +22,8 @@ final class PhrNativeRestorePlanner
      * @var array<string, list<list<string>>>
      */
     private const array UNIQUE_KEYS = [
+        'phr_eob_corrections' => [['eob_id', 'ordinal']],
+        'phr_eob_correction_lines' => [['correction_id', 'side', 'position']],
         'phr_ehi_sources' => [['patient_id', 'label']],
         'phr_ehi_packages' => [['patient_id', 'manifest_digest']],
         'phr_ehi_blobs' => [['patient_id', 'sha256']],
