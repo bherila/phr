@@ -34,9 +34,15 @@ final class EhiNewProposalWriterTest extends TestCase
     public function test_reads_actual_nonconsecutive_ids_and_preserves_casts_defaults_and_revision_order(): void
     {
         [$patientId, $packageId, $revisions] = $this->fixture();
-        // Trigger-created rows force gaps; reversed reads prohibit positional ID mapping.
-        DB::unprepared("CREATE TRIGGER synthetic_proposal_gaps AFTER INSERT ON phr_ehi_proposals WHEN NEW.mapping != 'synthetic-gap' BEGIN INSERT INTO phr_ehi_proposals (patient_id, package_id, mapping, mapping_version, subject_key, revision_digest, kind, preview_digest) VALUES (NEW.patient_id, NEW.package_id, 'synthetic-gap', NEW.mapping_version, NEW.subject_key, NEW.revision_digest, NEW.kind, NEW.preview_digest); END");
-        DB::statement('PRAGMA reverse_unordered_selects = ON');
+        if (DB::connection()->getDriverName() === 'sqlite') {
+            // Trigger-created rows force gaps; reversed reads prohibit positional ID mapping.
+            DB::unprepared("CREATE TRIGGER synthetic_proposal_gaps AFTER INSERT ON phr_ehi_proposals WHEN NEW.mapping != 'synthetic-gap' BEGIN INSERT INTO phr_ehi_proposals (patient_id, package_id, mapping, mapping_version, subject_key, revision_digest, kind, preview_digest) VALUES (NEW.patient_id, NEW.package_id, 'synthetic-gap', NEW.mapping_version, NEW.subject_key, NEW.revision_digest, NEW.kind, NEW.preview_digest); END");
+            DB::statement('PRAGMA reverse_unordered_selects = ON');
+        } else {
+            // PostgreSQL sequences can likewise generate nonconsecutive IDs.
+            // ALTER SEQUENCE rolls back with the test's enclosing transaction.
+            DB::statement('ALTER SEQUENCE phr_ehi_proposals_id_seq INCREMENT BY 2');
+        }
         $rows = [$this->row('a', array_reverse($revisions)), $this->row('b', [$revisions[0]])];
         DB::transaction(fn () => (new EhiNewProposalWriter)->insert($patientId, $packageId, 9, $rows));
         $proposals = PhrEhiProposal::query()->where('mapping', 'synthetic-writer')->orderBy('id')->get();
@@ -167,7 +173,14 @@ final class EhiNewProposalWriterTest extends TestCase
         $measuring = false;
         self::assertCount(2, $inserts);
         self::assertSame($inserts[0], $inserts[1]);
-        self::assertSame(['short', 'short with space '], PhrEhiProposal::query()->orderBy('id')->pluck('subject_key')->all());
+        $subjects = PhrEhiProposal::query()->orderBy('id')->pluck('subject_key')->all();
+        if (DB::connection()->getDriverName() === 'pgsql') {
+            // PostgreSQL CHAR pads short keys; creation must still succeed via
+            // actual generated IDs rather than a keyed batch readback.
+            self::assertSame(['short', 'short with space'], array_map('rtrim', $subjects));
+        } else {
+            self::assertSame(['short', 'short with space '], $subjects);
+        }
     }
 
     public function test_model_observers_retain_per_row_create_and_dependency_order(): void
