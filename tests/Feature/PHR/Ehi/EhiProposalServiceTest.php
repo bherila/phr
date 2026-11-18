@@ -284,6 +284,8 @@ class EhiProposalServiceTest extends TestCase
         $service->preview($package, $patient, $owner->id);
         $first = $this->proposalFor($package, '100', '1');
         $second = $this->proposalFor($package, '100', '2');
+        $third = $this->proposalFor($package, '0100', '1');
+        $thirdIds = PhrEhiProposalRevision::idsFor($third);
         $expected = PhrEhiProposalRevision::idsFor($first);
         $reads = 0;
         DB::listen(static function (QueryExecuted $event) use (&$reads): void {
@@ -301,6 +303,11 @@ class EhiProposalServiceTest extends TestCase
         self::assertSame(4, $reads, 'The reused service must reread revisions for the next decision.');
         self::assertSame(1, PhrImmunization::count());
         self::assertSame(PhrEhiProposal::STATUS_PENDING, $second->fresh()->status);
+        PhrEhiOccurrence::where('package_id', $package->id)->whereIn('revision_id', $thirdIds)->update(['disposition' => PhrEhiOccurrence::DISPOSITION_QUARANTINED]);
+        $this->assertRefused(EhiReviewRefused::STALE_SOURCE, fn () => $service->review($third, PhrEhiProposal::DECISION_ACCEPT, $owner->id, $third->preview_digest));
+        self::assertSame(6, $reads);
+        self::assertSame(1, PhrImmunization::count());
+        self::assertSame(PhrEhiProposal::STATUS_PENDING, $third->fresh()->status);
     }
 
     public function test_a_proposal_whose_evidence_is_no_longer_projected_is_refused(): void

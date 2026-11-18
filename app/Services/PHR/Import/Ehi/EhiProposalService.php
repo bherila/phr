@@ -495,18 +495,23 @@ final class EhiProposalService
         $digests = [];
         $occurring = 0;
         foreach (array_chunk($ids, self::CHUNK) as $chunk) {
-            $found = PhrEhiRevision::query()->where('patient_id', $proposal->patient_id)->whereIn('id', $chunk)->pluck('content_digest');
+            // One bounded source read verifies both content and eligibility.
+            // EXISTS counts a revision once even if several eligible occurrences
+            // project it; quarantined/other-package occurrences never qualify it.
+            $eligible = PhrEhiOccurrence::query()->selectRaw('1')
+                ->whereColumn('phr_ehi_occurrences.revision_id', 'phr_ehi_revisions.id')
+                ->where('package_id', $proposal->package_id)
+                ->where('disposition', '!=', PhrEhiOccurrence::DISPOSITION_QUARANTINED)
+                ->limit(1);
+            $found = PhrEhiRevision::query()->where('patient_id', $proposal->patient_id)->whereIn('id', $chunk)
+                ->select(['id', 'content_digest'])->selectSub($eligible, 'eligible_occurrence')->get();
             if ($found->count() !== count($chunk)) {
                 throw new EhiReviewRefused(EhiReviewRefused::STALE_SOURCE, 'the source evidence changed since the preview');
             }
-            array_push($digests, ...$found->all());
-            // Evidence is only what this package still projects: a revision whose
-            // occurrences were withdrawn (its table stopped matching the mapping)
-            // or quarantined no longer supports the proposal.
-            $occurring += PhrEhiOccurrence::query()->where('package_id', $proposal->package_id)
-                ->whereIn('revision_id', $chunk)
-                ->where('disposition', '!=', PhrEhiOccurrence::DISPOSITION_QUARANTINED)
-                ->distinct()->count('revision_id');
+            foreach ($found as $revision) {
+                $digests[] = $revision->content_digest;
+                $occurring += $revision->getAttribute('eligible_occurrence') === null ? 0 : 1;
+            }
         }
         if ($ids === [] || ! hash_equals($proposal->revision_digest, $this->revisionDigest($digests))) {
             throw new EhiReviewRefused(EhiReviewRefused::STALE_SOURCE, 'the source evidence changed since the preview');
