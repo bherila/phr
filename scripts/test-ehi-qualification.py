@@ -129,6 +129,90 @@ class QualificationTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "runtime limits differ"):
                 runpy.run_path(runner, run_name="__main__")
 
+    def test_inspection_timeout_retains_completed_archive_and_immutable_runtime_checkpoint(self):
+        observer_spec = importlib.util.spec_from_file_location("observer", Path(__file__).with_name("observe-phr-resources.py"))
+        observer = importlib.util.module_from_spec(observer_spec)
+        observer_spec.loader.exec_module(observer)
+        class Running:
+            pid = 999999999
+            def poll(self): return None
+            def wait(self): return -9
+        runtime = {"candidate": "a" * 40, "php_version": "8.5.12", "database_driver": "mysql",
+                   "database_version": "10.11", "composer_lock_sha256": "b" * 64, "php_memory_limit": "1G",
+                   "limits": {"rows": 100, "bytes": 1000, "seconds": 240, "native_records": 200, "native_stream_bytes": 2000}}
+        archive = {"archive_records": 150, "archive_bytes": 900, "record_stream_bytes": 1500, "download_completed": True}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            progress = runtime | {"runtime_provenance": copy.deepcopy(runtime), "completed_archive": archive,
+                "stages": {"download": {"queries": 4, "peak_php_bytes": 1000}}}
+            (root / "qualification-progress.json").write_text(json.dumps(progress))
+            active = root / "qualification-active.json"
+            active.write_text(json.dumps({"stage": "inspection", "seconds": 0, "queries": 0, "peak_php_bytes": 2000}))
+            os.utime(active, (95, 95))
+            with patch.object(observer.subprocess, "Popen", return_value=Running()), patch.object(observer.time, "monotonic", side_effect=[0, 301, 301.1]), patch.object(observer.time, "time", return_value=100), patch.object(observer.os, "killpg"):
+                observed = observer.observe(["--qualification=synthetic", "--dir=" + directory], timeout_seconds=300)
+        self.assertEqual("inspection", observed["refused_stage"])
+        self.assertEqual(5, observed["active_stage_metrics"]["snapshot_age_seconds"])
+        self.assertTrue(observed["active_stage_metrics"]["metrics_incomplete"])
+        self.assertEqual(runtime, observed["runtime_provenance"])
+        self.assertEqual(archive, observed["completed_archive"])
+        self.assertNotIn("lifecycle", observed)
+        result = self.completed() | observed
+        result["lifecycle"] = {}
+        result["declaration"]["expectation"] = "experimental"
+        module.validate(result)
+        self.assertFalse(result["qualification_met"])
+        self.assertEqual(150, result["capacity_observation"]["native"]["archive_records"])
+        self.assertEqual(500, result["capacity_observation"]["native"]["stream_byte_margin"])
+        self.assertFalse(result["capacity_observation"]["native"]["round_trip_verified"])
+
+    def test_backup_checkpoint_keeps_unknown_stream_size_unknown_and_never_infers_from_rows(self):
+        result = self.completed()
+        result.update({"status": "timeout", "lifecycle": {}, "limits": {"rows": 100, "bytes": 1000,
+            "native_records": 200, "native_stream_bytes": 2000}, "completed_archive": {
+            "archive_records": 150, "archive_bytes": 900, "record_stream_bytes": None, "download_completed": False}})
+        result["declaration"]["expectation"] = "experimental"
+        module.validate(result)
+        self.assertFalse(result["qualification_met"])
+        self.assertIsNone(result["capacity_observation"]["native"]["record_stream_bytes"])
+        self.assertIsNone(result["capacity_observation"]["native"]["stream_byte_margin"])
+        self.assertEqual(50, result["capacity_observation"]["native"]["record_margin"])
+        del result["completed_archive"]
+        result["stages"] = {"backup": {"durable": {"rows": 150, "bytes": 1500}}}
+        module.validate(result)
+        self.assertIsNone(result["capacity_observation"]["native"])
+
+    def test_runner_timeout_distinguishes_declared_limits_from_runtime_and_preserves_native_boundary(self):
+        class Running:
+            pid = 999999999
+            def poll(self): return None
+            def wait(self): return -9
+        runner = str(Path(__file__).with_name("run-ehi-qualification.py"))
+        limits = {"rows": 10000, "bytes": 8388608, "seconds": 240,
+                  "native_records": 20000, "native_stream_bytes": 33554432}
+        for boundary in (None, 373):
+            for runtime_known in (False, True):
+                if boundary is not None and not runtime_known:
+                    continue
+                with self.subTest(boundary=boundary, runtime_known=runtime_known), tempfile.TemporaryDirectory() as directory:
+                    checkpoint = {"stages": {}}
+                    if runtime_known:
+                        checkpoint |= {"limits": dict(limits), "runtime_provenance": {"limits": dict(limits)}}
+                    if boundary is not None:
+                        checkpoint["limits"]["native_records"] = boundary
+                        checkpoint["boundary_native_records"] = boundary
+                    (Path(directory) / "qualification-progress.json").write_text(json.dumps(checkpoint))
+                    with patch.dict(os.environ), patch("sys.argv", [runner, "native-exact", directory]), patch("subprocess.Popen", return_value=Running()), patch("time.monotonic", side_effect=[0, 301, 301.1]), patch("os.killpg"), contextlib.redirect_stdout(io.StringIO()) as output:
+                        runpy.run_path(runner, run_name="__main__")
+                    result = json.loads(output.getvalue())
+                    self.assertEqual("timeout", result["status"])
+                    self.assertEqual(300, result["operation_ceiling_seconds"])
+                    self.assertEqual(240, result["limits"]["seconds"])
+                    self.assertEqual("runtime_configuration_checkpoint" if runtime_known else "declared_process_environment", result["limits_source"])
+                    self.assertEqual(boundary or limits["native_records"], result["limits"]["native_records"])
+                    if runtime_known:
+                        self.assertEqual(limits, result["runtime_provenance"]["limits"])
+
     def test_runner_preserves_the_existing_lowered_native_boundary(self):
         class Finished:
             returncode = 0

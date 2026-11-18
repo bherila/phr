@@ -34,6 +34,7 @@ final class EhiCapacityQualification
         if (isset($profile['artifact_limit'])) {
             config(['phr.native_max_artifacts' => $profile['artifact_limit']]);
         }
+        $metrics->startQualification();
         $result = ['status' => 'completed', 'round_trip_verified' => false];
         try {
             [$owner, $patient] = $metrics->stage('seed', function () use ($profile): array {
@@ -151,11 +152,7 @@ final class EhiCapacityQualification
             'queries' => array_sum(array_column($metrics->stages, 'queries')),
             'max_bindings' => max([0, ...array_column($metrics->stages, 'max_bindings')]),
             'peak_php_bytes' => max([memory_get_peak_usage(true), ...array_column($metrics->stages, 'peak_php_bytes')]),
-            'lifecycle' => $result, 'replay' => $events, 'stages' => $metrics->stages,
-            'php_version' => PHP_VERSION, 'database_driver' => DB::connection()->getDriverName(), 'database_version' => DB::connection()->getServerVersion(),
-            'composer_lock_sha256' => hash_file('sha256', dirname(__DIR__, 2).'/composer.lock'),
-            'limits' => ['rows' => config('phr.ehi_preview_max_rows'), 'bytes' => config('phr.ehi_preview_max_bytes'), 'seconds' => config('phr.ehi_preview_max_seconds'),
-                'native_records' => config('phr.native_max_records'), 'native_stream_bytes' => config('phr.native_max_record_stream_bytes')]];
+            'lifecycle' => $result, 'replay' => $events, 'stages' => $metrics->stages] + $metrics->checkpoints();
     }
 
     private function intake(string $path, PhrPatient $patient, int $actor): PhrEhiPackage

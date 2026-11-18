@@ -15,6 +15,7 @@ use App\Services\PHR\Import\Ehi\EhiProposalService;
 use App\Services\PHR\NativeBackup\NativeBackupException;
 use App\Services\PHR\NativeBackup\NativeRestoreException;
 use App\Services\PHR\NativeBackup\PhrNativeArchiveBuilder;
+use App\Services\PHR\NativeBackup\PhrNativeBackupCatalog;
 use App\Services\PHR\NativeBackup\PhrNativeBackupService;
 use App\Services\PHR\NativeBackup\PhrNativeRestoreArchiveReader;
 use App\Services\PHR\NativeBackup\PhrNativeRestorePlanner;
@@ -87,13 +88,19 @@ final class EhiCapacityLifecycle
                 $count = $metrics->durable((int) $patient->id)['rows'];
                 config(['phr.native_max_records' => $count - ($options['native_boundary'] === 'over' ? 1 : 0)]);
                 $result['boundary_native_records'] = config('phr.native_max_records');
+                $metrics->nativeBoundary($result['boundary_native_records']);
             }
-            $backup = $stage('backup', function () use ($patient, $actor): PhrNativeBackup {
+            $backup = $stage('backup', function () use ($patient, $actor, $metrics): PhrNativeBackup {
                 $service = app(PhrNativeBackupService::class);
+                $backup = $service->generate($service->createQueuedBackup($patient, $actor));
+                if ($backup->status !== PhrNativeBackup::STATUS_READY || ! is_array($backup->counts_json) || ! is_int($backup->file_size_bytes)) {
+                    throw new RuntimeException('Synthetic completed backup metadata missing.');
+                }
+                $metrics->completedArchive(array_sum($backup->counts_json), $backup->file_size_bytes);
 
-                return $service->generate($service->createQueuedBackup($patient, $actor));
+                return $backup;
             });
-            $download = $stage('download', function () use ($backup, $options): string {
+            $download = $stage('download', function () use ($backup, $options, $metrics): string {
                 $path = isset($options['directory']) ? $options['directory'].'/independent-recovery.zip' : tempnam(sys_get_temp_dir(), 'phr-capacity-download-');
                 $source = Storage::disk($backup->storage_disk)->readStream($backup->storage_path);
                 $target = fopen($path, 'wb');
@@ -109,12 +116,35 @@ final class EhiCapacityLifecycle
                 if (! hash_equals($backup->archive_sha256, hash_file('sha256', $path))) {
                     throw new RuntimeException('Synthetic independent download differs.');
                 }
+                // Read only the completed ZIP directory, not source values or durable-row estimates.
+                $zip = new ZipArchive;
+                if ($zip->open($path, ZipArchive::RDONLY) !== true) {
+                    throw new RuntimeException('Synthetic downloaded archive cannot be inspected.');
+                }
+                try {
+                    $recordStreamBytes = 0;
+                    foreach (array_keys(PhrNativeBackupCatalog::included()) as $table) {
+                        $entry = $zip->statName('records/'.$table.'.ndjson');
+                        if ($entry === false) {
+                            throw new RuntimeException('Synthetic downloaded record stream missing.');
+                        }
+                        $recordStreamBytes += $entry['size'];
+                    }
+                    $metrics->completedDownload($recordStreamBytes);
+                } finally {
+                    $zip->close();
+                }
 
                 return $path;
             });
-            $inspectionPath = tempnam(sys_get_temp_dir(), 'phr-capacity-inspect-');
-            copy($download, $inspectionPath);
-            $inspected = app(PhrNativeRestoreArchiveReader::class)->openLocal($inspectionPath);
+            $inspected = $stage('inspection', function () use ($download, &$inspectionPath) {
+                $inspectionPath = tempnam(sys_get_temp_dir(), 'phr-capacity-inspect-');
+                if (! copy($download, $inspectionPath)) {
+                    throw new RuntimeException('Synthetic inspection copy failed.');
+                }
+
+                return app(PhrNativeRestoreArchiveReader::class)->openLocal($inspectionPath);
+            });
             $result['archive_records'] = array_sum($backup->counts_json);
             $result['archive_bytes'] = $backup->file_size_bytes;
             $fingerprint = $stage('fingerprint_before', fn () => $this->fingerprint($download, $inspected->manifest));

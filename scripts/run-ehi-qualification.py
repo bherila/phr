@@ -24,13 +24,20 @@ result.setdefault("declaration", profile)
 if "limits" in result:
     comparable = dict(result["limits"])
     if profile.get("native_boundary") in {"exact", "over"}:
-        boundary = result.get("lifecycle", {}).get("boundary_native_records")
-        if not isinstance(boundary, int) or not 0 < boundary <= limits["native_records"] or comparable["native_records"] != boundary:
-            raise ValueError("Measured native boundary did not preserve its lowered fixture cap")
-        comparable["native_records"] = limits["native_records"]
+        boundary = result.get("lifecycle", {}).get("boundary_native_records", result.get("boundary_native_records"))
+        if boundary is None and result["status"] == "timeout":
+            # A timeout before backup has not lowered the native cap yet.
+            if comparable["native_records"] != limits["native_records"]:
+                raise ValueError("Measured native boundary did not preserve its lowered fixture cap")
+        else:
+            if not isinstance(boundary, int) or not 0 < boundary <= limits["native_records"] or comparable["native_records"] != boundary:
+                raise ValueError("Measured native boundary did not preserve its lowered fixture cap")
+            comparable["native_records"] = limits["native_records"]
     if comparable != limits:
         raise ValueError("Measured runtime limits differ from the declared synthetic envelope")
 result.setdefault("limits", limits)
-result["limits_source"] = "declared_process_environment" if result["status"] == "timeout" else "runtime_configuration"
+result["limits_source"] = "runtime_configuration"
+if result["status"] == "timeout":
+    result["limits_source"] = "runtime_configuration_checkpoint" if result.get("runtime_provenance") else "declared_process_environment"
 result["operation_ceiling_seconds"] = 300
 print(json.dumps(result))

@@ -8,11 +8,14 @@ use App\Models\User;
 use App\Services\PHR\Import\Ehi\EhiBindingService;
 use App\Services\PHR\Import\Ehi\EhiProposalService;
 use App\Services\PHR\Import\Ehi\Mapping\EhiLabResultMapping;
+use App\Services\PHR\NativeBackup\PhrNativeRestoreArchiveReader;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 use Tests\Support\EhiCapacityLifecycle;
+use Tests\Support\EhiCapacityMetrics;
 use Tests\Support\EhiCapacityOracle;
 use Tests\Support\EhiClinicalPackage;
 use Tests\Support\EhiIntakeFixtures;
@@ -31,6 +34,25 @@ final class EhiLabCapacityFixtureTest extends TestCase
         config(['phr.native_restore_chunk_bytes' => 16384]);
         Storage::fake('phr_exports');
         Storage::fake('phr_dicom');
+        $directory = sys_get_temp_dir().'/phr-capacity-checkpoints-'.bin2hex(random_bytes(8));
+        mkdir($directory, 0700);
+        $inspectionObserved = false;
+        $this->app->bind(PhrNativeRestoreArchiveReader::class, function () use ($directory, &$inspectionObserved): PhrNativeRestoreArchiveReader {
+            if (! $inspectionObserved) {
+                $progress = json_decode(file_get_contents($directory.'/qualification-progress.json'), true, flags: JSON_THROW_ON_ERROR);
+                $active = json_decode(file_get_contents($directory.'/qualification-active.json'), true, flags: JSON_THROW_ON_ERROR);
+                self::assertSame('inspection', $active['stage']);
+                self::assertArrayNotHasKey('inspection', $progress['stages']);
+                self::assertGreaterThan(0, $progress['completed_archive']['archive_records']);
+                self::assertGreaterThan(0, $progress['completed_archive']['archive_bytes']);
+                self::assertGreaterThan(0, $progress['completed_archive']['record_stream_bytes']);
+                self::assertTrue($progress['completed_archive']['download_completed']);
+                self::assertArrayNotHasKey('lifecycle', $progress);
+                $inspectionObserved = true;
+            }
+
+            return new PhrNativeRestoreArchiveReader;
+        });
         try {
             $owner = User::factory()->create(['user_role' => 'user']);
             $patient = $this->ehiPatient($owner);
@@ -42,13 +64,21 @@ final class EhiLabCapacityFixtureTest extends TestCase
             self::assertNotEmpty($preview->counts['document']);
             self::assertNotEmpty($preview->counts['immunization']);
             self::assertSame(11, PhrEhiProposal::query()->where('package_id', $package->id)->where('mapping', EhiLabResultMapping::NAME)->count());
-            $lifecycle = (new EhiCapacityLifecycle)->run($patient, (int) $owner->id, 0);
+            $metrics = new EhiCapacityMetrics($directory);
+            $lifecycle = (new EhiCapacityLifecycle)->run($patient, (int) $owner->id, 0, ['metrics' => $metrics]);
             self::assertSame('completed', $lifecycle['status']);
             self::assertTrue($lifecycle['round_trip_verified']);
             self::assertTrue($lifecycle['cleanup_verified']);
             self::assertTrue($lifecycle['independent_download_verified']);
             self::assertTrue($lifecycle['access_semantics_verified']);
             self::assertGreaterThan(0, $lifecycle['record_stream_bytes']);
+            self::assertArrayHasKey('inspection', $lifecycle['stages']);
+            $archive = $metrics->checkpoints()['completed_archive'];
+            self::assertSame($lifecycle['archive_records'], $archive['archive_records']);
+            self::assertSame($lifecycle['archive_bytes'], $archive['archive_bytes']);
+            self::assertSame($lifecycle['record_stream_bytes'], $archive['record_stream_bytes']);
+            self::assertTrue($archive['download_completed']);
+            self::assertTrue($inspectionObserved);
             self::assertSame(1, $lifecycle['review_state']['phr_lab_results']);
             self::assertSame(2, $lifecycle['review_state']['phr_ehi_proposal_decisions']);
 
@@ -60,6 +90,7 @@ final class EhiLabCapacityFixtureTest extends TestCase
             self::assertSame(2, $lifecycle['stages']['rebackup']['durable']['tables']['phr_ehi_proposal_decisions']['rows']);
             self::assertSame(1, $lifecycle['stages']['rebackup']['durable']['tables']['phr_patients']['rows']);
         } finally {
+            File::deleteDirectory($directory);
             $this->tearDownEhi();
         }
     }
