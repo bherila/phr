@@ -17,6 +17,7 @@ use App\Services\PHR\Import\EobPdfTextExtractor;
 use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\PHR\PhrReviewStatus;
+use BWH\Auth\OAuth\Session\ProviderIdentityEnforcement;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
@@ -1233,6 +1234,10 @@ EOB;
     {
         $count = function (): int {
             $this->actingAs($this->actor);
+            // Each production request starts with a fresh application, so it reads the provider
+            // identity cutover once. The test application would answer later requests from its
+            // memo, so start every measured request the way production does.
+            app(ProviderIdentityEnforcement::class)->forget();
             DB::enableQueryLog();
             DB::flushQueryLog();
             $this->getJson("/api/phr/patients/{$this->patient->id}/review")->assertOk();

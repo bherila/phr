@@ -66,4 +66,9 @@ if ! grep -Fq 'production' <<<"${app_environment,,}"; then
     exit 1
 fi
 
+# The same provider identity cutover check as the candidate's, now on the configuration cached
+# from this stable path, while the release is still in maintenance: a disagreement here fails the
+# deployment, which rolls back instead of serving it. Passes while no cutover is recorded.
+"$php_bin" -d memory_limit=1G artisan bherila-auth:provider-identity-cutover check --no-ansi
+
 echo 'The real stable PHR directory contains the selected candidate and its managed persistent state.'

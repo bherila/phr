@@ -62,6 +62,35 @@ class AtomicDeploymentWorkflowTest extends TestCase
         $this->assertStringNotContainsString('Create or verify persistent agent mutation digest key', $workflow);
     }
 
+    /**
+     * Once the provider identity cutover is recorded, enforcement stays on whatever the setting
+     * says. A release whose configuration disagrees is stopped before selection (the candidate
+     * hook) and again on the stable path's cached configuration while it is still in maintenance
+     * (the post-activation hook), where a failure rolls the deployment back instead of serving it.
+     */
+    public function test_both_release_gates_run_the_provider_identity_cutover_check(): void
+    {
+        $check = 'artisan bherila-auth:provider-identity-cutover check --no-ansi';
+        foreach (['verify-phr-candidate.sh', 'verify-phr-activation.sh'] as $hook) {
+            $script = file_get_contents(base_path(".github/scripts/{$hook}"));
+            $this->assertIsString($script);
+            $this->assertStringContainsString("\nset -euo pipefail\n", $script, "{$hook} must stop on the first failing gate.");
+            $this->assertSame(1, substr_count($script, $check), "{$hook} must run the cutover check exactly once.");
+            $this->assertStringNotContainsString($check.' ||', $script, "{$hook} must not swallow a failed cutover check.");
+        }
+
+        $candidate = (string) file_get_contents(base_path('.github/scripts/verify-phr-candidate.sh'));
+        $this->assertLessThan(strpos($candidate, "echo 'PHR candidate schedule"), strpos($candidate, $check), 'The candidate is reported valid only after the check passes.');
+
+        $activation = (string) file_get_contents(base_path('.github/scripts/verify-phr-activation.sh'));
+        $this->assertLessThan(strpos($activation, $check), strpos($activation, 'artisan env --no-ansi'), 'The check reads the selected release, once it boots in production.');
+
+        $workflow = $this->workflow('ci.yml');
+        $this->assertStringContainsString('failure-policy: rollback', $workflow);
+        $this->assertStringContainsString('post-deploy-script: .github/scripts/verify-phr-candidate.sh', $workflow);
+        $this->assertStringContainsString('post-activate-script: .github/scripts/verify-phr-activation.sh', $workflow);
+    }
+
     public function test_production_writers_gate_sources_and_publish_exact_artifact_identities(): void
     {
         $ci = $this->workflow('ci.yml');

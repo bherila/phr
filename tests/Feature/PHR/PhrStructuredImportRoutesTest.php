@@ -8,6 +8,7 @@ use App\Models\PhrPatient;
 use App\Models\PhrPatientUserAccess;
 use App\Models\User;
 use App\Support\PHR\PhrReviewStatus;
+use BWH\Auth\OAuth\Session\ProviderIdentityEnforcement;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Events\TransactionBeginning;
 use Illuminate\Http\UploadedFile;
@@ -110,6 +111,10 @@ class PhrStructuredImportRoutesTest extends TestCase
         // SQLite drops FOR UPDATE, so observe the guard's locked patient read: the
         // first transaction the import opens reads the patient row before the
         // record is written. (Access checks read it too, but outside it.)
+        // With the enforcement setting off, a request first reads the provider identity
+        // cutover under a savepoint of the test transaction. Read it now, so the first
+        // transaction observed below is the import's own.
+        app(ProviderIdentityEnforcement::class)->enabled();
         $events = [];
         Event::listen(TransactionBeginning::class, function () use (&$events): void {
             $events[] = 'begin';
