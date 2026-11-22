@@ -16,6 +16,36 @@ sending patient files somewhere nobody chose.
 Disk names never change, so `storage_disk` and path columns need no rewrite when a move
 happens. Only the driver behind each name changes.
 
+## Which choice an installation is using
+
+Ask the running application. Settings and column names don't answer it:
+
+- With `PHR_STORAGE` unset, each disk's own setting decides, and the code default for
+  `phr_dicom` is `s3`. An installation keeps DICOM locally only because
+  `PHR_DICOM_DISK_DRIVER=local` is set. Remove that line and the next DICOM upload goes to
+  the bucket in `PHR_DICOM_R2_*`.
+- `PHR_DICOM_R2_*` values can be present while nothing reads them: they matter only when
+  `phr_dicom` uses `s3` with `PHR_STORAGE` unset.
+- `phr_dicom_files.r2_key` holds a DICOM file's key on `phr_dicom` under either driver. On
+  local disk it is a path under `storage/app/private/phr-dicom`; on a bucket it is the
+  object key under `phr-dicom/`. The column is named after the store PHR supported first,
+  and both stores use it.
+
+Run this on the host (with the PHP binary the application uses):
+
+```sh
+php artisan tinker --execute='foreach (["phr_documents","phr_dicom","phr_exports","phr_uploads","phr_upload_spool","s3"] as $d) { echo $d, " ", config("filesystems.disks.$d.driver"), PHP_EOL; } echo "upload transport ", app(App\Services\PHR\DICOM\DicomUploadProcessor::class)->transport(), PHP_EOL;'
+```
+
+Every disk printing `local`, with upload transport `post`, means files are on the host's
+disk. To confirm one file, look up its key column (see `PhrStorageMap`) and check that the
+file exists under the disk's root with the recorded size and `sha256`. `env()` can't answer
+this, because it returns nothing once the configuration is cached.
+
+An installation whose disks are all local through per-disk settings can set
+`PHR_STORAGE=local` to record that choice in one place. Before setting it, check that no
+`*_DISK_ROOT` points somewhere unexpected; nothing moves.
+
 ## The layout: a move is a copy
 
 A file's path under its local directory is its object key under the prefix of the same

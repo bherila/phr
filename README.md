@@ -84,7 +84,10 @@ reviewed, and exported. Larger artifacts are stored through Laravel Flysystem:
 Each installation keeps them all on local disk or on one S3-compatible bucket, chosen by
 `PHR_STORAGE`. Left unset, every disk keeps the setting it has always had. Switching gives
 up host backups of the files unless something replaces them, and moving is a manual copy:
-see [Where PHR keeps files](docs/storage.md).
+see [Where PHR keeps files](docs/storage.md). To find out which store a running
+installation uses, ask the application
+([Which choice an installation is using](docs/storage.md#which-choice-an-installation-is-using)).
+Neither the settings that happen to be present nor the `r2_key` column name tells you.
 
 Database records retain the storage reference and provenance. Clinical records can
 link back to source documents, EOB evidence, and related imaging rather than copying
@@ -105,6 +108,22 @@ import, the `phr:import:*` commands) writes unlinked rows. A row keeps the docum
 was first linked to: a later import, including one that adopts an earlier load's row,
 fills a missing link or source but never moves or clears one, and filling one alone is
 not a change, so it neither reopens review nor counts as an update.
+
+Imaging enters through the DICOM upload. It takes one session per study folder,
+sends each file separately, and skips instances the patient already has. On the
+Imports page it accepts:
+
+- a folder chosen with "Choose DICOM folder", or dropped on the drop zone;
+- `.dcm`, `.dicom` or `DICOMDIR` files, chosen or dropped;
+- a ZIP of them, as imaging portals and PACS downloads provide. The browser unpacks it
+  and uploads its members under the ZIP's name.
+
+A ZIP goes to the DICOM upload only when it names DICOM members and holds nothing else
+except names DICOM media uses and imaging-CD debris (viewers, `autorun.inf`, a `.txt`
+report). Viewer files and reports are skipped. Epic EHI exports (`.tsv` tables) and
+MyChart packages (IHE XDM) can carry `.dcm` media, so they stay on the export intake.
+Agents use the `dicom_uploads` tools for small instances and the multipart REST endpoint
+for larger ones.
 
 Long-running document processing, exports, backup/restore operations, and cleanup use
 Laravel queues. Idempotency and source identities allow supported imports and API
