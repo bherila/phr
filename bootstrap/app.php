@@ -38,7 +38,8 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         // Ends a browser session whose identity ended at the identity provider.
-        // A no-op until BHERILA_AUTH_PROVIDER_IDENTITY_ENABLED; bearer requests
+        // A no-op until BHERILA_AUTH_PROVIDER_IDENTITY_ENABLED or a recorded
+        // provider identity cutover turns enforcement on; bearer requests
         // carry no session user and are checked by the token repositories.
         $middleware->web(append: [AuthenticateBrowserSession::class, RequireActiveProviderSession::class]);
 

@@ -127,4 +127,10 @@ if [[ -z "$retry_after" || "$retry_after" -le 3600 ]]; then
 fi
 
 "$php_bin" -d "memory_limit=$memory_limit" artisan phr:agent-api:verify-oauth-keys --no-ansi >/dev/null
-echo 'PHR candidate schedule, queue, OAuth, memory, and mutation digest invariants are valid.'
+
+# Once the provider identity cutover is recorded, enforcement stays on whatever the setting says.
+# Stop a candidate whose configuration disagrees (setting off, or the provider client incomplete)
+# before it is selected, instead of serving a release that answers every protected request 503.
+# The migrations have already run, so the cutover table exists; passes while nothing is recorded.
+"$php_bin" -d "memory_limit=$memory_limit" artisan bherila-auth:provider-identity-cutover check --no-ansi
+echo 'PHR candidate schedule, queue, OAuth, provider identity, memory, and mutation digest invariants are valid.'

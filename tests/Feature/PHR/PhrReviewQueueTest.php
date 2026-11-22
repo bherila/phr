@@ -20,6 +20,7 @@ use App\Services\PHR\Import\Ehi\EhiProposalService;
 use App\Services\PHR\Import\Ehi\Mapping\EhiDocumentMapping;
 use App\Services\PHR\Import\Ehi\Mapping\EhiImmunizationMapping;
 use App\Support\PHR\PhrReviewStatus;
+use BWH\Auth\OAuth\Session\ProviderIdentityEnforcement;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -210,8 +211,10 @@ class PhrReviewQueueTest extends TestCase
         $many = $this->queriesFor(fn () => $this->actingAs($owner)->getJson($this->url($patient))->assertOk()->assertJsonPath('summary.total', 21));
 
         self::assertSame($few, $many, 'listing more pending items must not issue more queries');
-        self::assertLessThanOrEqual(26, $many);
-        self::assertLessThanOrEqual(8, $this->queriesFor(fn () => $this->actingAs($owner)->getJson($this->url($patient).'/summary')->assertOk()));
+        // Each budget includes the provider identity cutover row, read once per request while the
+        // enforcement setting is off: a constant read, never one per item.
+        self::assertLessThanOrEqual(27, $many);
+        self::assertLessThanOrEqual(9, $this->queriesFor(fn () => $this->actingAs($owner)->getJson($this->url($patient).'/summary')->assertOk()));
     }
 
     public function test_the_patient_overview_counts_every_readable_patient_and_lists_what_needs_attention(): void
@@ -303,6 +306,10 @@ class PhrReviewQueueTest extends TestCase
 
     private function queriesFor(callable $request): int
     {
+        // Each production request starts with a fresh application, so it reads the provider
+        // identity cutover once. The test application lives across requests and would answer
+        // later ones from its memo, so start every measured request the way production does.
+        app(ProviderIdentityEnforcement::class)->forget();
         $count = 0;
         DB::listen(function () use (&$count): void {
             $count++;

@@ -328,7 +328,7 @@ registration endpoints, discovery documents) derives from `APP_URL`.
 | `PASSPORT_PRIVATE_KEY`, `PASSPORT_PUBLIC_KEY` | Token signing keys. When unset they are read from `storage/app/private/oauth`; never commit them. |
 | `BHERILA_AUTH_TRUSTED_PROXIES`, `TRUSTED_PROXIES` | Whose `X-Forwarded-For`/`-Proto` to believe (default: on, `cloudflare`). Use a comma-separated list for another proxy, `*` only when a firewall admits nothing but the proxy, or empty with no proxy in front. Per-client rate limits key on the resulting address. |
 | `AGENT_API_MCP_ALLOWED_ORIGINS`, `AGENT_API_MCP_ALLOWED_HOSTS` | Browser origins and `Host` values the MCP endpoint accepts. |
-| `BHERILA_AUTH_PROVIDER_IDENTITY_ENABLED`, `BHERILA_AUTH_PROVIDER_IDENTITY_CACHE_STORE` | Provider identity enforcement, off by default: when on, a browser session or OAuth credential whose identity was disabled, deleted, reset or ungranted at the identity provider is refused. Sign-in records each session's baseline even while it is off, so enable it only after people have signed in again on such a release; credentials issued before that re-authorize once. Needs the provider's identity-status endpoint and a lock-capable cache store shared by every web worker (default: `CACHE_STORE`). |
+| `BHERILA_AUTH_PROVIDER_IDENTITY_ENABLED`, `BHERILA_AUTH_PROVIDER_IDENTITY_CACHE_STORE` | Provider identity enforcement, off by default: when on, a browser session or OAuth credential whose identity was disabled, deleted, reset or ungranted at the identity provider is refused. Sign-in records each session's baseline even while it is off, so enable it only after people have signed in again on such a release; credentials issued before that re-authorize once. Needs the provider's identity-status endpoint and a lock-capable cache store shared by every web worker (default: `CACHE_STORE`). Once verified, record the cutover so it stays on: see [Lock provider identity enforcement](#lock-provider-identity-enforcement). |
 | `OPENFDA_API_KEY` | Optional openFDA key for NDC lookups of prescription fills (without one, openFDA allows 1,000 requests a day). Package answers are cached; only drug descriptors are sent, never patient data. `OPENFDA_TIMEOUT_SECONDS` (default 5) bounds each call. |
 | `OAUTH_SERVER_CORS_ALLOWED_ORIGINS` | Browser origins (comma-separated, or `*`) given CORS on OAuth discovery, registration and the token endpoint, for browser-based agents. Empty by default: no CORS headers. Independent of the MCP endpoint's own origin check above. |
 
@@ -340,6 +340,36 @@ one) and MCP at `APP_URL/api/v1/mcp` (`mcp:use` plus the module scopes its tools
 require). A credential issued for one is refused at the other, and every 401 names the
 metadata of the route's own resource. Edge configuration
 (proxy and CDN rules) is deployment-specific and not part of this repository.
+
+### Lock provider identity enforcement
+
+Once enforcement is on and verified in production (an account the provider disables
+loses its session and its tokens here), record the cutover once on the production host:
+
+```bash
+php artisan bherila-auth:provider-identity-cutover record
+```
+
+From then on enforcement stays on even if `BHERILA_AUTH_PROVIDER_IDENTITY_ENABLED` is
+false, so a configuration rollback or a stale `.env` cannot quietly turn it off. The
+record lives in the database (`provider_identity_cutover`), not in configuration.
+`record` refuses unless the setting is on and the identity-provider client is
+configured; running it again keeps the first record. `status`, the default action,
+shows the setting, the record and whether enforcement is on.
+
+Every production release runs `bherila-auth:provider-identity-cutover check` twice: on
+the candidate before it is selected (`.github/scripts/verify-phr-candidate.sh`), and on
+the selected release's cached configuration while it is still in maintenance
+(`.github/scripts/verify-phr-activation.sh`). A release whose setting is off or whose
+provider client is incomplete fails there and is rolled back instead of answering every
+protected request 503. The check passes while no cutover is recorded.
+
+`withdraw` is the only way back, for leaving the identity provider on purpose, never for
+an outage: an unavailable provider already answers a retryable 503 and keeps sessions.
+Give PHR another way to sign people in and end access first, then run `withdraw` (it
+asks for confirmation), then turn the setting off and deploy. Restoring the database
+from a backup taken before the cutover removes the record with it: run `record` again
+after such a restore. See auth-laravel's `docs/provider-identity-cutover.md`.
 
 ### Connect a finance app
 

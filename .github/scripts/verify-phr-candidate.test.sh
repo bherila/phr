@@ -47,6 +47,10 @@ case "${2:-}" in
         printf 'queue-audit driver=database retry_after=%s pending_total=0 failed_total=0\n' "${PHR_TEST_RETRY_AFTER:-3660}"
         ;;
     phr:agent-api:verify-oauth-keys) ;;
+    bherila-auth:provider-identity-cutover)
+        [[ "${3:-}" == check ]] || exit 2
+        exit "${PHR_TEST_CUTOVER_CHECK_STATUS:-0}"
+        ;;
     *) exit 2 ;;
 esac
 SCRIPT
@@ -69,6 +73,13 @@ if "$verifier" "$candidate_path" "$fake_php" "$stable_path" >/dev/null 2>&1; the
     exit 1
 fi
 printf 'APP_KEY=synthetic-app-key\nAGENT_API_MUTATION_DIGEST_KEY=%s\n' "$digest" >"$stable_root/.env"
+
+export PHR_TEST_CUTOVER_CHECK_STATUS=1
+if "$verifier" "$candidate_path" "$fake_php" "$stable_path" >/dev/null 2>&1; then
+    echo 'Expected a configuration that disagrees with the recorded provider identity cutover to fail.' >&2
+    exit 1
+fi
+unset PHR_TEST_CUTOVER_CHECK_STATUS
 
 export PHR_TEST_RETRY_AFTER=3600
 if "$verifier" "$candidate_path" "$fake_php" "$stable_path" >/dev/null 2>&1; then

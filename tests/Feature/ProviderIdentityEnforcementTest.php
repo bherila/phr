@@ -5,12 +5,14 @@ namespace Tests\Feature;
 use App\Models\User;
 use App\Support\AgentApi\AgentApiScopes;
 use BWH\Auth\OAuth\Server\ProviderIdentityTokens;
+use BWH\Auth\OAuth\Session\ProviderIdentityEnforcement;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request as HttpRequest;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Testing\TestResponse;
 use Laravel\Passport\AuthCode;
 use Laravel\Passport\Client;
@@ -23,7 +25,9 @@ use Tests\TestCase;
  * BHERILA_AUTH_PROVIDER_IDENTITY_ENABLED. Off (the default), sign-in, browser
  * sessions and OAuth credentials behave exactly as before, apart from the
  * baseline being recorded. On, a session or credential whose identity ended at
- * the provider is refused.
+ * the provider is refused. Once the cutover is recorded
+ * (`bherila-auth:provider-identity-cutover record`), enforcement stays on even if
+ * the setting is later off.
  */
 class ProviderIdentityEnforcementTest extends TestCase
 {
@@ -231,6 +235,68 @@ class ProviderIdentityEnforcementTest extends TestCase
             'client_id' => $client->id,
             'refresh_token' => $issued['refresh_token'],
         ])->assertBadRequest();
+    }
+
+    /**
+     * Once PHR records its cutover, turning the setting off ends neither check: an
+     * identity the provider ended loses its browser session and its bearer credentials.
+     */
+    public function test_a_recorded_cutover_keeps_sessions_and_bearer_credentials_enforced_with_the_setting_off(): void
+    {
+        $this->enableEnforcement();
+        $this->signIn()->assertRedirect('/');
+        $user = User::query()->where('oauth_subject', self::SUBJECT)->sole();
+        $client = $this->client();
+        $issued = $this->authorizeAndExchange($user, $client, signedIn: true);
+        $this->artisan('bherila-auth:provider-identity-cutover', ['action' => 'record'])->assertSuccessful();
+
+        config(['bherila-auth.provider_identity.enabled' => false]);
+        $this->assertTrue(app(ProviderIdentityEnforcement::class)->enabled());
+        $this->assertTrue(ProviderIdentityTokens::enabled(), 'Bearer credentials are held to the same lock.');
+        Auth::forgetGuards();
+        $this->withToken($issued['access_token'])->getJson('/api/v1/me')->assertOk();
+        $this->withoutToken();
+        Auth::forgetGuards();
+
+        // Disabled at the provider, and past both the shared observation's freshness and
+        // the enforcement memo: the next requests read the recorded cutover again.
+        $this->statusGeneration = null;
+        Cache::flush();
+        $this->travel(301)->seconds();
+        $this->get('/phr/patients')->assertRedirect(route('login'));
+        $this->assertGuest();
+
+        Auth::forgetGuards();
+        $this->withToken($issued['access_token'])->getJson('/api/v1/me')->assertUnauthorized();
+        $this->postJson('/oauth/token', [
+            'grant_type' => 'refresh_token',
+            'client_id' => $client->id,
+            'refresh_token' => $issued['refresh_token'],
+        ])->assertBadRequest();
+    }
+
+    /** The deploy check: passes until a cutover is recorded, then fails whenever the configuration disagrees. */
+    public function test_the_cutover_check_fails_when_the_configuration_disagrees_with_a_recorded_cutover(): void
+    {
+        $this->assertTrue(Schema::hasTable(ProviderIdentityEnforcement::TABLE));
+        $this->artisan('bherila-auth:provider-identity-cutover', ['action' => 'check'])->assertSuccessful();
+
+        $this->enableEnforcement();
+        $this->artisan('bherila-auth:provider-identity-cutover', ['action' => 'record'])->assertSuccessful();
+        $this->artisan('bherila-auth:provider-identity-cutover', ['action' => 'check'])->assertSuccessful();
+
+        config(['bherila-auth.provider_identity.enabled' => false]);
+        $this->artisan('bherila-auth:provider-identity-cutover', ['action' => 'check'])->assertFailed();
+
+        $this->enableEnforcement();
+        Config::set('bherila-auth.oauth_client.client_secret', '');
+        $this->artisan('bherila-auth:provider-identity-cutover', ['action' => 'check'])->assertFailed();
+
+        // Withdrawing hands enforcement back to the setting, and the check passes again.
+        config(['bherila-auth.provider_identity.enabled' => false]);
+        $this->artisan('bherila-auth:provider-identity-cutover', ['action' => 'withdraw', '--force' => true])->assertSuccessful();
+        $this->assertFalse(app(ProviderIdentityEnforcement::class)->enabled());
+        $this->artisan('bherila-auth:provider-identity-cutover', ['action' => 'check'])->assertSuccessful();
     }
 
     private function enableEnforcement(): void

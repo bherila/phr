@@ -64,7 +64,9 @@ return [
     // whose identity was disabled, deleted, reset or ungranted at the identity
     // provider. Off until BHERILA_AUTH_PROVIDER_IDENTITY_ENABLED=true; while
     // off, sign-in still records each session's baseline and credentials carry
-    // it, so enabling enforcement later retires only what predates that.
+    // it, so enabling enforcement later retires only what predates that. Once
+    // `bherila-auth:provider-identity-cutover record` has run, enforcement stays
+    // on whatever `enabled` says (see README).
     'provider_identity' => [
         'enabled' => (bool) env('BHERILA_AUTH_PROVIDER_IDENTITY_ENABLED', false),
         // A store every web worker shares and that supports locks (database,
