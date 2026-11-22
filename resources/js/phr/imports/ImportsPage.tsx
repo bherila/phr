@@ -9,6 +9,9 @@ import { formatBytes } from '@/lib/utils'
 import { usePhrPatients } from '@/phr/patients/usePhrPatients'
 import { errorMessage, readPatientIdFromQuery } from '@/phr/shared'
 import { useDicomUploads } from '@/phr/uploads'
+import { relativeFilePath } from '@/phr/uploads/dicomUpload'
+import { extractDicomZip, isDicomFileName, isDicomZip, readZipEntries, type ZipEntry, ZipReadError } from '@/phr/uploads/dicomZip'
+import { droppedFiles } from '@/phr/uploads/droppedFiles'
 
 import { AiImportReview } from './ai/AiImportReview'
 import { type AiImport, aiImportStatus, canKeepAsDocument, DOCUMENT_MAX_BYTES, keepAsDocument, listAiImports, retryAiImport, sendDocumentToAi } from './ai/aiImportsApi'
@@ -52,9 +55,24 @@ type FileKind = 'export' | 'structured' | 'other'
  * server decides what a file really is from its content, and refuses a wrong guess.
  */
 function fileKind(file: File): FileKind {
-  if (/\.zip$/i.test(file.name) || /zip/i.test(file.type)) return 'export'
+  if (isZip(file)) return 'export'
   if (/\.(xml|json|ccd|ccda|cda)$/i.test(file.name) || /(xml|json)/i.test(file.type)) return 'structured'
   return 'other'
+}
+
+function isZip(file: File): boolean {
+  return /\.zip$/i.test(file.name) || /zip/i.test(file.type)
+}
+
+/** A ZIP's directory when it is a ZIP of DICOM; null for anything else, including a file that is not a ZIP. */
+async function dicomZipEntries(file: File): Promise<ZipEntry[] | null> {
+  try {
+    const entries = await readZipEntries(file)
+    return isDicomZip(entries) ? entries : null
+  } catch {
+    // Not readable as a ZIP here: the EHI intake decides what it is and says so.
+    return null
+  }
 }
 
 const STRUCTURED_TITLES: Record<StructuredImport['format'], string> = {
@@ -206,6 +224,7 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
   // sends it again instead of storing a second copy.
   const [kept, setKept] = useState<{ file: File, documentId: number } | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [unpacking, setUnpacking] = useState<string | null>(null)
   const executionMode = useExecutionMode()
   const { startUpload } = useDicomUploads()
 
@@ -297,10 +316,53 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
     setView({ kind: 'check', file })
   }
 
+  /**
+   * Where chosen or dropped files go. DICOM, a dropped folder, or a ZIP of DICOM goes to the
+   * per-file DICOM upload, as the folder picker does; anything else is one file to check.
+   */
+  async function chooseFiles(files: File[], hadDirectory = false): Promise<void> {
+    const first = files[0]
+    if (!first) return
+    if (hadDirectory || files.some((file) => isDicomFileName(relativeFilePath(file)))) {
+      startDicomUpload(files)
+      return
+    }
+    if (files.length > 1) {
+      setError('Choose one file at a time. For imaging, choose the DICOM folder or its ZIP.')
+      return
+    }
+    if (isZip(first)) {
+      const entries = await dicomZipEntries(first)
+      if (entries !== null) {
+        await startDicomZipUpload(first, entries)
+        return
+      }
+    }
+    chooseFile(first)
+  }
+
+  async function startDicomZipUpload(zip: File, entries: ZipEntry[]): Promise<void> {
+    setError(null)
+    setUnpacking(zip.name)
+    try {
+      startDicomUpload(await extractDicomZip(zip, entries))
+    } catch (caught) {
+      setError(caught instanceof ZipReadError
+        ? `${zip.name} could not be unpacked: ${caught.message}`
+        : `${zip.name} could not be unpacked. ${errorMessage(caught)}`)
+    } finally {
+      setUnpacking(null)
+    }
+  }
+
   function onDrop(event: DragEvent<HTMLDivElement>): void {
     event.preventDefault()
     setDragging(false)
-    chooseFile(event.dataTransfer.files[0])
+    // droppedFiles takes what it needs from the DataTransfer synchronously, before the
+    // browser empties it.
+    void droppedFiles(event.dataTransfer)
+      .then(({ files, hadDirectory }) => chooseFiles(files, hadDirectory))
+      .catch((caught: unknown) => setError(errorMessage(caught)))
   }
 
   /** Keep a file as a document and, optionally, send it to AI: the Documents tab's two requests. */
@@ -369,6 +431,10 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
       input.value = ''
     }
 
+    startDicomUpload(chosen)
+  }
+
+  function startDicomUpload(chosen: File[]): void {
     if (selectedPatientId === undefined || !canUpload) {
       setError('Choose a patient to import into first.')
       return
@@ -440,9 +506,12 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
         type="file"
         className="hidden"
         aria-label="File to import"
+        multiple
         onChange={(event) => {
-          chooseFile(event.target.files?.[0])
+          // Snapshot first: clearing the value empties the input's live FileList.
+          const chosen = event.target.files ? Array.from(event.target.files) : []
           event.target.value = ''
+          void chooseFiles(chosen)
         }}
       />
       <input
@@ -477,14 +546,15 @@ export default function ImportsPage({ patientId }: ImportsPageProps): ReactEleme
               <UploadCloud className="size-8 text-primary" aria-hidden="true" />
               <p className="font-medium text-foreground">Drop a file here</p>
               <p className="max-w-md text-sm text-muted-foreground">
-                A C-CDA or FHIR file, a MyChart or Epic EHI export ZIP, or a PDF or photo for AI. PHR checks what it is and shows you before anything is imported.
+                A C-CDA or FHIR file, a MyChart or Epic EHI export ZIP, a PDF or photo for AI, or DICOM imaging: .dcm files, a folder, or a ZIP of them. PHR checks what it is and shows you before anything is imported.
               </p>
-              <Button type="button" disabled={!canUpload} onClick={() => fileInputRef.current?.click()}>Choose file</Button>
+              {unpacking !== null && <p role="status" className="text-sm text-muted-foreground">Unpacking {unpacking}…</p>}
+              <Button type="button" disabled={!canUpload || unpacking !== null} onClick={() => fileInputRef.current?.click()}>Choose file</Button>
             </div>
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
               <div className="text-sm">
                 <p className="font-medium text-foreground">Imaging CD or export folder?</p>
-                <p className="text-muted-foreground">DICOM needs the whole folder, so it has its own picker. Non-image files are ignored.</p>
+                <p className="text-muted-foreground">Pick the whole folder here, or drop it, its ZIP, or its .dcm files above. Non-image files are ignored.</p>
               </div>
               <Button type="button" variant="outline" disabled={!canUpload} onClick={() => folderInputRef.current?.click()}>
                 <FolderOpen className="size-4" aria-hidden="true" />

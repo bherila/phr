@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { strToU8, zipSync } from 'fflate'
 import type { ReactElement } from 'react'
 
 import { makeEhiPackage, makeEhiProposal, makeEhiUpload } from '@/phr/imports/ehi/__tests__/ehiFixtures'
@@ -73,6 +74,29 @@ function folderInput(): HTMLInputElement {
 
 function chooseImportFile(file: File): void {
   fireEvent.change(screen.getByLabelText('File to import'), { target: { files: [file] } })
+}
+
+/** A Part 10 instance: 128-byte preamble, then `DICM`. */
+function dicomBytes(): Uint8Array {
+  const bytes = new Uint8Array(400)
+  bytes.set(strToU8('DICM'), 128)
+  return bytes
+}
+
+function zipOf(name: string, members: Record<string, Uint8Array>): File {
+  return new File([zipSync(members) as BlobPart], name, { type: 'application/zip' })
+}
+
+/** Runs a DICOM upload test against the XHR double and stops its transfers afterwards. */
+async function withUploadXhr(run: () => Promise<void>): Promise<void> {
+  const restoreXhr = MockUploadXMLHttpRequest.install()
+  MockUploadXMLHttpRequest.autoComplete = false
+  try {
+    await run()
+  } finally {
+    restoreXhr()
+    MockUploadXMLHttpRequest.instances.forEach((instance) => instance.abort())
+  }
 }
 
 const afterTestCleanup: (() => void)[] = []
@@ -222,6 +246,78 @@ describe('ImportsPage', () => {
     }
   })
 
+  it('uploads a ZIP of DICOM files as imaging, named after the ZIP, not as a records export', async () => {
+    await withUploadXhr(async () => {
+      renderImports(PATIENT_ID)
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Choose file' })).toBeEnabled())
+
+      chooseImportFile(zipOf('Doe_Jane_00000000(2).zip', { '0.dcm': dicomBytes(), '1.dcm': dicomBytes() }))
+
+      await waitFor(() => expect(mockPost).toHaveBeenCalledWith(
+        `/api/phr/patients/${PATIENT_ID}/dicom/uploads`,
+        { root_name: 'Doe_Jane_00000000(2)' },
+      ))
+      expect(mockPost).not.toHaveBeenCalledWith(`/api/phr/patients/${PATIENT_ID}/ehi/uploads`, expect.anything())
+      expect(screen.queryByRole('heading', { name: 'MyChart or Epic EHI export' })).not.toBeInTheDocument()
+    })
+  })
+
+  it('keeps an EHI export ZIP that carries DICOM media on the export check', async () => {
+    renderImports(PATIENT_ID)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Choose file' })).toBeEnabled())
+
+    chooseImportFile(zipOf('ehi.zip', { 'PATIENT.tsv': strToU8('PAT_ID\n1\n'), 'media/0001.dcm': dicomBytes() }))
+
+    expect(await screen.findByRole('heading', { name: 'MyChart or Epic EHI export' })).toBeInTheDocument()
+    expect(mockPost).not.toHaveBeenCalled()
+  })
+
+  it('sends chosen .dcm files to the DICOM upload instead of keeping them as documents', async () => {
+    await withUploadXhr(async () => {
+      renderImports(PATIENT_ID)
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Choose file' })).toBeEnabled())
+
+      fireEvent.change(screen.getByLabelText('File to import'), {
+        target: { files: [new File([dicomBytes() as BlobPart], '0.dcm'), new File([dicomBytes() as BlobPart], '1.dcm')] },
+      })
+
+      await waitFor(() => expect(mockPost).toHaveBeenCalledWith(`/api/phr/patients/${PATIENT_ID}/dicom/uploads`, {}))
+      expect(screen.queryByRole('heading', { name: /PHR can’t import this file/ })).not.toBeInTheDocument()
+    })
+  })
+
+  it('walks a dropped folder and uploads it as DICOM under the folder’s name', async () => {
+    await withUploadXhr(async () => {
+      renderImports(PATIENT_ID)
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Choose file' })).toBeEnabled())
+
+      const instance = new File([dicomBytes() as BlobPart], 'IM0001')
+      const fileEntry = { isFile: true, isDirectory: false, name: 'IM0001', fullPath: '/XR_CHEST/IM0001', file: (done: (file: File) => void) => done(instance) }
+      let read = false
+      const folder = {
+        isFile: false,
+        isDirectory: true,
+        name: 'XR_CHEST',
+        fullPath: '/XR_CHEST',
+        createReader: () => ({
+          readEntries: (done: (entries: unknown[]) => void) => {
+            done(read ? [] : [fileEntry])
+            read = true
+          },
+        }),
+      }
+
+      fireEvent.drop(screen.getByText('Drop a file here').parentElement as HTMLElement, {
+        dataTransfer: { files: [], items: [{ kind: 'file', webkitGetAsEntry: () => folder }] },
+      })
+
+      await waitFor(() => expect(mockPost).toHaveBeenCalledWith(
+        `/api/phr/patients/${PATIENT_ID}/dicom/uploads`,
+        { root_name: 'XR_CHEST' },
+      ))
+    })
+  })
+
   it('refuses a file it cannot keep, and says what it can import', async () => {
     renderImports(PATIENT_ID)
     await waitFor(() => expect(screen.getByRole('button', { name: 'Choose file' })).toBeEnabled())
@@ -341,7 +437,7 @@ describe('ImportsPage', () => {
 
     chooseImportFile(new File(['PK\u0003\u0004xx'], 'ehi-export.zip', { type: 'application/zip' }))
 
-    expect(screen.getByRole('heading', { name: 'MyChart or Epic EHI export' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'MyChart or Epic EHI export' })).toBeInTheDocument()
     const start = screen.getByRole('button', { name: 'Start import' })
     expect(start).toBeDisabled()
     fireEvent.click(screen.getByLabelText('This file belongs to Primary'))
