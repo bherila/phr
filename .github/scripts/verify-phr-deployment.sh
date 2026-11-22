@@ -224,6 +224,14 @@ viewer_location=$(header_value location)
     echo 'OHIF viewer did not preserve its exact login redirect.' >&2; exit 1;
 }
 
+# The viewer's bundle files are served by the web server straight from the
+# managed shared tree, before Laravel is reached. If the web server cannot
+# traverse that tree, the entrypoint above still passes (PHP serves it) while
+# every script falls through to Laravel's HTML 404 and the viewer never loads.
+request ohif-asset "$site_url/ohif/app-config.js" --proto '=https' --max-redirs 0
+[[ "$RESPONSE_STATUS" == 200 ]] || { echo "OHIF static asset returned HTTP ${RESPONSE_STATUS}, expected 200." >&2; exit 1; }
+assert_asset_content_type ohif/app-config.js js
+
 request metadata "$site_url/.well-known/oauth-protected-resource/api/v1"
 [[ "$RESPONSE_STATUS" == 200 ]] || { echo "Protected-resource metadata returned HTTP ${RESPONSE_STATUS}." >&2; exit 1; }
 # shellcheck disable=SC2016 # The PHP program is intentionally a literal string.

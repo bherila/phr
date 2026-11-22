@@ -71,6 +71,10 @@ case "$url" in
         content_type="${PHR_TEST_VIEWER_CONTENT_TYPE:-text/html; charset=UTF-8}"
         payload='synthetic-secret response body'
         ;;
+    */ohif/app-config.js)
+        status="${PHR_TEST_OHIF_ASSET_STATUS:-200}"
+        content_type="${PHR_TEST_OHIF_ASSET_CONTENT_TYPE:-text/javascript}"
+        ;;
     */.well-known/oauth-protected-resource/api/v1/mcp)
         payload='{"resource":"https://phr.example.test/api/v1/mcp","authorization_servers":["https://phr.example.test"],"scopes_supported":["mcp:use","genai:read","genai:work"]}'
         [[ -z "${PHR_TEST_MCP_METADATA:-}" ]] || payload="$PHR_TEST_MCP_METADATA"
@@ -358,6 +362,14 @@ expect_http_failure 'transport failure' \
 expect_http_failure 'strict redirect' \
     'check=ohif status=302 curl_exit=0' \
     PHR_TEST_VIEWER_LOCATION='https://private.invalid/?token=synthetic-secret'
+# PHP serves the viewer entrypoint, but the web server serves bundle files
+# itself; an untraversable bundle tree surfaces as Laravel's HTML 404.
+expect_http_failure 'unreachable OHIF bundle' \
+    'check=ohif-asset status=404 curl_exit=0 content_type=text/html' \
+    PHR_TEST_OHIF_ASSET_STATUS=404 PHR_TEST_OHIF_ASSET_CONTENT_TYPE='text/html; charset=UTF-8'
+if PHR_TEST_OHIF_ASSET_CONTENT_TYPE='text/html; charset=UTF-8' "$verifier" >/dev/null 2>&1; then
+    echo 'An OHIF bundle file served as HTML was accepted.' >&2; exit 1
+fi
 # Successful HTTP followed by a host proof failure must not report an HTTP failure.
 host_output="$(PHR_TEST_ARTIFACT_FAILURE=true "$verifier" 2>&1)" && host_status=0 || host_status=$?
 [[ "$host_status" != 0 && "$host_output" != *'PHR HTTP verification failed:'* ]] || {

@@ -24,7 +24,40 @@ fake_php="$test_root/php"
 printf '%s\n' '#!/usr/bin/env bash' 'printf "Current application environment: production\\n"' >"$fake_php"
 chmod +x "$fake_php"
 
+mode() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
+
+# Start from the layout the deployment action creates: 0700 control directories
+# and a world-readable storage tree that the web server never serves.
+chmod 700 "$HOME/.deployments" "$HOME/.deployments/phr-laravel" "$shared_root" "$shared_root/public"
+chmod 755 "$shared_root/storage" "$shared_root/public/ohif"
+
 "$verifier" phr-laravel "$fake_php" phr-laravel >/dev/null
+
+for directory in "$HOME/.deployments" "$HOME/.deployments/phr-laravel" "$shared_root" "$shared_root/public"; do
+    [[ "$(mode "$directory")" == 711 ]] || {
+        echo "Expected the web server to be able to traverse ${directory#"$HOME"/}." >&2; exit 1;
+    }
+done
+[[ "$(mode "$shared_root/storage")" == 700 ]] || {
+    echo 'Expected shared storage to be private once its parent is traversable.' >&2; exit 1;
+}
+[[ "$(mode "$shared_root/public/ohif")" == 755 ]] || {
+    echo 'Expected the OHIF bundle directory mode to be left alone.' >&2; exit 1;
+}
+
+# A symlinked control directory would let chmod re-permission its target.
+mv "$shared_root/public" "$test_root/public-elsewhere"
+ln -s "$test_root/public-elsewhere" "$shared_root/public"
+chmod 700 "$test_root/public-elsewhere"
+if "$verifier" phr-laravel "$fake_php" phr-laravel >/dev/null 2>&1; then
+    echo 'Expected a symlinked shared public directory to fail activation verification.' >&2
+    exit 1
+fi
+[[ "$(mode "$test_root/public-elsewhere")" == 700 ]] || {
+    echo 'A symlinked shared public directory was re-permissioned.' >&2; exit 1;
+}
+rm "$shared_root/public"
+mv "$test_root/public-elsewhere" "$shared_root/public"
 
 rm "$stable_root/public/ohif"
 mkdir "$stable_root/public/ohif"
