@@ -3,6 +3,9 @@
 Instructions for AI coding agents working in this repo. `README.md` is the primary
 reference for architecture, local setup, and available validation commands.
 
+This is the repo's only agent instruction file. Claude Code and Codex both read it
+directly, so don't add a `CLAUDE.md` (removed in #371).
+
 ## Validation workflow
 
 - Run heavy validation in CI: full PHPStan, full Pint, full test suites, and
@@ -110,6 +113,12 @@ in both `PhrStorageMap` and `PhrStorageVerifier::sources()`. Browser uploads hav
 transports, chosen by `PHR_STORAGE` alone, and `tests/e2e/phr-direct-uploads.spec.ts` reaches
 both. Anything talking to the store about uploads goes through `UploadUrlSigner`.
 
+Which store an installation uses is a fact about that deployment. Check it with the command in
+`docs/storage.md` ("Which choice an installation is using"). Never infer it from
+`PHR_STORAGE` being unset, from `PHR_DICOM_R2_*` values being present, or from the
+`r2_key` column name. Both stores are supported; one is just not in use on a given
+installation.
+
 ## Frontend rules
 
 - Inline image previews must gate on a browser-decodable allowlist — use
@@ -117,6 +126,9 @@ both. Anything talking to the store about uploads goes through `UploadUrlSigner`
   (png/jpeg/gif/webp/avif/apng/bmp/svg), never `mime_type.startsWith('image/')`.
   HEIC/HEIF/TIFF documents render as a broken `<img>` in non-Safari browsers; types
   outside the allowlist must fall back to the download / open-file prompt instead.
+- The Imports page routes a ZIP to the DICOM upload only through `isDicomZip`
+  (`resources/js/phr/uploads/dicomZip.ts`). Don't route by "contains a `.dcm`":
+  Epic EHI and MyChart exports can carry DICOM media and belong to the export intake.
 
 ## PR review
 
