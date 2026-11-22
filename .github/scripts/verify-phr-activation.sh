@@ -59,6 +59,25 @@ for persistent_path in storage public/ohif; do
     fi
 done
 
+# The web server serves public/ohif's static files as its own user, not as the
+# account PHP runs as, so it must be able to traverse the managed tree that the
+# public/ohif symlink points into. The deployment action creates each control
+# directory 0700 and never re-permissions an existing one, and the production
+# host has no ACL tooling. Without this, PHP still serves the viewer's
+# index.html but every bundle file falls through to Laravel's HTML 404.
+# Grant search but not listing on exactly that chain. Make storage private
+# first: it sits under the same shared directory, holds world-readable logs,
+# sessions and DICOM files, and is never served by the web server.
+readonly control_root="$HOME/.deployments/$stable_path"
+for directory in "$shared_root/storage" "$HOME/.deployments" "$control_root" "$shared_root" "$shared_root/public"; do
+    if [[ ! -d "$directory" || -L "$directory" ]]; then
+        echo 'A managed deployment directory is not a real directory.' >&2
+        exit 1
+    fi
+done
+chmod 700 "$shared_root/storage"
+chmod 711 "$HOME/.deployments" "$control_root" "$shared_root" "$shared_root/public"
+
 cd "$stable_root"
 app_environment="$("$php_bin" -d memory_limit=1G artisan env --no-ansi)"
 if ! grep -Fq 'production' <<<"${app_environment,,}"; then
