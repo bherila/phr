@@ -317,7 +317,7 @@ final class PhrCcdaEncounterActivities extends PhrCcdaSectionReader
 
         return [
             ...$role,
-            'external_id' => $this->memberId($entity),
+            'external_id' => $this->participantIdentifier($entity),
             'name' => $name,
             'credentials' => $credentials,
             'specialty' => $this->conceptText($this->xml->child($entity, 'specialty')) ?? $this->xml->codeName($this->xml->child($entity, 'code')),
@@ -327,7 +327,7 @@ final class PhrCcdaEncounterActivities extends PhrCcdaSectionReader
     }
 
     /** The assigned entity's first id that names someone, as `root^extension`. */
-    private function memberId(?DOMElement $entity): ?string
+    private function participantIdentifier(?DOMElement $entity): ?string
     {
         foreach ($this->xml->children($entity, 'id') as $id) {
             $root = $this->xml->attribute($id, 'root');
