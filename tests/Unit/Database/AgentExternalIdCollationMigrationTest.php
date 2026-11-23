@@ -84,6 +84,7 @@ final class AgentExternalIdCollationMigrationTest extends TestCase
         return [
             require database_path('migrations/2026_11_01_000000_create_phr_medication_fills_table.php'),
             require database_path('migrations/2026_11_23_200000_create_phr_episodes.php'),
+            require database_path('migrations/2026_11_23_200000_create_phr_medication_transitions_table.php'),
         ];
     }
 

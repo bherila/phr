@@ -93,6 +93,16 @@ groups visits under them; it follows both `phr_episodes` and `phr_office_visits`
 catalog order and is unique on the pair. Together they are the `episodes` generation,
 after `document_relations`: an archive written before them restores with no episodes.
 
+## Medication transitions
+
+`phr_medication_transitions` (#414) records what happened to a home medication during a
+stay. It follows `phr_office_visits`, `phr_medications` and the encounter link tables in
+catalog order; its relationships are the visit (required) and the home medication and
+the order (each nullable, as the action requires), all records of the same patient. It is
+the `medication_transitions` generation, after `episodes`: an archive written
+before it restores the stay and its medications with no transitions. The table is new,
+so no relationship of an existing table is added (`TABLE_RELATIONSHIPS` is unchanged).
+
 ## Archives older than a table
 
 A document's addendum or amendment link (#409) is a row of `phr_document_relations`,
@@ -157,8 +167,8 @@ table set to equal the catalog, except that a table generation added after v1 sh
 (`PhrNativeTableCompatibility::LATER_GENERATIONS`: today `ehi_tables`, the six EHI
 preservation tables, then `ehi_evidence`, the seven evidence and review tables, and later
 ones through `encounter_links`, the five encounter link tables, `visit_participants`, a
-visit's care team, `document_relations`, the document addendum links of #409, and
-`episodes`, the episode and episode-encounter tables) may be
+visit's care team, `document_relations`, the document addendum links of #409,
+`episodes`, the episode and episode-encounter tables, and `medication_transitions`) may be
 wholly absent, in which case it reads as empty. Generations are ordered: an archive may
 lack a generation only if it also lacks every later one, so pre-EHI and M1-era archives
 restore. Part of a generation, a later generation without an earlier one, a missing

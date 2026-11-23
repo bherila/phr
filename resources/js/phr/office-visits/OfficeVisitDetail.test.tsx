@@ -137,6 +137,33 @@ describe('OfficeVisitDetail', () => {
     expect(screen.queryByRole('heading', { name: 'Vitals' })).not.toBeInTheDocument()
   })
 
+  it('lists what happened to each home medication during the stay', async () => {
+    const medication = (id: number, name: string, category: string) => ({ id, name, category })
+    const lisinopril = medication(1, 'lisinopril 10 mg oral tablet', 'community')
+    const metformin = medication(2, 'metformin 500 mg oral tablet', 'community')
+    const stay = {
+      ...VISIT,
+      medication_transitions: [
+        { id: 11, phase: 'discharge', action: 'continued', review_status: 'confirmed', home_medication: lisinopril, order_medication: medication(6, 'lisinopril 10 mg (resume)', 'discharge') },
+        { id: 10, phase: 'admission', action: 'held', note: 'Held for acute kidney injury', review_status: 'confirmed', home_medication: lisinopril, order_medication: null },
+        { id: 12, phase: 'admission', action: 'changed', review_status: 'pending_review', home_medication: metformin, order_medication: medication(4, 'insulin lispro sliding scale', 'inpatient') },
+        { id: 13, phase: 'admission', action: 'new', review_status: 'confirmed', home_medication: null, order_medication: medication(5, 'ceftriaxone 1 g IV every 24 hours', 'inpatient') },
+      ],
+    }
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ office_visit: stay, can_manage: false }))
+
+    render(<OfficeVisitDetail patientId={42} recordId="18" onDrill={jest.fn()} />)
+
+    expect(await screen.findByRole('heading', { name: 'Medication changes' })).toBeInTheDocument()
+    expect(screen.getByText('lisinopril 10 mg oral tablet')).toBeInTheDocument()
+    expect(screen.getByText('Admission: held · Discharge: continued')).toBeInTheDocument()
+    expect(screen.getByText('Held for acute kidney injury')).toBeInTheDocument()
+    expect(screen.getByText('Admission: changed to insulin lispro sliding scale (waiting for review)')).toBeInTheDocument()
+    expect(screen.getByText('ceftriaxone 1 g IV every 24 hours')).toBeInTheDocument()
+    expect(screen.getByText('Admission: new')).toBeInTheDocument()
+    expect(screen.queryByText('No records are linked to this visit.')).not.toBeInTheDocument()
+  })
+
   it('says when no records are linked to a visit', async () => {
     jest.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ office_visit: VISIT, can_manage: false }))
 

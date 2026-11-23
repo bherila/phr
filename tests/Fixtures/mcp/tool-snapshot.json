@@ -121,6 +121,8 @@
                 "medication_fills.resolve_duplicate",
                 "medication_fills.update",
                 "medication_fills.upsert",
+                "medication_transitions.update",
+                "medication_transitions.upsert",
                 "medications.update",
                 "medications.upsert",
                 "ndc.label",
@@ -228,6 +230,7 @@
                 "immunizations.upsert",
                 "lab_results.upsert",
                 "medication_fills.upsert",
+                "medication_transitions.upsert",
                 "medications.upsert",
                 "native_backups.create",
                 "office_visits.upsert",
@@ -357,6 +360,8 @@
                 "medication_fills.resolve_duplicate",
                 "medication_fills.update",
                 "medication_fills.upsert",
+                "medication_transitions.update",
+                "medication_transitions.upsert",
                 "medications.update",
                 "medications.upsert",
                 "native_backups.create",
@@ -398,7 +403,7 @@
             "description": "Partially update one existing Allergies record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
             "inputSchema": "sha256:4eb52d3a49431940d11fcde3c58d19b89d0b1f1c4c20537bd490f962949ce958",
             "name": "allergies.update",
-            "outputSchema": "sha256:1708587f27deb226c20078bb100686792773c43ba8de629ec8004fa0341b74ca",
+            "outputSchema": "sha256:35e5ef1eed36dbcc43a4c5a6516659cc2fce4f95072e9944fdaf9a6758bc4100",
             "title": "Update Allergies"
         },
         "allergies.upsert": {
@@ -411,7 +416,7 @@
             "description": "Idempotently create or update one Allergies record through the versioned REST API.",
             "inputSchema": "sha256:c45425f76214e46de38c458e7e02df21280004ef863ad2b92b218d6299ac2249",
             "name": "allergies.upsert",
-            "outputSchema": "sha256:1708587f27deb226c20078bb100686792773c43ba8de629ec8004fa0341b74ca",
+            "outputSchema": "sha256:35e5ef1eed36dbcc43a4c5a6516659cc2fce4f95072e9944fdaf9a6758bc4100",
             "title": "Upsert Allergies"
         },
         "capabilities.get": {
@@ -461,7 +466,7 @@
                 "openWorldHint": false
             },
             "description": "Get one clinical record of the given resource_type for an accessible patient.",
-            "inputSchema": "sha256:ab0c4cf7000feb6934ae3672b470fad47a6264c52defb39b1c3f2d7dfbb0bdbd",
+            "inputSchema": "sha256:4f4956e1dde710fe308c3988a95ff770e91693dd51bdc138286030be206ef19a",
             "name": "clinical.get",
             "outputSchema": "sha256:f700964f6f47f053148ca98dc283141b0e7918694034f02100137440606032ee",
             "title": "Get clinical record"
@@ -474,7 +479,7 @@
                 "openWorldHint": false
             },
             "description": "List one clinical record type, chosen by resource_type, for an accessible patient.",
-            "inputSchema": "sha256:bac384907dffb4e14d4b58e6a5b1197a1dfe07bfccfc6485d13943fe1d72dd12",
+            "inputSchema": "sha256:713e34febc45f07b02584cf1dfe71dae1125f5eba0b8214ae0563ee28a71ffa9",
             "name": "clinical.list",
             "outputSchema": "sha256:8bd7e015c2e2e7a8a4d4576644e056b028599ecdd0134e510602951e414447e9",
             "title": "List clinical records"
@@ -487,7 +492,7 @@
                 "openWorldHint": false
             },
             "description": "Map a bounded batch of this connection's own external IDs onto record IDs and current versions for one resource_type. Returns no clinical content, so use it to decide what still needs writing before calling upsert.",
-            "inputSchema": "sha256:b4baf57bdffc105ace8e0f81e71d3b125970ec507c674890ce0a92760ea377cb",
+            "inputSchema": "sha256:6158bb3c9a862ae17b4f1399e8f9e91cd4dfd98eb1501b2fbbf578ba9c448603",
             "name": "clinical.resolve",
             "outputSchema": "sha256:551b29373c5192f76b5164481b88be78c7e21caeb9b67b31d45427d763d7aac0",
             "title": "Resolve clinical records"
@@ -500,7 +505,7 @@
                 "openWorldHint": false
             },
             "description": "Withdraw one clinical record this connection wrote, by its resource_type, record ID, and current version. Use this when the source is taking back a claim it made in error. A record simply missing from a newer export is NOT a reason to retract: institutions age data out past their own retention policies, so absence from a later import says nothing about whether the record was correct. Nothing is deleted and the external ID stays reserved.",
-            "inputSchema": "sha256:cf685326bbdecc801ba18cf083cb7faf6a8b97350879610fe8211e83ea02e144",
+            "inputSchema": "sha256:dc8a8f1a140367f77ebe6aa155fe6a231b8754a79ae40bf1563c401d40863cbc",
             "name": "clinical.retract",
             "outputSchema": "sha256:cc809cbc6e51998b7f1aa7e023379911fb5faa5f428dc1326c2c06ce71b6baf0",
             "title": "Retract clinical record"
@@ -528,7 +533,7 @@
             "description": "Partially update one existing Conditions record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
             "inputSchema": "sha256:2b9ccad37647b3b1d8996d1af7d51efe7d113700210d53b10d4d1f7f21776dd6",
             "name": "conditions.update",
-            "outputSchema": "sha256:1708587f27deb226c20078bb100686792773c43ba8de629ec8004fa0341b74ca",
+            "outputSchema": "sha256:35e5ef1eed36dbcc43a4c5a6516659cc2fce4f95072e9944fdaf9a6758bc4100",
             "title": "Update Conditions"
         },
         "conditions.upsert": {
@@ -541,7 +546,7 @@
             "description": "Idempotently create or update one Conditions record through the versioned REST API.",
             "inputSchema": "sha256:b0bbfe7017d88a36f25e935e07bd758515c888ada918437aeb4b8bffa4aef9d5",
             "name": "conditions.upsert",
-            "outputSchema": "sha256:1708587f27deb226c20078bb100686792773c43ba8de629ec8004fa0341b74ca",
+            "outputSchema": "sha256:35e5ef1eed36dbcc43a4c5a6516659cc2fce4f95072e9944fdaf9a6758bc4100",
             "title": "Upsert Conditions"
         },
         "dicom_series.list": {
@@ -892,7 +897,7 @@
             "description": "Partially update one existing Episodes record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
             "inputSchema": "sha256:b3517e7c58c752d808079f7c2c68b6198e6a7b38c0e6a9a26cb9048dd82f3f5e",
             "name": "episodes.update",
-            "outputSchema": "sha256:1708587f27deb226c20078bb100686792773c43ba8de629ec8004fa0341b74ca",
+            "outputSchema": "sha256:35e5ef1eed36dbcc43a4c5a6516659cc2fce4f95072e9944fdaf9a6758bc4100",
             "title": "Update Episodes"
         },
         "episodes.upsert": {
@@ -905,7 +910,7 @@
             "description": "Idempotently create or update one Episodes record through the versioned REST API.",
             "inputSchema": "sha256:99b1e8372bf8bd226c0341febb74309fae35237e52db41437ba645d39c59fd9e",
             "name": "episodes.upsert",
-            "outputSchema": "sha256:1708587f27deb226c20078bb100686792773c43ba8de629ec8004fa0341b74ca",
+            "outputSchema": "sha256:35e5ef1eed36dbcc43a4c5a6516659cc2fce4f95072e9944fdaf9a6758bc4100",
             "title": "Upsert Episodes"
         },
         "evidence.links": {
@@ -1061,7 +1066,7 @@
             "description": "Partially update one existing Immunizations record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
             "inputSchema": "sha256:4796f8acde257f80f724eab162c83b814ec5f7c4b97ad075f1c9662dfaccdab6",
             "name": "immunizations.update",
-            "outputSchema": "sha256:1708587f27deb226c20078bb100686792773c43ba8de629ec8004fa0341b74ca",
+            "outputSchema": "sha256:35e5ef1eed36dbcc43a4c5a6516659cc2fce4f95072e9944fdaf9a6758bc4100",
             "title": "Update Immunizations"
         },
         "immunizations.upsert": {
@@ -1074,7 +1079,7 @@
             "description": "Idempotently create or update one Immunizations record through the versioned REST API.",
             "inputSchema": "sha256:d55e3c453e928f7f7ad12a943d025dfb479742f727f8874d16b3f2233febfdf8",
             "name": "immunizations.upsert",
-            "outputSchema": "sha256:1708587f27deb226c20078bb100686792773c43ba8de629ec8004fa0341b74ca",
+            "outputSchema": "sha256:35e5ef1eed36dbcc43a4c5a6516659cc2fce4f95072e9944fdaf9a6758bc4100",
             "title": "Upsert Immunizations"
         },
         "imports.create": {
@@ -1152,7 +1157,7 @@
             "description": "Partially update one existing Lab Results record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
             "inputSchema": "sha256:76649d3caa3bd199736db530880518061d0bfc40af3fe452b02f12f9d1c77a01",
             "name": "lab_results.update",
-            "outputSchema": "sha256:1708587f27deb226c20078bb100686792773c43ba8de629ec8004fa0341b74ca",
+            "outputSchema": "sha256:35e5ef1eed36dbcc43a4c5a6516659cc2fce4f95072e9944fdaf9a6758bc4100",
             "title": "Update Lab Results"
         },
         "lab_results.upsert": {
@@ -1165,7 +1170,7 @@
             "description": "Idempotently create or update one Lab Results record through the versioned REST API.",
             "inputSchema": "sha256:e41bd678748177a61cd643403e34a1047b0bcca309e31a5953a03cb2bca37be3",
             "name": "lab_results.upsert",
-            "outputSchema": "sha256:1708587f27deb226c20078bb100686792773c43ba8de629ec8004fa0341b74ca",
+            "outputSchema": "sha256:35e5ef1eed36dbcc43a4c5a6516659cc2fce4f95072e9944fdaf9a6758bc4100",
             "title": "Upsert Lab Results"
         },
         "medication_fills.answer_eob_link": {
@@ -1230,7 +1235,7 @@
             "description": "Partially update one existing Medication Fills record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
             "inputSchema": "sha256:e9e52952b1e621a031823de4a3fe13def3007dbf2459b4a296538bde34f909d4",
             "name": "medication_fills.update",
-            "outputSchema": "sha256:1708587f27deb226c20078bb100686792773c43ba8de629ec8004fa0341b74ca",
+            "outputSchema": "sha256:35e5ef1eed36dbcc43a4c5a6516659cc2fce4f95072e9944fdaf9a6758bc4100",
             "title": "Update Medication Fills"
         },
         "medication_fills.upsert": {
@@ -1246,6 +1251,32 @@
             "outputSchema": "sha256:1bce4ccc6e623d3daacb3f3df2da0b2bc43880a2f3becbe7cdb907079d0a5414",
             "title": "Upsert Medication Fills"
         },
+        "medication_transitions.update": {
+            "annotations": {
+                "readOnlyHint": false,
+                "destructiveHint": true,
+                "idempotentHint": true,
+                "openWorldHint": false
+            },
+            "description": "Partially update one existing Medication Transitions record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
+            "inputSchema": "sha256:c04033097de9fe570350f2a29acb43f2ca968129dcc97be9989b7789be55b50d",
+            "name": "medication_transitions.update",
+            "outputSchema": "sha256:35e5ef1eed36dbcc43a4c5a6516659cc2fce4f95072e9944fdaf9a6758bc4100",
+            "title": "Update Medication Transitions"
+        },
+        "medication_transitions.upsert": {
+            "annotations": {
+                "readOnlyHint": false,
+                "destructiveHint": true,
+                "idempotentHint": true,
+                "openWorldHint": false
+            },
+            "description": "Idempotently record what happened to a home medication during a stay: at admission or discharge it was continued, changed, held or stopped, or an order was new. Read the stay (office_visits_get_stay) and the patient's medications first and name them by record id: office_visit_id; home_medication_id (a community or uncategorised medication) for continued, changed, held and stopped; order_medication_id (an inpatient medication at admission, a discharge medication at discharge) for continued, changed and new. Write one only when the source states it, never from similar names. It lands pending review.",
+            "inputSchema": "sha256:b6c0b2ea7c622aadcaaa445a46dc9175f2592fe845c43c346a36a00c3ca630fc",
+            "name": "medication_transitions.upsert",
+            "outputSchema": "sha256:35e5ef1eed36dbcc43a4c5a6516659cc2fce4f95072e9944fdaf9a6758bc4100",
+            "title": "Upsert Medication Transitions"
+        },
         "medications.update": {
             "annotations": {
                 "readOnlyHint": false,
@@ -1256,7 +1287,7 @@
             "description": "Partially update one existing Medications record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
             "inputSchema": "sha256:feb255e1bff667f45de96de18858bb6b2b320da06e0c56dadea6d308b947f737",
             "name": "medications.update",
-            "outputSchema": "sha256:1708587f27deb226c20078bb100686792773c43ba8de629ec8004fa0341b74ca",
+            "outputSchema": "sha256:35e5ef1eed36dbcc43a4c5a6516659cc2fce4f95072e9944fdaf9a6758bc4100",
             "title": "Update Medications"
         },
         "medications.upsert": {
@@ -1269,7 +1300,7 @@
             "description": "Idempotently create or update one Medications record through the versioned REST API.",
             "inputSchema": "sha256:13cb70a2de3e88ca3a5b62bd5bb12013702d8de69206484331b03f66f563db6a",
             "name": "medications.upsert",
-            "outputSchema": "sha256:1708587f27deb226c20078bb100686792773c43ba8de629ec8004fa0341b74ca",
+            "outputSchema": "sha256:35e5ef1eed36dbcc43a4c5a6516659cc2fce4f95072e9944fdaf9a6758bc4100",
             "title": "Upsert Medications"
         },
         "native_backups.create": {
@@ -1357,10 +1388,10 @@
                 "idempotentHint": true,
                 "openWorldHint": false
             },
-            "description": "Read one office visit (encounter) with the records linked to it, grouped as lab_results, vitals, medications, procedures and (with documents:read) documents. Each group holds at most limit records and pages on its own: pass group with the next_cursor it returned. office_visit.linked_records counts each group.",
-            "inputSchema": "sha256:22f7711a5eedebe67c03c1be3e56b6574d98f60aa6eeb25a06ce1da376ac80a0",
+            "description": "Read one office visit (encounter) with the records linked to it, grouped as lab_results, vitals, medications, procedures and (with documents:read) documents. home_medications lists each home medication the medication transitions of the stay name, with its transitions (admission, then discharge); new_medications each order a new transition names. Each group holds at most limit records and pages on its own: pass group with the next_cursor it returned. office_visit.linked_records counts each group.",
+            "inputSchema": "sha256:a7fe96b8bc6464cdfd13e8a70b9dd9372d6acc76ec48e5a71872be6d3c344b61",
             "name": "office_visits.get_stay",
-            "outputSchema": "sha256:b1197e52182478c9b25411cc15630941f0634a603ebf86b65e8de485db10fe9c",
+            "outputSchema": "sha256:97aa658f5aad77de242824a5b3d90f2d82109ab3d4d29d61238ae6b0de1fc873",
             "title": "Read an encounter with its records"
         },
         "office_visits.link_record": {
@@ -1399,7 +1430,7 @@
             "description": "Partially update one existing Office Visits record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
             "inputSchema": "sha256:a51effc9c3ccf1b1113be341fc2cde736e19a5c65f6003f7201cc7d6cddf8f89",
             "name": "office_visits.update",
-            "outputSchema": "sha256:1708587f27deb226c20078bb100686792773c43ba8de629ec8004fa0341b74ca",
+            "outputSchema": "sha256:35e5ef1eed36dbcc43a4c5a6516659cc2fce4f95072e9944fdaf9a6758bc4100",
             "title": "Update Office Visits"
         },
         "office_visits.upsert": {
@@ -1412,7 +1443,7 @@
             "description": "Idempotently create or update one Office Visits record through the versioned REST API.",
             "inputSchema": "sha256:f5f942caadaa04ad36b8d208ecd0acc82df371c40c015b3d8b05769927a3c067",
             "name": "office_visits.upsert",
-            "outputSchema": "sha256:1708587f27deb226c20078bb100686792773c43ba8de629ec8004fa0341b74ca",
+            "outputSchema": "sha256:35e5ef1eed36dbcc43a4c5a6516659cc2fce4f95072e9944fdaf9a6758bc4100",
             "title": "Upsert Office Visits"
         },
         "patients.create": {
@@ -1464,7 +1495,7 @@
             "description": "Partially update one existing Procedures record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
             "inputSchema": "sha256:f35e6f95811ceeb1c609ddf58cdd00e0dcc112f9beef13786b4b3a3e124ed46a",
             "name": "procedures.update",
-            "outputSchema": "sha256:1708587f27deb226c20078bb100686792773c43ba8de629ec8004fa0341b74ca",
+            "outputSchema": "sha256:35e5ef1eed36dbcc43a4c5a6516659cc2fce4f95072e9944fdaf9a6758bc4100",
             "title": "Update Procedures"
         },
         "procedures.upsert": {
@@ -1477,7 +1508,7 @@
             "description": "Idempotently create or update one Procedures record through the versioned REST API.",
             "inputSchema": "sha256:6a24066071f68e84373bf6d02ed8fa4535d907322d9ad9cfa16c3abd947c6c34",
             "name": "procedures.upsert",
-            "outputSchema": "sha256:1708587f27deb226c20078bb100686792773c43ba8de629ec8004fa0341b74ca",
+            "outputSchema": "sha256:35e5ef1eed36dbcc43a4c5a6516659cc2fce4f95072e9944fdaf9a6758bc4100",
             "title": "Upsert Procedures"
         },
         "reconciliations.apply": {
@@ -1581,7 +1612,7 @@
             "description": "Partially update one existing Vitals record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
             "inputSchema": "sha256:935755da56dbba355220a4c12552b7427754f7a32d6cb6f56391c1c0f5923c83",
             "name": "vitals.update",
-            "outputSchema": "sha256:1708587f27deb226c20078bb100686792773c43ba8de629ec8004fa0341b74ca",
+            "outputSchema": "sha256:35e5ef1eed36dbcc43a4c5a6516659cc2fce4f95072e9944fdaf9a6758bc4100",
             "title": "Update Vitals"
         },
         "vitals.upsert": {
@@ -1594,7 +1625,7 @@
             "description": "Idempotently create or update one Vitals record through the versioned REST API.",
             "inputSchema": "sha256:16ac04415698e52ba2a42c649bd82149f6ec4de1f8e634b5bd3ee50d6f357a18",
             "name": "vitals.upsert",
-            "outputSchema": "sha256:1708587f27deb226c20078bb100686792773c43ba8de629ec8004fa0341b74ca",
+            "outputSchema": "sha256:35e5ef1eed36dbcc43a4c5a6516659cc2fce4f95072e9944fdaf9a6758bc4100",
             "title": "Upsert Vitals"
         }
     }

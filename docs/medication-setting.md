@@ -94,6 +94,60 @@ CodeableConcept (R4's 0..1; a request's `category` is a list), and an unknown on
 category. An as-needed medication carries `asNeededCodeableConcept` with its reason, or
 `asNeededBoolean`.
 
+## Medication transitions (#414)
+
+`phr_medication_transitions` records what happened to each home medication during a stay
+(it is not the EOB `reconciliations.*` tools). A row names its visit, a phase
+(`admission` or `discharge`) and an action:
+
+| action | home medication | order |
+| --- | --- | --- |
+| `continued`, `changed` | required | required |
+| `held`, `stopped` | required | none |
+| `new` | none | required |
+
+The home medication is on the home list (`community`, or no category); the order is an
+`inpatient` medication at admission and a `discharge` medication at discharge. Every record
+named is the transition's own patient's. The database checks the action against the
+columns (a check constraint; triggers on SQLite) and the patient (composite foreign keys on
+`(id, patient_id)`); the model checks the settings and that the named records still stand
+before any write that changes them. Transitions are clinical records: `review_status`,
+retraction, soft delete, provenance, and the Review page, where each opens its visit.
+
+REST and MCP write them with `medication_transitions.upsert` (idempotent by
+`external_id`), read them with `clinical.list` (`office_visit_id` filters by stay) and
+`clinical.get`, and `office_visits.get_stay` shows them grouped: `home_medications` is each
+home medication a transition of the stay names, with its transitions (admission first), and
+`new_medications` each order a `new` transition names. They are not in `records.search` or
+`changes.list`: a transition is read with its stay, and those keep their `resource_type`
+bound; a sync reads them with `clinical.list` and `updated_after`. A transition is never
+inferred from similar names.
+
+**FHIR export.** Only a confirmed, standing transition whose visit and medications the
+export also carries is exported; one naming a record it leaves out is dropped. R4
+`MedicationRequest.priorPrescription` and `basedOn` reference only a `MedicationRequest`
+(or a CarePlan, ServiceRequest or ImmunizationRecommendation), and a home medication is a
+`MedicationStatement`, so neither can name it. The transition is the complex extension
+`urn:phr:fhir:medication-transition` (sub-extensions `id`, `phase`, `action`, `encounter`,
+`homeMedication` and `note`), on the order's `MedicationRequest` for `continued`,
+`changed` and `new`, and on the home medication's `MedicationStatement` for `held` and
+`stopped`. An order that continues or changes a home medication also names it in
+`supportingInformation` (Reference(Any)), so a reader that ignores the extension still sees
+the two are related.
+
+**FHIR import.** The extension is read back as the same transitions. From another source,
+a `MedicationRequest` whose `priorPrescription` or `basedOn` names a `MedicationRequest`
+imported as a home medication is a transition: at admission for an `inpatient` order and at
+discharge for a `discharge` one, in the one stay its `encounter` names, `continued` when the
+two state the same drug (RxNorm code, else name), dose, route and frequency and `changed`
+otherwise. A link whose stay or medication is not imported from the bundle is skipped and
+counted in a warning. Imported transitions wait for review.
+
+**C-CDA.** None. A Discharge Medications entry does not reference the home medication it
+continues by an id the importer could follow, and matching by name would be inference, so
+a C-CDA import writes no transitions; a person (or an agent reading the document) records
+them.
+
 ## C-CDA
 
 See [ccda-import.md](ccda-import.md#hospital-medication-lists) for import: the Medications

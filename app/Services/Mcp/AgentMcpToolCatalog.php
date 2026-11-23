@@ -210,7 +210,7 @@ final class AgentMcpToolCatalog
             $this->read(
                 'office_visits.get_stay',
                 'Read an encounter with its records',
-                'Read one office visit (encounter) with the records linked to it, grouped as lab_results, vitals, medications, procedures and (with documents:read) documents. Each group holds at most limit records and pages on its own: pass group with the next_cursor it returned. office_visit.linked_records counts each group.',
+                'Read one office visit (encounter) with the records linked to it, grouped as lab_results, vitals, medications, procedures and (with documents:read) documents. home_medications lists each home medication the medication transitions of the stay name, with its transitions (admission, then discharge); new_medications each order a new transition names. Each group holds at most limit records and pages on its own: pass group with the next_cursor it returned. office_visit.linked_records counts each group.',
                 [$reads, 'officeVisitsGetStay'],
             ),
             $this->write(
@@ -327,7 +327,9 @@ final class AgentMcpToolCatalog
                 "Upsert {$title}",
                 $isFill
                     ? 'Idempotently create or update one prescription fill. Send the NDC from ndc_lookup (or the package the person chose among ambiguous candidates as ndc_candidate) with the fill, price, pharmacy and source fields; the server resolves the drug and links or creates the patient\'s medication. Provenance is required: source_kind, and source_document_id (upload the source with documents_upload first) unless manual. external_id is optional; the server derives it from pharmacy, Rx number and fill date so a receipt and a label photo of the same fill merge. Returns the fill, the medication and whether it was created, and the NDC resolution.'
-                    : "Idempotently create or update one {$title} record through the versioned REST API.",
+                    : ($resource === 'medication-transitions'
+                        ? 'Idempotently record what happened to a home medication during a stay: at admission or discharge it was continued, changed, held or stopped, or an order was new. Read the stay (office_visits_get_stay) and the patient\'s medications first and name them by record id: office_visit_id; home_medication_id (a community or uncategorised medication) for continued, changed, held and stopped; order_medication_id (an inpatient medication at admission, a discharge medication at discharge) for continued, changed and new. Write one only when the source states it, never from similar names. It lands pending review.'
+                        : "Idempotently create or update one {$title} record through the versioned REST API."),
                 $isFill ? $writes->medicationFillUpsertHandler() : $writes->clinicalUpsertHandler($resource),
                 new WriteSafety(idempotencyKey: IdempotencyKey::Argument, expectedVersion: true),
                 effect: Effect::Destructive,

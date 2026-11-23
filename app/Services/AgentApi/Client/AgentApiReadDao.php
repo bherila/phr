@@ -96,7 +96,7 @@ final class AgentApiReadDao
         ]);
     }
 
-    /** @param array<string, scalar|null> $filters  type-specific filters, such as the fill filters */
+    /** @param array<string, scalar|list<string>|null> $filters  type-specific filters, such as the fill filters or a list of medication categories */
     public function clinicalRecords(
         int $patientId,
         string $resource,

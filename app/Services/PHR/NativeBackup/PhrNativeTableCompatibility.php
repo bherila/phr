@@ -64,6 +64,8 @@ final class PhrNativeTableCompatibility
         'document_relations' => ['phr_document_relations'],
         // Episodes of care and the encounters grouped under them (#415).
         'episodes' => ['phr_episodes', 'phr_episode_encounters'],
+        // What happened to each home medication during a stay (#414).
+        'medication_transitions' => ['phr_medication_transitions'],
     ];
 
     /**

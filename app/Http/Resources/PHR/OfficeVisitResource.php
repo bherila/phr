@@ -8,6 +8,7 @@ use App\Models\PhrEob;
 use App\Models\PhrEobLine;
 use App\Models\PhrLabResult;
 use App\Models\PhrMedication;
+use App\Models\PhrMedicationTransition;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrOfficeVisitParticipant;
 use App\Models\PhrPatientVital;
@@ -118,8 +119,38 @@ class OfficeVisitResource extends JsonResource
                 $visit->relationLoaded('linkedLabResults'),
                 fn (): array => $this->linkedRecords($visit),
             ),
+            'medication_transitions' => $this->when(
+                $visit->relationLoaded('medicationTransitions'),
+                fn (): array => $visit->medicationTransitions->map(fn (PhrMedicationTransition $transition): array => [
+                    'id' => $transition->id,
+                    'phase' => $transition->phase,
+                    'action' => $transition->action,
+                    'note' => $transition->note,
+                    'review_status' => $transition->review_status,
+                    'home_medication' => $this->medicationSummary($transition->homeMedication),
+                    'order_medication' => $this->medicationSummary($transition->orderMedication),
+                ])->values()->all(),
+            ),
             'created_at' => $visit->created_at?->toDateTimeString(),
             'updated_at' => $visit->updated_at?->toDateTimeString(),
+        ];
+    }
+
+    /**
+     * A medication a transition names, as the visit page lists it.
+     *
+     * @return array{id: int, name: string, dose: string|null, dose_unit: string|null, route: string|null, frequency: string|null, category: string|null}|null
+     */
+    private function medicationSummary(?PhrMedication $medication): ?array
+    {
+        return $medication === null ? null : [
+            'id' => $medication->id,
+            'name' => $medication->name,
+            'dose' => $medication->dose,
+            'dose_unit' => $medication->dose_unit,
+            'route' => $medication->route,
+            'frequency' => $medication->frequency,
+            'category' => $medication->category,
         ];
     }
 

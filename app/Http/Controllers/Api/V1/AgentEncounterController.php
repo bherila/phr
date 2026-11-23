@@ -4,6 +4,8 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\PhrDocument;
+use App\Models\PhrMedication;
+use App\Models\PhrMedicationTransition;
 use App\Models\PhrOfficeVisit;
 use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\Encounters\PhrEncounterLinks;
@@ -13,6 +15,7 @@ use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -20,7 +23,8 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * The records made during an encounter (#411): link and unlink one, and read the visit
- * with its linked records grouped by type, each group bounded and paged on its own.
+ * with its linked records grouped by type, each group bounded and paged on its own, and
+ * the medications its transitions name with those transitions (#414).
  */
 final class AgentEncounterController extends Controller
 {
@@ -32,6 +36,13 @@ final class AgentEncounterController extends Controller
         'procedures' => 'procedures',
         'documents' => null,
     ];
+
+    /**
+     * Groups of the medications a stay's transitions name (#414), each with its transitions
+     * there: every home medication a transition names, and every order a new transition
+     * names. Each transition is listed once, under its home medication when it has one.
+     */
+    private const array TRANSITION_GROUPS = ['home_medications', 'new_medications'];
 
     public function __construct(
         private PhrPatientAccessService $accessService,
@@ -66,7 +77,7 @@ final class AgentEncounterController extends Controller
     public function stay(Request $request, int $patient, int $visit): JsonResponse
     {
         $validated = $request->validate([
-            'group' => ['sometimes', 'string', Rule::in(array_keys(self::GROUP_RESOURCES))],
+            'group' => ['sometimes', 'string', Rule::in([...array_keys(self::GROUP_RESOURCES), ...self::TRANSITION_GROUPS])],
             'limit' => ['sometimes', 'integer', 'between:1,100'],
             'cursor' => ['sometimes', 'string', 'max:2048'],
         ]);
@@ -88,6 +99,13 @@ final class AgentEncounterController extends Controller
             }
             $cursor = isset($validated['group']) && isset($validated['cursor']) ? (string) $validated['cursor'] : null;
             $groups[$group] = $this->group($request, $patientId, (int) $resolved->id, $group, $resource, $limit, $cursor);
+        }
+        foreach (self::TRANSITION_GROUPS as $group) {
+            if (isset($validated['group']) && $validated['group'] !== $group) {
+                continue;
+            }
+            $cursor = isset($validated['group']) && isset($validated['cursor']) ? (string) $validated['cursor'] : null;
+            $groups[$group] = $this->transitionGroup($request, $patientId, (int) $resolved->id, $group, $limit, $cursor);
         }
 
         return response()->json([
@@ -125,6 +143,54 @@ final class AgentEncounterController extends Controller
 
         return [
             'resource_type' => $resource ?? 'document',
+            'data' => $data,
+            'pagination' => ['limit' => $limit, 'has_more' => $page->hasMorePages(), 'next_cursor' => $page->nextCursor()?->encode()],
+        ];
+    }
+
+    /**
+     * The medications a stay's transitions name, paged by id, each as clinical.get reads it
+     * with `transitions`: its standing transitions in this stay, admission first.
+     *
+     * @return array{resource_type: string, data: list<array<string, mixed>>, pagination: array{limit: int, has_more: bool, next_cursor: string|null}}
+     */
+    private function transitionGroup(Request $request, int $patientId, int $visitId, string $group, int $limit, ?string $cursor): array
+    {
+        $column = $group === 'home_medications' ? 'home_medication_id' : 'order_medication_id';
+        $standing = static fn (QueryBuilder $query): QueryBuilder => $query->from('phr_medication_transitions')
+            ->where('patient_id', $patientId)->where('office_visit_id', $visitId)
+            ->whereNull('deleted_at')->whereNull('retracted_at');
+        $page = PhrMedication::query()
+            ->where('patient_id', $patientId)
+            ->whereNull('retracted_at')
+            ->whereIn('id', fn (QueryBuilder $query) => $standing($query)->select($column)->whereNotNull($column)
+                ->when($group === 'new_medications', static fn (QueryBuilder $new) => $new->where('action', PhrMedicationTransition::NEW)))
+            ->orderBy('id')
+            ->cursorPaginate($limit, ['*'], 'cursor', AgentApiCursor::decode($cursor));
+        $medications = $page->getCollection();
+        $ids = $medications->modelKeys();
+
+        $transitions = PhrMedicationTransition::query()
+            ->where('patient_id', $patientId)
+            ->where('office_visit_id', $visitId)
+            ->whereNull('retracted_at')
+            ->whereIn($column, $ids)
+            ->when($group === 'new_medications', static fn ($new) => $new->where('action', PhrMedicationTransition::NEW))
+            ->orderBy('id')
+            ->get()
+            ->sortBy(static fn (PhrMedicationTransition $transition): array => [array_search($transition->phase, PhrMedicationTransition::PHASES, true), $transition->id])
+            ->groupBy($column);
+        $encounters = $this->links->encounterIds($patientId, 'medication', $ids);
+
+        $data = $medications->map(fn (Model $medication): array => [
+            ...$this->clinicalPayload($request, 'medications', $medication, ['encounter_id' => $encounters[(int) $medication->getKey()] ?? null]),
+            'transitions' => ($transitions[(int) $medication->getKey()] ?? collect())
+                ->map(fn (PhrMedicationTransition $transition): array => $this->clinicalPayload($request, 'medication-transitions', $transition, []))
+                ->values()->all(),
+        ])->values()->all();
+
+        return [
+            'resource_type' => 'medications',
             'data' => $data,
             'pagination' => ['limit' => $limit, 'has_more' => $page->hasMorePages(), 'next_cursor' => $page->nextCursor()?->encode()],
         ];

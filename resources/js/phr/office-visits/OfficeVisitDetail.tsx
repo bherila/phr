@@ -265,7 +265,7 @@ export default function OfficeVisitDetail({ patientId, recordId, onDrill }: Offi
             )}
           </section>
           <OfficeVisitEpisodes patientId={patientId} visitId={recordId} onDrill={onDrill} />
-          <OfficeVisitLinkedRecords records={visit.linked_records} />
+          <OfficeVisitLinkedRecords records={visit.linked_records} transitions={visit.medication_transitions} />
           <section className="rounded-lg border border-border bg-card p-4">
             <div>
               <h2 className="flex items-center gap-2 font-semibold text-card-foreground">

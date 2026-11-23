@@ -93,9 +93,11 @@ class PhrSchemaTest extends TestCase
 
         Schema::disableForeignKeyConstraints();
         // SQLite checks a dropped table's rows against every table referencing them,
-        // so what points at a lab result goes before the lab results do.
+        // so what points at a lab result goes before the lab results do: the encounter
+        // link tables (#411) and medication transitions (#414) point at patients too.
         Schema::dropIfExists('phr_ehi_record_links');
         Schema::dropIfExists('phr_ehi_proposal_decisions');
+        Schema::dropIfExists('phr_medication_transitions');
         foreach (['documents', 'lab_results', 'vitals', 'medications', 'procedures'] as $linked) {
             Schema::dropIfExists("phr_office_visit_{$linked}");
         }

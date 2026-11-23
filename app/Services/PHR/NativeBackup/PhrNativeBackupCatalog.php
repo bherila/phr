@@ -217,6 +217,17 @@ final class PhrNativeBackupCatalog
                     'office_visit_id' => self::record('phr_office_visits', false),
                 ],
             ],
+            // What happened to each home medication during a stay (#414), after the visits
+            // and the medications it names.
+            'phr_medication_transitions' => [
+                'patient_column' => 'patient_id',
+                'relationships' => [
+                    ...$clinical(),
+                    'office_visit_id' => self::record('phr_office_visits', false),
+                    'home_medication_id' => self::record('phr_medications', true),
+                    'order_medication_id' => self::record('phr_medications', true),
+                ],
+            ],
             'phr_immunizations' => ['patient_column' => 'patient_id', 'relationships' => $clinical()],
             'phr_allergies' => ['patient_column' => 'patient_id', 'relationships' => $clinical()],
             'phr_portal_messages' => ['patient_column' => 'patient_id', 'relationships' => $clinical()],

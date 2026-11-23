@@ -162,6 +162,30 @@ class PhrStructuredDataImporter
     }
 
     /**
+     * A row an importer builds itself rather than from a job type's payload (a FHIR
+     * medication transition, #414), written as importUnreviewed() writes one: matched on
+     * its import source and external id, pending review when new or changed, and inside
+     * fromDocument() linked to that document.
+     *
+     * @template TModel of Model
+     *
+     * @param  class-string<TModel>  $modelClass
+     * @param  array<string, mixed>  $attributes
+     * @return TModel
+     */
+    public function upsertUnreviewed(string $modelClass, array $attributes): Model
+    {
+        $model = $this->upserter->upsert($modelClass, [
+            ...$attributes,
+            'source_document_id' => $this->sourceDocument['source_document_id'] ?? null,
+            'review_status' => PhrReviewStatus::PENDING,
+        ], PhrReviewStatus::PENDING, ['source_document_id']);
+        $this->recordWritten($model);
+
+        return $model;
+    }
+
+    /**
      * @param  array<array-key, mixed>  $payload
      * @param  array{import_source?: string, source?: string, external_id?: string|null, genai_job_id?: int|null, source_document_id?: int|null, review_status?: string, content?: array<string, mixed>, stored_file?: array<string, string>}  $options
      */

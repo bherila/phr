@@ -412,6 +412,18 @@
             "clinical:write"
         ]
     },
+    "medication_transitions.update": {
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ],
+        "scope_rule": "all"
+    },
+    "medication_transitions.upsert": {
+        "scopes": [
+            "clinical:write"
+        ]
+    },
     "medications.update": {
         "scopes": [
             "clinical:read",

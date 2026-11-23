@@ -12,6 +12,7 @@ use App\Models\PhrImmunization;
 use App\Models\PhrLabResult;
 use App\Models\PhrMedication;
 use App\Models\PhrMedicationFill;
+use App\Models\PhrMedicationTransition;
 use App\Models\PhrNegativeAssertion;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
@@ -65,6 +66,7 @@ class PhrExportDataService
      *     encounter_links: array<string, array<int, int>>,
      *     episodes: Collection<int, PhrEpisode>,
      *     episode_encounters: array<int, list<int>>,
+     *     medication_transitions: Collection<int, PhrMedicationTransition>,
      *     portal_messages: Collection<int, PhrPortalMessage>,
      *     negative_assertions: Collection<int, PhrNegativeAssertion>,
      *     dicom_studies: Collection<int, PhrDicomStudy>,
@@ -78,13 +80,14 @@ class PhrExportDataService
         $documents = PhrDocument::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->with('relatesTo')->orderByDesc('created_at')->orderByDesc('id')->get();
         $visits = PhrOfficeVisit::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->with('participants')->orderByDesc('visit_started_at')->orderByDesc('visit_date')->orderByDesc('id')->get();
         $episodes = PhrEpisode::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderByDesc('started_at')->orderByDesc('id')->get();
+        $medications = PhrMedication::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderBy('name')->get();
 
         return self::withoutDanglingDocuments([
             'patient' => $patient,
             'lab_results' => PhrLabResult::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderByDesc('result_datetime')->orderByDesc('id')->get(),
             'vitals' => PhrPatientVital::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderByDesc('observed_at')->orderByDesc('vital_date')->orderByDesc('id')->get(),
             'conditions' => PhrCondition::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderBy('name')->get(),
-            'medications' => PhrMedication::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderBy('name')->get(),
+            'medications' => $medications,
             'medication_fills' => PhrMedicationFill::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderByDesc('filled_on')->orderByDesc('id')->get(),
             'procedures' => PhrProcedure::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderByDesc('performed_at')->orderByDesc('performed_on')->orderByDesc('id')->get(),
             'immunizations' => PhrImmunization::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderByDesc('administered_on')->orderByDesc('id')->get(),
@@ -97,6 +100,9 @@ class PhrExportDataService
             // grouped under. A link to an episode or a visit the export leaves out is dropped.
             'episodes' => $episodes,
             'episode_encounters' => app(PhrEpisodeLinks::class)->linksBetween($patientId, $episodes->modelKeys(), $visits->modelKeys()),
+            // Confirmed transitions (#414) whose visit and medications this export carries
+            // too: one naming a record it leaves out is dropped, never left dangling.
+            'medication_transitions' => $this->medicationTransitions($patientId, $visits->modelKeys(), $medications->modelKeys()),
             'portal_messages' => PhrPortalMessage::query()->where('patient_id', $patientId)->orderByDesc('message_at')->orderByDesc('id')->get(),
             'negative_assertions' => PhrNegativeAssertion::query()->where('patient_id', $patientId)->orderBy('assertion_type')->orderBy('scope')->orderByDesc('observed_on')->orderByDesc('id')->get(),
             'dicom_studies' => PhrDicomStudy::query()->where('patient_id', $patientId)->withCount(['series', 'instances'])->orderByDesc('study_date')->orderByDesc('id')->get(),
@@ -131,5 +137,26 @@ class PhrExportDataService
         }
 
         return $data;
+    }
+
+    /**
+     * @param  list<int>  $visitIds
+     * @param  list<int>  $medicationIds
+     * @return Collection<int, PhrMedicationTransition>
+     */
+    private function medicationTransitions(int $patientId, array $visitIds, array $medicationIds): Collection
+    {
+        $exported = array_flip($medicationIds);
+
+        return PhrMedicationTransition::query()
+            ->where('patient_id', $patientId)
+            ->where('review_status', PhrReviewStatus::CONFIRMED)
+            ->whereNull('retracted_at')
+            ->whereIn('office_visit_id', $visitIds)
+            ->orderBy('id')
+            ->get()
+            ->filter(static fn (PhrMedicationTransition $transition): bool => ($transition->home_medication_id === null || isset($exported[$transition->home_medication_id]))
+                && ($transition->order_medication_id === null || isset($exported[$transition->order_medication_id])))
+            ->values();
     }
 }

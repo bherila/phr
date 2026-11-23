@@ -348,6 +348,9 @@
                     },
                     {
                         "$ref": "#/components/parameters/MedicationCategory"
+                    },
+                    {
+                        "$ref": "#/components/parameters/TransitionOfficeVisitId"
                     }
                 ],
                 "responses": {
@@ -4308,6 +4311,78 @@
                 }
             }
         },
+        "/patients/{patient}/medication-transitions": {
+            "put": {
+                "operationId": "medication_transitions.upsert",
+                "summary": "Idempotently create or update a medication transition",
+                "description": "What happened to a home medication during a stay: at admission or discharge it was continued, changed, held or stopped, or an order was new. Name the stay (office_visit_id) and the patient's own medications by their record ids: the home medication (category community, or none) for continued, changed, held and stopped; the order for continued, changed and new, an inpatient medication at admission and a discharge medication at discharge. Held and stopped name no order; new names no home medication. Never infer a transition from similar names: write one only when the source states it. Stable external IDs are namespaced to the authenticated OAuth client; transitions land pending review like every agent-written record.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "clinical:write"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/MedicationTransitionUpsertRequest"
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Existing record updated or desired state already present",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ClinicalUpsertResponse"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Record created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ClinicalUpsertResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/Conflict"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            }
+        },
         "/patients/{patient}/medications": {
             "put": {
                 "operationId": "medications.upsert",
@@ -4779,7 +4854,7 @@
             "get": {
                 "operationId": "office_visits.get_stay",
                 "summary": "Read an encounter with its linked records grouped by type",
-                "description": "The office visit (encounter) with the records linked to it: lab_results, vitals, medications, procedures and, with documents:read, documents. Each group holds at most limit records (default 10) and pages on its own: send group with the next_cursor it returned to read that group's next page. office_visit.linked_records counts each group.",
+                "description": "The office visit (encounter) with the records linked to it: lab_results, vitals, medications, procedures and, with documents:read, documents. home_medications lists each home medication a medication transition of this stay names, with its transitions (admission first); new_medications lists each order a new transition names, with it. Each group holds at most limit records (default 10) and pages on its own: send group with the next_cursor it returned to read that group's next page. office_visit.linked_records counts each linked group.",
                 "security": [
                     {
                         "oauth2": [
@@ -4816,7 +4891,9 @@
                                 "vitals",
                                 "medications",
                                 "procedures",
-                                "documents"
+                                "documents",
+                                "home_medications",
+                                "new_medications"
                             ]
                         }
                     },
@@ -6039,6 +6116,7 @@
                         "lab-results",
                         "vitals",
                         "episodes",
+                        "medication-transitions",
                         "health-logs"
                     ]
                 }
@@ -6059,7 +6137,8 @@
                         "allergies",
                         "lab-results",
                         "vitals",
-                        "episodes"
+                        "episodes",
+                        "medication-transitions"
                     ]
                 }
             },
@@ -6379,6 +6458,15 @@
                 "schema": {
                     "type": "string",
                     "maxLength": 20
+                }
+            },
+            "TransitionOfficeVisitId": {
+                "name": "office_visit_id",
+                "in": "query",
+                "description": "The stay whose transitions to list. Accepted only for medication-transitions.",
+                "schema": {
+                    "type": "integer",
+                    "minimum": 1
                 }
             },
             "MedicationCategory": {
@@ -7312,7 +7400,8 @@
                             "allergies",
                             "lab-results",
                             "vitals",
-                            "episodes"
+                            "episodes",
+                            "medication-transitions"
                         ]
                     },
                     "patient_id": {
@@ -13494,6 +13583,82 @@
                 },
                 "additionalProperties": false
             },
+            "MedicationTransitionUpsertData": {
+                "type": "object",
+                "properties": {
+                    "office_visit_id": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "The stay (office visit) the transition happened in."
+                    },
+                    "home_medication_id": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "minimum": 1,
+                        "description": "The home medication (category community, or none). Required for continued, held, changed and stopped; null for new."
+                    },
+                    "order_medication_id": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "minimum": 1,
+                        "description": "The order: an inpatient medication at admission, a discharge medication at discharge. Required for continued, changed and new; null for held and stopped."
+                    },
+                    "phase": {
+                        "type": "string",
+                        "enum": [
+                            "admission",
+                            "discharge"
+                        ]
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": [
+                            "continued",
+                            "held",
+                            "changed",
+                            "stopped",
+                            "new"
+                        ],
+                        "description": "continued: the order carries the home medication on unchanged; changed: the order replaces it (another drug, dose or schedule); held: paused with no order; stopped: ended with no order; new: an order with no home medication."
+                    },
+                    "note": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 10000
+                    }
+                },
+                "required": [
+                    "office_visit_id",
+                    "phase",
+                    "action"
+                ],
+                "additionalProperties": false
+            },
+            "MedicationTransitionUpsertRequest": {
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/ClinicalUpsertMetadata"
+                    },
+                    {
+                        "type": "object",
+                        "required": [
+                            "data"
+                        ],
+                        "properties": {
+                            "data": {
+                                "$ref": "#/components/schemas/MedicationTransitionUpsertData"
+                            }
+                        }
+                    }
+                ],
+                "unevaluatedProperties": false
+            },
             "MedicationUpsertData": {
                 "type": "object",
                 "required": [
@@ -14288,6 +14453,48 @@
                 },
                 "additionalProperties": false
             },
+            "OfficeVisitStayMedicationGroup": {
+                "type": "object",
+                "required": [
+                    "resource_type",
+                    "data",
+                    "pagination"
+                ],
+                "properties": {
+                    "resource_type": {
+                        "const": "medications"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/components/schemas/ClinicalRecord"
+                                },
+                                {
+                                    "type": "object",
+                                    "required": [
+                                        "transitions"
+                                    ],
+                                    "properties": {
+                                        "transitions": {
+                                            "type": "array",
+                                            "description": "The medication's standing transitions in this stay, admission first, each as clinical.get reads a medication-transitions record.",
+                                            "items": {
+                                                "$ref": "#/components/schemas/ClinicalRecord"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "pagination": {
+                        "$ref": "#/components/schemas/Pagination"
+                    }
+                },
+                "additionalProperties": false
+            },
             "OfficeVisitStayResponse": {
                 "type": "object",
                 "required": [
@@ -14314,7 +14521,7 @@
                             },
                             "groups": {
                                 "type": "object",
-                                "description": "The groups read: every group, or only the one requested. documents appears only with documents:read.",
+                                "description": "The groups read: every group, or only the one requested. documents appears only with documents:read. home_medications and new_medications are the medications this stay's medication transitions name, each with its transitions.",
                                 "properties": {
                                     "lab_results": {
                                         "$ref": "#/components/schemas/OfficeVisitStayGroup"
@@ -14330,6 +14537,12 @@
                                     },
                                     "documents": {
                                         "$ref": "#/components/schemas/OfficeVisitStayDocumentGroup"
+                                    },
+                                    "home_medications": {
+                                        "$ref": "#/components/schemas/OfficeVisitStayMedicationGroup"
+                                    },
+                                    "new_medications": {
+                                        "$ref": "#/components/schemas/OfficeVisitStayMedicationGroup"
                                     }
                                 },
                                 "additionalProperties": false
