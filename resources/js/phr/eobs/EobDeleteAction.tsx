@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { fetchWrapper } from '@/fetchWrapper'
+import { reviewStateChanged } from '@/phr/review/reviewSummary'
 import { errorMessage } from '@/phr/shared'
 
 export interface EobDeleteActionProps {
@@ -40,6 +41,8 @@ export function EobDeleteAction({ patientId, eobId, claimLabel, returnUrl, navig
     setError(null)
     try {
       await fetchWrapper.delete(`/api/phr/patients/${patientId}/eobs/${eobId}`, {})
+      // A claim still pending review leaves the review counts with it.
+      void reviewStateChanged(patientId)
       navigate(returnUrl)
     } catch (caught) {
       setError(errorMessage(caught))
