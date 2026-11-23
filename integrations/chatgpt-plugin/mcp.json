@@ -3,7 +3,7 @@
   "mcpServers": {
     "phr": {
       "type": "streamable-http",
-      "url": "https://phr.bherila.net/api/v1/mcp",
+      "url": "https://phr.bherila.net/api/v1/mcp?toolsets=all",
       "extensions": {
         "com.openai": {
           "auth": {

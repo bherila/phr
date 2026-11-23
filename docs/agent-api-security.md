@@ -523,6 +523,46 @@ The `changes.list` tool uses the same REST feed and tells clients to carry the r
 watermark across all cursor pages, rather than implementing a second synchronization
 path in the MCP server.
 
+### MCP toolsets
+
+`tools/list` shows a small core in every session: `identity.get`, `capabilities.get`,
+`patients.list`, `patients.get`, `records.search`, `timeline.list`, `changes.list`,
+`clinical.get`, `clinical.list`, and `toolsets.list`, `toolsets.enable` and
+`toolsets.disable`. Every other tool belongs to exactly one named toolset
+(`clinical_writes`, `patients`, `documents`, `medications`, `encounters`, `episodes`,
+`eobs`, `imports`, `imaging`, `exports`, `health_logs`, `respiratory`, `genai`). One
+rule in `App\Services\Mcp\AgentMcpToolsets::toolsetFor()` assigns it by the tool's
+resource (its name before the first dot), so a new tool on an existing resource joins
+that resource's toolset; a tool on an unmapped resource fails the server build and the
+membership test. For a full-scope token this cuts `tools/list` from 95 tools (about
+285 KB) to 12 (about 28 KB).
+
+Listing is about context size, never permission. Scope filtering runs first:
+`toolsets.list` offers only toolsets holding a tool the token may call, enabling one
+grants nothing, and every authorized tool stays registered, so a client that calls a
+tool by name from an older list keeps working whether or not the tool is listed. An
+unauthorized tool is not registered and its call fails as before.
+
+`toolsets.enable` records the toolset names in the MCP session (the same
+token-namespaced, 30-minute cache entry as protocol negotiation, keyed by
+`Mcp-Session-Id`; at most the fixed list of toolset names, never tool arguments or
+results), returns the enabled tools' names and short descriptions, and, when the
+request's `Accept` includes `text/event-stream`, answers on an event stream that carries
+`notifications/tools/list_changed` ahead of the result. A client that accepts JSON only
+gets the result alone with `notified: false` and should list tools again.
+`toolsets.disable` is the reverse. The SDK drops `listChanged` from a handshake-era
+`initialize`, so PHR decorates its initialize handler to announce `tools.listChanged`
+while the session lists by toolset; `server/discover` reports the same capabilities.
+
+A connection whose tools fall in a single toolset (a GenAI worker token, for example)
+lists everything with no toolsets tools, since there is nothing to choose. A client that
+cannot refresh its tool list connects to `APP_URL/api/v1/mcp?toolsets=all`, which lists
+every authorized tool exactly as before toolsets existed and announces no list changes;
+the OAuth resource stays `APP_URL/api/v1/mcp` (the authorization server refuses a
+resource with a query). The ChatGPT plugin uses it, because ChatGPT keeps the tool list
+it read when the connector was added. `AGENT_API_MCP_TOOL_LISTING=all` does the same for
+every connection on a deployment.
+
 The transport is locked to `bherila/mcp-laravel-bridge` v0.5.1 and the official
 `mcp/sdk` v0.9.0. Its hardened Laravel edge profile compares a
 present browser Origin as an exact scheme/host/port origin, validates the service Host
@@ -534,7 +574,7 @@ the service Host allow-list. Request bodies default to a 256 KiB ceiling and com
 non-streamed responses to 1 MiB; native clients without Origin remain supported. MCP sessions
 expire after 30 minutes and use an
 irreversible token-derived cache namespace, preventing a session UUID from crossing token
-boundaries. Session state contains protocol negotiation only. The SDK receives a null
+boundaries. Session state contains protocol negotiation and the names of the toolsets the session enabled, nothing else. The SDK receives a null
 logger because its debug logger includes tool arguments and results; application logs and
 default traces therefore cannot acquire clinical payloads through the MCP layer.
 

@@ -43,6 +43,21 @@ final class AgentMcpToolSnapshotTest extends TestCase
         ];
     }
 
+    /**
+     * Principals connected with the `toolsets=all` opt-out. A session lists
+     * only the core and its enabled toolsets, so this is what pins the
+     * definition of every tool outside the core.
+     *
+     * @return array<string, list<string>>
+     */
+    private static function listingEverything(): array
+    {
+        return [
+            'clinical writer, toolsets=all' => self::principals()['clinical writer'],
+            'everything, toolsets=all' => AgentApiScopes::ids(),
+        ];
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -62,14 +77,19 @@ final class AgentMcpToolSnapshotTest extends TestCase
         ]);
 
         $snapshot = ['principals' => [], 'tools' => []];
-        foreach (self::principals() as $label => $scopes) {
+        $principals = [
+            ...array_map(static fn (array $scopes): array => [$scopes, '/api/v1/mcp'], self::principals()),
+            ...array_map(static fn (array $scopes): array => [$scopes, '/api/v1/mcp?toolsets=all'], self::listingEverything()),
+        ];
+        foreach ($principals as $label => [$scopes, $path]) {
             Auth::forgetGuards();
             Passport::actingAs($actor, $scopes, 'api', $client);
-            [$instructions, $tools, $prompts] = $this->listFor();
+            [$instructions, $tools, $prompts, $listChanged] = $this->listFor($path);
             $snapshot['principals'][$label] = [
                 'scopes' => $scopes,
                 'instructions' => $instructions,
                 'prompts' => $prompts,
+                'tools_list_changed' => $listChanged,
                 'tools' => array_keys($tools),
             ];
             foreach ($tools as $name => $definition) {
@@ -116,7 +136,7 @@ final class AgentMcpToolSnapshotTest extends TestCase
             'revoked' => false,
         ]));
         $patterns = [];
-        foreach ($this->listFor()[1] as $name => $tool) {
+        foreach ($this->listFor('/api/v1/mcp?toolsets=all')[1] as $name => $tool) {
             array_walk_recursive($tool, static function (mixed $value, int|string $key) use (&$patterns, $name): void {
                 if ($key === 'pattern' && is_string($value)) {
                     $patterns[] = [$name, $value];
@@ -171,22 +191,22 @@ final class AgentMcpToolSnapshotTest extends TestCase
         return $tool;
     }
 
-    /** @return array{0: string, 1: array<string, mixed>, 2: list<string>} */
-    private function listFor(): array
+    /** @return array{0: string, 1: array<string, mixed>, 2: list<string>, 3: bool} */
+    private function listFor(string $path = '/api/v1/mcp'): array
     {
-        $initialized = $this->postJson('/api/v1/mcp', [
+        $initialized = $this->postJson($path, [
             'jsonrpc' => '2.0', 'id' => 1, 'method' => 'initialize',
             'params' => ['protocolVersion' => '2025-06-18', 'capabilities' => [], 'clientInfo' => ['name' => 'Synthetic Snapshot', 'version' => '1.0.0']],
         ], ['Mcp-Protocol-Version' => '2025-06-18'])->assertOk();
         $session = (string) $initialized->headers->get('Mcp-Session-Id');
         $headers = ['Mcp-Protocol-Version' => '2025-06-18', 'Mcp-Session-Id' => $session];
-        $this->postJson('/api/v1/mcp', ['jsonrpc' => '2.0', 'method' => 'notifications/initialized'], $headers);
+        $this->postJson($path, ['jsonrpc' => '2.0', 'method' => 'notifications/initialized'], $headers);
 
         $tools = [];
         $cursor = null;
         $id = 2;
         do {
-            $page = $this->postJson('/api/v1/mcp', [
+            $page = $this->postJson($path, [
                 'jsonrpc' => '2.0', 'id' => $id++, 'method' => 'tools/list',
                 'params' => $cursor === null ? new \stdClass : ['cursor' => $cursor],
             ], $headers)->assertOk()->json('result');
@@ -197,10 +217,10 @@ final class AgentMcpToolSnapshotTest extends TestCase
         } while ($cursor !== null);
         ksort($tools);
 
-        $prompts = array_column($this->postJson('/api/v1/mcp', ['jsonrpc' => '2.0', 'id' => $id, 'method' => 'prompts/list', 'params' => new \stdClass], $headers)
+        $prompts = array_column($this->postJson($path, ['jsonrpc' => '2.0', 'id' => $id, 'method' => 'prompts/list', 'params' => new \stdClass], $headers)
             ->assertOk()->json('result.prompts') ?? [], 'name');
         sort($prompts);
 
-        return [(string) $initialized->json('result.instructions'), $tools, $prompts];
+        return [(string) $initialized->json('result.instructions'), $tools, $prompts, $initialized->json('result.capabilities.tools.listChanged') === true];
     }
 }

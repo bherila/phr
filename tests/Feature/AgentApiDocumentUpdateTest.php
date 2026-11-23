@@ -205,6 +205,10 @@ final class AgentApiDocumentUpdateTest extends TestCase
             'protocolVersion' => '2025-06-18', 'capabilities' => [], 'clientInfo' => ['name' => 'Synthetic', 'version' => '1.0.0'],
         ]], $headers)->assertOk()->headers->get('Mcp-Session-Id');
 
-        return $this->postJson('/api/v1/mcp', $message, $headers + ['Mcp-Session-Id' => $session])->assertOk();
+        // These tests read definitions of tools outside the core, so they list every
+        // authorized tool; a tools/call never depends on what is listed.
+        $path = $message['method'] === 'tools/list' ? '/api/v1/mcp?toolsets=all' : '/api/v1/mcp';
+
+        return $this->postJson($path, $message, $headers + ['Mcp-Session-Id' => $session])->assertOk();
     }
 }

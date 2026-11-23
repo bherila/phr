@@ -64,8 +64,11 @@ final class ChatGptPluginTest extends TestCase
         $this->assertSame('/api/v1/mcp', parse_url($server['url'], PHP_URL_PATH));
         $this->assertSame('https', parse_url($server['url'], PHP_URL_SCHEME));
         // The endpoint is its own protected resource; a token for any other
-        // resource is refused, so the two must name the same URL.
-        $this->assertSame($server['url'], $auth['resource']);
+        // resource is refused, so the two must name the same URL. The query
+        // only chooses the tool listing: ChatGPT keeps the tool list it read
+        // when connecting, so the plugin lists every tool (toolsets=all).
+        $this->assertSame(strtok($server['url'], '?'), $auth['resource']);
+        $this->assertSame('toolsets=all', parse_url($server['url'], PHP_URL_QUERY));
         $this->assertSame('oauth', $auth['type']);
 
         $scopes = $auth['defaultScopes'];
@@ -111,19 +114,20 @@ final class ChatGptPluginTest extends TestCase
     /** @return list<string> */
     private function exposedToolNames(): array
     {
+        $url = parse_url(self::server()['url'], PHP_URL_PATH).'?'.parse_url(self::server()['url'], PHP_URL_QUERY);
         $headers = ['Mcp-Protocol-Version' => '2025-06-18'];
-        $initialized = $this->postJson('/api/v1/mcp', [
+        $initialized = $this->postJson($url, [
             'jsonrpc' => '2.0', 'id' => 1, 'method' => 'initialize',
             'params' => ['protocolVersion' => '2025-06-18', 'capabilities' => [], 'clientInfo' => ['name' => 'Synthetic Plugin Check', 'version' => '1.0.0']],
         ], $headers)->assertOk();
         $headers['Mcp-Session-Id'] = (string) $initialized->headers->get('Mcp-Session-Id');
-        $this->postJson('/api/v1/mcp', ['jsonrpc' => '2.0', 'method' => 'notifications/initialized'], $headers);
+        $this->postJson($url, ['jsonrpc' => '2.0', 'method' => 'notifications/initialized'], $headers);
 
         $names = [];
         $cursor = null;
         $id = 2;
         do {
-            $page = $this->postJson('/api/v1/mcp', [
+            $page = $this->postJson($url, [
                 'jsonrpc' => '2.0', 'id' => $id++, 'method' => 'tools/list',
                 'params' => $cursor === null ? new \stdClass : ['cursor' => $cursor],
             ], $headers)->assertOk()->json('result');

@@ -8,6 +8,8 @@ description: Use when the user asks about their personal health records in PHR -
 PHR holds health records for one or more patients the user can access. Every
 tool acts through the user's own PHR permissions; a missing tool means the
 connection was not granted that permission, not that the data is absent.
+This plugin connects with every authorized tool listed, so there are no toolsets
+to enable.
 
 ## Find the patient first
 

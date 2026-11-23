@@ -26,6 +26,7 @@ use Mcp\Server;
 use Mcp\Server\Builder;
 use Mcp\Server\Configuration;
 use Mcp\Server\Handler\Request\CallToolHandler;
+use Mcp\Server\Handler\Request\InitializeHandler;
 use Mcp\Server\Session\Psr16SessionStore;
 use Psr\Log\NullLogger;
 
@@ -79,11 +80,28 @@ final class AgentMcpServerFactory
             static fn (ToolDefinition $definition): string => $definition->name,
             $exposedDefinitions,
         ), true);
+        // Every authorized tool outside the core, by its toolset. Listing by
+        // toolset only pays when there is a choice to make: a connection whose
+        // tools fall in one toolset (a GenAI worker, say) lists them all.
+        $toolsets = array_fill_keys(array_keys(AgentMcpToolsets::TOOLSETS), []);
+        foreach ($exposedDefinitions as $definition) {
+            $toolset = AgentMcpToolsets::toolsetFor($definition->name);
+            if ($toolset !== null) {
+                $toolsets[$toolset][] = $definition;
+            }
+        }
+        $toolsets = array_filter($toolsets);
+        $byToolset = count($toolsets) > 1 && ! AgentMcpToolsets::listsEverything($request);
         $schemaIds = [];
         foreach ($exposedDefinitions as $definition) {
             $schemaIds[$definition->name] = isset($genAiToolNames[$definition->name])
                 ? 'genai-mcp.v1.'.$definition->name
                 : AgentApiResponseSchemaCatalog::operationComponent($definition->responseOperationId());
+        }
+        if ($byToolset) {
+            foreach ([AgentMcpToolsets::LIST, AgentMcpToolsets::ENABLE, AgentMcpToolsets::DISABLE] as $name) {
+                $schemaIds[$name] = 'phr-mcp.v1.'.$name;
+            }
         }
         $serverInfo = new Implementation(
             name: 'PHR Agent API',
@@ -91,7 +109,7 @@ final class AgentMcpServerFactory
             description: 'Read and safely update authorized personal health records through the versioned PHR REST API.',
             websiteUrl: url('/'),
         );
-        $instructions = $this->instructions($exposedToolNames);
+        $instructions = $this->instructions($exposedToolNames, $byToolset);
         $builder = Server::builder()
             ->setServerInfo($serverInfo->name, $serverInfo->version, $serverInfo->description, websiteUrl: $serverInfo->websiteUrl)
             ->setInstructions($instructions)
@@ -194,17 +212,62 @@ final class AgentMcpServerFactory
         // Share the exact metadata between initialize and sessionless discovery.
         $capabilities = new ServerCapabilities(
             tools: $exposedDefinitions !== [],
+            toolsListChanged: $byToolset,
             resources: false,
             prompts: $hasClinicalPrompt || $hasImportPrompt,
             logging: true,
             completions: true,
         );
         $builder->setCapabilities($capabilities);
+        $configuration = new Configuration($serverInfo, $capabilities, 100, $instructions, $protocolVersion);
+        if ($byToolset) {
+            $this->addToolsets($builder, $registry, $configuration, $toolsets, $request);
+        }
 
         return [
             'builder' => $builder,
-            'configuration' => new Configuration($serverInfo, $capabilities, 100, $instructions, $protocolVersion),
+            'configuration' => $configuration,
         ];
+    }
+
+    /**
+     * Lists by toolset: tools/list shows the core and the enabled toolsets,
+     * toolsets.* change what is enabled, and initialize keeps announcing
+     * tools.listChanged, which the SDK drops for the handshake era although
+     * toolsets.enable sends the notification on its response stream.
+     *
+     * @param  array<string, list<ToolDefinition>>  $toolsets
+     */
+    private function addToolsets(Builder $builder, Registry $registry, Configuration $configuration, array $toolsets, Request $request): void
+    {
+        $builder->addRequestHandler(new AgentMcpToolsetListToolsHandler($registry, $configuration->paginationLimit));
+        $builder->addRequestHandler(new AgentMcpListChangedInitializeHandler(new InitializeHandler($configuration), $configuration->capabilities));
+        $toolsetTools = new AgentMcpToolsetTools(
+            $toolsets,
+            // Streamable HTTP clients accept both; a notification needs the stream.
+            str_contains(strtolower((string) $request->header('Accept', '')), 'text/event-stream'),
+        );
+        foreach ([
+            AgentMcpToolsets::LIST => ['list', 'List toolsets', 'List the toolsets this connection may enable, with each one\'s description, tool count and whether this session lists it. Only the core tools are listed until a toolset is enabled.'],
+            AgentMcpToolsets::ENABLE => ['enable', 'Enable toolsets', 'List the tools of the named toolsets in this session\'s tools/list. Returns their names and short descriptions and sends notifications/tools/list_changed; list tools again for their schemas. Enabling grants no access.'],
+            AgentMcpToolsets::DISABLE => ['disable', 'Disable toolsets', 'Stop listing the tools of the named toolsets in this session\'s tools/list. They stay callable by name.'],
+        ] as $name => [$method, $title, $description]) {
+            $builder->addTool(
+                handler: [$toolsetTools, $method],
+                name: $name,
+                title: $title,
+                description: $description,
+                annotations: new ToolAnnotations(
+                    // Changes only what this session lists, never a record.
+                    readOnlyHint: true,
+                    destructiveHint: false,
+                    idempotentHint: true,
+                    openWorldHint: false,
+                ),
+                inputSchema: AgentMcpToolsetTools::inputSchema($name),
+                outputSchema: AgentMcpToolsetTools::outputSchema($name),
+            );
+        }
     }
 
     /**
@@ -217,8 +280,11 @@ final class AgentMcpServerFactory
     }
 
     /** @param array<string, true> $available */
-    private function instructions(array $available): string
+    private function instructions(array $available, bool $byToolset): string
     {
+        $listed = $byToolset
+            ? 'Use only operations in tools/list or in a toolset toolsets.list offers; anything else is not authorized for this connection.'
+            : 'Use only operations currently exposed in tools/list; missing tools are not authorized for this connection.';
         $hasPatientContext = $this->hasTools($available, ['identity.get', 'patients.list', 'patients.get']);
         $hasClinicalUpdate = $this->hasTools($available, ['records.search', 'office_visits.update']);
         $hasImportReview = $this->hasTools($available, ['records.search', 'imports.list', 'imports.get', 'imports.review']);
@@ -228,12 +294,15 @@ final class AgentMcpServerFactory
         } elseif ($hasPatientContext && $hasImportReview) {
             $base = 'First call identity.get, then patients.list; select only a patient ID returned by PHR, never guess one, and confirm it with patients.get before reviewing an import. Inspect the staged proposal and existing patient-scoped records, preserve stable provenance and deterministic external_id values, and obtain explicit user approval before accepting or rejecting a proposal.';
         } elseif ($hasPatientContext) {
-            $base = 'First call identity.get, then patients.list; select only a patient ID returned by PHR, never guess one, and confirm it with patients.get. Use only operations currently exposed in tools/list; missing tools are not authorized for this connection.';
+            $base = 'First call identity.get, then patients.list; select only a patient ID returned by PHR, never guess one, and confirm it with patients.get. '.$listed;
         } else {
-            $base = 'Use only operations currently exposed in tools/list; missing tools are not authorized for this connection. Never guess a patient or record ID.';
+            $base = $listed.' Never guess a patient or record ID.';
         }
 
         $details = [];
+        if ($byToolset) {
+            $details[] = 'tools/list shows only a core set of tools until you enable more: call toolsets.list for the toolsets this connection may use and toolsets.enable to list a toolset\'s tools (the server then sends notifications/tools/list_changed, and the result names the tools). Enabling grants no access, and an authorized tool answers a call by name whether or not it is listed.';
+        }
         if ($hasClinicalUpdate) {
             $details[] = 'The resource-specific update tools require clinical:read and clinical:write, preserve import identity unless explicitly changed, conflict if the record changed, and reopen human review on every effective change.';
         }
