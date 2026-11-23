@@ -16,12 +16,16 @@ use App\Models\PhrPatient;
 use App\Models\PhrPatientVital;
 use App\Models\PhrPortalMessage;
 use App\Models\PhrProcedure;
+use App\Support\PHR\PhrEncounterVocabulary;
 use App\Support\PHR\PhrLabReferenceRangeNotation;
 use Illuminate\Support\Carbon;
 
 class PhrFhirExporter
 {
     private const string UCUM_SYSTEM = 'http://unitsofmeasure.org';
+
+    /** Classes of a stay, which may still be under way while it has no end. */
+    private const array STAY_CLASSES = ['IMP', 'ACUTE', 'NONAC', 'OBSENC', 'SS', 'HH'];
 
     /**
      * Stored dose units that are unambiguous UCUM units, mapped to their UCUM code.
@@ -386,10 +390,18 @@ class PhrFhirExporter
      */
     private function encounterResource(PhrOfficeVisit $visit): array
     {
+        $diagnoses = $this->encounterDiagnoses($visit);
+        $hospitalization = array_filter([
+            'admitSource' => $this->vocabularyConcept(PhrEncounterVocabulary::ADMIT_SOURCE_SYSTEM, PhrEncounterVocabulary::ADMIT_SOURCES, $visit->admit_source, $visit->admit_source_text),
+            'dischargeDisposition' => $this->vocabularyConcept(PhrEncounterVocabulary::DISCHARGE_DISPOSITION_SYSTEM, PhrEncounterVocabulary::DISCHARGE_DISPOSITIONS, $visit->discharge_disposition, $visit->discharge_disposition_text),
+        ]);
+
         return [
             'resourceType' => 'Encounter',
             'id' => 'phr-visit-'.$visit->id,
-            'status' => 'finished',
+            'contained' => $diagnoses === [] ? null : array_column($diagnoses, 'condition'),
+            'status' => $this->encounterState($visit),
+            'class' => $this->encounterClass($visit->encounter_class),
             'subject' => $this->patientReference($visit->patient_id),
             'type' => $visit->visit_type ? [$this->textCode($visit->visit_type)] : null,
             'period' => [
@@ -399,7 +411,103 @@ class PhrFhirExporter
             ],
             'participant' => $visit->provider_name ? [['individual' => ['display' => $visit->provider_name]]] : null,
             'reasonCode' => $visit->chief_complaint ? [$this->textCode($visit->chief_complaint)] : null,
+            'diagnosis' => $diagnoses === [] ? null : array_column($diagnoses, 'diagnosis'),
+            'hospitalization' => $hospitalization === [] ? null : $hospitalization,
+            'location' => $visit->location ? [['location' => ['display' => $visit->location]]] : null,
             'serviceProvider' => $visit->facility_name ? ['display' => $visit->facility_name] : null,
+        ];
+    }
+
+    /**
+     * The visit's state, else what its dates say: a visit that ended, or a visit
+     * other than a stay on a day already past, is finished. A stay with no end may
+     * still be under way, and a visit with no date says nothing, so those are unknown.
+     */
+    private function encounterState(PhrOfficeVisit $visit): string
+    {
+        if (PhrEncounterVocabulary::isState($visit->encounter_state)) {
+            return (string) $visit->encounter_state;
+        }
+        if ($visit->visit_ended_at !== null) {
+            return 'finished';
+        }
+        $began = $visit->visit_started_at ?? $visit->visit_date;
+        if ($began === null || in_array($visit->encounter_class, self::STAY_CLASSES, true)) {
+            return 'unknown';
+        }
+
+        return $began->copy()->startOfDay()->lte(now()) ? 'finished' : 'unknown';
+    }
+
+    /**
+     * R4 requires a class. A visit that states none says so with a null flavor
+     * rather than a guessed ActCode.
+     *
+     * @return array{system: string, code: string, display: string}
+     */
+    private function encounterClass(?string $class): array
+    {
+        if (PhrEncounterVocabulary::isClass($class)) {
+            return ['system' => PhrEncounterVocabulary::ACT_CODE_SYSTEM, 'code' => (string) $class, 'display' => PhrEncounterVocabulary::CLASSES[$class]];
+        }
+
+        return ['system' => 'http://terminology.hl7.org/CodeSystem/v3-NullFlavor', 'code' => 'UNK', 'display' => 'unknown'];
+    }
+
+    /**
+     * Each encounter diagnosis as a contained Condition and the diagnosis entry that
+     * refers to it, in the visit's order (rank 1 first).
+     *
+     * @return list<array{condition: array<string, mixed>, diagnosis: array<string, mixed>}>
+     */
+    private function encounterDiagnoses(PhrOfficeVisit $visit): array
+    {
+        $diagnoses = [];
+        foreach ($visit->encounter_diagnoses ?? [] as $entry) {
+            $name = is_scalar($entry['name'] ?? null) ? trim((string) $entry['name']) : '';
+            if ($name === '') {
+                continue;
+            }
+            $id = 'diagnosis-'.(count($diagnoses) + 1);
+            $code = is_scalar($entry['code'] ?? null) ? (string) $entry['code'] : null;
+            $system = is_scalar($entry['code_system'] ?? null) ? (string) $entry['code_system'] : null;
+            $use = is_scalar($entry['use'] ?? null) ? (string) $entry['use'] : null;
+            $diagnoses[] = [
+                'condition' => [
+                    'resourceType' => 'Condition',
+                    'id' => $id,
+                    'category' => [$this->coding('http://terminology.hl7.org/CodeSystem/condition-category', 'encounter-diagnosis', 'Encounter Diagnosis')],
+                    'code' => $this->textCode($name, $code, $system),
+                    'subject' => $this->patientReference($visit->patient_id),
+                ],
+                'diagnosis' => [
+                    'condition' => ['reference' => '#'.$id, 'display' => $name],
+                    'use' => $use === null ? null : ['coding' => [['system' => 'http://terminology.hl7.org/CodeSystem/diagnosis-role', 'code' => $use]]],
+                    'rank' => count($diagnoses) + 1,
+                ],
+            ];
+        }
+
+        return $diagnoses;
+    }
+
+    /**
+     * A code from one of the visit's FHIR vocabularies with the source's words beside
+     * it; the words alone when the code is not one of them.
+     *
+     * @param  array<string, string>  $displays
+     * @return array<string, mixed>|null
+     */
+    private function vocabularyConcept(string $system, array $displays, ?string $code, ?string $text): ?array
+    {
+        $known = $code !== null && isset($displays[$code]);
+        if (! $known && ($text === null || trim($text) === '')) {
+            return null;
+        }
+
+        return [
+            'coding' => $known ? [['system' => $system, 'code' => $code, 'display' => $displays[$code]]] : null,
+            'text' => $text !== null && trim($text) !== '' ? $text : null,
         ];
     }
 

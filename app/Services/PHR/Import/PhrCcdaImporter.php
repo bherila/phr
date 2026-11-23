@@ -119,8 +119,11 @@ class PhrCcdaImporter
 
     private function readXml(DOMXPath $xpath, PhrPatient $patient, int $actorUserId): PhrImportResult
     {
-        $catalog = new PhrCcdaSectionCatalog(new PhrCcdaXml($xpath));
+        $xml = new PhrCcdaXml($xpath);
+        $catalog = new PhrCcdaSectionCatalog($xml);
         $result = new PhrImportResult;
+        // The encounter the document is about, until an Encounter Activity with its id claims it.
+        $header = (new PhrCcdaEncounterActivities($xml))->header();
 
         foreach ($xpath->query('//*[local-name()="section"]') ?: [] as $section) {
             if (! $section instanceof DOMElement) {
@@ -150,7 +153,7 @@ class PhrCcdaImporter
                 // record; its narrative table is only their rendering.
                 $entries = $reader->entries($section);
                 if ($entries !== []) {
-                    $result->merge($this->importEntries($patient, $actorUserId, $reader, $entries));
+                    $result->merge($this->importEntries($patient, $actorUserId, $reader, $entries, $header));
 
                     continue;
                 }
@@ -164,6 +167,10 @@ class PhrCcdaImporter
             $result->merge($reader === null
                 ? new PhrImportResult(skipped: count($rows))
                 : $this->structuredImporter->importUnreviewed($patient, $actorUserId, $reader->jobType(), array_map($reader->narrativeRecord(...), $rows), $this->options()));
+        }
+
+        if ($header !== null) {
+            $result->merge($this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_office_visit', [$header], $this->options()));
         }
 
         return $result;
@@ -207,11 +214,15 @@ class PhrCcdaImporter
      * other ids are moved to theirs first, so they update in place; an entry
      * nothing names is read from its own table row instead.
      *
+     * An Encounter Activity with the header encounter's id is that encounter: what the
+     * header says fills what the activity leaves unsaid, and the header is not read again.
+     *
      * @param  list<PhrCcdaEntry>  $entries
+     * @param  array<string, mixed>|null  $header  the document's encompassingEncounter, until an activity claims it
      */
-    private function importEntries(PhrPatient $patient, int $actorUserId, PhrCcdaSectionReader $reader, array $entries): PhrImportResult
+    private function importEntries(PhrPatient $patient, int $actorUserId, PhrCcdaSectionReader $reader, array $entries, ?array &$header = null): PhrImportResult
     {
-        return DB::transaction(function () use ($patient, $actorUserId, $reader, $entries): PhrImportResult {
+        return DB::transaction(function () use ($patient, $actorUserId, $reader, $entries, &$header): PhrImportResult {
             $own = array_values(array_filter($entries, static fn (PhrCcdaEntry $entry): bool => $entry->record !== null && $entry->jobType === $reader->jobType()));
             $this->legacyRows->adopt($this->attributeMapper->modelClassFor($reader->jobType()), (int) $patient->id, self::IMPORT_SOURCE, $reader->legacyKind(), $own);
 
@@ -222,7 +233,16 @@ class PhrCcdaImporter
                 if ($entry->skip) {
                     $skipped++;
                 } elseif ($entry->record !== null) {
-                    $records[$entry->jobType][] = $entry->record;
+                    $record = $entry->record;
+                    if ($header !== null && $entry->jobType === 'phr_office_visit' && ($record['external_id'] ?? null) === ($header['external_id'] ?? null)) {
+                        foreach ($header as $field => $value) {
+                            if (($record[$field] ?? null) === null) {
+                                $record[$field] = $value;
+                            }
+                        }
+                        $header = null;
+                    }
+                    $records[$entry->jobType][] = $record;
                 } elseif ($entry->narrativeCells !== null) {
                     $unnamed[] = $reader->narrativeRecord($entry->narrativeCells);
                 } else {

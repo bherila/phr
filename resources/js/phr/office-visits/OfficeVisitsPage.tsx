@@ -11,6 +11,7 @@ import { formatDate, formatDateTime } from '@/lib/dateFormat'
 import { ShowRejectedToggle } from '@/phr/clinical/review'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { EhiPendingBanner } from '@/phr/imports/ehi/EhiPendingBanner'
+import { encounterClassLabel } from '@/phr/office-visits/encounterLabels'
 import { useKnownPatientCanManage } from '@/phr/patients/usePhrPatients'
 import { reviewStateChanged } from '@/phr/review/reviewSummary'
 import { compactPayload, errorMessage } from '@/phr/shared'
@@ -109,7 +110,7 @@ function eventsFromRecords(
     date: visit.visit_started_at ?? visit.visit_date,
     displayDate: displayDate(visit.visit_started_at ?? visit.visit_date),
     title: visit.visit_type ?? 'Office Visit',
-    subtitle: [visit.provider_name, visit.facility_name].filter(Boolean).join(' · ') || 'Provider or facility not recorded',
+    subtitle: [encounterClassLabel(visit.encounter_class), visit.provider_name, visit.facility_name, visit.location].filter(Boolean).join(' · ') || 'Provider or facility not recorded',
     detail: visit.chief_complaint ? `CC: ${visit.chief_complaint}` : visit.assessment,
     badge: 'Office Visit',
     reviewStatus: visit.review_status,

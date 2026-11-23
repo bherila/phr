@@ -1274,7 +1274,7 @@
                 "openWorldHint": false
             },
             "description": "Partially update one existing Office Visits record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
-            "inputSchema": "sha256:436bc64f369a565a8f2912785814bd17f35a10d5700ed0d56cd0c024e17ad68b",
+            "inputSchema": "sha256:622ae0f6329c91d7cdb953dc37e00c8fcde3356b426359b44f5e0fdebf7c3690",
             "name": "office_visits.update",
             "outputSchema": "sha256:8d27ab7435cdd77b0812ac4fca1416596454bf6a40c5928b5b282d8e942fe32e",
             "title": "Update Office Visits"
@@ -1287,7 +1287,7 @@
                 "openWorldHint": false
             },
             "description": "Idempotently create or update one Office Visits record through the versioned REST API.",
-            "inputSchema": "sha256:a570adb23527fb01a7dd0588a8988bacf381f77d7d9f6c824f4ea1f8fcf42622",
+            "inputSchema": "sha256:eec8a1a092cef8f4d1e39fbcb2771f71f08564b1f77de9050a33c78371e60706",
             "name": "office_visits.upsert",
             "outputSchema": "sha256:8d27ab7435cdd77b0812ac4fca1416596454bf6a40c5928b5b282d8e942fe32e",
             "title": "Upsert Office Visits"

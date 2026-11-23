@@ -22,20 +22,19 @@ invent absent demographics, assigning authorities, contact information, or clini
 data. A deployment-local patient database ID is not emitted as an interoperable patient
 identifier.
 
-The export is not yet fully C-CDA v5 conformant when it contains clinical rows. Seven
+The export is not yet fully C-CDA v5 conformant when it contains clinical rows. Six
 entries-required CCD sections still contain the existing human-readable narrative table
 without the corresponding structured entry:
 
 - Allergies: Allergy Concern Act
-- Encounters: Encounter Activity
 - Immunizations: Immunization Activity
 - Medications: Medication Activity
 - Problems: Problem Concern Act
 - Procedures: Procedure Activity Procedure
 - Vital Signs: Vital Signs Organizer or Average Blood Pressure Organizer
 
-Those are the exact expected Schematron errors in the validation gate. The eighth,
-Results, is structured (see below) and no longer in the baseline. Any additional,
+Those are the exact expected Schematron errors in the validation gate. Results and
+Encounters are structured (see below) and no longer in the baseline. Any additional,
 removed, or changed error fails CI, so a future structured-entry implementation must
 update the baseline and this document together. The app-specific Portal Messages,
 Negative Assertions, Imaging Studies, and Documents sections remain untemplated CDA
@@ -121,6 +120,45 @@ inclusiveness and `range_unit`, and `reference_range_text` only where the source
 text. Rows another document or source created for the same results are not matched by this
 id: a lab first imported from a different document, or entered by hand, is not recognised
 as the same result when this export is imported into the same patient.
+
+## Encounters: Encounter Activities
+
+The Encounters section carries one Encounter Activity
+(`2.16.840.1.113883.10.20.22.4.49:2015-08-01`) per visit beside its narrative table
+(`PhrCcdaEncounterEntries`). `encompassingEncounter` names a document's single encounter,
+so a CCD holding many visits cannot use it. Each table row has an `ID` (`encounter-N`)
+that its activity's `text` references. The table keeps its five columns, so a document
+first imported from its table is still adopted in place. A visit's coded facts the table
+has no column for (class, state, unit and facility, disposition, diagnoses) follow it in a
+narrative `list`, one `item` (`encounter-N-detail`) per visit that states any; its
+diagnoses' `text` references that item.
+
+- **Ids** are version 5 UUIDs keyed to the deployment, as for results, so importing the
+  export again updates the same visits.
+- **code** is `nullFlavor="OTH"` with the visit type as `originalText` (`UNK` when there
+  is none): PHR keeps no CPT encounter code. The HL7 v3 ActCode class (`IMP`, `AMB`, ...)
+  is its translation, without a display name, so a reader that names an encounter by its
+  code's words never reads the class as a type.
+- **statusCode** is written only for a stored state: `in-progress` and the other
+  under-way states are `active`, `finished` is `completed`, `cancelled` is `cancelled`.
+- **effectiveTime** is the start, or a `low`/`high` interval when the visit ended. A time
+  whose zone the source did not record is written as its date.
+- **sdtc:dischargeDispositionCode** is the NUBC patient status (`2.16.840.1.113883.6.301.5`)
+  that means the stored FHIR disposition (home `01`, skilled nursing `03`, against advice
+  `07`, expired `20`, rehabilitation `62`, long-term care `63`, psychiatric `65`). Any other
+  disposition is `nullFlavor="OTH"` with the source's words.
+- **performer** is the provider; when the visit names a unit, the facility is its
+  represented organization. The **Service Delivery Location** (`.4.32`) is the unit, else
+  the facility. Its HSLOC code is not stored, so the code is `nullFlavor="UNK"`.
+- **Encounter Diagnosis** (`.4.80:2024-05-01`) holds one Problem Observation
+  (`.4.4:2024-05-01`, code SNOMED `282291009` Diagnosis) per encounter diagnosis, then per
+  ICD-10 code the diagnoses do not already name. A diagnosis coded in ICD-10-CM or SNOMED
+  CT carries its code; any other is `nullFlavor="OTH"` with its name, never a guessed code.
+
+The baseline's extra recommendations are context the app does not have: a diagnosis
+author, the type as a narrative reference, and the location's address and telephone. The
+engine cannot resolve the ActStatus value sets of Encounter Diagnosis and Problem
+Observation or the ProblemType value set; `PhrCcdaEncounterEntriesTest` checks those codes.
 
 ## Validation gate
 

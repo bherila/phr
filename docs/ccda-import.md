@@ -49,6 +49,22 @@ field takes. Statuses are mapped to the app's own vocabularies (for example a
 Medication Activity's `aborted` is `discontinued`, a Procedure Activity's `active`
 is `in_progress`).
 
+An Encounter Activity also gives the visit its ActCode class (from its code or a
+translation), its state (`statusCode` `active` is `in-progress`, `completed` is `finished`),
+its `sdtc:dischargeDispositionCode` (a NUBC status as the FHIR disposition of the same
+meaning, with the source's words) and its diagnoses by name. With both a service location
+and a performing organization, the location is the unit and the organization the facility.
+
+## The document's own encounter
+
+A single-encounter document (a discharge summary, a visit note) names its encounter in
+the header, `componentOf/encompassingEncounter`. It is a visit: its class, period,
+responsible party (else attending), `healthCareFacility` location as the unit and service
+provider organization as the facility, admission referral source text and discharge
+disposition. An Encounter Activity with the same id is the same visit: the activity's own
+fields stand and the header fills only what it leaves unsaid, so the stay is never imported
+twice.
+
 ## Hospital medication lists
 
 Admission Medications (42346-7), Medications Administered (29549-3) and Hospital

@@ -1597,7 +1597,7 @@ final class AgentRestDocumentation
                 'method' => 'PUT',
                 'path' => '/patients/{patient}/office-visits',
                 'summary' => 'Idempotently create or update an office visit',
-                'description' => 'Stable external IDs are namespaced to the authenticated OAuth client. A changed existing record requires its current opaque version; an already-applied retry remains safe with a stale version.',
+                'description' => 'Stable external IDs are namespaced to the authenticated OAuth client. A changed existing record requires its current opaque version; an already-applied retry remains safe with a stale version. A visit carries its coded encounter facts: encounter_class (HL7 v3 ActCode, IMP for an inpatient stay), encounter_state (FHIR Encounter.status, in-progress while a stay is under way), the unit in location, admit_source and discharge_disposition with the source\'s words beside each, encounter_category, and encounter_diagnoses, which stay on the visit and are not conditions. encounter_status is the source\'s own appointment status text and is not written here.',
                 'scopes' => ['clinical:write'],
                 'parameters' => ['PatientId'],
                 'request' => 'OfficeVisitUpsertRequest',

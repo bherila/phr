@@ -150,6 +150,18 @@ final class PhrCcdaSyntheticDocument
                     'provider_name' => null,
                     'chief_complaint' => null,
                     'assessment' => null,
+                    // An Encounter Activity with every part the exporter writes.
+                    'facility_name' => 'Synthetic hospital',
+                    'location' => 'Synthetic unit',
+                    'encounter_class' => 'IMP',
+                    'encounter_state' => 'finished',
+                    'discharge_disposition' => 'home',
+                    'discharge_disposition_text' => null,
+                    'encounter_diagnoses' => [
+                        ['name' => 'Synthetic coded diagnosis', 'code' => 'R99', 'code_system' => 'http://hl7.org/fhir/sid/icd-10-cm'],
+                        ['name' => 'Synthetic named diagnosis'],
+                    ],
+                    'icd10_codes' => null,
                 ]]),
             ];
 

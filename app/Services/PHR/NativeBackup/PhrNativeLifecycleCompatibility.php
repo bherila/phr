@@ -82,6 +82,14 @@ final class PhrNativeLifecycleCompatibility
             'visit_ended_source',
             'visit_ended_precision',
             'visit_ended_timezone',
+            // Coded encounter class, state, location, admit source and disposition (#410).
+            'encounter_class',
+            'encounter_state',
+            'location',
+            'admit_source',
+            'admit_source_text',
+            'discharge_disposition',
+            'discharge_disposition_text',
         ],
         // Which source-ID bridge justified a link (#213 M3); older links name none.
         'phr_ehi_record_links' => ['bridge_version', 'bridge_rule'],

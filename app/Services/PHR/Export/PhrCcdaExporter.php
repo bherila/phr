@@ -13,9 +13,10 @@ class PhrCcdaExporter
     /**
      * C-CDA 5.0 section templates that describe the existing narrative tables.
      *
-     * Results carries structured Result Organizer entries beside its narrative table. The
-     * other seven entries-required clinical sections deliberately retain their human-readable
-     * tables without claiming that those rows are structured C-CDA entries. See
+     * Results carries structured Result Organizer entries, and Encounters Encounter Activity
+     * entries, beside their narrative tables. The other six entries-required clinical sections
+     * deliberately retain their human-readable tables without claiming that those rows are
+     * structured C-CDA entries. See
      * docs/ccda-conformance.md for the interoperability boundary and validation baseline.
      *
      * @var array<string, array{root: string, extension: string, code: string}>
@@ -135,13 +136,17 @@ class PhrCcdaExporter
             $allergy->reaction,
             $allergy->severity,
         ])->all());
-        $this->section($xml, 'Encounters', ['Date', 'Type', 'Provider', 'Reason', 'Assessment'], $data['office_visits']->map(fn ($visit): array => [
+        $visits = $data['office_visits']->values()->all();
+        $encounters = new PhrCcdaEncounterEntries($this->deploymentKey());
+        // The table keeps its five columns, so a document first imported from it is still
+        // adopted in place; a visit's coded facts follow it in a list its entries reference.
+        $this->section($xml, 'Encounters', ['Date', 'Type', 'Provider', 'Reason', 'Assessment'], array_map(fn ($visit): array => [
             $visit->visit_started_at?->toDateString() ?? $visit->visit_date?->toDateString(),
             $visit->visit_type,
             $visit->provider_name,
             $visit->chief_complaint,
             $visit->assessment,
-        ])->all());
+        ], $visits), array_map(PhrCcdaEncounterEntries::rowId(...), array_keys($visits)), fn () => $encounters->write($xml, $visits), fn () => $encounters->narrative($xml, $visits));
         $this->section($xml, 'Portal Messages', ['Date', 'Direction', 'Subject', 'Sender', 'Recipient', 'Summary', 'Clinical Relevance'], $data['portal_messages']->map(fn ($message): array => [
             $message->message_at?->toDateString(),
             $message->direction,
@@ -225,8 +230,9 @@ class PhrCcdaExporter
      * @param  array<int, array<int, mixed>>  $rows
      * @param  array<int, string>  $rowIds  the `ID` of each row, by position, for entries that reference it
      * @param  (callable(): void)|null  $entries  writes the section's structured entries after its narrative
+     * @param  (callable(): void)|null  $narrative  writes more narrative after the table
      */
-    private function section(XMLWriter $xml, string $title, array $headers, array $rows, array $rowIds = [], ?callable $entries = null): void
+    private function section(XMLWriter $xml, string $title, array $headers, array $rows, array $rowIds = [], ?callable $entries = null, ?callable $narrative = null): void
     {
         $xml->startElement('component');
         $xml->startElement('section');
@@ -272,6 +278,9 @@ class PhrCcdaExporter
         }
         $xml->endElement();
         $xml->endElement();
+        if ($narrative !== null) {
+            $narrative();
+        }
         $xml->endElement();
         if ($entries !== null) {
             $entries();

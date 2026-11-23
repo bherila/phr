@@ -88,4 +88,38 @@ describe('OfficeVisitDetail', () => {
     expect(screen.getByText(/Synthetic diagnosis \(primary\) · Synthetic note/)).toBeInTheDocument()
     expect(screen.getByText('Synthetic other')).toBeInTheDocument()
   })
+
+  it('shows an inpatient stay\'s class, state, unit, admit source and disposition', async () => {
+    const stay = {
+      ...VISIT,
+      encounter_class: 'IMP',
+      encounter_state: 'in-progress',
+      location: 'Synthetic unit',
+      admit_source: 'emd',
+      admit_source_text: null,
+      discharge_disposition: 'home',
+      discharge_disposition_text: 'Synthetic home with family',
+      encounter_diagnoses: [{ name: 'Synthetic pneumonia', code: 'J18.9', code_system: 'http://hl7.org/fhir/sid/icd-10-cm' }],
+    }
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ office_visit: stay, can_manage: false }))
+
+    render(<OfficeVisitDetail patientId={42} recordId="18" onDrill={jest.fn()} />)
+
+    expect(await screen.findByText('Inpatient')).toBeInTheDocument()
+    expect(screen.getByText('In progress')).toBeInTheDocument()
+    expect(screen.getByText('Synthetic unit')).toBeInTheDocument()
+    expect(screen.getByText('Emergency department')).toBeInTheDocument()
+    expect(screen.getByText('Synthetic home with family')).toBeInTheDocument()
+    expect(screen.getByText(/Synthetic pneumonia \(J18\.9\)/)).toBeInTheDocument()
+  })
+
+  it('leaves out encounter facts an office visit does not state', async () => {
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ office_visit: VISIT, can_manage: false }))
+
+    render(<OfficeVisitDetail patientId={42} recordId="18" onDrill={jest.fn()} />)
+
+    expect(await screen.findByRole('heading', { name: 'Related services' })).toBeInTheDocument()
+    expect(screen.queryByText('Encounter class')).not.toBeInTheDocument()
+    expect(screen.queryByText('Discharged to')).not.toBeInTheDocument()
+  })
 })

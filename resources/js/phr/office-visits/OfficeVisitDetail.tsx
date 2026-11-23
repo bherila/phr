@@ -9,6 +9,7 @@ import EncounterEobLinks from '@/phr/clinical/EncounterEobLinks'
 import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
 import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
+import { encounterFacts } from '@/phr/office-visits/encounterLabels'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import type { PhrNavTarget } from '@/phr/shell/phrRoutes'
@@ -168,6 +169,12 @@ export default function OfficeVisitDetail({ patientId, recordId, onDrill }: Offi
                 <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Facility</dt>
                 <dd className="text-card-foreground">{detailValue(visit.facility_name)}</dd>
               </div>
+              {encounterFacts(visit).map((fact) => (
+                <div key={fact.label}>
+                  <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{fact.label}</dt>
+                  <dd className="text-card-foreground">{fact.value}</dd>
+                </div>
+              ))}
             </dl>
             <div className="mt-4 grid gap-3 border-t border-border pt-4 text-sm">
               <div>
@@ -199,6 +206,7 @@ export default function OfficeVisitDetail({ patientId, recordId, onDrill }: Offi
                     {(visit.encounter_diagnoses ?? []).map((diagnosis, index) => (
                       <li key={`${diagnosis.line ?? index}`}>
                         {diagnosis.name ?? 'Unnamed diagnosis'}
+                        {diagnosis.code ? ` (${diagnosis.code})` : ''}
                         {diagnosis.primary === true && ' (primary)'}
                         {diagnosis.annotation ? ` · ${diagnosis.annotation}` : ''}
                       </li>

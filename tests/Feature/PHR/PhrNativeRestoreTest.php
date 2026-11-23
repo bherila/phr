@@ -1502,6 +1502,63 @@ final class PhrNativeRestoreTest extends TestCase
         @unlink($archivePath);
     }
 
+    public function test_coded_encounter_facts_survive_a_round_trip_and_an_archive_written_before_them_restores_with_none(): void
+    {
+        $owner = User::factory()->create(['user_role' => 'user']);
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        DB::table('phr_office_visits')->insert([
+            'patient_id' => $patient->id,
+            'user_id' => $owner->id,
+            'visit_type' => 'Synthetic hospital admission',
+            'visit_date' => '2026-02-09',
+            'encounter_class' => 'IMP',
+            'encounter_state' => 'in-progress',
+            'location' => '6 North Telemetry',
+            'admit_source' => 'emd',
+            'admit_source_text' => 'Emergency department',
+            'discharge_disposition' => null,
+            'discharge_disposition_text' => null,
+            'review_status' => PhrReviewStatus::CONFIRMED,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $current = $this->archiveCopy($patient, (int) $owner->id);
+        $older = $this->archiveCopy($patient, (int) $owner->id);
+        // An archive downloaded before #410 has none of the columns, with its hash over the smaller set.
+        $this->mutateTableRecords($older, 'phr_office_visits', static function (array $record): array {
+            foreach (['encounter_class', 'encounter_state', 'location', 'admit_source', 'admit_source_text', 'discharge_disposition', 'discharge_disposition_text'] as $column) {
+                unset($record['attributes'][$column]);
+            }
+
+            return $record;
+        });
+
+        DB::table('phr_patients')->where('id', $patient->id)->delete();
+        $attempt = $this->readyAttempt($current, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $attempt->status, (string) $attempt->failure_category);
+        app(PhrNativeRestoreService::class)->apply($attempt->refresh(), (int) $owner->id);
+        $restored = DB::table('phr_office_visits')->where('patient_id', $attempt->refresh()->target_patient_root_id)->sole();
+        $this->assertSame(['IMP', 'in-progress', '6 North Telemetry', 'emd', 'Emergency department'], [$restored->encounter_class, $restored->encounter_state, $restored->location, $restored->admit_source, $restored->admit_source_text]);
+
+        DB::table('phr_patients')->where('id', $attempt->target_patient_root_id)->delete();
+        $olderAttempt = $this->readyAttempt($older, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $olderAttempt->status, (string) $olderAttempt->failure_category);
+        app(PhrNativeRestoreService::class)->apply($olderAttempt->refresh(), (int) $owner->id);
+        $legacy = DB::table('phr_office_visits')->where('patient_id', $olderAttempt->refresh()->target_patient_root_id)->sole();
+        $this->assertSame('Synthetic hospital admission', $legacy->visit_type);
+        foreach (['encounter_class', 'encounter_state', 'location', 'admit_source', 'admit_source_text', 'discharge_disposition', 'discharge_disposition_text'] as $column) {
+            $this->assertNull($legacy->{$column}, $column);
+        }
+
+        // The restored older row, unchanged since, is recognised rather than a conflict.
+        $again = $this->readyAttempt($older, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $again->status, (string) $again->failure_category);
+        $this->assertSame(1, $again->plan_counts_json['tables']['phr_office_visits']['skip']);
+        @unlink($current);
+        @unlink($older);
+    }
+
     public function test_only_a_known_later_relationship_may_be_absent_from_an_archive(): void
     {
         $owner = User::factory()->create(['user_role' => 'user']);

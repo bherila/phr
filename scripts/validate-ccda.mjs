@@ -42,7 +42,6 @@ const expectedErrors = [
     ['ProceduresSection-errors', 'ProceduresSection-errors-root', 'If section/@nullFlavor is not present, SHALL contain at least one Procedure Activity Procedure'],
     ['VitalSignsSection-errors', 'VitalSignsSection-errors-root', 'If section/@nullFlavor is not present, SHALL contain at least one Vital Signs Organizer or Average Blood Pressure Organizer'],
     ['ImmunizationsSection-errors', 'ImmunizationsSection-errors-root', 'If section/@nullFlavor is not present, SHALL contain at least one Immunization Activity'],
-    ['EncountersSection-errors', 'EncountersSection-errors-root', 'If section/@nullFlavor is not present, SHALL contain at least one Encounter Activity'],
 ];
 
 const expectedWarnings = [
@@ -58,9 +57,17 @@ const expectedWarnings = [
     // Result Organizer (one per synthetic panel) and Result Observation: the app has no
     // result author, diagnostic-service category, organizer narrative reference or LOINC code
     // to state, and must not invent them.
-    ['SHOULD contain author', 6],
+    // Problem Observations in the Encounter Activity's two Encounter Diagnoses add two more:
+    // the app records no diagnosis author.
+    ['SHOULD contain author', 8],
     ['SHOULD contain sdtcCategory', 2],
     ['SHOULD contain text/reference/@value', 2],
+    // Encounter Activity: its type is original text written in place (a reference would
+    // name the whole narrative row), and its Service Delivery Location has no address or
+    // telephone the app could state.
+    ['SHOULD contain originalText/reference/@value', 1],
+    ['SHOULD contain addr', 1],
+    ['SHOULD contain telecom', 1],
     ['**SHOULD** be selected from LOINC (codeSystem 2.16.840.1.113883.6.1) **OR** SNOMED CT (codeSystem 2.16.840.1.113883.6.96), and **MAY** be selected from CPT (codeSystem 2.16.840.1.113883.6.12) (CONF:4537-19218).', 2],
     ['This code **SHOULD** be a code from the LOINC that identifies the result observation. If an appropriate LOINC code does not exist, then the local code for this result **SHALL** be sent (CONF:4537-19212).', 4],
 ];
@@ -71,6 +78,10 @@ const expectedWarnings = [
 // validation. The Result Organizer / Observation value-set assertions are covered by
 // PhrCcdaResultEntriesTest, which checks each emitted code against the value set.
 const expectedIgnored = [
+    // Encounter Diagnosis and its Problem Observation: covered by PhrCcdaEncounterEntriesTest.
+    ['EncounterDiagnosis-errors', 'EncounterDiagnosis-errors-statusCode', 'SHALL be selected from ValueSet ActStatus'],
+    ['ProblemObservation-errors', 'ProblemObservation-errors-statusCode', 'SHALL be selected from ValueSet ActStatus'],
+    ['ProblemObservation-warnings', 'ProblemObservation-warnings-code', 'SHOULD be selected from ValueSet ProblemType'],
     ['ResultObservation-errors', 'ResultObservation-errors-code.nullFlavor', 'SHALL be selected from ValueSet CDANullFlavor'],
     ['ResultObservation-errors', 'ResultObservation-errors-interpretationCode', 'SHALL be selected from ValueSet CDAObservationInterpretation'],
     ['ResultObservation-errors', 'ResultObservation-errors-statusCode.code', 'SHALL be selected from ValueSet ResultStatus'],
