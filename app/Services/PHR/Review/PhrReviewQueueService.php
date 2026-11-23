@@ -22,6 +22,7 @@ use App\Models\PhrLabResult;
 use App\Models\PhrMedication;
 use App\Models\PhrMedicationFill;
 use App\Models\PhrMedicationFillEvidence;
+use App\Models\PhrMedicationTransition;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
 use App\Models\PhrPatientVital;
@@ -73,7 +74,13 @@ final readonly class PhrReviewQueueService
         'allergies' => PhrAllergy::class,
         // Documents wait for review too (phr#408): only a confirmed one is exported.
         'documents' => PhrDocument::class,
+        // What happened to a home medication during a stay (#414). Not a page of its own:
+        // its items open the visit they belong to.
+        'medication-transitions' => PhrMedicationTransition::class,
     ];
+
+    /** Clinical review kinds with no page of their own: kind => the page their items open in. */
+    public const array SECTION_PAGES = ['medication-transitions' => 'office-visits'];
 
     /** The browser review route's segment, where it differs from the page id. */
     public const array REVIEW_SEGMENTS = ['labs' => 'lab-results'];
@@ -373,6 +380,10 @@ final readonly class PhrReviewQueueService
                 $query->with('relatesTo');
             }
             PhrRecordLifecycle::scopeLive($query);
+            if ($model === PhrMedicationTransition::class) {
+                // A transition is described by the medications it names: one query for them all.
+                $query->with(['homeMedication:id,name', 'orderMedication:id,name']);
+            }
             $records = $query->orderByDesc('updated_at')->orderByDesc('id')->limit(self::ITEM_LIMIT + 1)->get();
             foreach ($records->take(self::ITEM_LIMIT) as $record) {
                 $rows[] = [$page, $record];
@@ -520,11 +531,12 @@ final readonly class PhrReviewQueueService
                 'eobs' => 'documents',
                 // An episode groups visits and opens beside them on the Visits page.
                 'episodes' => 'office-visits',
-                default => $page,
+                default => self::SECTION_PAGES[$page] ?? $page,
             },
             'review_segment' => self::REVIEW_SEGMENTS[$page] ?? $page,
             ...($page === 'eobs' ? ['open_path' => '/phr/patient/'.$patient->id.'/eobs/'.$record->getKey()] : []),
             ...($page === 'episodes' ? ['open_path' => '/phr/patient/'.$patient->id.'/office-visits/episode/'.$record->getKey()] : []),
+            ...($record instanceof PhrMedicationTransition ? ['open_path' => '/phr/patient/'.$patient->id.'/office-visits/'.$record->office_visit_id] : []),
             'title' => $title,
             'detail' => $detail,
             // Why a person should look closely, beyond the record being new.
@@ -762,8 +774,26 @@ final readonly class PhrReviewQueueService
                 (string) ($a('title') ?: 'Episode'),
                 $this->join(['Episode', EpisodeDataRules::KINDS[(string) $a('kind')] ?? null, $this->date($a('started_at')), $a('ended_at') ? 'to '.$this->date($a('ended_at')) : null]),
             ],
+            'medication-transitions' => $this->describeTransition($record),
             default => [Str::headline($page), null],
         };
+    }
+
+    /**
+     * "lisinopril 10 mg tablet held at admission", with the order that carries it on.
+     *
+     * @return array{0: string, 1: string|null}
+     */
+    private function describeTransition(Model $record): array
+    {
+        if (! $record instanceof PhrMedicationTransition) {
+            return ['Medication change', null];
+        }
+        $home = $record->homeMedication?->name;
+        $order = $record->orderMedication?->name;
+        $title = sprintf('%s %s at %s', $home ?? $order ?? 'Medication', $record->action, $record->phase);
+
+        return [$title, $this->join([$home !== null && $order !== null ? 'now '.$order : null, $record->note])];
     }
 
     /** @return list<array<string, mixed>> */

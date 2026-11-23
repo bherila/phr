@@ -45,6 +45,7 @@ use App\Http\Controllers\PHR\ImmunizationController as PHRImmunizationController
 use App\Http\Controllers\PHR\LabResultController as PHRLabResultController;
 use App\Http\Controllers\PHR\MedicationController as PHRMedicationController;
 use App\Http\Controllers\PHR\MedicationFillController as PHRMedicationFillController;
+use App\Http\Controllers\PHR\MedicationTransitionController as PHRMedicationTransitionController;
 use App\Http\Controllers\PHR\NdcController as PHRNdcController;
 use App\Http\Controllers\PHR\OfficeVisitController as PHROfficeVisitController;
 use App\Http\Controllers\PHR\PatientAccessController as PHRPatientAccessController;
@@ -498,6 +499,10 @@ Route::middleware(['web', 'auth'])
         Route::patch('/patients/{patient}/medications/{medication}', [PHRMedicationController::class, 'update'])->whereNumber(['patient', 'medication'])->name('patients.medications.update');
         Route::delete('/patients/{patient}/medications/{medication}', [PHRMedicationController::class, 'destroy'])->whereNumber(['patient', 'medication'])->name('patients.medications.destroy');
         Route::patch('/patients/{patient}/medications/{medication}/review', [PHRMedicationController::class, 'review'])->whereNumber(['patient', 'medication'])->name('patients.medications.review');
+        Route::get('/patients/{patient}/medication-transitions', [PHRMedicationTransitionController::class, 'index'])->whereNumber('patient')->name('patients.medication-transitions.index');
+        Route::get('/patients/{patient}/medication-transitions/{transition}', [PHRMedicationTransitionController::class, 'show'])->whereNumber(['patient', 'transition'])->name('patients.medication-transitions.show');
+        Route::delete('/patients/{patient}/medication-transitions/{transition}', [PHRMedicationTransitionController::class, 'destroy'])->whereNumber(['patient', 'transition'])->name('patients.medication-transitions.destroy');
+        Route::patch('/patients/{patient}/medication-transitions/{transition}/review', [PHRMedicationTransitionController::class, 'review'])->whereNumber(['patient', 'transition'])->name('patients.medication-transitions.review');
         Route::get('/patients/{patient}/medication-fills', [PHRMedicationFillController::class, 'index'])->whereNumber('patient')->name('patients.medication-fills.index');
         Route::post('/patients/{patient}/medication-fills', [PHRMedicationFillController::class, 'store'])->whereNumber('patient')->name('patients.medication-fills.store');
         Route::get('/patients/{patient}/medication-fills/{fill}', [PHRMedicationFillController::class, 'show'])->whereNumber(['patient', 'fill'])->name('patients.medication-fills.show');

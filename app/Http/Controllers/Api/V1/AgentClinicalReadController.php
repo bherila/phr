@@ -186,6 +186,8 @@ final class AgentClinicalReadController extends Controller
             // A medication's setting (#413); unknown is a medication with none. Refused for every other type.
             'category' => $resource === 'medications' ? ['sometimes', 'array', 'min:1', 'max:'.count(PhrMedicationCategory::FILTERS)] : ['prohibited'],
             'category.*' => $resource === 'medications' ? ['string', 'distinct', Rule::in(PhrMedicationCategory::FILTERS)] : ['prohibited'],
+            // The stay a medication transition happened in (#414). Refused for every other type.
+            'office_visit_id' => $resource === 'medication-transitions' ? ['sometimes', 'integer', 'min:1'] : ['prohibited'],
         ];
     }
 
@@ -203,6 +205,9 @@ final class AgentClinicalReadController extends Controller
         }
         if ($resource === 'medication-fills') {
             $this->applyFillFilters($query, $validated);
+        }
+        if ($resource === 'medication-transitions' && isset($validated['office_visit_id'])) {
+            $query->where('office_visit_id', (int) $validated['office_visit_id']);
         }
         if ($resource === 'medications' && isset($validated['category'])) {
             PhrMedicationCategory::scope($query, array_values(array_map('strval', (array) $validated['category'])));

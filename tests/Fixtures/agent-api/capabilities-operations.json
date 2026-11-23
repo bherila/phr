@@ -351,6 +351,10 @@
         "available": true,
         "scope": "clinical:write"
     },
+    "medication_transitions.upsert": {
+        "available": true,
+        "scope": "clinical:write"
+    },
     "clinical.update": {
         "available": true,
         "scope": "clinical:write",

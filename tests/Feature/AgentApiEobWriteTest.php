@@ -489,7 +489,7 @@ final class AgentApiEobWriteTest extends TestCase
         $zip = new ZipArchive;
         self::assertTrue($zip->open($archive->path));
         $manifest = $archive->manifest;
-        foreach ([...PhrNativeTableCompatibility::LATER_GENERATIONS['eob_corrections'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['encounter_links'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['visit_participants'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['document_relations'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['episodes']] as $table) {
+        foreach ([...PhrNativeTableCompatibility::LATER_GENERATIONS['eob_corrections'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['encounter_links'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['visit_participants'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['document_relations'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['episodes'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['medication_transitions']] as $table) {
             $zip->deleteName($manifest['tables'][$table]['path']);
             unset($manifest['tables'][$table]);
         }

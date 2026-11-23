@@ -139,6 +139,11 @@ Precondition for Substance Administration (`4.25`) makes the medication as neede
 criterion's value or text the reason; a `rateQuantity` is the infusion rate; a start or
 end with a time of day is kept in `started_at` / `ended_at` beside the date.
 
+A C-CDA import writes no medication transitions (#414): a Discharge Medications entry
+does not name the home medication it resumes or replaces by an id the importer can follow,
+and pairing the two lists by drug name would be inference. Transitions are left to the
+person (see [medication-setting.md](medication-setting.md#medication-transitions-414)).
+
 Before #406 their titles made them active home medications. Those rows keep no mark
 of the section they came from, so they are found by reading the source again
 (`PhrCcdaMisroutedMedications`): the ids the old title routing gave a document's

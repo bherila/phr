@@ -4,10 +4,13 @@ namespace App\Services\PHR\Import;
 
 use App\Models\PhrDocument;
 use App\Models\PhrMedication;
+use App\Models\PhrMedicationTransition;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
 use App\Services\PHR\Documents\PhrDocumentRelations;
 use App\Services\PHR\Encounters\PhrEncounterLinks;
+use App\Services\PHR\Export\PhrFhirExporter;
+use App\Services\PHR\Medications\PhrMedicationTransitionIntegrity;
 use App\Support\PHR\PhrEncounterVocabulary;
 use App\Support\PHR\PhrMedicationCategory;
 use App\Support\PHR\PhrReviewStatus;
@@ -62,6 +65,7 @@ class PhrFhirImporter
     public function __construct(
         private PhrStructuredDataImporter $structuredImporter,
         private PhrEncounterLinks $encounterLinks,
+        private PhrMedicationTransitionIntegrity $transitionIntegrity,
         PhrDocumentRelations $relations,
     ) {
         // The same importer, so collectingWritten() sees the documents a DocumentReference
@@ -136,8 +140,205 @@ class PhrFhirImporter
         $this->linkEncounters((int) $patient->id, $written, $result);
         // Addenda name the document they append to, which may come later in the bundle.
         $this->documentReferences->linkRelations($patient, $index);
+        $this->importTransitions($patient, $written, $result);
 
         return $result;
+    }
+
+    /**
+     * Medication transitions (#414) the bundle states, read after every resource so the
+     * records they name exist. Two forms are read, and nothing else: PHR's own extension
+     * (PhrFhirExporter::TRANSITION_EXTENSION) on an order or a home medication, and a
+     * MedicationRequest's priorPrescription or basedOn naming a MedicationRequest that is
+     * a home medication. The second reads as continued when the two state the same drug,
+     * dose, route and frequency and as changed otherwise, at admission for an inpatient
+     * order and at discharge for a discharge one, in the stay its encounter names. A
+     * transition is never inferred from similar names, and one naming a record that is not
+     * in the bundle (or not imported) is skipped and counted, not guessed at. Each lands
+     * pending review.
+     *
+     * @param  array<int, list<Model>>  $written  bundle position => the rows its resource became
+     */
+    private function importTransitions(PhrPatient $patient, array $written, PhrImportResult $result): void
+    {
+        $skipped = 0;
+        foreach ($this->resources as $position => $resource) {
+            $type = $resource['resourceType'] ?? null;
+            if ($type !== 'MedicationRequest' && $type !== 'MedicationStatement') {
+                continue;
+            }
+            $medication = $this->writtenMedication($position, $written);
+            if ($medication === null) {
+                continue;
+            }
+            foreach ($this->statedTransitions($resource, $medication, $written) as $transition) {
+                if ($transition === null || $this->transitionIntegrity->problems(new PhrMedicationTransition([...$transition, 'patient_id' => $patient->id])) !== []) {
+                    $skipped++;
+
+                    continue;
+                }
+                $model = $this->structuredImporter->upsertUnreviewed(PhrMedicationTransition::class, [
+                    ...$transition,
+                    'patient_id' => $patient->id,
+                    'user_id' => $patient->owner_user_id,
+                    'import_source' => 'fhir',
+                ]);
+                match (true) {
+                    $model->wasRecentlyCreated => $result->addCreated(),
+                    $model->wasChanged() => $result->addUpdated(),
+                    default => $result->addUnchanged(),
+                };
+            }
+        }
+        if ($skipped > 0) {
+            $result->warn(sprintf('%d medication transition(s) name a stay or medication that is not imported from this bundle, or do not fit the records they name; they were not written.', $skipped));
+        }
+    }
+
+    /**
+     * The transitions a medication's resource states: each as its attributes, or null for
+     * one that cannot be read (a reference that does not resolve).
+     *
+     * @param  array<string, mixed>  $resource
+     * @param  array<int, list<Model>>  $written
+     * @return list<array<string, mixed>|null>
+     */
+    private function statedTransitions(array $resource, PhrMedication $medication, array $written): array
+    {
+        $isRequest = ($resource['resourceType'] ?? null) === 'MedicationRequest';
+        $stated = [];
+        $index = 0;
+        foreach (is_array($resource['extension'] ?? null) ? $resource['extension'] : [] as $extension) {
+            if (! is_array($extension) || ($extension['url'] ?? null) !== PhrFhirExporter::TRANSITION_EXTENSION) {
+                continue;
+            }
+            $index++;
+            $parts = [];
+            foreach (is_array($extension['extension'] ?? null) ? $extension['extension'] : [] as $part) {
+                if (is_array($part) && is_string($part['url'] ?? null)) {
+                    $parts[$part['url']] = $part;
+                }
+            }
+            $visit = $this->writtenVisit($this->resolve($parts['encounter']['valueReference'] ?? null), $written);
+            $homeReference = $parts['homeMedication']['valueReference'] ?? null;
+            $home = $isRequest ? ($homeReference === null ? null : $this->writtenMedication($this->resolve($homeReference), $written)) : $medication;
+            if ($visit === null || ($homeReference !== null && $home === null)) {
+                $stated[] = null;
+
+                continue;
+            }
+            $id = $this->text($parts['id']['valueString'] ?? null);
+            $stated[] = [
+                'external_id' => $this->transitionExternalId($id !== null ? 'MedicationTransition/'.$id : $medication->external_id.'#transition:'.$index),
+                'office_visit_id' => (int) $visit->id,
+                'home_medication_id' => $home === null ? null : (int) $home->id,
+                'order_medication_id' => $isRequest ? (int) $medication->id : null,
+                'phase' => $this->text($parts['phase']['valueCode'] ?? null),
+                'action' => $this->text($parts['action']['valueCode'] ?? null),
+                'note' => $this->text($parts['note']['valueString'] ?? null),
+            ];
+        }
+        if ($index > 0 || ! $isRequest) {
+            return $stated;
+        }
+
+        $phase = match ($medication->category) {
+            PhrMedicationCategory::INPATIENT => PhrMedicationTransition::ADMISSION,
+            PhrMedicationCategory::DISCHARGE => PhrMedicationTransition::DISCHARGE,
+            default => null,
+        };
+        $basedOn = is_array($resource['basedOn'] ?? null) && array_is_list($resource['basedOn']) ? $resource['basedOn'] : [];
+        foreach ([$resource['priorPrescription'] ?? null, ...$basedOn] as $reference) {
+            $target = $this->resolve($reference);
+            if ($target === null || ($this->resources[$target]['resourceType'] ?? null) !== 'MedicationRequest') {
+                // A CarePlan or ServiceRequest it is based on is not a medication it carries on.
+                continue;
+            }
+            $home = $this->writtenMedication($target, $written);
+            if ($home === null || ! PhrMedicationCategory::isHomeList($home->category) || $phase === null) {
+                continue;
+            }
+            $visits = [];
+            foreach ($this->encounterReferences($resource) as $encounter) {
+                $visit = $this->writtenVisit($this->resolve($encounter), $written);
+                if ($visit !== null) {
+                    $visits[(int) $visit->id] = $visit;
+                }
+            }
+            if (count($visits) !== 1) {
+                $stated[] = null;
+
+                continue;
+            }
+            $stated[] = [
+                'external_id' => $this->transitionExternalId($medication->external_id.'#prior:'.$home->external_id),
+                'office_visit_id' => (int) array_key_first($visits),
+                'home_medication_id' => (int) $home->id,
+                'order_medication_id' => (int) $medication->id,
+                'phase' => $phase,
+                'action' => $this->sameRegimen($home, $medication) ? PhrMedicationTransition::CONTINUED : PhrMedicationTransition::CHANGED,
+                'note' => null,
+            ];
+        }
+
+        return $stated;
+    }
+
+    /** Whether two medications state the same drug (its RxNorm code, else its name), dose, route and frequency. */
+    private function sameRegimen(PhrMedication $home, PhrMedication $order): bool
+    {
+        $normal = static fn (mixed $value): string => mb_strtolower(trim((string) preg_replace('/\s+/', ' ', is_scalar($value) ? (string) $value : '')));
+        $drug = static fn (PhrMedication $medication): string => $medication->rxnorm_code !== null && $medication->rxnorm_code !== ''
+            ? 'rxnorm:'.$medication->rxnorm_code
+            : 'name:'.$normal($medication->name);
+        foreach (['dose', 'dose_unit', 'route', 'frequency'] as $field) {
+            if ($normal($home->getAttribute($field)) !== $normal($order->getAttribute($field))) {
+                return false;
+            }
+        }
+
+        return $drug($home) === $drug($order);
+    }
+
+    private function transitionExternalId(string $id): string
+    {
+        return strlen($id) <= self::MAX_EXTERNAL_ID_BYTES ? $id : 'MedicationTransition/sha256:'.hash('sha256', $id);
+    }
+
+    /**
+     * The medication a bundle position was imported as: the row its own resource became,
+     * or, for a home medication's request read as part of its statement, the statement's.
+     *
+     * @param  array<int, list<Model>>  $written
+     */
+    private function writtenMedication(?int $position, array $written): ?PhrMedication
+    {
+        if ($position === null) {
+            return null;
+        }
+        $statement = $this->medicationPairs['statement_of'][$position] ?? null;
+        foreach ($written[$position] ?? ($statement === null ? [] : ($written[$statement] ?? [])) as $model) {
+            if ($model instanceof PhrMedication) {
+                return $model;
+            }
+        }
+
+        return null;
+    }
+
+    /** @param  array<int, list<Model>>  $written */
+    private function writtenVisit(?int $position, array $written): ?PhrOfficeVisit
+    {
+        if ($position === null || ($this->resources[$position]['resourceType'] ?? null) !== 'Encounter') {
+            return null;
+        }
+        foreach ($written[$position] ?? [] as $model) {
+            if ($model instanceof PhrOfficeVisit) {
+                return $model;
+            }
+        }
+
+        return null;
     }
 
     /**

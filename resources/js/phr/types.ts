@@ -664,6 +664,36 @@ export const PhrOfficeVisitParticipantSchema = z.object({
 
 export type PhrOfficeVisitParticipant = z.infer<typeof PhrOfficeVisitParticipantSchema>
 
+export const PHR_MEDICATION_TRANSITION_PHASES = ['admission', 'discharge'] as const
+export const PHR_MEDICATION_TRANSITION_ACTIONS = ['continued', 'held', 'changed', 'stopped', 'new'] as const
+
+/** A medication a transition names, as the visit page lists it. */
+const PhrMedicationTransitionMedicationSchema = z.object({
+  id: z.number(),
+  name: z.string(),
+  dose: nullableString.optional(),
+  dose_unit: nullableString.optional(),
+  route: nullableString.optional(),
+  frequency: nullableString.optional(),
+  category: nullableString.optional(),
+})
+
+/**
+ * What happened to a home medication during a stay (#414): at admission or discharge it was
+ * continued, held, changed or stopped, or an order was new.
+ */
+export const PhrOfficeVisitMedicationTransitionSchema = z.object({
+  id: z.number(),
+  phase: z.enum(PHR_MEDICATION_TRANSITION_PHASES),
+  action: z.enum(PHR_MEDICATION_TRANSITION_ACTIONS),
+  note: nullableString.optional(),
+  review_status: PhrReviewStatusSchema,
+  home_medication: PhrMedicationTransitionMedicationSchema.nullable(),
+  order_medication: PhrMedicationTransitionMedicationSchema.nullable(),
+})
+
+export type PhrOfficeVisitMedicationTransition = z.infer<typeof PhrOfficeVisitMedicationTransitionSchema>
+
 export const PhrOfficeVisitSchema = z.object({
   id: z.number(),
   patient_id: z.number(),
@@ -717,6 +747,7 @@ export const PhrOfficeVisitSchema = z.object({
   related_services: z.array(PhrOfficeVisitRelatedServiceSchema).default([]),
   imaging_studies: z.array(PhrOfficeVisitImagingStudySchema).default([]),
   linked_records: PhrOfficeVisitLinkedRecordsSchema.optional(),
+  medication_transitions: z.array(PhrOfficeVisitMedicationTransitionSchema).optional(),
   created_at: nullableString,
   updated_at: nullableString,
 })

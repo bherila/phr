@@ -22,7 +22,8 @@ connection was not granted that permission, not that the data is absent.
   documents (by title and summary) when the connection can read documents.
 - `clinical.list` and `clinical.get` read one type, chosen by `resource_type`
   (`office-visits`, `procedures`, `immunizations`, `medications`, `medication-fills`,
-  `conditions`, `allergies`, `lab-results`, `vitals`, `episodes`, `health-logs`).
+  `conditions`, `allergies`, `lab-results`, `vitals`, `episodes`, `medication-transitions`,
+  `health-logs`).
 - `eobs.get`, `eob_lines.list` and `eob_lines.get` read EOBs and their lines.
 - `documents.list` and `documents.get` return metadata only.
   `documents.content.get` returns a note's text inline (plain text, markdown,

@@ -11,6 +11,7 @@ use App\Models\PhrImmunization;
 use App\Models\PhrLabResult;
 use App\Models\PhrMedication;
 use App\Models\PhrMedicationFill;
+use App\Models\PhrMedicationTransition;
 use App\Models\PhrNegativeAssertion;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
@@ -62,6 +63,16 @@ class PhrFhirExporter
     private array $episodeEncounters = [];
 
     /**
+     * A medication transition (#414), on the resource of the medication it is about: an
+     * order's MedicationRequest for continued, changed and new, the home medication's
+     * MedicationStatement for held and stopped.
+     */
+    public const string TRANSITION_EXTENSION = 'urn:phr:fhir:medication-transition';
+
+    /** @var array<int, list<PhrMedicationTransition>> medication id => the transitions its resource carries */
+    private array $transitions = [];
+
+    /**
      * @param  array<string, mixed>  $data
      */
     public function bundleJson(array $data): string
@@ -70,6 +81,10 @@ class PhrFhirExporter
         $patient = $data['patient'];
         $this->encounterLinks = is_array($data['encounter_links'] ?? null) ? $data['encounter_links'] : [];
         $this->episodeEncounters = is_array($data['episode_encounters'] ?? null) ? $data['episode_encounters'] : [];
+        $this->transitions = [];
+        foreach ($data['medication_transitions'] ?? [] as $transition) {
+            $this->transitions[(int) ($transition->order_medication_id ?? $transition->home_medication_id)][] = $transition;
+        }
         $entries = [$this->entry($this->patientResource($patient))];
 
         foreach ($data['lab_results'] as $lab) {
@@ -289,6 +304,7 @@ class PhrFhirExporter
                 ],
                 'dosage' => $dosage === null ? null : [$dosage],
                 'reasonCode' => $reason,
+                'extension' => $this->transitionExtensions($medication),
             ];
         }
 
@@ -316,7 +332,52 @@ class PhrFhirExporter
             'requester' => $medication->prescriber_name ? ['display' => $medication->prescriber_name] : null,
             'reasonCode' => $reason,
             'dosageInstruction' => $dosage === null ? null : [$dosage],
+            // The home medication an order continues or changes (#414). R4 priorPrescription and
+            // basedOn reference only a MedicationRequest, and a home medication is a
+            // MedicationStatement, so the reference is supporting information and the
+            // transition itself is in the extension.
+            'supportingInformation' => $this->transitionHomeReferences($medication),
+            'extension' => $this->transitionExtensions($medication),
         ];
+    }
+
+    /**
+     * @return list<array{reference: string}>|null
+     */
+    private function transitionHomeReferences(PhrMedication $medication): ?array
+    {
+        $references = [];
+        foreach ($this->transitions[(int) $medication->id] ?? [] as $transition) {
+            if ($transition->order_medication_id === (int) $medication->id && $transition->home_medication_id !== null) {
+                $references[$transition->home_medication_id] = ['reference' => 'MedicationStatement/phr-medication-'.$transition->home_medication_id];
+            }
+        }
+
+        return $references === [] ? null : array_values($references);
+    }
+
+    /**
+     * One complex extension per transition the medication's resource carries: its phase,
+     * action, stay, the home medication an order continues or changes, its note and its id.
+     *
+     * @return list<array<string, mixed>>|null
+     */
+    private function transitionExtensions(PhrMedication $medication): ?array
+    {
+        $extensions = [];
+        foreach ($this->transitions[(int) $medication->id] ?? [] as $transition) {
+            $home = $transition->order_medication_id !== null ? $transition->home_medication_id : null;
+            $extensions[] = ['url' => self::TRANSITION_EXTENSION, 'extension' => array_values(array_filter([
+                ['url' => 'id', 'valueString' => 'phr-medication-transition-'.$transition->id],
+                ['url' => 'phase', 'valueCode' => $transition->phase],
+                ['url' => 'action', 'valueCode' => $transition->action],
+                ['url' => 'encounter', 'valueReference' => ['reference' => 'Encounter/phr-visit-'.$transition->office_visit_id]],
+                $home === null ? null : ['url' => 'homeMedication', 'valueReference' => ['reference' => 'MedicationStatement/phr-medication-'.$home]],
+                $transition->note === null || $transition->note === '' ? null : ['url' => 'note', 'valueString' => $transition->note],
+            ]))];
+        }
+
+        return $extensions === [] ? null : $extensions;
     }
 
     /**

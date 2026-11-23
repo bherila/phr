@@ -12,6 +12,7 @@ use App\Http\Resources\PHR\ImmunizationResource;
 use App\Http\Resources\PHR\LabResultResource;
 use App\Http\Resources\PHR\MedicationFillResource;
 use App\Http\Resources\PHR\MedicationResource;
+use App\Http\Resources\PHR\MedicationTransitionResource;
 use App\Http\Resources\PHR\OfficeVisitResource;
 use App\Http\Resources\PHR\ProcedureResource;
 use App\Http\Resources\PHR\VitalResource;
@@ -23,6 +24,7 @@ use App\Models\PhrImmunization;
 use App\Models\PhrLabResult;
 use App\Models\PhrMedication;
 use App\Models\PhrMedicationFill;
+use App\Models\PhrMedicationTransition;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatientVital;
 use App\Models\PhrProcedure;
@@ -34,6 +36,7 @@ use App\Support\PHR\Validation\ImmunizationDataRules;
 use App\Support\PHR\Validation\LabResultDataRules;
 use App\Support\PHR\Validation\MedicationDataRules;
 use App\Support\PHR\Validation\MedicationFillDataRules;
+use App\Support\PHR\Validation\MedicationTransitionDataRules;
 use App\Support\PHR\Validation\OfficeVisitDataRules;
 use App\Support\PHR\Validation\ProcedureDataRules;
 use App\Support\PHR\Validation\VitalDataRules;
@@ -122,6 +125,13 @@ final class AgentClinicalResourceCatalog
             'resource' => EpisodeResource::class,
             'provenance' => true,
             'write_rules' => EpisodeDataRules::class,
+        ],
+        // What happened to each home medication during a stay (#414).
+        'medication-transitions' => [
+            'model' => PhrMedicationTransition::class,
+            'resource' => MedicationTransitionResource::class,
+            'provenance' => true,
+            'write_rules' => MedicationTransitionDataRules::class,
         ],
         'health-logs' => [
             'model' => PhrHealthLog::class,

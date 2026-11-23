@@ -10,8 +10,10 @@ use App\Http\Resources\PHR\OfficeVisitResource;
 use App\Models\PhrDicomStudy;
 use App\Models\PhrOfficeVisit;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -138,6 +140,13 @@ class OfficeVisitController extends Controller
             'linkedVitals' => $linked,
             'linkedMedications' => $linked,
             'linkedProcedures' => $linked,
+            // What happened to each home medication during the stay (#414), with the medications named.
+            'medicationTransitions' => static fn (HasMany $transitions) => $transitions
+                ->whereNull('retracted_at')
+                ->where('review_status', '!=', PhrReviewStatus::REJECTED)
+                ->with(['homeMedication:id,name,dose,dose_unit,route,frequency,category', 'orderMedication:id,name,dose,dose_unit,route,frequency,category'])
+                ->orderBy('id')
+                ->limit(OfficeVisitResource::LINKED_PREVIEW_LIMIT),
         ]);
     }
 

@@ -12,6 +12,7 @@ use App\Models\PhrImmunization;
 use App\Models\PhrLabResult;
 use App\Models\PhrMedication;
 use App\Models\PhrMedicationFill;
+use App\Models\PhrMedicationTransition;
 use App\Models\PhrNativeRecordIdentity;
 use App\Models\PhrNativeRestoreAttempt;
 use App\Models\PhrOfficeVisit;
@@ -409,6 +410,20 @@ class AgentApiClinicalReadTest extends TestCase
         ];
         $healthLog = $records['health-logs'];
         $this->assertInstanceOf(PhrHealthLog::class, $healthLog);
+        // A medication transition names a visit and a medication, so it follows them (#414).
+        unset($records['health-logs']);
+        $records['medication-transitions'] = PhrMedicationTransition::query()->create([
+            'patient_id' => $patient->id,
+            'user_id' => $actor->id,
+            'office_visit_id' => $records['office-visits']->id,
+            'home_medication_id' => $records['medications']->id,
+            'phase' => PhrMedicationTransition::ADMISSION,
+            'action' => PhrMedicationTransition::HELD,
+            'import_source' => 'synthetic-import',
+            'external_id' => 'synthetic-medication-transition',
+            'source_document_id' => $documentId,
+        ]);
+        $records['health-logs'] = $healthLog;
         PhrHealthLogEntry::query()->create([
             'health_log_id' => $healthLog->id,
             'patient_id' => $patient->id,

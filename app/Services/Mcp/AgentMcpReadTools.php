@@ -134,11 +134,12 @@ final class AgentMcpReadTools
         #[Schema(minimum: 1, description: 'Not accepted for health-logs.')] ?int $source_document_id = null,
         #[Schema(enum: ['include', 'exclude', 'only'], description: 'Accepted only for health-logs.')] ?string $archived = null,
         #[Schema(minItems: 1, maxItems: 5, uniqueItems: true, items: ['type' => 'string'], description: 'Medication settings to list: community (the home list), inpatient (hospital orders), outpatient, discharge, and unknown for a medication with none. Accepted only for medications; without it every setting is listed.')] ?array $category = null,
+        #[Schema(minimum: 1, description: 'The stay whose medication transitions to list. Accepted only for medication-transitions.')] ?int $office_visit_id = null,
     ): array {
         return $this->api->clinicalRecords(
             $patient_id, $resource_type, $limit, $cursor, $updated_after,
             $updated_before, $import_source, $source_document_id, $archived,
-            filters: $category === null ? [] : ['category' => $category],
+            filters: [...($category === null ? [] : ['category' => $category]), 'office_visit_id' => $office_visit_id],
         )->toArray();
     }
 
@@ -292,7 +293,7 @@ final class AgentMcpReadTools
     public function officeVisitsGetStay(
         #[Schema(minimum: 1)] int $patient_id,
         #[Schema(minimum: 1)] int $visit_id,
-        #[Schema(enum: ['lab_results', 'vitals', 'medications', 'procedures', 'documents'])] ?string $group = null,
+        #[Schema(enum: ['lab_results', 'vitals', 'medications', 'procedures', 'documents', 'home_medications', 'new_medications'])] ?string $group = null,
         #[Schema(minimum: 1, maximum: 100)] int $limit = 10,
         #[Schema(maxLength: 2048)] ?string $cursor = null,
     ): array {

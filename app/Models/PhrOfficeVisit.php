@@ -346,4 +346,10 @@ class PhrOfficeVisit extends Model
             ->withPivot('patient_id')
             ->withTimestamps();
     }
+
+    /** @return HasMany<PhrMedicationTransition, $this> what happened to each home medication during the stay (#414) */
+    public function medicationTransitions(): HasMany
+    {
+        return $this->hasMany(PhrMedicationTransition::class, 'office_visit_id');
+    }
 }
