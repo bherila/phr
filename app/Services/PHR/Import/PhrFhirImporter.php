@@ -726,7 +726,11 @@ class PhrFhirImporter
         $display = $this->text($reference['display'] ?? null);
 
         if ($type === 'PractitionerRole') {
-            $practitioner = $this->person(is_array($target['practitioner'] ?? null) ? $target['practitioner'] : null, $container, $depth + 1);
+            // A `#` reference resolves in the resource that holds it. A contained role
+            // shares its container's contained list (contained resources hold none of
+            // their own); a bundled role is its own container.
+            $roleContainer = str_starts_with($named, '#') ? $container : $target;
+            $practitioner = $this->person(is_array($target['practitioner'] ?? null) ? $target['practitioner'] : null, $roleContainer, $depth + 1);
             $name = $practitioner['name'] ?? $display;
 
             return $name === null ? null : [

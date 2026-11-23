@@ -3,6 +3,7 @@
 namespace App\Support\PHR;
 
 use App\Services\PHR\Import\ValueCoercion;
+use Illuminate\Support\Carbon;
 
 /**
  * A visit's care team (issue #412) as one canonical list, whoever writes it: the agent
@@ -14,7 +15,8 @@ use App\Services\PHR\Import\ValueCoercion;
  * with the source's own label beside it in `role_label`. `is_primary` is the source
  * saying the member is primary in their role; a standard source says so with a PPRF
  * code beside the member's own role, which is how exports write it too. A member whose
- * `period_end` has passed is no longer on the team, and stays listed.
+ * `period_end` has passed is no longer on the team, and stays listed. A period is
+ * stored as UTC: a source's offset is converted, never dropped.
  *
  * The list's order is the source's order. Its digest is stored on the visit
  * (`participants_digest`), so a changed team changes the visit's version.
@@ -97,8 +99,8 @@ final class PhrVisitParticipants
                 'role_label' => $label,
                 'specialty' => self::text($member['specialty'] ?? null, self::FIELDS['specialty']),
                 'is_primary' => ValueCoercion::boolean($member['is_primary'] ?? null) ?? false,
-                'period_start' => ValueCoercion::dateTime($member['period_start'] ?? null),
-                'period_end' => ValueCoercion::dateTime($member['period_end'] ?? null),
+                'period_start' => self::moment($member['period_start'] ?? null),
+                'period_end' => self::moment($member['period_end'] ?? null),
             ];
             if (count($normalized) === self::MAX_MEMBERS) {
                 break;
@@ -243,6 +245,26 @@ final class PhrVisitParticipants
         }
 
         return $members;
+    }
+
+    /**
+     * A member's start or end as the UTC instant it names. Members have no precision or
+     * zone columns, and every export states a stored time as UTC, so a time with an
+     * offset ("2026-02-09T14:20:00-05:00") is converted rather than kept as its wall
+     * clock. A time with no offset, and a date, stay as written.
+     */
+    private static function moment(mixed $value): ?string
+    {
+        $text = ValueCoercion::string($value);
+        if ($text === null) {
+            return null;
+        }
+
+        try {
+            return Carbon::parse($text, 'UTC')->utc()->toDateTimeString();
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private static function text(mixed $value, int $width): ?string
