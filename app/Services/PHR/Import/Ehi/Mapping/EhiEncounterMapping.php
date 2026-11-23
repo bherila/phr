@@ -56,6 +56,14 @@ use Illuminate\Database\UniqueConstraintViolationException;
  * Times hold the source's wall clock as written, never shifted, and *_timezone says
  * what the spec documents it as. Exports state no offset for such a time.
  *
+ * The coded encounter columns (#410: encounter_class, encounter_state, location, admit
+ * source, discharge disposition) are not mapped. Deriving a class would change every
+ * proposal's content under a new VERSION, and a version bump re-offers subjects a person
+ * rejected (their memory is per version) and stales every pending proposal, so it waits
+ * for a mapping change that needs a bump anyway. encounter_status stays the source's
+ * APPT_STATUS_C_NAME. EhiTargetDigest ignores the new columns while they are null, so
+ * proposals previewed before the migration still apply.
+ *
  * Reconciliation matches the lab mapping: a link or this source's own identity
  * corroborates or proposes an explicit update; a source-ID bridge rule links evidence,
  * or names a conflict for a person; a same-date visit from elsewhere is a possible

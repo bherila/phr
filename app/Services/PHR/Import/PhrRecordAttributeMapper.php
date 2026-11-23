@@ -14,6 +14,7 @@ use App\Models\PhrPatient;
 use App\Models\PhrPatientVital;
 use App\Models\PhrPortalMessage;
 use App\Models\PhrProcedure;
+use App\Support\PHR\PhrEncounterVocabulary;
 use Illuminate\Database\Eloquent\Model;
 use InvalidArgumentException;
 
@@ -152,6 +153,7 @@ class PhrRecordAttributeMapper
                 'icd10_codes' => ValueCoercion::codes($record['icd10_codes'] ?? $record['diagnoses'] ?? null),
                 'cpt_codes' => ValueCoercion::codes($record['cpt_codes'] ?? null),
                 'raw_text' => ValueCoercion::string($record['raw_text'] ?? null),
+                ...$this->encounterCore($record),
             ],
             'phr_medication' => [
                 ...$base,
@@ -253,6 +255,69 @@ class PhrRecordAttributeMapper
             ],
             default => [],
         };
+    }
+
+    /**
+     * The coded encounter fields (#410) a record names. A record that does not name
+     * one leaves it out, so a source that never states them (a narrative table, a
+     * document a person transcribed) does not clear what another write set. A code
+     * outside its vocabulary is not stored; the text beside it is.
+     *
+     * @param  array<string, mixed>  $record
+     * @return array<string, mixed>
+     */
+    private function encounterCore(array $record): array
+    {
+        $fields = [
+            'encounter_class' => static fn (mixed $value): ?string => PhrEncounterVocabulary::classCode($value),
+            'encounter_state' => static fn (mixed $value): ?string => PhrEncounterVocabulary::stateCode($value),
+            'location' => static fn (mixed $value): ?string => ValueCoercion::string($value),
+            'admit_source' => static fn (mixed $value): ?string => PhrEncounterVocabulary::admitSourceCode($value),
+            'admit_source_text' => static fn (mixed $value): ?string => ValueCoercion::string($value),
+            'discharge_disposition' => static fn (mixed $value): ?string => PhrEncounterVocabulary::dischargeDispositionCode($value),
+            'discharge_disposition_text' => static fn (mixed $value): ?string => ValueCoercion::string($value),
+            'encounter_diagnoses' => static fn (mixed $value): ?array => self::encounterDiagnoses($value),
+        ];
+
+        $attributes = [];
+        foreach ($fields as $field => $coerce) {
+            if (array_key_exists($field, $record)) {
+                $attributes[$field] = $coerce($record[$field]);
+            }
+        }
+
+        return $attributes;
+    }
+
+    /**
+     * @return list<array<string, string|bool|null>>|null
+     */
+    private static function encounterDiagnoses(mixed $value): ?array
+    {
+        if (! is_array($value)) {
+            return null;
+        }
+
+        $diagnoses = [];
+        foreach ($value as $diagnosis) {
+            $name = is_array($diagnosis) ? ValueCoercion::string($diagnosis['name'] ?? null) : null;
+            if ($name === null) {
+                continue;
+            }
+            $entry = ['name' => $name];
+            foreach (['code', 'code_system', 'use'] as $key) {
+                $text = ValueCoercion::string($diagnosis[$key] ?? null);
+                if ($text !== null) {
+                    $entry[$key] = $text;
+                }
+            }
+            if (is_bool($diagnosis['primary'] ?? null)) {
+                $entry['primary'] = $diagnosis['primary'];
+            }
+            $diagnoses[] = $entry;
+        }
+
+        return $diagnoses === [] ? null : $diagnoses;
     }
 
     /**

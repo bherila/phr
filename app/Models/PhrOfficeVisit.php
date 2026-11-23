@@ -42,6 +42,13 @@ use Illuminate\Support\Carbon;
  * @property string|null $visit_ended_source
  * @property string|null $visit_ended_precision
  * @property string|null $visit_ended_timezone
+ * @property string|null $encounter_class
+ * @property string|null $encounter_state
+ * @property string|null $location
+ * @property string|null $admit_source
+ * @property string|null $admit_source_text
+ * @property string|null $discharge_disposition
+ * @property string|null $discharge_disposition_text
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -82,6 +89,27 @@ class PhrOfficeVisit extends Model
         'visit_ended_source',
         'visit_ended_precision',
         'visit_ended_timezone',
+        'encounter_class',
+        'encounter_state',
+        'location',
+        'admit_source',
+        'admit_source_text',
+        'discharge_disposition',
+        'discharge_disposition_text',
+    ];
+
+    /**
+     * Coded encounter columns added after the EHI encounter context (#410). See
+     * PhrEncounterVocabulary for their values.
+     */
+    public const array ENCOUNTER_CORE = [
+        'encounter_class',
+        'encounter_state',
+        'location',
+        'admit_source',
+        'admit_source_text',
+        'discharge_disposition',
+        'discharge_disposition_text',
     ];
 
     /** What a source said about one date: the text it was read from, and its zone. */

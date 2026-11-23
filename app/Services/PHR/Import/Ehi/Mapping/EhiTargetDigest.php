@@ -2,6 +2,7 @@
 
 namespace App\Services\PHR\Import\Ehi\Mapping;
 
+use App\Models\PhrOfficeVisit;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -12,12 +13,24 @@ use Illuminate\Database\Eloquent\Model;
  * A proposal's digest must describe the state the proposal was built from. Mappings
  * read the patient's records once and yield drafts for a long time afterwards, so each
  * draft carries the digest of what it read rather than the service reading it later.
+ *
+ * A visit's coded encounter columns (#410) count only once they hold a value. A
+ * proposal previewed before they existed digested a row without them, and adding
+ * null columns changes nothing that row says, so it must not turn every pending
+ * proposal stale. Setting one is a write and does change the digest.
  */
 final class EhiTargetDigest
 {
     public static function of(Model $record): string
     {
         $attributes = $record->getAttributes();
+        if ($record instanceof PhrOfficeVisit) {
+            foreach (PhrOfficeVisit::ENCOUNTER_CORE as $column) {
+                if (array_key_exists($column, $attributes) && $attributes[$column] === null) {
+                    unset($attributes[$column]);
+                }
+            }
+        }
         ksort($attributes, SORT_STRING);
         $normalized = array_map(
             static fn (mixed $value): ?string => $value === null ? null : (string) $value,

@@ -2,12 +2,18 @@
 
 namespace App\Services\PHR\Import;
 
+use App\Support\PHR\PhrEncounterVocabulary;
 use DOMElement;
 
 /**
  * Encounters section: one visit per Encounter Activity. Only encounters that
  * happened are records; a planned one (any mood but EVN) or a negated one is
  * skipped.
+ *
+ * The document header's encompassingEncounter, when there is one, is the encounter a
+ * single-encounter document (a discharge summary, a visit note) describes. It is read
+ * by header(): its location, its discharge disposition and its class. An Encounter
+ * Activity with the same id is the same visit, and the importer reads the two as one.
  */
 final class PhrCcdaEncounterActivities extends PhrCcdaSectionReader
 {
@@ -20,6 +26,19 @@ final class PhrCcdaEncounterActivities extends PhrCcdaSectionReader
     private const array PROBLEM = ['2.16.840.1.113883.10.20.22.4.4'];
 
     private const string ICD10_CM = '2.16.840.1.113883.6.90';
+
+    /** Diagnosis code systems by OID, as the code system URIs a visit stores. */
+    private const array DIAGNOSIS_SYSTEMS = [
+        '2.16.840.1.113883.6.90' => 'http://hl7.org/fhir/sid/icd-10-cm',
+        '2.16.840.1.113883.6.96' => 'http://snomed.info/sct',
+    ];
+
+    /** An Encounter Activity's status, as the FHIR state it says. */
+    private const array STATES = [
+        'active' => 'in-progress',
+        'completed' => 'finished',
+        'cancelled' => 'cancelled',
+    ];
 
     public function sectionTemplates(): array
     {
@@ -80,6 +99,48 @@ final class PhrCcdaEncounterActivities extends PhrCcdaSectionReader
     }
 
     /**
+     * The document's encompassingEncounter as a visit, or null when it has none.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function header(): ?array
+    {
+        $encounter = $this->xml->first('/*[local-name()="ClinicalDocument"]/*[local-name()="componentOf"]/*[local-name()="encompassingEncounter"]');
+        if ($encounter === null) {
+            return null;
+        }
+
+        $code = $this->xml->child($encounter, 'code');
+        $type = $this->xml->codeName($code) ?? $this->xml->codeLabel($code);
+        [$started, $ended] = $this->xml->period($this->xml->child($encounter, 'effectiveTime'));
+        $responsible = $this->xml->path($encounter, 'responsibleParty', 'assignedEntity');
+        if ($responsible === null) {
+            foreach ($this->xml->children($encounter, 'encounterParticipant') as $participant) {
+                if (in_array($this->xml->attribute($participant, 'typeCode'), ['ATND', 'ADM'], true)) {
+                    $responsible = $this->xml->child($participant, 'assignedEntity');
+                    break;
+                }
+            }
+        }
+        $facility = $this->xml->path($encounter, 'location', 'healthCareFacility');
+
+        return [
+            'visit_date' => $started,
+            'visit_started_at' => $this->xml->hasTime($started) ? $started : null,
+            'visit_ended_at' => $this->xml->hasTime($ended) ? $ended : null,
+            'visit_type' => $type,
+            'provider_name' => $this->xml->nameText($this->xml->path($responsible, 'assignedPerson', 'name')),
+            'facility_name' => $this->xml->nameText($this->xml->path($facility, 'serviceProviderOrganization', 'name')),
+            'location' => $this->xml->nameText($this->xml->path($facility, 'location', 'name'))
+                ?? $this->xml->codeName($this->xml->child($facility, 'code')),
+            'encounter_class' => PhrEncounterVocabulary::classCode($this->xml->codeIn($code, PhrEncounterVocabulary::ACT_CODE_OID)),
+            'admit_source_text' => $this->conceptText($this->xml->child($encounter, 'admissionReferralSourceCode')),
+            ...$this->dischargeDisposition($this->xml->child($encounter, 'dischargeDispositionCode')),
+            'external_id' => $this->externalId($encounter, [$started, $type]),
+        ];
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function record(DOMElement $encounter): array
@@ -95,6 +156,8 @@ final class PhrCcdaEncounterActivities extends PhrCcdaSectionReader
                 break;
             }
         }
+        $place = $this->xml->nameText($this->xml->child($location, 'name'));
+        $organization = $this->xml->nameText($this->xml->path($performer, 'representedOrganization', 'name'));
         $indication = $this->xml->related($encounter, 'observation', self::INDICATION)[0] ?? null;
 
         return [
@@ -104,12 +167,67 @@ final class PhrCcdaEncounterActivities extends PhrCcdaSectionReader
             'visit_type' => $type,
             'provider_name' => $this->xml->nameText($this->xml->path($performer, 'assignedPerson', 'name')),
             'provider_specialty' => $this->xml->codeName($this->xml->child($performer, 'code')),
-            'facility_name' => $this->xml->nameText($this->xml->child($location, 'name'))
-                ?? $this->xml->nameText($this->xml->path($performer, 'representedOrganization', 'name')),
+            // The service location, else the performing organization. With both, the
+            // location is the unit within that organization.
+            'facility_name' => $place !== null && $organization !== null ? $organization : ($place ?? $organization),
+            'location' => $place !== null && $organization !== null ? $place : null,
             'chief_complaint' => $this->xml->codeName($this->xml->child($indication, 'value')),
             'icd10_codes' => $this->diagnoses($encounter),
+            'encounter_diagnoses' => $this->encounterDiagnoses($encounter),
+            'encounter_class' => PhrEncounterVocabulary::classCode($this->xml->codeIn($code, PhrEncounterVocabulary::ACT_CODE_OID)),
+            'encounter_state' => self::STATES[(string) $this->xml->attribute($this->xml->child($encounter, 'statusCode'), 'code')] ?? null,
+            ...$this->dischargeDisposition($this->xml->child($encounter, 'dischargeDispositionCode')),
             'external_id' => $this->externalId($encounter, [$started, $type]),
         ];
+    }
+
+    /**
+     * A NUBC discharge status as the FHIR disposition that means the same, with the
+     * source's own words. A code with no such disposition keeps only its words.
+     *
+     * @return array{discharge_disposition: string|null, discharge_disposition_text: string|null}
+     */
+    private function dischargeDisposition(?DOMElement $code): array
+    {
+        $disposition = $this->xml->attribute($code, 'codeSystem') === PhrEncounterVocabulary::NUBC_DISCHARGE_OID
+            ? PhrEncounterVocabulary::dispositionForNubc($this->xml->attribute($code, 'code'))
+            : null;
+        $words = $this->xml->edText($this->xml->child($code, 'originalText'));
+
+        return [
+            'discharge_disposition' => $disposition,
+            'discharge_disposition_text' => $words ?? ($disposition === null ? $this->xml->attribute($code, 'displayName') : null),
+        ];
+    }
+
+    private function conceptText(?DOMElement $code): ?string
+    {
+        return $this->xml->edText($this->xml->child($code, 'originalText')) ?? $this->xml->attribute($code, 'displayName');
+    }
+
+    /**
+     * Every diagnosis on the encounter, by name, with its code when it has one from a
+     * system the visit can name, in document order.
+     *
+     * @return list<array<string, string>>|null
+     */
+    private function encounterDiagnoses(DOMElement $encounter): ?array
+    {
+        $diagnoses = [];
+        foreach ($this->xml->related($encounter, 'act', self::DIAGNOSIS) as $diagnosis) {
+            foreach ($this->xml->related($diagnosis, 'observation', self::PROBLEM) as $problem) {
+                $value = $this->xml->child($problem, 'value');
+                $name = $this->xml->codeName($value);
+                if ($name === null) {
+                    continue;
+                }
+                $system = self::DIAGNOSIS_SYSTEMS[(string) $this->xml->attribute($value, 'codeSystem')] ?? null;
+                $code = $system === null ? null : $this->xml->attribute($value, 'code');
+                $diagnoses[] = array_filter(['name' => $name, 'code' => $code, 'code_system' => $code === null ? null : $system], static fn (?string $part): bool => $part !== null);
+            }
+        }
+
+        return $diagnoses === [] ? null : $diagnoses;
     }
 
     /**
