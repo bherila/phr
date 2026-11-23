@@ -421,7 +421,7 @@ export const PhrAccessGrantDetailResponseSchema = z.object({
 // filters, forms and labels. A document's own `document_type` is parsed as any
 // string, like `source` below, so a value this build does not know cannot make
 // the document (or the documents list) unreadable.
-export const PhrDocumentTypeSchema = z.enum(['lab_report', 'office_visit_note', 'clinical_questionnaire', 'patient_symptom_log', 'discharge_summary', 'imaging_report', 'prescription', 'medical_necessity_letter', 'prior_authorization', 'insurance', 'consent', 'care_correspondence', 'other'])
+export const PhrDocumentTypeSchema = z.enum(['lab_report', 'office_visit_note', 'clinical_questionnaire', 'patient_symptom_log', 'discharge_summary', 'imaging_report', 'prescription', 'medical_necessity_letter', 'prior_authorization', 'insurance', 'consent', 'care_correspondence', 'progress_note', 'consult_note', 'history_and_physical', 'procedure_note', 'nursing_note', 'advance_directive', 'ems_report', 'clinical_image', 'patient_education', 'other'])
 
 export type PhrDocumentType = z.infer<typeof PhrDocumentTypeSchema>
 
@@ -452,6 +452,23 @@ export const PhrDocumentSchema = z.object({
   review_status: PhrReviewStatusSchema.optional(),
   // The opaque version a review decision is made against (a 409 if the document changed since).
   version: z.string().optional(),
+  // Clinical note metadata (phr#409), as the source or writer stated it. Free
+  // strings: a value this build does not know must not make the document unreadable.
+  loinc_code: nullableString.optional(),
+  source_type_label: nullableString.optional(),
+  author_name: nullableString.optional(),
+  author_role: nullableString.optional(),
+  cosigner_name: nullableString.optional(),
+  authored_at: nullableString.optional(),
+  signed_at: nullableString.optional(),
+  doc_status: nullableString.optional(),
+  patient_signature_status: nullableString.optional(),
+  patient_signed_at: nullableString.optional(),
+  relates_to: z.object({
+    document_id: z.number().nullable(),
+    relation: z.string(),
+    reference: nullableString,
+  }).nullable().optional(),
   imported_at: nullableString,
   created_at: nullableString,
   updated_at: nullableString,

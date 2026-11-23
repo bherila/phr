@@ -53,7 +53,20 @@ final class PhrNativeLifecycleCompatibility
         // The review status an agent-written EOB waits in (#268). Older EOBs were all confirmed.
         'phr_eobs' => ['review_status', 'lines_digest', 'correction_revision'],
         // The review status a machine-written document waits in (#408). Older documents were all confirmed.
-        'phr_documents' => ['review_status'],
+        // Clinical note metadata (#409): null on every document an older archive holds.
+        'phr_documents' => [
+            'review_status',
+            'loinc_code',
+            'source_type_label',
+            'author_name',
+            'author_role',
+            'cosigner_name',
+            'authored_at',
+            'signed_at',
+            'doc_status',
+            'patient_signature_status',
+            'patient_signed_at',
+        ],
         // Whether each lab reference bound is inclusive (#259); null is "not stated".
         // EHI lab provenance (#213 M3): null on every result an older archive holds.
         'phr_lab_results' => [

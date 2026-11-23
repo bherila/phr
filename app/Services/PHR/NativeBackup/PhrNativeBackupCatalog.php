@@ -347,6 +347,16 @@ final class PhrNativeBackupCatalog
                 'patient_column' => 'patient_id',
                 'relationships' => ['correction_id' => self::record('phr_eob_corrections', false)],
             ],
+            // A document's addendum or amendment link (phr#409). A link table, not a
+            // column of phr_documents: restore inserts documents page by page, so a
+            // document could name one not yet restored. Every document precedes it.
+            'phr_document_relations' => [
+                'patient_column' => 'patient_id',
+                'relationships' => [
+                    'document_id' => self::record('phr_documents', false),
+                    'related_document_id' => self::record('phr_documents', true),
+                ],
+            ],
         ];
     }
 

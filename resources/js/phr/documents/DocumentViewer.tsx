@@ -9,7 +9,7 @@ import { formatDate as displayDate } from '@/lib/dateFormat'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { isBrowserPreviewableImage } from '@/phr/documents/browserImagePreview'
 import { documentSourceLabel } from '@/phr/documents/documentSource'
-import { documentTypeLabel } from '@/phr/documents/documentType'
+import { documentTypeLabel, noteAuthorship } from '@/phr/documents/documentType'
 import { isTextDocument } from '@/phr/documents/textPreview'
 import { usePhrPatients } from '@/phr/patients/usePhrPatients'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
@@ -115,6 +115,7 @@ function DocumentView({ document, patientId }: { document: PhrDocument, patientI
     `Added ${formatDate(document.created_at)}`,
     [formatName(document), numPages ? `${numPages} page${numPages === 1 ? '' : 's'}` : null].filter(Boolean).join(' · '),
   ].filter(Boolean).join(' · ')
+  const authorship = noteAuthorship(document)
 
   return (
     <div className="grid gap-4">
@@ -127,6 +128,7 @@ function DocumentView({ document, patientId }: { document: PhrDocument, patientI
             {reviewStatusBadge(document.review_status)}
           </div>
           <p className="truncate text-xs text-muted-foreground">{facts}</p>
+          {authorship && <p className="truncate text-xs text-muted-foreground">{authorship}</p>}
         </div>
         {pdf && numPages !== null && numPages > 1 && (
           <div className="flex items-center gap-1">

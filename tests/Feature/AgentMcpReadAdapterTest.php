@@ -222,7 +222,7 @@ final class AgentMcpReadAdapterTest extends TestCase
         $this->assertIsArray($tools);
         $toolNames = array_column($tools, 'name');
         foreach (['capabilities.get', 'patients.list', 'patients.create', 'records.search', 'timeline.list',
-            'clinical.list', 'clinical.get', 'eobs.list', 'documents.get', 'documents.content.get', 'documents.update', 'documents.upload',
+            'clinical.list', 'clinical.get', 'eobs.list', 'documents.get', 'documents.content.get', 'documents.update', 'documents.upload', 'documents.create_text',
             'dicom_studies.list', 'dicom_studies.get', 'dicom_series.list', 'dicom_uploads.open', 'dicom_uploads.upload_file',
             'dicom_uploads.finalize', 'dicom_uploads.cancel',
             'reconciliations.preview', 'reconciliations.apply',
@@ -240,11 +240,11 @@ final class AgentMcpReadAdapterTest extends TestCase
             $this->assertContains($name, $toolNames);
         }
         $this->assertCount(
-            70 + (count(AgentClinicalResourceCatalog::writableIds()) * 2),
+            71 + (count(AgentClinicalResourceCatalog::writableIds()) * 2),
             $toolNames,
         );
         $writeTools = [
-            'patients.create', 'documents.upload', 'documents.upload_access_create', 'documents.upload_finalize', 'documents.upload_cancel', 'eobs.import', 'medication_fills.resolve_duplicate', 'imports.create', 'imports.review', 'imports.retry',
+            'patients.create', 'documents.upload', 'documents.create_text', 'documents.upload_access_create', 'documents.upload_finalize', 'documents.upload_cancel', 'eobs.import', 'medication_fills.resolve_duplicate', 'imports.create', 'imports.review', 'imports.retry',
             'medication_fills.answer_eob_link', 'office_visits.link_record', 'office_visits.unlink_record', 'health_logs.create', 'health_log_entries.append', 'respiratory_events.ingest',
             'dicom_uploads.open', 'dicom_uploads.upload_file', 'dicom_uploads.finalize', 'dicom_uploads.cancel',
             'reconciliations.apply',

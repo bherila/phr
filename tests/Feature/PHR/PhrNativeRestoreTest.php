@@ -5,6 +5,7 @@ namespace Tests\Feature\PHR;
 use App\Jobs\PHR\ApplyPhrNativeRestoreJob;
 use App\Jobs\PHR\PreviewPhrNativeRestoreJob;
 use App\Models\PhrDocument;
+use App\Models\PhrDocumentRelation;
 use App\Models\PhrEob;
 use App\Models\PhrEobLine;
 use App\Models\PhrLabResult;
@@ -56,7 +57,8 @@ final class PhrNativeRestoreTest extends TestCase
 
     public function test_restore_pages_preserve_relationships_and_stable_identities_across_page_boundaries(): void
     {
-        config(['phr.native_backup_chunk_size' => 3, 'phr.native_page_bytes' => 3000]);
+        // Three document records to a page: a page's bytes hold a chunk of them.
+        config(['phr.native_backup_chunk_size' => 3, 'phr.native_page_bytes' => 4500]);
         $owner = $this->createUser();
         $patient = $this->patientWithOwnerGrant((int) $owner->id);
         $documents = [];
@@ -1348,6 +1350,7 @@ final class PhrNativeRestoreTest extends TestCase
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['eob_corrections'],
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['encounter_links'],
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['visit_participants'],
+            ...PhrNativeTableCompatibility::LATER_GENERATIONS['document_relations'],
         ]);
         DB::table('phr_patients')->where('id', $patient->id)->delete();
 
@@ -1389,6 +1392,7 @@ final class PhrNativeRestoreTest extends TestCase
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['eob_corrections'],
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['encounter_links'],
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['visit_participants'],
+            ...PhrNativeTableCompatibility::LATER_GENERATIONS['document_relations'],
         ]);
         $this->mutateTableRecords($archivePath, 'phr_immunizations', static function (array $record): array {
             foreach (PhrNativeLifecycleCompatibility::TABLE_COLUMNS['phr_immunizations'] as $column) {
@@ -1588,7 +1592,7 @@ final class PhrNativeRestoreTest extends TestCase
         $current = $this->archiveCopy($patient, (int) $owner->id);
         $older = $this->archiveCopy($patient, (int) $owner->id);
         // An archive from before the link tables also predates every later generation.
-        $this->removeTables($older, [...PhrNativeTableCompatibility::LATER_GENERATIONS['encounter_links'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['visit_participants']]);
+        $this->removeTables($older, [...PhrNativeTableCompatibility::LATER_GENERATIONS['encounter_links'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['visit_participants'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['document_relations']]);
 
         // The lab moved to a visit made after the backup: restoring the archived link would
         // put it on two encounters, so it is a conflict.
@@ -1646,7 +1650,7 @@ final class PhrNativeRestoreTest extends TestCase
         $current = $this->archiveCopy($patient, (int) $owner->id);
         $older = $this->archiveCopy($patient, (int) $owner->id);
         // An archive downloaded before #412 has neither the table nor the visit's digest of it.
-        $this->removeTables($older, PhrNativeTableCompatibility::LATER_GENERATIONS['visit_participants']);
+        $this->removeTables($older, [...PhrNativeTableCompatibility::LATER_GENERATIONS['visit_participants'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['document_relations']]);
         $this->mutateTableRecords($older, 'phr_office_visits', static function (array $record): array {
             unset($record['attributes']['participants_digest']);
 
@@ -1734,6 +1738,7 @@ final class PhrNativeRestoreTest extends TestCase
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['eob_corrections'],
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['encounter_links'],
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['visit_participants'],
+            ...PhrNativeTableCompatibility::LATER_GENERATIONS['document_relations'],
         ]);
         DB::table('phr_patients')->where('id', $patient->id)->delete();
 
@@ -1829,7 +1834,7 @@ final class PhrNativeRestoreTest extends TestCase
 
         $current = $this->archiveCopy($patient, (int) $owner->id);
         $older = $this->archiveCopy($patient, (int) $owner->id);
-        $this->removeTables($older, [...PhrNativeTableCompatibility::LATER_GENERATIONS['medication_fill_evidence'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['eob_corrections'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['encounter_links'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['visit_participants']]);
+        $this->removeTables($older, [...PhrNativeTableCompatibility::LATER_GENERATIONS['medication_fill_evidence'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['eob_corrections'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['encounter_links'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['visit_participants'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['document_relations']]);
         // An EOB archived before it had a review status has no such attribute, and was confirmed.
         $this->mutateTableRecords($older, 'phr_eobs', static function (array $record): array {
             unset($record['attributes']['review_status'], $record['attributes']['lines_digest']);
@@ -1908,6 +1913,59 @@ final class PhrNativeRestoreTest extends TestCase
             'every document of an archive written before the review status restores confirmed',
         );
         $this->assertSame(3, DB::table('phr_documents')->where('patient_id', $olderAttempt->target_patient_root_id)->count());
+        @unlink($current);
+        @unlink($older);
+    }
+
+    public function test_note_metadata_and_an_addendum_link_survive_a_round_trip_and_an_older_archive_restores_without_them(): void
+    {
+        $owner = User::factory()->create(['user_role' => 'user']);
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        $note = PhrDocument::query()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'title' => 'Daily Progress Note', 'document_type' => 'progress_note', 'storage_disk' => PhrDocument::STORAGE_DISK, 'byte_size' => 0, 'source' => 'fhir_import',
+            'loinc_code' => '11506-3', 'source_type_label' => 'Daily Progress Note', 'author_name' => 'Jordan Fellow, MD', 'author_role' => 'Nephrology fellow', 'cosigner_name' => 'Casey Consultant, MD',
+            'authored_at' => '2026-02-11 14:30:00', 'signed_at' => '2026-02-11 21:05:00', 'doc_status' => 'final']);
+        $addendum = PhrDocument::query()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'title' => 'Addendum', 'document_type' => 'progress_note', 'storage_disk' => PhrDocument::STORAGE_DISK, 'byte_size' => 0, 'source' => 'fhir_import', 'signed_at' => '2026-02-11 23:10:00']);
+        PhrDocument::query()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'title' => 'Consent for treatment', 'document_type' => 'consent', 'storage_disk' => PhrDocument::STORAGE_DISK, 'byte_size' => 0, 'source' => 'manual_upload', 'patient_signature_status' => 'signed', 'patient_signed_at' => '2026-02-09 15:00:00']);
+        PhrDocumentRelation::query()->create(['patient_id' => $patient->id, 'document_id' => $addendum->id, 'related_document_id' => $note->id, 'relation' => 'appends']);
+        // A source reference PHR could not resolve is restored as it was.
+        PhrDocumentRelation::query()->create(['patient_id' => $patient->id, 'document_id' => $note->id, 'related_document_id' => null, 'related_reference' => 'DocumentReference/synthetic-older-note', 'relation' => 'replaces']);
+
+        $current = $this->archiveCopy($patient, (int) $owner->id);
+        $older = $this->archiveCopy($patient, (int) $owner->id);
+        // An archive written before #409: no relation table, no note columns.
+        $this->removeTables($older, PhrNativeTableCompatibility::LATER_GENERATIONS['document_relations']);
+        $this->mutateTableRecords($older, 'phr_documents', static function (array $record): array {
+            foreach (['loinc_code', 'source_type_label', 'author_name', 'author_role', 'cosigner_name', 'authored_at', 'signed_at', 'doc_status', 'patient_signature_status', 'patient_signed_at'] as $column) {
+                unset($record['attributes'][$column]);
+            }
+
+            return $record;
+        });
+        DB::table('phr_patients')->where('id', $patient->id)->delete();
+
+        $attempt = $this->readyAttempt($current, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $attempt->status, (string) $attempt->failure_category);
+        app(PhrNativeRestoreService::class)->apply($attempt->refresh());
+        $target = (int) $attempt->refresh()->target_patient_root_id;
+        $restored = PhrDocument::query()->where('patient_id', $target)->get()->keyBy('title');
+        $this->assertSame('11506-3', $restored['Daily Progress Note']->loinc_code);
+        $this->assertSame('Casey Consultant, MD', $restored['Daily Progress Note']->cosigner_name);
+        $this->assertSame('2026-02-11 21:05:00', $restored['Daily Progress Note']->signed_at?->toDateTimeString());
+        $this->assertSame('signed', $restored['Consent for treatment']->patient_signature_status);
+        $this->assertSame(
+            [[$restored['Addendum']->id, $restored['Daily Progress Note']->id, null, 'appends'], [$restored['Daily Progress Note']->id, null, 'DocumentReference/synthetic-older-note', 'replaces']],
+            PhrDocumentRelation::query()->where('patient_id', $target)->orderBy('id')->get()->map(static fn (PhrDocumentRelation $relation): array => [$relation->document_id, $relation->related_document_id, $relation->related_reference, $relation->relation])->all(),
+        );
+
+        DB::table('phr_patients')->where('id', $target)->delete();
+        $olderAttempt = $this->readyAttempt($older, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $olderAttempt->status, (string) $olderAttempt->failure_category);
+        $this->assertSame(['create' => 0, 'skip' => 0, 'block' => 0], $olderAttempt->plan_counts_json['tables']['phr_document_relations']);
+        app(PhrNativeRestoreService::class)->apply($olderAttempt->refresh());
+        $olderTarget = (int) $olderAttempt->refresh()->target_patient_root_id;
+        $this->assertSame(3, PhrDocument::query()->where('patient_id', $olderTarget)->count());
+        $this->assertSame([null], PhrDocument::query()->where('patient_id', $olderTarget)->distinct()->pluck('loinc_code')->all(), 'an older archive states no note metadata');
+        $this->assertSame(0, PhrDocumentRelation::query()->where('patient_id', $olderTarget)->count());
         @unlink($current);
         @unlink($older);
     }

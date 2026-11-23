@@ -36,6 +36,7 @@ use BWH\Auth\OAuth\Credentials\CredentialOwnerPolicy;
 use BWH\Auth\OAuth\DelegatedAccess\ApplicationAccessAdapter;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Contracts\Auth\StatefulGuard;
+use Illuminate\Foundation\Http\Middleware\TrimStrings;
 use Illuminate\Http\Middleware\HandleCors;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -124,6 +125,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // A note's markdown is stored byte for byte (phr#409): trailing newlines and
+        // indentation are part of it, and its hash is what an exact retry matches.
+        TrimStrings::skipWhen(static fn (Request $request): bool => $request->isMethod('POST')
+            && preg_match('#^api/v1/patients/\d+/documents/text$#', $request->path()) === 1);
         Passport::loadKeysFrom(storage_path('app/private/oauth'));
         Passport::tokensCan(AgentApiScopes::descriptions());
         Passport::tokensExpireIn(now()->addMinutes(AgentApiTokenPolicy::ACCESS_TOKEN_LIFETIME_MINUTES));

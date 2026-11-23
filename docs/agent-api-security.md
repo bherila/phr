@@ -159,9 +159,25 @@ page or the Documents page) confirms or rejects one, conditionally on a listed v
 FHIR `DocumentReference`, the C-CDA "Documents" section, the PDF summary and the export
 archive's document files carry confirmed, unretracted documents only, and a record citing
 a document the export leaves out is exported without its `source_document_id`. No export
-marks any document as clinician-authenticated (no C-CDA `legalAuthenticator` or
-`authenticator`, no FHIR `authenticator`); text an agent wrote (`source = agent_upload`)
-stays the agent's, whatever a person approved.
+marks a document PHR wrote as clinician-authenticated (no C-CDA `legalAuthenticator` or
+`authenticator`). A note's cosigner, as its source recorded it, is exported as a FHIR
+`authenticator` or a C-CDA Note Activity legal-authenticator participant only for a
+document a source wrote (phr#409); text an agent wrote or an AI read (`source` of
+`agent_upload` or `genai_import`) stays the agent's, whatever a person approved, and
+carries none.
+
+`documents.create_text` (`documents:write`, phr#409) stores an agent's markdown note as a
+`.md` object through the same storage path, quota, patient write lock and client-scoped
+identity as an upload, with the body as its extracted text and the note's metadata
+(LOINC code verbatim, source label, author and role, cosigner, written and signed
+times, docStatus, a consent's or estimate's patient signature, and an optional
+`relates_to` link to the document it appends to or replaces, which must be another
+document of the same patient and never close a loop). The body is at most 180,000 bytes
+of UTF-8, inside the MCP request cap, and is stored byte for byte (string trimming is
+off for this route). The same `external_id` with the same body is unchanged; a
+different body, or the same body under another identifier, conflicts. The note lands in
+`pending_review`. `documents.update` edits the same metadata and link, and an effective
+change of either reopens review.
 
 Document creation separately requires `documents:write` plus owner/manager access. The
 browser and agent controllers share one upload service, validation request, canonical

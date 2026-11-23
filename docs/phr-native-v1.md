@@ -87,6 +87,13 @@ links.
 
 ## Archives older than a table
 
+A document's addendum or amendment link (#409) is a row of `phr_document_relations`,
+the last table in catalog order, with `document_id` and `related_document_id` as record
+relationships to `phr_documents`. It is a link table rather than a column of
+`phr_documents` because restore inserts a table page by page: a document naming
+another document could point at one not yet restored. An unresolved source reference
+(`related_reference` with no `related_document_id`) is restored as it was.
+
 EOB corrections are patient-owned immutable history in `phr_eob_corrections` and
 `phr_eob_correction_lines`. Each correction retains its ordered before/after header
 and document relationships, with a separate record for every historical line on each
@@ -141,9 +148,9 @@ Schema version 1 stays 1 when a table is added. The reader requires the manifest
 table set to equal the catalog, except that a table generation added after v1 shipped
 (`PhrNativeTableCompatibility::LATER_GENERATIONS`: today `ehi_tables`, the six EHI
 preservation tables, then `ehi_evidence`, the seven evidence and review tables, and later
-ones through `encounter_links`, the five encounter link tables, and `visit_participants`, a
-visit's care team) may be wholly absent, in which case it reads as empty. Generations are
-ordered: an archive may
+ones through `encounter_links`, the five encounter link tables, `visit_participants`, a
+visit's care team, and `document_relations`, the document addendum links of #409) may be
+wholly absent, in which case it reads as empty. Generations are ordered: an archive may
 lack a generation only if it also lacks every later one, so pre-EHI and M1-era archives
 restore. Part of a generation, a later generation without an earlier one, a missing
 original v1 table, or an unknown table still fails closed as `invalid_archive`.
@@ -151,7 +158,7 @@ original v1 table, or an unknown table still fails closed as `invalid_archive`.
 Columns follow the same idea. A record may lack `deleted_at`/`retracted_at`, and the
 nullable columns listed per table in `PhrNativeLifecycleCompatibility::TABLE_COLUMNS`
 (today the six EHI immunization provenance columns on `phr_immunizations`, the review
-status and lines digest on `phr_eobs`, the review status on `phr_documents` (an older archive's EOBs and documents restore as `confirmed`, what they all were), the reference-bound inclusiveness and EHI lab
+status and lines digest on `phr_eobs`, the review status on `phr_documents` (an older archive's EOBs and documents restore as `confirmed`, what they all were), the clinical note metadata columns on `phr_documents` (#409: LOINC code, source label, author, cosigner, written and signed times, docStatus, patient signature), the reference-bound inclusiveness and EHI lab
 provenance columns on `phr_lab_results`, the EHI encounter context and coded encounter
 columns (class, state, location, admit source, discharge disposition) and the care team
 digest on `phr_office_visits`, and the source-ID bridge columns on `phr_ehi_record_links`). Nullable relationships added later are listed the same way in

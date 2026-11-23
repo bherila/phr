@@ -282,7 +282,7 @@ class EhiDocumentMappingTest extends TestCase
         $mapping = app(EhiDocumentMapping::class);
 
         self::assertSame('document', $mapping->name());
-        self::assertSame('ehi-doc-1', $mapping->version());
+        self::assertSame('ehi-doc-2', $mapping->version());
         self::assertSame([
             'HNO_INFO' => ['NOTE_ID'],
             'NOTE_ENC_INFO' => ['CONTACT_SERIAL_NUM'],

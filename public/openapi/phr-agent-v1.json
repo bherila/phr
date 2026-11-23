@@ -1122,6 +1122,78 @@
                 }
             }
         },
+        "/patients/{patient}/documents/text": {
+            "post": {
+                "operationId": "documents.create_text",
+                "summary": "Idempotently store a markdown note",
+                "description": "Stores body as a markdown (.md) document whose text is the body, with the note's metadata: LOINC code, source label, author, cosigner, when written and signed, docStatus and, for a consent or estimate, the patient's signature. body is at most 180000 bytes of UTF-8. The external identifier is namespaced to the OAuth client: the same body again is unchanged (200), a different body for the same identifier conflicts (409), as does the same body under another identifier. An amendment or addendum is a new document with relates_to naming the document it replaces or appends to. The note lands in pending_review: only a person approving it in PHR lets it into a clinical export, and an export never marks a note an agent wrote as authenticated.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "documents:write"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DocumentTextCreateRequest"
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Exact retry",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DocumentUploadResponse"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Document created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/DocumentUploadResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/Conflict"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            }
+        },
         "/patients/{patient}/documents/{document}/file": {
             "get": {
                 "operationId": "documents.download",
@@ -1284,8 +1356,8 @@
             },
             "patch": {
                 "operationId": "documents.update",
-                "summary": "Edit a document's title, type, date, summary or tags",
-                "description": "Read the document first and supply its current version (documents.get). data holds only the fields to change; a null title, observed_at or summary clears it, and tags replaces the list. The file, its source and its import identity never change. A stale or unknown version is rejected with 409 before anything is applied, and every effective change resets review_status to pending_review. Requires documents:read as well as documents:write.",
+                "summary": "Edit a document's title, type, date, summary, tags or note metadata",
+                "description": "Read the document first and supply its current version (documents.get). data holds only the fields to change; a null title, observed_at, summary or note field clears it, tags replaces the list, and relates_to sets or (null) removes the document's addendum or amendment link. The file, its source and its import identity never change. A stale or unknown version is rejected with 409 before anything is applied, and every effective change resets review_status to pending_review. Requires documents:read as well as documents:write.",
                 "security": [
                     {
                         "oauth2": [
@@ -7723,6 +7795,17 @@
                     "tags",
                     "import_source",
                     "review_status",
+                    "loinc_code",
+                    "source_type_label",
+                    "author_name",
+                    "author_role",
+                    "cosigner_name",
+                    "authored_at",
+                    "signed_at",
+                    "doc_status",
+                    "patient_signature_status",
+                    "patient_signed_at",
+                    "relates_to",
                     "external_id",
                     "imported_at",
                     "processing_state",
@@ -7807,6 +7890,128 @@
                             "rejected"
                         ],
                         "description": "A document an agent uploads or edits, an AI reads or a standards import writes waits in pending_review until a person approves it; only a confirmed document is exported."
+                    },
+                    "loinc_code": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "description": "The LOINC document code the source gives, kept verbatim (a plan-of-care note stays 18776-5). Null lets an export use the type's default code."
+                    },
+                    "source_type_label": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "description": "The source's own name for the note type, e.g. \"Daily Progress Note\"."
+                    },
+                    "author_name": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "description": "Who wrote the note, as the source names them, e.g. \"Jordan Fellow, MD\"."
+                    },
+                    "author_role": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "description": "The author's role or credentials as the source states them."
+                    },
+                    "cosigner_name": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "description": "Who cosigned (authenticated) the note, as the source names them."
+                    },
+                    "authored_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time",
+                        "description": "When the note was written."
+                    },
+                    "signed_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time",
+                        "description": "When the note was signed."
+                    },
+                    "doc_status": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "enum": [
+                            "preliminary",
+                            "final",
+                            "amended",
+                            "entered-in-error",
+                            null
+                        ],
+                        "description": "FHIR docStatus of the note as the source states it."
+                    },
+                    "patient_signature_status": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "enum": [
+                            "to_sign",
+                            "signed",
+                            "not_applicable",
+                            null
+                        ],
+                        "description": "For a consent or estimate: whether it awaits the patient's signature. Separate from doc_status."
+                    },
+                    "patient_signed_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time",
+                        "description": "When the patient signed."
+                    },
+                    "relates_to": {
+                        "type": [
+                            "object",
+                            "null"
+                        ],
+                        "required": [
+                            "document_id",
+                            "relation",
+                            "reference"
+                        ],
+                        "properties": {
+                            "document_id": {
+                                "type": [
+                                    "integer",
+                                    "null"
+                                ],
+                                "description": "The related document, or null while the source reference names no document PHR holds."
+                            },
+                            "relation": {
+                                "type": "string",
+                                "enum": [
+                                    "appends",
+                                    "replaces"
+                                ]
+                            },
+                            "reference": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "description": "The source's own reference to the related document, kept verbatim; null for a link a person or agent set."
+                            }
+                        },
+                        "additionalProperties": false,
+                        "description": "The document this one is an addendum to (appends) or replaces, FHIR relatesTo."
                     },
                     "external_id": {
                         "type": [
@@ -7906,6 +8111,239 @@
                 },
                 "additionalProperties": false
             },
+            "DocumentTextCreateRequest": {
+                "type": "object",
+                "required": [
+                    "external_id",
+                    "body",
+                    "document_type"
+                ],
+                "properties": {
+                    "external_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 255,
+                        "pattern": "^[^\\p{C}]+$"
+                    },
+                    "body": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 180000,
+                        "description": "The note as markdown, at most 180000 bytes of UTF-8. Stored as a .md file and as the document's text."
+                    },
+                    "title": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255
+                    },
+                    "document_type": {
+                        "type": "string",
+                        "enum": [
+                            "lab_report",
+                            "office_visit_note",
+                            "clinical_questionnaire",
+                            "patient_symptom_log",
+                            "discharge_summary",
+                            "imaging_report",
+                            "prescription",
+                            "medical_necessity_letter",
+                            "prior_authorization",
+                            "insurance",
+                            "consent",
+                            "care_correspondence",
+                            "progress_note",
+                            "consult_note",
+                            "history_and_physical",
+                            "procedure_note",
+                            "nursing_note",
+                            "advance_directive",
+                            "ems_report",
+                            "clinical_image",
+                            "patient_education",
+                            "other"
+                        ]
+                    },
+                    "observed_at": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "format": "date"
+                            },
+                            {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ]
+                    },
+                    "summary": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 20000
+                    },
+                    "tags": {
+                        "type": [
+                            "array",
+                            "null"
+                        ],
+                        "maxItems": 30,
+                        "items": {
+                            "type": "string",
+                            "maxLength": 50
+                        },
+                        "uniqueItems": true
+                    },
+                    "loinc_code": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "pattern": "^\\d{1,8}-\\d$",
+                        "description": "The LOINC document code the source gives, kept verbatim (a plan-of-care note stays 18776-5). Null lets an export use the type's default code."
+                    },
+                    "source_type_label": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255,
+                        "description": "The source's own name for the note type, e.g. \"Daily Progress Note\"."
+                    },
+                    "author_name": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255,
+                        "description": "Who wrote the note, as the source names them, e.g. \"Jordan Fellow, MD\"."
+                    },
+                    "author_role": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255,
+                        "description": "The author's role or credentials as the source states them."
+                    },
+                    "cosigner_name": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255,
+                        "description": "Who cosigned (authenticated) the note, as the source names them."
+                    },
+                    "authored_at": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "format": "date"
+                            },
+                            {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "When the note was written: an ISO 8601 date or datetime."
+                    },
+                    "signed_at": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "format": "date"
+                            },
+                            {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "When the note was signed: an ISO 8601 date or datetime."
+                    },
+                    "doc_status": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "enum": [
+                            "preliminary",
+                            "final",
+                            "amended",
+                            "entered-in-error",
+                            null
+                        ],
+                        "description": "FHIR docStatus of the note as the source states it."
+                    },
+                    "patient_signature_status": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "enum": [
+                            "to_sign",
+                            "signed",
+                            "not_applicable",
+                            null
+                        ],
+                        "description": "For a consent or estimate: whether it awaits the patient's signature. Separate from doc_status."
+                    },
+                    "patient_signed_at": {
+                        "anyOf": [
+                            {
+                                "type": "string",
+                                "format": "date"
+                            },
+                            {
+                                "type": "string",
+                                "format": "date-time"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "When the patient signed: an ISO 8601 date or datetime."
+                    },
+                    "relates_to": {
+                        "type": [
+                            "object",
+                            "null"
+                        ],
+                        "additionalProperties": false,
+                        "required": [
+                            "document_id",
+                            "relation"
+                        ],
+                        "properties": {
+                            "document_id": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "description": "Another document of this patient."
+                            },
+                            "relation": {
+                                "type": "string",
+                                "enum": [
+                                    "appends",
+                                    "replaces"
+                                ],
+                                "description": "appends for an addendum, replaces for an amendment."
+                            }
+                        },
+                        "description": "The document this one is an addendum to (appends) or replaces. Null removes the link."
+                    }
+                },
+                "additionalProperties": false
+            },
             "DocumentUpdateRequest": {
                 "type": "object",
                 "required": [
@@ -7943,6 +8381,15 @@
                                     "insurance",
                                     "consent",
                                     "care_correspondence",
+                                    "progress_note",
+                                    "consult_note",
+                                    "history_and_physical",
+                                    "procedure_note",
+                                    "nursing_note",
+                                    "advance_directive",
+                                    "ems_report",
+                                    "clinical_image",
+                                    "patient_education",
                                     "other"
                                 ]
                             },
@@ -7979,6 +8426,148 @@
                                     "maxLength": 50
                                 },
                                 "uniqueItems": true
+                            },
+                            "loinc_code": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "pattern": "^\\d{1,8}-\\d$",
+                                "description": "The LOINC document code the source gives, kept verbatim (a plan-of-care note stays 18776-5). Null lets an export use the type's default code."
+                            },
+                            "source_type_label": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "maxLength": 255,
+                                "description": "The source's own name for the note type, e.g. \"Daily Progress Note\"."
+                            },
+                            "author_name": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "maxLength": 255,
+                                "description": "Who wrote the note, as the source names them, e.g. \"Jordan Fellow, MD\"."
+                            },
+                            "author_role": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "maxLength": 255,
+                                "description": "The author's role or credentials as the source states them."
+                            },
+                            "cosigner_name": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "maxLength": 255,
+                                "description": "Who cosigned (authenticated) the note, as the source names them."
+                            },
+                            "authored_at": {
+                                "anyOf": [
+                                    {
+                                        "type": "string",
+                                        "format": "date"
+                                    },
+                                    {
+                                        "type": "string",
+                                        "format": "date-time"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "When the note was written: an ISO 8601 date or datetime."
+                            },
+                            "signed_at": {
+                                "anyOf": [
+                                    {
+                                        "type": "string",
+                                        "format": "date"
+                                    },
+                                    {
+                                        "type": "string",
+                                        "format": "date-time"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "When the note was signed: an ISO 8601 date or datetime."
+                            },
+                            "doc_status": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "enum": [
+                                    "preliminary",
+                                    "final",
+                                    "amended",
+                                    "entered-in-error",
+                                    null
+                                ],
+                                "description": "FHIR docStatus of the note as the source states it."
+                            },
+                            "patient_signature_status": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ],
+                                "enum": [
+                                    "to_sign",
+                                    "signed",
+                                    "not_applicable",
+                                    null
+                                ],
+                                "description": "For a consent or estimate: whether it awaits the patient's signature. Separate from doc_status."
+                            },
+                            "patient_signed_at": {
+                                "anyOf": [
+                                    {
+                                        "type": "string",
+                                        "format": "date"
+                                    },
+                                    {
+                                        "type": "string",
+                                        "format": "date-time"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "When the patient signed: an ISO 8601 date or datetime."
+                            },
+                            "relates_to": {
+                                "type": [
+                                    "object",
+                                    "null"
+                                ],
+                                "additionalProperties": false,
+                                "required": [
+                                    "document_id",
+                                    "relation"
+                                ],
+                                "properties": {
+                                    "document_id": {
+                                        "type": "integer",
+                                        "minimum": 1,
+                                        "description": "Another document of this patient."
+                                    },
+                                    "relation": {
+                                        "type": "string",
+                                        "enum": [
+                                            "appends",
+                                            "replaces"
+                                        ],
+                                        "description": "appends for an addendum, replaces for an amendment."
+                                    }
+                                },
+                                "description": "The document this one is an addendum to (appends) or replaces. Null removes the link."
                             }
                         },
                         "additionalProperties": false
@@ -8057,6 +8646,15 @@
                             "insurance",
                             "consent",
                             "care_correspondence",
+                            "progress_note",
+                            "consult_note",
+                            "history_and_physical",
+                            "procedure_note",
+                            "nursing_note",
+                            "advance_directive",
+                            "ems_report",
+                            "clinical_image",
+                            "patient_education",
                             "other",
                             null
                         ],
@@ -8313,6 +8911,15 @@
                             "insurance",
                             "consent",
                             "care_correspondence",
+                            "progress_note",
+                            "consult_note",
+                            "history_and_physical",
+                            "procedure_note",
+                            "nursing_note",
+                            "advance_directive",
+                            "ems_report",
+                            "clinical_image",
+                            "patient_education",
                             "other"
                         ]
                     },

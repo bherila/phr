@@ -11,6 +11,7 @@ use App\Support\AgentApi\AgentClinicalWriteSchemaCatalog;
 use App\Support\AgentApi\AgentRecordSearchCatalog;
 use App\Support\AgentApi\EobWriteRules;
 use App\Support\PHR\PhrReviewStatus;
+use App\Support\PHR\Validation\DocumentNoteRules;
 use Bherila\McpLaravelBridge\Mcp\ReflectedInputSchemaFactory;
 use Bherila\McpLaravelBridge\Mcp\ToolDefinition;
 
@@ -49,8 +50,15 @@ final class AgentMcpInputSchemaFactory
                     'observed_at' => ['type' => ['string', 'null'], 'description' => 'Document date or datetime accepted by the PHR API.'],
                     'summary' => ['type' => ['string', 'null'], 'maxLength' => 20000],
                     'tags' => ['type' => ['array', 'null'], 'maxItems' => 30, 'uniqueItems' => true, 'items' => ['type' => 'string', 'maxLength' => 50]],
+                    ...DocumentNoteRules::jsonSchema(),
                 ],
             ];
+        }
+        if ($definition->name === 'documents.create_text') {
+            $schema['properties']['document_type']['enum'] = PhrDocument::DOCUMENT_TYPES;
+            foreach (DocumentNoteRules::jsonSchema() as $field => $property) {
+                $schema['properties'][$field] = $property;
+            }
         }
         if (in_array($definition->name, ['eobs.upsert', 'eobs.update'], true)) {
             $schema['properties']['data'] = EobWriteRules::jsonSchema($definition->name === 'eobs.update');

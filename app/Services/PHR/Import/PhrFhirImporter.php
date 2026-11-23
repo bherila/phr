@@ -5,6 +5,7 @@ namespace App\Services\PHR\Import;
 use App\Models\PhrDocument;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
+use App\Services\PHR\Documents\PhrDocumentRelations;
 use App\Services\PHR\Encounters\PhrEncounterLinks;
 use App\Support\PHR\PhrEncounterVocabulary;
 use App\Support\PHR\PhrVisitParticipants;
@@ -33,10 +34,17 @@ class PhrFhirImporter
     /** @var array<int, string> entry position => its fullUrl */
     private array $entryUrls = [];
 
+    private PhrFhirDocumentReferences $documentReferences;
+
     public function __construct(
         private PhrStructuredDataImporter $structuredImporter,
         private PhrEncounterLinks $encounterLinks,
-    ) {}
+        PhrDocumentRelations $relations,
+    ) {
+        // The same importer, so collectingWritten() sees the documents a DocumentReference
+        // becomes and linkEncounters() can put them on their encounter (#411).
+        $this->documentReferences = new PhrFhirDocumentReferences($structuredImporter, $relations);
+    }
 
     public function importFile(string $path, PhrPatient $patient, int $actorUserId): PhrImportResult
     {
@@ -76,6 +84,7 @@ class PhrFhirImporter
         $result = new PhrImportResult;
         $bundleEntries = is_array($bundle['entry'] ?? null) ? $bundle['entry'] : [];
         $this->index($bundleEntries);
+        $index = $this->referenceIndex($bundle);
         $folded = $this->foldedImpressions();
         $written = [];
         $teams = $this->foldedCareTeams();
@@ -92,11 +101,13 @@ class PhrFhirImporter
 
             $fullUrl = is_string($entry['fullUrl'] ?? null) ? $entry['fullUrl'] : null;
             [$imported, $written[$position]] = $this->structuredImporter->collectingWritten(
-                fn (): PhrImportResult => $this->importResource($entry['resource'], $patient, $actorUserId, $fullUrl, $folded['of'][$position] ?? [], $position, $teams['of'][$position] ?? []),
+                fn (): PhrImportResult => $this->importResource($entry['resource'], $patient, $actorUserId, $fullUrl, $folded['of'][$position] ?? [], $position, $teams['of'][$position] ?? [], $index),
             );
             $result->merge($imported);
         }
         $this->linkEncounters((int) $patient->id, $written, $result);
+        // Addenda name the document they append to, which may come later in the bundle.
+        $this->documentReferences->linkRelations($patient, $index);
 
         return $result;
     }
@@ -378,11 +389,39 @@ class PhrFhirImporter
     }
 
     /**
+     * The bundle's resources by `Type/id` and by fullUrl, as PhrFhirDocumentReferences
+     * resolves a document's author and relatesTo (phr#409).
+     *
+     * @param  array<string, mixed>  $bundle
+     * @return array<string, array<string, mixed>>
+     */
+    private function referenceIndex(array $bundle): array
+    {
+        $index = [];
+        foreach (is_array($bundle['entry'] ?? null) ? $bundle['entry'] : [] as $entry) {
+            $resource = is_array($entry) && is_array($entry['resource'] ?? null) ? $entry['resource'] : null;
+            if ($resource === null) {
+                continue;
+            }
+            $id = $resource['id'] ?? null;
+            if (is_string($id) && is_string($resource['resourceType'] ?? null)) {
+                $index[$resource['resourceType'].'/'.$id] = $resource;
+            }
+            if (is_string($entry['fullUrl'] ?? null) && $entry['fullUrl'] !== '') {
+                $index[$entry['fullUrl']] = $resource;
+            }
+        }
+
+        return $index;
+    }
+
+    /**
      * @param  array<string, mixed>  $resource
      * @param  list<array<string, mixed>>  $impressions  ClinicalImpressions folded into this Encounter
      * @param  list<array<string, mixed>>  $careTeams  CareTeams folded into this Encounter
+     * @param  array<string, array<string, mixed>>  $index  referenceIndex()
      */
-    private function importResource(array $resource, PhrPatient $patient, int $actorUserId, ?string $fullUrl = null, array $impressions = [], ?int $position = null, array $careTeams = []): PhrImportResult
+    private function importResource(array $resource, PhrPatient $patient, int $actorUserId, ?string $fullUrl = null, array $impressions = [], ?int $position = null, array $careTeams = [], array $index = []): PhrImportResult
     {
         $resourceType = (string) ($resource['resourceType'] ?? '');
         $externalId = $this->externalId($resource, $fullUrl);
@@ -452,15 +491,7 @@ class PhrFhirImporter
                 'assessment' => $this->summary($resource),
                 'raw_text' => json_encode($resource),
             ]], ['import_source' => 'fhir']),
-            'DocumentReference' => $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_document', [
-                'external_id' => $externalId,
-                'title' => $resource['description'] ?? data_get($resource, 'content.0.attachment.title'),
-                'document_type' => $this->codeableText($resource['type'] ?? null) ?? 'other',
-                'original_filename' => data_get($resource, 'content.0.attachment.title'),
-                'mime_type' => data_get($resource, 'content.0.attachment.contentType'),
-                'summary' => $resource['description'] ?? null,
-                'source' => 'fhir_import',
-            ], ['import_source' => 'fhir']),
+            'DocumentReference' => $this->documentReferences->import($resource, $index, $patient, $actorUserId, $externalId),
             default => new PhrImportResult(skipped: 1),
         };
     }

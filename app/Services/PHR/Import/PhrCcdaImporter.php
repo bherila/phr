@@ -36,6 +36,7 @@ class PhrCcdaImporter
         private PhrRecordAttributeMapper $attributeMapper,
         private PhrCcdaMisroutedMedications $misroutedMedications,
         private PhrEncounterLinks $encounterLinks,
+        private PhrCcdaNotes $notes,
     ) {}
 
     public function importFile(string $path, PhrPatient $patient, int $actorUserId): PhrImportResult
@@ -232,6 +233,12 @@ class PhrCcdaImporter
             }
 
             $reader = $route->reader;
+            if ($reader instanceof PhrCcdaNoteActivities) {
+                // Notes are documents, not rows (phr#409).
+                $result->merge($this->notes->import($patient, $actorUserId, $reader->notes($section)));
+
+                continue;
+            }
             if ($reader !== null) {
                 // A section's structured entries, when it has any, are the
                 // record; its narrative table is only their rendering.
@@ -252,6 +259,9 @@ class PhrCcdaImporter
                 ? new PhrImportResult(skipped: count($rows))
                 : $this->structuredImporter->importUnreviewed($patient, $actorUserId, $reader->jobType(), array_map($reader->narrativeRecord(...), $rows), $this->options()));
         }
+
+        // An addendum may come before the note it appends to.
+        $this->notes->linkRelations($patient);
 
         if ($header !== null) {
             $result->merge($this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_office_visit', [$header], $this->options()));

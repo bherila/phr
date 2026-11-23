@@ -12,16 +12,20 @@ use App\Models\PhrLabResult;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatientVital;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Services\PHR\Documents\PhrDocumentNotePayload;
+use App\Services\PHR\Documents\PhrDocumentRelations;
 use App\Services\PHR\Documents\PhrDocumentTextReader;
 use App\Services\PHR\Documents\PhrDocumentUploadService;
 use App\Services\PHR\Import\PhrDocumentProcessingService;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
+use App\Support\PHR\PhrClinicalNote;
 use App\Support\PHR\PhrDocumentTags;
 use App\Support\PHR\PhrDocumentUploadLimits;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -129,13 +133,23 @@ class PhrDocumentController extends Controller
     public function update(UpdatePhrDocumentRequest $request, int $patient, int $document): JsonResponse
     {
         $resolvedDocument = $this->resolveWritableDocument($request, $patient, $document);
-        $validated = $request->validated();
+        $validated = PhrClinicalNote::normalizedChanges($request->validated());
 
         if (array_key_exists('tags', $validated)) {
             $validated['tags'] = PhrDocumentTags::normalize($validated['tags'] ?? []);
         }
+        $relates = array_key_exists('relates_to', $validated);
+        $relatesTo = $validated['relates_to'] ?? null;
+        unset($validated['relates_to']);
 
-        $resolvedDocument->update($validated);
+        DB::transaction(function () use ($resolvedDocument, $validated, $relates, $relatesTo): void {
+            $resolvedDocument->fill($validated);
+            if ($relates && app(PhrDocumentRelations::class)->set($resolvedDocument, $relatesTo === null ? null : ['document_id' => (int) $relatesTo['document_id'], 'relation' => (string) $relatesTo['relation']]) && ! $resolvedDocument->isDirty()) {
+                // The link is the document's: a client syncing on updated_at sees it.
+                $resolvedDocument->touch();
+            }
+            $resolvedDocument->save();
+        });
 
         return response()->json(['document' => $this->payload($resolvedDocument->refresh())]);
     }
@@ -279,6 +293,7 @@ class PhrDocumentController extends Controller
             // The opaque version a review decision is conditional on, so a person
             // never approves content that changed after the page loaded.
             'version' => app(AgentClinicalRecordVersion::class)->for($document),
+            ...PhrDocumentNotePayload::of($document, static fn (?\DateTimeInterface $moment): ?string => $moment === null ? null : Carbon::instance($moment)->toDateTimeString()),
             'imported_at' => $document->imported_at?->toDateTimeString(),
             'created_at' => $document->created_at?->toDateTimeString(),
             'updated_at' => $document->updated_at?->toDateTimeString(),

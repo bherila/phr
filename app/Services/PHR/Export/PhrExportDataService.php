@@ -40,10 +40,14 @@ class PhrExportDataService
      * document is dropped from the loaded record (never saved), so no exporter
      * can emit a reference to a document the export leaves out.
      *
-     * Nothing is exported as clinician-authenticated: no exporter writes a
-     * C-CDA legalAuthenticator or authenticator, or a FHIR DocumentReference
-     * authenticator, for any document. A document's text an agent wrote
-     * (source agent_upload) is the agent's, whatever a person approved.
+     * Nothing PHR wrote is exported as clinician-authenticated: no exporter
+     * writes a C-CDA legalAuthenticator or authenticator. A note's cosigner, as
+     * its source recorded it, is exported (a FHIR DocumentReference
+     * authenticator, a C-CDA Note Activity legal-authenticator participant)
+     * only for a document a source wrote; a document's text an agent wrote or an
+     * AI read (source agent_upload or genai_import) is the agent's, whatever a
+     * person approved, and carries none (phr#409). A document's link to the one
+     * it amends is exported only when both are.
      *
      * @return array{
      *     patient: PhrPatient,
@@ -67,7 +71,7 @@ class PhrExportDataService
     public function load(PhrPatient $patient): array
     {
         $patientId = (int) $patient->id;
-        $documents = PhrDocument::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderByDesc('created_at')->orderByDesc('id')->get();
+        $documents = PhrDocument::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->with('relatesTo')->orderByDesc('created_at')->orderByDesc('id')->get();
         $visits = PhrOfficeVisit::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->with('participants')->orderByDesc('visit_started_at')->orderByDesc('visit_date')->orderByDesc('id')->get();
 
         return self::withoutDanglingDocuments([

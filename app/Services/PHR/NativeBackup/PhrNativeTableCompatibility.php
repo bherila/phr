@@ -60,6 +60,8 @@ final class PhrNativeTableCompatibility
         ],
         // A visit's care team (phr#412). Archives downloaded before it existed have none.
         'visit_participants' => ['phr_office_visit_participants'],
+        // Document addenda and amendments (phr#409). Archives written before it have none.
+        'document_relations' => ['phr_document_relations'],
     ];
 
     /**

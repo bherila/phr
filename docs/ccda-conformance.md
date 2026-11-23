@@ -40,6 +40,14 @@ update the baseline and this document together. The app-specific Portal Messages
 Negative Assertions, Imaging Studies, and Documents sections remain untemplated CDA
 narrative sections rather than claiming an incompatible standard template.
 
+An export that carries confirmed clinical notes (phr#409) adds a Notes section
+(`2.16.840.1.113883.10.20.22.2.65`, code 34109-9) with one Note Activity per note: the
+generic 34109-9 code with the note's LOINC code and PHR type as translations, its text
+by reference to the section narrative, its author, and a legal-authenticator
+participant only for a note a source wrote and signed. A note an agent wrote or an AI
+read never carries one. The synthetic validation document holds no documents, so the
+section is not part of the frozen baseline.
+
 The gate also freezes all current `SHOULD` recommendations. They cover clinical context
 the app does not have and must not invent: a legal authenticator, related-person
 participant, provider NPI and role codes, service-event performer, marital status,

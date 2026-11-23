@@ -3,6 +3,7 @@
 namespace App\Services\PHR\Export;
 
 use App\Models\PhrPatient;
+use App\Services\PHR\Documents\PhrDocumentTextReader;
 use App\Support\PHR\PhrLabReferenceRangeNotation;
 use Illuminate\Support\Str;
 use Throwable;
@@ -171,6 +172,8 @@ class PhrCcdaExporter
             $study->modalities,
             $study->study_instance_uid,
         ])->all());
+        // Clinical notes as Note Activities (phr#409), when the export carries any.
+        (new PhrCcdaNoteEntries(app(PhrDocumentTextReader::class), $this->deploymentKey()))->write($xml, $data['documents']);
         $this->section($xml, 'Documents', ['Document', 'Type', 'Summary'], $data['documents']->map(fn ($document): array => [
             $document->title ?? $document->original_filename,
             $document->document_type,
