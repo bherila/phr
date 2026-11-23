@@ -99,11 +99,13 @@ trait HandlesClinicalResourceRequests
         $resolvedPatient = $this->accessService()->writablePatient($patient, $userId);
         $modelClass = $this->modelClass();
 
-        $record = $modelClass::query()->create([
+        // A record with rows of its own (a visit's care team) writes them in the same
+        // transaction as the record.
+        $record = DB::transaction(static fn (): Model => $modelClass::query()->create([
             'patient_id' => $resolvedPatient->id,
             'user_id' => $resolvedPatient->owner_user_id,
             ...$request->validated(),
-        ]);
+        ]));
 
         // create() never reads the row back, so a column the request omitted has
         // no value in memory even where the database supplied a default
@@ -128,7 +130,17 @@ trait HandlesClinicalResourceRequests
     {
         $userId = (int) $request->user()?->id;
         $resolvedPatient = $this->accessService()->writablePatient($patient, $userId);
-        $this->resolveClinicalResource($resolvedPatient, $record)->update($request->validated());
+        $modelClass = $this->modelClass();
+        // Read and written under the record's row lock in one transaction, as a review
+        // is: an edit is applied to the record as it now stands, and the record and any
+        // rows it owns (a visit's care team) commit together.
+        DB::transaction(function () use ($modelClass, $resolvedPatient, $record, $request): void {
+            $modelClass::query()
+                ->where('patient_id', $resolvedPatient->id)
+                ->lockForUpdate()
+                ->findOrFail($record)
+                ->update($request->validated());
+        });
 
         return response()->json([$this->resourceKey() => $this->resourcePayload($this->readClinicalResource($resolvedPatient, $record))]);
     }

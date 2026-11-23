@@ -177,6 +177,31 @@ class PhrOfficeVisit extends Model
         return $this;
     }
 
+    /**
+     * A save that replaces the care team writes the visit (its participants_digest) and
+     * the team's rows in one transaction, with the visit row locked before it is
+     * written. Two replacements of one team then run one after the other, so the rows
+     * stored are always the team the digest describes, whichever path wrote it: the
+     * browser, the agent API or an import. A save that leaves the team alone is
+     * unchanged.
+     *
+     * @param  array<string, mixed>  $options
+     */
+    public function save(array $options = []): bool
+    {
+        if ($this->pendingParticipants === null) {
+            return parent::save($options);
+        }
+
+        return $this->getConnection()->transaction(function () use ($options): bool {
+            if ($this->exists) {
+                static::query()->withoutGlobalScopes()->whereKey($this->getKey())->lockForUpdate()->value($this->getKeyName());
+            }
+
+            return parent::save($options);
+        });
+    }
+
     protected static function booted(): void
     {
         static::saved(static function (self $visit): void {
