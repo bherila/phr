@@ -44,7 +44,10 @@ final class AgentApiReadDao
         return $this->item("patients/{$patientId}");
     }
 
-    /** @param list<string>|null $resourceTypes */
+    /**
+     * @param  list<string>|null  $resourceTypes
+     * @param  list<string>|null  $medicationCategories
+     */
     public function records(
         int $patientId,
         string $view,
@@ -61,6 +64,7 @@ final class AgentApiReadDao
         ?string $reviewStatus = null,
         ?string $updatedAfter = null,
         ?string $updatedBefore = null,
+        ?array $medicationCategories = null,
     ): AgentApiPayload {
         $operation = $view === 'timeline' ? 'timeline' : 'records/search';
 
@@ -70,6 +74,7 @@ final class AgentApiReadDao
             'provider' => $provider, 'facility' => $facility, 'code' => $code,
             'source' => $source, 'review_status' => $reviewStatus,
             'updated_after' => $updatedAfter, 'updated_before' => $updatedBefore,
+            'medication_category' => $medicationCategories,
         ]);
     }
 

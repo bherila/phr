@@ -6,6 +6,10 @@ namespace App\Services\PHR\Import;
  * Where PhrCcdaSectionCatalog sends one C-CDA section: to a section reader, to
  * the Results reader, to nothing because it is a known kind no reader handles
  * (`unread` names it), or to nothing because nothing names it at all.
+ *
+ * A medication list goes to the Medications reader with the setting its section
+ * states (`category`, a PhrMedicationCategory value): the Medications section is
+ * the home list, Hospital Discharge Medications the discharge list (#413).
  */
 final readonly class PhrCcdaSectionRoute
 {
@@ -13,11 +17,12 @@ final readonly class PhrCcdaSectionRoute
         public ?PhrCcdaSectionReader $reader = null,
         public bool $results = false,
         public ?string $unread = null,
+        public ?string $category = null,
     ) {}
 
-    public static function reader(PhrCcdaSectionReader $reader): self
+    public static function reader(PhrCcdaSectionReader $reader, ?string $category = null): self
     {
-        return new self(reader: $reader);
+        return new self(reader: $reader, category: $category);
     }
 
     public static function results(): self

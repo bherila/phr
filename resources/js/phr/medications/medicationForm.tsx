@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { compactPayload } from '@/phr/shared'
-import type { PhrMedication } from '@/phr/types'
+import type { PhrMedication, PhrMedicationCategory } from '@/phr/types'
 
 export type MedicationStatus = 'active' | 'completed' | 'discontinued' | 'on_hold'
 
@@ -20,7 +20,22 @@ export interface MedicationFormState {
   status: MedicationStatus
   prescriberName: string
   reasonForUse: string
+  /** '' is a setting nobody recorded. */
+  category: PhrMedicationCategory | ''
+  /** null is "not said", which an edit keeps until the person answers. */
+  asNeeded: boolean | null
+  asNeededReason: string
+  brandName: string
+  rate: string
 }
+
+const CATEGORY_OPTIONS: Array<{ value: PhrMedicationCategory | '', label: string }> = [
+  { value: 'community', label: 'Home medication' },
+  { value: 'discharge', label: 'Discharge medication' },
+  { value: 'inpatient', label: 'Hospital order' },
+  { value: 'outpatient', label: 'Clinic order' },
+  { value: '', label: 'Not recorded' },
+]
 
 const STATUS_OPTIONS: Array<{ value: MedicationStatus, label: string }> = [
   { value: 'active', label: 'Active' },
@@ -40,6 +55,12 @@ export const EMPTY_MEDICATION_FORM: MedicationFormState = {
   status: 'active',
   prescriberName: '',
   reasonForUse: '',
+  // What a person adds by hand is a medication they take.
+  category: 'community',
+  asNeeded: null,
+  asNeededReason: '',
+  brandName: '',
+  rate: '',
 }
 
 export function resolveMedicationStatus(value: string): MedicationStatus | null {
@@ -74,6 +95,11 @@ export function medicationFormFromMedication(medication: PhrMedication): Medicat
     status: status ?? 'active',
     prescriberName: medication.prescriber_name ?? '',
     reasonForUse: medication.reason_for_use ?? '',
+    category: medication.category ?? '',
+    asNeeded: medication.as_needed,
+    asNeededReason: medication.as_needed_reason ?? '',
+    brandName: medication.brand_name ?? '',
+    rate: medication.rate ?? '',
   }
 }
 
@@ -92,6 +118,11 @@ export function medicationPayload(form: MedicationFormState): Record<string, unk
     ...status,
     prescriber_name: form.prescriberName,
     reason_for_use: form.reasonForUse,
+    category: form.category,
+    as_needed: form.asNeeded,
+    as_needed_reason: form.asNeeded === true ? form.asNeededReason : '',
+    brand_name: form.brandName,
+    rate: form.rate,
   })
 }
 
@@ -119,6 +150,22 @@ function MedicationFormFields({ form, onChange }: { form: MedicationFormState, o
         <Input value={form.name} onChange={(event) => onChange({ ...form, name: event.target.value })} required />
       </label>
       <label className="grid gap-1 text-sm font-medium">
+        List
+        <select
+          value={form.category}
+          onChange={(event) => onChange({ ...form, category: event.target.value as PhrMedicationCategory | '' })}
+          className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+        >
+          {CATEGORY_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+      </label>
+      <label className="grid gap-1 text-sm font-medium">
+        Brand
+        <Input value={form.brandName} onChange={(event) => onChange({ ...form, brandName: event.target.value })} />
+      </label>
+      <label className="grid gap-1 text-sm font-medium">
         Dose
         <Input value={form.dose} onChange={(event) => onChange({ ...form, dose: event.target.value })} placeholder="500" />
       </label>
@@ -133,6 +180,23 @@ function MedicationFormFields({ form, onChange }: { form: MedicationFormState, o
       <label className="grid gap-1 text-sm font-medium">
         Frequency
         <Input value={form.frequency} onChange={(event) => onChange({ ...form, frequency: event.target.value })} placeholder="BID" />
+      </label>
+      <label className="flex items-center gap-2 text-sm font-medium">
+        <input
+          type="checkbox"
+          checked={form.asNeeded === true}
+          onChange={(event) => onChange({ ...form, asNeeded: event.target.checked })}
+          className="size-4"
+        />
+        Taken as needed
+      </label>
+      <label className="grid gap-1 text-sm font-medium">
+        As needed for
+        <Input value={form.asNeededReason} disabled={form.asNeeded !== true} onChange={(event) => onChange({ ...form, asNeededReason: event.target.value })} placeholder="pain" />
+      </label>
+      <label className="grid gap-1 text-sm font-medium">
+        Infusion rate
+        <Input value={form.rate} onChange={(event) => onChange({ ...form, rate: event.target.value })} placeholder="75 mL/h" />
       </label>
       <label className="grid gap-1 text-sm font-medium">
         Started On

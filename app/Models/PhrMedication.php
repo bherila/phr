@@ -31,6 +31,14 @@ use Illuminate\Support\Carbon;
  * @property string|null $prescriber_name
  * @property string|null $reason_for_use
  * @property string|null $raw_text
+ * @property string|null $category
+ * @property bool|null $as_needed
+ * @property string|null $as_needed_reason
+ * @property string|null $brand_name
+ * @property string|null $rate
+ * @property Carbon|null $started_at
+ * @property Carbon|null $ended_at
+ * @property list<array{code: string, message: string, external_id?: string}>|null $review_flags
  * @property Carbon|null $retracted_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
@@ -62,6 +70,29 @@ class PhrMedication extends Model
         'prescriber_name',
         'reason_for_use',
         'raw_text',
+        'category',
+        'as_needed',
+        'as_needed_reason',
+        'brand_name',
+        'rate',
+        'started_at',
+        'ended_at',
+        'review_flags',
+    ];
+
+    /**
+     * The setting and order columns added for hospital medication lists (#413). See
+     * PhrMedicationCategory.
+     */
+    public const array SETTING = [
+        'category',
+        'as_needed',
+        'as_needed_reason',
+        'brand_name',
+        'rate',
+        'started_at',
+        'ended_at',
+        'review_flags',
     ];
 
     protected function casts(): array
@@ -73,6 +104,10 @@ class PhrMedication extends Model
             'source_document_id' => 'integer',
             'started_on' => 'date',
             'ended_on' => 'date',
+            'as_needed' => 'boolean',
+            'started_at' => 'datetime',
+            'ended_at' => 'datetime',
+            'review_flags' => 'array',
         ];
     }
 
@@ -87,7 +122,7 @@ class PhrMedication extends Model
     protected function status(): Attribute
     {
         return Attribute::get(function (?string $value): ?string {
-            $endedOn = $this->ended_on;
+            $endedOn = $this->ended_on ?? $this->ended_at;
             $stillRunning = $value === null || in_array($value, ['active', 'on_hold'], true);
 
             return $stillRunning && $endedOn !== null && ! $endedOn->isFuture() ? 'completed' : $value;

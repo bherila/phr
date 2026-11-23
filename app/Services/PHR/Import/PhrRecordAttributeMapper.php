@@ -15,6 +15,7 @@ use App\Models\PhrPatientVital;
 use App\Models\PhrPortalMessage;
 use App\Models\PhrProcedure;
 use App\Support\PHR\PhrEncounterVocabulary;
+use App\Support\PHR\PhrMedicationCategory;
 use App\Support\PHR\PhrVisitParticipants;
 use Illuminate\Database\Eloquent\Model;
 use InvalidArgumentException;
@@ -170,6 +171,7 @@ class PhrRecordAttributeMapper
                 'prescriber_name' => ValueCoercion::string($record['prescriber_name'] ?? $record['prescriber'] ?? null),
                 'reason_for_use' => ValueCoercion::string($record['reason_for_use'] ?? null),
                 'raw_text' => ValueCoercion::string($record['raw_text'] ?? null),
+                ...$this->medicationSetting($record),
             ],
             'phr_immunization' => [
                 ...$base,
@@ -290,6 +292,47 @@ class PhrRecordAttributeMapper
         }
 
         return $attributes;
+    }
+
+    /**
+     * The medication setting and order fields (#413) a record names. As with the
+     * encounter fields, a record that does not name one leaves it out, so a source that
+     * never states a setting (a document a person transcribed) does not clear the one a
+     * person or another source gave. The importers scope a non-community row's
+     * external_id themselves (PhrMedicationCategory::scopedExternalId), before any
+     * earlier row is adopted onto it.
+     *
+     * @param  array<string, mixed>  $record
+     * @return array<string, mixed>
+     */
+    private function medicationSetting(array $record): array
+    {
+        $fields = [
+            'category' => static fn (mixed $value): ?string => PhrMedicationCategory::code($value),
+            'as_needed' => static fn (mixed $value): ?bool => ValueCoercion::boolean($value),
+            'as_needed_reason' => static fn (mixed $value): ?string => self::bounded($value, 255),
+            'brand_name' => static fn (mixed $value): ?string => self::bounded($value, 255),
+            'rate' => static fn (mixed $value): ?string => self::bounded($value, 100),
+            'started_at' => static fn (mixed $value): ?string => ValueCoercion::dateTime($value),
+            'ended_at' => static fn (mixed $value): ?string => ValueCoercion::dateTime($value),
+            'review_flags' => static fn (mixed $value): ?array => is_array($value) && $value !== [] ? array_values($value) : null,
+        ];
+
+        $attributes = [];
+        foreach ($fields as $field => $coerce) {
+            if (array_key_exists($field, $record)) {
+                $attributes[$field] = $coerce($record[$field]);
+            }
+        }
+
+        return $attributes;
+    }
+
+    private static function bounded(mixed $value, int $length): ?string
+    {
+        $string = ValueCoercion::string($value);
+
+        return $string === null ? null : mb_substr($string, 0, $length);
     }
 
     /**

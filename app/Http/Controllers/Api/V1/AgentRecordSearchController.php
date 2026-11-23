@@ -7,6 +7,7 @@ use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Support\AgentApi\AgentApiUpdateWindow;
 use App\Support\AgentApi\AgentRecordCursor;
 use App\Support\AgentApi\AgentRecordSearchCatalog;
+use App\Support\PHR\PhrMedicationCategory;
 use App\Support\PHR\PhrRecordLifecycle;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -179,6 +180,9 @@ final class AgentRecordSearchController extends Controller
             'review_status' => ['sometimes', 'string', 'max:50'],
             'updated_after' => ['sometimes', 'date'],
             'updated_before' => ['sometimes', 'date', 'after_or_equal:updated_after'],
+            // Medication settings (#413); records of other types are unaffected.
+            'medication_category' => ['sometimes', 'array', 'min:1', 'max:'.count(PhrMedicationCategory::FILTERS)],
+            'medication_category.*' => ['string', 'distinct', Rule::in(PhrMedicationCategory::FILTERS)],
         ];
     }
 
@@ -214,6 +218,9 @@ final class AgentRecordSearchController extends Controller
         PhrRecordLifecycle::scopeLive($query);
         AgentApiUpdateWindow::apply($query, $validated, $model->qualifyColumn('patient_id'));
         $this->applyFilters($query, $definition, $validated, $eventExpression);
+        if ($type === 'medications' && isset($validated['medication_category'])) {
+            PhrMedicationCategory::scope($query, array_values(array_map('strval', (array) $validated['medication_category'])), $model->qualifyColumn('category'));
+        }
         $this->applyCursor($query, $type, $cursor, $eventExpression, $model->qualifyColumn('id'));
 
         $records = [];
@@ -461,13 +468,20 @@ final class AgentRecordSearchController extends Controller
                 }
             }
         }
+        $summary = $first($definition['summary']);
+        // A medication off the home list says which list it is on: a hospital order
+        // is not something the patient takes at home (#413).
+        $category = $type === 'medications' ? $record->getAttribute('category') : null;
+        if ($summary !== null && is_string($category) && ! PhrMedicationCategory::isHomeList($category)) {
+            $summary .= ' ('.PhrMedicationCategory::label($category).')';
+        }
         $payload = [
             'resource_type' => $type,
             'id' => (int) $record->getKey(),
             'patient_id' => (int) $record->getAttribute('patient_id'),
             'event_at' => Carbon::parse($eventAt)->toIso8601String(),
             'updated_at' => $record->getAttribute('updated_at')?->toIso8601String(),
-            'summary' => $first($definition['summary']),
+            'summary' => $summary,
             'provider' => $first($definition['provider']),
             'facility' => $first($definition['facility']),
             'codes' => array_values($codes),

@@ -25,7 +25,10 @@ use ZipArchive;
  * discharge) and its procedure and visit sections are routed by their codes,
  * never by titles that share a word with a section PHR reads (#406), and the
  * medication rows earlier imports made of those lists are retracted when the
- * document is imported again.
+ * document is imported again. Since #413 the discharge list is read as its own
+ * setting, under ids scoped by it, beside the home list; the admission list
+ * (what the patient took before admission) and the administered list stay
+ * skipped.
  */
 final class PhrCcdaHospitalMedicationsTest extends TestCase
 {
@@ -64,17 +67,33 @@ final class PhrCcdaHospitalMedicationsTest extends TestCase
         parent::tearDown();
     }
 
-    public function test_only_the_medications_section_becomes_medications(): void
+    public function test_only_the_medications_section_becomes_home_medications(): void
     {
         $patient = $this->ccdaPatient();
 
         $result = $this->importCcda($this->ccdaFixture('discharge-summary.xml'), $patient);
 
-        $this->assertSame(self::HOME, PhrMedication::query()->where('patient_id', $patient->id)->orderBy('id')->pluck('name')->all());
-        // Three home medications and the stay; every hospital-list entry and
-        // every row of the procedure, visit-reason and diagnosis sections is
-        // counted as skipped.
-        $this->assertSame(['created' => 4, 'skipped' => 15, 'warnings' => []], ['created' => $result->created, 'skipped' => $result->skipped, 'warnings' => $result->warnings]);
+        $this->assertSame(self::HOME, $this->names($patient, 'community'));
+        // The discharge list is the discharge list (#413); the admission list is skipped.
+        $this->assertSame([], $this->names($patient, 'inpatient'));
+        $this->assertSame(['lisinopril 10 mg oral tablet', 'metformin 500 mg oral tablet', 'cefpodoxime 200 mg oral tablet'], $this->names($patient, 'discharge'));
+        // Three home medications, three discharge ones, and the stay; every
+        // admission and administered entry and every row of the procedure,
+        // visit-reason and diagnosis sections is counted as skipped.
+        $this->assertSame(['created' => 7, 'skipped' => 12, 'warnings' => []], ['created' => $result->created, 'skipped' => $result->skipped, 'warnings' => $result->warnings]);
+    }
+
+    public function test_the_same_activity_in_the_home_and_the_discharge_list_is_two_rows(): void
+    {
+        $patient = $this->ccdaPatient();
+
+        $this->importCcda($this->ccdaFixture('discharge-summary.xml'), $patient);
+        $this->importCcda($this->ccdaFixture('discharge-summary.xml'), $patient);
+
+        // The discharge list's lisinopril reuses the home list's activity id.
+        $home = $this->externalId('2.25.4061|home-lisinopril');
+        $this->assertSame(['community'], PhrMedication::query()->where('patient_id', $patient->id)->where('external_id', $home)->pluck('category')->all());
+        $this->assertSame(['discharge'], PhrMedication::query()->where('patient_id', $patient->id)->where('external_id', 'discharge:'.$home)->pluck('category')->all());
     }
 
     public function test_reimporting_the_discharge_summary_changes_nothing(): void
@@ -84,8 +103,9 @@ final class PhrCcdaHospitalMedicationsTest extends TestCase
 
         $again = $this->importCcda($this->ccdaFixture('discharge-summary.xml'), $patient);
 
-        $this->assertSame(['created' => 0, 'updated' => 0, 'unchanged' => 4, 'warnings' => []], ['created' => $again->created, 'updated' => $again->updated, 'unchanged' => $again->unchanged, 'warnings' => $again->warnings]);
-        $this->assertSame(self::HOME, PhrMedication::query()->where('patient_id', $patient->id)->orderBy('id')->pluck('name')->all());
+        $this->assertSame(['created' => 0, 'updated' => 0, 'unchanged' => 7, 'warnings' => []], ['created' => $again->created, 'updated' => $again->updated, 'unchanged' => $again->unchanged, 'warnings' => $again->warnings]);
+        $this->assertSame(self::HOME, $this->names($patient, 'community'));
+        $this->assertSame(6, PhrMedication::query()->where('patient_id', $patient->id)->count());
     }
 
     public function test_coded_procedure_visit_and_diagnosis_sections_create_no_procedures_or_visits(): void
@@ -103,8 +123,8 @@ final class PhrCcdaHospitalMedicationsTest extends TestCase
     {
         $patient = $this->ccdaPatient();
 
-        // Even in a section the Medications reader reads, a hospital list's
-        // wrapped activity is skipped.
+        // Even in a section the Medications reader reads as the home list, a
+        // hospital list's wrapped activity is that list's.
         $result = $this->importCcda($this->ccdaSectionDocument(<<<'XML'
             <templateId root="2.16.840.1.113883.10.20.22.2.1.1" extension="2014-06-09"/>
             <code code="10160-0" codeSystem="2.16.840.1.113883.6.1"/>
@@ -118,6 +138,37 @@ final class PhrCcdaHospitalMedicationsTest extends TestCase
                     <id root="2.25.4067" extension="wrapped"/>
                     <consumable><manufacturedProduct><manufacturedMaterial>
                       <code code="9994069" codeSystem="2.16.840.1.113883.6.88" displayName="cefpodoxime 200 mg oral tablet"/>
+                    </manufacturedMaterial></manufacturedProduct></consumable>
+                  </substanceAdministration>
+                </entryRelationship>
+              </act>
+            </entry>
+            XML), $patient);
+
+        $medication = PhrMedication::query()->where('patient_id', $patient->id)->sole();
+        $this->assertSame(['discharge', 'discharge:'.$this->externalId('2.25.4067|wrapped')], [$medication->category, $medication->external_id]);
+        $this->assertSame([1, 0], [$result->created, $result->skipped]);
+    }
+
+    public function test_an_activity_inside_an_admission_medication_act_is_skipped(): void
+    {
+        $patient = $this->ccdaPatient();
+
+        // What the patient took before admission is the home list again under
+        // other ids, wherever its act sits: skipped and counted.
+        $result = $this->importCcda($this->ccdaSectionDocument(<<<'XML'
+            <templateId root="2.16.840.1.113883.10.20.22.2.1.1" extension="2014-06-09"/>
+            <code code="10160-0" codeSystem="2.16.840.1.113883.6.1"/>
+            <title>Medications</title>
+            <entry>
+              <act classCode="ACT" moodCode="EVN">
+                <templateId root="2.16.840.1.113883.10.20.22.4.36" extension="2014-06-09"/>
+                <entryRelationship typeCode="SUBJ">
+                  <substanceAdministration classCode="SBADM" moodCode="EVN">
+                    <templateId root="2.16.840.1.113883.10.20.22.4.16"/>
+                    <id root="2.25.4068" extension="admitted"/>
+                    <consumable><manufacturedProduct><manufacturedMaterial>
+                      <code code="9994061" codeSystem="2.16.840.1.113883.6.88" displayName="lisinopril 10 mg oral tablet"/>
                     </manufacturedMaterial></manufacturedProduct></consumable>
                   </substanceAdministration>
                 </entryRelationship>
@@ -176,8 +227,12 @@ final class PhrCcdaHospitalMedicationsTest extends TestCase
 
         $this->assertSame($retracted, $this->retractedKeys($rows), 'nothing more is retracted');
         $this->assertSame($retractedAt, PhrMedication::query()->where('patient_id', $patient->id)->whereNotNull('retracted_at')->orderBy('id')->pluck('retracted_at', 'id')->map(fn ($at): string => (string) $at)->all(), 'nor retracted again');
-        $this->assertSame(['created' => 0, 'updated' => 0, 'unchanged' => 4], ['created' => $again->created, 'updated' => $again->updated, 'unchanged' => $again->unchanged]);
+        $this->assertSame(['created' => 0, 'updated' => 0, 'unchanged' => 7], ['created' => $again->created, 'updated' => $again->updated, 'unchanged' => $again->unchanged]);
         $this->assertCount(2, $again->warnings, 'only the rows left for a person are reported again');
+        // The discharge list the misrouted rows came from stands beside them, as its
+        // own setting; the admission list writes nothing.
+        $this->assertSame([], $this->names($patient, 'inpatient'));
+        $this->assertSame(['lisinopril 10 mg oral tablet', 'metformin 500 mg oral tablet', 'cefpodoxime 200 mg oral tablet'], $this->names($patient, 'discharge'));
     }
 
     public function test_a_document_whose_medication_list_names_a_retracted_row_restores_it(): void
@@ -270,7 +325,15 @@ final class PhrCcdaHospitalMedicationsTest extends TestCase
         // The Medications section's entry references the same row: it is that
         // entry's row, adopted onto the entry's id, never retracted.
         $this->assertNull($shared->refresh()->retracted_at);
-        $this->assertSame(['metformin 500 mg oral tablet'], PhrMedication::query()->where('patient_id', $patient->id)->whereNull('retracted_at')->pluck('name')->all());
+        $this->assertSame(['metformin 500 mg oral tablet'], $this->names($patient, 'community'));
+        // The discharge list is written as its own rows, under scoped table-row ids.
+        $this->assertSame(['cefpodoxime 200 mg oral tablet', 'metformin 500 mg oral tablet'], $this->names($patient, 'discharge'));
+    }
+
+    /** @return list<string> the patient's live medications of a setting, in the order they were written */
+    private function names(PhrPatient $patient, string $category): array
+    {
+        return PhrMedication::query()->where('patient_id', $patient->id)->where('category', $category)->whereNull('retracted_at')->orderBy('id')->pluck('name')->all();
     }
 
     private function homeList(string $root, string $extension): string

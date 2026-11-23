@@ -31,8 +31,16 @@ import {
   medicationStatusLabel,
 } from './medicationForm'
 import {
+  asNeededText,
+  initialMedicationCategory,
   initialMedicationStatus,
+  matchesMedicationCategory,
   matchesMedicationStatus,
+  medicationCategoryCounts,
+  type MedicationCategoryFilter,
+  medicationCategoryFilterOf,
+  MedicationCategoryFilters,
+  medicationCategoryLabel,
   MedicationSectionHeader,
   medicationStatusCounts,
   type MedicationStatusFilter,
@@ -53,8 +61,21 @@ function doseText(medication: PhrMedication): string {
   return displayUnits([medication.dose, medication.dose_unit].filter(Boolean).join(' '))
 }
 
+function scheduleText(medication: PhrMedication): string | null {
+  return [medication.frequency, asNeededText(medication), medication.rate ? `at ${medication.rate}` : null].filter(Boolean).join(', ') || null
+}
+
 function regimen(medication: PhrMedication): string {
-  return [doseText(medication), medication.route, medication.frequency].filter(Boolean).join(' · ')
+  return [doseText(medication), medication.route, scheduleText(medication)].filter(Boolean).join(' · ')
+}
+
+/** Where the list's filters are kept in the address, so a reload or a shared link lands on them. */
+function listQuery(status: MedicationStatusFilter, list: MedicationCategoryFilter): string {
+  const params = new URLSearchParams()
+  if (status !== 'active') params.set('status', status)
+  if (list !== 'home') params.set('list', list)
+  const query = params.toString()
+  return query === '' ? '' : `?${query}`
 }
 
 function StatusCell({ medication }: { medication: PhrMedication }) {
@@ -64,6 +85,7 @@ function StatusCell({ medication }: { medication: PhrMedication }) {
 export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrListPageProps) {
   const openRowId = openRecordId(openRecord, 'medication-detail')
   const [statusFilter, setStatusFilter] = useState<MedicationStatusFilter>(initialMedicationStatus)
+  const [categoryFilter, setCategoryFilter] = useState<MedicationCategoryFilter>(initialMedicationCategory)
   const [addForm, setAddForm] = useState<MedicationFormState | null>(null)
   const [seenOpenRowId, setSeenOpenRowId] = useState<string | null>(null)
 
@@ -88,18 +110,26 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
   function selectStatus(next: MedicationStatusFilter): void {
     setStatusFilter(next)
     // In the address, so a reload or a shared link lands on the same filter; an open record stays open.
-    replacePhrLocation(`${window.location.pathname}${next === 'active' ? '' : `?status=${next}`}`)
+    replacePhrLocation(`${window.location.pathname}${listQuery(next, categoryFilter)}`)
   }
 
-  // A record opened from a link, Back or the palette may be on another tab: show its row.
+  function selectCategory(next: MedicationCategoryFilter): void {
+    setCategoryFilter(next)
+    replacePhrLocation(`${window.location.pathname}${listQuery(statusFilter, next)}`)
+  }
+
+  // A record opened from a link, Back or the palette may be on another tab or list: show its row.
   const openMedication = openRowId === null ? undefined : crud.records.find((medication) => String(medication.id) === openRowId)
   if (openRowId !== seenOpenRowId && (openRowId === null || openMedication)) {
     setSeenOpenRowId(openRowId)
+    if (openMedication && !matchesMedicationCategory(openMedication, categoryFilter)) setCategoryFilter(medicationCategoryFilterOf(openMedication))
     if (openMedication && !matchesMedicationStatus(openMedication, statusFilter)) setStatusFilter(matchesMedicationStatus(openMedication, 'active') ? 'active' : 'ended')
   }
 
-  const rows = useMemo(() => crud.records.filter((medication) => matchesMedicationStatus(medication, statusFilter)), [crud.records, statusFilter])
-  const counts = useMemo(() => medicationStatusCounts(crud.records), [crud.records])
+  const listed = useMemo(() => crud.records.filter((medication) => matchesMedicationCategory(medication, categoryFilter)), [crud.records, categoryFilter])
+  const rows = useMemo(() => listed.filter((medication) => matchesMedicationStatus(medication, statusFilter)), [listed, statusFilter])
+  const counts = useMemo(() => medicationStatusCounts(listed), [listed])
+  const categoryCounts = useMemo(() => medicationCategoryCounts(crud.records), [crud.records])
 
   async function addMedication(form: MedicationFormState): Promise<void> {
     if (!form.name.trim()) {
@@ -133,7 +163,12 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
         <div className="flex gap-2">
           <span className="w-2 shrink-0 pt-1.5"><ReviewDot status={medication.review_status} /></span>
           <div className="min-w-0">
-            <div className="font-medium text-card-foreground">{displayUnits(medication.name)}</div>
+            <div className="font-medium text-card-foreground">
+              {displayUnits(medication.name)}
+              {medicationCategoryLabel(medication) && (
+                <span className="ml-2 inline-block rounded-full border border-border px-2 align-middle text-xs font-normal text-muted-foreground">{medicationCategoryLabel(medication)}</span>
+              )}
+            </div>
             <div className={cn('mt-0.5 text-xs text-muted-foreground empty:hidden', RECORD_ONLY_BELOW_WIDE)}>{regimen(medication)}</div>
             {(showsEnded || lastFillOf(medication)) && (
               <div className={cn('mt-0.5 text-xs text-muted-foreground', RECORD_ONLY_BELOW_MEDIUM)}>
@@ -146,7 +181,7 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
     },
     { id: 'route', header: 'Route', showFrom: 'wide', headerClassName: HEAD, className: cn(CELL, 'text-muted-foreground'), cell: (medication) => medication.route ?? '—' },
     { id: 'dose', header: 'Dose', showFrom: 'wide', headerClassName: HEAD, className: CELL, cell: (medication) => <span className="inline-block min-w-22">{doseText(medication) || '—'}</span> },
-    { id: 'schedule', header: 'Schedule', showFrom: 'wide', headerClassName: cn(HEAD, 'w-[22%]'), className: cn(CELL, 'text-muted-foreground'), cell: (medication) => medication.frequency ?? '—' },
+    { id: 'schedule', header: 'Schedule', showFrom: 'wide', headerClassName: cn(HEAD, 'w-[22%]'), className: cn(CELL, 'text-muted-foreground'), cell: (medication) => scheduleText(medication) ?? '—' },
     { id: 'started', header: 'Started', fit: true, showFrom: 'medium', headerClassName: HEAD, className: cn(CELL, 'tabular-nums'), cell: (medication) => formatDate(medication.started_on) || '—' },
     ...(showsEnded
       ? [{ id: 'ended', header: 'Ended', fit: true, showFrom: 'medium', headerClassName: HEAD, className: cn(CELL, 'tabular-nums'), cell: (medication) => formatDate(medication.ended_on) || '—' } satisfies RecordColumn<PhrMedication>]
@@ -209,7 +244,7 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
       <MedicationSectionHeader
         patientId={patientId}
         value="medications"
-        counts={{ fills: fills?.total ?? null, medications: firstLoad ? null : crud.records.length }}
+        counts={{ fills: fills?.total ?? null, medications: firstLoad ? null : categoryCounts.home }}
         action={crud.canManage ? (
           <Button aria-label="Add medication" className="max-md:size-11 max-md:px-0" onClick={() => setAddForm(EMPTY_MEDICATION_FORM)}>
             <Plus className="size-4" aria-hidden="true" />
@@ -218,6 +253,7 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
         ) : undefined}
       />
 
+      <MedicationCategoryFilters value={categoryFilter} counts={firstLoad ? null : categoryCounts} onSelect={selectCategory} />
       <MedicationStatusFilters value={statusFilter} counts={firstLoad ? null : counts} onSelect={selectStatus} />
 
       {crud.error && !addForm && !editing && (

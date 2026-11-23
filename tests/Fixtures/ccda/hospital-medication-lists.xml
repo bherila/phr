@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Synthetic C-CDA discharge summary with the three medication lists of issue
+  #405's fixture (#413). No patient data.
+
+  Medications (10160-0), the home list (community):
+    home-lisinopril      lisinopril 10 mg oral daily
+    home-metformin       metformin 500 mg oral twice daily
+    home-acetaminophen   acetaminophen 500 mg oral every 6 hours, as needed for pain
+
+  Admission Medications (42346-7), what the patient took before admission,
+  each in an Admission Medication act (4.36): the home list again under other
+  ids, skipped and counted. A C-CDA states no hospital stay's orders; those
+  come from FHIR (PhrMedicationSettingTest's bundle).
+    admit-lisinopril, admit-metformin, admit-acetaminophen
+
+  Hospital Discharge Medications (10183-2), the discharge list, each in a
+  Discharge Medication act (4.35):
+    home-lisinopril      lisinopril, resumed: the home list's activity id
+    discharge-metformin  metformin, resumed
+    discharge-cefpodoxime cefpodoxime 200 mg oral twice daily for 5 days
+-->
+<ClinicalDocument xmlns="urn:hl7-org:v3" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+  <realmCode code="US"/>
+  <typeId root="2.16.840.1.113883.1.3" extension="POCD_HD000040"/>
+  <templateId root="2.16.840.1.113883.10.20.22.1.8" extension="2015-08-01"/>
+  <id root="2.25.4130" extension="medication-lists"/>
+  <code code="18842-5" codeSystem="2.16.840.1.113883.6.1" displayName="Discharge summary"/>
+  <title>Synthetic Discharge Summary</title>
+  <effectiveTime value="20260212100000-0500"/>
+  <confidentialityCode code="N" codeSystem="2.16.840.1.113883.5.25"/>
+  <recordTarget>
+    <patientRole>
+      <id root="2.25.4130" extension="pat-example"/>
+      <patient>
+        <name><given>Pat</given><family>Example</family></name>
+        <birthTime value="19500615"/>
+      </patient>
+    </patientRole>
+  </recordTarget>
+  <component>
+    <structuredBody>
+      <component>
+        <section>
+          <templateId root="2.16.840.1.113883.10.20.22.2.1.1" extension="2014-06-09"/>
+          <code code="10160-0" codeSystem="2.16.840.1.113883.6.1"/>
+          <title>Medications</title>
+          <text><paragraph>Home medications.</paragraph></text>
+          <entry>
+            <substanceAdministration classCode="SBADM" moodCode="INT">
+              <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+              <id root="2.25.4131" extension="home-lisinopril"/>
+              <statusCode code="active"/>
+              <effectiveTime xsi:type="IVL_TS"><low value="20250101"/></effectiveTime>
+              <effectiveTime xsi:type="PIVL_TS" operator="A"><period value="24" unit="h"/></effectiveTime>
+              <routeCode code="C38288" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="oral"/>
+              <doseQuantity value="10" unit="mg"/>
+              <consumable><manufacturedProduct><manufacturedMaterial>
+                <code code="9994131" codeSystem="2.16.840.1.113883.6.88" displayName="lisinopril 10 mg oral tablet"/>
+              </manufacturedMaterial></manufacturedProduct></consumable>
+            </substanceAdministration>
+          </entry>
+          <entry>
+            <substanceAdministration classCode="SBADM" moodCode="INT">
+              <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+              <id root="2.25.4131" extension="home-metformin"/>
+              <statusCode code="active"/>
+              <effectiveTime xsi:type="IVL_TS"><low value="20250101"/></effectiveTime>
+              <effectiveTime xsi:type="PIVL_TS" operator="A"><period value="12" unit="h"/></effectiveTime>
+              <routeCode code="C38288" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="oral"/>
+              <doseQuantity value="500" unit="mg"/>
+              <consumable><manufacturedProduct><manufacturedMaterial>
+                <code code="9994132" codeSystem="2.16.840.1.113883.6.88" displayName="metformin 500 mg oral tablet"/>
+              </manufacturedMaterial></manufacturedProduct></consumable>
+            </substanceAdministration>
+          </entry>
+          <entry>
+            <substanceAdministration classCode="SBADM" moodCode="INT">
+              <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+              <id root="2.25.4131" extension="home-acetaminophen"/>
+              <statusCode code="active"/>
+              <effectiveTime xsi:type="IVL_TS"><low value="20250101"/></effectiveTime>
+              <effectiveTime xsi:type="PIVL_TS" operator="A"><period value="6" unit="h"/></effectiveTime>
+              <routeCode code="C38288" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="oral"/>
+              <doseQuantity value="500" unit="mg"/>
+              <consumable><manufacturedProduct><manufacturedMaterial>
+                <code code="9994133" codeSystem="2.16.840.1.113883.6.88" displayName="acetaminophen 500 mg oral tablet"/>
+              </manufacturedMaterial></manufacturedProduct></consumable>
+              <precondition typeCode="PRCN">
+                <templateId root="2.16.840.1.113883.10.20.22.4.25" extension="2014-06-09"/>
+                <criterion>
+                  <code code="ASSERTION" codeSystem="2.16.840.1.113883.5.4"/>
+                  <value xsi:type="CD" code="9994139" codeSystem="2.16.840.1.113883.6.96" displayName="pain"/>
+                </criterion>
+              </precondition>
+            </substanceAdministration>
+          </entry>
+        </section>
+      </component>
+      <component>
+        <section>
+          <templateId root="2.16.840.1.113883.10.20.22.2.44" extension="2015-08-01"/>
+          <code code="42346-7" codeSystem="2.16.840.1.113883.6.1"/>
+          <title>Admission Medications</title>
+          <text><paragraph>Medications taken before admission.</paragraph></text>
+          <entry>
+            <act classCode="ACT" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.36" extension="2014-06-09"/>
+              <code code="42346-7" codeSystem="2.16.840.1.113883.6.1"/>
+              <statusCode code="active"/>
+              <entryRelationship typeCode="SUBJ">
+                <substanceAdministration classCode="SBADM" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+                  <id root="2.25.4132" extension="admit-lisinopril"/>
+                  <statusCode code="active"/>
+                  <consumable><manufacturedProduct><manufacturedMaterial>
+                    <code code="9994131" codeSystem="2.16.840.1.113883.6.88" displayName="lisinopril 10 mg oral tablet"/>
+                  </manufacturedMaterial></manufacturedProduct></consumable>
+                </substanceAdministration>
+              </entryRelationship>
+            </act>
+          </entry>
+          <entry>
+            <act classCode="ACT" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.36" extension="2014-06-09"/>
+              <code code="42346-7" codeSystem="2.16.840.1.113883.6.1"/>
+              <statusCode code="active"/>
+              <entryRelationship typeCode="SUBJ">
+                <substanceAdministration classCode="SBADM" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+                  <id root="2.25.4132" extension="admit-metformin"/>
+                  <statusCode code="active"/>
+                  <consumable><manufacturedProduct><manufacturedMaterial>
+                    <code code="9994132" codeSystem="2.16.840.1.113883.6.88" displayName="metformin 500 mg oral tablet"/>
+                  </manufacturedMaterial></manufacturedProduct></consumable>
+                </substanceAdministration>
+              </entryRelationship>
+            </act>
+          </entry>
+          <entry>
+            <act classCode="ACT" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.36" extension="2014-06-09"/>
+              <code code="42346-7" codeSystem="2.16.840.1.113883.6.1"/>
+              <statusCode code="active"/>
+              <entryRelationship typeCode="SUBJ">
+                <substanceAdministration classCode="SBADM" moodCode="EVN">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+                  <id root="2.25.4132" extension="admit-acetaminophen"/>
+                  <statusCode code="active"/>
+                  <consumable><manufacturedProduct><manufacturedMaterial>
+                    <code code="9994133" codeSystem="2.16.840.1.113883.6.88" displayName="acetaminophen 500 mg oral tablet"/>
+                  </manufacturedMaterial></manufacturedProduct></consumable>
+                </substanceAdministration>
+              </entryRelationship>
+            </act>
+          </entry>
+        </section>
+      </component>
+      <component>
+        <section>
+          <templateId root="2.16.840.1.113883.10.20.22.2.11.1" extension="2015-08-01"/>
+          <code code="10183-2" codeSystem="2.16.840.1.113883.6.1"/>
+          <title>Hospital Discharge Medications</title>
+          <text><paragraph>Medications to take after discharge.</paragraph></text>
+          <entry>
+            <act classCode="ACT" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.35" extension="2016-03-01"/>
+              <code code="10183-2" codeSystem="2.16.840.1.113883.6.1"/>
+              <statusCode code="completed"/>
+              <entryRelationship typeCode="SUBJ">
+                <substanceAdministration classCode="SBADM" moodCode="INT">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+                  <id root="2.25.4131" extension="home-lisinopril"/>
+                  <statusCode code="active"/>
+                  <effectiveTime xsi:type="IVL_TS"><low value="20250101"/></effectiveTime>
+                  <effectiveTime xsi:type="PIVL_TS" operator="A"><period value="24" unit="h"/></effectiveTime>
+                  <routeCode code="C38288" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="oral"/>
+                  <doseQuantity value="10" unit="mg"/>
+                  <consumable><manufacturedProduct><manufacturedMaterial>
+                    <code code="9994131" codeSystem="2.16.840.1.113883.6.88" displayName="lisinopril 10 mg oral tablet"/>
+                  </manufacturedMaterial></manufacturedProduct></consumable>
+                </substanceAdministration>
+              </entryRelationship>
+            </act>
+          </entry>
+          <entry>
+            <act classCode="ACT" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.35" extension="2016-03-01"/>
+              <code code="10183-2" codeSystem="2.16.840.1.113883.6.1"/>
+              <statusCode code="completed"/>
+              <entryRelationship typeCode="SUBJ">
+                <substanceAdministration classCode="SBADM" moodCode="INT">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+                  <id root="2.25.4133" extension="discharge-metformin"/>
+                  <statusCode code="active"/>
+                  <effectiveTime xsi:type="PIVL_TS" operator="A"><period value="12" unit="h"/></effectiveTime>
+                  <routeCode code="C38288" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="oral"/>
+                  <doseQuantity value="500" unit="mg"/>
+                  <consumable><manufacturedProduct><manufacturedMaterial>
+                    <code code="9994132" codeSystem="2.16.840.1.113883.6.88" displayName="metformin 500 mg oral tablet"/>
+                  </manufacturedMaterial></manufacturedProduct></consumable>
+                </substanceAdministration>
+              </entryRelationship>
+            </act>
+          </entry>
+          <entry>
+            <act classCode="ACT" moodCode="EVN">
+              <templateId root="2.16.840.1.113883.10.20.22.4.35" extension="2016-03-01"/>
+              <code code="10183-2" codeSystem="2.16.840.1.113883.6.1"/>
+              <statusCode code="completed"/>
+              <entryRelationship typeCode="SUBJ">
+                <substanceAdministration classCode="SBADM" moodCode="INT">
+                  <templateId root="2.16.840.1.113883.10.20.22.4.16" extension="2014-06-09"/>
+                  <id root="2.25.4133" extension="discharge-cefpodoxime"/>
+                  <statusCode code="active"/>
+                  <effectiveTime xsi:type="IVL_TS"><low value="20260212"/><high value="20260217"/></effectiveTime>
+                  <effectiveTime xsi:type="PIVL_TS" operator="A"><period value="12" unit="h"/></effectiveTime>
+                  <routeCode code="C38288" codeSystem="2.16.840.1.113883.3.26.1.1" displayName="oral"/>
+                  <doseQuantity value="200" unit="mg"/>
+                  <consumable><manufacturedProduct><manufacturedMaterial>
+                    <code code="9994140" codeSystem="2.16.840.1.113883.6.88" displayName="cefpodoxime 200 mg oral tablet"/>
+                  </manufacturedMaterial></manufacturedProduct></consumable>
+                </substanceAdministration>
+              </entryRelationship>
+            </act>
+          </entry>
+        </section>
+      </component>
+    </structuredBody>
+  </component>
+</ClinicalDocument>

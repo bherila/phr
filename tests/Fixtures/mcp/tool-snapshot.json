@@ -465,7 +465,7 @@
                 "openWorldHint": false
             },
             "description": "List one clinical record type, chosen by resource_type, for an accessible patient.",
-            "inputSchema": "sha256:98078b53de2f1b0587d8637d80d2a5d320772cf6bc56deb4576c8246d49033da",
+            "inputSchema": "sha256:c0b7f09d85ce247579a3928d3312ff287c64c566751057ceebb9d8091f6a42c8",
             "name": "clinical.list",
             "outputSchema": "sha256:9220edd48618c22367804438cb15369b844660a9eafd7cbb0cec418fe5a85db2",
             "title": "List clinical records"
@@ -1193,7 +1193,7 @@
                 "openWorldHint": false
             },
             "description": "Partially update one existing Medications record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
-            "inputSchema": "sha256:e42e0e3a1b24791aa59ba9801f65737187d2a73860efd8b8f3c68054c61f9b29",
+            "inputSchema": "sha256:feb255e1bff667f45de96de18858bb6b2b320da06e0c56dadea6d308b947f737",
             "name": "medications.update",
             "outputSchema": "sha256:3d618edc2ee7da60b9c7f5f155f71b9c199b7a0572d14e6097e30aaaabd725dd",
             "title": "Update Medications"
@@ -1206,7 +1206,7 @@
                 "openWorldHint": false
             },
             "description": "Idempotently create or update one Medications record through the versioned REST API.",
-            "inputSchema": "sha256:18befbbbaa8a803eebc11e8e9f0faa40ce4d7d10f052cf5274ade2885aef3b83",
+            "inputSchema": "sha256:13cb70a2de3e88ca3a5b62bd5bb12013702d8de69206484331b03f66f563db6a",
             "name": "medications.upsert",
             "outputSchema": "sha256:3d618edc2ee7da60b9c7f5f155f71b9c199b7a0572d14e6097e30aaaabd725dd",
             "title": "Upsert Medications"
@@ -1453,7 +1453,7 @@
                 "openWorldHint": false
             },
             "description": "Search clinical records using the versioned REST filters and cursor pagination.",
-            "inputSchema": "sha256:609027a14debd181c7a0c22d47e7385d285c9f7a7719b33732a34e393fbd2ea2",
+            "inputSchema": "sha256:78367d13f3bdf678b3be39a2a761d6e016869a9ca7fc4dd89b068731fc4535ab",
             "name": "records.search",
             "outputSchema": "sha256:8fa02f358d25d1e108c396ae2ff9906f5a3da46399fd68f199e3544b4e146cad",
             "title": "Search records"
@@ -1505,7 +1505,7 @@
                 "openWorldHint": false
             },
             "description": "List a patient timeline using the versioned REST filters and cursor pagination.",
-            "inputSchema": "sha256:609027a14debd181c7a0c22d47e7385d285c9f7a7719b33732a34e393fbd2ea2",
+            "inputSchema": "sha256:78367d13f3bdf678b3be39a2a761d6e016869a9ca7fc4dd89b068731fc4535ab",
             "name": "timeline.list",
             "outputSchema": "sha256:8fa02f358d25d1e108c396ae2ff9906f5a3da46399fd68f199e3544b4e146cad",
             "title": "List timeline"

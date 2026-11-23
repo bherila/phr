@@ -160,8 +160,13 @@ nullable columns listed per table in `PhrNativeLifecycleCompatibility::TABLE_COL
 (today the six EHI immunization provenance columns on `phr_immunizations`, the review
 status and lines digest on `phr_eobs`, the review status on `phr_documents` (an older archive's EOBs and documents restore as `confirmed`, what they all were), the clinical note metadata columns on `phr_documents` (#409: LOINC code, source label, author, cosigner, written and signed times, docStatus, patient signature), the reference-bound inclusiveness and EHI lab
 provenance columns on `phr_lab_results`, the EHI encounter context and coded encounter
-columns (class, state, location, admit source, discharge disposition) and the care team
-digest on `phr_office_visits`, and the source-ID bridge columns on `phr_ehi_record_links`). Nullable relationships added later are listed the same way in
+columns (class, state, location, admit source, discharge disposition) and the care
+team digest on `phr_office_visits`, the medication setting and order columns (category, as-needed,
+brand name, rate, order times, review flags) on `phr_medications`, and the source-ID
+bridge columns on `phr_ehi_record_links`). An older medication's `category` is not read
+as null but as the migration that added it set the row: `community` for one a person
+entered, a prescription fill created or a C-CDA import still stands by, else unknown
+(`PhrMedicationCategory::backfilled()`). Nullable relationships added later are listed the same way in
 `PhrNativeLifecycleCompatibility::TABLE_RELATIONSHIPS` (today a lab result or visit as an evidence
 link and decision target). Absent ones are read as null only after the stored content
 hash has been verified against what was actually written; any other attribute or

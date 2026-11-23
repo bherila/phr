@@ -118,10 +118,10 @@ final class PhrCcdaSectionMatchingTest extends TestCase
     public static function unreadSections(): array
     {
         return [
-            'discharge medications template' => ['<templateId root="2.16.840.1.113883.10.20.22.2.11.1" extension="2015-08-01"/><title>Discharge Medications</title>'],
-            'admission medications code' => ['<code code="42346-7" codeSystem="2.16.840.1.113883.6.1"/><title>Medications</title>'],
+            'admission medications code, titled as the home list' => ['<code code="42346-7" codeSystem="2.16.840.1.113883.6.1"/><title>Medications</title>'],
+            'admission medications title, uncoded' => ['<title>Admission Medications</title>'],
             'administered medications code' => ['<code code="29549-3" codeSystem="2.16.840.1.113883.6.1"/><title>Medication Administration</title>'],
-            'discharge medications title, uncoded' => ['<title>Hospital Discharge Medications</title>'],
+            'administered medications title, uncoded' => ['<title>Medications Administered</title>'],
             'reason for visit title, uncoded' => ['<title>Reason for Visit</title>'],
             'plan of treatment code' => ['<code code="18776-5" codeSystem="2.16.840.1.113883.6.1"/><title>Planned Encounters and Procedures</title>'],
         ];
@@ -150,6 +150,45 @@ final class PhrCcdaSectionMatchingTest extends TestCase
         foreach ([PhrMedication::class, PhrProcedure::class, PhrOfficeVisit::class] as $model) {
             $this->assertSame(0, $model::query()->where('patient_id', $patient->id)->count(), $model);
         }
+    }
+
+    /**
+     * @return array<string, array{0: string, 1: string}>
+     */
+    public static function hospitalMedicationLists(): array
+    {
+        return [
+            'discharge medications template' => ['<templateId root="2.16.840.1.113883.10.20.22.2.11.1" extension="2015-08-01"/><title>Discharge Medications</title>', 'discharge'],
+            'discharge medications title, uncoded' => ['<title>Hospital Discharge Medications</title>', 'discharge'],
+        ];
+    }
+
+    /**
+     * A discharge medication list is read by its code (or exact title) as the
+     * discharge list (#413), never by a title word as the home list.
+     */
+    #[DataProvider('hospitalMedicationLists')]
+    public function test_a_hospital_medication_list_is_read_with_its_setting(string $header, string $category): void
+    {
+        $patient = $this->ccdaPatient();
+
+        $result = $this->importCcda($this->document($header.<<<'XML'
+            <text><table><tbody><tr><td>Synthetic listed medicine</td><td/><td/></tr></tbody></table></text>
+            <entry>
+              <substanceAdministration classCode="SBADM" moodCode="INT">
+                <templateId root="2.16.840.1.113883.10.20.22.4.16"/>
+                <id root="2.25.11004" extension="listed-medication"/>
+                <consumable><manufacturedProduct><manufacturedMaterial>
+                  <code code="9991104" codeSystem="2.16.840.1.113883.6.88" displayName="Synthetic listed medicine"/>
+                </manufacturedMaterial></manufacturedProduct></consumable>
+              </substanceAdministration>
+            </entry>
+            XML), $patient);
+
+        $this->assertSame([1, 0], [$result->created, $result->skipped]);
+        $medication = PhrMedication::query()->where('patient_id', $patient->id)->sole();
+        $this->assertSame($category, $medication->category);
+        $this->assertSame($category.':ccda-med-'.sha1('id|2.25.11004|listed-medication'), $medication->external_id);
     }
 
     public function test_titles_keep_the_narrative_reader_order(): void

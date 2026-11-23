@@ -6,6 +6,7 @@ use App\Models\PhrMedication;
 use App\Models\PhrMedicationFill;
 use App\Models\PhrPatient;
 use App\Services\PHR\Ndc\NdcResolution;
+use App\Support\PHR\PhrMedicationCategory;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Validation\ValidationException;
 
@@ -46,14 +47,17 @@ class MedicationFillWriter
 
         $medicationId = isset($data['medication_id']) ? (int) $data['medication_id'] : null;
         if ($medicationId !== null) {
-            $exists = PhrMedication::query()
+            $medication = PhrMedication::query()
                 ->where('patient_id', $patient->id)
                 ->whereNull('retracted_at')
                 ->where('review_status', '!=', PhrReviewStatus::REJECTED)
                 ->whereKey($medicationId)
-                ->exists();
-            if (! $exists) {
+                ->first(['id', 'category']);
+            if ($medication === null) {
                 throw ValidationException::withMessages(['medication_id' => 'This medication does not belong to the patient.']);
+            }
+            if (! PhrMedicationCategory::isHomeList($medication->category)) {
+                throw ValidationException::withMessages(['medication_id' => 'A fill links only to a home medication, not to a hospital, clinic or discharge order.']);
             }
             $attributes['medication_id'] = $medicationId;
         }

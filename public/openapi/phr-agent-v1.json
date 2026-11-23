@@ -345,6 +345,9 @@
                     },
                     {
                         "$ref": "#/components/parameters/FillNdcStatus"
+                    },
+                    {
+                        "$ref": "#/components/parameters/MedicationCategory"
                     }
                 ],
                 "responses": {
@@ -4097,6 +4100,7 @@
             "put": {
                 "operationId": "medications.upsert",
                 "summary": "Idempotently create or update a medication",
+                "description": "Stable external IDs are namespaced to the authenticated OAuth client. A medication carries its setting in category: community for the patient's home medication list, inpatient for a hospital stay's order, outpatient for a clinic's, discharge for the list a hospital sent the patient home with; leave it null when the source does not say. Only community and uncategorised medications are on the home list, and only they take prescription fills. An as-needed medication sets as_needed and as_needed_reason; a continuous infusion its rate; an order with times started_at and ended_at beside the dates.",
                 "security": [
                     {
                         "oauth2": [
@@ -5282,6 +5286,9 @@
                     },
                     {
                         "$ref": "#/components/parameters/UpdatedBefore"
+                    },
+                    {
+                        "$ref": "#/components/parameters/RecordMedicationCategory"
                     }
                 ],
                 "responses": {
@@ -5519,6 +5526,9 @@
                     },
                     {
                         "$ref": "#/components/parameters/UpdatedBefore"
+                    },
+                    {
+                        "$ref": "#/components/parameters/RecordMedicationCategory"
                     }
                 ],
                 "responses": {
@@ -6154,6 +6164,52 @@
                 "schema": {
                     "type": "string",
                     "maxLength": 20
+                }
+            },
+            "MedicationCategory": {
+                "name": "category[]",
+                "in": "query",
+                "style": "form",
+                "explode": true,
+                "description": "Medication settings to list: community (the home list), inpatient (hospital orders), outpatient, discharge, and unknown for a medication with none. Accepted only for medications; without it every setting is listed.",
+                "schema": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 5,
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string",
+                        "enum": [
+                            "inpatient",
+                            "outpatient",
+                            "community",
+                            "discharge",
+                            "unknown"
+                        ]
+                    }
+                }
+            },
+            "RecordMedicationCategory": {
+                "name": "medication_category[]",
+                "in": "query",
+                "style": "form",
+                "explode": true,
+                "description": "Restricts medications to these settings (community, inpatient, outpatient, discharge, unknown); records of other types are unaffected. A medication off the home list names its list in its summary.",
+                "schema": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 5,
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string",
+                        "enum": [
+                            "inpatient",
+                            "outpatient",
+                            "community",
+                            "discharge",
+                            "unknown"
+                        ]
+                    }
                 }
             },
             "Archived": {
@@ -13158,6 +13214,66 @@
                             "string",
                             "null"
                         ]
+                    },
+                    "category": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "enum": [
+                            "inpatient",
+                            "outpatient",
+                            "community",
+                            "discharge",
+                            null
+                        ],
+                        "description": "The medication's setting (FHIR medicationrequest-category): community for the patient's home medication list, inpatient for an order during a hospital stay, outpatient for one given in a clinic or emergency department, discharge for the list a hospital sent the patient home with. Null is unknown, never assumed to be community. Only community and unknown medications are on the home list and can have prescription fills."
+                    },
+                    "as_needed": {
+                        "type": [
+                            "boolean",
+                            "null"
+                        ],
+                        "description": "Taken only as needed (PRN). Null when the source did not say."
+                    },
+                    "as_needed_reason": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255,
+                        "description": "What an as-needed medication is taken for, for example \"pain\" or \"temperature > 38.0 C\"."
+                    },
+                    "brand_name": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 255
+                    },
+                    "rate": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 100,
+                        "description": "A continuous infusion's rate, for example \"75 mL/h\"."
+                    },
+                    "started_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time",
+                        "description": "When an order started, when the source gives a time; started_on keeps the date."
+                    },
+                    "ended_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time",
+                        "description": "When an order ended, when the source gives a time; ended_on keeps the date."
                     }
                 },
                 "additionalProperties": false

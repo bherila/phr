@@ -10,6 +10,7 @@ use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use App\Support\AgentApi\AgentClinicalWriteSchemaCatalog;
 use App\Support\AgentApi\AgentRecordSearchCatalog;
 use App\Support\AgentApi\EobWriteRules;
+use App\Support\PHR\PhrMedicationCategory;
 use App\Support\PHR\PhrReviewStatus;
 use App\Support\PHR\Validation\DocumentNoteRules;
 use Bherila\McpLaravelBridge\Mcp\ReflectedInputSchemaFactory;
@@ -27,6 +28,12 @@ final class AgentMcpInputSchemaFactory
 
         if (in_array($definition->name, ['records.search', 'timeline.list', 'changes.list'], true)) {
             $schema['properties']['resource_type']['items']['enum'] = AgentRecordSearchCatalog::ids();
+        }
+        if (in_array($definition->name, ['records.search', 'timeline.list'], true)) {
+            $schema['properties']['medication_category']['items']['enum'] = PhrMedicationCategory::FILTERS;
+        }
+        if ($definition->name === 'clinical.list') {
+            $schema['properties']['category']['items']['enum'] = PhrMedicationCategory::FILTERS;
         }
         if ($definition->name === 'documents.list') {
             $schema['properties']['document_type']['enum'] = PhrDocument::DOCUMENT_TYPES;

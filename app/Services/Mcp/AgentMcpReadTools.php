@@ -45,6 +45,7 @@ final class AgentMcpReadTools
 
     /**
      * @param  list<string>|null  $resource_type
+     * @param  list<string>|null  $medication_category
      * @return array<string, mixed>
      */
     public function recordsSearch(
@@ -62,16 +63,18 @@ final class AgentMcpReadTools
         #[Schema(maxLength: 50)] ?string $review_status = null,
         #[Schema(format: 'date-time')] ?string $updated_after = null,
         #[Schema(format: 'date-time')] ?string $updated_before = null,
+        #[Schema(minItems: 1, maxItems: 5, uniqueItems: true, items: ['type' => 'string'], description: 'Restricts medications to these settings (community, inpatient, outpatient, discharge, unknown); other record types are unaffected.')] ?array $medication_category = null,
     ): array {
         return $this->records(
             'search', $patient_id, $limit, $cursor, $resource_type, $q,
             $date_from, $date_to, $provider, $facility, $code, $source,
-            $review_status, $updated_after, $updated_before,
+            $review_status, $updated_after, $updated_before, $medication_category,
         );
     }
 
     /**
      * @param  list<string>|null  $resource_type
+     * @param  list<string>|null  $medication_category
      * @return array<string, mixed>
      */
     public function timelineList(
@@ -89,11 +92,12 @@ final class AgentMcpReadTools
         #[Schema(maxLength: 50)] ?string $review_status = null,
         #[Schema(format: 'date-time')] ?string $updated_after = null,
         #[Schema(format: 'date-time')] ?string $updated_before = null,
+        #[Schema(minItems: 1, maxItems: 5, uniqueItems: true, items: ['type' => 'string'], description: 'Restricts medications to these settings (community, inpatient, outpatient, discharge, unknown); other record types are unaffected.')] ?array $medication_category = null,
     ): array {
         return $this->records(
             'timeline', $patient_id, $limit, $cursor, $resource_type, $q,
             $date_from, $date_to, $provider, $facility, $code, $source,
-            $review_status, $updated_after, $updated_before,
+            $review_status, $updated_after, $updated_before, $medication_category,
         );
     }
 
@@ -116,6 +120,7 @@ final class AgentMcpReadTools
      * One tool for every clinical type: the per-type tools differed only in
      * the route segment, and repeating them multiplied tools/list by nine.
      *
+     * @param  list<string>|null  $category
      * @return array<string, mixed>
      */
     public function clinicalList(
@@ -128,10 +133,12 @@ final class AgentMcpReadTools
         #[Schema(maxLength: 100, description: 'Not accepted for health-logs.')] ?string $import_source = null,
         #[Schema(minimum: 1, description: 'Not accepted for health-logs.')] ?int $source_document_id = null,
         #[Schema(enum: ['include', 'exclude', 'only'], description: 'Accepted only for health-logs.')] ?string $archived = null,
+        #[Schema(minItems: 1, maxItems: 5, uniqueItems: true, items: ['type' => 'string'], description: 'Medication settings to list: community (the home list), inpatient (hospital orders), outpatient, discharge, and unknown for a medication with none. Accepted only for medications; without it every setting is listed.')] ?array $category = null,
     ): array {
         return $this->api->clinicalRecords(
             $patient_id, $resource_type, $limit, $cursor, $updated_after,
             $updated_before, $import_source, $source_document_id, $archived,
+            filters: $category === null ? [] : ['category' => $category],
         )->toArray();
     }
 
@@ -496,6 +503,7 @@ final class AgentMcpReadTools
 
     /**
      * @param  list<string>|null  $resourceTypes
+     * @param  list<string>|null  $medicationCategories
      * @return array<string, mixed>
      */
     private function records(
@@ -514,11 +522,12 @@ final class AgentMcpReadTools
         ?string $reviewStatus,
         ?string $updatedAfter,
         ?string $updatedBefore,
+        ?array $medicationCategories = null,
     ): array {
         return $this->api->records(
             $patientId, $view, $limit, $cursor, $resourceTypes, $query,
             $dateFrom, $dateTo, $provider, $facility, $code, $source,
-            $reviewStatus, $updatedAfter, $updatedBefore,
+            $reviewStatus, $updatedAfter, $updatedBefore, $medicationCategories,
         )->toArray();
     }
 }
