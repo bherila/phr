@@ -30,6 +30,11 @@ final class PhrCcdaProcedureActivities extends PhrCcdaSectionReader
         return ['2.16.840.1.113883.10.20.22.2.7', '2.16.840.1.113883.10.20.22.2.7.1'];
     }
 
+    public function sectionCode(): string
+    {
+        return '47519-4';
+    }
+
     public function matchesTitle(string $title): bool
     {
         return str_contains($title, 'procedure');

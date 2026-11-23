@@ -21,6 +21,11 @@ final class PhrCcdaImmunizationActivities extends PhrCcdaSectionReader
         return ['2.16.840.1.113883.10.20.22.2.2', '2.16.840.1.113883.10.20.22.2.2.1'];
     }
 
+    public function sectionCode(): string
+    {
+        return '11369-6';
+    }
+
     public function matchesTitle(string $title): bool
     {
         return str_contains($title, 'immunization');

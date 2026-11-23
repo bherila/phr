@@ -10,12 +10,19 @@ use DOMElement;
  * A medication list's activities are usually intents (moodCode INT), so every
  * mood is a medication. A negated activity ("no known medications") is a
  * negative assertion, not a medication.
+ *
+ * An activity inside an Admission Medication or Discharge Medication act is a
+ * hospital list's, not the patient's home medication, wherever the section that
+ * holds it was routed: it is skipped (#406).
  */
 final class PhrCcdaMedicationActivities extends PhrCcdaSectionReader
 {
     private const array ACTIVITY = ['2.16.840.1.113883.10.20.22.4.16'];
 
     private const array INDICATION = ['2.16.840.1.113883.10.20.22.4.19'];
+
+    /** Admission Medication and Discharge Medication: a hospital list's act around its activities. */
+    private const array HOSPITAL_WRAPPERS = ['2.16.840.1.113883.10.20.22.4.36', '2.16.840.1.113883.10.20.22.4.35'];
 
     private const string RXNORM = '2.16.840.1.113883.6.88';
 
@@ -25,6 +32,11 @@ final class PhrCcdaMedicationActivities extends PhrCcdaSectionReader
     public function sectionTemplates(): array
     {
         return ['2.16.840.1.113883.10.20.22.2.1', '2.16.840.1.113883.10.20.22.2.1.1'];
+    }
+
+    public function sectionCode(): string
+    {
+        return '10160-0';
     }
 
     public function matchesTitle(string $title): bool
@@ -49,8 +61,34 @@ final class PhrCcdaMedicationActivities extends PhrCcdaSectionReader
 
     public function entries(DOMElement $section): array
     {
+        return $this->read($section, false);
+    }
+
+    /**
+     * The entries this reader made of the section before #406: hospital-list
+     * activities too. PhrCcdaMisroutedMedications recomputes from them the ids
+     * of the rows that misrouting made.
+     *
+     * @return list<PhrCcdaEntry>
+     */
+    public function formerEntries(DOMElement $section): array
+    {
+        return $this->read($section, true);
+    }
+
+    /**
+     * @return list<PhrCcdaEntry>
+     */
+    private function read(DOMElement $section, bool $withHospitalLists): array
+    {
         $entries = [];
         foreach ($this->xml->entryElements($section, 'substanceAdministration', self::ACTIVITY) as $activity) {
+            if (! $withHospitalLists && $this->inHospitalList($activity)) {
+                $entries[] = $this->skipped();
+
+                continue;
+            }
+
             $material = $this->xml->path($activity, 'consumable', 'manufacturedProduct', 'manufacturedMaterial');
             $code = $this->xml->child($material, 'code');
             $name = in_array($this->xml->attribute($code, 'code'), self::ANY_MEDICATION, true) ? null : $this->name($material);
@@ -67,6 +105,13 @@ final class PhrCcdaMedicationActivities extends PhrCcdaSectionReader
         }
 
         return $entries;
+    }
+
+    private function inHospitalList(DOMElement $activity): bool
+    {
+        $roots = implode(' or ', array_map(static fn (string $root): string => '@root="'.$root.'"', self::HOSPITAL_WRAPPERS));
+
+        return $this->xml->first('ancestor::*[*[local-name()="templateId"]['.$roots.']]', $activity) !== null;
     }
 
     public function narrativeRecord(array $cells): array

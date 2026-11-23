@@ -29,6 +29,11 @@ final class PhrCcdaProblemObservations extends PhrCcdaSectionReader
         return ['2.16.840.1.113883.10.20.22.2.5', '2.16.840.1.113883.10.20.22.2.5.1'];
     }
 
+    public function sectionCode(): string
+    {
+        return '11450-4';
+    }
+
     public function matchesTitle(string $title): bool
     {
         return str_contains($title, 'problem') || str_contains($title, 'condition');

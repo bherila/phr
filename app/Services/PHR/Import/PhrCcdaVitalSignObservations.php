@@ -16,6 +16,11 @@ final class PhrCcdaVitalSignObservations extends PhrCcdaSectionReader
         return ['2.16.840.1.113883.10.20.22.2.4', '2.16.840.1.113883.10.20.22.2.4.1'];
     }
 
+    public function sectionCode(): string
+    {
+        return '8716-3';
+    }
+
     public function matchesTitle(string $title): bool
     {
         return str_contains($title, 'vital');

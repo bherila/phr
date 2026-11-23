@@ -31,6 +31,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $prescriber_name
  * @property string|null $reason_for_use
  * @property string|null $raw_text
+ * @property Carbon|null $retracted_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */

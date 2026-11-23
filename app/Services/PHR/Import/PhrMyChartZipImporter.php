@@ -53,6 +53,7 @@ class PhrMyChartZipImporter
                 throw new PhrMultiplePatientsInSource;
             }
 
+            $ccdaMembers = [];
             for ($index = 0; $index < $zip->numFiles; $index++) {
                 $name = (string) $zip->getNameIndex($index);
                 if ($name === '' || str_ends_with($name, '/')) {
@@ -80,9 +81,15 @@ class PhrMyChartZipImporter
                 }
 
                 try {
-                    $result->merge($format === PhrStructuredFormat::FHIR
-                        ? $this->fhirImporter->importBundle((array) $bundle, $patient, $actorUserId, $document)
-                        : $this->ccdaImporter->importXml($contents, $patient, $actorUserId, $document));
+                    if ($format === PhrStructuredFormat::FHIR) {
+                        $result->merge($this->fhirImporter->importBundle((array) $bundle, $patient, $actorUserId, $document));
+                    } else {
+                        // Hospital-list medications are retracted once, over every
+                        // member: one member's medication list may name a row
+                        // another member's discharge list also names.
+                        $result->merge($this->ccdaImporter->importXml($contents, $patient, $actorUserId, $document, retractMisrouted: false));
+                        $ccdaMembers[] = $contents;
+                    }
                 } catch (\Throwable $exception) {
                     // Fixed text only: an exception message can carry a server path,
                     // SQL with record values, or other detail that is not for display.
@@ -90,6 +97,9 @@ class PhrMyChartZipImporter
                     $result->warn("Skipped {$name}: it could not be imported.");
                     $result->addSkipped();
                 }
+            }
+            if ($ccdaMembers !== []) {
+                $result->merge($this->ccdaImporter->retractMisroutedMedications($ccdaMembers, $patient, $document));
             }
         } finally {
             $zip->close();
