@@ -96,6 +96,9 @@ class PhrSchemaTest extends TestCase
         // so what points at a lab result goes before the lab results do.
         Schema::dropIfExists('phr_ehi_record_links');
         Schema::dropIfExists('phr_ehi_proposal_decisions');
+        foreach (['documents', 'lab_results', 'vitals', 'medications', 'procedures'] as $linked) {
+            Schema::dropIfExists("phr_office_visit_{$linked}");
+        }
         Schema::dropIfExists('phr_lab_results');
         Schema::dropIfExists('phr_patient_vitals');
         Schema::dropIfExists('phr_patient_user_access');
