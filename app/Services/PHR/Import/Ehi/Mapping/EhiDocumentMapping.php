@@ -18,6 +18,7 @@ use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentFileStore;
 use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentFinding;
 use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentRecordIndex;
 use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentValues;
+use App\Support\PHR\PhrClinicalNote;
 use App\Support\PHR\PhrRecordLifecycle;
 use App\Support\PHR\PhrReviewStatus;
 use Generator;
@@ -87,7 +88,14 @@ use Throwable;
  * Local column, or one with no documented zone (recorded as "unspecified"), only
  * its calendar date is kept (time not applied). The column, zone, and precision
  * are written into `summary`. An update changes only title,
- * document_type, observed_at, and extracted_text, never the stored file.
+ * document_type, observed_at, extracted_text and a note's metadata (author_name,
+ * source_type_label, doc_status), never the stored file.
+ *
+ * Note metadata (phr#409): the author is the first contact's AUTHOR_USER_ID_NAME
+ * (the note's writer; later contacts are its revisions and addenda), the source
+ * label is IP_NOTE_TYPE_C_NAME as written (no LOINC code is derived from it: that
+ * would be a guess), and a note with a later contact whose NOTE_STATUS_C_NAME
+ * names an addendum is docStatus `amended`, its addenda listed in the summary.
  *
  * Size: a proposal must restore from a native backup record. Besides the
  * capped text, source values copied into it are cut to MAX_VALUE_BYTES, the
@@ -99,7 +107,16 @@ final readonly class EhiDocumentMapping implements EhiMapping
 {
     public const string NAME = 'document';
 
-    public const string VERSION = 'ehi-doc-1';
+    /**
+     * ehi-doc-2 (phr#409): a note also proposes its author (the first contact's
+     * AUTHOR_USER_ID_NAME), its source label (IP_NOTE_TYPE_C_NAME, kept as written
+     * and never turned into a LOINC code) and, when a later contact is an
+     * addendum, docStatus `amended`. An existing EHI note whose rows were all
+     * decided is still owed whichever of those it has no value for, so the first
+     * preview after this version proposes one update for it that sets only them;
+     * a value a person entered is never replaced that way.
+     */
+    public const string VERSION = 'ehi-doc-2';
 
     public const string SOURCE = 'ehi_tables';
 
@@ -164,7 +181,10 @@ final readonly class EhiDocumentMapping implements EhiMapping
     ];
 
     /** Fields an approved update may change; the stored file never changes. */
-    private const array UPDATABLE = ['title', 'document_type', 'observed_at', 'extracted_text'];
+    private const array UPDATABLE = ['title', 'document_type', 'observed_at', 'extracted_text', 'author_name', 'source_type_label', 'doc_status'];
+
+    /** Note metadata a note proposes and a scanned document does not (phr#409). */
+    private const array NOTE_FIELDS = ['author_name', 'source_type_label', 'doc_status'];
 
     private const array MIME_TYPES = [
         'rtf' => 'application/rtf', 'pdf' => 'application/pdf',
@@ -331,6 +351,24 @@ final readonly class EhiDocumentMapping implements EhiMapping
         if ($unsigned === true) {
             $summary[] = 'The source marks this note unsigned.';
         }
+        // The note's first contact is its writing; a later one the source calls an
+        // addendum amends it. Epic keeps addenda as contacts of the same note, so
+        // the chain is this note's, not a link between PHR documents.
+        $first = $contacts['rows'][0] ?? null;
+        $author = $first === null ? null : EhiDocumentValues::bounded(EhiDocumentValues::cell($first, 'AUTHOR_USER_ID_NAME'), self::MAX_VALUE_BYTES);
+        $addenda = [];
+        foreach (array_slice($contacts['rows'], 1) as $contact) {
+            if (stripos((string) EhiDocumentValues::cell($contact, 'NOTE_STATUS_C_NAME'), 'addendum') !== false) {
+                $by = EhiDocumentValues::bounded(EhiDocumentValues::cell($contact, 'AUTHOR_USER_ID_NAME'), self::MAX_VALUE_BYTES);
+                $on = EhiDocumentValues::bounded(EhiDocumentValues::cell($contact, 'CONTACT_DATE'), self::MAX_VALUE_BYTES);
+                $addenda[] = ($by === null ? '' : ' by '.$by).($on === null ? '' : ' on '.$on);
+            }
+        }
+        if ($addenda !== []) {
+            // Bounded: the count, and only the latest addendum's author and date.
+            $latest = $addenda[count($addenda) - 1];
+            $summary[] = sprintf('The source records %d addend%s%s.', count($addenda), count($addenda) === 1 ? 'um' : 'a', $latest === '' ? '' : ', the latest'.$latest);
+        }
 
         return $this->reconcile($context, $records, $entity, $revisionIds, $this->boundedContacts($this->proposal(
             context: $context,
@@ -342,6 +380,11 @@ final readonly class EhiDocumentMapping implements EhiMapping
             file: $file,
             summary: $summary,
             unsigned: $unsigned === true,
+            note: [
+                'author_name' => $author === null ? null : mb_substr($author, 0, 255),
+                'source_type_label' => $noteType === null ? null : mb_substr((string) EhiDocumentValues::bounded($noteType, self::MAX_VALUE_BYTES), 0, 255),
+                'doc_status' => $addenda === [] ? null : 'amended',
+            ],
             ehi: [
                 ...$reference,
                 'encounter_csn' => EhiDocumentValues::bounded(EhiDocumentValues::cell($note, 'PAT_ENC_CSN_ID'), self::MAX_VALUE_BYTES),
@@ -824,9 +867,10 @@ final readonly class EhiDocumentMapping implements EhiMapping
      * @param  array{column: string, timezone: string, precision: string, source_text: string, time_applied: bool, value: string}|null  $observed
      * @param  list<string>  $summary
      * @param  array<string, mixed>  $ehi
+     * @param  array<string, string|null>  $note  NOTE_FIELDS, for a note
      * @return array<string, mixed>
      */
-    private function proposal(EhiMappingContext $context, string $externalId, string $title, string $documentType, ?array $observed, array $text, ?array $file, array $summary, bool $unsigned, array $ehi): array
+    private function proposal(EhiMappingContext $context, string $externalId, string $title, string $documentType, ?array $observed, array $text, ?array $file, array $summary, bool $unsigned, array $ehi, array $note = []): array
     {
         if ($observed !== null) {
             $summary[] = $observed['time_applied']
@@ -869,6 +913,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
                 'mime_type' => $member === null ? 'text/plain' : (self::MIME_TYPES[$extension] ?? 'application/octet-stream'),
                 'original_filename' => EhiDocumentValues::boundedFileName($member === null ? strtolower(str_replace(':', '-', $externalId)).'.txt' : basename($member->path)),
                 'tags' => $tags,
+                ...$note,
             ],
             'ehi' => [
                 ...$ehi,
@@ -913,18 +958,32 @@ final readonly class EhiDocumentMapping implements EhiMapping
         $live = $liveTargets[0] ?? null;
 
         if ($live !== null) {
-            $before = $live['comparable'];
             $after = $this->comparableProposed($attributes);
+            // Note metadata is compared only where the proposal states it: a scanned
+            // document proposes none, and never clears what a person set.
+            $before = array_intersect_key($live['comparable'], $after);
             // What could not be read is no statement about the stored text.
             $textUnavailable = ($proposed['ehi']['text_unavailable'] ?? false) === true;
             if ($textUnavailable) {
                 $after['extracted_text_sha256'] = $before['extracted_text_sha256'];
             }
             $seen = $records->linkedCount($live['id'], $revisionIds) === count($revisionIds);
+            // Note metadata an earlier mapping version never proposed (phr#409): a field
+            // a document this mapping made has no value for is still owed, though every
+            // row was decided. A document a person linked the note to keeps its own.
+            $owed = [];
+            foreach ($live['projected'] ? self::NOTE_FIELDS : [] as $field) {
+                if (($after[$field] ?? null) !== null && ($before[$field] ?? null) === null) {
+                    $owed[$field] = $after[$field];
+                }
+            }
             if ($seen && ! $textUnavailable && $records->textOwed($entity->key_digest)) {
                 // Every row has been decided, but an earlier decision could not read the
                 // text. It alone is still open; a person's edits to the rest stand.
-                $after = [...$before, 'extracted_text_sha256' => $after['extracted_text_sha256']];
+                $after = [...$before, 'extracted_text_sha256' => $after['extracted_text_sha256'], ...$owed];
+                $seen = false;
+            } elseif ($seen && $owed !== []) {
+                $after = [...$before, ...$owed];
                 $seen = false;
             }
             if ($seen || $before === $after) {
@@ -974,18 +1033,24 @@ final readonly class EhiDocumentMapping implements EhiMapping
 
     /**
      * @param  array<string, mixed>  $attributes
-     * @return array{title: string|null, document_type: string|null, observed_at: string|null, extracted_text_sha256: string|null}
+     * @return array<string, string|null>
      */
     private function comparableProposed(array $attributes): array
     {
         $text = $attributes['extracted_text'] ?? null;
-
-        return [
+        $comparable = [
             'title' => is_string($attributes['title'] ?? null) ? $attributes['title'] : null,
             'document_type' => is_string($attributes['document_type'] ?? null) ? $attributes['document_type'] : null,
             'observed_at' => is_string($attributes['observed_at'] ?? null) ? $attributes['observed_at'] : null,
             'extracted_text_sha256' => is_string($text) ? hash('sha256', $text) : null,
         ];
+        foreach (self::NOTE_FIELDS as $field) {
+            if (array_key_exists($field, $attributes)) {
+                $comparable[$field] = is_string($attributes[$field]) ? $attributes[$field] : null;
+            }
+        }
+
+        return $comparable;
     }
 
     /**
@@ -1213,6 +1278,7 @@ final readonly class EhiDocumentMapping implements EhiMapping
                     'summary' => $attributes['summary'] ?? null,
                     'source' => self::SOURCE,
                     'tags' => is_array($attributes['tags'] ?? null) ? array_values($attributes['tags']) : [self::TAG_IMPORTED],
+                    ...$this->noteFields($attributes),
                     'imported_at' => $context->now,
                     // The patient's owner approved this proposal: that was the review.
                     'review_status' => PhrReviewStatus::CONFIRMED,
@@ -1249,6 +1315,10 @@ final readonly class EhiDocumentMapping implements EhiMapping
                 $changes[$field] = $attributes[$field];
             }
         }
+        $notes = array_intersect_key($changes, array_flip(self::NOTE_FIELDS));
+        if ($notes !== [] && $this->noteFields($notes) !== $notes) {
+            throw new EhiDocumentApplyRefused(EhiDocumentApplyRefused::MALFORMED_PROPOSAL, 'the update proposes unusable note metadata');
+        }
         if ($changes === []
             || (array_key_exists('title', $changes) && ! is_string($changes['title']))
             || (array_key_exists('document_type', $changes) && ! in_array($changes['document_type'], PhrDocument::DOCUMENT_TYPES, true))) {
@@ -1258,6 +1328,31 @@ final readonly class EhiDocumentMapping implements EhiMapping
         $document->save();
 
         return new EhiApplyOutcome(self::RECORD_TABLE, $document->id, PhrEhiRecordLink::KIND_PROJECTED);
+    }
+
+    /**
+     * The NOTE_FIELDS a proposal carries, each a string of at most 255 characters
+     * (doc_status one of its values) or null.
+     *
+     * @param  array<string, mixed>  $attributes
+     * @return array<string, string|null>
+     */
+    private function noteFields(array $attributes): array
+    {
+        $fields = [];
+        foreach (self::NOTE_FIELDS as $field) {
+            if (! array_key_exists($field, $attributes)) {
+                continue;
+            }
+            $value = $attributes[$field];
+            $fields[$field] = match (true) {
+                ! is_string($value) => null,
+                $field === 'doc_status' => PhrClinicalNote::docStatus($value),
+                default => mb_substr($value, 0, 255),
+            };
+        }
+
+        return $fields;
     }
 
     private function lockedLiveDocument(PhrEhiProposal $proposal, ?int $documentId): PhrDocument

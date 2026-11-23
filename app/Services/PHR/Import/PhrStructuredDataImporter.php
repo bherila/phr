@@ -63,7 +63,7 @@ class PhrStructuredDataImporter
 
     /**
      * @param  array<array-key, mixed>  $payload
-     * @param  array{import_source?: string, source?: string, external_id?: string|null, genai_job_id?: int|null, source_document_id?: int|null, review_status?: string}  $options
+     * @param  array{import_source?: string, source?: string, external_id?: string|null, genai_job_id?: int|null, source_document_id?: int|null, review_status?: string, content?: array<string, mixed>, stored_file?: array<string, string>}  $options
      */
     public function importPayload(PhrPatient $patient, int $actorUserId, string $jobType, array $payload, array $options = []): PhrImportResult
     {
@@ -81,6 +81,7 @@ class PhrStructuredDataImporter
                     updated: ! $document->wasRecentlyCreated && $document->wasChanged() ? 1 : 0,
                     unchanged: ! $document->wasRecentlyCreated && ! $document->wasChanged() ? 1 : 0,
                 );
+                unset($options['content']);
                 $result->merge($this->importDocumentBundle($patient, $actorUserId, $document, $payload, $options));
 
                 return $result;
@@ -153,7 +154,7 @@ class PhrStructuredDataImporter
      * fromDocument(), each is linked to that document.
      *
      * @param  array<array-key, mixed>  $payload
-     * @param  array{import_source?: string, source?: string, external_id?: string|null, genai_job_id?: int|null, source_document_id?: int|null}  $options
+     * @param  array{import_source?: string, source?: string, external_id?: string|null, genai_job_id?: int|null, source_document_id?: int|null, content?: array<string, mixed>}  $options
      */
     public function importUnreviewed(PhrPatient $patient, int $actorUserId, string $jobType, array $payload, array $options = []): PhrImportResult
     {
@@ -162,7 +163,7 @@ class PhrStructuredDataImporter
 
     /**
      * @param  array<array-key, mixed>  $payload
-     * @param  array{import_source?: string, source?: string, external_id?: string|null, genai_job_id?: int|null, source_document_id?: int|null, review_status?: string}  $options
+     * @param  array{import_source?: string, source?: string, external_id?: string|null, genai_job_id?: int|null, source_document_id?: int|null, review_status?: string, content?: array<string, mixed>, stored_file?: array<string, string>}  $options
      */
     public function importDocumentBundle(PhrPatient $patient, int $actorUserId, PhrDocument $document, array $payload, array $options = []): PhrImportResult
     {
@@ -230,7 +231,7 @@ class PhrStructuredDataImporter
 
     /**
      * @param  array<array-key, mixed>  $payload
-     * @param  array{import_source?: string, source?: string, external_id?: string|null, genai_job_id?: int|null, source_document_id?: int|null, review_status?: string}  $options
+     * @param  array{import_source?: string, source?: string, external_id?: string|null, genai_job_id?: int|null, source_document_id?: int|null, review_status?: string, content?: array<string, mixed>, stored_file?: array<string, string>}  $options
      */
     private function importRecords(PhrPatient $patient, int $actorUserId, string $jobType, array $payload, array $options): PhrImportResult
     {

@@ -11,6 +11,7 @@ use App\DataTransferObjects\AgentApi\HealthLogEntryAppendData;
 use App\DataTransferObjects\AgentApi\ImportReviewData;
 use App\DataTransferObjects\AgentApi\PatientCreateData;
 use App\DataTransferObjects\AgentApi\RespiratoryEventBatchData;
+use App\DataTransferObjects\PHR\DocumentTextData;
 use App\Services\AgentApi\Client\AgentApiWriteDao;
 use Bherila\McpLaravelBridge\Mcp\RequestArguments;
 use Closure;
@@ -283,6 +284,40 @@ final readonly class AgentMcpWriteTools
         #[Schema(description: 'The stored document\'s type. Defaults to the type kind implies.')] ?string $document_type = null,
     ): array {
         return $this->api->documentUploadAccessCreate($patient_id, compact('kind', 'document_type', 'filename', 'content_type', 'byte_size', 'sha256'))->toArray();
+    }
+
+    /**
+     * @param  list<string>  $tags
+     * @param  array{document_id: int, relation: string}|null  $relates_to
+     * @return array<string, mixed>
+     */
+    public function documentsCreateText(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minLength: 1, maxLength: 255, pattern: self::NO_CONTROL_CHARACTERS)] string $external_id,
+        #[Schema(minLength: 1, maxLength: DocumentTextData::MAX_BODY_BYTES)] string $body,
+        string $document_type,
+        #[Schema(maxLength: 255)] ?string $title = null,
+        #[Schema(description: 'Document date or datetime accepted by the PHR API.')] ?string $observed_at = null,
+        #[Schema(maxLength: 20000)] ?string $summary = null,
+        #[Schema(items: ['type' => 'string', 'maxLength' => 50], maxItems: 30, uniqueItems: true)] array $tags = [],
+        ?string $loinc_code = null,
+        ?string $source_type_label = null,
+        ?string $author_name = null,
+        ?string $author_role = null,
+        ?string $cosigner_name = null,
+        ?string $authored_at = null,
+        ?string $signed_at = null,
+        ?string $doc_status = null,
+        ?string $patient_signature_status = null,
+        ?string $patient_signed_at = null,
+        #[Schema(type: 'object')] ?array $relates_to = null,
+    ): array {
+        $note = array_filter(
+            compact('external_id', 'body', 'document_type', 'title', 'observed_at', 'summary', 'tags', 'loinc_code', 'source_type_label', 'author_name', 'author_role', 'cosigner_name', 'authored_at', 'signed_at', 'doc_status', 'patient_signature_status', 'patient_signed_at', 'relates_to'),
+            static fn (mixed $value): bool => $value !== null,
+        );
+
+        return $this->api->documentCreateText($patient_id, $note)->toArray();
     }
 
     /**

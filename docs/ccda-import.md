@@ -28,7 +28,8 @@ what it is coded as (`PhrCcdaSectionCatalog`):
 3. only a section coded as nothing the catalog knows is matched by title: the exact
    title of a known unread section first ("Discharge Medications", "Reason for
    Visit"), then title words in this order: vital, results, medication, problem or
-   condition, procedure, immunization, allergy, encounter or visit.
+   condition, procedure, immunization, allergy, encounter or visit, then the exact
+   note titles ("Notes", "Clinical notes", "Hospital course").
 
 A section coded as something the catalog does not list is still matched by title.
 
@@ -42,6 +43,24 @@ A section coded as something the catalog does not list is still matched by title
 | Immunizations | 11369-6 | Immunization Activity | `PhrCcdaImmunizationActivities` |
 | Allergies | 48765-2 | Allergy - Intolerance Observation (in an Allergy Concern Act) | `PhrCcdaAllergyObservations` |
 | Encounters | 46240-8 | Encounter Activity | `PhrCcdaEncounterActivities` |
+| Notes, Hospital Course | 8648-8 (Hospital Course; Notes by its template) | Note Activity; the section narrative | `PhrCcdaNoteActivities` |
+
+Notes (phr#409) are documents, not rows. Each Note Activity
+(`2.16.840.1.113883.10.20.22.4.202`) in a Notes section
+(`2.16.840.1.113883.10.20.22.2.65`) becomes a pending document whose file is its text
+(the narrative its `text` references, lines kept), stored as a `.txt` object. Its
+specific LOINC code (the translation of the generic 34109-9 "Note", or the code
+itself) is kept verbatim; the author gives the author's name, role and the time
+written; the legal authenticator participant (`typeCode="LA"`) gives the cosigner and
+the time signed, unless it is the author signing their own note; `statusCode` gives
+the docStatus. A Hospital Course section (LOINC 8648-8) is one discharge-summary note
+of its narrative. An addendum names the note it appends to (or replaces) in an
+`entryRelationship` REFR act coded `APND` (or `RPLC`) in HL7 ActRelationshipType,
+carrying that note's id; the link is made once the whole document is read, and a
+target PHR does not hold is kept as its reference. PHR's own export adds the note's
+PHR type as a translation in a UUID-derived code system, so a re-import keeps it.
+A Notes section is matched by its template, or by the exact titles "Notes",
+"Clinical notes" or "Hospital course".
 
 Each section's fixture under `tests/Fixtures/ccda/` lists the entry shapes it
 covers, and its test (`tests/Feature/PHR/PhrCcda*ImportTest.php`) the value every

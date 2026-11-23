@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\GenAiProcessor\Models\GenAiImportJob;
+use App\Support\PHR\PhrClinicalNote;
 use App\Support\PHR\PhrDocumentSource;
 use App\Support\PHR\PhrDocumentType;
 use App\Support\PHR\PhrReviewStatus;
@@ -12,6 +13,7 @@ use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 
@@ -38,12 +40,23 @@ use Illuminate\Support\Carbon;
  * @property string|null $external_id
  * @property Carbon|null $imported_at
  * @property string $review_status
+ * @property string|null $loinc_code
+ * @property string|null $source_type_label
+ * @property string|null $author_name
+ * @property string|null $author_role
+ * @property string|null $cosigner_name
+ * @property Carbon|null $authored_at
+ * @property Carbon|null $signed_at
+ * @property string|null $doc_status
+ * @property string|null $patient_signature_status
+ * @property Carbon|null $patient_signed_at
  * @property Carbon|null $deleted_at
  * @property Carbon|null $retracted_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read Collection<int, PhrNegativeAssertion> $negativeAssertions
  * @property-read Collection<int, PhrPortalMessage> $portalMessages
+ * @property-read PhrDocumentRelation|null $relatesTo
  */
 class PhrDocument extends Model
 {
@@ -69,6 +82,16 @@ class PhrDocument extends Model
         'insurance',
         'consent',
         'care_correspondence',
+        // Clinical notes and stay documents (phr#409).
+        'progress_note',
+        'consult_note',
+        'history_and_physical',
+        'procedure_note',
+        'nursing_note',
+        'advance_directive',
+        'ems_report',
+        'clinical_image',
+        'patient_education',
         'other',
     ];
 
@@ -149,6 +172,16 @@ class PhrDocument extends Model
         'external_id',
         'imported_at',
         'review_status',
+        'loinc_code',
+        'source_type_label',
+        'author_name',
+        'author_role',
+        'cosigner_name',
+        'authored_at',
+        'signed_at',
+        'doc_status',
+        'patient_signature_status',
+        'patient_signed_at',
     ];
 
     protected static function booted(): void
@@ -165,6 +198,13 @@ class PhrDocument extends Model
             }
             if (! $document->exists || $document->isDirty('document_type')) {
                 PhrDocumentType::assertValid($document->document_type);
+            }
+            // Note metadata (phr#409) is null or one of its vocabulary's values.
+            foreach (['doc_status' => PhrClinicalNote::DOC_STATUSES, 'patient_signature_status' => PhrClinicalNote::PATIENT_SIGNATURE_STATUSES] as $column => $allowed) {
+                $value = $document->getAttribute($column);
+                if ($document->isDirty($column) && $value !== null && ! in_array($value, $allowed, true)) {
+                    throw new \InvalidArgumentException("Invalid document {$column}.");
+                }
             }
         });
         static::saved(static function (self $document): void {
@@ -192,6 +232,9 @@ class PhrDocument extends Model
             'tags' => 'array',
             'imported_at' => 'datetime',
             'deleted_at' => 'datetime',
+            'authored_at' => 'datetime',
+            'signed_at' => 'datetime',
+            'patient_signed_at' => 'datetime',
         ];
     }
 
@@ -229,6 +272,16 @@ class PhrDocument extends Model
     public function negativeAssertions(): HasMany
     {
         return $this->hasMany(PhrNegativeAssertion::class, 'source_document_id');
+    }
+
+    /**
+     * The document this one appends to or replaces (phr#409).
+     *
+     * @return HasOne<PhrDocumentRelation, $this>
+     */
+    public function relatesTo(): HasOne
+    {
+        return $this->hasOne(PhrDocumentRelation::class, 'document_id');
     }
 
     /** @return HasMany<PhrEob, $this> */

@@ -22,7 +22,11 @@ final class UpdateAgentDocumentRequest extends FormRequest
         $fields = (new UpdatePhrDocumentRequest)->rules();
         $dataRules = [];
         foreach ($fields as $field => $rules) {
-            $dataRules['data.'.$field] = $rules;
+            // A rule naming another field names it under `data` too.
+            $dataRules['data.'.$field] = array_map(
+                static fn (mixed $rule): mixed => is_string($rule) && str_starts_with($rule, 'required_with:') ? 'required_with:data.'.substr($rule, 14) : $rule,
+                $rules,
+            );
         }
         $keys = array_values(array_unique(array_map(static fn (string $field): string => explode('.', $field, 2)[0], array_keys($fields))));
 

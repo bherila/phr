@@ -147,6 +147,10 @@
         "available": true,
         "scope": "documents:write"
     },
+    "documents.create_text": {
+        "available": true,
+        "scope": "documents:write"
+    },
     "documents.update": {
         "available": true,
         "scope": "documents:write",

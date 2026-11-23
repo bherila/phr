@@ -207,6 +207,16 @@ final readonly class AgentApiWriteDao
         ), ['resource_type', 'patient_id', 'data']);
     }
 
+    /** @param array<string, mixed> $note the markdown body, its metadata and its external_id */
+    public function documentCreateText(int $patientId, array $note): AgentApiPayload
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'POST',
+            "patients/{$patientId}/documents/text",
+            json: $note,
+        ), ['resource_type', 'patient_id', 'outcome', 'data']);
+    }
+
     /** @param array<string, mixed> $data the fields to change */
     public function documentUpdate(int $patientId, int $documentId, string $expectedVersion, array $data): AgentApiPayload
     {

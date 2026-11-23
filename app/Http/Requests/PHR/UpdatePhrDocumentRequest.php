@@ -3,6 +3,7 @@
 namespace App\Http\Requests\PHR;
 
 use App\Models\PhrDocument;
+use App\Support\PHR\Validation\DocumentNoteRules;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -25,6 +26,8 @@ class UpdatePhrDocumentRequest extends FormRequest
             'summary' => ['sometimes', 'nullable', 'string', 'max:20000'],
             'tags' => ['sometimes', 'nullable', 'array', 'max:30'],
             'tags.*' => ['string', 'max:50', 'distinct:ignore_case'],
+            // Clinical note metadata and the addendum link (phr#409).
+            ...DocumentNoteRules::rules(),
         ];
     }
 }

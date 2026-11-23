@@ -16,10 +16,16 @@ use App\Models\PhrPatient;
 use App\Models\PhrPatientVital;
 use App\Models\PhrPortalMessage;
 use App\Models\PhrProcedure;
+use App\Services\PHR\Documents\PhrDocumentTextReader;
+use App\Services\PHR\Import\PhrFhirDocumentReferences;
+use App\Support\PHR\PhrClinicalNote;
+use App\Support\PHR\PhrDocumentUploadLimits;
 use App\Support\PHR\PhrEncounterVocabulary;
 use App\Support\PHR\PhrLabReferenceRangeNotation;
 use App\Support\PHR\PhrVisitParticipants;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Storage;
+use Throwable;
 
 class PhrFhirExporter
 {
@@ -27,6 +33,9 @@ class PhrFhirExporter
 
     /** Classes of a stay, which may still be under way while it has no end. */
     private const array STAY_CLASSES = ['IMP', 'ACUTE', 'NONAC', 'OBSENC', 'SS', 'HH'];
+
+    /** A markdown document larger than this carries its text/plain rendition by URL, not inline. */
+    private const int MAX_INLINE_TEXT_BYTES = 1024 * 1024;
 
     /**
      * Stored dose units that are unambiguous UCUM units, mapped to their UCUM code.
@@ -93,8 +102,12 @@ class PhrFhirExporter
         foreach ($data['dicom_studies'] as $study) {
             $entries[] = $this->entry($this->imagingStudyResource($study));
         }
+        $exportedDocuments = [];
         foreach ($data['documents'] as $document) {
-            $entries[] = $this->entry($this->documentReferenceResource($document));
+            $exportedDocuments[(int) $document->id] = true;
+        }
+        foreach ($data['documents'] as $document) {
+            $entries[] = $this->entry($this->documentReferenceResource($document, $exportedDocuments));
         }
 
         return json_encode([
@@ -691,29 +704,149 @@ class PhrFhirExporter
     }
 
     /**
+     * A document as a US Core DocumentReference (phr#409).
+     *
+     * - type: the document's own LOINC code, else its type's export default (never
+     *   a guessed one), with PHR's type as a second coding and the source's label
+     *   as text; a clinical note carries the US Core `clinical-note` category.
+     * - author and authenticator are the names the document records. A document
+     *   an agent or an AI read wrote carries no authenticator: a person approving
+     *   it admitted it to the export, nobody authenticated it as its author.
+     * - date is when it was signed (else written); attachment.creation when written.
+     * - relatesTo names only a document this export also carries.
+     * - Attachment.hash is base64 SHA-1, read from the stored file; with no
+     *   readable file it is left out rather than guessed. A markdown document
+     *   also carries its text as a text/plain attachment.
+     *
+     * @param  array<int, true>  $exportedDocuments
      * @return array<string, mixed>
      */
-    private function documentReferenceResource(PhrDocument $document): array
+    private function documentReferenceResource(PhrDocument $document, array $exportedDocuments): array
     {
         $encounter = $this->encounterReference('document', (int) $document->id);
+        $loinc = PhrClinicalNote::exportLoinc($document);
+        $coding = [];
+        if ($loinc !== null) {
+            $coding[] = ['system' => PhrClinicalNote::LOINC_SYSTEM, 'code' => $loinc];
+        }
+        $coding[] = ['system' => PhrFhirDocumentReferences::PHR_TYPE_SYSTEM, 'code' => $document->document_type];
+        $url = $document->storage_path ? 'documents/'.$document->id.'-'.$this->safeFilename($document->original_filename ?? ('document-'.$document->id)) : null;
+        $file = $this->storedFile($document);
+        $authored = $this->fhirDateTime($document->authored_at);
+        $content = [[
+            'attachment' => [
+                'contentType' => $document->mime_type,
+                'title' => $document->original_filename ?? $document->title,
+                'url' => $url,
+                'size' => $document->byte_size,
+                'hash' => $file['sha1'],
+                'creation' => $authored,
+            ],
+        ]];
+        if ($url !== null && PhrDocumentTextReader::normalizedType($document->mime_type) === PhrDocumentUploadLimits::MARKDOWN) {
+            $content[] = ['attachment' => $file['text'] !== null ? [
+                'contentType' => 'text/plain; charset=utf-8',
+                'data' => base64_encode($file['text']),
+                'size' => strlen($file['text']),
+                'hash' => base64_encode(sha1($file['text'], true)),
+                'creation' => $authored,
+            ] : [
+                'contentType' => 'text/plain; charset=utf-8',
+                'url' => $url,
+                'size' => $document->byte_size,
+                'hash' => $file['sha1'],
+                'creation' => $authored,
+            ]];
+        }
+        $relation = $document->relatesTo;
+        $relatesTo = $relation !== null && $relation->related_document_id !== null && isset($exportedDocuments[$relation->related_document_id])
+            ? [['code' => $relation->relation, 'target' => ['reference' => 'DocumentReference/phr-document-'.$relation->related_document_id]]]
+            : null;
+        $author = null;
+        $contained = null;
+        if ($document->author_name !== null) {
+            if ($document->author_role !== null) {
+                // A contained PractitionerRole carries the role a bare Reference cannot.
+                $contained = [['resourceType' => 'PractitionerRole', 'id' => 'author', 'practitioner' => ['display' => $document->author_name], 'code' => [['text' => $document->author_role]]]];
+                $author = [['reference' => '#author', 'display' => $document->author_name]];
+            } else {
+                $author = [['display' => $document->author_name]];
+            }
+        }
 
         return [
             'resourceType' => 'DocumentReference',
             'id' => 'phr-document-'.$document->id,
+            'contained' => $contained,
             'status' => 'current',
+            'docStatus' => $document->doc_status,
+            'type' => ['coding' => $coding, 'text' => $document->source_type_label],
+            'category' => PhrClinicalNote::isNote($document)
+                ? [['coding' => [['system' => PhrFhirDocumentReferences::US_CORE_CATEGORY_SYSTEM, 'code' => 'clinical-note', 'display' => 'Clinical Note']]]]
+                : null,
             'subject' => $this->patientReference($document->patient_id),
-            'context' => $encounter === null ? null : ['encounter' => [$encounter]],
-            'type' => $this->textCode($document->document_type),
+            'date' => $this->fhirDateTime($document->signed_at ?? $document->authored_at),
+            'author' => $author,
+            'authenticator' => $document->cosigner_name !== null && ! PhrClinicalNote::isAgentAuthored($document)
+                ? ['display' => $document->cosigner_name]
+                : null,
+            'relatesTo' => $relatesTo,
             'description' => $document->summary ?? $document->title,
-            'content' => [[
-                'attachment' => [
-                    'contentType' => $document->mime_type,
-                    'title' => $document->original_filename ?? $document->title,
-                    'url' => $document->storage_path ? 'documents/'.$document->id.'-'.$this->safeFilename($document->original_filename ?? ('document-'.$document->id)) : null,
-                    'size' => $document->byte_size,
-                    'hash' => $document->file_hash,
-                ],
-            ]],
+            'content' => $content,
+            // The visit it was written in (#411) and the moment it describes.
+            'context' => $encounter === null && $document->observed_at === null ? null : array_filter([
+                'encounter' => $encounter === null ? null : [$encounter],
+                'period' => $document->observed_at === null ? null : ['start' => $this->fhirDateTime($document->observed_at)],
+            ], static fn (mixed $value): bool => $value !== null),
+        ];
+    }
+
+    /**
+     * The stored file's base64 SHA-1 and, for a markdown document no larger than
+     * MAX_INLINE_TEXT_BYTES, its text, read through the documents disk's stream.
+     * Both are null when there is no readable file.
+     *
+     * @return array{sha1: string|null, text: string|null}
+     */
+    private function storedFile(PhrDocument $document): array
+    {
+        $none = ['sha1' => null, 'text' => null];
+        if ($document->storage_disk !== PhrDocument::STORAGE_DISK || ! is_string($document->storage_path)) {
+            return $none;
+        }
+        try {
+            $disk = Storage::disk(PhrDocument::STORAGE_DISK);
+            if (! $disk->exists($document->storage_path)) {
+                return $none;
+            }
+            $stream = $disk->readStream($document->storage_path);
+        } catch (Throwable) {
+            return $none;
+        }
+        if (! is_resource($stream)) {
+            return $none;
+        }
+        $keepText = PhrDocumentTextReader::normalizedType($document->mime_type) === PhrDocumentUploadLimits::MARKDOWN;
+        $context = hash_init('sha1');
+        $text = '';
+        try {
+            while (! feof($stream)) {
+                $chunk = fread($stream, 1_048_576);
+                if ($chunk === false) {
+                    return $none;
+                }
+                hash_update($context, $chunk);
+                if ($keepText && strlen($text) <= self::MAX_INLINE_TEXT_BYTES) {
+                    $text .= $chunk;
+                }
+            }
+        } finally {
+            fclose($stream);
+        }
+
+        return [
+            'sha1' => base64_encode(hash_final($context, true)),
+            'text' => $keepText && strlen($text) <= self::MAX_INLINE_TEXT_BYTES ? $text : null,
         ];
     }
 

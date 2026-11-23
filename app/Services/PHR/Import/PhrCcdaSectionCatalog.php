@@ -92,6 +92,8 @@ final class PhrCcdaSectionCatalog
             new PhrCcdaImmunizationActivities($xml),
             new PhrCcdaAllergyObservations($xml),
             new PhrCcdaEncounterActivities($xml),
+            // Notes and Hospital Course (phr#409): read as documents, not rows.
+            new PhrCcdaNoteActivities($xml),
         ];
     }
 

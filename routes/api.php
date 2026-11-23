@@ -198,6 +198,8 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
             ->whereNumber('patient')->middleware('throttle:agent-api');
         Route::operation('documents.upload', [AgentDocumentController::class, 'store'])
             ->whereNumber('patient')->middleware('throttle:agent-api');
+        Route::operation('documents.create_text', [AgentDocumentController::class, 'createText'])
+            ->whereNumber('patient')->middleware('throttle:agent-api');
         Route::operation('documents.get', [AgentDocumentController::class, 'show'])
             ->whereNumber(['patient', 'document'])->middleware('throttle:agent-api');
         Route::operation('documents.download_access.create', [AgentDocumentController::class, 'createDownloadAccess'])

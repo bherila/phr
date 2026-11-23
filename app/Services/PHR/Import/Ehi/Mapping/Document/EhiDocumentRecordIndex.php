@@ -20,7 +20,7 @@ use Illuminate\Database\Eloquent\Builder;
  */
 final class EhiDocumentRecordIndex
 {
-    /** @var array<int, array{id: int, active: bool, digest: string, comparable: array{title: string|null, document_type: string|null, observed_at: string|null, extracted_text_sha256: string|null}}> */
+    /** @var array<int, array{id: int, active: bool, projected: bool, digest: string, comparable: array<string, string|null>}> */
     private array $documents = [];
 
     /** @var array<string, array<string, int>> import source => external id => document id */
@@ -73,7 +73,7 @@ final class EhiDocumentRecordIndex
     /**
      * Documents this entity is linked to, and the one holding this import identity.
      *
-     * @return list<array{id: int, active: bool, digest: string, comparable: array{title: string|null, document_type: string|null, observed_at: string|null, extracted_text_sha256: string|null}}> by ascending id
+     * @return list<array{id: int, active: bool, projected: bool, digest: string, comparable: array<string, string|null>}> by ascending id
      */
     public function targets(int $entityId, ?string $importSource, string $externalId): array
     {
@@ -139,12 +139,17 @@ final class EhiDocumentRecordIndex
         $this->documents[$document->id] = [
             'id' => $document->id,
             'active' => PhrRecordLifecycle::of($document) === PhrRecordLifecycle::ACTIVE,
+            // A document this mapping made, rather than one a person linked the evidence to.
+            'projected' => $document->source === EhiDocumentMapping::SOURCE,
             'digest' => EhiTargetDigest::of($document),
             'comparable' => [
                 'title' => $document->title,
                 'document_type' => $document->document_type,
                 'observed_at' => $document->observed_at?->format('Y-m-d H:i:s'),
                 'extracted_text_sha256' => $sha256,
+                'author_name' => $document->author_name,
+                'source_type_label' => $document->source_type_label,
+                'doc_status' => $document->doc_status,
             ],
         ];
         if ($document->import_source !== null && $document->external_id !== null) {

@@ -201,6 +201,7 @@ final class WriteResponseMatchesReadTest extends TestCase
         $cases = [
             'patients' => ['agent-api.v1.patients.store', '/api/v1/patients/{id}', ['display_name' => 'Synthetic Agent Patient'], null],
             'documents' => ['agent-api.v1.documents.store', '/api/v1/patients/{patient}/documents/{id}', ['external_id' => 'synthetic-document-001', 'document_type' => 'other'], ['summary' => 'Synthetic summary']],
+            'text documents' => ['agent-api.v1.documents.create-text', '/api/v1/patients/{patient}/documents/{id}', ['external_id' => 'synthetic-note-001', 'document_type' => 'progress_note', 'title' => 'Synthetic progress note', 'body' => "Synthetic progress note.\n", 'author_name' => 'Synthetic Author', 'authored_at' => '2026-01-15T08:00:00Z'], ['cosigner_name' => 'Synthetic Cosigner', 'signed_at' => '2026-01-15T09:00:00Z']],
             'health logs' => ['agent-api.v1.health-logs.store', '/api/v1/patients/{patient}/health-logs/{id}', ['external_id' => 'synthetic-log-001', 'name' => 'Synthetic agent log', 'kind' => 'custom'], null],
             'health log entries' => ['agent-api.v1.health-log-entries.store', '/api/v1/patients/{patient}/health-logs/{healthLog}/entries/{id}', ['external_id' => 'synthetic-entry-001', 'occurred_at' => '2026-03-01T08:30:00Z'], null],
         ];

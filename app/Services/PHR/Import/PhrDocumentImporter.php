@@ -6,8 +6,10 @@ use App\GenAiProcessor\Models\GenAiImportJob;
 use App\Models\PhrDocument;
 use App\Models\PhrPatient;
 use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
+use App\Support\PHR\PhrClinicalNote;
 use App\Support\PHR\PhrReviewStatus;
 use App\Support\Storage\PhrStorageKey;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -178,11 +180,15 @@ class PhrDocumentImporter
      * an existing one the payload leaves as it is keeps the review it has.
      *
      * @param  array<string, mixed>  $payload
-     * @param  array{import_source?: string, source?: string, external_id?: string|null, genai_job_id?: int|null, source_document_id?: int|null, review_status?: string}  $options
+     * @param  array{import_source?: string, source?: string, external_id?: string|null, genai_job_id?: int|null, source_document_id?: int|null, review_status?: string, content?: array<string, mixed>, stored_file?: array<string, string>, exact_text?: string|null}  $options
      */
     public function createOrUpdateDocument(PhrPatient $patient, int $actorUserId, array $payload, array $options): PhrDocument
     {
         $payload = $this->documentPayload($payload);
+        $content = $options['content'] ?? null;
+        if (is_array($content)) {
+            return $this->createOrUpdateWithContent($patient, $actorUserId, $payload, $options, $content);
+        }
 
         // `storage_disk` and `storage_path` are deliberately absent.
         //
@@ -211,13 +217,16 @@ class PhrDocumentImporter
             'mime_type' => ValueCoercion::string($payload['mime_type'] ?? null),
             'byte_size' => (int) ($payload['byte_size'] ?? $payload['file_size_bytes'] ?? 0),
             'file_hash' => ValueCoercion::string($payload['file_hash'] ?? $payload['sha256'] ?? null),
-            'extracted_text' => ValueCoercion::string($payload['extracted_text'] ?? $payload['text'] ?? null),
+            // The text of stored content is the file's own, byte for byte, never trimmed.
+            'extracted_text' => array_key_exists('exact_text', $options) ? $options['exact_text'] : ValueCoercion::string($payload['extracted_text'] ?? $payload['text'] ?? null),
             'summary' => ValueCoercion::string($payload['summary'] ?? null),
             'source' => ValueCoercion::normalizeDocumentSource($payload['source'] ?? $options['source'] ?? $options['import_source'] ?? null),
             'tags' => ValueCoercion::tags($payload['tags'] ?? null),
             'import_source' => $options['import_source'] ?? ValueCoercion::string($payload['import_source'] ?? null),
             'external_id' => ValueCoercion::externalId($payload, $options),
             'imported_at' => now(),
+            ...$this->noteAttributes($payload),
+            ...($options['stored_file'] ?? []),
         ];
 
         $review = $options['review_status'] ?? null;
@@ -226,6 +235,98 @@ class PhrDocumentImporter
         }
 
         return $this->upserter->upsert(PhrDocument::class, $attributes, $review);
+    }
+
+    /**
+     * A document whose bytes the source carries inline (a FHIR attachment's data,
+     * a C-CDA note's text): they are stored as the document's file through the
+     * documents disk, under a key derived server-side, as an upload's are. The
+     * same bytes again keep the stored file; different bytes replace it, and the
+     * old object is removed once the new row commits.
+     *
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $options
+     * @param  array<string, mixed>  $content  {bytes: string, filename: string, mime_type: string|null, text: string|null}
+     */
+    private function createOrUpdateWithContent(PhrPatient $patient, int $actorUserId, array $payload, array $options, array $content): PhrDocument
+    {
+        $bytes = (string) ($content['bytes'] ?? '');
+        $filename = ValueCoercion::string($content['filename'] ?? null) ?? 'document';
+        $sha256 = hash('sha256', $bytes);
+        $payload = [
+            ...$payload,
+            'original_filename' => $payload['original_filename'] ?? $filename,
+            'mime_type' => $content['mime_type'] ?? $payload['mime_type'] ?? null,
+            'byte_size' => strlen($bytes),
+            'file_hash' => $sha256,
+        ];
+        unset($options['content']);
+        $options['exact_text'] = is_string($content['text'] ?? null) ? $content['text'] : null;
+        $importSource = $options['import_source'] ?? ValueCoercion::string($payload['import_source'] ?? null);
+        $externalId = ValueCoercion::externalId($payload, $options);
+
+        return $this->artifactWriteGuard->run((int) $patient->id, function (PhrPatient $lockedPatient) use ($actorUserId, $payload, $options, $bytes, $filename, $sha256, $importSource, $externalId): PhrDocument {
+            $existing = $importSource === null || $externalId === null ? null : PhrDocument::query()
+                ->where('patient_id', $lockedPatient->id)->where('import_source', $importSource)->where('external_id', $externalId)->first();
+            $kept = $existing instanceof PhrDocument
+                && $existing->storage_disk === PhrDocument::STORAGE_DISK
+                && is_string($existing->storage_path)
+                && is_string($existing->file_hash) && hash_equals($existing->file_hash, $sha256)
+                && Storage::disk(PhrDocument::STORAGE_DISK)->exists($existing->storage_path);
+            if ($kept) {
+                return $this->createOrUpdateDocument($lockedPatient, $actorUserId, $payload, $options);
+            }
+
+            $storagePath = $this->documentStoragePath((int) $lockedPatient->id, $filename);
+            $previous = $existing instanceof PhrDocument ? $existing->storage_path : null;
+            try {
+                if (! Storage::disk(PhrDocument::STORAGE_DISK)->put($storagePath, $bytes)) {
+                    throw new RuntimeException('Unable to store the document content.');
+                }
+                $document = $this->createOrUpdateDocument($lockedPatient, $actorUserId, $payload, [
+                    ...$options,
+                    'stored_file' => ['storage_disk' => PhrDocument::STORAGE_DISK, 'storage_path' => $storagePath],
+                ]);
+            } catch (\Throwable $exception) {
+                $this->deleteUnpublishedDocument($storagePath);
+
+                throw $exception;
+            }
+            if (is_string($previous) && $previous !== $storagePath) {
+                // The replaced bytes go only once the row naming the new ones commits.
+                DB::afterCommit(fn () => $this->deleteUnpublishedDocument($previous));
+            }
+
+            return $document;
+        });
+    }
+
+    /**
+     * Clinical note metadata (phr#409) a payload states. A key the payload does not
+     * carry is left out, so a writer that knows nothing of note metadata never
+     * clears what a person or another source set.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function noteAttributes(array $payload): array
+    {
+        $attributes = [];
+        foreach (PhrClinicalNote::COLUMNS as $column) {
+            if (! array_key_exists($column, $payload)) {
+                continue;
+            }
+            $value = $payload[$column];
+            $attributes[$column] = match ($column) {
+                'loinc_code' => PhrClinicalNote::loinc($value),
+                'authored_at', 'signed_at', 'patient_signed_at' => PhrClinicalNote::moment($value),
+                'doc_status' => PhrClinicalNote::docStatus($value),
+                'patient_signature_status' => in_array($value, PhrClinicalNote::PATIENT_SIGNATURE_STATUSES, true) ? $value : null,
+                default => ($text = ValueCoercion::string($value)) === null ? null : mb_substr($text, 0, 255),
+            };
+        }
+
+        return $attributes;
     }
 
     /**

@@ -131,9 +131,17 @@ final class AgentMcpToolCatalog
                 effect: Effect::Upload,
             ),
             $this->write(
+                'documents.create_text',
+                'Store a markdown note',
+                'Store a clinical note you wrote or transcribed as a markdown document: body is the markdown (at most 180000 bytes), with document_type and, when the source states them, loinc_code (verbatim), source_type_label, author_name, author_role, cosigner_name, authored_at, signed_at and doc_status; for a consent or estimate, patient_signature_status. Idempotent on external_id: the same body again is unchanged, a different body for it is refused. An addendum or amendment is a new note with relates_to naming the document it appends to or replaces. The note waits in pending_review until the person approves it in PHR, and an export never marks it authenticated.',
+                [$writes, 'documentsCreateText'],
+                $byExternalId,
+                effect: Effect::Upload,
+            ),
+            $this->write(
                 'documents.update',
                 'Update document metadata',
-                'Edit a document\'s title, document_type, observed_at, summary or tags by its ID and current version (read it with documents_get). data holds only the fields to change; null clears title, observed_at or summary, and tags replaces the list. The file and its import identity never change. A stale version is refused; read the document again. Every effective change returns the document to pending_review for the person to approve.',
+                'Edit a document\'s title, document_type, observed_at, summary, tags, note metadata (loinc_code, source_type_label, author_name, author_role, cosigner_name, authored_at, signed_at, doc_status, patient_signature_status, patient_signed_at) or relates_to by its ID and current version (read it with documents_get). data holds only the fields to change; null clears a field (relates_to null removes the link), and tags replaces the list. The file and its import identity never change. A stale version is refused; read the document again. Every effective change returns the document to pending_review for the person to approve.',
                 [$writes, 'documentsUpdate'],
                 $byVersion,
                 effect: Effect::Destructive,

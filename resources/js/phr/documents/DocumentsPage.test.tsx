@@ -157,7 +157,7 @@ describe('DocumentsPage', () => {
     await screen.findAllByText('January Labs')
     const typeFilter = screen.getAllByLabelText('Type')[0] as HTMLSelectElement
     const values = Array.from(typeFilter.options).map((option) => option.value)
-    expect(values).toEqual(['all', 'lab_report', 'office_visit_note', 'clinical_questionnaire', 'patient_symptom_log', 'discharge_summary', 'imaging_report', 'prescription', 'medical_necessity_letter', 'prior_authorization', 'insurance', 'consent', 'care_correspondence', 'other'])
+    expect(values).toEqual(['all', 'lab_report', 'office_visit_note', 'clinical_questionnaire', 'patient_symptom_log', 'discharge_summary', 'imaging_report', 'prescription', 'medical_necessity_letter', 'prior_authorization', 'insurance', 'consent', 'care_correspondence', 'progress_note', 'consult_note', 'history_and_physical', 'procedure_note', 'nursing_note', 'advance_directive', 'ems_report', 'clinical_image', 'patient_education', 'other'])
   })
 
   it('keeps an unknown stored type on a metadata save, and sends a type the user picks', async () => {

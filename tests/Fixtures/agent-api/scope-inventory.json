@@ -108,6 +108,11 @@
             "documents:read"
         ]
     },
+    "documents.create_text": {
+        "scopes": [
+            "documents:write"
+        ]
+    },
     "documents.download": {
         "scopes": [
             "documents:read"

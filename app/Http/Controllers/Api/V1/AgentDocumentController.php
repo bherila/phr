@@ -2,13 +2,17 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\DataTransferObjects\PHR\DocumentTextData;
 use App\DataTransferObjects\PHR\DocumentUploadData;
 use App\DataTransferObjects\PHR\DocumentUploadResult;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\AgentApi\CreateAgentDocumentTextRequest;
 use App\Http\Requests\AgentApi\StoreAgentDocumentRequest;
 use App\Http\Requests\AgentApi\UpdateAgentDocumentRequest;
 use App\Models\PhrDocument;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Services\PHR\Documents\PhrDocumentNotePayload;
+use App\Services\PHR\Documents\PhrDocumentRelations;
 use App\Services\PHR\Documents\PhrDocumentTextReader;
 use App\Services\PHR\Documents\PhrDocumentUploadService;
 use App\Services\PHR\Encounters\PhrEncounterLinks;
@@ -20,6 +24,7 @@ use App\Support\AgentApi\AgentApiScopes;
 use App\Support\AgentApi\AgentApiUpdateWindow;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\AgentApi\AgentTextWindow;
+use App\Support\PHR\PhrClinicalNote;
 use App\Support\PHR\PhrDocumentTags;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Builder;
@@ -46,6 +51,7 @@ final class AgentDocumentController extends Controller
         private PhrPublicIds $publicIds,
         private PhrDocumentTextReader $texts,
         private AgentClinicalRecordVersion $versions,
+        private PhrDocumentRelations $relations,
     ) {}
 
     public function index(Request $request, int $patient): JsonResponse
@@ -63,7 +69,7 @@ final class AgentDocumentController extends Controller
             'review_status' => ['sometimes', Rule::in(PhrReviewStatus::ALL)],
         ]);
         $patientId = $this->patientId($request, $patient);
-        $query = PhrDocument::query()->where('patient_id', $patientId)->with('genAiJob:id,status');
+        $query = PhrDocument::query()->where('patient_id', $patientId)->with(['genAiJob:id,status', 'relatesTo']);
         $this->applyUpdateWindow($query, $validated);
         foreach (['document_type', 'source', 'review_status'] as $filter) {
             if (isset($validated[$filter])) {
@@ -157,6 +163,34 @@ final class AgentDocumentController extends Controller
     }
 
     /**
+     * documents.create_text (phr#409): store a markdown note the agent wrote, with
+     * its note metadata, as a `.md` document whose text is the body. Idempotent on
+     * external_id in the client's namespace: the same body is unchanged, a
+     * different one conflicts. An amendment is a new document linked by
+     * relates_to. The note waits in pending_review.
+     */
+    public function createText(CreateAgentDocumentTextRequest $request, int $patient): JsonResponse
+    {
+        $actorUserId = (int) $request->user('api')?->id;
+        $resolvedPatient = $this->accessService->writablePatient($patient, $actorUserId);
+        $identity = AgentApiClientIdentity::fromRequest($request);
+        $result = $this->documentUploads->createText(
+            $resolvedPatient,
+            $actorUserId,
+            DocumentTextData::fromValidated($request->validated(), $identity->importSource()),
+        );
+
+        return response()->json([
+            'resource_type' => 'document',
+            'patient_id' => $resolvedPatient->id,
+            'outcome' => $result->outcome,
+            'data' => $request->user('api')?->tokenCan(AgentApiScopes::DOCUMENTS_READ)
+                ? $this->payload($result->document->refresh())
+                : $this->mutationReceipt($result->document),
+        ], $result->outcome === DocumentUploadResult::CREATED ? 201 : 200);
+    }
+
+    /**
      * The document's text, in a window of characters, for a reader that needs
      * the words rather than the file. The text is the document's own content:
      * the response marks it as untrusted data, never instructions.
@@ -211,12 +245,17 @@ final class AgentDocumentController extends Controller
     public function update(UpdateAgentDocumentRequest $request, int $patient, int $document): JsonResponse
     {
         $resolvedPatient = $this->accessService->writablePatient($patient, (int) $request->user('api')?->id);
-        $changes = $request->changes();
+        $changes = PhrClinicalNote::normalizedChanges($request->changes());
         if (array_key_exists('tags', $changes)) {
             $changes['tags'] = PhrDocumentTags::normalize($changes['tags'] ?? []);
         }
+        $relates = array_key_exists('relates_to', $changes);
+        $relatesTo = is_array($changes['relates_to'] ?? null)
+            ? ['document_id' => (int) $changes['relates_to']['document_id'], 'relation' => (string) $changes['relates_to']['relation']]
+            : null;
+        unset($changes['relates_to']);
 
-        [$updated, $outcome, $version] = DB::transaction(function () use ($resolvedPatient, $document, $request, $changes): array {
+        [$updated, $outcome, $version] = DB::transaction(function () use ($resolvedPatient, $document, $request, $changes, $relates, $relatesTo): array {
             $record = PhrDocument::query()
                 ->where('patient_id', $resolvedPatient->id)
                 ->whereNull('retracted_at')
@@ -227,18 +266,24 @@ final class AgentDocumentController extends Controller
                 throw new ConflictHttpException('The document changed; fetch it and retry with its current version.');
             }
             $record->fill($changes);
+            $relinked = $relates && $this->relations->set($record, $relatesTo);
             // An exact no-op preserves the existing review state.
-            if (! $record->isDirty()) {
+            if (! $record->isDirty() && ! $relinked) {
                 return [$record, 'unchanged', $current];
             }
             // Any effective agent change reopens human review, as it does for a
             // clinical record: confirmation is a person's decision in the browser.
             $record->setAttribute('review_status', PhrReviewStatus::PENDING);
+            if (! $record->isDirty()) {
+                // Only the link changed: the document still moves, for sync and versioning.
+                $record->touch();
+            }
             $record->save();
             $record->refresh();
 
             return [$record, 'updated', $this->versions->for($record)];
         }, 3);
+        $updated->load('relatesTo');
         $updated->loadMissing('genAiJob:id,status');
 
         return response()->json([
@@ -301,7 +346,7 @@ final class AgentDocumentController extends Controller
     {
         $patientId = $this->patientId($request, $patient);
 
-        return PhrDocument::query()->where('patient_id', $patientId)->with('genAiJob:id,status')->findOrFail($document);
+        return PhrDocument::query()->where('patient_id', $patientId)->with(['genAiJob:id,status', 'relatesTo'])->findOrFail($document);
     }
 
     private function patientId(Request $request, int $patient): int
@@ -367,6 +412,8 @@ final class AgentDocumentController extends Controller
             'tags' => $document->tags ?? [], 'import_source' => $document->import_source,
             // Only a confirmed document leaves PHR in a clinical export.
             'review_status' => $document->review_status,
+            // Clinical note metadata (phr#409), as the source or the writer stated it.
+            ...PhrDocumentNotePayload::of($document, static fn (?\DateTimeInterface $moment): ?string => $moment?->format(\DateTimeInterface::ATOM)),
             'external_id' => AgentApiExternalId::withoutDocumentHash($document->external_id),
             'imported_at' => $document->imported_at?->toIso8601String(),
             'processing_state' => $this->processingState($document),
