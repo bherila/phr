@@ -84,7 +84,8 @@ final class PhrEncounterLinksTest extends TestCase
     {
         $patient = $this->patient();
         app(PhrFhirImporter::class)->importBundle($this->stayBundle(), $patient, $patient->owner_user_id);
-        foreach ([PhrOfficeVisit::class, PhrLabResult::class, PhrPatientVital::class, PhrMedication::class, PhrProcedure::class] as $model) {
+        // Exports carry only confirmed records, documents included (#408).
+        foreach ([PhrOfficeVisit::class, PhrLabResult::class, PhrPatientVital::class, PhrMedication::class, PhrProcedure::class, PhrDocument::class] as $model) {
             $model::query()->where('patient_id', $patient->id)->update(['review_status' => PhrReviewStatus::CONFIRMED]);
         }
         $visit = PhrOfficeVisit::query()->where('patient_id', $patient->id)->sole();
