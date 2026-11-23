@@ -61,7 +61,11 @@ Before #406 their titles made them active home medications. Those rows keep no m
 of the section they came from, so they are found by reading the source again
 (`PhrCcdaMisroutedMedications`): the ids the old title routing gave a document's
 medication rows, less the ids its own Medications sections give, are rows only the
-misrouting made. They are retracted (`retracted_at`): the C-CDA import withdrawing a
+misrouting made, under their entry ids and, for rows the narrative-table reader
+stored, their table-row ids. Every document listing an id writes one row, which links
+only to the first of them, so the patient's other stored documents are read before a
+row is retracted: one whose own Medications section names the id keeps the row. They
+are retracted (`retracted_at`): the C-CDA import withdrawing a
 claim it made in error, neither a delete nor a rejection, and their review status is
 kept. A row a person confirmed, and a row prescription fills are linked to, are left
 as they are and reported for a person to check. A retracted row comes back when a
@@ -71,9 +75,9 @@ document's own Medications section names its id.
   document. A MyChart ZIP does it once over all its C-CDA members. The import result's
   warnings count what was retracted, restored or left.
 - **`phr:ccda:retract-hospital-medications [--dry-run] [--patient=]`** does it for
-  documents nobody will import again. Per patient it reads every stored document a
-  C-CDA medication row links to (an XML file or a MyChart ZIP's members) and retracts
-  the rows linked to those documents. A row imported without a stored document, or
+  documents nobody will import again. Per patient it reads every stored document (an XML
+  file or a MyChart ZIP's members; anything else is told apart by its first bytes),
+  whichever rows link to it, and retracts the rows linked to those documents. A row imported without a stored document, or
   from one that can no longer be read, cannot be checked: it is counted and left, and
   re-importing its source file cleans it up. Running it again changes nothing.
 

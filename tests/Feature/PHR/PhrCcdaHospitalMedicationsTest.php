@@ -13,7 +13,10 @@ use App\Services\PHR\Import\PhrImportResult;
 use App\Services\PHR\Import\PhrMyChartZipImporter;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Storage;
 use Tests\Support\ImportsCcdaFixtures;
+use Tests\Support\PhrCcdaNarrativeHospitalList;
+use Tests\Support\UsesObjectStoreDisks;
 use Tests\TestCase;
 use ZipArchive;
 
@@ -27,6 +30,7 @@ use ZipArchive;
 final class PhrCcdaHospitalMedicationsTest extends TestCase
 {
     use ImportsCcdaFixtures;
+    use UsesObjectStoreDisks;
 
     /** The Medications section's names: the only home medications the fixture holds. */
     private const array HOME = ['lisinopril 10 mg oral tablet', 'metformin 500 mg oral tablet', 'acetaminophen 500 mg oral tablet'];
@@ -47,6 +51,18 @@ final class PhrCcdaHospitalMedicationsTest extends TestCase
         'discharge-metformin' => '2.25.4064|discharge-metformin',
         'discharge-cefpodoxime' => '2.25.4064|discharge-cefpodoxime',
     ];
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+        $this->useObjectStoreDisks();
+    }
+
+    protected function tearDown(): void
+    {
+        $this->tearDownObjectStoreDisks();
+        parent::tearDown();
+    }
 
     public function test_only_the_medications_section_becomes_medications(): void
     {
@@ -210,6 +226,69 @@ final class PhrCcdaHospitalMedicationsTest extends TestCase
         }
 
         $this->assertSame(array_values(array_diff(array_keys(self::HOSPITAL), ['discharge-metformin'])), $this->retractedKeys($rows));
+    }
+
+    public function test_a_stored_summary_listing_the_id_as_a_home_medication_keeps_the_row(): void
+    {
+        $patient = $this->ccdaPatient();
+        $document = $this->document($patient);
+        // A later summary lists the discharge metformin as a home medication. The
+        // discharge summary wrote the row first, so the row links to it, not to the summary.
+        $summary = $this->document($patient, 'summary.xml');
+        Storage::disk(PhrDocument::STORAGE_DISK)->put('synthetic/summary.xml', $this->homeList('2.25.4064', 'discharge-metformin'));
+        $summary->forceFill(['storage_disk' => PhrDocument::STORAGE_DISK, 'storage_path' => 'synthetic/summary.xml'])->save();
+        $metformin = $this->misroutedRow($patient, self::HOSPITAL['discharge-metformin'], $document->id);
+        $cefpodoxime = $this->misroutedRow($patient, self::HOSPITAL['discharge-cefpodoxime'], $document->id);
+
+        $this->import($patient, $document);
+
+        $this->assertNull($metformin->refresh()->retracted_at);
+        $this->assertNotNull($cefpodoxime->refresh()->retracted_at);
+    }
+
+    public function test_rows_the_narrative_table_reader_made_of_a_hospital_list_are_retracted_on_reimport(): void
+    {
+        $patient = $this->ccdaPatient();
+        $document = $this->document($patient);
+        $row = fn (array $cells): PhrMedication => PhrMedication::query()->create([
+            'patient_id' => $patient->id,
+            'user_id' => $patient->owner_user_id,
+            'import_source' => 'ccda',
+            'external_id' => PhrCcdaNarrativeHospitalList::externalId($cells),
+            'source_document_id' => $document->id,
+            'review_status' => PhrReviewStatus::PENDING,
+            'name' => $cells[0],
+            'status' => 'active',
+        ]);
+        // What the narrative-table reader stored, before entries were read.
+        $hospital = $row(PhrCcdaNarrativeHospitalList::HOSPITAL_ONLY);
+        $shared = $row(PhrCcdaNarrativeHospitalList::ALSO_HOME);
+
+        app(PhrCcdaImporter::class)->importXml(PhrCcdaNarrativeHospitalList::xml(), $patient, $patient->owner_user_id, $document);
+
+        $this->assertNotNull($hospital->refresh()->retracted_at);
+        // The Medications section's entry references the same row: it is that
+        // entry's row, adopted onto the entry's id, never retracted.
+        $this->assertNull($shared->refresh()->retracted_at);
+        $this->assertSame(['metformin 500 mg oral tablet'], PhrMedication::query()->where('patient_id', $patient->id)->whereNull('retracted_at')->pluck('name')->all());
+    }
+
+    private function homeList(string $root, string $extension): string
+    {
+        return $this->ccdaSectionDocument(<<<XML
+            <templateId root="2.16.840.1.113883.10.20.22.2.1.1" extension="2014-06-09"/>
+            <code code="10160-0" codeSystem="2.16.840.1.113883.6.1"/>
+            <title>Medications</title>
+            <entry>
+              <substanceAdministration classCode="SBADM" moodCode="INT">
+                <templateId root="2.16.840.1.113883.10.20.22.4.16"/>
+                <id root="{$root}" extension="{$extension}"/>
+                <consumable><manufacturedProduct><manufacturedMaterial>
+                  <code code="9994062" codeSystem="2.16.840.1.113883.6.88" displayName="metformin 500 mg oral tablet"/>
+                </manufacturedMaterial></manufacturedProduct></consumable>
+              </substanceAdministration>
+            </entry>
+            XML);
     }
 
     private function import(PhrPatient $patient, PhrDocument $document): PhrImportResult

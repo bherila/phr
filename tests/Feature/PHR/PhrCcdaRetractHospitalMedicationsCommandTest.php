@@ -8,6 +8,7 @@ use App\Models\PhrPatient;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Support\Facades\Storage;
 use Tests\Support\ImportsCcdaFixtures;
+use Tests\Support\PhrCcdaNarrativeHospitalList;
 use Tests\Support\UsesObjectStoreDisks;
 use Tests\TestCase;
 use ZipArchive;
@@ -78,10 +79,13 @@ final class PhrCcdaRetractHospitalMedicationsCommandTest extends TestCase
         $discharge = $this->storedDocument($patient, 'discharge-summary.xml', $this->ccdaFixture('discharge-summary.xml'));
         // A later summary, stored as a MyChart ZIP, lists the discharge metformin as a home medication.
         $summary = $this->storedDocument($patient, 'mychart.zip', $this->zip(['summary.xml' => $this->homeList('2.25.4064', 'discharge-metformin')]));
+        // The discharge summary wrote the metformin row first, so the row links to
+        // it, and no row links to the later summary at all.
         $metformin = $this->row($patient, '2.25.4064|discharge-metformin', $discharge->id);
         $cefpodoxime = $this->row($patient, '2.25.4064|discharge-cefpodoxime', $discharge->id);
-        // A row of its own makes the summary one of the documents the command reads.
-        $this->row($patient, '2.25.4064|summary-only', $summary->id);
+        $this->assertSame(0, PhrMedication::query()->where('source_document_id', $summary->id)->count());
+        // A PDF is told apart by its first bytes and holds no C-CDA.
+        $this->storedDocument($patient, 'letter.pdf', "%PDF-1.7\nSynthetic letter");
 
         $this->artisan('phr:ccda:retract-hospital-medications')->assertSuccessful();
 
@@ -104,6 +108,34 @@ final class PhrCcdaRetractHospitalMedicationsCommandTest extends TestCase
 
         $this->assertNull($unlinked->refresh()->retracted_at);
         $this->assertNull($lost->refresh()->retracted_at);
+    }
+
+    public function test_rows_the_narrative_table_reader_made_of_a_hospital_list_are_retracted(): void
+    {
+        $patient = $this->ccdaPatient();
+        $document = $this->storedDocument($patient, 'narrative.xml', PhrCcdaNarrativeHospitalList::xml());
+        $hospital = $this->narrativeRow($patient, PhrCcdaNarrativeHospitalList::HOSPITAL_ONLY, $document->id);
+        $shared = $this->narrativeRow($patient, PhrCcdaNarrativeHospitalList::ALSO_HOME, $document->id);
+
+        $this->artisan('phr:ccda:retract-hospital-medications')->assertSuccessful();
+
+        $this->assertNotNull($hospital->refresh()->retracted_at);
+        $this->assertNull($shared->refresh()->retracted_at, 'the same table row in the Medications section is a home medication');
+    }
+
+    /** @param list<string> $cells */
+    private function narrativeRow(PhrPatient $patient, array $cells, int $documentId): PhrMedication
+    {
+        return PhrMedication::query()->create([
+            'patient_id' => $patient->id,
+            'user_id' => $patient->owner_user_id,
+            'import_source' => 'ccda',
+            'external_id' => PhrCcdaNarrativeHospitalList::externalId($cells),
+            'source_document_id' => $documentId,
+            'review_status' => PhrReviewStatus::PENDING,
+            'name' => $cells[0],
+            'status' => 'active',
+        ]);
     }
 
     private function row(PhrPatient $patient, string $rootAndExtension, ?int $documentId, string $review = PhrReviewStatus::PENDING): PhrMedication

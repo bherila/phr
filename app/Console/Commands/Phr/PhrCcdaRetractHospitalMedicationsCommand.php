@@ -2,7 +2,6 @@
 
 namespace App\Console\Commands\Phr;
 
-use App\Models\PhrDocument;
 use App\Models\PhrMedication;
 use App\Models\PhrPatient;
 use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
@@ -18,10 +17,10 @@ use Illuminate\Database\Eloquent\Builder;
  * same itself). See PhrCcdaMisroutedMedications for how the rows are found and
  * what is retracted, restored, or left for a person.
  *
- * Per patient, every stored document a C-CDA medication row links to is read
- * again, and the ids its hospital lists gave rows, less every id those
- * documents' own medication lists give, are retracted where the row links to one
- * of them. A row imported without a stored document, or from one that can no
+ * Per patient, every stored document is read again (one that is neither XML
+ * nor a ZIP only by its first bytes), and the ids their hospital lists gave
+ * rows, less every id their own medication lists give, are retracted where the
+ * row links to one of them. A row imported without a stored document, or from one that can no
  * longer be read, cannot be checked: it is counted and left as it is, never
  * guessed at. Archived patients are skipped.
  *
@@ -51,34 +50,15 @@ final class PhrCcdaRetractHospitalMedicationsCommand extends BasePhrCommand
                 continue;
             }
 
-            $readable = [];
-            $unreadable = [];
-            $former = [];
-            $current = [];
-            $documentIds = $this->ccdaMedications()->where('patient_id', $patientId)->whereNotNull('source_document_id')
-                ->distinct()->orderBy('source_document_id')->pluck('source_document_id')->map(static fn (mixed $id): int => (int) $id);
-            foreach ($documentIds as $documentId) {
-                $document = PhrDocument::query()->withTrashed()->where('patient_id', $patientId)->find($documentId);
-                $documents = $document === null ? null : $misrouted->storedDocuments($document);
-                if ($documents === null) {
-                    $unreadable[] = $documentId;
-
-                    continue;
-                }
-                $readable[] = $documentId;
-                foreach ($documents as $xpath) {
-                    $ids = $misrouted->ids($xpath);
-                    $former = [...$former, ...$ids['former']];
-                    $current = [...$current, ...$ids['current']];
-                }
-            }
-
-            $stale = array_values(array_diff($former, $current));
-            $current = array_values(array_unique($current));
+            // Every stored document of the patient, not only those rows link
+            // to: a row links to the first document that wrote it, and a later
+            // summary listing the same id as a home medication keeps it.
+            $stored = $misrouted->storedIds($patientId);
+            $stale = array_values(array_diff($stored['former'], $stored['current']));
             /** @var PhrCcdaMisroutedMedicationsOutcome $outcome */
-            $outcome = $writeGuard->run($patientId, fn (): PhrCcdaMisroutedMedicationsOutcome => $misrouted->apply($patientId, $stale, $current, $readable, $dryRun));
+            $outcome = $writeGuard->run($patientId, fn (): PhrCcdaMisroutedMedicationsOutcome => $misrouted->apply($patientId, $stale, $stored['current'], $stored['readable'], $dryRun));
             $unchecked = $this->ccdaMedications()->where('patient_id', $patientId)->whereNull('retracted_at')
-                ->where(fn (Builder $query) => $query->whereNull('source_document_id')->orWhereIn('source_document_id', $unreadable))->count();
+                ->where(fn (Builder $query) => $query->whereNull('source_document_id')->orWhereNotIn('source_document_id', $stored['readable']))->count();
 
             $this->report($prefix, $patientId, $outcome, $unchecked, $dryRun);
             $totals['retracted'] += count($outcome->retracted);

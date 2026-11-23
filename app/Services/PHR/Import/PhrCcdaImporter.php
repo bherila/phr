@@ -89,7 +89,15 @@ class PhrCcdaImporter
         // A row with no source document may be one this document's earlier,
         // unlinked import made; a row linked to another document is left to
         // phr:ccda:retract-hospital-medications, which reads that document too.
-        $outcome = $this->misroutedMedications->apply((int) $patient->id, array_values(array_diff($former, $current)), array_values(array_unique($current)), $document === null ? [null] : [(int) $document->id, null]);
+        // Before a row is retracted, the patient's other stored documents are
+        // read: one whose medication list names it keeps it.
+        $outcome = $this->misroutedMedications->apply(
+            (int) $patient->id,
+            array_values(array_diff($former, $current)),
+            array_values(array_unique($current)),
+            $document === null ? [null] : [(int) $document->id, null],
+            corroborated: fn (): array => $this->misroutedMedications->storedIds((int) $patient->id, $document === null ? null : (int) $document->id)['current'],
+        );
 
         return new PhrImportResult(warnings: $outcome->warnings());
     }
