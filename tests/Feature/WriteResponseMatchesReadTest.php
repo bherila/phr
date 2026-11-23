@@ -141,7 +141,7 @@ final class WriteResponseMatchesReadTest extends TestCase
             'patients' => ['phr.patients.store', 'phr.patients.update', 'patient', ['display_name' => 'Synthetic Patient'], ['display_name' => 'Synthetic Patient Renamed']],
             'lab results' => ['phr.patients.lab-results.store', 'phr.patients.lab-results.update', 'lab_result', ['analyte' => 'Synthetic analyte'], ['value' => '14.1']],
             'vitals' => ['phr.patients.vitals.store', 'phr.patients.vitals.update', 'vital', ['vital_name' => 'Heart Rate'], ['vital_value' => '72']],
-            'office visits' => ['phr.patients.office-visits.store', 'phr.patients.office-visits.update', 'office_visit', ['visit_date' => '2026-01-15'], ['assessment' => 'Synthetic assessment']],
+            'office visits' => ['phr.patients.office-visits.store', 'phr.patients.office-visits.update', 'office_visit', ['visit_date' => '2026-01-15'], ['assessment' => 'Synthetic assessment', 'participants' => [['name' => 'Synthetic Attending', 'credentials' => 'MD', 'role_code' => 'ATND', 'is_primary' => true, 'period_start' => '2026-01-15T08:00:00Z']]]],
             'medications' => ['phr.patients.medications.store', 'phr.patients.medications.update', 'medication', ['name' => 'Synthetic medication'], ['dose' => '10']],
             'medication fills' => ['phr.patients.medication-fills.store', 'phr.patients.medication-fills.update', 'medication_fill', ['filled_on' => '2026-01-15', 'quantity' => '30', 'drug_as_printed' => 'Synthetic drug 10 mg tab'], ['quantity_unit' => 'tablet']],
             'conditions' => ['phr.patients.conditions.store', 'phr.patients.conditions.update', 'condition', ['name' => 'Synthetic condition'], ['notes' => 'Synthetic note']],
@@ -205,7 +205,7 @@ final class WriteResponseMatchesReadTest extends TestCase
             'health log entries' => ['agent-api.v1.health-log-entries.store', '/api/v1/patients/{patient}/health-logs/{healthLog}/entries/{id}', ['external_id' => 'synthetic-entry-001', 'occurred_at' => '2026-03-01T08:30:00Z'], null],
         ];
         $clinical = [
-            'office-visits' => [['visit_date' => '2026-01-15'], ['assessment' => 'Synthetic assessment']],
+            'office-visits' => [['visit_date' => '2026-01-15'], ['assessment' => 'Synthetic assessment', 'participants' => [['name' => 'Synthetic Attending', 'credentials' => 'MD', 'role_code' => 'ATND', 'is_primary' => true, 'period_start' => '2026-01-15T08:00:00Z']]]],
             'procedures' => [['name' => 'Synthetic procedure'], ['outcome' => 'Synthetic outcome']],
             'immunizations' => [['vaccine_name' => 'Synthetic vaccine'], ['site' => 'Left deltoid']],
             'medications' => [['name' => 'Synthetic medication'], ['dose' => '10']],

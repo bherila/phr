@@ -631,6 +631,21 @@ export const PhrOfficeVisitLinkedRecordsSchema = z.object({
 })
 
 export type PhrOfficeVisitLinkedRecords = z.infer<typeof PhrOfficeVisitLinkedRecordsSchema>
+/** One member of a visit's care team (#412); role_code is an HL7 v3 ParticipationType code. */
+export const PhrOfficeVisitParticipantSchema = z.object({
+  id: z.number(),
+  external_id: nullableString.optional(),
+  name: z.string(),
+  credentials: nullableString,
+  role_code: z.string(),
+  role_label: nullableString,
+  specialty: nullableString,
+  is_primary: z.boolean(),
+  period_start: nullableString,
+  period_end: nullableString,
+})
+
+export type PhrOfficeVisitParticipant = z.infer<typeof PhrOfficeVisitParticipantSchema>
 
 export const PhrOfficeVisitSchema = z.object({
   id: z.number(),
@@ -679,6 +694,7 @@ export const PhrOfficeVisitSchema = z.object({
   visit_ended_source: nullableString.optional(),
   visit_ended_precision: nullableString.optional(),
   visit_ended_timezone: nullableString.optional(),
+  participants: z.array(PhrOfficeVisitParticipantSchema).default([]),
   review_status: PhrReviewStatusSchema,
   eobs: z.array(PhrEobSummarySchema).default([]),
   related_services: z.array(PhrOfficeVisitRelatedServiceSchema).default([]),

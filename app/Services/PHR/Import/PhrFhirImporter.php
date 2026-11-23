@@ -7,7 +7,9 @@ use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
 use App\Services\PHR\Encounters\PhrEncounterLinks;
 use App\Support\PHR\PhrEncounterVocabulary;
+use App\Support\PHR\PhrVisitParticipants;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\File;
 use InvalidArgumentException;
 
@@ -76,20 +78,21 @@ class PhrFhirImporter
         $this->index($bundleEntries);
         $folded = $this->foldedImpressions();
         $written = [];
+        $teams = $this->foldedCareTeams();
         foreach ($bundleEntries as $position => $entry) {
             if (! is_array($entry) || ! is_array($entry['resource'] ?? null)) {
                 $result->addSkipped();
 
                 continue;
             }
-            if (isset($folded['into'][$position])) {
-                // Read as part of the encounter it assesses, not as a visit of its own.
+            if (isset($folded['into'][$position]) || isset($teams['into'][$position])) {
+                // Read as part of the encounter it assesses or staffs, not as a record of its own.
                 continue;
             }
 
             $fullUrl = is_string($entry['fullUrl'] ?? null) ? $entry['fullUrl'] : null;
             [$imported, $written[$position]] = $this->structuredImporter->collectingWritten(
-                fn (): PhrImportResult => $this->importResource($entry['resource'], $patient, $actorUserId, $fullUrl, $folded['of'][$position] ?? [], $position),
+                fn (): PhrImportResult => $this->importResource($entry['resource'], $patient, $actorUserId, $fullUrl, $folded['of'][$position] ?? [], $position, $teams['of'][$position] ?? []),
             );
             $result->merge($imported);
         }
@@ -286,10 +289,100 @@ class PhrFhirImporter
     }
 
     /**
+     * CareTeams that staff an Encounter in the same bundle (#412): one whose `encounter`
+     * names it, else one whose period falls within the stay of exactly one encounter.
+     * Their members are read as the encounter's care team. A CareTeam whose encounter is
+     * not in the bundle, or that could belong to more than one stay, is not guessed into
+     * one, and stays unread as before.
+     *
+     * @return array{into: array<int, int>, of: array<int, list<array<string, mixed>>>}
+     */
+    private function foldedCareTeams(): array
+    {
+        $encounters = [];
+        foreach ($this->resources as $position => $resource) {
+            if (($resource['resourceType'] ?? null) === 'Encounter') {
+                $encounters[$position] = $resource;
+            }
+        }
+
+        $into = [];
+        $of = [];
+        foreach ($this->resources as $position => $resource) {
+            if (($resource['resourceType'] ?? null) !== 'CareTeam' || ($resource['status'] ?? null) === 'entered-in-error') {
+                continue;
+            }
+            if (is_array($resource['encounter'] ?? null)) {
+                $named = $this->resolve($resource['encounter']);
+                $target = $named !== null && isset($encounters[$named]) ? $named : null;
+            } else {
+                $within = array_keys(array_filter($encounters, fn (array $encounter): bool => $this->periodWithin($resource['period'] ?? null, $encounter['period'] ?? null)));
+                $target = count($within) === 1 ? $within[0] : null;
+            }
+            if ($target === null) {
+                continue;
+            }
+            $into[$position] = $target;
+            $of[$target][] = $resource;
+        }
+
+        return ['into' => $into, 'of' => $of];
+    }
+
+    /**
+     * Whether a care team's period lies within a stay's: it starts no earlier than the
+     * stay, and ends no later than a stay that ended. A team with no start says nothing.
+     * A bound stated as a date is compared as that day.
+     */
+    private function periodWithin(mixed $inner, mixed $outer): bool
+    {
+        $innerStart = $this->moment(is_array($inner) ? ($inner['start'] ?? null) : null);
+        $outerStart = $this->moment(is_array($outer) ? ($outer['start'] ?? null) : null);
+        if ($innerStart === null || $outerStart === null || $this->compareMoments($innerStart, $outerStart) < 0) {
+            return false;
+        }
+        $outerEnd = $this->moment(is_array($outer) ? ($outer['end'] ?? null) : null);
+        if ($outerEnd === null) {
+            return true;
+        }
+        $innerEnd = $this->moment(is_array($inner) ? ($inner['end'] ?? null) : null);
+
+        return $innerEnd !== null && $this->compareMoments($innerEnd, $outerEnd) <= 0;
+    }
+
+    /** @return array{0: Carbon, 1: bool}|null the moment, and whether it was a date alone */
+    private function moment(mixed $value): ?array
+    {
+        $text = $this->text($value);
+        if ($text === null) {
+            return null;
+        }
+        try {
+            return [Carbon::parse($text), ! str_contains($text, 'T')];
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * @param  array{0: Carbon, 1: bool}  $a
+     * @param  array{0: Carbon, 1: bool}  $b
+     */
+    private function compareMoments(array $a, array $b): int
+    {
+        if ($a[1] || $b[1]) {
+            return $a[0]->toDateString() <=> $b[0]->toDateString();
+        }
+
+        return $a[0]->getTimestamp() <=> $b[0]->getTimestamp();
+    }
+
+    /**
      * @param  array<string, mixed>  $resource
      * @param  list<array<string, mixed>>  $impressions  ClinicalImpressions folded into this Encounter
+     * @param  list<array<string, mixed>>  $careTeams  CareTeams folded into this Encounter
      */
-    private function importResource(array $resource, PhrPatient $patient, int $actorUserId, ?string $fullUrl = null, array $impressions = [], ?int $position = null): PhrImportResult
+    private function importResource(array $resource, PhrPatient $patient, int $actorUserId, ?string $fullUrl = null, array $impressions = [], ?int $position = null, array $careTeams = []): PhrImportResult
     {
         $resourceType = (string) ($resource['resourceType'] ?? '');
         $externalId = $this->externalId($resource, $fullUrl);
@@ -346,7 +439,7 @@ class PhrFhirImporter
                 'raw_text' => json_encode($resource),
             ]], ['import_source' => 'fhir']),
             'Encounter' => $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_office_visit', [
-                $this->encounterRecord($resource, $externalId, $impressions, $position),
+                $this->encounterRecord($resource, $externalId, $impressions, $position, $careTeams),
             ], ['import_source' => 'fhir']),
             'ClinicalImpression' => $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_office_visit', [[
                 'external_id' => $externalId,
@@ -435,19 +528,25 @@ class PhrFhirImporter
     }
 
     /**
-     * An Encounter, with what the ClinicalImpressions assessing it say.
+     * An Encounter, with what the ClinicalImpressions assessing it and the CareTeams
+     * staffing it say.
      *
      * @param  array<string, mixed>  $resource
      * @param  list<array<string, mixed>>  $impressions
+     * @param  list<array<string, mixed>>  $careTeams
      * @return array<string, mixed>
      */
-    private function encounterRecord(array $resource, string $externalId, array $impressions, ?int $position = null): array
+    private function encounterRecord(array $resource, string $externalId, array $impressions, ?int $position = null, array $careTeams = []): array
     {
         $hospitalization = is_array($resource['hospitalization'] ?? null) ? $resource['hospitalization'] : [];
         $descriptions = array_values(array_filter(array_map(fn (array $impression): ?string => $this->text($impression['description'] ?? null), $impressions)));
         $complaint = $this->codeableText(data_get($resource, 'reasonCode.0'))
             ?? ($descriptions[0] ?? null)
             ?? $this->text($resource['description'] ?? null);
+        $participants = $this->encounterParticipants($resource);
+        foreach ($careTeams as $careTeam) {
+            $participants = PhrVisitParticipants::merge($participants, $this->careTeamMembers($careTeam));
+        }
 
         return [
             'external_id' => $externalId,
@@ -455,7 +554,11 @@ class PhrFhirImporter
             'visit_started_at' => data_get($resource, 'period.start'),
             'visit_ended_at' => data_get($resource, 'period.end'),
             'visit_type' => $this->codeableText(data_get($resource, 'type.0')),
-            'provider_name' => data_get($resource, 'participant.0.individual.display'),
+            // The primary attending, else who the source listed first, as before the team was read.
+            'provider_name' => PhrVisitParticipants::providerName($participants)
+                ?? $this->text(data_get($resource, 'participant.0.individual.display'))
+                ?? ($participants === [] ? null : PhrVisitParticipants::display($participants[0])),
+            'participants' => $participants,
             'facility_name' => $this->text(data_get($resource, 'serviceProvider.display')),
             'chief_complaint' => $complaint,
             'assessment' => $this->assessment($impressions, $complaint),
@@ -504,6 +607,190 @@ class PhrFhirImporter
         }
 
         return $parts === [] ? null : implode("\n\n", $parts);
+    }
+
+    /**
+     * Encounter.participant[]: each person with their type (a v3 ParticipationType code,
+     * PPRF beside another for a primary member, the concept's text as the label) and the
+     * period they took part.
+     *
+     * @param  array<string, mixed>  $resource
+     * @return list<array<string, mixed>>
+     */
+    private function encounterParticipants(array $resource): array
+    {
+        $members = [];
+        foreach (is_array($resource['participant'] ?? null) ? $resource['participant'] : [] as $participant) {
+            if (! is_array($participant)) {
+                continue;
+            }
+            $member = $this->member($participant['type'] ?? null, $participant['individual'] ?? null, $participant['period'] ?? null, $resource);
+            if ($member !== null) {
+                $members[] = $member;
+            }
+        }
+
+        return PhrVisitParticipants::normalize($members);
+    }
+
+    /**
+     * A CareTeam's members, each with their role from participant[].role. A member who
+     * is the patient, an organization or another team is not a person on the team.
+     *
+     * @param  array<string, mixed>  $careTeam
+     * @return list<array<string, mixed>>
+     */
+    private function careTeamMembers(array $careTeam): array
+    {
+        $members = [];
+        foreach (is_array($careTeam['participant'] ?? null) ? $careTeam['participant'] : [] as $participant) {
+            if (! is_array($participant)) {
+                continue;
+            }
+            $member = $this->member($participant['role'] ?? null, $participant['member'] ?? null, $participant['period'] ?? null, $careTeam);
+            if ($member !== null) {
+                $members[] = $member;
+            }
+        }
+
+        return PhrVisitParticipants::normalize($members);
+    }
+
+    /**
+     * One person from their role concepts, the reference naming them (a contained or
+     * bundled Practitioner, PractitionerRole or RelatedPerson, else the reference's
+     * display) and their period.
+     *
+     * @param  array<string, mixed>  $container  the resource the reference is inside
+     * @return array<string, mixed>|null
+     */
+    private function member(mixed $concepts, mixed $reference, mixed $period, array $container): ?array
+    {
+        $person = $this->person($reference, $container);
+        if ($person === null) {
+            return null;
+        }
+        $codes = [];
+        $label = null;
+        foreach (is_array($concepts) && array_is_list($concepts) ? $concepts : [] as $concept) {
+            if (! is_array($concept)) {
+                continue;
+            }
+            $label ??= $this->text($concept['text'] ?? null);
+            foreach (is_array($concept['coding'] ?? null) ? $concept['coding'] : [] as $coding) {
+                if (! is_array($coding) || ! is_string($coding['code'] ?? null)) {
+                    continue;
+                }
+                $system = $coding['system'] ?? null;
+                if (($system === null || $system === PhrVisitParticipants::PARTICIPATION_TYPE_SYSTEM) && isset(PhrVisitParticipants::ROLES[strtoupper($coding['code'])])) {
+                    $codes[] = $coding['code'];
+                } else {
+                    // A code from another system (a SNOMED role, a local one) is named by its words.
+                    $label ??= $this->text($coding['display'] ?? null);
+                }
+            }
+        }
+
+        return [
+            ...$person,
+            ...PhrVisitParticipants::role($codes, $label),
+            'role_label' => $label,
+            'period_start' => is_array($period) ? $this->text($period['start'] ?? null) : null,
+            'period_end' => is_array($period) ? $this->text($period['end'] ?? null) : null,
+        ];
+    }
+
+    /**
+     * Who a reference names: their name and credentials (HumanName suffixes), their
+     * specialty when it names a PractitionerRole, and the reference itself as the
+     * member's identifier when it is to a resource outside its container. A reference
+     * to the patient, an organization, a group or a device names no team member.
+     *
+     * @param  array<string, mixed>  $container
+     * @return array{external_id: string|null, name: string, credentials: string|null, specialty: string|null}|null
+     */
+    private function person(mixed $reference, array $container, int $depth = 0): ?array
+    {
+        if (! is_array($reference) || $depth > 1) {
+            return null;
+        }
+        $target = $this->referenced($reference, $container);
+        $type = is_array($target) ? ($target['resourceType'] ?? null) : null;
+        $named = is_string($reference['reference'] ?? null) ? trim($reference['reference']) : '';
+        $notPeople = ['Patient', 'Organization', 'CareTeam', 'Group', 'Device', 'HealthcareService'];
+        if (in_array($type, $notPeople, true)
+            || ($type === null && preg_match('#(?:^|/)('.implode('|', $notPeople).')/#', $named) === 1)) {
+            return null;
+        }
+        $externalId = $named !== '' && ! str_starts_with($named, '#') ? mb_substr($named, 0, 255) : null;
+        $display = $this->text($reference['display'] ?? null);
+
+        if ($type === 'PractitionerRole') {
+            $practitioner = $this->person(is_array($target['practitioner'] ?? null) ? $target['practitioner'] : null, $container, $depth + 1);
+            $name = $practitioner['name'] ?? $display;
+
+            return $name === null ? null : [
+                'external_id' => $externalId ?? $practitioner['external_id'] ?? null,
+                'name' => $name,
+                'credentials' => $practitioner['credentials'] ?? null,
+                'specialty' => $this->conceptText(data_get($target, 'specialty.0')),
+            ];
+        }
+
+        [$name, $credentials] = is_array($target) ? $this->humanName($target['name'] ?? null) : [null, null];
+        $name ??= $display;
+
+        return $name === null ? null : ['external_id' => $externalId, 'name' => $name, 'credentials' => $credentials, 'specialty' => null];
+    }
+
+    /**
+     * The resource a reference names, contained in its container or in the bundle.
+     *
+     * @param  array<string, mixed>  $reference
+     * @param  array<string, mixed>  $container
+     * @return array<string, mixed>|null
+     */
+    private function referenced(array $reference, array $container): ?array
+    {
+        $named = is_string($reference['reference'] ?? null) ? trim($reference['reference']) : '';
+        if (str_starts_with($named, '#')) {
+            foreach (is_array($container['contained'] ?? null) ? $container['contained'] : [] as $inner) {
+                if (is_array($inner) && ($inner['id'] ?? null) === substr($named, 1)) {
+                    return $inner;
+                }
+            }
+
+            return null;
+        }
+        $position = $this->resolve($reference);
+
+        return $position === null ? null : $this->resources[$position];
+    }
+
+    /**
+     * A HumanName list's first usable name, as the name a person goes by and the
+     * credentials its suffixes state ("MD", "RN").
+     *
+     * @return array{0: string|null, 1: string|null}
+     */
+    private function humanName(mixed $names): array
+    {
+        foreach (is_array($names) && array_is_list($names) ? $names : [] as $name) {
+            if (! is_array($name) || in_array($name['use'] ?? null, ['old', 'maiden'], true)) {
+                continue;
+            }
+            $suffixes = array_values(array_filter(array_map($this->text(...), is_array($name['suffix'] ?? null) ? $name['suffix'] : [])));
+            $text = $this->text($name['text'] ?? null);
+            if ($text === null) {
+                $given = array_filter(array_map($this->text(...), is_array($name['given'] ?? null) ? $name['given'] : []));
+                $text = $this->text(implode(' ', array_filter([...$given, $this->text($name['family'] ?? null)])));
+            }
+            if ($text !== null) {
+                return [$text, $suffixes === [] ? null : implode(', ', $suffixes)];
+            }
+        }
+
+        return [null, null];
     }
 
     /**

@@ -68,7 +68,7 @@ class PhrExportDataService
     {
         $patientId = (int) $patient->id;
         $documents = PhrDocument::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderByDesc('created_at')->orderByDesc('id')->get();
-        $visits = PhrOfficeVisit::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderByDesc('visit_started_at')->orderByDesc('visit_date')->orderByDesc('id')->get();
+        $visits = PhrOfficeVisit::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->with('participants')->orderByDesc('visit_started_at')->orderByDesc('visit_date')->orderByDesc('id')->get();
 
         return self::withoutDanglingDocuments([
             'patient' => $patient,

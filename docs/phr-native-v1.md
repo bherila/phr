@@ -140,9 +140,10 @@ bridge block restore; deterministic virtual identities alone establish no attrib
 Schema version 1 stays 1 when a table is added. The reader requires the manifest's
 table set to equal the catalog, except that a table generation added after v1 shipped
 (`PhrNativeTableCompatibility::LATER_GENERATIONS`: today `ehi_tables`, the six EHI
-preservation tables, then `ehi_evidence`, the seven evidence and review tables, through
-`encounter_links`, the five encounter link tables) may be
-wholly absent, in which case it reads as empty. Generations are ordered: an archive may
+preservation tables, then `ehi_evidence`, the seven evidence and review tables, and later
+ones through `encounter_links`, the five encounter link tables, and `visit_participants`, a
+visit's care team) may be wholly absent, in which case it reads as empty. Generations are
+ordered: an archive may
 lack a generation only if it also lacks every later one, so pre-EHI and M1-era archives
 restore. Part of a generation, a later generation without an earlier one, a missing
 original v1 table, or an unknown table still fails closed as `invalid_archive`.
@@ -152,8 +153,8 @@ nullable columns listed per table in `PhrNativeLifecycleCompatibility::TABLE_COL
 (today the six EHI immunization provenance columns on `phr_immunizations`, the review
 status and lines digest on `phr_eobs`, the review status on `phr_documents` (an older archive's EOBs and documents restore as `confirmed`, what they all were), the reference-bound inclusiveness and EHI lab
 provenance columns on `phr_lab_results`, the EHI encounter context and coded encounter
-columns (class, state, location, admit source, discharge disposition) on
-`phr_office_visits`, and the source-ID bridge columns on `phr_ehi_record_links`). Nullable relationships added later are listed the same way in
+columns (class, state, location, admit source, discharge disposition) and the care team
+digest on `phr_office_visits`, and the source-ID bridge columns on `phr_ehi_record_links`). Nullable relationships added later are listed the same way in
 `PhrNativeLifecycleCompatibility::TABLE_RELATIONSHIPS` (today a lab result or visit as an evidence
 link and decision target). Absent ones are read as null only after the stored content
 hash has been verified against what was actually written; any other attribute or

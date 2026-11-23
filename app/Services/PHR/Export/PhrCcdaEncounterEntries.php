@@ -3,8 +3,11 @@
 namespace App\Services\PHR\Export;
 
 use App\Models\PhrOfficeVisit;
+use App\Models\PhrOfficeVisitParticipant;
 use App\Support\PHR\PhrEncounterVocabulary;
+use App\Support\PHR\PhrVisitParticipants;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Carbon;
 use Ramsey\Uuid\Uuid;
 use XMLWriter;
 
@@ -20,9 +23,14 @@ use XMLWriter;
  * - `statusCode` follows the coded state where there is one.
  * - `sdtc:dischargeDispositionCode` is the NUBC patient status that means the stored
  *   FHIR disposition, else the source's words with `nullFlavor="OTH"`.
- * - The performer is the provider, and the facility its represented organization when
- *   the visit also names a unit; the Service Delivery Location (.4.32) is the unit, else
- *   the facility. Its HSLOC code is not stored, so it is null-flavored.
+ * - The performers are the care team (#412), one per member in the visit's order: the
+ *   role as `sdtc:functionCode` (a v3 ParticipationType code, PPRF as its translation
+ *   for a member primary in another role, the source's label as original text), the
+ *   member's period as `time`, the specialty as `sdtc:specialty` and the credentials as
+ *   the name's suffix. A visit with no team has one performer, its provider. The
+ *   facility is the first performer's represented organization when the visit also
+ *   names a unit; the Service Delivery Location (.4.32) is the unit, else the facility.
+ *   Its HSLOC code is not stored, so it is null-flavored.
  * - Each encounter diagnosis, and each ICD-10 code the diagnoses do not already name,
  *   is an Encounter Diagnosis (.4.80:2024-05-01) holding a Problem Observation.
  * - The chief complaint is an Indication (.4.19:2023-05-01), SNOMED CT Complaint, whose
@@ -147,7 +155,42 @@ final class PhrCcdaEncounterEntries
             $location === null || ($facility = $this->text($visit->facility_name ?? null)) === null ? null : 'facility '.$facility,
             $dispositionText === null ? null : 'discharged to '.$dispositionText,
             $names === [] ? null : 'diagnoses '.implode(', ', $names),
+            ($team = $this->team($visit)) === '' ? null : 'care team '.$team,
         ]));
+    }
+
+    /** The care team as the narrative names it: each member, with their role and status. */
+    private function team(object $visit): string
+    {
+        return implode(', ', array_map(static function (array $member): string {
+            $notes = array_filter([
+                $member['role_label'] ?? ($member['role_code'] === PhrVisitParticipants::OTHER ? null : PhrVisitParticipants::ROLES[$member['role_code']]),
+                $member['specialty'],
+                $member['is_primary'] ? 'primary' : null,
+                $member['period_end'] instanceof CarbonInterface ? 'until '.$member['period_end']->toDateString() : null,
+            ]);
+
+            return PhrVisitParticipants::display($member).($notes === [] ? '' : ' ('.implode(', ', $notes).')');
+        }, self::members($visit)));
+    }
+
+    /**
+     * The visit's care team, each member as PhrVisitParticipants lists one with its
+     * period as moments.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private static function members(object $visit): array
+    {
+        $members = $visit instanceof PhrOfficeVisit
+            ? $visit->participants->map(static fn (PhrOfficeVisitParticipant $participant): array => $participant->toMember())->all()
+            : PhrVisitParticipants::normalize($visit->participants ?? []);
+
+        return array_values(array_map(static fn (array $member): array => [
+            ...$member,
+            'period_start' => is_string($member['period_start']) ? Carbon::parse($member['period_start']) : null,
+            'period_end' => is_string($member['period_end']) ? Carbon::parse($member['period_end']) : null,
+        ], $members));
     }
 
     /**
@@ -265,6 +308,14 @@ final class PhrCcdaEncounterEntries
         $location = $this->text($visit->location ?? null);
         // The facility is the performer's organization only when the location names the unit.
         $organization = $location !== null ? $facility : null;
+        $members = self::members($visit);
+        if ($members !== []) {
+            foreach ($members as $position => $member) {
+                $this->teamMember($xml, $member, $position === 0 ? $organization : null);
+            }
+
+            return;
+        }
         if ($provider === null && $organization === null) {
             return;
         }
@@ -288,6 +339,74 @@ final class PhrCcdaEncounterEntries
         }
         $xml->endElement();
         $xml->endElement();
+    }
+
+    /**
+     * One care team member as a performer.
+     *
+     * @param  array<string, mixed>  $member
+     */
+    private function teamMember(XMLWriter $xml, array $member, ?string $organization): void
+    {
+        $xml->startElement('performer');
+        $xml->startElementNs('sdtc', 'functionCode', self::SDTC);
+        $this->participationCode($xml, $member['role_code']);
+        if ($member['role_label'] !== null) {
+            $xml->writeElement('originalText', $member['role_label']);
+        }
+        if ($member['is_primary'] && $member['role_code'] !== PhrVisitParticipants::PRIMARY) {
+            $xml->startElement('translation');
+            $this->participationCode($xml, PhrVisitParticipants::PRIMARY);
+            $xml->endElement();
+        }
+        $xml->endElement();
+        $start = $this->moment($member['period_start']);
+        $end = $this->moment($member['period_end']);
+        if ($start !== null || $end !== null) {
+            $xml->startElement('time');
+            $xml->startElement('low');
+            $start === null ? $xml->writeAttribute('nullFlavor', 'UNK') : $xml->writeAttribute('value', $start);
+            $xml->endElement();
+            if ($end !== null) {
+                $xml->startElement('high');
+                $xml->writeAttribute('value', $end);
+                $xml->endElement();
+            }
+            $xml->endElement();
+        }
+        $xml->startElement('assignedEntity');
+        $xml->startElement('id');
+        $xml->writeAttribute('nullFlavor', 'NI');
+        $xml->endElement();
+        if ($member['specialty'] !== null) {
+            $xml->startElementNs('sdtc', 'specialty', self::SDTC);
+            $xml->writeAttribute('nullFlavor', 'OTH');
+            $xml->writeElement('originalText', $member['specialty']);
+            $xml->endElement();
+        }
+        $xml->startElement('assignedPerson');
+        $xml->startElement('name');
+        $xml->text($member['name']);
+        if ($member['credentials'] !== null) {
+            $xml->writeElement('suffix', $member['credentials']);
+        }
+        $xml->endElement();
+        $xml->endElement();
+        if ($organization !== null) {
+            $xml->startElement('representedOrganization');
+            $xml->writeElement('name', $organization);
+            $xml->endElement();
+        }
+        $xml->endElement();
+        $xml->endElement();
+    }
+
+    private function participationCode(XMLWriter $xml, string $code): void
+    {
+        $xml->writeAttribute('code', $code);
+        $xml->writeAttribute('codeSystem', PhrVisitParticipants::PARTICIPATION_TYPE_OID);
+        $xml->writeAttribute('codeSystemName', 'HL7ParticipationType');
+        $xml->writeAttribute('displayName', PhrVisitParticipants::ROLES[$code] ?? PhrVisitParticipants::ROLES[PhrVisitParticipants::OTHER]);
     }
 
     private function location(XMLWriter $xml, object $visit): void

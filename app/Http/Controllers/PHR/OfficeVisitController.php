@@ -132,6 +132,7 @@ class OfficeVisitController extends Controller
         return $query->with([
             'eobs.lines',
             'imagingStudies',
+            'participants',
             'linkedDocuments' => $linked,
             'linkedLabResults' => $linked,
             'linkedVitals' => $linked,
@@ -161,6 +162,7 @@ class OfficeVisitController extends Controller
     protected function indexQuery(Builder $query): Builder
     {
         return $query
+            ->with('participants')
             ->orderByDesc('visit_date')
             ->orderByDesc('id');
     }

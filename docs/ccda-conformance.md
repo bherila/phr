@@ -147,8 +147,14 @@ diagnoses' `text` references that item.
   that means the stored FHIR disposition (home `01`, skilled nursing `03`, against advice
   `07`, expired `20`, rehabilitation `62`, long-term care `63`, psychiatric `65`). Any other
   disposition is `nullFlavor="OTH"` with the source's words.
-- **performer** is the provider; when the visit names a unit, the facility is its
-  represented organization. The **Service Delivery Location** (`.4.32`) is the unit, else
+- **performer** is each member of the visit's care team, in its order: the role as
+  `sdtc:functionCode` (an HL7 v3 ParticipationType code, `2.16.840.1.113883.5.90`, with
+  the source's label as `originalText` and a `PPRF` translation for a member primary in
+  another role), the member's period as `time`, the specialty as `sdtc:specialty`
+  (`nullFlavor="OTH"` with its words) and the credentials as the name's `suffix`. A visit
+  with no care team has one performer, its provider. When the visit names a unit, the
+  facility is the first performer's represented organization. The narrative list names
+  the care team too. The **Service Delivery Location** (`.4.32`) is the unit, else
   the facility. Its HSLOC code is not stored, so the code is `nullFlavor="UNK"`.
 - **Encounter Diagnosis** (`.4.80:2024-05-01`) holds one Problem Observation
   (`.4.4:2024-05-01`, code SNOMED `282291009` Diagnosis) per encounter diagnosis, then per

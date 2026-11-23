@@ -9,6 +9,7 @@ use App\Models\PhrEobLine;
 use App\Models\PhrLabResult;
 use App\Models\PhrMedication;
 use App\Models\PhrOfficeVisit;
+use App\Models\PhrOfficeVisitParticipant;
 use App\Models\PhrPatientVital;
 use App\Models\PhrProcedure;
 use Illuminate\Http\Request;
@@ -66,6 +67,22 @@ class OfficeVisitResource extends JsonResource
             'visit_ended_source' => $visit->visit_ended_source,
             'visit_ended_precision' => $visit->visit_ended_precision,
             'visit_ended_timezone' => $visit->visit_ended_timezone,
+            // The care team (#412). A list read eager-loads it; one record reads it here.
+            'participants' => $visit->participants
+                ->map(fn (PhrOfficeVisitParticipant $participant): array => [
+                    'id' => $participant->id,
+                    'external_id' => $participant->external_id,
+                    'name' => $participant->name,
+                    'credentials' => $participant->credentials,
+                    'role_code' => $participant->role_code,
+                    'role_label' => $participant->role_label,
+                    'specialty' => $participant->specialty,
+                    'is_primary' => $participant->is_primary,
+                    'period_start' => $participant->period_start?->toDateTimeString(),
+                    'period_end' => $participant->period_end?->toDateTimeString(),
+                ])
+                ->values()
+                ->all(),
             'eobs' => $this->whenLoaded(
                 'eobs',
                 fn () => EobSummaryResource::collection($visit->eobs)->resolve(),
