@@ -2,8 +2,10 @@
 
 namespace App\Support\AgentApi;
 
+use App\Models\PhrDocument;
 use App\Models\PhrEob;
 use App\Models\PhrMedicationFill;
+use App\Services\PHR\Documents\PhrDocumentRelations;
 use Illuminate\Database\Eloquent\Model;
 use LogicException;
 
@@ -33,6 +35,16 @@ final class AgentClinicalRecordVersion
         // changes. Links aren't the fill's own columns, so they must not refuse a client's write.
         if ($record instanceof PhrMedicationFill) {
             unset($attributes['updated_at']);
+        }
+        // A document's addendum or amendment link is a row of its own (phr#409) but part of
+        // what the document says: a link-only change must move the version, even within
+        // the second updated_at resolves (phr#430). A document with no link hashes its
+        // columns alone, so its version is what it was before links counted.
+        if ($record instanceof PhrDocument) {
+            $relation = PhrDocumentRelations::versionState($record);
+            if ($relation !== null) {
+                $attributes['relates_to'] = $relation;
+            }
         }
         ksort($attributes);
 

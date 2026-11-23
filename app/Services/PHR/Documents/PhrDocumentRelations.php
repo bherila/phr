@@ -117,7 +117,7 @@ final class PhrDocumentRelations
      */
     public static function payload(PhrDocument $document): ?array
     {
-        $relation = $document->relationLoaded('relatesTo') ? $document->relatesTo : $document->relatesTo()->first();
+        $relation = self::relationOf($document);
         if (! $relation instanceof PhrDocumentRelation) {
             return null;
         }
@@ -127,6 +127,38 @@ final class PhrDocumentRelations
             'relation' => $relation->relation,
             'reference' => $relation->related_reference,
         ];
+    }
+
+    /**
+     * The link as part of the document's version (phr#430): the link is its own
+     * row, so a link-only change leaves the document's columns, and within one
+     * second its updated_at, as they were. Null for a document with no link.
+     *
+     * @return array{id: int, related_document_id: int|null, related_reference: string|null, relation: string}|null
+     */
+    public static function versionState(PhrDocument $document): ?array
+    {
+        $relation = self::relationOf($document);
+        if (! $relation instanceof PhrDocumentRelation) {
+            return null;
+        }
+
+        return [
+            // The row, so removing a link and adding the same one again is a change too.
+            'id' => (int) $relation->id,
+            'related_document_id' => $relation->related_document_id,
+            'related_reference' => $relation->related_reference,
+            'relation' => $relation->relation,
+        ];
+    }
+
+    private static function relationOf(PhrDocument $document): ?PhrDocumentRelation
+    {
+        if ($document->relationLoaded('relatesTo')) {
+            return $document->relatesTo;
+        }
+
+        return $document->getKey() === null ? null : $document->relatesTo()->first();
     }
 
     private function assertLinkable(PhrDocument $document, int $targetId): void

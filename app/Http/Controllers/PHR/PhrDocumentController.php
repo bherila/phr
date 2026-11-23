@@ -45,8 +45,10 @@ class PhrDocumentController extends Controller
         $userId = (int) $request->user()?->id;
         $resolvedPatient = $this->accessService->accessiblePatient($patient, $userId);
 
+        // Each document's link is part of its payload and its version.
         $query = PhrDocument::query()
-            ->where('patient_id', $resolvedPatient->id);
+            ->where('patient_id', $resolvedPatient->id)
+            ->with('relatesTo');
 
         $type = $this->stringQuery($request, 'type');
         if ($type !== null && $type !== 'all') {

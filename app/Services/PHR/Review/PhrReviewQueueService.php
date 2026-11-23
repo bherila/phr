@@ -347,6 +347,10 @@ final readonly class PhrReviewQueueService
         $rows = [];
         foreach (self::CLINICAL as $page => $model) {
             $query = $model::query()->where('patient_id', $patient->id)->where('review_status', PhrReviewStatus::PENDING);
+            if ($model === PhrDocument::class) {
+                // A document's link is part of its version.
+                $query->with('relatesTo');
+            }
             PhrRecordLifecycle::scopeLive($query);
             $records = $query->orderByDesc('updated_at')->orderByDesc('id')->limit(self::ITEM_LIMIT + 1)->get();
             foreach ($records->take(self::ITEM_LIMIT) as $record) {
