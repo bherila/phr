@@ -1285,7 +1285,7 @@
                 "openWorldHint": false
             },
             "description": "Partially update one existing Medications record by its patient-scoped record ID and current version. This preserves its import identity unless an explicit field is supplied.",
-            "inputSchema": "sha256:feb255e1bff667f45de96de18858bb6b2b320da06e0c56dadea6d308b947f737",
+            "inputSchema": "sha256:a866f6e1f97812b78ce4eb0f60bf0933bbfee030043e6998d873478e4c437f90",
             "name": "medications.update",
             "outputSchema": "sha256:35e5ef1eed36dbcc43a4c5a6516659cc2fce4f95072e9944fdaf9a6758bc4100",
             "title": "Update Medications"
@@ -1298,7 +1298,7 @@
                 "openWorldHint": false
             },
             "description": "Idempotently create or update one Medications record through the versioned REST API.",
-            "inputSchema": "sha256:13cb70a2de3e88ca3a5b62bd5bb12013702d8de69206484331b03f66f563db6a",
+            "inputSchema": "sha256:94993692dd0c03e1d67395f18bc211d0deafd28f3dcc91a0eaf09554bf278120",
             "name": "medications.upsert",
             "outputSchema": "sha256:35e5ef1eed36dbcc43a4c5a6516659cc2fce4f95072e9944fdaf9a6758bc4100",
             "title": "Upsert Medications"

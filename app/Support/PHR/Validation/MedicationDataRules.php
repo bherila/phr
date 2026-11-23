@@ -59,8 +59,8 @@ final class MedicationDataRules implements ClinicalDataRules
             'as_needed_reason' => ClinicalJsonSchema::nullableString(maxLength: 255) + ['description' => 'What an as-needed medication is taken for, for example "pain" or "temperature > 38.0 C".'],
             'brand_name' => ClinicalJsonSchema::nullableString(maxLength: 255),
             'rate' => ClinicalJsonSchema::nullableString(maxLength: 100) + ['description' => 'A continuous infusion\'s rate, for example "75 mL/h".'],
-            'started_at' => ClinicalJsonSchema::nullableString('date-time') + ['description' => 'When an order started, when the source gives a time; started_on keeps the date.'],
-            'ended_at' => ClinicalJsonSchema::nullableString('date-time') + ['description' => 'When an order ended, when the source gives a time; ended_on keeps the date.'],
+            'started_at' => ClinicalJsonSchema::nullableString('date-time') + ['description' => 'When an order started, when the source gives a time; started_on keeps the date. Changing started_on without sending started_at clears a time that no longer falls on the new date.'],
+            'ended_at' => ClinicalJsonSchema::nullableString('date-time') + ['description' => 'When an order ended, when the source gives a time; ended_on keeps the date. Changing ended_on without sending ended_at clears a time that no longer falls on the new date.'],
         ], ['name']);
     }
 }

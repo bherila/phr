@@ -11,7 +11,7 @@ the patient's home medications.
 | `as_needed`, `as_needed_reason` | Taken only as needed, and for what ("pain", "temperature > 38.0 C"). Null when the source did not say. |
 | `brand_name` | The brand; a medication a prescription fill creates takes the fill's. |
 | `rate` | A continuous infusion's rate as it reads, "75 mL/h". |
-| `started_at`, `ended_at` | An order's times, beside `started_on` / `ended_on`, when the source gives a time. The end that has passed ends the medication: `ended_at` when there is one, so an order ending this evening is active until then, else `ended_on` from its first moment. |
+| `started_at`, `ended_at` | An order's times, beside `started_on` / `ended_on`, when the source gives a time. The end that has passed ends the medication: `ended_at` when there is one, so an order ending this evening is active until then, else `ended_on` from its first moment. A write that changes a date without stating its time (the browser form never sends one) clears the time unless it still falls on the new date, so moving an order's end to yesterday ends it (#435). |
 | `review_flags` | Why a person should look closely at an imported row: `possible_duplicate` with the `external_id` of the medication it may be. Not writable through the API. |
 
 The migration makes existing rows home medications where they are one: a row a person

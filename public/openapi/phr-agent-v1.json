@@ -13797,7 +13797,7 @@
                             "null"
                         ],
                         "format": "date-time",
-                        "description": "When an order started, when the source gives a time; started_on keeps the date."
+                        "description": "When an order started, when the source gives a time; started_on keeps the date. Changing started_on without sending started_at clears a time that no longer falls on the new date."
                     },
                     "ended_at": {
                         "type": [
@@ -13805,7 +13805,7 @@
                             "null"
                         ],
                         "format": "date-time",
-                        "description": "When an order ended, when the source gives a time; ended_on keeps the date."
+                        "description": "When an order ended, when the source gives a time; ended_on keeps the date. Changing ended_on without sending ended_at clears a time that no longer falls on the new date."
                     }
                 },
                 "additionalProperties": false
