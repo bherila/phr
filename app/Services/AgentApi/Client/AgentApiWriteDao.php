@@ -271,6 +271,23 @@ final readonly class AgentApiWriteDao
         ), ['resource_type', 'patient_id', 'outcome', 'data']);
     }
 
+    public function officeVisitLinkRecord(int $patientId, int $visitId, string $resourceType, int $resourceId): AgentApiPayload
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'POST',
+            "patients/{$patientId}/office-visits/{$visitId}/links",
+            json: ['resource_type' => $resourceType, 'resource_id' => $resourceId],
+        ), ['resource_type', 'patient_id', 'outcome', 'data']);
+    }
+
+    public function officeVisitUnlinkRecord(int $patientId, int $visitId, string $resourceType, int $resourceId): AgentApiPayload
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'DELETE',
+            "patients/{$patientId}/office-visits/{$visitId}/links/{$resourceType}/{$resourceId}",
+        ), ['resource_type', 'patient_id', 'outcome', 'data']);
+    }
+
     public function medicationFillAnswerEobLink(int $patientId, int $fillId, string $action, ?int $eobId): AgentApiPayload
     {
         return AgentApiPayload::item($this->transport->send(

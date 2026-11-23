@@ -604,6 +604,34 @@ export const PhrOfficeVisitImagingStudyLinkResponseSchema = z.object({
   imaging_study: PhrOfficeVisitImagingStudySchema,
 })
 
+/** A record made during a visit (#411), as the visit page lists it. */
+const PhrOfficeVisitLinkedRecordSchema = z.object({
+  id: z.number(),
+  name: nullableString.optional(),
+  title: nullableString.optional(),
+  document_type: nullableString.optional(),
+  value: nullableString.optional(),
+  unit: nullableString.optional(),
+  abnormal_flag: nullableString.optional(),
+  dose: nullableString.optional(),
+  status: nullableString.optional(),
+  observed_at: nullableString.optional(),
+  performed_on: nullableString.optional(),
+  review_status: nullableString.optional(),
+})
+
+export type PhrOfficeVisitLinkedRecord = z.infer<typeof PhrOfficeVisitLinkedRecordSchema>
+
+export const PhrOfficeVisitLinkedRecordsSchema = z.object({
+  documents: z.array(PhrOfficeVisitLinkedRecordSchema).default([]),
+  lab_results: z.array(PhrOfficeVisitLinkedRecordSchema).default([]),
+  vitals: z.array(PhrOfficeVisitLinkedRecordSchema).default([]),
+  medications: z.array(PhrOfficeVisitLinkedRecordSchema).default([]),
+  procedures: z.array(PhrOfficeVisitLinkedRecordSchema).default([]),
+})
+
+export type PhrOfficeVisitLinkedRecords = z.infer<typeof PhrOfficeVisitLinkedRecordsSchema>
+
 export const PhrOfficeVisitSchema = z.object({
   id: z.number(),
   patient_id: z.number(),
@@ -655,6 +683,7 @@ export const PhrOfficeVisitSchema = z.object({
   eobs: z.array(PhrEobSummarySchema).default([]),
   related_services: z.array(PhrOfficeVisitRelatedServiceSchema).default([]),
   imaging_studies: z.array(PhrOfficeVisitImagingStudySchema).default([]),
+  linked_records: PhrOfficeVisitLinkedRecordsSchema.optional(),
   created_at: nullableString,
   updated_at: nullableString,
 })

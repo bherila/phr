@@ -17,6 +17,7 @@ use App\Models\PhrPatient;
 use App\Models\PhrPatientVital;
 use App\Models\PhrPortalMessage;
 use App\Models\PhrProcedure;
+use App\Services\PHR\Encounters\PhrEncounterLinks;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Collection;
 
@@ -55,6 +56,7 @@ class PhrExportDataService
      *     immunizations: Collection<int, PhrImmunization>,
      *     allergies: Collection<int, PhrAllergy>,
      *     office_visits: Collection<int, PhrOfficeVisit>,
+     *     encounter_links: array<string, array<int, int>>,
      *     portal_messages: Collection<int, PhrPortalMessage>,
      *     negative_assertions: Collection<int, PhrNegativeAssertion>,
      *     dicom_studies: Collection<int, PhrDicomStudy>,
@@ -66,6 +68,7 @@ class PhrExportDataService
     {
         $patientId = (int) $patient->id;
         $documents = PhrDocument::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderByDesc('created_at')->orderByDesc('id')->get();
+        $visits = PhrOfficeVisit::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderByDesc('visit_started_at')->orderByDesc('visit_date')->orderByDesc('id')->get();
 
         return self::withoutDanglingDocuments([
             'patient' => $patient,
@@ -77,7 +80,10 @@ class PhrExportDataService
             'procedures' => PhrProcedure::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderByDesc('performed_at')->orderByDesc('performed_on')->orderByDesc('id')->get(),
             'immunizations' => PhrImmunization::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderByDesc('administered_on')->orderByDesc('id')->get(),
             'allergies' => PhrAllergy::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderBy('substance')->get(),
-            'office_visits' => PhrOfficeVisit::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderByDesc('visit_started_at')->orderByDesc('visit_date')->orderByDesc('id')->get(),
+            'office_visits' => $visits,
+            // Only links to a visit this export carries: a reference to one it leaves out
+            // (pending, rejected, retracted) would dangle, so it is dropped (#411).
+            'encounter_links' => app(PhrEncounterLinks::class)->linksToVisits($patientId, $visits->modelKeys()),
             'portal_messages' => PhrPortalMessage::query()->where('patient_id', $patientId)->orderByDesc('message_at')->orderByDesc('id')->get(),
             'negative_assertions' => PhrNegativeAssertion::query()->where('patient_id', $patientId)->orderBy('assertion_type')->orderBy('scope')->orderByDesc('observed_on')->orderByDesc('id')->get(),
             'dicom_studies' => PhrDicomStudy::query()->where('patient_id', $patientId)->withCount(['series', 'instances'])->orderByDesc('study_date')->orderByDesc('id')->get(),

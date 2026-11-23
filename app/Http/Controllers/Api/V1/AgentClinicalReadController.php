@@ -14,6 +14,7 @@ use App\Support\AgentApi\AgentApiCursor;
 use App\Support\AgentApi\AgentApiUpdateWindow;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
+use App\Support\AgentApi\AgentEncounterContext;
 use App\Support\PHR\PhrRecordLifecycle;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Builder;
@@ -29,6 +30,7 @@ final class AgentClinicalReadController extends Controller
         private PhrPatientAccessService $accessService,
         private AgentClinicalRecordVersion $versions,
         private AgentClinicalResolveService $resolver,
+        private AgentEncounterContext $encounterContext,
     ) {}
 
     public function index(Request $request, int $patient, string $resource): JsonResponse
@@ -58,6 +60,7 @@ final class AgentClinicalReadController extends Controller
             ->orderBy('id')
             ->cursorPaginate($limit, ['*'], 'cursor', AgentApiCursor::decode($this->encodedCursor($validated)));
         $resourceClass = $definition['resource'];
+        $encounters = $this->encounterContext->forRecords((int) $resolvedPatient->id, $resource, $page->getCollection()->pluck('id')->all());
 
         return response()->json([
             'resource_type' => $resource,
@@ -68,6 +71,7 @@ final class AgentClinicalReadController extends Controller
                     $record,
                     $request,
                     isset($definition['write_rules']),
+                    fn (array $payload): array => $this->encounterContext->add($payload, $resource, (int) $record->getKey(), $encounters),
                 ))
                 ->values(),
             'pagination' => [
@@ -93,6 +97,7 @@ final class AgentClinicalReadController extends Controller
         }
 
         $resolved = $query->findOrFail($record);
+        $encounters = $this->encounterContext->forRecords((int) $resolvedPatient->id, $resource, [(int) $resolved->getKey()]);
 
         return response()->json([
             'resource_type' => $resource,
@@ -102,6 +107,7 @@ final class AgentClinicalReadController extends Controller
                 $resolved,
                 $request,
                 isset($definition['write_rules']),
+                fn (array $payload): array => $this->encounterContext->add($payload, $resource, (int) $resolved->getKey(), $encounters),
             ),
         ]);
     }
@@ -231,6 +237,7 @@ final class AgentClinicalReadController extends Controller
 
     /**
      * @param  class-string<JsonResource>  $resourceClass
+     * @param  callable(array<string, mixed>): array<string, mixed>  $withContext
      * @return array<string, mixed>
      */
     private function resourcePayload(
@@ -238,8 +245,10 @@ final class AgentClinicalReadController extends Controller
         Model $record,
         Request $request,
         bool $includeVersion,
+        callable $withContext,
     ): array {
-        $payload = (new $resourceClass($record))->resolve($request);
+        // Encounter context sits beside the resource and before its version, as a write response has it.
+        $payload = $withContext((new $resourceClass($record))->resolve($request));
         if ($includeVersion) {
             $payload['version'] = $this->versions->for($record);
         }

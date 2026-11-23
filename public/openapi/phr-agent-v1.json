@@ -2197,9 +2197,12 @@
                                 "document",
                                 "eob",
                                 "eob-line",
+                                "lab-result",
+                                "medication",
                                 "medication-fill",
                                 "office-visit",
-                                "procedure"
+                                "procedure",
+                                "vital"
                             ]
                         }
                     },
@@ -4484,6 +4487,244 @@
                 }
             }
         },
+        "/patients/{patient}/office-visits/{visit}/stay": {
+            "get": {
+                "operationId": "office_visits.get_stay",
+                "summary": "Read an encounter with its linked records grouped by type",
+                "description": "The office visit (encounter) with the records linked to it: lab_results, vitals, medications, procedures and, with documents:read, documents. Each group holds at most limit records (default 10) and pages on its own: send group with the next_cursor it returned to read that group's next page. office_visit.linked_records counts each group.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "clinical:read"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    },
+                    {
+                        "name": "visit",
+                        "in": "path",
+                        "required": true,
+                        "description": "The ID of the office visit (encounter).",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    },
+                    {
+                        "name": "group",
+                        "in": "query",
+                        "required": false,
+                        "description": "Read only this group. Required with cursor.",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "lab_results",
+                                "vitals",
+                                "medications",
+                                "procedures",
+                                "documents"
+                            ]
+                        }
+                    },
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "required": false,
+                        "description": "Records per group.",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 100,
+                            "default": 10
+                        }
+                    },
+                    {
+                        "$ref": "#/components/parameters/Cursor"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The encounter and its linked records, by group",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/OfficeVisitStayResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            }
+        },
+        "/patients/{patient}/office-visits/{visit}/links": {
+            "post": {
+                "operationId": "office_visits.link_record",
+                "summary": "Link a record to the encounter it was made in",
+                "description": "Links one document, lab result, vital, medication or procedure to an office visit (encounter). A record belongs to at most one encounter: one already linked to another visit is a conflict (409); unlink it there first. A link is evidence: neither record's version nor its review status changes. Linking a document also requires documents:read.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "clinical:read",
+                            "clinical:write"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/OfficeVisitLinkRequest"
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    },
+                    {
+                        "name": "visit",
+                        "in": "path",
+                        "required": true,
+                        "description": "The ID of the office visit (encounter).",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Linked, or already linked",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/OfficeVisitLinkResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/Conflict"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            }
+        },
+        "/patients/{patient}/office-visits/{visit}/links/{type}/{record}": {
+            "delete": {
+                "operationId": "office_visits.unlink_record",
+                "summary": "Unlink a record from an encounter",
+                "description": "Removes the link between an office visit and one of its records. Nothing else changes. Unlinking a record that is not linked to this visit answers outcome unchanged. Unlinking a document also requires documents:read.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "clinical:read",
+                            "clinical:write"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    },
+                    {
+                        "name": "visit",
+                        "in": "path",
+                        "required": true,
+                        "description": "The ID of the office visit (encounter).",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    },
+                    {
+                        "name": "type",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "document",
+                                "lab-result",
+                                "vital",
+                                "medication",
+                                "procedure"
+                            ]
+                        }
+                    },
+                    {
+                        "$ref": "#/components/parameters/RecordId"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Unlinked, or was not linked",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/OfficeVisitLinkResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            }
+        },
         "/patients/{patient}/office-visits": {
             "put": {
                 "operationId": "office_visits.upsert",
@@ -6392,6 +6633,47 @@
                     "retracted_at": {
                         "$ref": "#/components/schemas/LocalDateTime",
                         "description": "Set when the writing integration withdrew the record; distinct from review_status rejected, which records a human refusing it."
+                    },
+                    "encounter_id": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "description": "On lab-results, vitals, medications and procedures reads: the office visit (encounter) this record is linked to, while that visit stands. Derived from the link; not part of the record's version."
+                    },
+                    "linked_records": {
+                        "type": "object",
+                        "required": [
+                            "lab_results",
+                            "vitals",
+                            "medications",
+                            "procedures",
+                            "documents"
+                        ],
+                        "properties": {
+                            "lab_results": {
+                                "type": "integer",
+                                "minimum": 0
+                            },
+                            "vitals": {
+                                "type": "integer",
+                                "minimum": 0
+                            },
+                            "medications": {
+                                "type": "integer",
+                                "minimum": 0
+                            },
+                            "procedures": {
+                                "type": "integer",
+                                "minimum": 0
+                            },
+                            "documents": {
+                                "type": "integer",
+                                "minimum": 0
+                            }
+                        },
+                        "additionalProperties": false,
+                        "description": "On office-visits reads: how many standing records of each type are linked to this visit. Read them with office_visits.get_stay."
                     }
                 },
                 "additionalProperties": true
@@ -7564,6 +7846,13 @@
                         "type": "string",
                         "pattern": "^[a-f0-9]{64}$",
                         "description": "Opaque current version; documents.update requires it."
+                    },
+                    "encounter_id": {
+                        "type": [
+                            "integer",
+                            "null"
+                        ],
+                        "description": "The office visit (encounter) this document is linked to, while that visit stands."
                     }
                 },
                 "additionalProperties": false
@@ -12780,6 +13069,183 @@
                     },
                     "next_step": {
                         "type": "string"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "OfficeVisitLinkRequest": {
+                "type": "object",
+                "required": [
+                    "resource_type",
+                    "resource_id"
+                ],
+                "properties": {
+                    "resource_type": {
+                        "type": "string",
+                        "enum": [
+                            "document",
+                            "lab-result",
+                            "vital",
+                            "medication",
+                            "procedure"
+                        ],
+                        "description": "The kind of record. document also requires documents:read."
+                    },
+                    "resource_id": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "The patient-scoped record ID."
+                    }
+                },
+                "additionalProperties": false
+            },
+            "OfficeVisitLinkResponse": {
+                "type": "object",
+                "required": [
+                    "resource_type",
+                    "patient_id",
+                    "outcome",
+                    "data"
+                ],
+                "properties": {
+                    "resource_type": {
+                        "const": "office_visit_link"
+                    },
+                    "patient_id": {
+                        "type": "integer"
+                    },
+                    "outcome": {
+                        "type": "string",
+                        "enum": [
+                            "linked",
+                            "unlinked",
+                            "unchanged"
+                        ]
+                    },
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "office_visit_id",
+                            "resource_type",
+                            "resource_id"
+                        ],
+                        "properties": {
+                            "office_visit_id": {
+                                "type": "integer"
+                            },
+                            "resource_type": {
+                                "type": "string",
+                                "enum": [
+                                    "document",
+                                    "lab-result",
+                                    "vital",
+                                    "medication",
+                                    "procedure"
+                                ]
+                            },
+                            "resource_id": {
+                                "type": "integer"
+                            }
+                        },
+                        "additionalProperties": false
+                    }
+                },
+                "additionalProperties": false
+            },
+            "OfficeVisitStayDocumentGroup": {
+                "type": "object",
+                "required": [
+                    "resource_type",
+                    "data",
+                    "pagination"
+                ],
+                "properties": {
+                    "resource_type": {
+                        "const": "document"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/DocumentMetadata"
+                        }
+                    },
+                    "pagination": {
+                        "$ref": "#/components/schemas/Pagination"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "OfficeVisitStayGroup": {
+                "type": "object",
+                "required": [
+                    "resource_type",
+                    "data",
+                    "pagination"
+                ],
+                "properties": {
+                    "resource_type": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ClinicalRecord"
+                        }
+                    },
+                    "pagination": {
+                        "$ref": "#/components/schemas/Pagination"
+                    }
+                },
+                "additionalProperties": false
+            },
+            "OfficeVisitStayResponse": {
+                "type": "object",
+                "required": [
+                    "resource_type",
+                    "patient_id",
+                    "data"
+                ],
+                "properties": {
+                    "resource_type": {
+                        "const": "office_visit_stay"
+                    },
+                    "patient_id": {
+                        "type": "integer"
+                    },
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "office_visit",
+                            "groups"
+                        ],
+                        "properties": {
+                            "office_visit": {
+                                "$ref": "#/components/schemas/ClinicalRecord"
+                            },
+                            "groups": {
+                                "type": "object",
+                                "description": "The groups read: every group, or only the one requested. documents appears only with documents:read.",
+                                "properties": {
+                                    "lab_results": {
+                                        "$ref": "#/components/schemas/OfficeVisitStayGroup"
+                                    },
+                                    "vitals": {
+                                        "$ref": "#/components/schemas/OfficeVisitStayGroup"
+                                    },
+                                    "medications": {
+                                        "$ref": "#/components/schemas/OfficeVisitStayGroup"
+                                    },
+                                    "procedures": {
+                                        "$ref": "#/components/schemas/OfficeVisitStayGroup"
+                                    },
+                                    "documents": {
+                                        "$ref": "#/components/schemas/OfficeVisitStayDocumentGroup"
+                                    }
+                                },
+                                "additionalProperties": false
+                            }
+                        },
+                        "additionalProperties": false
                     }
                 },
                 "additionalProperties": false

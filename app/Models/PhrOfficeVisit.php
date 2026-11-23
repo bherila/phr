@@ -208,4 +208,49 @@ class PhrOfficeVisit extends Model
             ->withPivot('patient_id')
             ->withTimestamps();
     }
+
+    /*
+     * The records made during this encounter (#411). A link is evidence: see
+     * PhrEncounterLinks, which writes and reads them.
+     */
+
+    /** @return BelongsToMany<PhrDocument, $this> */
+    public function linkedDocuments(): BelongsToMany
+    {
+        return $this->belongsToMany(PhrDocument::class, 'phr_office_visit_documents', 'office_visit_id', 'document_id')
+            ->withPivot('patient_id')
+            ->withTimestamps();
+    }
+
+    /** @return BelongsToMany<PhrLabResult, $this> */
+    public function linkedLabResults(): BelongsToMany
+    {
+        return $this->belongsToMany(PhrLabResult::class, 'phr_office_visit_lab_results', 'office_visit_id', 'lab_result_id')
+            ->withPivot('patient_id')
+            ->withTimestamps();
+    }
+
+    /** @return BelongsToMany<PhrPatientVital, $this> */
+    public function linkedVitals(): BelongsToMany
+    {
+        return $this->belongsToMany(PhrPatientVital::class, 'phr_office_visit_vitals', 'office_visit_id', 'vital_id')
+            ->withPivot('patient_id')
+            ->withTimestamps();
+    }
+
+    /** @return BelongsToMany<PhrMedication, $this> */
+    public function linkedMedications(): BelongsToMany
+    {
+        return $this->belongsToMany(PhrMedication::class, 'phr_office_visit_medications', 'office_visit_id', 'medication_id')
+            ->withPivot('patient_id')
+            ->withTimestamps();
+    }
+
+    /** @return BelongsToMany<PhrProcedure, $this> */
+    public function linkedProcedures(): BelongsToMany
+    {
+        return $this->belongsToMany(PhrProcedure::class, 'phr_office_visit_procedures', 'office_visit_id', 'procedure_id')
+            ->withPivot('patient_id')
+            ->withTimestamps();
+    }
 }

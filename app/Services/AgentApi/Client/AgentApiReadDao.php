@@ -207,6 +207,15 @@ final class AgentApiReadDao
         ]);
     }
 
+    public function officeVisitStay(int $patientId, int $visitId, ?string $group = null, int $limit = 10, ?string $cursor = null): AgentApiPayload
+    {
+        return $this->get("patients/{$patientId}/office-visits/{$visitId}/stay", [
+            'group' => $group,
+            'limit' => $limit,
+            'cursor' => $cursor,
+        ], ['resource_type', 'patient_id', 'data']);
+    }
+
     public function documents(
         int $patientId,
         int $limit = 25,

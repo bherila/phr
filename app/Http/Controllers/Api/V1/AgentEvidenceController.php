@@ -6,10 +6,14 @@ use App\Http\Controllers\Controller;
 use App\Models\PhrDocument;
 use App\Models\PhrEob;
 use App\Models\PhrEobLine;
+use App\Models\PhrLabResult;
+use App\Models\PhrMedication;
 use App\Models\PhrMedicationFill;
 use App\Models\PhrOfficeVisit;
+use App\Models\PhrPatientVital;
 use App\Models\PhrProcedure;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Services\PHR\Encounters\PhrEncounterLinks;
 use App\Services\PHR\Identity\PhrPublicIds;
 use App\Support\AgentApi\AgentApiCursor;
 use App\Support\AgentApi\AgentApiExternalId;
@@ -30,7 +34,7 @@ use Illuminate\Validation\Rule;
 
 final class AgentEvidenceController extends Controller
 {
-    private const array LINKABLE_TYPES = ['document', 'eob', 'eob-line', 'medication-fill', 'office-visit', 'procedure'];
+    private const array LINKABLE_TYPES = ['document', 'eob', 'eob-line', 'lab-result', 'medication', 'medication-fill', 'office-visit', 'procedure', 'vital'];
 
     /**
      * Public ids read in bulk for the page being serialized: [table][record id].
@@ -412,6 +416,7 @@ final class AgentEvidenceController extends Controller
         $model = match ($type) {
             'document' => PhrDocument::class, 'eob' => PhrEob::class, 'eob-line' => PhrEobLine::class,
             'medication-fill' => PhrMedicationFill::class, 'office-visit' => PhrOfficeVisit::class, 'procedure' => PhrProcedure::class,
+            'lab-result' => PhrLabResult::class, 'vital' => PhrPatientVital::class, 'medication' => PhrMedication::class,
             default => abort(404),
         };
         $model::query()->where('patient_id', $patientId)->findOrFail($id);
@@ -428,8 +433,9 @@ final class AgentEvidenceController extends Controller
             'eob' => $this->eobLinkQueries($sourceId, $patientId),
             'eob-line' => $this->eobLineLinkQueries($sourceId, $patientId),
             'medication-fill' => $this->fillLinkQueries($sourceId, $patientId),
-            'office-visit' => $this->clinicalLinkQueries('phr_office_visits', 'phr_office_visit_eobs', 'office_visit_id', $sourceId, $patientId),
-            'procedure' => $this->clinicalLinkQueries('phr_procedures', 'phr_procedure_eobs', 'procedure_id', $sourceId, $patientId),
+            'office-visit' => $this->visitLinkQueries($sourceId, $patientId),
+            'procedure' => $this->withEncounter('procedure', $sourceId, $patientId, $this->clinicalLinkQueries('phr_procedures', 'phr_procedure_eobs', 'procedure_id', $sourceId, $patientId)),
+            'lab-result', 'vital', 'medication' => $this->withEncounter($sourceType, $sourceId, $patientId, $this->sourceDocumentQuery((new (PhrEncounterLinks::definition($sourceType)['model']))->getTable(), $sourceId, $patientId)),
             default => abort(404),
         };
         $links = [];
@@ -477,6 +483,16 @@ final class AgentEvidenceController extends Controller
                 ->whereNull('retracted_at')
                 ->where('source_document_id', $documentId);
         }
+        // A visit this document was linked to as part of its encounter (#411).
+        $queries['office-visit'] = DB::table('phr_office_visits')
+            ->where('patient_id', $patientId)
+            ->whereNull('deleted_at')
+            ->whereNull('retracted_at')
+            ->where(fn ($visits) => $visits->where('source_document_id', $documentId)->orWhereIn(
+                'id',
+                fn ($links) => $links->select('office_visit_id')->from('phr_office_visit_documents')
+                    ->where('patient_id', $patientId)->where('document_id', $documentId),
+            ));
         // A fill first read from another document is also shown by this one, as evidence.
         $queries['medication-fill'] = DB::table('phr_medication_fills')
             ->where('patient_id', $patientId)
@@ -565,6 +581,55 @@ final class AgentEvidenceController extends Controller
             'eob-line' => DB::table('phr_eob_lines')->where('patient_id', $patientId)
                 ->whereIn('id', $evidence()->whereNotNull('eob_line_id')->select('eob_line_id')),
         ];
+    }
+
+    /**
+     * A visit links to its EOBs, to the document it was read from and to the records made
+     * during it (#411): linked documents, lab results, vitals, medications and procedures.
+     *
+     * @return array<string, \Illuminate\Database\Query\Builder>
+     */
+    private function visitLinkQueries(int $visitId, int $patientId): array
+    {
+        $queries = $this->clinicalLinkQueries('phr_office_visits', 'phr_office_visit_eobs', 'office_visit_id', $visitId, $patientId);
+        $links = app(PhrEncounterLinks::class);
+        $sourceDocumentId = DB::table('phr_office_visits')->where('patient_id', $patientId)->where('id', $visitId)->value('source_document_id');
+        foreach (PhrEncounterLinks::types() as $type) {
+            $queries[$type] = $links->linkedIds($patientId, $visitId, $type);
+        }
+        $queries['document'] = DB::table('phr_documents')->where('patient_id', $patientId)->whereNull('deleted_at')
+            ->where(fn ($documents) => $documents->where('id', $sourceDocumentId ?? 0)->orWhere(
+                fn ($linked) => $linked->whereNull('retracted_at')->whereIn('id', fn ($rows) => $rows->select('document_id')->from('phr_office_visit_documents')
+                    ->where('patient_id', $patientId)->where('office_visit_id', $visitId)),
+            ));
+
+        return $queries;
+    }
+
+    /**
+     * Adds the standing visit a record was linked to as part of its encounter (#411).
+     *
+     * @param  array<string, \Illuminate\Database\Query\Builder>  $queries
+     * @return array<string, \Illuminate\Database\Query\Builder>
+     */
+    private function withEncounter(string $type, int $recordId, int $patientId, array $queries): array
+    {
+        $definition = PhrEncounterLinks::definition($type);
+        $queries['office-visit'] = DB::table('phr_office_visits')->where('patient_id', $patientId)
+            ->whereNull('deleted_at')->whereNull('retracted_at')
+            ->whereIn('id', fn ($links) => $links->select('office_visit_id')->from($definition['table'])
+                ->where('patient_id', $patientId)->where($definition['column'], $recordId));
+
+        return $queries;
+    }
+
+    /** @return array<string, \Illuminate\Database\Query\Builder> */
+    private function sourceDocumentQuery(string $table, int $sourceId, int $patientId): array
+    {
+        $documentId = DB::table($table)->where('patient_id', $patientId)->where('id', $sourceId)->value('source_document_id');
+
+        return $documentId === null ? [] : ['document' => DB::table('phr_documents')->where('patient_id', $patientId)
+            ->whereNull('deleted_at')->where('id', $documentId)];
     }
 
     /** @return array<string, \Illuminate\Database\Query\Builder> */

@@ -42,6 +42,9 @@ class PhrFhirExporter
         'ug' => 'ug',
     ];
 
+    /** @var array<string, array<int, int>> link type => record id => the exported visit it was made in */
+    private array $encounterLinks = [];
+
     /**
      * @param  array<string, mixed>  $data
      */
@@ -49,6 +52,7 @@ class PhrFhirExporter
     {
         /** @var PhrPatient $patient */
         $patient = $data['patient'];
+        $this->encounterLinks = is_array($data['encounter_links'] ?? null) ? $data['encounter_links'] : [];
         $entries = [$this->entry($this->patientResource($patient))];
 
         foreach ($data['lab_results'] as $lab) {
@@ -134,6 +138,7 @@ class PhrFhirExporter
         return [
             'resourceType' => 'Observation',
             'id' => 'phr-lab-'.$lab->id,
+            'encounter' => $this->encounterReference('lab-result', (int) $lab->id),
             'status' => $lab->result_status ?: 'final',
             'category' => [$this->coding('http://terminology.hl7.org/CodeSystem/observation-category', 'laboratory', 'Laboratory')],
             'code' => $this->textCode($lab->analyte ?? $lab->test_name ?? 'Lab result'),
@@ -183,6 +188,7 @@ class PhrFhirExporter
         return [
             'resourceType' => 'Observation',
             'id' => 'phr-vital-'.$vital->id,
+            'encounter' => $this->encounterReference('vital', (int) $vital->id),
             'status' => 'final',
             'category' => [$this->coding('http://terminology.hl7.org/CodeSystem/observation-category', 'vital-signs', 'Vital Signs')],
             'code' => $this->textCode($vital->vital_name ?? 'Vital sign'),
@@ -229,6 +235,7 @@ class PhrFhirExporter
         return [
             'resourceType' => 'MedicationStatement',
             'id' => 'phr-medication-'.$medication->id,
+            'context' => $this->encounterReference('medication', (int) $medication->id),
             'subject' => $this->patientReference($medication->patient_id),
             'status' => $medication->status,
             'medicationCodeableConcept' => $this->textCode($medication->name, $medication->rxnorm_code, 'http://www.nlm.nih.gov/research/umls/rxnorm'),
@@ -296,6 +303,7 @@ class PhrFhirExporter
         return [
             'resourceType' => 'Procedure',
             'id' => 'phr-procedure-'.$procedure->id,
+            'encounter' => $this->encounterReference('procedure', (int) $procedure->id),
             'subject' => $this->patientReference($procedure->patient_id),
             'status' => $procedure->status,
             'code' => $this->textCode($procedure->name, $procedure->cpt_code, 'http://www.ama-assn.org/go/cpt'),
@@ -611,11 +619,14 @@ class PhrFhirExporter
      */
     private function documentReferenceResource(PhrDocument $document): array
     {
+        $encounter = $this->encounterReference('document', (int) $document->id);
+
         return [
             'resourceType' => 'DocumentReference',
             'id' => 'phr-document-'.$document->id,
             'status' => 'current',
             'subject' => $this->patientReference($document->patient_id),
+            'context' => $encounter === null ? null : ['encounter' => [$encounter]],
             'type' => $this->textCode($document->document_type),
             'description' => $document->summary ?? $document->title,
             'content' => [[
@@ -628,6 +639,18 @@ class PhrFhirExporter
                 ],
             ]],
         ];
+    }
+
+    /**
+     * The visit a record was made in, when this export carries that visit.
+     *
+     * @return array{reference: string}|null
+     */
+    private function encounterReference(string $type, int $recordId): ?array
+    {
+        $visitId = $this->encounterLinks[$type][$recordId] ?? null;
+
+        return $visitId === null ? null : ['reference' => 'Encounter/phr-visit-'.$visitId];
     }
 
     /**

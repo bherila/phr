@@ -3,8 +3,11 @@
 namespace App\Services\PHR\Import;
 
 use App\Models\PhrDocument;
+use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
+use App\Services\PHR\Encounters\PhrEncounterLinks;
 use App\Support\PHR\PhrEncounterVocabulary;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\File;
 use InvalidArgumentException;
 
@@ -22,7 +25,10 @@ class PhrFhirImporter
     /** @var array<string, int> fullUrl or `Type/id` => entry position */
     private array $references = [];
 
-    public function __construct(private PhrStructuredDataImporter $structuredImporter) {}
+    public function __construct(
+        private PhrStructuredDataImporter $structuredImporter,
+        private PhrEncounterLinks $encounterLinks,
+    ) {}
 
     public function importFile(string $path, PhrPatient $patient, int $actorUserId): PhrImportResult
     {
@@ -63,6 +69,7 @@ class PhrFhirImporter
         $bundleEntries = is_array($bundle['entry'] ?? null) ? $bundle['entry'] : [];
         $this->index($bundleEntries);
         $folded = $this->foldedImpressions();
+        $written = [];
         foreach ($bundleEntries as $position => $entry) {
             if (! is_array($entry) || ! is_array($entry['resource'] ?? null)) {
                 $result->addSkipped();
@@ -75,10 +82,89 @@ class PhrFhirImporter
             }
 
             $fullUrl = is_string($entry['fullUrl'] ?? null) ? $entry['fullUrl'] : null;
-            $result->merge($this->importResource($entry['resource'], $patient, $actorUserId, $fullUrl, $folded['of'][$position] ?? []));
+            [$imported, $written[$position]] = $this->structuredImporter->collectingWritten(
+                fn (): PhrImportResult => $this->importResource($entry['resource'], $patient, $actorUserId, $fullUrl, $folded['of'][$position] ?? []),
+            );
+            $result->merge($imported);
         }
+        $this->linkEncounters((int) $patient->id, $written, $result);
 
         return $result;
+    }
+
+    /**
+     * Links each record to the visit its resource names as its encounter (#411):
+     * Observation, Procedure and MedicationRequest `encounter`, MedicationStatement
+     * `context`, DocumentReference `context.encounter`. Only an Encounter in this bundle,
+     * imported as a visit, is linked to; a reference that does not resolve is not guessed
+     * at. It stays in the source: the record's raw text where its type keeps one, and the
+     * bundle itself, which an import of a stored document links as each record's source.
+     * A record already on another encounter keeps it.
+     *
+     * @param  array<int, list<Model>>  $written  bundle position => the rows its resource became
+     */
+    private function linkEncounters(int $patientId, array $written, PhrImportResult $result): void
+    {
+        $unresolved = 0;
+        $kept = 0;
+        foreach ($written as $position => $models) {
+            $references = $this->encounterReferences($this->resources[$position] ?? []);
+            if ($references === [] || $models === []) {
+                continue;
+            }
+            $visitIds = [];
+            foreach ($references as $reference) {
+                $target = $this->resolve($reference);
+                if ($target === null || ($this->resources[$target]['resourceType'] ?? null) !== 'Encounter') {
+                    continue;
+                }
+                foreach ($written[$target] ?? [] as $model) {
+                    if ($model instanceof PhrOfficeVisit) {
+                        $visitIds[(int) $model->id] = true;
+                    }
+                }
+            }
+            if (count($visitIds) !== 1) {
+                // Not in the bundle, not imported, or more than one encounter: not linked.
+                $unresolved++;
+
+                continue;
+            }
+            $visitId = (int) array_key_first($visitIds);
+            foreach ($models as $model) {
+                $type = PhrEncounterLinks::typeForModel($model);
+                if ($type !== null && ! $this->encounterLinks->linkIfFree($patientId, $visitId, $type, (int) $model->getKey())) {
+                    $kept++;
+                }
+            }
+        }
+        if ($unresolved > 0) {
+            $result->warn(sprintf('%d resource(s) name an encounter that is not an Encounter imported from this bundle; they were not linked to a visit, and the reference stays in the source.', $unresolved));
+        }
+        if ($kept > 0) {
+            $result->warn(sprintf('%d record(s) already belong to another encounter and kept it.', $kept));
+        }
+    }
+
+    /**
+     * The encounter references a resource carries, by its type.
+     *
+     * @param  array<string, mixed>  $resource
+     * @return list<mixed>
+     */
+    private function encounterReferences(array $resource): array
+    {
+        $references = match ($resource['resourceType'] ?? null) {
+            'Observation', 'Procedure', 'MedicationRequest' => [$resource['encounter'] ?? null],
+            'MedicationStatement' => [$resource['context'] ?? $resource['encounter'] ?? null],
+            'DocumentReference' => (static function (mixed $encounter): array {
+                // R4 lists them; STU3 had a single reference.
+                return is_array($encounter) && array_is_list($encounter) ? $encounter : [$encounter];
+            })(data_get($resource, 'context.encounter')),
+            default => [],
+        };
+
+        return array_values(array_filter($references, static fn (mixed $reference): bool => is_array($reference) && isset($reference['reference'])));
     }
 
     /**

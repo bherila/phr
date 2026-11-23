@@ -199,6 +199,26 @@
             "clinical:write"
         ]
     },
+    "office_visits.get_stay": {
+        "available": true,
+        "scope": "clinical:read"
+    },
+    "office_visits.link_record": {
+        "available": true,
+        "scope": "clinical:write",
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ]
+    },
+    "office_visits.unlink_record": {
+        "available": true,
+        "scope": "clinical:write",
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ]
+    },
     "imports.list": {
         "available": true,
         "scope": "imports:read"

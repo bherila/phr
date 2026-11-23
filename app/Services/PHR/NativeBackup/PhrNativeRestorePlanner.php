@@ -24,6 +24,12 @@ final class PhrNativeRestorePlanner
     private const array UNIQUE_KEYS = [
         'phr_eob_corrections' => [['eob_id', 'ordinal']],
         'phr_eob_correction_lines' => [['correction_id', 'side', 'position']],
+        // A record belongs to at most one encounter (#411).
+        'phr_office_visit_documents' => [['document_id']],
+        'phr_office_visit_lab_results' => [['lab_result_id']],
+        'phr_office_visit_vitals' => [['vital_id']],
+        'phr_office_visit_medications' => [['medication_id']],
+        'phr_office_visit_procedures' => [['procedure_id']],
         'phr_ehi_sources' => [['patient_id', 'label']],
         'phr_ehi_packages' => [['patient_id', 'manifest_digest']],
         'phr_ehi_blobs' => [['patient_id', 'sha256']],
