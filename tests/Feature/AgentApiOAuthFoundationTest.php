@@ -315,6 +315,8 @@ class AgentApiOAuthFoundationTest extends TestCase
             'documents.get',
             'documents.download_access.create',
             'documents.download',
+            'documents.content.get',
+            'documents.update',
             'imports.list',
             'imports.create',
             'imports.get',

@@ -3,6 +3,8 @@
 namespace App\Services\Mcp;
 
 use App\Services\AgentApi\Client\AgentApiReadDao;
+use App\Support\AgentApi\AgentRecordSearchCatalog;
+use App\Support\AgentApi\AgentTextWindow;
 use Mcp\Capability\Attribute\Schema;
 
 /** Thin MCP handlers over the typed REST DAO. */
@@ -49,7 +51,7 @@ final class AgentMcpReadTools
         #[Schema(minimum: 1)] int $patient_id,
         #[Schema(minimum: 1, maximum: 100)] int $limit = 25,
         #[Schema(maxLength: 2048)] ?string $cursor = null,
-        #[Schema(minItems: 1, maxItems: 10, uniqueItems: true, items: ['type' => 'string'])] ?array $resource_type = null,
+        #[Schema(minItems: 1, maxItems: AgentRecordSearchCatalog::RESOURCE_TYPE_COUNT, uniqueItems: true, items: ['type' => 'string'])] ?array $resource_type = null,
         #[Schema(maxLength: 200)] ?string $q = null,
         #[Schema(format: 'date')] ?string $date_from = null,
         #[Schema(format: 'date')] ?string $date_to = null,
@@ -76,7 +78,7 @@ final class AgentMcpReadTools
         #[Schema(minimum: 1)] int $patient_id,
         #[Schema(minimum: 1, maximum: 100)] int $limit = 25,
         #[Schema(maxLength: 2048)] ?string $cursor = null,
-        #[Schema(minItems: 1, maxItems: 10, uniqueItems: true, items: ['type' => 'string'])] ?array $resource_type = null,
+        #[Schema(minItems: 1, maxItems: AgentRecordSearchCatalog::RESOURCE_TYPE_COUNT, uniqueItems: true, items: ['type' => 'string'])] ?array $resource_type = null,
         #[Schema(maxLength: 200)] ?string $q = null,
         #[Schema(format: 'date')] ?string $date_from = null,
         #[Schema(format: 'date')] ?string $date_to = null,
@@ -103,7 +105,7 @@ final class AgentMcpReadTools
         #[Schema(minimum: 1)] int $patient_id,
         #[Schema(minimum: 1, maximum: 100)] int $limit = 25,
         #[Schema(maxLength: 2048)] ?string $cursor = null,
-        #[Schema(minItems: 1, maxItems: 10, uniqueItems: true, items: ['type' => 'string'])] ?array $resource_type = null,
+        #[Schema(minItems: 1, maxItems: AgentRecordSearchCatalog::RESOURCE_TYPE_COUNT, uniqueItems: true, items: ['type' => 'string'])] ?array $resource_type = null,
         #[Schema(format: 'date-time')] ?string $updated_after = null,
         #[Schema(format: 'date-time', description: 'Reuse the watermark from the first page until this sync pass completes.')] ?string $watermark = null,
     ): array {
@@ -304,6 +306,16 @@ final class AgentMcpReadTools
         #[Schema(minimum: 1)] int $document_id,
     ): array {
         return $this->api->document($patient_id, $document_id)->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function documentsContentGet(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $document_id,
+        #[Schema(minimum: 0, description: 'The character to start at, counted from 0. Pass next_offset to continue.')] int $offset = 0,
+        #[Schema(minimum: 1, maximum: AgentTextWindow::MAX_CHARS, description: 'The most characters to return.')] int $max_chars = AgentTextWindow::DEFAULT_MAX_CHARS,
+    ): array {
+        return $this->api->documentContent($patient_id, $document_id, $offset, $max_chars)->toArray();
     }
 
     /** @return array<string, mixed> */

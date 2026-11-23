@@ -7,6 +7,7 @@ use App\Http\Requests\PHR\StorePhrDocumentRequest;
 use App\Models\PhrDocument;
 use App\Models\PhrDocumentUpload;
 use App\Models\PhrPatient;
+use App\Rules\PhrDocumentFileType;
 use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
 use App\Services\PHR\Storage\BlobStorageQuota;
 use App\Support\Storage\LocalObjectFile;
@@ -59,7 +60,7 @@ final readonly class SignedDocumentUploadService
         private UploadUrlSigner $signer,
     ) {}
 
-    /** @param array{kind: string, filename: string, content_type: string, byte_size: int, sha256?: string|null} $declared */
+    /** @param array{kind: string, document_type?: string|null, filename: string, content_type: string, byte_size: int, sha256?: string|null} $declared */
     public function open(PhrPatient $patient, int $actorUserId, string $importSource, array $declared): PhrDocumentUpload
     {
         $this->quota->assertForPatient($patient, $declared['byte_size']);
@@ -78,6 +79,7 @@ final readonly class SignedDocumentUploadService
             'actor_user_id' => $actorUserId,
             'import_source' => $importSource,
             'kind' => $declared['kind'],
+            'document_type' => $declared['document_type'] ?? null,
             'filename' => $declared['filename'],
             'content_type' => strtolower($declared['content_type']),
             'byte_size' => $declared['byte_size'],
@@ -234,7 +236,7 @@ final readonly class SignedDocumentUploadService
                 if ($upload->content_type === 'text/plain') {
                     // A .txt that holds a CSV (a Delta Dental claim export, for eobs.import) sniffs as
                     // text/csv; as plain text it is within the allowlist.
-                    $rules = array_map(static fn (mixed $rule): mixed => is_string($rule) && str_starts_with($rule, 'mimes:') ? $rule.',csv' : $rule, $rules);
+                    $rules = array_map(static fn (mixed $rule): mixed => $rule instanceof PhrDocumentFileType ? $rule->alsoAccepting(['csv']) : $rule, $rules);
                 }
                 Validator::make(['file' => $file], ['file' => $rules])->validate();
 
@@ -253,7 +255,7 @@ final readonly class SignedDocumentUploadService
                         $file,
                         [
                             'title' => pathinfo($upload->filename, PATHINFO_FILENAME),
-                            'document_type' => self::DOCUMENT_TYPES[$upload->kind] ?? 'other',
+                            'document_type' => $upload->document_type ?? self::DOCUMENT_TYPES[$upload->kind] ?? 'other',
                             'tags' => [str_replace('_', '-', $upload->kind)],
                         ],
                         source: 'agent_upload',

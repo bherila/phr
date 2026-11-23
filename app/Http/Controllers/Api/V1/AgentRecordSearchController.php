@@ -22,7 +22,7 @@ use Illuminate\Validation\Rule;
  * @phpstan-type SearchDefinition array{
  *   model: class-string<Model>, event: non-empty-list<string>, summary: non-empty-list<string>,
  *   q: list<string>, provider: list<string>, facility: list<string>, codes: list<string>, code_arrays: list<string>,
- *   sources: list<string>, review: list<string>, source_document: bool
+ *   sources: list<string>, review: list<string>, source_document: bool, columns?: non-empty-list<string>, scope?: string
  * }
  * @phpstan-type RecordCursor array{event_at: string, resource_type: string, id: int}
  * @phpstan-type ProjectedRecord array{cursor: RecordCursor, payload: array<string, mixed>}
@@ -51,7 +51,7 @@ final class AgentRecordSearchController extends Controller
         $validated = $request->validate([
             'limit' => ['sometimes', 'integer', 'between:1,100'],
             'cursor' => ['sometimes', 'string', 'max:2048'],
-            'resource_type' => ['sometimes', 'array', 'min:1', 'max:10'],
+            'resource_type' => ['sometimes', 'array', 'min:1', 'max:'.AgentRecordSearchCatalog::RESOURCE_TYPE_COUNT],
             'resource_type.*' => ['string', 'distinct', Rule::in(AgentRecordSearchCatalog::ids())],
             'updated_after' => ['sometimes', 'date'],
             'watermark' => ['sometimes', 'date'],
@@ -65,7 +65,7 @@ final class AgentRecordSearchController extends Controller
         $watermark = Carbon::parse((string) ($validated['watermark'] ?? now()))->utc();
         $records = collect();
 
-        foreach ($validated['resource_type'] ?? AgentRecordSearchCatalog::ids() as $type) {
+        foreach ($this->resourceTypes($request, $validated) as $type) {
             $records = $records->concat($this->changesForType(
                 (string) $type,
                 AgentRecordSearchCatalog::definition((string) $type),
@@ -102,7 +102,7 @@ final class AgentRecordSearchController extends Controller
         );
         $limit = (int) ($validated['limit'] ?? 25);
         $cursor = AgentRecordCursor::decode(isset($validated['cursor']) ? (string) $validated['cursor'] : null);
-        $types = $validated['resource_type'] ?? AgentRecordSearchCatalog::ids();
+        $types = $this->resourceTypes($request, $validated);
         $records = collect();
 
         foreach ($types as $type) {
@@ -138,13 +138,36 @@ final class AgentRecordSearchController extends Controller
         ]);
     }
 
+    /**
+     * The requested types, or every type the token may read. A type behind a
+     * further scope (documents, behind documents:read) is left out of the
+     * default, and naming it without that scope is refused.
+     *
+     * @param  array<string, mixed>  $validated
+     * @return list<string>
+     */
+    private function resourceTypes(Request $request, array $validated): array
+    {
+        $readable = static fn (string $type): bool => ($scope = AgentRecordSearchCatalog::requiredScope($type)) === null
+            || (bool) $request->user('api')?->tokenCan($scope);
+        if (! isset($validated['resource_type'])) {
+            return array_values(array_filter(AgentRecordSearchCatalog::ids(), $readable));
+        }
+        $types = array_values(array_map(strval(...), (array) $validated['resource_type']));
+        foreach ($types as $type) {
+            abort_unless($readable($type), 403, "Reading {$type} needs the ".AgentRecordSearchCatalog::requiredScope($type).' scope.');
+        }
+
+        return $types;
+    }
+
     /** @return array<string, mixed> */
     private function rules(): array
     {
         return [
             'limit' => ['sometimes', 'integer', 'between:1,100'],
             'cursor' => ['sometimes', 'string', 'max:2048'],
-            'resource_type' => ['sometimes', 'array', 'min:1', 'max:10'],
+            'resource_type' => ['sometimes', 'array', 'min:1', 'max:'.AgentRecordSearchCatalog::RESOURCE_TYPE_COUNT],
             'resource_type.*' => ['string', 'distinct', Rule::in(AgentRecordSearchCatalog::ids())],
             'q' => ['sometimes', 'string', 'max:200'],
             'date_from' => ['sometimes', 'date'],
@@ -185,7 +208,7 @@ final class AgentRecordSearchController extends Controller
             : 'COALESCE('.implode(', ', $eventColumns).')';
         $query = $modelClass::query()
             ->where($model->qualifyColumn('patient_id'), $patientId)
-            ->addSelect($model->qualifyColumn('*'))
+            ->addSelect($this->columns($definition, $model))
             ->selectRaw("{$eventExpression} as agent_event_at");
 
         PhrRecordLifecycle::scopeLive($query);
@@ -230,7 +253,7 @@ final class AgentRecordSearchController extends Controller
         }
         $query
             ->where($model->qualifyColumn('patient_id'), $patientId)
-            ->addSelect($model->qualifyColumn('*'))
+            ->addSelect($this->columns($definition, $model))
             ->selectRaw("{$updatedAt} as agent_event_at")
             ->where($updatedAt, '<=', $watermark);
         if (isset($validated['updated_after'])) {
@@ -263,6 +286,21 @@ final class AgentRecordSearchController extends Controller
         }
 
         return collect($records);
+    }
+
+    /**
+     * Every column, unless the type names the few it projects (a document's
+     * extracted text is never read here).
+     *
+     * @param  SearchDefinition  $definition
+     * @return list<string>
+     */
+    private function columns(array $definition, Model $model): array
+    {
+        return array_map(
+            static fn (string $column): string => $model->qualifyColumn($column),
+            $definition['columns'] ?? ['*'],
+        );
     }
 
     /**

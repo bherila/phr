@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { fetchWrapper } from '@/fetchWrapper'
 import { formatDate as displayDate } from '@/lib/dateFormat'
 import { isBrowserPreviewableImage } from '@/phr/documents/browserImagePreview'
+import { isTextDocument } from '@/phr/documents/textPreview'
 import { documentSourceLabel } from '@/phr/documents/documentSource'
 import { documentTypeLabel } from '@/phr/documents/documentType'
 import { usePhrPatients } from '@/phr/patients/usePhrPatients'
@@ -255,7 +256,7 @@ function isImage(document: PhrDocument): boolean {
 }
 
 function isTextLike(document: PhrDocument): boolean {
-  return ['text/plain', 'text/html'].includes(document.mime_type ?? '')
+  return isTextDocument(document.mime_type)
 }
 
 function formatDate(value: string | null): string {

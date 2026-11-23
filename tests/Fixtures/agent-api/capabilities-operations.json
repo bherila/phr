@@ -75,6 +75,10 @@
         "available": true,
         "scope": "documents:read"
     },
+    "documents.content.get": {
+        "available": true,
+        "scope": "documents:read"
+    },
     "documents.download_access.create": {
         "available": true,
         "scope": "documents:read"
@@ -142,6 +146,14 @@
     "documents.upload": {
         "available": true,
         "scope": "documents:write"
+    },
+    "documents.update": {
+        "available": true,
+        "scope": "documents:write",
+        "scopes": [
+            "documents:read",
+            "documents:write"
+        ]
     },
     "documents.upload_access_create": {
         "available": true,

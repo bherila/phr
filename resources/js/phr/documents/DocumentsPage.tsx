@@ -21,6 +21,7 @@ import { fetchWrapper } from '@/fetchWrapper'
 import { formatDate } from '@/lib/dateFormat'
 import { formatBytes } from '@/lib/utils'
 import { isBrowserPreviewableImage } from '@/phr/documents/browserImagePreview'
+import { isTextDocument } from '@/phr/documents/textPreview'
 import { DOCUMENT_SOURCE_LABELS, documentSourceLabel } from '@/phr/documents/documentSource'
 import { DOCUMENT_TYPE_LABELS, DOCUMENT_TYPE_OPTIONS, documentTypeLabel, isKnownDocumentType } from '@/phr/documents/documentType'
 import { useExecutionMode } from '@/phr/imports/ai/useExecutionMode'
@@ -332,7 +333,7 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
           {canManage && (
             <form className="grid gap-3 border-t border-border pt-4" onSubmit={(event) => void handleUpload(event)}>
               <h2 className="text-sm font-semibold text-card-foreground">Upload</h2>
-              <Input ref={fileInputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.tif,.tiff,.txt,.html,.htm" onChange={updateUploadFile} />
+              <Input ref={fileInputRef} type="file" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.tif,.tiff,.txt,.md,.markdown,.html,.htm" onChange={updateUploadFile} />
               <LabeledSelect
                 label="Type"
                 value={uploadForm.document_type}
@@ -647,7 +648,7 @@ function isImage(document: PhrDocument): boolean {
 }
 
 function isTextLike(document: PhrDocument): boolean {
-  return ['text/plain', 'text/html'].includes(document.mime_type ?? '')
+  return isTextDocument(document.mime_type)
 }
 
 function toInputDateTime(value: string | null): string {

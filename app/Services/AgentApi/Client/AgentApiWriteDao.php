@@ -197,7 +197,7 @@ final readonly class AgentApiWriteDao
         ), ['resource_type', 'patient_id', 'results']);
     }
 
-    /** @param array{kind: string, filename: string, content_type: string, byte_size: int, sha256: string|null} $declared */
+    /** @param array{kind: string, document_type: string|null, filename: string, content_type: string, byte_size: int, sha256: string|null} $declared */
     public function documentUploadAccessCreate(int $patientId, array $declared): AgentApiPayload
     {
         return AgentApiPayload::item($this->transport->send(
@@ -205,6 +205,16 @@ final readonly class AgentApiWriteDao
             "patients/{$patientId}/documents/upload-access",
             json: array_filter($declared, static fn (mixed $value): bool => $value !== null),
         ), ['resource_type', 'patient_id', 'data']);
+    }
+
+    /** @param array<string, mixed> $data the fields to change */
+    public function documentUpdate(int $patientId, int $documentId, string $expectedVersion, array $data): AgentApiPayload
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'PATCH',
+            "patients/{$patientId}/documents/{$documentId}",
+            json: ['expected_version' => $expectedVersion, 'data' => $data],
+        ), ['resource_type', 'patient_id', 'outcome', 'version', 'data']);
     }
 
     public function documentUploadFinalize(int $patientId, string $uploadId): AgentApiPayload

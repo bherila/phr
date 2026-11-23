@@ -277,11 +277,25 @@ final readonly class AgentMcpWriteTools
         #[Schema(minimum: 1)] int $patient_id,
         #[Schema(enum: ['eob', 'pharmacy_receipt', 'rx_label', 'statement', 'other'])] string $kind,
         #[Schema(minLength: 1, maxLength: 255)] string $filename,
-        #[Schema(enum: ['application/pdf', 'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/tiff', 'text/plain', 'text/html'])] string $content_type,
+        #[Schema(enum: ['application/pdf', 'image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/tiff', 'text/plain', 'text/markdown', 'text/html'])] string $content_type,
         #[Schema(minimum: 1, maximum: 52428800)] int $byte_size,
         #[Schema(pattern: '^[a-fA-F0-9]{64}$')] ?string $sha256 = null,
+        #[Schema(description: 'The stored document\'s type. Defaults to the type kind implies.')] ?string $document_type = null,
     ): array {
-        return $this->api->documentUploadAccessCreate($patient_id, compact('kind', 'filename', 'content_type', 'byte_size', 'sha256'))->toArray();
+        return $this->api->documentUploadAccessCreate($patient_id, compact('kind', 'document_type', 'filename', 'content_type', 'byte_size', 'sha256'))->toArray();
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    public function documentsUpdate(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $document_id,
+        #[Schema(pattern: '^[a-f0-9]{64}$')] string $expected_version,
+        #[Schema(type: 'object')] array $data,
+    ): array {
+        return $this->api->documentUpdate($patient_id, $document_id, $expected_version, $data)->toArray();
     }
 
     /** @return array<string, mixed> */

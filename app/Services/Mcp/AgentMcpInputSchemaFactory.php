@@ -23,7 +23,7 @@ final class AgentMcpInputSchemaFactory
     {
         $schema = $this->reflected->for($definition->handler);
 
-        if (in_array($definition->name, ['records.search', 'timeline.list'], true)) {
+        if (in_array($definition->name, ['records.search', 'timeline.list', 'changes.list'], true)) {
             $schema['properties']['resource_type']['items']['enum'] = AgentRecordSearchCatalog::ids();
         }
         if ($definition->name === 'documents.list') {
@@ -32,6 +32,23 @@ final class AgentMcpInputSchemaFactory
         }
         if ($definition->name === 'documents.upload') {
             $schema['properties']['document_type']['enum'] = PhrDocument::DOCUMENT_TYPES;
+        }
+        if ($definition->name === 'documents.upload_access_create') {
+            $schema['properties']['document_type']['enum'] = PhrDocument::DOCUMENT_TYPES;
+        }
+        if ($definition->name === 'documents.update') {
+            $schema['properties']['data'] = [
+                'type' => 'object',
+                'additionalProperties' => false,
+                'minProperties' => 1,
+                'properties' => [
+                    'title' => ['type' => ['string', 'null'], 'maxLength' => 255],
+                    'document_type' => ['type' => 'string', 'enum' => PhrDocument::DOCUMENT_TYPES],
+                    'observed_at' => ['type' => ['string', 'null'], 'description' => 'Document date or datetime accepted by the PHR API.'],
+                    'summary' => ['type' => ['string', 'null'], 'maxLength' => 20000],
+                    'tags' => ['type' => ['array', 'null'], 'maxItems' => 30, 'uniqueItems' => true, 'items' => ['type' => 'string', 'maxLength' => 50]],
+                ],
+            ];
         }
         if (in_array($definition->name, ['eobs.upsert', 'eobs.update'], true)) {
             $schema['properties']['data'] = EobWriteRules::jsonSchema($definition->name === 'eobs.update');

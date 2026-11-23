@@ -232,6 +232,15 @@ final class AgentApiReadDao
         return $this->item("patients/{$patientId}/documents/{$documentId}", ['resource_type', 'patient_id', 'data']);
     }
 
+    public function documentContent(int $patientId, int $documentId, int $offset = 0, ?int $maxChars = null): AgentApiPayload
+    {
+        return AgentApiPayload::item($this->transport->send(
+            'GET',
+            "patients/{$patientId}/documents/{$documentId}/content",
+            AgentApiQuery::present(['offset' => $offset, 'max_chars' => $maxChars]),
+        ), ['resource_type', 'patient_id', 'data']);
+    }
+
     public function documentDownloadAccess(int $patientId, int $documentId): AgentApiPayload
     {
         $response = $this->transport->send('POST', "patients/{$patientId}/documents/{$documentId}/download-access");
