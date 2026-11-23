@@ -1689,6 +1689,77 @@ final class PhrNativeRestoreTest extends TestCase
         @unlink($older);
     }
 
+    public function test_medication_settings_survive_a_round_trip_and_an_archive_written_before_them_restores_as_the_migration_set_them(): void
+    {
+        $owner = User::factory()->create(['user_role' => 'user']);
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        $row = static fn (array $attributes): array => [
+            'patient_id' => $patient->id,
+            'user_id' => $owner->id,
+            'status' => 'active',
+            'review_status' => PhrReviewStatus::CONFIRMED,
+            'created_at' => now(),
+            'updated_at' => now(),
+            ...$attributes,
+        ];
+        // The synthetic stay's saline order, and a home medication a person entered (#413).
+        DB::table('phr_medications')->insert($row([
+            'name' => 'sodium chloride 0.9% injection',
+            'import_source' => 'fhir',
+            'external_id' => 'inpatient:MedicationRequest/mr-saline',
+            'category' => 'inpatient',
+            'as_needed' => false,
+            'rate' => '75 mL/h',
+            'started_at' => '2026-02-09 14:40:00',
+            'review_flags' => json_encode([['code' => 'possible_duplicate', 'message' => 'Synthetic flag', 'external_id' => 'MedicationStatement/ms-saline']]),
+        ]));
+        DB::table('phr_medications')->insert($row([
+            'name' => 'lisinopril 10 mg oral tablet',
+            'category' => 'community',
+            'as_needed' => null,
+        ]));
+
+        $current = $this->archiveCopy($patient, (int) $owner->id);
+        $older = $this->archiveCopy($patient, (int) $owner->id);
+        // An archive downloaded before #413 has none of the columns, with its hash over the smaller set.
+        $this->mutateTableRecords($older, 'phr_medications', static function (array $record): array {
+            foreach (PhrMedication::SETTING as $column) {
+                unset($record['attributes'][$column]);
+            }
+
+            return $record;
+        });
+
+        DB::table('phr_patients')->where('id', $patient->id)->delete();
+        $attempt = $this->readyAttempt($current, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $attempt->status, (string) $attempt->failure_category);
+        app(PhrNativeRestoreService::class)->apply($attempt->refresh(), (int) $owner->id);
+        $restored = DB::table('phr_medications')->where('patient_id', $attempt->refresh()->target_patient_root_id)->orderBy('name')->get()->keyBy('name');
+        $saline = $restored['sodium chloride 0.9% injection'];
+        $this->assertSame(['inpatient', '75 mL/h', '2026-02-09 14:40:00'], [$saline->category, $saline->rate, (string) $saline->started_at]);
+        $this->assertSame('possible_duplicate', json_decode((string) $saline->review_flags, true)[0]['code']);
+        $this->assertSame('community', $restored['lisinopril 10 mg oral tablet']->category);
+
+        DB::table('phr_patients')->where('id', $attempt->target_patient_root_id)->delete();
+        $olderAttempt = $this->readyAttempt($older, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $olderAttempt->status, (string) $olderAttempt->failure_category);
+        app(PhrNativeRestoreService::class)->apply($olderAttempt->refresh(), (int) $owner->id);
+        $legacy = DB::table('phr_medications')->where('patient_id', $olderAttempt->refresh()->target_patient_root_id)->get()->keyBy('name');
+        // A row a person entered is a home medication, as the migration made it; an import's is unknown.
+        $this->assertSame('community', $legacy['lisinopril 10 mg oral tablet']->category);
+        $this->assertNull($legacy['sodium chloride 0.9% injection']->category);
+        foreach (array_diff(PhrMedication::SETTING, ['category']) as $column) {
+            $this->assertNull($legacy['sodium chloride 0.9% injection']->{$column}, $column);
+        }
+
+        // The restored older rows, unchanged since, are recognised rather than conflicts.
+        $again = $this->readyAttempt($older, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $again->status, (string) $again->failure_category);
+        $this->assertSame(2, $again->plan_counts_json['tables']['phr_medications']['skip']);
+        @unlink($current);
+        @unlink($older);
+    }
+
     public function test_only_a_known_later_relationship_may_be_absent_from_an_archive(): void
     {
         $owner = User::factory()->create(['user_role' => 'user']);

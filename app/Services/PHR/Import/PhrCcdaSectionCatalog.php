@@ -2,7 +2,9 @@
 
 namespace App\Services\PHR\Import;
 
+use App\Support\PHR\PhrMedicationCategory;
 use DOMElement;
+use LogicException;
 
 /**
  * The C-CDA sections PHR recognizes, by template and LOINC section code, and the
@@ -17,12 +19,13 @@ use DOMElement;
  * catalog knows by its title:
  *
  * 1. a template, then a LOINC section code, of a section a reader reads routes
- *    it to that reader (or to Results);
+ *    it to that reader (or to Results); the discharge medication list
+ *    (MEDICATION_LISTS) goes to the Medications reader with its setting (#413);
  * 2. a template or code of a known section no reader reads (UNREAD) routes it to
  *    nothing: its entries are counted as skipped, never read by title;
  * 3. a section with no code this catalog knows is matched by title: the exact
- *    title of a known unread section first, then the readers' title words, in
- *    the order the narrative-table reader has always matched them.
+ *    title of a known unread section or medication list first, then the readers'
+ *    title words, in the order the narrative-table reader has always matched them.
  */
 final class PhrCcdaSectionCatalog
 {
@@ -38,13 +41,27 @@ final class PhrCcdaSectionCatalog
     public const string DISCHARGE_MEDICATIONS = 'discharge_medications';
 
     /**
-     * A hospital stay's medication lists. They are orders and administrations,
-     * not the patient's home medications, and PHR has no medication setting to
-     * keep them apart yet (#413), so they are skipped. Before #406 their titles
-     * sent them to the Medications reader; PhrCcdaMisroutedMedications retracts
-     * the rows that made.
+     * A hospital stay's medication lists. Before #406 their titles sent them to the
+     * Medications reader as home medications; PhrCcdaMisroutedMedications retracts
+     * the rows that made. Since #413 the discharge list is read as the discharge list
+     * (MEDICATION_LISTS). Admission Medications are what the patient took before
+     * admission, the home list again under other ids, and Medications Administered
+     * records administrations, not orders: both stay skipped.
      */
     public const array HOSPITAL_MEDICATIONS = [self::ADMISSION_MEDICATIONS, self::MEDICATIONS_ADMINISTERED, self::DISCHARGE_MEDICATIONS];
+
+    /**
+     * Medication lists read with a setting other than the home list's: Hospital
+     * Discharge Medications, the list the patient went home with. No C-CDA section
+     * states a hospital stay's orders, so `inpatient` comes only from a source that
+     * says so (a FHIR category).
+     *
+     * @var array<string, array{templates: list<string>, codes: list<string>, titles: list<string>, category: string}>
+     */
+    private const array MEDICATION_LISTS = [
+        // 75311-1 is the code a Discharge Medications section may carry beside 10183-2.
+        self::DISCHARGE_MEDICATIONS => ['templates' => ['2.16.840.1.113883.10.20.22.2.11', '2.16.840.1.113883.10.20.22.2.11.1'], 'codes' => ['10183-2', '75311-1'], 'titles' => ['hospital discharge medications', 'discharge medications'], 'category' => PhrMedicationCategory::DISCHARGE],
+    ];
 
     /**
      * Known sections no reader reads: their C-CDA templates, LOINC codes, and the
@@ -58,8 +75,6 @@ final class PhrCcdaSectionCatalog
     private const array UNREAD = [
         self::ADMISSION_MEDICATIONS => ['templates' => ['2.16.840.1.113883.10.20.22.2.44'], 'codes' => ['42346-7'], 'titles' => ['admission medications', 'medications on admission']],
         self::MEDICATIONS_ADMINISTERED => ['templates' => ['2.16.840.1.113883.10.20.22.2.38'], 'codes' => ['29549-3'], 'titles' => ['medications administered']],
-        // 75311-1 is the code a Discharge Medications section may carry beside 10183-2.
-        self::DISCHARGE_MEDICATIONS => ['templates' => ['2.16.840.1.113883.10.20.22.2.11', '2.16.840.1.113883.10.20.22.2.11.1'], 'codes' => ['10183-2', '75311-1'], 'titles' => ['hospital discharge medications', 'discharge medications']],
         'reason_for_visit' => ['templates' => ['2.16.840.1.113883.10.20.22.2.12'], 'codes' => ['29299-5'], 'titles' => ['reason for visit']],
         'chief_complaint_and_reason_for_visit' => ['templates' => ['2.16.840.1.113883.10.20.22.2.13'], 'codes' => ['46239-0'], 'titles' => ['chief complaint and reason for visit']],
         // Coded as the Encounter Diagnosis act is (29308-4, "Diagnosis"); C-CDA has no section template for it.
@@ -118,12 +133,35 @@ final class PhrCcdaSectionCatalog
                 return PhrCcdaSectionRoute::unread($name);
             }
         }
+        foreach (self::MEDICATION_LISTS as $list) {
+            if (in_array($normalized, $list['titles'], true)) {
+                return PhrCcdaSectionRoute::reader($this->medications(), $list['category']);
+            }
+        }
         if (self::isResultsTitle($title)) {
             return PhrCcdaSectionRoute::results();
         }
         $reader = $this->readerByTitle($title);
 
-        return $reader === null ? PhrCcdaSectionRoute::unknown() : PhrCcdaSectionRoute::reader($reader);
+        return $reader === null ? PhrCcdaSectionRoute::unknown() : $this->readerRoute($reader);
+    }
+
+    /** The Medications reader, which reads every medication list. */
+    public function medications(): PhrCcdaMedicationActivities
+    {
+        foreach ($this->readers as $reader) {
+            if ($reader instanceof PhrCcdaMedicationActivities) {
+                return $reader;
+            }
+        }
+
+        throw new LogicException('The catalog has no Medications reader.');
+    }
+
+    /** A reader's own section: the Medications section is the home list. */
+    private function readerRoute(PhrCcdaSectionReader $reader): PhrCcdaSectionRoute
+    {
+        return PhrCcdaSectionRoute::reader($reader, $reader instanceof PhrCcdaMedicationActivities ? PhrMedicationCategory::COMMUNITY : null);
     }
 
     /**
@@ -201,7 +239,7 @@ final class PhrCcdaSectionCatalog
 
     /**
      * The route a template or code gives: a reader's section, then Results, then
-     * a known unread section.
+     * a hospital medication list, then a known unread section.
      *
      * @param  callable(array{templates: list<string>, codes: list<string>}): bool  $known
      * @param  callable(PhrCcdaSectionReader): bool  $read
@@ -210,11 +248,16 @@ final class PhrCcdaSectionCatalog
     {
         foreach ($this->readers as $reader) {
             if ($read($reader)) {
-                return PhrCcdaSectionRoute::reader($reader);
+                return $this->readerRoute($reader);
             }
         }
         if ($known(self::RESULTS)) {
             return PhrCcdaSectionRoute::results();
+        }
+        foreach (self::MEDICATION_LISTS as $list) {
+            if ($known($list)) {
+                return PhrCcdaSectionRoute::reader($this->medications(), $list['category']);
+            }
         }
         foreach (self::UNREAD as $name => $section) {
             if ($known($section)) {

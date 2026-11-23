@@ -2,18 +2,26 @@
 
 namespace App\Services\PHR\Import;
 
+use App\Support\PHR\PhrMedicationCategory;
 use DOMElement;
 
 /**
- * Medications section: one medication per Medication Activity.
+ * Medication lists: one medication per Medication Activity.
  *
  * A medication list's activities are usually intents (moodCode INT), so every
  * mood is a medication. A negated activity ("no known medications") is a
- * negative assertion, not a medication.
+ * negative assertion, not a medication; in a hospital list it says nothing
+ * about the home list and is skipped.
  *
- * An activity inside an Admission Medication or Discharge Medication act is a
- * hospital list's, not the patient's home medication, wherever the section that
- * holds it was routed: it is skipped (#406).
+ * The section's route gives its list's setting (#413): the Medications section
+ * is the home list (community), Hospital Discharge Medications the discharge
+ * list. An activity inside a Discharge Medication act (.4.35) is the discharge
+ * list's wherever the section that holds it was routed. One inside an Admission
+ * Medication act (.4.36) is what the patient took before admission, a second
+ * copy of the home list under other ids, and is skipped (#406). A row of any
+ * list but the home list keeps its id scoped by the setting
+ * (PhrMedicationCategory::scopedExternalId), so the same activity id in the home
+ * and the discharge list is two rows, and never one row moved between them.
  */
 final class PhrCcdaMedicationActivities extends PhrCcdaSectionReader
 {
@@ -21,8 +29,14 @@ final class PhrCcdaMedicationActivities extends PhrCcdaSectionReader
 
     private const array INDICATION = ['2.16.840.1.113883.10.20.22.4.19'];
 
-    /** Admission Medication and Discharge Medication: a hospital list's act around its activities. */
-    private const array HOSPITAL_WRAPPERS = ['2.16.840.1.113883.10.20.22.4.36', '2.16.840.1.113883.10.20.22.4.35'];
+    /** Precondition for Substance Administration: the activity is taken as needed, for its criterion. */
+    private const array PRECONDITION = ['2.16.840.1.113883.10.20.22.4.25'];
+
+    /** Admission Medication: the act around the medications taken before admission, which are skipped. */
+    private const string ADMISSION_WRAPPER = '2.16.840.1.113883.10.20.22.4.36';
+
+    /** Discharge Medication: the act around a discharge list's activities. */
+    private const string DISCHARGE_WRAPPER = '2.16.840.1.113883.10.20.22.4.35';
 
     private const string RXNORM = '2.16.840.1.113883.6.88';
 
@@ -59,35 +73,49 @@ final class PhrCcdaMedicationActivities extends PhrCcdaSectionReader
         return 'medication';
     }
 
+    /** The section's entries, as the home list. */
     public function entries(DOMElement $section): array
     {
-        return $this->read($section, false);
+        return $this->read($section, PhrMedicationCategory::COMMUNITY);
     }
 
     /**
-     * The entries this reader made of the section before #406: hospital-list
-     * activities too. PhrCcdaMisroutedMedications recomputes from them the ids
-     * of the rows that misrouting made.
+     * The section's entries, as the list of the setting its route names.
+     *
+     * @return list<PhrCcdaEntry>
+     */
+    public function entriesAs(DOMElement $section, string $category): array
+    {
+        return $this->read($section, $category);
+    }
+
+    /**
+     * The entries this reader made of the section before #406: every activity,
+     * hospital-list ones too, under its unscoped id and with no setting.
+     * PhrCcdaMisroutedMedications recomputes from them the ids of the rows that
+     * misrouting made.
      *
      * @return list<PhrCcdaEntry>
      */
     public function formerEntries(DOMElement $section): array
     {
-        return $this->read($section, true);
+        return $this->read($section, null);
     }
 
     /**
+     * @param  string|null  $listCategory  the section's setting; null reads it as before #406
      * @return list<PhrCcdaEntry>
      */
-    private function read(DOMElement $section, bool $withHospitalLists): array
+    private function read(DOMElement $section, ?string $listCategory): array
     {
         $entries = [];
         foreach ($this->xml->entryElements($section, 'substanceAdministration', self::ACTIVITY) as $activity) {
-            if (! $withHospitalLists && $this->inHospitalList($activity)) {
+            if ($listCategory !== null && $this->inWrapper($activity, self::ADMISSION_WRAPPER)) {
                 $entries[] = $this->skipped();
 
                 continue;
             }
+            $category = $listCategory === null ? null : ($this->inWrapper($activity, self::DISCHARGE_WRAPPER) ? PhrMedicationCategory::DISCHARGE : $listCategory);
 
             $material = $this->xml->path($activity, 'consumable', 'manufacturedProduct', 'manufacturedMaterial');
             $code = $this->xml->child($material, 'code');
@@ -95,38 +123,78 @@ final class PhrCcdaMedicationActivities extends PhrCcdaSectionReader
             [$startedOn, $endedOn] = $this->period($activity);
 
             if ($this->negated($activity)) {
+                if ($category !== null && $category !== PhrMedicationCategory::COMMUNITY) {
+                    $entries[] = $this->skipped();
+
+                    continue;
+                }
                 $statement = $this->xml->edText($this->xml->child($activity, 'text')) ?? ($name === null ? 'No known medications' : "Not taking {$name}");
                 $entries[] = $this->negation($activity, 'medication_absence', 'medications', $statement, $startedOn);
 
                 continue;
             }
 
-            $entries[] = $this->entry($activity, $name === null ? null : $this->record($activity, $name, $code, $startedOn, $endedOn), $this->references($activity, $this->xml->child($code, 'originalText')));
+            $record = $name === null ? null : $this->record($activity, $name, $code, $startedOn, $endedOn);
+            $entries[] = $this->inList($this->entry($activity, $record, $this->references($activity, $this->xml->child($code, 'originalText'))), $category);
         }
 
         return $entries;
     }
 
-    private function inHospitalList(DOMElement $activity): bool
+    /** Whether an activity sits inside an act of this template. */
+    private function inWrapper(DOMElement $activity, string $root): bool
     {
-        $roots = implode(' or ', array_map(static fn (string $root): string => '@root="'.$root.'"', self::HOSPITAL_WRAPPERS));
+        return $this->xml->first('ancestor::*[*[local-name()="templateId"][@root="'.$root.'"]]', $activity) !== null;
+    }
 
-        return $this->xml->first('ancestor::*[*[local-name()="templateId"]['.$roots.']]', $activity) !== null;
+    /**
+     * An entry as a row of the list `$category` names. A home-list row keeps every id
+     * an earlier import may have stored it under. Any other list's row is scoped: its
+     * record and table-row ids carry the setting, and the ids an earlier load gave a
+     * home medication are not its own, so no home row is ever adopted onto it.
+     */
+    private function inList(PhrCcdaEntry $entry, ?string $category): PhrCcdaEntry
+    {
+        if ($category === null) {
+            return $entry;
+        }
+        $record = $entry->record === null ? null : [
+            ...$entry->record,
+            'category' => $category,
+            'external_id' => PhrMedicationCategory::scopedExternalId(is_string($entry->record['external_id'] ?? null) ? $entry->record['external_id'] : null, $category),
+        ];
+        if ($category === PhrMedicationCategory::COMMUNITY) {
+            return new PhrCcdaEntry($entry->jobType, $record, $entry->narrativeCells, $entry->narrativeId, $entry->sourceIds, $entry->skip);
+        }
+
+        return new PhrCcdaEntry($entry->jobType, $record, $entry->narrativeCells, PhrMedicationCategory::scopedExternalId($entry->narrativeId, $category), [], $entry->skip);
     }
 
     public function narrativeRecord(array $cells): array
+    {
+        return $this->narrativeRecordAs($cells, PhrMedicationCategory::COMMUNITY);
+    }
+
+    /**
+     * A table row of a list of the given setting, by position.
+     *
+     * @param  list<string>  $cells
+     * @return array<string, string|null>
+     */
+    public function narrativeRecordAs(array $cells, string $category): array
     {
         return [
             'name' => $cells[0] ?? null,
             'dose' => $cells[1] ?? null,
             'frequency' => $cells[2] ?? null,
             'status' => $cells[3] ?? 'active',
-            'external_id' => $this->narrativeId($cells),
+            'category' => $category,
+            'external_id' => PhrMedicationCategory::scopedExternalId($this->narrativeId($cells), $category),
         ];
     }
 
     /**
-     * @return array<string, string|null>
+     * @return array<string, string|bool|null>
      */
     private function record(DOMElement $activity, string $name, ?DOMElement $code, ?string $startedOn, ?string $endedOn): array
     {
@@ -140,6 +208,7 @@ final class PhrCcdaMedicationActivities extends PhrCcdaSectionReader
         $frequency = $this->frequency($activity);
         $indication = $this->xml->related($activity, 'observation', self::INDICATION)[0] ?? null;
         $status = $this->status($this->xml->attribute($this->xml->child($activity, 'statusCode'), 'code'));
+        [$asNeeded, $asNeededReason] = $this->asNeeded($activity);
 
         return [
             'name' => $name,
@@ -154,10 +223,45 @@ final class PhrCcdaMedicationActivities extends PhrCcdaSectionReader
             'reason_for_use' => $this->xml->codeName($this->xml->child($indication, 'value')),
             // The sig, as the source wrote it.
             'raw_text' => $this->xml->edText($this->xml->child($activity, 'text')),
+            'as_needed' => $asNeeded,
+            'as_needed_reason' => $asNeededReason,
+            'rate' => $this->rate($this->xml->child($activity, 'rateQuantity')),
+            'started_at' => $this->xml->hasTime($startedOn) ? $startedOn : null,
+            'ended_at' => $this->xml->hasTime($endedOn) ? $endedOn : null,
             // Without an id, the whole regimen identifies it: the same medicine
             // twice a day and once a day are two activities, not one.
             'external_id' => $this->externalId($activity, [$name, $startedOn, $endedOn, $doseValue, $doseUnit, $routeText, $frequency]),
         ];
+    }
+
+    /**
+     * Whether the activity is taken as needed, and for what: a Precondition for
+     * Substance Administration says so, and its criterion's value (or text) is the
+     * reason. With no precondition the source did not say, which is not "scheduled".
+     *
+     * @return array{0: bool|null, 1: string|null}
+     */
+    private function asNeeded(DOMElement $activity): array
+    {
+        foreach ($this->xml->children($activity, 'precondition') as $precondition) {
+            $criterion = $this->xml->child($precondition, 'criterion');
+            if (! $this->xml->hasTemplate($precondition, self::PRECONDITION) && $criterion === null) {
+                continue;
+            }
+            $value = $this->xml->child($criterion, 'value');
+
+            return [true, $this->xml->codeName($value) ?? $this->xml->edText($this->xml->child($criterion, 'text')) ?? $this->xml->edText($value)];
+        }
+
+        return [null, null];
+    }
+
+    /** A continuous infusion's rate, "75 mL/h", from its rateQuantity (a range keeps both bounds). */
+    private function rate(?DOMElement $rate): ?string
+    {
+        [$value, $unit] = $this->dose($rate);
+
+        return $value === null ? null : trim($value.' '.($unit ?? ''));
     }
 
     /**

@@ -21,15 +21,17 @@ Findings" says "procedure", "Reason for Visit" says "visit". So a section is rou
 what it is coded as (`PhrCcdaSectionCatalog`):
 
 1. its template, then its LOINC section code, names the reader of a section PHR reads;
-2. a template or code of a known section no reader reads (hospital medication lists,
-   procedure-note sections, Reason for Visit, Encounter Diagnosis, Plan of Treatment,
-   Social History) routes it to nothing: its entries, or else its table rows, are
-   counted as `skipped` and never read by title;
+2. a template or code of a known section no reader reads (Admission Medications,
+   Medications Administered, procedure-note sections, Reason for Visit, Encounter
+   Diagnosis, Plan of Treatment, Social History) routes it to nothing: its entries, or
+   else its table rows, are counted as `skipped` and never read by title; a Hospital
+   Discharge Medications section goes to the Medications reader as the discharge list
+   (see Hospital medication lists);
 3. only a section coded as nothing the catalog knows is matched by title: the exact
-   title of a known unread section first ("Discharge Medications", "Reason for
-   Visit"), then title words in this order: vital, results, medication, problem or
-   condition, procedure, immunization, allergy, encounter or visit, then the exact
-   note titles ("Notes", "Clinical notes", "Hospital course").
+   title of a known unread section or medication list first ("Discharge Medications",
+   "Reason for Visit"), then title words in this order: vital, results, medication,
+   problem or condition, procedure, immunization, allergy, encounter or visit, then the
+   exact note titles ("Notes", "Clinical notes", "Hospital course").
 
 A section coded as something the catalog does not list is still matched by title.
 
@@ -105,10 +107,29 @@ it. A link is evidence: it changes neither record's version nor its review statu
 ## Hospital medication lists
 
 Admission Medications (42346-7), Medications Administered (29549-3) and Hospital
-Discharge Medications (10183-2) are a stay's orders and administrations, not the
-patient's home medications. PHR has no medication setting to keep them apart yet
-(#413), so they are skipped and counted. A Medication Activity inside an Admission or
-Discharge Medication act (`4.36`, `4.35`) is skipped wherever its section was routed.
+Discharge Medications (10183-2) are a stay's lists, not the patient's home medications.
+A medication read from one keeps the setting of the list it came from (`category`, see
+[medication-setting.md](medication-setting.md)):
+
+| Section | LOINC | Setting |
+|---|---|---|
+| Medications | 10160-0 | `community`, the home list |
+| Hospital Discharge Medications | 10183-2 (or 75311-1) | `discharge` |
+| Admission Medications | 42346-7 | skipped and counted: what the patient took before admission, the home list again under other ids |
+| Medications Administered | 29549-3 | skipped and counted: administrations, not orders |
+
+No C-CDA section states a hospital stay's orders, so a C-CDA import never writes an
+`inpatient` medication; those come from a source that says so (a FHIR category). A
+Medication Activity inside a Discharge Medication act (`4.35`) is the discharge list's,
+and one inside an Admission Medication act (`4.36`) is skipped, wherever its section was
+routed. A row of any list but the home list is stored under its id scoped by the setting
+(`discharge:` + the id), so an activity listed in both the Medications and the Discharge
+Medications section, as a resumed home medication may be, is two rows and never one row
+moved between the lists; an earlier home row is never adopted onto a scoped id. A
+negated activity in a hospital list says nothing about the home list and is skipped. A
+Precondition for Substance Administration (`4.25`) makes the medication as needed, its
+criterion's value or text the reason; a `rateQuantity` is the infusion rate; a start or
+end with a time of day is kept in `started_at` / `ended_at` beside the date.
 
 Before #406 their titles made them active home medications. Those rows keep no mark
 of the section they came from, so they are found by reading the source again
@@ -117,7 +138,10 @@ medication rows, less the ids its own Medications sections give, are rows only t
 misrouting made, under their entry ids and, for rows the narrative-table reader
 stored, their table-row ids. Every document listing an id writes one row, which links
 only to the first of them, so the patient's other stored documents are read before a
-row is retracted: one whose own Medications section names the id keeps the row. They
+row is retracted: one whose own Medications section names the id keeps the row. Only
+the home list's ids count as current: the discharge list's own rows, written since #413
+under scoped ids, sit beside the retracted ones, and the admission list's misrouted rows
+are retracted with nothing written in their place. They
 are retracted (`retracted_at`): the C-CDA import withdrawing a
 claim it made in error, neither a delete nor a rejection, and their review status is
 kept. A row a person confirmed, and a row prescription fills are linked to, are left

@@ -7,7 +7,7 @@ import { useRecordChanges } from '@/phr/clinical/recordChanges'
 import { MedicationFillsResponseSchema } from '@/phr/medication-fills/fillTypes'
 import { pushPhrLocation } from '@/phr/shell/phrLocation'
 import { patientPageUrl } from '@/phr/shell/phrRoutes'
-import { type PhrMedication, PhrMedicationsResponseSchema } from '@/phr/types'
+import { type PhrMedication, type PhrMedicationCategory, PhrMedicationsResponseSchema } from '@/phr/types'
 
 /**
  * Medications and their fills are one section that opens on Fills. The tabs head both lists, and
@@ -28,6 +28,71 @@ const STATUS_FILTERS: Array<{ value: MedicationStatusFilter, label: string }> = 
   { value: 'ended', label: 'Ended' },
   { value: 'all', label: 'All' },
 ]
+
+/**
+ * Which list a medication is on. Home is the patient's own list (community, or a setting nobody
+ * recorded) and is what the list shows first; a hospital stay's or clinic's orders and the list a
+ * hospital sent the patient home with are kept apart, so an order never reads as a home medication.
+ */
+export type MedicationCategoryFilter = 'home' | 'discharge' | 'orders' | 'all'
+
+const CATEGORY_FILTERS: Array<{ value: MedicationCategoryFilter, label: string }> = [
+  { value: 'home', label: 'Home' },
+  { value: 'discharge', label: 'Discharge' },
+  { value: 'orders', label: 'Hospital & clinic' },
+  { value: 'all', label: 'All lists' },
+]
+
+const CATEGORY_LABELS: Record<PhrMedicationCategory, string> = {
+  community: 'Home',
+  inpatient: 'Hospital order',
+  outpatient: 'Clinic order',
+  discharge: 'Discharge',
+}
+
+export function isHomeMedication(medication: PhrMedication): boolean {
+  return medication.category === null || medication.category === 'community'
+}
+
+/** "as needed for pain", for a medication taken only as needed. */
+export function asNeededText(medication: PhrMedication): string | null {
+  if (medication.as_needed !== true) return null
+  return medication.as_needed_reason ? `as needed for ${medication.as_needed_reason}` : 'as needed'
+}
+
+/** The badge a medication off the home list carries; none for a home medication. */
+export function medicationCategoryLabel(medication: PhrMedication): string | null {
+  return isHomeMedication(medication) || medication.category === null ? null : CATEGORY_LABELS[medication.category]
+}
+
+export function matchesMedicationCategory(medication: PhrMedication, filter: MedicationCategoryFilter): boolean {
+  switch (filter) {
+    case 'all': return true
+    case 'home': return isHomeMedication(medication)
+    case 'discharge': return medication.category === 'discharge'
+    case 'orders': return medication.category === 'inpatient' || medication.category === 'outpatient'
+  }
+}
+
+/** The list filter that shows this medication, for a record opened from a link. */
+export function medicationCategoryFilterOf(medication: PhrMedication): MedicationCategoryFilter {
+  return CATEGORY_FILTERS.find((filter) => filter.value !== 'all' && matchesMedicationCategory(medication, filter.value))?.value ?? 'all'
+}
+
+export function medicationCategoryCounts(medications: PhrMedication[]): Record<MedicationCategoryFilter, number> {
+  return {
+    home: medications.filter((medication) => matchesMedicationCategory(medication, 'home')).length,
+    discharge: medications.filter((medication) => matchesMedicationCategory(medication, 'discharge')).length,
+    orders: medications.filter((medication) => matchesMedicationCategory(medication, 'orders')).length,
+    all: medications.length,
+  }
+}
+
+/** The list a link asked for, read once when the list opens. */
+export function initialMedicationCategory(): MedicationCategoryFilter {
+  const list = new URLSearchParams(window.location.search).get('list')
+  return list === 'discharge' || list === 'orders' || list === 'all' ? list : 'home'
+}
 
 /** On hold has not ended: it stays with what the person is taking. */
 export function matchesMedicationStatus(medication: PhrMedication, filter: MedicationStatusFilter): boolean {
@@ -114,6 +179,33 @@ export function MedicationStatusFilters({ value, counts, onSelect }: {
   )
 }
 
+/**
+ * Home, discharge, hospital and clinic lists. Shown only once the patient has a medication off the
+ * home list, so someone who only ever keeps a home list sees nothing new.
+ */
+export function MedicationCategoryFilters({ value, counts, onSelect }: {
+  value: MedicationCategoryFilter
+  counts: Record<MedicationCategoryFilter, number> | null
+  onSelect: (filter: MedicationCategoryFilter) => void
+}): ReactElement | null {
+  if (counts === null || (counts.all === counts.home && value === 'home')) return null
+  return (
+    <div role="group" aria-label="Filter by list" className="flex flex-wrap gap-1.5">
+      {CATEGORY_FILTERS.map((filter) => (
+        <button
+          key={filter.value}
+          type="button"
+          aria-pressed={value === filter.value}
+          onClick={() => onSelect(filter.value)}
+          className="h-8 rounded-full border border-border px-3 text-sm font-medium text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring aria-pressed:border-accent aria-pressed:bg-accent aria-pressed:text-accent-foreground max-md:h-11"
+        >
+          {filter.label} <span className="font-normal">{counts[filter.value]}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 /** A list the other tab reads for what it shows; it follows changes to its records. */
 function useSiblingList<T>(url: string | null, resource: string, patientId: number, parse: (raw: unknown) => T | null): T | null {
   const [value, setValue] = useState<T | null>(null)
@@ -160,10 +252,10 @@ export function useFillOverview(patientId: number): FillOverview | null {
 
 function parseMedicationCount(raw: unknown): number | null {
   const parsed = PhrMedicationsResponseSchema.safeParse(raw)
-  return parsed.success ? parsed.data.medications.length : null
+  return parsed.success ? parsed.data.medications.filter(isHomeMedication).length : null
 }
 
-/** How many medications the patient has, for the Fills list's tabs. */
+/** How many home medications the patient has, for the Fills list's tabs: what the list opens on. */
 export function useMedicationCount(patientId: number, wanted: boolean): number | null {
   return useSiblingList(wanted ? `/api/phr/patients/${patientId}/medications` : null, 'medications', patientId, parseMedicationCount)
 }

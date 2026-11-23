@@ -8,8 +8,10 @@
     home-metformin       metformin 500 mg oral twice daily
     home-acetaminophen   acetaminophen 500 mg oral every 6 hours as needed for pain
 
-  Every other section is coded as a kind PHR does not read, and each title
-  shares a word with one it does, so a title match would misroute it:
+  Every other section is coded as a kind PHR does not read as the home list,
+  and each title shares a word with one it does, so a title match would
+  misroute it. Since #413 the discharge list is read as the discharge list,
+  under scoped ids; the admission and administered lists stay skipped:
     Admission Medications (42346-7)    activities inside Admission Medication acts (4.36)
     Medications Administered (29549-3) activities on their own, as administered (EVN)
     Hospital Discharge Medications (10183-2)

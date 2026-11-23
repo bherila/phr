@@ -735,6 +735,12 @@ export const PhrOfficeVisitResponseSchema = z.object({
 
 // ── Medications ───────────────────────────────────────────────────────────────
 
+/** A medication's setting (FHIR medicationrequest-category); null is unknown, never assumed home. */
+export const PHR_MEDICATION_CATEGORIES = ['community', 'inpatient', 'outpatient', 'discharge'] as const
+export type PhrMedicationCategory = typeof PHR_MEDICATION_CATEGORIES[number]
+
+export const PhrMedicationReviewFlagSchema = z.object({ code: z.string(), message: z.string(), external_id: z.string().optional() })
+
 export const PhrMedicationSchema = z.object({
   id: z.number(),
   patient_id: z.number(),
@@ -751,6 +757,15 @@ export const PhrMedicationSchema = z.object({
   prescriber_name: nullableString,
   reason_for_use: nullableString,
   raw_text: nullableString,
+  // A server older than these columns sends none of them: read as unknown, not as the home list.
+  category: z.enum(PHR_MEDICATION_CATEGORIES).nullable().optional().transform((value) => value ?? null),
+  as_needed: z.boolean().nullable().optional().transform((value) => value ?? null),
+  as_needed_reason: nullableString.optional().transform((value) => value ?? null),
+  brand_name: nullableString.optional().transform((value) => value ?? null),
+  rate: nullableString.optional().transform((value) => value ?? null),
+  started_at: nullableString.optional().transform((value) => value ?? null),
+  ended_at: nullableString.optional().transform((value) => value ?? null),
+  review_flags: z.array(PhrMedicationReviewFlagSchema).nullable().optional().transform((value) => value ?? []),
   review_status: PhrReviewStatusSchema.optional(),
   created_at: nullableString,
   updated_at: nullableString,

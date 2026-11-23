@@ -22,6 +22,7 @@ use App\Support\PHR\PhrClinicalNote;
 use App\Support\PHR\PhrDocumentUploadLimits;
 use App\Support\PHR\PhrEncounterVocabulary;
 use App\Support\PHR\PhrLabReferenceRangeNotation;
+use App\Support\PHR\PhrMedicationCategory;
 use App\Support\PHR\PhrVisitParticipants;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
@@ -242,26 +243,127 @@ class PhrFhirExporter
     }
 
     /**
+     * A medication, in its setting (#413). An order for a hospital stay, a clinic or
+     * the list the patient went home with is a MedicationRequest (intent order) with
+     * its medicationrequest-category; a home medication, or one whose setting is
+     * unknown, stays a MedicationStatement, a home one with the statement category
+     * system's community. Statuses use each resource's codes.
+     *
      * @return array<string, mixed>
      */
     private function medicationResource(PhrMedication $medication): array
     {
+        $category = $medication->category;
+        $dosage = $this->dosage($medication);
+        $concept = $this->textCode($medication->name, $medication->rxnorm_code, 'http://www.nlm.nih.gov/research/umls/rxnorm');
+        $reason = $medication->reason_for_use ? [$this->textCode($medication->reason_for_use)] : null;
+        $encounter = $this->encounterReference('medication', (int) $medication->id);
+
+        if (PhrMedicationCategory::isHomeList($category)) {
+            return [
+                'resourceType' => 'MedicationStatement',
+                'id' => 'phr-medication-'.$medication->id,
+                'category' => $category === null ? null : $this->category(PhrMedicationCategory::STATEMENT_SYSTEM, $category),
+                'context' => $encounter,
+                'subject' => $this->patientReference($medication->patient_id),
+                'status' => match ($medication->status) {
+                    'on_hold' => 'on-hold',
+                    'discontinued' => 'stopped',
+                    'completed' => 'completed',
+                    default => 'active',
+                },
+                'medicationCodeableConcept' => $concept,
+                'effectivePeriod' => [
+                    'start' => $this->fhirDateTime($medication->started_at) ?? $this->fhirDate($medication->started_on),
+                    'end' => $this->fhirDateTime($medication->ended_at) ?? $this->fhirDate($medication->ended_on),
+                ],
+                'dosage' => $dosage === null ? null : [$dosage],
+                'reasonCode' => $reason,
+            ];
+        }
+
+        $start = $this->fhirDateTime($medication->started_at) ?? $this->fhirDate($medication->started_on);
+        $end = $this->fhirDateTime($medication->ended_at) ?? $this->fhirDate($medication->ended_on);
+        if ($start !== null || $end !== null) {
+            $dosage = [...($dosage ?? []), 'timing' => ['repeat' => ['boundsPeriod' => array_filter(['start' => $start, 'end' => $end])]]];
+        }
+
         return [
-            'resourceType' => 'MedicationStatement',
+            'resourceType' => 'MedicationRequest',
             'id' => 'phr-medication-'.$medication->id,
-            'context' => $this->encounterReference('medication', (int) $medication->id),
+            'status' => match ($medication->status) {
+                'on_hold' => 'on-hold',
+                'discontinued' => 'stopped',
+                'completed' => 'completed',
+                default => 'active',
+            },
+            'intent' => 'order',
+            'category' => $this->category(PhrMedicationCategory::REQUEST_SYSTEM, (string) $category),
+            'medicationCodeableConcept' => $concept,
+            'encounter' => $encounter,
             'subject' => $this->patientReference($medication->patient_id),
-            'status' => $medication->status,
-            'medicationCodeableConcept' => $this->textCode($medication->name, $medication->rxnorm_code, 'http://www.nlm.nih.gov/research/umls/rxnorm'),
-            'effectivePeriod' => [
-                'start' => $this->fhirDate($medication->started_on),
-                'end' => $this->fhirDate($medication->ended_on),
-            ],
-            'dosage' => $medication->dose || $medication->frequency ? [[
-                'text' => trim(implode(' ', array_filter([$medication->dose, $medication->dose_unit, $medication->route, $medication->frequency]))),
-            ]] : null,
-            'reasonCode' => $medication->reason_for_use ? [$this->textCode($medication->reason_for_use)] : null,
+            'authoredOn' => $start,
+            'requester' => $medication->prescriber_name ? ['display' => $medication->prescriber_name] : null,
+            'reasonCode' => $reason,
+            'dosageInstruction' => $dosage === null ? null : [$dosage],
         ];
+    }
+
+    /**
+     * @return list<array{coding: list<array{system: string, code: string, display: string}>}>
+     */
+    private function category(string $system, string $code): array
+    {
+        return [['coding' => [['system' => $system, 'code' => $code, 'display' => $code]]]];
+    }
+
+    /**
+     * A medication's dosage: its sig as text, how it is taken, as needed or not, and
+     * its dose and rate as quantities where they are plain numbers with a unit.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function dosage(PhrMedication $medication): ?array
+    {
+        $text = trim(implode(' ', array_filter([$medication->dose, $medication->dose_unit, $medication->route, $medication->frequency, $medication->rate ? 'at '.$medication->rate : null])));
+        $doseAndRate = array_filter([
+            'doseQuantity' => is_numeric($medication->dose) && $medication->dose_unit ? $this->quantity((float) $medication->dose, $medication->dose_unit) : null,
+            'rateQuantity' => $this->rateQuantity($medication->rate),
+        ]);
+        $dosage = array_filter([
+            'text' => $text === '' ? null : $text,
+            'route' => $medication->route ? ['text' => $medication->route] : null,
+            'asNeededCodeableConcept' => $medication->as_needed && $medication->as_needed_reason ? ['text' => $medication->as_needed_reason] : null,
+            'asNeededBoolean' => $medication->as_needed !== null && ! ($medication->as_needed && $medication->as_needed_reason) ? $medication->as_needed : null,
+            'doseAndRate' => $doseAndRate === [] ? null : [$doseAndRate],
+        ], static fn (mixed $value): bool => $value !== null);
+
+        return $dosage === [] ? null : $dosage;
+    }
+
+    /**
+     * A rate stored as "75 mL/h" as a Quantity; a rate in any other form stays only
+     * in the dosage text.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function rateQuantity(?string $rate): ?array
+    {
+        if ($rate === null || preg_match('#^\s*(\d+(?:\.\d+)?)\s*([A-Za-z]+/[A-Za-z]+)\s*$#', $rate, $m) !== 1) {
+            return null;
+        }
+
+        return ['value' => (float) $m[1], 'unit' => $m[2], 'system' => self::UCUM_SYSTEM, 'code' => $m[2]];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function quantity(float $value, string $unit): array
+    {
+        $code = self::UCUM_DOSE_UNITS[$unit] ?? null;
+
+        return ['value' => $value, 'unit' => $unit, ...($code === null ? [] : ['system' => self::UCUM_SYSTEM, 'code' => $code])];
     }
 
     /**

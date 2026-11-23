@@ -33,6 +33,15 @@ without the corresponding structured entry:
 - Procedures: Procedure Activity Procedure
 - Vital Signs: Vital Signs Organizer or Average Blood Pressure Organizer
 
+The Medications section lists only the home list (medications whose setting is
+`community` or unknown). An export with discharge medications adds a Discharge Medications
+section (`2.16.840.1.113883.10.20.22.2.11.1`, 10183-2 with the 75311-1 translation) whose
+narrative table has the same gap: no Discharge Medication entry yet. A hospital stay's or
+clinic's orders (`inpatient`, `outpatient`) are not a summary's and are omitted. The
+synthetic gate document holds an inpatient order (omitted) and no discharge medication, so
+the Discharge Medications gap is not in the baseline; adding Discharge Medication and
+Medication Activity entries is the way to bring that section under the gate.
+
 Those are the exact expected Schematron errors in the validation gate. Results and
 Encounters are structured (see below) and no longer in the baseline. Any additional,
 removed, or changed error fails CI, so a future structured-entry implementation must

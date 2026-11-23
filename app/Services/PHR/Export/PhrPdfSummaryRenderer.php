@@ -15,6 +15,7 @@ use App\Models\PhrPatient;
 use App\Models\PhrPatientVital;
 use App\Models\PhrPortalMessage;
 use App\Models\PhrProcedure;
+use App\Support\PHR\PhrMedicationCategory;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Collection;
 
@@ -73,11 +74,20 @@ class PhrPdfSummaryRenderer
                     $condition->icd10_code,
                     $condition->clinical_status,
                 ])->all()),
-                $this->section('Medications', $data['medications']->map(fn (PhrMedication $medication): array => [
-                    $medication->name,
-                    trim(implode(' ', array_filter([$medication->dose, $medication->dose_unit, $medication->frequency]))),
-                    $medication->status,
-                ])->all()),
+                // A hospital stay's orders are not the patient's medications (#413); a
+                // discharge or clinic medication says which list it is from.
+                $this->section('Medications', $data['medications']
+                    ->reject(fn (PhrMedication $medication): bool => $medication->category === PhrMedicationCategory::INPATIENT)
+                    ->map(fn (PhrMedication $medication): array => [
+                        $medication->name,
+                        trim(implode(' ', array_filter([
+                            $medication->dose,
+                            $medication->dose_unit,
+                            $medication->frequency,
+                            $medication->as_needed ? 'as needed'.($medication->as_needed_reason ? ' for '.$medication->as_needed_reason : '') : null,
+                        ]))),
+                        trim($medication->status.(PhrMedicationCategory::isHomeList($medication->category) ? '' : ' ('.PhrMedicationCategory::label($medication->category).')')),
+                    ])->values()->all()),
                 $this->section('Procedures', $data['procedures']->map(fn (PhrProcedure $procedure): array => [
                     $procedure->performed_at?->toDateString() ?? $procedure->performed_on?->toDateString(),
                     $procedure->name,

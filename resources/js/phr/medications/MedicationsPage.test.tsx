@@ -104,6 +104,53 @@ describe('MedicationsPage', () => {
     expect(screen.getByText('Amoxicillin')).toBeInTheDocument()
   })
 
+  it('opens on the home list and keeps a hospital stay\'s orders and the discharge list apart', async () => {
+    mockGet.mockImplementation(async (url: string) => {
+      if (url === '/api/phr/patients/42/medications') {
+        return {
+          medications: [
+            makeMedication({ id: 1, name: 'lisinopril', category: 'community' }),
+            makeMedication({ id: 2, name: 'acetaminophen 500 mg', category: 'community', frequency: 'every 6 h', as_needed: true, as_needed_reason: 'pain' }),
+            makeMedication({ id: 3, name: 'sodium chloride 0.9%', category: 'inpatient', frequency: null, rate: '75 mL/h' }),
+            makeMedication({ id: 4, name: 'cefpodoxime 200 mg', category: 'discharge' }),
+            makeMedication({ id: 5, name: 'metformin (unknown list)', category: null }),
+          ],
+          can_manage: true,
+        }
+      }
+      return {}
+    })
+
+    render(<MedicationsPage patientId={42} />)
+
+    const table = await screen.findByRole('table', { name: 'Medications' })
+    await within(table).findByText('lisinopril')
+    expect(within(table).getByText('metformin (unknown list)')).toBeInTheDocument()
+    expect(within(table).queryByText('sodium chloride 0.9%')).not.toBeInTheDocument()
+    expect(within(table).queryByText('cefpodoxime 200 mg')).not.toBeInTheDocument()
+    expect(within(table).getByText('every 6 h, as needed for pain')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Home 3' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('tab', { name: /Medications/ })).toHaveTextContent('Medications 3')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hospital & clinic 1' }))
+    expect(await within(table).findByText('sodium chloride 0.9%')).toBeInTheDocument()
+    expect(within(table).getByText('Hospital order')).toBeInTheDocument()
+    expect(within(table).getByText('at 75 mL/h')).toBeInTheDocument()
+    expect(within(table).queryByText('lisinopril')).not.toBeInTheDocument()
+    expect(window.location.search).toBe('?list=orders')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discharge 1' }))
+    expect(await within(table).findByText('cefpodoxime 200 mg')).toBeInTheDocument()
+    expect(within(table).getByText('Discharge')).toBeInTheDocument()
+  })
+
+  it('shows no list filter to someone who keeps only a home list', async () => {
+    render(<MedicationsPage patientId={42} />)
+
+    await screen.findByText('Metformin')
+    expect(screen.queryByRole('group', { name: 'Filter by list' })).not.toBeInTheDocument()
+  })
+
   it('gives dose, route and schedule their own columns, and and the end date only off the Active filter', async () => {
     render(<MedicationsPage patientId={42} />)
     const table = await screen.findByRole('table', { name: 'Medications' })

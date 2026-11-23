@@ -5,6 +5,7 @@ namespace App\Services\PHR\Export;
 use App\Models\PhrPatient;
 use App\Services\PHR\Documents\PhrDocumentTextReader;
 use App\Support\PHR\PhrLabReferenceRangeNotation;
+use App\Support\PHR\PhrMedicationCategory;
 use Illuminate\Support\Str;
 use Throwable;
 use XMLWriter;
@@ -20,13 +21,14 @@ class PhrCcdaExporter
      * structured C-CDA entries. See
      * docs/ccda-conformance.md for the interoperability boundary and validation baseline.
      *
-     * @var array<string, array{root: string, extension: string, code: string}>
+     * @var array<string, array{root: string, extension: string, code: string, translation?: string}>
      */
     private const array SECTION_TEMPLATES = [
         'Results' => ['root' => '2.16.840.1.113883.10.20.22.2.3.1', 'extension' => '2015-08-01', 'code' => '30954-2'],
         'Vital Signs' => ['root' => '2.16.840.1.113883.10.20.22.2.4.1', 'extension' => '2015-08-01', 'code' => '8716-3'],
         'Problems' => ['root' => '2.16.840.1.113883.10.20.22.2.5.1', 'extension' => '2015-08-01', 'code' => '11450-4'],
         'Medications' => ['root' => '2.16.840.1.113883.10.20.22.2.1.1', 'extension' => '2014-06-09', 'code' => '10160-0'],
+        'Discharge Medications' => ['root' => '2.16.840.1.113883.10.20.22.2.11.1', 'extension' => '2015-08-01', 'code' => '10183-2', 'translation' => '75311-1'],
         'Procedures' => ['root' => '2.16.840.1.113883.10.20.22.2.7.1', 'extension' => '2014-06-09', 'code' => '47519-4'],
         'Immunizations' => ['root' => '2.16.840.1.113883.10.20.22.2.2.1', 'extension' => '2015-08-01', 'code' => '11369-6'],
         'Allergies' => ['root' => '2.16.840.1.113883.10.20.22.2.6.1', 'extension' => '2015-08-01', 'code' => '48765-2'],
@@ -108,12 +110,21 @@ class PhrCcdaExporter
             $condition->clinical_status,
             $condition->onset_date?->toDateString(),
         ])->all());
-        $this->section($xml, 'Medications', ['Medication', 'Dose', 'Frequency', 'Status'], $data['medications']->map(fn ($medication): array => [
+        // The CCD's Medications section is the home list (community, or a setting
+        // nobody recorded); the discharge list has its own section, written only when
+        // there is one; a hospital stay's or clinic's orders are not a summary's (#413).
+        $medicationRow = fn ($medication): array => [
             $medication->name,
             trim(implode(' ', array_filter([$medication->dose, $medication->dose_unit]))),
-            $medication->frequency,
+            $this->medicationSchedule($medication),
             $medication->status,
-        ])->all());
+        ];
+        $medications = $data['medications']->filter(static fn ($medication): bool => PhrMedicationCategory::isHomeList($medication->category ?? null));
+        $this->section($xml, 'Medications', ['Medication', 'Dose', 'Frequency', 'Status'], $medications->map($medicationRow)->values()->all());
+        $discharge = $data['medications']->filter(static fn ($medication): bool => ($medication->category ?? null) === PhrMedicationCategory::DISCHARGE);
+        if ($discharge->isNotEmpty()) {
+            $this->section($xml, 'Discharge Medications', ['Medication', 'Dose', 'Frequency', 'Status'], $discharge->map($medicationRow)->values()->all());
+        }
         $this->section($xml, 'Procedures', ['Procedure', 'Date', 'Status'], $data['procedures']->map(fn ($procedure): array => [
             $procedure->name,
             $procedure->performed_at?->toDateString() ?? $procedure->performed_on?->toDateString(),
@@ -251,6 +262,12 @@ class PhrCcdaExporter
             $xml->startElement('code');
             $xml->writeAttribute('code', $template['code']);
             $xml->writeAttribute('codeSystem', '2.16.840.1.113883.6.1');
+            if (isset($template['translation'])) {
+                $xml->startElement('translation');
+                $xml->writeAttribute('code', $template['translation']);
+                $xml->writeAttribute('codeSystem', '2.16.840.1.113883.6.1');
+                $xml->endElement();
+            }
             $xml->endElement();
         }
         $xml->writeElement('title', $title);
@@ -298,6 +315,17 @@ class PhrCcdaExporter
         }
         $xml->endElement();
         $xml->endElement();
+    }
+
+    /** How often, and as needed for what: "every 6 h, as needed for pain". */
+    private function medicationSchedule(object $medication): ?string
+    {
+        $asNeeded = ($medication->as_needed ?? null) === true
+            ? 'as needed'.(($medication->as_needed_reason ?? null) ? ' for '.$medication->as_needed_reason : '')
+            : null;
+        $schedule = implode(', ', array_filter([$medication->frequency ?? null, $asNeeded]));
+
+        return $schedule === '' ? null : $schedule;
     }
 
     private function time(XMLWriter $xml, string $element, string $value): void

@@ -32,6 +32,7 @@ use App\Services\PHR\Import\PhrImportJobDao;
 use App\Services\PHR\Import\PhrImportJobPresenter;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\PHR\DisplayPreferences;
+use App\Support\PHR\PhrMedicationCategory;
 use App\Support\PHR\PhrRecordLifecycle;
 use App\Support\PHR\PhrReviewStatus;
 use Carbon\Carbon;
@@ -518,6 +519,13 @@ final readonly class PhrReviewQueueService
 
             return [['code' => 'patient_name_mismatch', 'message' => "Added from a fill printed for \"{$printed}\", not {$patient->display_name}. Confirm it belongs here."]];
         }
+        if ($page === 'medications' && $record instanceof PhrMedication) {
+            // What the import flagged on the row itself: a request that may be a statement already listed (#413).
+            return array_map(
+                static fn (array $flag): array => ['code' => $flag['code'], 'message' => $flag['message']],
+                $record->review_flags ?? [],
+            );
+        }
         if ($page !== 'medication-fills') {
             return [];
         }
@@ -683,7 +691,14 @@ final readonly class PhrReviewQueueService
                 (string) ($a('visit_type') ?: $a('chief_complaint') ?: 'Visit'),
                 $this->join([$this->date($a('visit_started_at') ?? $a('visit_date')), $a('provider_name'), $a('facility_name')]),
             ],
-            'medications' => [(string) ($a('name') ?: 'Medication'), $this->join([$this->measure($a('dose'), $a('dose_unit')), $a('frequency'), $a('route')])],
+            'medications' => [(string) ($a('name') ?: 'Medication'), $this->join([
+                PhrMedicationCategory::isHomeList($a('category')) ? null : PhrMedicationCategory::label($a('category')),
+                $this->measure($a('dose'), $a('dose_unit')),
+                $a('frequency'),
+                $a('as_needed') ? 'as needed'.($a('as_needed_reason') ? ' for '.$a('as_needed_reason') : '') : null,
+                $a('rate'),
+                $a('route'),
+            ])],
             'medication-fills' => [
                 (string) ($a('brand_name') ?: $a('drug_as_printed') ?: 'Prescription fill'),
                 $this->join([$this->date($a('filled_on')), $a('pharmacy_name'), $a('quantity') ? 'qty '.rtrim(rtrim((string) $a('quantity'), '0'), '.') : null]),

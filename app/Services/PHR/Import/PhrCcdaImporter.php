@@ -239,25 +239,35 @@ class PhrCcdaImporter
 
                 continue;
             }
-            if ($reader !== null) {
-                // A section's structured entries, when it has any, are the
-                // record; its narrative table is only their rendering.
-                $entries = $reader->entries($section);
-                if ($entries !== []) {
-                    $result->merge($this->importEntries($patient, $actorUserId, $reader, $entries, $header));
-
-                    continue;
+            if ($reader === null) {
+                $rows = PhrCcdaNarrativeRow::rows($xpath, $section);
+                if ($rows !== []) {
+                    $result->addSkipped(count($rows));
                 }
-            }
 
-            $rows = PhrCcdaNarrativeRow::rows($xpath, $section);
-            if ($rows === []) {
                 continue;
             }
 
-            $result->merge($reader === null
-                ? new PhrImportResult(skipped: count($rows))
-                : $this->structuredImporter->importUnreviewed($patient, $actorUserId, $reader->jobType(), array_map($reader->narrativeRecord(...), $rows), $this->options()));
+            // A medication list's entries and rows are read as the list its route
+            // names: the home list, the stay's or the discharge list (#413).
+            $category = $route->category;
+            $asList = $reader instanceof PhrCcdaMedicationActivities && $category !== null;
+            $narrative = $asList
+                ? static fn (array $cells): array => $reader->narrativeRecordAs($cells, $category)
+                : $reader->narrativeRecord(...);
+            // A section's structured entries, when it has any, are the
+            // record; its narrative table is only their rendering.
+            $entries = $asList ? $reader->entriesAs($section, $category) : $reader->entries($section);
+            if ($entries !== []) {
+                $result->merge($this->importEntries($patient, $actorUserId, $reader, $entries, $header, $narrative));
+
+                continue;
+            }
+
+            $rows = PhrCcdaNarrativeRow::rows($xpath, $section);
+            if ($rows !== []) {
+                $result->merge($this->structuredImporter->importUnreviewed($patient, $actorUserId, $reader->jobType(), array_map($narrative, $rows), $this->options()));
+            }
         }
 
         // An addendum may come before the note it appends to.
@@ -315,10 +325,13 @@ class PhrCcdaImporter
      *
      * @param  list<PhrCcdaEntry>  $entries
      * @param  array<string, mixed>|null  $header  the document's encompassingEncounter, until an activity claims it
+     * @param  (callable(list<string>): array<string, mixed>)|null  $narrative  how the section's table rows are read; the reader's own reading by default
      */
-    private function importEntries(PhrPatient $patient, int $actorUserId, PhrCcdaSectionReader $reader, array $entries, ?array &$header = null): PhrImportResult
+    private function importEntries(PhrPatient $patient, int $actorUserId, PhrCcdaSectionReader $reader, array $entries, ?array &$header = null, ?callable $narrative = null): PhrImportResult
     {
-        return DB::transaction(function () use ($patient, $actorUserId, $reader, $entries, &$header): PhrImportResult {
+        $narrative ??= $reader->narrativeRecord(...);
+
+        return DB::transaction(function () use ($patient, $actorUserId, $reader, $entries, &$header, $narrative): PhrImportResult {
             $own = array_values(array_filter($entries, static fn (PhrCcdaEntry $entry): bool => $entry->record !== null && $entry->jobType === $reader->jobType()));
             $this->legacyRows->adopt($this->attributeMapper->modelClassFor($reader->jobType()), (int) $patient->id, self::IMPORT_SOURCE, $reader->legacyKind(), $own);
 
@@ -343,7 +356,7 @@ class PhrCcdaImporter
                     }
                     $records[$entry->jobType][] = $record;
                 } elseif ($entry->narrativeCells !== null) {
-                    $unnamed[] = $reader->narrativeRecord($entry->narrativeCells);
+                    $unnamed[] = $narrative($entry->narrativeCells);
                 } else {
                     $skipped++;
                 }

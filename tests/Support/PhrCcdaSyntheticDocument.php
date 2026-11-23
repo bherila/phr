@@ -126,6 +126,15 @@ final class PhrCcdaSyntheticDocument
                     'dose_unit' => 'unit',
                     'frequency' => 'daily',
                     'status' => 'active',
+                ], (object) [
+                    // A hospital stay's order: never in a summary document (#413).
+                    'name' => 'Synthetic inpatient order',
+                    'dose' => '1',
+                    'dose_unit' => 'unit',
+                    'frequency' => null,
+                    'status' => 'active',
+                    'category' => 'inpatient',
+                    'rate' => '1 mL/h',
                 ]]),
                 'allergies' => collect([(object) [
                     'substance' => 'Synthetic substance',

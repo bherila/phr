@@ -15,6 +15,7 @@ use App\Support\AgentApi\AgentApiUpdateWindow;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use App\Support\AgentApi\AgentEncounterContext;
+use App\Support\PHR\PhrMedicationCategory;
 use App\Support\PHR\PhrRecordLifecycle;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Builder;
@@ -182,6 +183,9 @@ final class AgentClinicalReadController extends Controller
             'pharmacy' => $resource === 'medication-fills' ? ['sometimes', 'string', 'max:255'] : ['prohibited'],
             'review_status' => $resource === 'medication-fills' ? ['sometimes', Rule::in(PhrReviewStatus::ALL)] : ['prohibited'],
             'ndc_status' => $resource === 'medication-fills' ? ['sometimes', Rule::in(PhrMedicationFill::NDC_STATUSES)] : ['prohibited'],
+            // A medication's setting (#413); unknown is a medication with none. Refused for every other type.
+            'category' => $resource === 'medications' ? ['sometimes', 'array', 'min:1', 'max:'.count(PhrMedicationCategory::FILTERS)] : ['prohibited'],
+            'category.*' => $resource === 'medications' ? ['string', 'distinct', Rule::in(PhrMedicationCategory::FILTERS)] : ['prohibited'],
         ];
     }
 
@@ -199,6 +203,9 @@ final class AgentClinicalReadController extends Controller
         }
         if ($resource === 'medication-fills') {
             $this->applyFillFilters($query, $validated);
+        }
+        if ($resource === 'medications' && isset($validated['category'])) {
+            PhrMedicationCategory::scope($query, array_values(array_map('strval', (array) $validated['category'])));
         }
         if ($resource === 'health-logs') {
             $archived = (string) ($validated['archived'] ?? 'include');

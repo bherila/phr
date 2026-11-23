@@ -5,6 +5,7 @@ namespace App\Services\PHR\Fills;
 use App\Models\PhrMedication;
 use App\Models\PhrMedicationFill;
 use App\Models\PhrPatient;
+use App\Support\PHR\PhrMedicationCategory;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Str;
@@ -136,13 +137,20 @@ class MedicationFillMedicationLinker
             ->exists();
     }
 
-    /** @return Builder<PhrMedication> */
+    /**
+     * The medications a fill may link to: live, not rejected, and on the home list. A
+     * pharmacy fills a home medication; a hospital stay's order, a clinic's or the
+     * discharge list's row is never the one a fill belongs to (#413), even when it
+     * names the same drug.
+     *
+     * @return Builder<PhrMedication>
+     */
     private function livePatientMedications(PhrPatient $patient): Builder
     {
-        return PhrMedication::query()
+        return PhrMedicationCategory::scopeHomeList(PhrMedication::query()
             ->where('patient_id', $patient->id)
             ->whereNull('retracted_at')
-            ->where('review_status', '!=', PhrReviewStatus::REJECTED);
+            ->where('review_status', '!=', PhrReviewStatus::REJECTED));
     }
 
     private function findMatch(PhrPatient $patient, PhrMedicationFill $fill): ?PhrMedication
@@ -252,6 +260,8 @@ class MedicationFillMedicationLinker
             'started_on' => $fill->filled_on->toDateString(),
             'status' => 'active',
             'prescriber_name' => $fill->prescriber_name,
+            'category' => PhrMedicationCategory::COMMUNITY,
+            'brand_name' => $fill->brand_name === null ? null : mb_substr($fill->brand_name, 0, 255),
             'raw_text' => 'Added from prescription fill #'.$fill->id.($fill->drug_as_printed === null ? '' : ' ("'.$fill->drug_as_printed.'")'),
         ]);
     }

@@ -21,6 +21,7 @@ import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
 import { type PhrMedication, PhrMedicationResponseSchema } from '@/phr/types'
 
 import { MedicationFormDialog, medicationFormFromMedication, type MedicationFormState, medicationPayload, medicationStatusLabel } from './medicationForm'
+import { asNeededText, medicationCategoryLabel } from './medicationSection'
 
 const RESOURCE = 'medications'
 
@@ -119,12 +120,18 @@ export default function MedicationDetail({ patientId, recordId, onDrill }: PhrDe
   const facts = medication === null ? [] : [
     { label: 'Dose', value: displayUnits([medication.dose, medication.dose_unit].filter(Boolean).join(' ')) },
     { label: 'Route', value: medication.route },
-    { label: 'Schedule', value: medication.frequency },
+    { label: 'Schedule', value: [medication.frequency, asNeededText(medication)].filter(Boolean).join(', ') },
     { label: 'Started', value: formatDate(medication.started_on) },
     { label: 'Ended', value: formatDate(medication.ended_on) },
     { label: 'Prescriber', value: medication.prescriber_name },
     { label: 'RxNorm', value: medication.rxnorm_code },
   ]
+  // Recorded only for some medications (a brand, an infusion's rate, a list other than home): shown when there.
+  const extras = medication === null ? [] : [
+    { label: 'List', value: medicationCategoryLabel(medication) },
+    { label: 'Brand', value: medication.brand_name },
+    { label: 'Rate', value: medication.rate },
+  ].filter((fact): fact is { label: string, value: string } => filled(fact.value))
   // An active medication has no end date to be missing.
   const missing = medication === null ? [] : [
     ...facts.filter((fact) => !filled(fact.value) && !(fact.label === 'Ended' && medication.status === 'active')).map((fact) => (fact.label === 'RxNorm' ? fact.label : fact.label.toLowerCase())),
@@ -170,7 +177,11 @@ export default function MedicationDetail({ patientId, recordId, onDrill }: PhrDe
             />
           )}
 
+          {medication.review_flags.map((flag) => (
+            <p key={flag.code} role="note" className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-foreground">{flag.message}</p>
+          ))}
           <DetailFacts facts={[
+            ...extras,
             ...facts.filter((fact) => filled(fact.value)).map((fact) => ({ label: fact.label, value: fact.value })),
             ...(filled(medication.reason_for_use) ? [{ label: 'Reason for use', value: medication.reason_for_use, wide: true }] : []),
           ]} />

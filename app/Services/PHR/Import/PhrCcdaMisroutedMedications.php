@@ -5,6 +5,7 @@ namespace App\Services\PHR\Import;
 use App\Models\PhrDocument;
 use App\Models\PhrMedication;
 use App\Models\PhrMedicationFill;
+use App\Support\PHR\PhrMedicationCategory;
 use App\Support\PHR\PhrReviewStatus;
 use App\Support\Storage\LocalObjectFile;
 use DOMDocument;
@@ -67,15 +68,7 @@ final class PhrCcdaMisroutedMedications
     public function ids(DOMXPath $xpath): array
     {
         $catalog = new PhrCcdaSectionCatalog(new PhrCcdaXml($xpath));
-        $medications = null;
-        foreach ($catalog->readers as $reader) {
-            if ($reader instanceof PhrCcdaMedicationActivities) {
-                $medications = $reader;
-            }
-        }
-        if ($medications === null) {
-            return ['former' => [], 'current' => []];
-        }
+        $medications = $catalog->medications();
 
         $former = [];
         $current = [];
@@ -86,7 +79,13 @@ final class PhrCcdaMisroutedMedications
             if ($this->formerlyMedications($catalog, $medications, $section)) {
                 $former = [...$former, ...$this->rowIds($xpath, $medications, $section, $medications->formerEntries($section))];
             }
-            if ($catalog->route($section)->reader === $medications) {
+            // Only the home list's rows are "current": since #413 the discharge list
+            // is read too, but as its own setting under scoped ids
+            // (PhrMedicationCategory::scopedExternalId), which no misrouted row has.
+            // A home-list row the misrouting made under a hospital list's id is still
+            // retracted, and the list's own row is written beside it.
+            $route = $catalog->route($section);
+            if ($route->reader === $medications && $route->category === PhrMedicationCategory::COMMUNITY) {
                 $current = [...$current, ...$this->rowIds($xpath, $medications, $section, $medications->entries($section))];
             }
         }
@@ -156,7 +155,9 @@ final class PhrCcdaMisroutedMedications
                 foreach ($this->rows($patientId, $chunk)->whereNotNull('retracted_at')->orderBy('id')->lockForUpdate()->get() as $row) {
                     $restored[] = (int) $row->id;
                     if (! $dryRun) {
-                        $row->forceFill(['retracted_at' => null])->save();
+                        // A home list names it: a row retracted before categories were
+                        // stored comes back as the home medication it is.
+                        $row->forceFill(['retracted_at' => null, 'category' => $row->category ?? PhrMedicationCategory::COMMUNITY])->save();
                     }
                 }
             }
@@ -275,7 +276,9 @@ final class PhrCcdaMisroutedMedications
 
         $ids = [];
         foreach ($entries as $entry) {
-            if ($entry->skip || $entry->jobType !== $reader->jobType()) {
+            // An entry of another list (an activity inside a hospital-list act) is
+            // not a home medication, whichever section holds it.
+            if ($entry->skip || $entry->jobType !== $reader->jobType() || ! PhrMedicationCategory::isHomeList(self::category($entry))) {
                 continue;
             }
             foreach ([$entry->record['external_id'] ?? null, $entry->narrativeId] as $id) {
@@ -286,6 +289,13 @@ final class PhrCcdaMisroutedMedications
         }
 
         return $ids;
+    }
+
+    private static function category(PhrCcdaEntry $entry): ?string
+    {
+        $category = $entry->record['category'] ?? null;
+
+        return is_string($category) ? $category : null;
     }
 
     /**

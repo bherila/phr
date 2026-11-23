@@ -2,6 +2,7 @@
 
 namespace App\Services\PHR\NativeBackup;
 
+use App\Support\PHR\PhrMedicationCategory;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -108,6 +109,18 @@ final class PhrNativeLifecycleCompatibility
         ],
         // Which source-ID bridge justified a link (#213 M3); older links name none.
         'phr_ehi_record_links' => ['bridge_version', 'bridge_rule'],
+        // A medication's setting and order details (#413). An older medication's category
+        // is the one the migration gave the row (see legacyValue()); the rest were unknown.
+        'phr_medications' => [
+            'category',
+            'as_needed',
+            'as_needed_reason',
+            'brand_name',
+            'rate',
+            'started_at',
+            'ended_at',
+            'review_flags',
+        ],
     ];
 
     /**
@@ -179,7 +192,7 @@ final class PhrNativeLifecycleCompatibility
         }
 
         foreach ($missing as $column) {
-            $attributes[$column] = self::LEGACY_VALUES[$table][$column] ?? null;
+            $attributes[$column] = self::legacyValue($table, $column, $attributes);
         }
         foreach ($missingRelationships as $column) {
             $relationships[$column] = null;
@@ -195,6 +208,23 @@ final class PhrNativeLifecycleCompatibility
         );
 
         return [...$record, 'attributes' => $normalized['attributes'], 'relationships' => $normalized['relationships'], 'contentHash' => $normalized['contentHash']];
+    }
+
+    /**
+     * What a record of an archive that predates a column holds in it. A medication's
+     * category is the one the migration that added it gave a row like it
+     * (PhrMedicationCategory::backfilled()), so a row restored from an older archive
+     * matches the row the migration updated, and is recognised rather than a conflict.
+     *
+     * @param  array<string, mixed>  $attributes
+     */
+    private static function legacyValue(string $table, string $column, array $attributes): mixed
+    {
+        if ($table === 'phr_medications' && $column === 'category') {
+            return PhrMedicationCategory::backfilled($attributes);
+        }
+
+        return self::LEGACY_VALUES[$table][$column] ?? null;
     }
 
     /** Test seam: the column listing is memoized per process. */

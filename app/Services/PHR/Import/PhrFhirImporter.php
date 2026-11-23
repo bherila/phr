@@ -3,16 +3,20 @@
 namespace App\Services\PHR\Import;
 
 use App\Models\PhrDocument;
+use App\Models\PhrMedication;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatient;
 use App\Services\PHR\Documents\PhrDocumentRelations;
 use App\Services\PHR\Encounters\PhrEncounterLinks;
 use App\Support\PHR\PhrEncounterVocabulary;
+use App\Support\PHR\PhrMedicationCategory;
+use App\Support\PHR\PhrReviewStatus;
 use App\Support\PHR\PhrVisitParticipants;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\File;
 use InvalidArgumentException;
+use Throwable;
 
 class PhrFhirImporter
 {
@@ -33,6 +37,25 @@ class PhrFhirImporter
 
     /** @var array<int, string> entry position => its fullUrl */
     private array $entryUrls = [];
+
+    /**
+     * Home medications sent both as a MedicationStatement and a MedicationRequest.
+     *
+     * @var array{request_of: array<int, int>, statement_of: array<int, int>, flagged: array<int, int>}
+     */
+    private array $medicationPairs = ['request_of' => [], 'statement_of' => [], 'flagged' => []];
+
+    /** FHIR MedicationStatement.status and MedicationRequest.status, as the app's medication statuses. */
+    private const array MEDICATION_STATUSES = [
+        'active' => 'active',
+        'intended' => 'active',
+        'completed' => 'completed',
+        'stopped' => 'discontinued',
+        'cancelled' => 'discontinued',
+        'not-taken' => 'discontinued',
+        'on-hold' => 'on_hold',
+        'draft' => 'on_hold',
+    ];
 
     private PhrFhirDocumentReferences $documentReferences;
 
@@ -88,6 +111,7 @@ class PhrFhirImporter
         $folded = $this->foldedImpressions();
         $written = [];
         $teams = $this->foldedCareTeams();
+        $this->medicationPairs = $this->medicationPairs();
         foreach ($bundleEntries as $position => $entry) {
             if (! is_array($entry) || ! is_array($entry['resource'] ?? null)) {
                 $result->addSkipped();
@@ -96,6 +120,10 @@ class PhrFhirImporter
             }
             if (isset($folded['into'][$position]) || isset($teams['into'][$position])) {
                 // Read as part of the encounter it assesses or staffs, not as a record of its own.
+                continue;
+            }
+            if (isset($this->medicationPairs['statement_of'][$position])) {
+                // A home medication's request, read as part of the statement it pairs with.
                 continue;
             }
 
@@ -370,7 +398,7 @@ class PhrFhirImporter
         }
         try {
             return [Carbon::parse($text), ! str_contains($text, 'T')];
-        } catch (\Throwable) {
+        } catch (Throwable) {
             return null;
         }
     }
@@ -439,15 +467,7 @@ class PhrFhirImporter
                 'verification_status' => $this->codeableText($resource['verificationStatus'] ?? null),
                 'raw_text' => json_encode($resource),
             ]], ['import_source' => 'fhir']),
-            'MedicationStatement' => $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_medication', [[
-                'external_id' => $externalId,
-                'name' => $this->codeableText($resource['medicationCodeableConcept'] ?? null),
-                'status' => $resource['status'] ?? null,
-                'started_on' => data_get($resource, 'effectivePeriod.start') ?? $resource['effectiveDateTime'] ?? null,
-                'ended_on' => data_get($resource, 'effectivePeriod.end'),
-                'dose' => data_get($resource, 'dosage.0.text'),
-                'raw_text' => json_encode($resource),
-            ]], ['import_source' => 'fhir']),
+            'MedicationStatement', 'MedicationRequest' => $this->importMedication($resource, $patient, $actorUserId, $externalId, $position),
             'Procedure' => $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_procedure', [[
                 'external_id' => $externalId,
                 'name' => $this->codeableText($resource['code'] ?? null),
@@ -494,6 +514,358 @@ class PhrFhirImporter
             'DocumentReference' => $this->documentReferences->import($resource, $index, $patient, $actorUserId, $externalId),
             default => new PhrImportResult(skipped: 1),
         };
+    }
+
+    /**
+     * A MedicationStatement or MedicationRequest (#413).
+     *
+     * A request is an order: its category says whether it is for a hospital stay
+     * (inpatient), a clinic (outpatient), the home list (community) or the list the
+     * patient went home with (discharge). A statement's category is its own system's
+     * (community, inpatient, outpatient). Any category but community scopes the
+     * stored id (PhrMedicationCategory::scopedExternalId). A row an import before
+     * #413 stored under the unscoped id, without a category, is moved onto it.
+     *
+     * US Core sends a home medication as both resources. A statement and a community
+     * request that are certainly the same medication (the statement is basedOn or
+     * derivedFrom the request, or they share the only RxNorm code) are one row: the
+     * statement's, with what the request adds where the statement says nothing. A
+     * request that only may be one (the same name without a shared code, or one of
+     * several) is written as its own row flagged possible_duplicate for a person, and
+     * so is either resource when a stored row of the other kind has its name. The
+     * request's encounter stays in raw_text, which keeps the resource as sent.
+     *
+     * @param  array<string, mixed>  $resource
+     */
+    private function importMedication(array $resource, PhrPatient $patient, int $actorUserId, string $externalId, ?int $position): PhrImportResult
+    {
+        $status = $resource['status'] ?? null;
+        if ($status === 'entered-in-error') {
+            return new PhrImportResult(skipped: 1);
+        }
+
+        $record = $this->medicationRecord($resource, $externalId);
+        // A statement's paired request (requests that pair are not read on their own).
+        $paired = $position === null ? null : ($this->medicationPairs['request_of'][$position] ?? null);
+        if ($paired !== null) {
+            $request = $this->resources[$paired];
+            foreach ($this->medicationRecord($request, $this->externalId($request, $this->entryUrls[$paired] ?? null)) as $field => $value) {
+                if (! in_array($field, ['external_id', 'raw_text', 'review_flags'], true) && ($record[$field] ?? null) === null) {
+                    $record[$field] = $value;
+                }
+            }
+            $record['raw_text'] = json_encode([$resource, $request]);
+        }
+
+        $flagged = $position === null ? null : ($this->medicationPairs['flagged'][$position] ?? null);
+        $counterpart = $flagged !== null
+            ? $this->externalId($this->resources[$flagged], $this->entryUrls[$flagged] ?? null)
+            : ($paired === null ? $this->storedCounterpart($patient, $resource, $record) : null);
+        $record['review_flags'] = $counterpart === null ? null : [[
+            'code' => 'possible_duplicate',
+            'message' => 'May be the same home medication as another imported medication ('.$counterpart.'). Keep one and reject the other.',
+            'external_id' => $counterpart,
+        ]];
+
+        $this->adoptUnscoped($patient, $externalId, (string) $record['external_id']);
+
+        return $this->structuredImporter->importUnreviewed($patient, $actorUserId, 'phr_medication', [$record], ['import_source' => 'fhir']);
+    }
+
+    /**
+     * @param  array<string, mixed>  $resource
+     * @return array<string, mixed>
+     */
+    private function medicationRecord(array $resource, string $externalId): array
+    {
+        $isRequest = ($resource['resourceType'] ?? null) === 'MedicationRequest';
+        $category = PhrMedicationCategory::fromFhir($resource['category'] ?? null);
+        $dosage = data_get($resource, $isRequest ? 'dosageInstruction.0' : 'dosage.0');
+        $dosage = is_array($dosage) ? $dosage : [];
+        $concept = $this->medicationConcept($resource);
+        $status = $resource['status'] ?? null;
+
+        if ($isRequest) {
+            $bounds = data_get($dosage, 'timing.repeat.boundsPeriod');
+            $started = $this->text(data_get($bounds, 'start')) ?? $this->text($resource['authoredOn'] ?? null);
+            $ended = $this->text(data_get($bounds, 'end')) ?? $this->endAfter($started, data_get($dosage, 'timing.repeat.boundsDuration'));
+            [$dose, $doseUnit] = $this->doseQuantity(data_get($dosage, 'doseAndRate.0'));
+        } else {
+            $started = $this->text(data_get($resource, 'effectivePeriod.start') ?? $resource['effectiveDateTime'] ?? null);
+            $ended = $this->text(data_get($resource, 'effectivePeriod.end'));
+            // A statement's dose is its dosage as the source wrote it.
+            [$dose, $doseUnit] = [data_get($resource, 'dosage.0.text'), null];
+        }
+        [$asNeeded, $asNeededReason] = $this->asNeeded($dosage);
+
+        return [
+            'external_id' => PhrMedicationCategory::scopedExternalId($externalId, $category),
+            'name' => $this->codeableText($concept) ?? $this->text(data_get($resource, 'medicationReference.display')),
+            'status' => is_string($status) ? (self::MEDICATION_STATUSES[$status] ?? null) : null,
+            'started_on' => $started,
+            'ended_on' => $ended,
+            'started_at' => $started !== null && str_contains($started, 'T') ? $started : null,
+            'ended_at' => $ended !== null && str_contains($ended, 'T') ? $ended : null,
+            'dose' => $dose,
+            ...($isRequest ? [
+                'dose_unit' => $doseUnit,
+                'rxnorm_code' => $this->codeForSystem($concept, 'rxnorm'),
+                'route' => $this->codeableText($dosage['route'] ?? null),
+                'frequency' => $this->frequency($dosage),
+                'prescriber_name' => $this->text(data_get($resource, 'requester.display')),
+                'reason_for_use' => $this->codeableText(data_get($resource, 'reasonCode.0')),
+            ] : []),
+            'category' => $category,
+            'as_needed' => $asNeeded,
+            'as_needed_reason' => $asNeededReason,
+            'rate' => $this->rate(data_get($dosage, 'doseAndRate.0')),
+            'raw_text' => json_encode($resource),
+        ];
+    }
+
+    /**
+     * The medication a statement or request names: its CodeableConcept, or the code
+     * of the Medication its reference names (contained, or in the bundle).
+     *
+     * @param  array<string, mixed>  $resource
+     */
+    private function medicationConcept(array $resource): mixed
+    {
+        if (is_array($resource['medicationCodeableConcept'] ?? null)) {
+            return $resource['medicationCodeableConcept'];
+        }
+        $reference = data_get($resource, 'medicationReference.reference');
+        if (is_string($reference) && str_starts_with($reference, '#')) {
+            foreach (is_array($resource['contained'] ?? null) ? $resource['contained'] : [] as $inner) {
+                if (is_array($inner) && ($inner['id'] ?? null) === substr($reference, 1)) {
+                    return $inner['code'] ?? null;
+                }
+            }
+        }
+        $resolved = $this->resolve($resource['medicationReference'] ?? null);
+
+        return $resolved === null ? null : ($this->resources[$resolved]['code'] ?? null);
+    }
+
+    /**
+     * Pairs each home medication's MedicationRequest with the MedicationStatement it
+     * is (see importMedication()): `request_of` statement position => request
+     * position, `statement_of` the reverse, and `flagged` request position =>
+     * the statement position it only may be.
+     *
+     * @return array{request_of: array<int, int>, statement_of: array<int, int>, flagged: array<int, int>}
+     */
+    private function medicationPairs(): array
+    {
+        $statements = [];
+        $requests = [];
+        foreach ($this->resources as $position => $resource) {
+            $type = $resource['resourceType'] ?? null;
+            $home = PhrMedicationCategory::isHomeList(PhrMedicationCategory::fromFhir($resource['category'] ?? null));
+            if (! $home || ($resource['status'] ?? null) === 'entered-in-error') {
+                continue;
+            }
+            if ($type === 'MedicationStatement') {
+                $statements[] = $position;
+            } elseif ($type === 'MedicationRequest') {
+                $requests[] = $position;
+            }
+        }
+
+        $pairs = ['request_of' => [], 'statement_of' => [], 'flagged' => []];
+        foreach ($requests as $request) {
+            $free = array_values(array_filter($statements, static fn (int $statement): bool => ! isset($pairs['request_of'][$statement])));
+            $linked = array_values(array_filter($free, fn (int $statement): bool => $this->statementNames($statement, $request)));
+            $code = $this->codeForSystem($this->medicationConcept($this->resources[$request]), 'rxnorm');
+            $coded = $code === null ? [] : array_values(array_filter($free, fn (int $statement): bool => $this->codeForSystem($this->medicationConcept($this->resources[$statement]), 'rxnorm') === $code));
+            $name = $this->comparableName($this->resources[$request]);
+            $named = $name === null ? [] : array_values(array_filter($free, fn (int $statement): bool => $this->comparableName($this->resources[$statement]) === $name));
+
+            $certain = match (true) {
+                count($linked) === 1 => $linked[0],
+                $linked === [] && count($coded) === 1 => $coded[0],
+                default => null,
+            };
+            if ($certain !== null) {
+                $pairs['request_of'][$certain] = $request;
+                $pairs['statement_of'][$request] = $certain;
+            } elseif (($maybe = $linked[0] ?? $coded[0] ?? $named[0] ?? null) !== null) {
+                $pairs['flagged'][$request] = $maybe;
+            }
+        }
+
+        return $pairs;
+    }
+
+    /** Whether the statement at `$statement` says it is based on, or derived from, the request at `$request`. */
+    private function statementNames(int $statement, int $request): bool
+    {
+        $resource = $this->resources[$statement];
+        foreach (['basedOn', 'derivedFrom'] as $field) {
+            foreach (is_array($resource[$field] ?? null) ? $resource[$field] : [] as $reference) {
+                if ($this->resolve($reference) === $request) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array<string, mixed>  $resource
+     */
+    private function comparableName(array $resource): ?string
+    {
+        $name = $this->codeableText($this->medicationConcept($resource)) ?? $this->text(data_get($resource, 'medicationReference.display'));
+
+        return $name === null ? null : mb_strtolower((string) preg_replace('/\s+/', ' ', $name));
+    }
+
+    /**
+     * A stored home medication of the other kind (a statement for a request, a request
+     * for a statement) with this one's name, imported from another bundle: the two may
+     * be one medication. Its id, or null.
+     *
+     * @param  array<string, mixed>  $resource
+     * @param  array<string, mixed>  $record
+     */
+    private function storedCounterpart(PhrPatient $patient, array $resource, array $record): ?string
+    {
+        $name = $this->comparableName($resource);
+        if ($name === null || ! PhrMedicationCategory::isHomeList($record['category'] ?? null)) {
+            return null;
+        }
+        $other = ($resource['resourceType'] ?? null) === 'MedicationRequest' ? 'MedicationStatement' : 'MedicationRequest';
+        // This bundle's own medications are paired by medicationPairs(), not here: a
+        // row an earlier entry of the same import just wrote is not "another bundle's".
+        $own = [];
+        foreach ($this->resources as $position => $inBundle) {
+            if (($inBundle['resourceType'] ?? null) === $other) {
+                $own[] = $this->externalId($inBundle, $this->entryUrls[$position] ?? null);
+            }
+        }
+        $query = PhrMedication::query()->where('patient_id', $patient->id)->where('import_source', 'fhir')
+            ->whereNull('retracted_at')->where('review_status', '!=', PhrReviewStatus::REJECTED)
+            ->where('external_id', 'like', $other.'/%')
+            ->when($own !== [], static fn ($rows) => $rows->whereNotIn('external_id', $own))
+            ->whereRaw('LOWER(name) = ?', [$name])
+            ->orderBy('id');
+        PhrMedicationCategory::scopeHomeList($query);
+        $external = $query->value('external_id');
+
+        return is_string($external) ? $external : null;
+    }
+
+    /**
+     * A row an import before #413 stored under the resource's own id, with no category,
+     * is the row now stored under the scoped id.
+     */
+    private function adoptUnscoped(PhrPatient $patient, string $unscoped, string $scoped): void
+    {
+        if ($unscoped === $scoped) {
+            return;
+        }
+        $rows = PhrMedication::withTrashed()->where('patient_id', $patient->id)->where('import_source', 'fhir');
+        if ((clone $rows)->where('external_id', $scoped)->exists()) {
+            return;
+        }
+        (clone $rows)->where('external_id', $unscoped)->whereNull('category')->limit(1)->get()
+            ->each(static fn (PhrMedication $row): bool => $row->forceFill(['external_id' => $scoped])->saveQuietly());
+    }
+
+    /**
+     * A dose's value and unit: a quantity, or a range's bounds.
+     *
+     * @return array{0: string|null, 1: string|null}
+     */
+    private function doseQuantity(mixed $doseAndRate): array
+    {
+        $quantity = data_get($doseAndRate, 'doseQuantity');
+        if (is_array($quantity) && isset($quantity['value'])) {
+            return [(string) $quantity['value'], $this->text($quantity['unit'] ?? $quantity['code'] ?? null)];
+        }
+        $low = data_get($doseAndRate, 'doseRange.low');
+        $high = data_get($doseAndRate, 'doseRange.high');
+        if (isset($low['value'], $high['value'])) {
+            return [$low['value'].'-'.$high['value'], $this->text($low['unit'] ?? $high['unit'] ?? null)];
+        }
+
+        return [null, null];
+    }
+
+    /** A rate as it reads: "75 mL/h", from a rateQuantity, rateRatio or rateRange. */
+    private function rate(mixed $doseAndRate): ?string
+    {
+        $quantity = static fn (mixed $q): ?string => is_array($q) && isset($q['value']) ? trim($q['value'].' '.($q['unit'] ?? $q['code'] ?? '')) : null;
+        if (($rate = $quantity(data_get($doseAndRate, 'rateQuantity'))) !== null) {
+            return $rate;
+        }
+        $numerator = $quantity(data_get($doseAndRate, 'rateRatio.numerator'));
+        $denominator = data_get($doseAndRate, 'rateRatio.denominator');
+        if ($numerator !== null && is_array($denominator)) {
+            $per = (string) ($denominator['unit'] ?? $denominator['code'] ?? '');
+            $value = $denominator['value'] ?? 1;
+
+            return $numerator.'/'.((float) $value === 1.0 ? $per : trim($value.' '.$per));
+        }
+        $low = $quantity(data_get($doseAndRate, 'rateRange.low'));
+        $high = $quantity(data_get($doseAndRate, 'rateRange.high'));
+
+        return $low !== null && $high !== null ? $low.' to '.$high : null;
+    }
+
+    /**
+     * Whether a dosage is as needed, and for what.
+     *
+     * @param  array<string, mixed>  $dosage
+     * @return array{0: bool|null, 1: string|null}
+     */
+    private function asNeeded(array $dosage): array
+    {
+        if (is_bool($dosage['asNeededBoolean'] ?? null)) {
+            return [$dosage['asNeededBoolean'], null];
+        }
+        if (is_array($dosage['asNeededCodeableConcept'] ?? null)) {
+            return [true, $this->codeableText($dosage['asNeededCodeableConcept'])];
+        }
+
+        return [null, null];
+    }
+
+    /**
+     * How often: the timing's code, else "every 6 h" from its repeat.
+     *
+     * @param  array<string, mixed>  $dosage
+     */
+    private function frequency(array $dosage): ?string
+    {
+        $code = $this->codeableText(data_get($dosage, 'timing.code'));
+        if ($code !== null) {
+            return $code;
+        }
+        $repeat = data_get($dosage, 'timing.repeat');
+        if (! is_array($repeat) || ! isset($repeat['period'], $repeat['periodUnit'])) {
+            return null;
+        }
+        $times = (int) ($repeat['frequency'] ?? 1);
+
+        return ($times > 1 ? "{$times} times " : '').'every '.$repeat['period'].' '.$repeat['periodUnit'];
+    }
+
+    /** The end of a course that runs for a duration from its start ("for 5 days"). */
+    private function endAfter(?string $start, mixed $duration): ?string
+    {
+        $value = is_array($duration) ? ($duration['value'] ?? null) : null;
+        $unit = is_array($duration) ? ($duration['code'] ?? $duration['unit'] ?? null) : null;
+        if ($start === null || ! is_numeric($value) || ! in_array($unit, ['d', 'day', 'days'], true)) {
+            return null;
+        }
+        try {
+            return Carbon::parse($start)->addDays((int) $value)->toDateString();
+        } catch (Throwable) {
+            return null;
+        }
     }
 
     /**

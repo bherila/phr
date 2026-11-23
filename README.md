@@ -647,6 +647,7 @@ use synthetic data.
 - [Interface shell: layout, sidebar, URLs](docs/ui-shell.md)
 - [Keyboard navigation](docs/keyboard-navigation.md)
 - [Medication fills: web API contract](docs/medication-fills-contract.md)
+- [Medication setting: home, hospital and discharge lists](docs/medication-setting.md)
 
 Production ordering, supersession records, OHIF publication proof, and intentional
 rollback procedures are described in [.github/deployment-policy.md](.github/deployment-policy.md).
