@@ -24,6 +24,8 @@ class PhrCcdaEncounterEntriesTest extends TestCase
 
     private const string PROBLEM = '2.16.840.1.113883.10.20.22.4.4';
 
+    private const string INDICATION = '2.16.840.1.113883.10.20.22.4.19';
+
     /** ActStatus codes. */
     private const array ACT_STATUS = ['normal', 'aborted', 'active', 'cancelled', 'completed', 'held', 'new', 'suspended', 'nullified', 'obsolete'];
 
@@ -118,6 +120,35 @@ class PhrCcdaEncounterEntriesTest extends TestCase
             $this->assertSame('#encounter-1-detail', $this->one($xpath, 'c:entryRelationship/c:observation/c:text/c:reference/@value', $act)->nodeValue);
         }
         $this->assertSame('Visit 1: diagnoses Synthetic pneumonia, Synthetic named only, Synthetic local code, Synthetic hypokalemia', $this->one($xpath, '//c:section[c:title="Encounters"]/c:text/c:list/c:item[@ID="encounter-1-detail"]')->textContent);
+    }
+
+    public function test_the_chief_complaint_is_an_indication_whose_words_are_the_reason_cell(): void
+    {
+        $xpath = $this->export([
+            $this->visit(1, ['visit_date' => '2026-01-12', 'chief_complaint' => 'Synthetic cough', 'assessment' => 'Synthetic assessment']),
+            $this->visit(2, ['visit_date' => '2026-01-13', 'assessment' => 'Synthetic assessment alone']),
+        ]);
+
+        [$withComplaint, $without] = $this->elements($xpath, '//c:section[c:title="Encounters"]/c:entry/c:encounter');
+        $this->assertCount(0, $this->nodes($xpath, 'c:entryRelationship[@typeCode="RSON"]', $without), 'no complaint, no indication');
+        $indication = $this->el($xpath, 'c:entryRelationship[@typeCode="RSON"]/c:observation', $withComplaint);
+        $this->assertSame(['OBS', 'EVN'], [$indication->getAttribute('classCode'), $indication->getAttribute('moodCode')]);
+        $this->assertSame('2023-05-01', $this->one($xpath, 'c:templateId[@root="'.self::INDICATION.'"]/@extension', $indication)->nodeValue);
+        $this->assertNotSame('', (string) $this->one($xpath, 'c:id/@root', $indication)->nodeValue);
+        $this->assertSame('2.16.840.1.113883.6.96', $this->one($xpath, 'c:code/@codeSystem', $indication)->nodeValue);
+        $this->assertContains($this->one($xpath, 'c:code/@code', $indication)->nodeValue, self::PROBLEM_TYPE);
+        $this->assertContains($this->one($xpath, 'c:statusCode/@code', $indication)->nodeValue, self::ACT_STATUS);
+        $this->assertSame('completed', $this->one($xpath, 'c:statusCode/@code', $indication)->nodeValue);
+        $this->assertSame('20260112', $this->one($xpath, 'c:effectiveTime/c:low/@value', $indication)->nodeValue);
+
+        // The value has no code PHR could state: its words are the table's Reason cell.
+        $value = $this->el($xpath, 'c:value', $indication);
+        $this->assertSame(['OTH', false], [$value->getAttribute('nullFlavor'), $value->hasAttribute('code')]);
+        $this->assertSame('#encounter-1-reason', $this->one($xpath, 'c:originalText/c:reference/@value', $value)->nodeValue);
+        $this->assertSame('#encounter-1-reason', $this->one($xpath, 'c:text/c:reference/@value', $indication)->nodeValue);
+        $cells = $this->elements($xpath, '//c:tr[@ID="encounter-1"]/c:td');
+        $this->assertSame('encounter-1-reason', $cells[3]->getAttribute('ID'));
+        $this->assertSame(['Synthetic cough', 'Synthetic assessment'], [$cells[3]->textContent, $cells[4]->textContent]);
     }
 
     public function test_ids_are_stable_across_exports_and_an_export_without_visits_has_no_entries(): void

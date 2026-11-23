@@ -148,8 +148,8 @@ final class PhrCcdaSyntheticDocument
                     'visit_date' => null,
                     'visit_type' => 'Synthetic visit',
                     'provider_name' => null,
-                    'chief_complaint' => null,
-                    'assessment' => null,
+                    'chief_complaint' => 'Synthetic complaint',
+                    'assessment' => 'Synthetic assessment',
                     // An Encounter Activity with every part the exporter writes.
                     'facility_name' => 'Synthetic hospital',
                     'location' => 'Synthetic unit',

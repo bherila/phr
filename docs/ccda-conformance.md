@@ -154,11 +154,24 @@ diagnoses' `text` references that item.
   (`.4.4:2024-05-01`, code SNOMED `282291009` Diagnosis) per encounter diagnosis, then per
   ICD-10 code the diagnoses do not already name. A diagnosis coded in ICD-10-CM or SNOMED
   CT carries its code; any other is `nullFlavor="OTH"` with its name, never a guessed code.
+- **Indication** (`.4.19:2023-05-01`, `typeCode="RSON"`, code SNOMED `409586006`
+  Complaint) is the chief complaint, written when the visit has one. PHR stores no code
+  for it, so its value is `nullFlavor="OTH"` whose `originalText` references the table's
+  Reason cell (`encounter-N-reason`).
+- **Assessment** has no C-CDA entry inside an Encounter Activity, so it stays the table's
+  Assessment cell. The importer reads an activity's referenced row by its column headers
+  (`Reason`, `Reason for visit` or `Chief complaint`; `Assessment`) for what the entry
+  leaves unsaid, never by column position.
+
+On import, a visit's chief complaint and assessment are never cleared by an Encounter
+Activity that states neither: the row keeps them, including a row the narrative-table
+reader made of an older export and the entry then adopts (`keptWhenUnstated()`).
 
 The baseline's extra recommendations are context the app does not have: a diagnosis
 author, the type as a narrative reference, and the location's address and telephone. The
-engine cannot resolve the ActStatus value sets of Encounter Diagnosis and Problem
-Observation or the ProblemType value set; `PhrCcdaEncounterEntriesTest` checks those codes.
+engine cannot resolve the ActStatus value sets of Encounter Diagnosis, Problem Observation
+and Indication or the ProblemType value set; `PhrCcdaEncounterEntriesTest` checks those
+codes.
 
 ## Validation gate
 

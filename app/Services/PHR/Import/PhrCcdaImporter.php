@@ -299,6 +299,8 @@ class PhrCcdaImporter
      *
      * An Encounter Activity with the header encounter's id is that encounter: what the
      * header says fills what the activity leaves unsaid, and the header is not read again.
+     * A field the reader keeps (keptWhenUnstated()) that an entry leaves unsaid keeps the
+     * value its row already has (keepUnstated()).
      *
      * @param  list<PhrCcdaEntry>  $entries
      * @param  array<string, mixed>|null  $header  the document's encompassingEncounter, until an activity claims it
@@ -333,6 +335,10 @@ class PhrCcdaImporter
                 }
             }
 
+            if (isset($records[$reader->jobType()])) {
+                $records[$reader->jobType()] = $this->keepUnstated($patient, $reader, $records[$reader->jobType()]);
+            }
+
             $result = new PhrImportResult(skipped: $skipped);
             foreach ($records as $jobType => $typeRecords) {
                 $result->merge($this->structuredImporter->importUnreviewed($patient, $actorUserId, $jobType, $typeRecords, $this->options()));
@@ -343,6 +349,52 @@ class PhrCcdaImporter
 
             return $result;
         });
+    }
+
+    /**
+     * The section's records with each field the reader keeps (keptWhenUnstated())
+     * that a record leaves null taken from the row it updates, so the import never
+     * clears it. Runs after PhrCcdaLegacyRows has moved earlier rows onto the entries'
+     * ids, so a row the narrative-table reader made keeps its values too.
+     *
+     * @param  list<array<string, mixed>>  $records
+     * @return list<array<string, mixed>>
+     */
+    private function keepUnstated(PhrPatient $patient, PhrCcdaSectionReader $reader, array $records): array
+    {
+        $kept = $reader->keptWhenUnstated();
+        $externalIds = array_values(array_filter(array_map(static fn (array $record): mixed => $record['external_id'] ?? null, $records), 'is_string'));
+        if ($kept === [] || $externalIds === []) {
+            return $records;
+        }
+
+        // Matched in PHP, byte for byte: a case-insensitive collation must not make two ids match.
+        $existing = [];
+        foreach ($this->attributeMapper->modelClassFor($reader->jobType())::query()
+            ->where('patient_id', $patient->id)
+            ->where('import_source', self::IMPORT_SOURCE)
+            ->whereIn('external_id', $externalIds)
+            ->get(['external_id', ...$kept]) as $row) {
+            $externalId = $row->getAttribute('external_id');
+            if (is_string($externalId)) {
+                $existing[$externalId] = $row;
+            }
+        }
+
+        foreach ($records as $index => $record) {
+            $row = is_string($record['external_id'] ?? null) ? ($existing[$record['external_id']] ?? null) : null;
+            if ($row === null) {
+                continue;
+            }
+            foreach ($kept as $field) {
+                $value = $row->getAttribute($field);
+                if (($record[$field] ?? null) === null && $value !== null && $value !== '') {
+                    $records[$index][$field] = $value;
+                }
+            }
+        }
+
+        return $records;
     }
 
     /**

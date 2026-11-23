@@ -92,6 +92,52 @@ final class PhrCcdaXml
      */
     public function narrativeCells(array $elements): ?array
     {
+        $row = $this->narrativeRow($elements);
+
+        return $row === null ? null : PhrCcdaNarrativeRow::cells($this->xpath, $row);
+    }
+
+    /**
+     * The cells of the narrative-table row one of these elements references, by the
+     * column header each sits under (lower case, whitespace collapsed). Empty when they
+     * reference no such row, or its table names no columns. A column is read by what
+     * its header says, never by its position: vendors order their columns differently.
+     *
+     * @param  list<DOMElement|null>  $elements  elements that may hold a `<reference>`
+     * @return array<string, string>
+     */
+    public function narrativeColumns(array $elements): array
+    {
+        $row = $this->narrativeRow($elements);
+        $header = $row === null ? null : $this->first(
+            'ancestor::*[local-name()="table"][1]/*[local-name()="thead"]/*[local-name()="tr"][1]'
+            .' | ancestor::*[local-name()="table"][1]/*[local-name()="tr"][1][*[local-name()="th"]]',
+            $row,
+        );
+        if ($row === null || $header === null || $header->isSameNode($row)) {
+            return [];
+        }
+
+        $cells = PhrCcdaNarrativeRow::cells($this->xpath, $row);
+        $columns = [];
+        foreach (PhrCcdaNarrativeRow::cells($this->xpath, $header) as $index => $name) {
+            $name = strtolower($name);
+            if ($name !== '' && ! isset($columns[$name]) && ($cells[$index] ?? '') !== '') {
+                $columns[$name] = $cells[$index];
+            }
+        }
+
+        return $columns;
+    }
+
+    /**
+     * The narrative-table data row one of these elements references, as the
+     * narrative-table reader takes it.
+     *
+     * @param  list<DOMElement|null>  $elements  elements that may hold a `<reference>`
+     */
+    private function narrativeRow(array $elements): ?DOMElement
+    {
         foreach ($elements as $element) {
             $reference = $element === null ? null : $this->attribute($this->child($element, 'reference'), 'value');
             $target = $reference !== null && str_starts_with($reference, '#') ? $this->narrativeElement(substr($reference, 1)) : null;
@@ -105,9 +151,7 @@ final class PhrCcdaXml
                 continue;
             }
 
-            $cells = PhrCcdaNarrativeRow::cells($this->xpath, $row);
-
-            return PhrCcdaNarrativeRow::isData($cells) ? $cells : null;
+            return PhrCcdaNarrativeRow::isData(PhrCcdaNarrativeRow::cells($this->xpath, $row)) ? $row : null;
         }
 
         return null;
