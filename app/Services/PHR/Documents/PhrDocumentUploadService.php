@@ -8,6 +8,7 @@ use App\Models\PhrDocument;
 use App\Models\PhrPatient;
 use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
 use App\Services\PHR\Storage\BlobStorageQuota;
+use App\Support\PHR\PhrDocumentUploadLimits;
 use App\Support\Storage\PhrStorageKey;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -96,7 +97,7 @@ final readonly class PhrDocumentUploadService
                         'original_filename' => $originalName,
                         'storage_disk' => PhrDocument::STORAGE_DISK,
                         'storage_path' => $storagePath,
-                        'mime_type' => $data->file->getMimeType() ?: $data->file->getClientMimeType(),
+                        'mime_type' => PhrDocumentUploadLimits::storedMimeType($data->file->getMimeType() ?: $data->file->getClientMimeType(), $originalName),
                         'byte_size' => $byteSize,
                         'file_hash' => $hash,
                         'summary' => $data->summary,

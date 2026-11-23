@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\AgentApi;
 
+use App\Models\PhrDocument;
 use App\Models\PhrDocumentUpload;
 use App\Support\PHR\PhrDocumentUploadLimits;
 use Illuminate\Foundation\Http\FormRequest;
@@ -21,6 +22,7 @@ final class OpenDocumentUploadRequest extends FormRequest
     {
         return [
             'kind' => ['required', 'string', Rule::in(PhrDocumentUpload::KINDS)],
+            'document_type' => ['sometimes', 'nullable', 'string', Rule::in(PhrDocument::DOCUMENT_TYPES)],
             'filename' => ['required', 'string', 'min:1', 'max:255', 'regex:/\A[^\p{C}\/\\\\]+\z/u'],
             'content_type' => ['required', 'string', Rule::in(array_keys(PhrDocumentUploadLimits::CONTENT_TYPES))],
             'byte_size' => ['required', 'integer', 'min:1', 'max:'.PhrDocumentUploadLimits::MAX_BYTES],
@@ -38,13 +40,14 @@ final class OpenDocumentUploadRequest extends FormRequest
         });
     }
 
-    /** @return array{kind: string, filename: string, content_type: string, byte_size: int, sha256: string|null} */
+    /** @return array{kind: string, document_type: string|null, filename: string, content_type: string, byte_size: int, sha256: string|null} */
     public function declared(): array
     {
         $validated = $this->validated();
 
         return [
             'kind' => (string) $validated['kind'],
+            'document_type' => isset($validated['document_type']) ? (string) $validated['document_type'] : null,
             'filename' => (string) $validated['filename'],
             'content_type' => (string) $validated['content_type'],
             'byte_size' => (int) $validated['byte_size'],

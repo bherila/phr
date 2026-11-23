@@ -103,6 +103,11 @@
             "clinical:write"
         ]
     },
+    "documents.content.get": {
+        "scopes": [
+            "documents:read"
+        ]
+    },
     "documents.download": {
         "scopes": [
             "documents:read"
@@ -122,6 +127,13 @@
         "scopes": [
             "documents:read"
         ]
+    },
+    "documents.update": {
+        "scopes": [
+            "documents:read",
+            "documents:write"
+        ],
+        "scope_rule": "all"
     },
     "documents.upload": {
         "scopes": [

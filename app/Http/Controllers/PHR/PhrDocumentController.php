@@ -11,9 +11,11 @@ use App\Models\PhrLabResult;
 use App\Models\PhrOfficeVisit;
 use App\Models\PhrPatientVital;
 use App\Services\PHR\Access\PhrPatientAccessService;
+use App\Services\PHR\Documents\PhrDocumentTextReader;
 use App\Services\PHR\Documents\PhrDocumentUploadService;
 use App\Services\PHR\Import\PhrDocumentProcessingService;
 use App\Support\PHR\PhrDocumentTags;
+use App\Support\PHR\PhrDocumentUploadLimits;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
@@ -194,12 +196,18 @@ class PhrDocumentController extends Controller
 
         $filename = $this->safeDownloadName($document->original_filename ?? ('phr-document-'.$document->id));
         $disposition = $inline ? 'inline' : 'attachment';
+        $contentType = $document->mime_type ?: 'application/octet-stream';
+        // Browsers download text/markdown rather than show it, so the preview
+        // frame is served it as the plain text it is.
+        if ($inline && PhrDocumentTextReader::normalizedType($contentType) === PhrDocumentUploadLimits::MARKDOWN) {
+            $contentType = 'text/plain; charset=utf-8';
+        }
 
         return response()->stream(function () use ($stream): void {
             fpassthru($stream);
             fclose($stream);
         }, 200, [
-            'Content-Type' => $document->mime_type ?: 'application/octet-stream',
+            'Content-Type' => $contentType,
             'Content-Length' => (string) $document->byte_size,
             'Content-Disposition' => "{$disposition}; filename=\"{$filename}\"",
             'Cache-Control' => 'private, no-store',

@@ -222,7 +222,7 @@ final class AgentMcpReadAdapterTest extends TestCase
         $this->assertIsArray($tools);
         $toolNames = array_column($tools, 'name');
         foreach (['capabilities.get', 'patients.list', 'patients.create', 'records.search', 'timeline.list',
-            'clinical.list', 'clinical.get', 'eobs.list', 'documents.get', 'documents.upload',
+            'clinical.list', 'clinical.get', 'eobs.list', 'documents.get', 'documents.content.get', 'documents.update', 'documents.upload',
             'dicom_studies.list', 'dicom_studies.get', 'dicom_series.list', 'dicom_uploads.open', 'dicom_uploads.upload_file',
             'dicom_uploads.finalize', 'dicom_uploads.cancel',
             'reconciliations.preview', 'reconciliations.apply',
@@ -240,7 +240,7 @@ final class AgentMcpReadAdapterTest extends TestCase
             $this->assertContains($name, $toolNames);
         }
         $this->assertCount(
-            65 + (count(AgentClinicalResourceCatalog::writableIds()) * 2),
+            67 + (count(AgentClinicalResourceCatalog::writableIds()) * 2),
             $toolNames,
         );
         $writeTools = [

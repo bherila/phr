@@ -17,6 +17,7 @@ use Illuminate\Support\Carbon;
  * @property int $actor_user_id
  * @property string $import_source
  * @property string $kind
+ * @property string|null $document_type
  * @property string $filename
  * @property string $content_type
  * @property int $byte_size
@@ -48,11 +49,11 @@ class PhrDocumentUpload extends Model
 
     public const string EXPIRED = 'expired';
 
-    /** What kind of document an upload is: it picks the stored document's type and tag. */
+    /** What kind of document an upload is: it picks the stored document's tag, and its type unless document_type names one. */
     public const array KINDS = ['eob', 'pharmacy_receipt', 'rx_label', 'statement', 'other'];
 
     protected $fillable = [
-        'public_id', 'patient_id', 'actor_user_id', 'import_source', 'kind', 'filename', 'content_type',
+        'public_id', 'patient_id', 'actor_user_id', 'import_source', 'kind', 'document_type', 'filename', 'content_type',
         'byte_size', 'sha256', 'status', 'staging_path', 'received_size', 'received_sha256',
         'expires_at', 'uploaded_at', 'finalized_at', 'document_id', 'storage_disk', 'transport',
     ];

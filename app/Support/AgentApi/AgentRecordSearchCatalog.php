@@ -4,6 +4,7 @@ namespace App\Support\AgentApi;
 
 use App\Models\PhrAllergy;
 use App\Models\PhrCondition;
+use App\Models\PhrDocument;
 use App\Models\PhrHealthLog;
 use App\Models\PhrImmunization;
 use App\Models\PhrLabResult;
@@ -27,7 +28,7 @@ final class AgentRecordSearchCatalog
      * @var array<string, array{
      *   model: class-string<Model>, event: non-empty-list<string>, summary: non-empty-list<string>,
      *   q: list<string>, provider: list<string>, facility: list<string>, codes: list<string>, code_arrays: list<string>,
-     *   sources: list<string>, review: list<string>, source_document: bool
+     *   sources: list<string>, review: list<string>, source_document: bool, columns?: non-empty-list<string>, scope?: string
      * }>
      */
     private const array DEFINITIONS = [
@@ -106,12 +107,39 @@ final class AgentRecordSearchCatalog
             'summary' => ['name'], 'q' => ['name', 'description', 'kind'], 'provider' => [], 'facility' => [], 'codes' => [], 'code_arrays' => [],
             'sources' => [], 'review' => [], 'source_document' => false,
         ],
+        // Metadata only, behind documents:read. q matches the title and summary:
+        // a LIKE over extracted text (up to 1 MiB a row) is a full scan on every
+        // supported database, and the text is read with documents.content.get.
+        // The selected columns leave the extracted text unread.
+        'documents' => [
+            'model' => PhrDocument::class,
+            'event' => ['observed_at', 'created_at'],
+            'summary' => ['title', 'original_filename', 'document_type'], 'q' => ['title', 'summary'], 'provider' => [], 'facility' => [],
+            'codes' => [], 'code_arrays' => [], 'sources' => ['source', 'import_source'], 'review' => [], 'source_document' => false,
+            'columns' => [
+                'id', 'patient_id', 'title', 'original_filename', 'document_type', 'observed_at', 'source', 'import_source',
+                'created_at', 'updated_at', 'deleted_at', 'retracted_at',
+            ],
+            'scope' => AgentApiScopes::DOCUMENTS_READ,
+        ],
     ];
+
+    /**
+     * How many types a request may name: all of them. records.search,
+     * timeline.list and changes.list (REST and MCP) declare this bound.
+     */
+    public const int RESOURCE_TYPE_COUNT = 11;
 
     /** @return list<string> */
     public static function ids(): array
     {
         return array_keys(self::DEFINITIONS);
+    }
+
+    /** The scope a type needs beyond the operation's own, or null when it needs none. */
+    public static function requiredScope(string $id): ?string
+    {
+        return self::DEFINITIONS[$id]['scope'] ?? null;
     }
 
     /** @return array<string, mixed> */

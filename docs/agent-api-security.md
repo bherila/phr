@@ -130,6 +130,18 @@ declared private document disk, rejects missing bytes, forces attachment disposi
 and applies no-store, sandbox, and content-sniffing protections. The signature is not
 a bearer credential, and the bearer token alone cannot call the unsigned file route.
 
+`documents.content.get` (also `documents:read`) returns a document's text inline instead
+of its bytes: the file text of plain-text and markdown documents, the extracted text of
+any other type, and for HTML the extracted text or the visible text from an HTML5 parse,
+never markup, scripts, comments or hidden elements. Windows are counted in characters and
+bounded by their JSON-escaped size, so the worst-case MCP response stays well under
+`agent_api.mcp_max_response_body_bytes`. Every response marks the content as untrusted
+data. A document with no text is refused with a pointer to download access.
+`documents.update` needs `documents:read` and `documents:write` and the document's
+current opaque version; it edits title, type, date, summary and tags only. Documents
+appear in `records.search`, `timeline.list` and `changes.list` only for a token that also
+holds `documents:read`, and search matches their title and summary, never their text.
+
 Document creation separately requires `documents:write` plus owner/manager access. The
 browser and agent controllers share one upload service, validation request, canonical
 storage-key builder, and patient artifact write lock. Agent uploads require a stable

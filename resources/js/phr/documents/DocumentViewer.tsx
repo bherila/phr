@@ -9,6 +9,7 @@ import { formatDate as displayDate } from '@/lib/dateFormat'
 import { isBrowserPreviewableImage } from '@/phr/documents/browserImagePreview'
 import { documentSourceLabel } from '@/phr/documents/documentSource'
 import { documentTypeLabel } from '@/phr/documents/documentType'
+import { isTextDocument } from '@/phr/documents/textPreview'
 import { usePhrPatients } from '@/phr/patients/usePhrPatients'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
@@ -255,7 +256,7 @@ function isImage(document: PhrDocument): boolean {
 }
 
 function isTextLike(document: PhrDocument): boolean {
-  return ['text/plain', 'text/html'].includes(document.mime_type ?? '')
+  return isTextDocument(document.mime_type)
 }
 
 function formatDate(value: string | null): string {
