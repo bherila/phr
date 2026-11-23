@@ -139,7 +139,7 @@ original v1 table, or an unknown table still fails closed as `invalid_archive`.
 Columns follow the same idea. A record may lack `deleted_at`/`retracted_at`, and the
 nullable columns listed per table in `PhrNativeLifecycleCompatibility::TABLE_COLUMNS`
 (today the six EHI immunization provenance columns on `phr_immunizations`, the review
-status and lines digest on `phr_eobs`, the reference-bound inclusiveness and EHI lab
+status and lines digest on `phr_eobs`, the review status on `phr_documents` (an older archive's EOBs and documents restore as `confirmed`, what they all were), the reference-bound inclusiveness and EHI lab
 provenance columns on `phr_lab_results`, the EHI encounter context columns on
 `phr_office_visits`, and the source-ID bridge columns on `phr_ehi_record_links`). Nullable relationships added later are listed the same way in
 `PhrNativeLifecycleCompatibility::TABLE_RELATIONSHIPS` (today a lab result or visit as an evidence

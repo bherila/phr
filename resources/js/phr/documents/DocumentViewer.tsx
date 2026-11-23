@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { fetchWrapper } from '@/fetchWrapper'
 import { formatDate as displayDate } from '@/lib/dateFormat'
+import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { isBrowserPreviewableImage } from '@/phr/documents/browserImagePreview'
 import { documentSourceLabel } from '@/phr/documents/documentSource'
 import { documentTypeLabel } from '@/phr/documents/documentType'
@@ -121,7 +122,10 @@ function DocumentView({ document, patientId }: { document: PhrDocument, patientI
           at narrow widths, putting the page and zoom controls under the title. */}
       <div role="toolbar" aria-label="Document" className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <div className="min-w-0 flex-[1_1_16rem]">
-          <h1 className="truncate text-xl font-semibold text-foreground" title={title}>{title}</h1>
+          <div className="flex min-w-0 items-center gap-2">
+            <h1 className="truncate text-xl font-semibold text-foreground" title={title}>{title}</h1>
+            {reviewStatusBadge(document.review_status)}
+          </div>
           <p className="truncate text-xs text-muted-foreground">{facts}</p>
         </div>
         {pdf && numPages !== null && numPages > 1 && (

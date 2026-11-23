@@ -10,6 +10,7 @@ use App\Support\AgentApi\AgentClinicalResourceCatalog;
 use App\Support\AgentApi\AgentClinicalWriteSchemaCatalog;
 use App\Support\AgentApi\AgentRecordSearchCatalog;
 use App\Support\AgentApi\EobWriteRules;
+use App\Support\PHR\PhrReviewStatus;
 use Bherila\McpLaravelBridge\Mcp\ReflectedInputSchemaFactory;
 use Bherila\McpLaravelBridge\Mcp\ToolDefinition;
 
@@ -29,6 +30,7 @@ final class AgentMcpInputSchemaFactory
         if ($definition->name === 'documents.list') {
             $schema['properties']['document_type']['enum'] = PhrDocument::DOCUMENT_TYPES;
             $schema['properties']['source']['enum'] = PhrDocument::SOURCES;
+            $schema['properties']['review_status']['enum'] = PhrReviewStatus::ALL;
         }
         if ($definition->name === 'documents.upload') {
             $schema['properties']['document_type']['enum'] = PhrDocument::DOCUMENT_TYPES;

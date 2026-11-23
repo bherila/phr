@@ -3,6 +3,7 @@
 namespace App\DataTransferObjects\PHR;
 
 use App\Support\PHR\PhrDocumentTags;
+use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Http\UploadedFile;
 
 final readonly class DocumentUploadData
@@ -18,6 +19,7 @@ final readonly class DocumentUploadData
         public string $source,
         public ?string $importSource,
         public ?string $externalId,
+        public string $reviewStatus,
     ) {}
 
     /** @param array<string, mixed> $validated */
@@ -38,7 +40,19 @@ final readonly class DocumentUploadData
             source: $source,
             importSource: $importSource,
             externalId: $externalId,
+            reviewStatus: self::reviewStatusFor($source),
         );
+    }
+
+    /**
+     * A person's own upload (the browser, or a console command run by one) is
+     * confirmed, as a record they enter by hand is. Any other upload, an agent's
+     * among them, waits for that person's review: an agent never asserts that
+     * what it wrote is correct.
+     */
+    private static function reviewStatusFor(string $source): string
+    {
+        return $source === 'manual_upload' ? PhrReviewStatus::CONFIRMED : PhrReviewStatus::PENDING;
     }
 
     private static function nullableString(mixed $value): ?string

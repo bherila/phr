@@ -6,6 +6,7 @@ use App\GenAiProcessor\Models\GenAiImportJob;
 use App\Models\PhrDocument;
 use App\Models\PhrPatient;
 use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
+use App\Support\PHR\PhrReviewStatus;
 use App\Support\Storage\PhrStorageKey;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -128,6 +129,9 @@ class PhrDocumentImporter
                     'import_source' => 'genai',
                     'external_id' => 'genai-job-'.$job->id,
                     'imported_at' => now(),
+                    // Every field here is what the AI read; the document itself
+                    // waits for a person, as an agent's upload does.
+                    'review_status' => PhrReviewStatus::PENDING,
                 ]);
             } catch (\Throwable $exception) {
                 $this->deleteUnpublishedDocument($storagePath);
@@ -138,6 +142,10 @@ class PhrDocumentImporter
     }
 
     /**
+     * The person accepting the AI proposal reviewed what it changes, as they did
+     * the records it brings (which land confirmed), so the document keeps its
+     * review status.
+     *
      * @param  array<string, mixed>  $payload
      */
     public function updateDocumentFromGenAiResult(PhrDocument $document, GenAiImportJob $job, array $payload): PhrDocument
@@ -158,8 +166,12 @@ class PhrDocumentImporter
     }
 
     /**
+     * With a `review_status` option (an unreviewed import's pending_review), a new
+     * document lands in it and an existing one the payload changes returns to it;
+     * an existing one the payload leaves as it is keeps the review it has.
+     *
      * @param  array<string, mixed>  $payload
-     * @param  array{import_source?: string, source?: string, external_id?: string|null, genai_job_id?: int|null, source_document_id?: int|null}  $options
+     * @param  array{import_source?: string, source?: string, external_id?: string|null, genai_job_id?: int|null, source_document_id?: int|null, review_status?: string}  $options
      */
     public function createOrUpdateDocument(PhrPatient $patient, int $actorUserId, array $payload, array $options): PhrDocument
     {
@@ -201,7 +213,12 @@ class PhrDocumentImporter
             'imported_at' => now(),
         ];
 
-        return $this->upserter->upsert(PhrDocument::class, $attributes);
+        $review = $options['review_status'] ?? null;
+        if ($review !== null) {
+            $attributes['review_status'] = $review;
+        }
+
+        return $this->upserter->upsert(PhrDocument::class, $attributes, $review);
     }
 
     /**

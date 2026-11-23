@@ -448,6 +448,8 @@ export const PhrDocumentSchema = z.object({
   summary: nullableString,
   source: z.string().nullable(),
   tags: z.array(z.string()),
+  // Machine-written documents wait in pending_review; only a confirmed one is exported.
+  review_status: PhrReviewStatusSchema.optional(),
   imported_at: nullableString,
   created_at: nullableString,
   updated_at: nullableString,

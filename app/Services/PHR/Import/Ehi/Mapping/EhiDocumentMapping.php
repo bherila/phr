@@ -19,6 +19,7 @@ use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentFinding;
 use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentRecordIndex;
 use App\Services\PHR\Import\Ehi\Mapping\Document\EhiDocumentValues;
 use App\Support\PHR\PhrRecordLifecycle;
+use App\Support\PHR\PhrReviewStatus;
 use Generator;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Throwable;
@@ -1213,6 +1214,8 @@ final readonly class EhiDocumentMapping implements EhiMapping
                     'source' => self::SOURCE,
                     'tags' => is_array($attributes['tags'] ?? null) ? array_values($attributes['tags']) : [self::TAG_IMPORTED],
                     'imported_at' => $context->now,
+                    // The patient's owner approved this proposal: that was the review.
+                    'review_status' => PhrReviewStatus::CONFIRMED,
                 ]);
             } catch (UniqueConstraintViolationException) {
                 $this->files->delete($stored['path']);

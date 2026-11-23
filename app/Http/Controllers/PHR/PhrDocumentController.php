@@ -4,6 +4,7 @@ namespace App\Http\Controllers\PHR;
 
 use App\DataTransferObjects\PHR\DocumentUploadData;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\PHR\ReviewClinicalRecordRequest;
 use App\Http\Requests\PHR\StorePhrDocumentRequest;
 use App\Http\Requests\PHR\UpdatePhrDocumentRequest;
 use App\Models\PhrDocument;
@@ -14,14 +15,18 @@ use App\Services\PHR\Access\PhrPatientAccessService;
 use App\Services\PHR\Documents\PhrDocumentTextReader;
 use App\Services\PHR\Documents\PhrDocumentUploadService;
 use App\Services\PHR\Import\PhrDocumentProcessingService;
+use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\PHR\PhrDocumentTags;
 use App\Support\PHR\PhrDocumentUploadLimits;
+use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\HttpKernel\Exception\ConflictHttpException;
 
 class PhrDocumentController extends Controller
 {
@@ -49,6 +54,12 @@ class PhrDocumentController extends Controller
         if ($source !== null && $source !== 'all') {
             abort_unless(in_array($source, PhrDocument::SOURCES, true), 422, 'Invalid document source.');
             $query->where('source', $source);
+        }
+
+        // A rejected document leaves the working list, as a rejected record does.
+        // It stays reachable, so a mistaken rejection can be undone, on request.
+        if (! $request->boolean('include_rejected')) {
+            $query->where('review_status', '!=', PhrReviewStatus::REJECTED);
         }
 
         $dateFrom = $this->stringQuery($request, 'date_from');
@@ -126,6 +137,32 @@ class PhrDocumentController extends Controller
         $resolvedDocument->update($validated);
 
         return response()->json(['document' => $this->payload($resolvedDocument->refresh())]);
+    }
+
+    /**
+     * Records a reviewer's decision on a document, the only way one leaves
+     * `pending_review`. With a version, the decision applies only if the document
+     * is unchanged since the reviewer read it (409 otherwise), as for a record.
+     */
+    public function review(ReviewClinicalRecordRequest $request, int $patient, int $document): JsonResponse
+    {
+        $userId = (int) $request->user()?->id;
+        $resolvedPatient = $this->accessService->writablePatient($patient, $userId);
+        $expected = $request->expectedVersion();
+        $reviewed = DB::transaction(function () use ($resolvedPatient, $document, $expected, $request): PhrDocument {
+            $locked = PhrDocument::query()
+                ->where('patient_id', $resolvedPatient->id)
+                ->lockForUpdate()
+                ->findOrFail($document);
+            if ($expected !== null && ! hash_equals(app(AgentClinicalRecordVersion::class)->for($locked), $expected)) {
+                throw new ConflictHttpException('This document changed since it was loaded. Reload and review it again.');
+            }
+            $locked->update(['review_status' => $request->reviewStatus()]);
+
+            return $locked;
+        });
+
+        return response()->json(['document' => $this->payload($reviewed->refresh())]);
     }
 
     public function destroy(Request $request, int $patient, int $document): JsonResponse
@@ -237,6 +274,7 @@ class PhrDocumentController extends Controller
             'summary' => $document->summary,
             'source' => $document->source,
             'tags' => $document->tags ?? [],
+            'review_status' => $document->review_status,
             'imported_at' => $document->imported_at?->toDateTimeString(),
             'created_at' => $document->created_at?->toDateTimeString(),
             'updated_at' => $document->updated_at?->toDateTimeString(),

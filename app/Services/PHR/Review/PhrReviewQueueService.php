@@ -68,6 +68,8 @@ final readonly class PhrReviewQueueService
         'procedures' => PhrProcedure::class,
         'immunizations' => PhrImmunization::class,
         'allergies' => PhrAllergy::class,
+        // Documents wait for review too (phr#408): only a confirmed one is exported.
+        'documents' => PhrDocument::class,
     ];
 
     /** The browser review route's segment, where it differs from the page id. */
@@ -273,7 +275,7 @@ final readonly class PhrReviewQueueService
                 [$page, PhrReviewStatus::PENDING],
             )->groupBy('patient_id');
         }
-        foreach (['health-log' => PhrHealthLog::class, 'documents' => PhrDocument::class, 'imaging' => PhrDicomStudy::class] as $page => $model) {
+        foreach (['health-log' => PhrHealthLog::class, 'imaging' => PhrDicomStudy::class] as $page => $model) {
             $parts[] = $model::query()->whereIn('patient_id', $patientIds)->toBase()
                 ->selectRaw('patient_id, ? as section, count(*) as records, 0 as pending, max(updated_at) as last_updated', [$page])
                 ->groupBy('patient_id');
@@ -697,6 +699,10 @@ final readonly class PhrReviewQueueService
             'procedures' => [(string) ($a('name') ?: 'Procedure'), $this->join([$this->date($a('performed_at') ?? $a('performed_on')), $a('performer_name')])],
             'immunizations' => [(string) ($a('vaccine_name') ?: 'Immunization'), $this->join([$this->date($a('administered_on')), $a('dose_number') ? 'dose '.$a('dose_number') : null])],
             'allergies' => [(string) ($a('substance') ?: 'Allergy'), $this->join([$a('reaction'), $a('severity')])],
+            'documents' => [
+                (string) ($a('title') ?: $a('original_filename') ?: 'Document'),
+                $this->join([$a('document_type') ? Str::headline((string) $a('document_type')) : null, $this->date($a('observed_at'))]),
+            ],
             default => [Str::headline($page), null],
         };
     }

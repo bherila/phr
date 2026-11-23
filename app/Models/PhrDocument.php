@@ -5,6 +5,7 @@ namespace App\Models;
 use App\GenAiProcessor\Models\GenAiImportJob;
 use App\Support\PHR\PhrDocumentSource;
 use App\Support\PHR\PhrDocumentType;
+use App\Support\PHR\PhrReviewStatus;
 use App\Traits\HasPublicId;
 use App\Traits\SerializesDatesAsLocal;
 use Illuminate\Database\Eloquent\Collection;
@@ -36,6 +37,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $import_source
  * @property string|null $external_id
  * @property Carbon|null $imported_at
+ * @property string $review_status
  * @property Carbon|null $deleted_at
  * @property Carbon|null $retracted_at
  * @property Carbon|null $created_at
@@ -113,10 +115,16 @@ class PhrDocument extends Model
     /**
      * A writer that names no type stores `other`, the same as the column default.
      *
+     * A writer that names no review status stores `confirmed`, the column default:
+     * a person's own upload and what the console commands store. Every machine
+     * writer (an agent, an AI read, a standards import) names `pending_review`, so
+     * nothing unreviewed reaches an export (PhrReviewStatus).
+     *
      * @var array<string, mixed>
      */
     protected $attributes = [
         'document_type' => PhrDocumentType::FALLBACK,
+        'review_status' => PhrReviewStatus::CONFIRMED,
     ];
 
     protected $fillable = [
@@ -140,6 +148,7 @@ class PhrDocument extends Model
         'import_source',
         'external_id',
         'imported_at',
+        'review_status',
     ];
 
     protected static function booted(): void

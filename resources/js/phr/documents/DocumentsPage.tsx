@@ -20,6 +20,9 @@ import { Input } from '@/components/ui/input'
 import { fetchWrapper } from '@/fetchWrapper'
 import { formatDate } from '@/lib/dateFormat'
 import { formatBytes } from '@/lib/utils'
+import { type PhrReviewDecision, ReviewActions, ShowRejectedToggle } from '@/phr/clinical/review'
+import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
+import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { isBrowserPreviewableImage } from '@/phr/documents/browserImagePreview'
 import { DOCUMENT_SOURCE_LABELS, documentSourceLabel } from '@/phr/documents/documentSource'
 import { DOCUMENT_TYPE_LABELS, DOCUMENT_TYPE_OPTIONS, documentTypeLabel, isKnownDocumentType } from '@/phr/documents/documentType'
@@ -72,6 +75,8 @@ interface FilterState {
   tag: string
   date_from: string
   date_to: string
+  /** A rejected document leaves the list, as a rejected record does, until asked for. */
+  show_rejected: boolean
 }
 
 const emptyUploadForm: UploadFormState = {
@@ -88,6 +93,7 @@ const emptyFilters: FilterState = {
   tag: '',
   date_from: '',
   date_to: '',
+  show_rejected: false,
 }
 
 export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) {
@@ -106,6 +112,7 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
   const [saving, setSaving] = useState(false)
   const [processingId, setProcessingId] = useState<number | null>(null)
   const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [reviewingId, setReviewingId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const selectedDocument = useMemo(
@@ -123,6 +130,7 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
       if (filters.tag.trim() !== '') params.set('tag', filters.tag.trim())
       if (filters.date_from !== '') params.set('date_from', filters.date_from)
       if (filters.date_to !== '') params.set('date_to', filters.date_to)
+      if (filters.show_rejected) params.set('include_rejected', '1')
 
       const query = params.toString()
       const raw = await fetchWrapper.get(`/api/phr/patients/${patientId}/documents${query ? `?${query}` : ''}`)
@@ -238,6 +246,22 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
     }
   }
 
+  async function reviewDocument(document: PhrDocument, decision: PhrReviewDecision): Promise<void> {
+    setReviewingId(document.id)
+    setError(null)
+    try {
+      const raw = await recordReviewDecision(`/api/phr/patients/${patientId}/documents/${document.id}`, decision)
+      const reviewed = PhrDocumentSchema.parse((raw as { document: unknown }).document)
+      setDocuments((current) => current
+        .map((candidate) => (candidate.id === reviewed.id ? reviewed : candidate))
+        .filter((candidate) => filters.show_rejected || candidate.review_status !== 'rejected'))
+    } catch (caught) {
+      setError(errorMessage(caught))
+    } finally {
+      setReviewingId(null)
+    }
+  }
+
   async function deleteDocument(document: PhrDocument): Promise<void> {
     setDeletingId(document.id)
     setError(null)
@@ -325,6 +349,7 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
             <LabeledInput label="Tag" value={filters.tag} onChange={(value) => setFilters((current) => ({ ...current, tag: value }))} />
             <LabeledInput label="From" type="date" value={filters.date_from} onChange={(value) => setFilters((current) => ({ ...current, date_from: value }))} />
             <LabeledInput label="To" type="date" value={filters.date_to} onChange={(value) => setFilters((current) => ({ ...current, date_to: value }))} />
+            <ShowRejectedToggle showRejected={filters.show_rejected} onChange={(showRejected) => setFilters((current) => ({ ...current, show_rejected: showRejected }))} />
             <Button type="button" variant="ghost" size="sm" onClick={() => setFilters(emptyFilters)}>
               Clear
             </Button>
@@ -413,7 +438,10 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
                 renderItem={(document) => (
                   <>
                     <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium text-foreground">{displayTitle(document)}</span>
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="block truncate text-sm font-medium text-foreground">{displayTitle(document)}</span>
+                        {reviewStatusBadge(document.review_status)}
+                      </span>
                       {document.summary && <span className="mt-1 block line-clamp-1 text-sm text-muted-foreground">{document.summary}</span>}
                     </span>
                     <span className="text-sm text-muted-foreground">{documentTypeLabel(document.document_type)}</span>
@@ -435,6 +463,19 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
                   <p className="mt-1 text-xs text-muted-foreground">
                     {[documentTypeLabel(selectedDocument.document_type), formatBytes(selectedDocument.byte_size), formatDate(selectedDocument.observed_at)].filter(Boolean).join(' · ')}
                   </p>
+                  {selectedDocument.review_status && selectedDocument.review_status !== 'confirmed' && (
+                    <div className="mt-2 flex items-center gap-2">
+                      {reviewStatusBadge(selectedDocument.review_status)}
+                      {canManage && (
+                        <ReviewActions
+                          status={selectedDocument.review_status}
+                          label={displayTitle(selectedDocument)}
+                          busy={reviewingId === selectedDocument.id}
+                          onReview={(decision) => void reviewDocument(selectedDocument, decision)}
+                        />
+                      )}
+                    </div>
+                  )}
                 </div>
                 {canManage && (
                   <Button type="button" variant="outline" size="sm" onClick={() => void processWithGenAi(selectedDocument)} disabled={processingId === selectedDocument.id}>
@@ -559,7 +600,10 @@ function DocumentCard({ document, selected, onSelect }: DocumentCardProps) {
         <Thumbnail document={document} />
       </div>
       <div className="min-w-0">
-        <p className="truncate text-sm font-semibold text-card-foreground">{displayTitle(document)}</p>
+        <div className="flex min-w-0 items-center gap-2">
+          <p className="truncate text-sm font-semibold text-card-foreground">{displayTitle(document)}</p>
+          {reviewStatusBadge(document.review_status)}
+        </div>
         <p className="mt-1 text-xs text-muted-foreground">
           {[documentTypeLabel(document.document_type), formatDate(document.observed_at), formatBytes(document.byte_size)].filter(Boolean).join(' · ')}
         </p>

@@ -142,6 +142,22 @@ current opaque version; it edits title, type, date, summary and tags only. Docum
 appear in `records.search`, `timeline.list` and `changes.list` only for a token that also
 holds `documents:read`, and search matches their title and summary, never their text.
 
+Documents carry the same server-owned review status as clinical records (phr#408). An
+agent's upload (multipart, MCP or signed), a document an AI read created, and a FHIR
+`DocumentReference` land in `pending_review`; any effective `documents.update` returns
+the document there, and an exact repeat leaves it as it is. A person's own browser upload,
+an EHI export document the owner approved, and what the console commands store are
+`confirmed`, as were all documents before the column existed. Only the browser review
+route (`PATCH /api/phr/patients/{patient}/documents/{document}/review`, from the Review
+page or the Documents page) confirms or rejects one, conditionally on a listed version.
+`documents.list` filters by `review_status`, and so does `records.search` for documents.
+FHIR `DocumentReference`, the C-CDA "Documents" section, the PDF summary and the export
+archive's document files carry confirmed, unretracted documents only, and a record citing
+a document the export leaves out is exported without its `source_document_id`. No export
+marks any document as clinician-authenticated (no C-CDA `legalAuthenticator` or
+`authenticator`, no FHIR `authenticator`); text an agent wrote (`source = agent_upload`)
+stays the agent's, whatever a person approved.
+
 Document creation separately requires `documents:write` plus owner/manager access. The
 browser and agent controllers share one upload service, validation request, canonical
 storage-key builder, and patient artifact write lock. Agent uploads require a stable

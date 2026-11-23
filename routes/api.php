@@ -541,6 +541,7 @@ Route::middleware(['web', 'auth'])
         Route::get('/patients/{patient}/documents/{document}/file', [PhrDocumentController::class, 'file'])->whereNumber(['patient', 'document'])->name('patients.documents.file');
         Route::patch('/patients/{patient}/documents/{document}', [PhrDocumentController::class, 'update'])->whereNumber(['patient', 'document'])->name('patients.documents.update');
         Route::delete('/patients/{patient}/documents/{document}', [PhrDocumentController::class, 'destroy'])->whereNumber(['patient', 'document'])->name('patients.documents.destroy');
+        Route::patch('/patients/{patient}/documents/{document}/review', [PhrDocumentController::class, 'review'])->whereNumber(['patient', 'document'])->name('patients.documents.review');
         Route::post('/patients/{patient}/documents/{document}/process', [PhrDocumentController::class, 'process'])->whereNumber(['patient', 'document'])->name('patients.documents.process');
         // Epic EHI Tables import from the browser (#235): chunked ZIP upload, queued
         // intake, binding, preview, and per-proposal review over the CLI's services.

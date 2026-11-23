@@ -212,8 +212,9 @@ class PhrReviewQueueTest extends TestCase
 
         self::assertSame($few, $many, 'listing more pending items must not issue more queries');
         // Each budget includes the provider identity cutover row, read once per request while the
-        // enforcement setting is off: a constant read, never one per item.
-        self::assertLessThanOrEqual(27, $many);
+        // enforcement setting is off: a constant read, never one per item. Pending documents
+        // are one more section query (phr#408).
+        self::assertLessThanOrEqual(28, $many);
         self::assertLessThanOrEqual(9, $this->queriesFor(fn () => $this->actingAs($owner)->getJson($this->url($patient).'/summary')->assertOk()));
     }
 

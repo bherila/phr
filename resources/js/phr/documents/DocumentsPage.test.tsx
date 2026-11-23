@@ -63,6 +63,32 @@ beforeEach(() => {
 })
 
 describe('DocumentsPage', () => {
+  it('shows a document waiting for review and records the decision on its review route', async () => {
+    mockGet.mockResolvedValue({
+      documents: [makeDocument({ source: 'agent_upload', review_status: 'pending_review', title: 'Daily Progress Note' })],
+      can_manage: true,
+    })
+    mockPatch.mockResolvedValue({ document: makeDocument({ source: 'agent_upload', review_status: 'confirmed', title: 'Daily Progress Note' }) })
+
+    render(<DocumentsPage patientId={42} />)
+
+    expect((await screen.findAllByText('Pending review')).length).toBeGreaterThan(0)
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirm Daily Progress Note' }))
+
+    await waitFor(() => expect(mockPatch).toHaveBeenCalledWith('/api/phr/patients/42/documents/10/review', { review_status: 'confirmed' }))
+    await waitFor(() => expect(screen.queryByText('Pending review')).not.toBeInTheDocument())
+  })
+
+  it('asks for rejected documents only when they are shown', async () => {
+    render(<DocumentsPage patientId={42} />)
+    await screen.findAllByText('January Labs')
+    expect(mockGet).toHaveBeenLastCalledWith('/api/phr/patients/42/documents')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show rejected' }))
+
+    await waitFor(() => expect(mockGet).toHaveBeenLastCalledWith('/api/phr/patients/42/documents?include_rejected=1'))
+  })
+
   it('preserves and labels documents uploaded by an authorized agent', async () => {
     mockGet.mockResolvedValue({
       documents: [makeDocument({ source: 'agent_upload' })],
