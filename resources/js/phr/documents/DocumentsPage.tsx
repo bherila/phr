@@ -250,7 +250,8 @@ export default function DocumentsPage({ patientId, onDrill }: PhrListPageProps) 
     setReviewingId(document.id)
     setError(null)
     try {
-      const raw = await recordReviewDecision(`/api/phr/patients/${patientId}/documents/${document.id}`, decision)
+      // Conditional on the version loaded: a document an agent changed since is refused, not approved.
+      const raw = await recordReviewDecision(`/api/phr/patients/${patientId}/documents/${document.id}`, decision, document.version)
       const reviewed = PhrDocumentSchema.parse((raw as { document: unknown }).document)
       setDocuments((current) => current
         .map((candidate) => (candidate.id === reviewed.id ? reviewed : candidate))

@@ -142,17 +142,20 @@ class PhrDocumentImporter
     }
 
     /**
-     * The person accepting the AI proposal reviewed what it changes, as they did
-     * the records it brings (which land confirmed), so the document keeps its
-     * review status.
+     * A person accepting the AI proposal in the browser reviewed what it changes,
+     * so the document keeps its review status. An agent accepting it (imports.review,
+     * possibly with its own replacement payload) is not a person's review: with
+     * `$reopenReviewOnChange`, a change to the document's content returns it to
+     * `pending_review`, as an agent's documents.update does. Linking the job alone
+     * is not a change.
      *
      * @param  array<string, mixed>  $payload
      */
-    public function updateDocumentFromGenAiResult(PhrDocument $document, GenAiImportJob $job, array $payload): PhrDocument
+    public function updateDocumentFromGenAiResult(PhrDocument $document, GenAiImportJob $job, array $payload, bool $reopenReviewOnChange = false): PhrDocument
     {
         $payload = $this->documentPayload($payload);
 
-        $document->update([
+        $document->fill([
             'genai_job_id' => $job->id,
             'title' => ValueCoercion::string($payload['title'] ?? null) ?? $document->title,
             'document_type' => ValueCoercion::normalizeDocumentType($payload['document_type'] ?? $document->document_type),
@@ -161,6 +164,10 @@ class PhrDocumentImporter
             'summary' => ValueCoercion::string($payload['summary'] ?? null) ?? $document->summary,
             'tags' => ValueCoercion::tags($payload['tags'] ?? null) ?? $document->tags,
         ]);
+        if ($reopenReviewOnChange && $document->isDirty(['title', 'document_type', 'observed_at', 'extracted_text', 'summary', 'tags'])) {
+            $document->setAttribute('review_status', PhrReviewStatus::PENDING);
+        }
+        $document->save();
 
         return $document->refresh();
     }

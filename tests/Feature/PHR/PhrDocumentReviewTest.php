@@ -3,6 +3,7 @@
 namespace Tests\Feature\PHR;
 
 use App\GenAiProcessor\Models\GenAiImportJob;
+use App\GenAiProcessor\Models\GenAiImportResult;
 use App\Models\PhrDocument;
 use App\Models\PhrLabResult;
 use App\Models\PhrPatient;
@@ -262,6 +263,89 @@ final class PhrDocumentReviewTest extends TestCase
         $upload = $this->document('Medication education leaflet', []);
         app(PhrStructuredDataImporter::class)->updateDocumentFromGenAiResult($upload, $job, ['summary' => 'Synthetic leaflet summary.']);
         $this->assertSame(PhrReviewStatus::CONFIRMED, $upload->refresh()->review_status);
+    }
+
+    public function test_an_agent_accepting_an_ai_proposal_that_changes_a_confirmed_document_reopens_its_review(): void
+    {
+        // An agent accepting through imports.review, with its own replacement payload, is not
+        // a person's review: a confirmed document it changes goes back to pending_review.
+        $changed = $this->document('Medication education leaflet', []);
+        [$job, $result] = $this->aiProposal($changed, ['title' => 'Medication education leaflet', 'summary' => 'AI summary.']);
+        $this->agent([AgentApiScopes::IMPORTS_WRITE]);
+        $this->postJson("/api/v1/patients/{$this->patient->id}/imports/{$job->id}/results/{$result->id}/review", [
+            'action' => 'accept', 'payload' => ['title' => 'Signed progress note by Dr X', 'summary' => 'Agent replacement.'],
+        ])->assertOk()->assertJsonPath('outcome', 'accepted');
+        $changed->refresh();
+        $this->assertSame('Signed progress note by Dr X', $changed->title);
+        $this->assertSame(PhrReviewStatus::PENDING, $changed->review_status);
+        $this->assertStringNotContainsString('Signed progress note by Dr X', app(PhrCcdaExporter::class)->documentXml(app(PhrExportDataService::class)->load($this->patient)));
+
+        // One it leaves as it was (only the job is linked) keeps its confirmation.
+        $unchanged = $this->document('Consent for treatment', ['document_type' => 'consent']);
+        [$job, $result] = $this->aiProposal($unchanged, ['title' => 'Consent for treatment', 'document_type' => 'consent']);
+        $this->postJson("/api/v1/patients/{$this->patient->id}/imports/{$job->id}/results/{$result->id}/review", ['action' => 'accept'])->assertOk();
+        $this->assertSame((int) $job->id, $unchanged->refresh()->genai_job_id);
+        $this->assertSame(PhrReviewStatus::CONFIRMED, $unchanged->review_status);
+    }
+
+    public function test_a_person_accepting_an_ai_proposal_in_the_browser_keeps_the_documents_review(): void
+    {
+        $document = $this->document('Wound photo', []);
+        [$job, $result] = $this->aiProposal($document, ['title' => 'Wound photo, left heel', 'summary' => 'AI summary.']);
+        $this->actingAs($this->owner)->postJson("/api/phr/patients/{$this->patient->id}/ai-imports/{$job->id}/results/{$result->id}/accept")->assertOk();
+        $document->refresh();
+        $this->assertSame('Wound photo, left heel', $document->title);
+        $this->assertSame(PhrReviewStatus::CONFIRMED, $document->review_status);
+    }
+
+    public function test_a_browser_decision_is_made_against_the_version_the_page_loaded(): void
+    {
+        $upload = $this->actingAs($this->owner)->post("/api/phr/patients/{$this->patient->id}/documents", [
+            'file' => UploadedFile::fake()->createWithContent('consent.txt', 'Synthetic consent for treatment.'),
+            'document_type' => 'consent',
+        ], ['Accept' => 'application/json'])->assertCreated()->json('document');
+        $this->assertMatchesRegularExpression('/\A[a-f0-9]{64}\z/', $upload['version']);
+        $this->assertSame($upload['version'], $this->getJson("/api/phr/patients/{$this->patient->id}/documents/{$upload['id']}")->assertOk()->json('document.version'), 'an upload hands back the version a read reports');
+
+        $note = $this->document('Daily Progress Note', ['source' => 'agent_upload', 'review_status' => PhrReviewStatus::PENDING]);
+        $loaded = collect($this->getJson("/api/phr/patients/{$this->patient->id}/documents")->assertOk()->json('documents'))->firstWhere('id', $note->id);
+        $this->assertIsArray($loaded);
+
+        // An agent edits the document after the page loaded: approving what was loaded is refused.
+        $this->agent([AgentApiScopes::DOCUMENTS_READ, AgentApiScopes::DOCUMENTS_WRITE]);
+        $current = $this->getJson("/api/v1/patients/{$this->patient->id}/documents/{$note->id}")->assertOk()->json('data.version');
+        $this->patchJson("/api/v1/patients/{$this->patient->id}/documents/{$note->id}", ['expected_version' => $current, 'data' => ['title' => 'Signed progress note by Dr X']])->assertOk();
+
+        $review = "/api/phr/patients/{$this->patient->id}/documents/{$note->id}/review";
+        $this->actingAs($this->owner)->patchJson($review, ['review_status' => PhrReviewStatus::CONFIRMED, 'version' => $loaded['version']])->assertConflict();
+        $this->assertSame(PhrReviewStatus::PENDING, $note->refresh()->review_status);
+
+        $reloaded = $this->actingAs($this->owner)->getJson("/api/phr/patients/{$this->patient->id}/documents/{$note->id}")->assertOk()->json('document.version');
+        $this->actingAs($this->owner)->patchJson($review, ['review_status' => PhrReviewStatus::CONFIRMED, 'version' => $reloaded])->assertOk()
+            ->assertJsonPath('document.review_status', PhrReviewStatus::CONFIRMED);
+    }
+
+    /**
+     * An AI proposal read from `$document`, as "Send to AI" makes one.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array{0: GenAiImportJob, 1: GenAiImportResult}
+     */
+    private function aiProposal(PhrDocument $document, array $payload): array
+    {
+        $job = GenAiImportJob::query()->create([
+            'user_id' => $this->owner->id, 'job_type' => 'phr_document', 'file_hash' => hash('sha256', 'synthetic '.$document->id),
+            'original_filename' => 'synthetic.pdf', 's3_path' => 'genai-import/synthetic/'.$document->id, 'mime_type' => 'application/pdf',
+            'file_size_bytes' => 24, 'status' => 'parsed', 'parsed_at' => now(), 'execution_mode' => GenAiImportJob::EXECUTION_EXTERNAL,
+            'context_json' => json_encode(['patient_id' => $this->patient->id, 'document_id' => $document->id], JSON_THROW_ON_ERROR),
+        ]);
+        $document->update(['genai_job_id' => $job->id]);
+        $result = GenAiImportResult::query()->create([
+            'job_id' => $job->id, 'result_index' => 0, 'status' => 'pending_review', 'produced_by' => 'synthetic',
+            'result_json' => json_encode($payload, JSON_THROW_ON_ERROR),
+        ]);
+
+        return [$job, $result];
     }
 
     /** @param list<string> $scopes */

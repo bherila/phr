@@ -145,7 +145,12 @@ holds `documents:read`, and search matches their title and summary, never their 
 Documents carry the same server-owned review status as clinical records (phr#408). An
 agent's upload (multipart, MCP or signed), a document an AI read created, and a FHIR
 `DocumentReference` land in `pending_review`; any effective `documents.update` returns
-the document there, and an exact repeat leaves it as it is. A person's own browser upload,
+the document there, and an exact repeat leaves it as it is. Accepting an AI proposal does
+the same when an agent accepts it through `imports.review` and it changes the document's
+content; a person accepting it in the browser reviewed it, so the document keeps its
+status. The browser's document payload carries the opaque version, and the Documents page
+and Review page both decide against the version they loaded (409 if the document changed
+since). A person's own browser upload,
 an EHI export document the owner approved, and what the console commands store are
 `confirmed`, as were all documents before the column existed. Only the browser review
 route (`PATCH /api/phr/patients/{patient}/documents/{document}/review`, from the Review

@@ -450,6 +450,8 @@ export const PhrDocumentSchema = z.object({
   tags: z.array(z.string()),
   // Machine-written documents wait in pending_review; only a confirmed one is exported.
   review_status: PhrReviewStatusSchema.optional(),
+  // The opaque version a review decision is made against (a 409 if the document changed since).
+  version: z.string().optional(),
   imported_at: nullableString,
   created_at: nullableString,
   updated_at: nullableString,

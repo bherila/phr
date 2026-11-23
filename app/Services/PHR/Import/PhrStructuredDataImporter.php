@@ -186,9 +186,9 @@ class PhrStructuredDataImporter
     /**
      * @param  array<string, mixed>  $payload
      */
-    public function updateDocumentFromGenAiResult(PhrDocument $document, GenAiImportJob $job, array $payload): PhrDocument
+    public function updateDocumentFromGenAiResult(PhrDocument $document, GenAiImportJob $job, array $payload, bool $reopenReviewOnChange = false): PhrDocument
     {
-        return $this->documentImporter->updateDocumentFromGenAiResult($document, $job, $payload);
+        return $this->documentImporter->updateDocumentFromGenAiResult($document, $job, $payload, $reopenReviewOnChange);
     }
 
     /**

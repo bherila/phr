@@ -108,7 +108,8 @@ class PhrDocumentController extends Controller
             DocumentUploadData::fromValidated($file, $request->validated()),
         )->document;
 
-        return response()->json(['document' => $this->payload($document)], 201);
+        // Read back, so the version handed out is the one a later read reports.
+        return response()->json(['document' => $this->payload($document->refresh())], 201);
     }
 
     public function show(Request $request, int $patient, int $document): JsonResponse
@@ -275,6 +276,9 @@ class PhrDocumentController extends Controller
             'source' => $document->source,
             'tags' => $document->tags ?? [],
             'review_status' => $document->review_status,
+            // The opaque version a review decision is conditional on, so a person
+            // never approves content that changed after the page loaded.
+            'version' => app(AgentClinicalRecordVersion::class)->for($document),
             'imported_at' => $document->imported_at?->toDateTimeString(),
             'created_at' => $document->created_at?->toDateTimeString(),
             'updated_at' => $document->updated_at?->toDateTimeString(),
