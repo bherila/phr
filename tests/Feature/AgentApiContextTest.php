@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Services\Mcp\AgentMcpToolsets;
 use App\Support\AgentApi\AgentApiScopes;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Passport\Passport;
@@ -52,11 +53,14 @@ final class AgentApiContextTest extends TestCase
             'jsonrpc' => '2.0', 'id' => 1, 'method' => 'initialize',
             'params' => ['protocolVersion' => '2025-06-18', 'capabilities' => [], 'clientInfo' => ['name' => 'Synthetic', 'version' => '1']],
         ], ['Mcp-Protocol-Version' => '2025-06-18'])->assertOk()->headers->get('Mcp-Session-Id');
-        $tools = array_column($this->postJson('/api/v1/mcp', ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list', 'params' => new \stdClass], [
-            'Mcp-Protocol-Version' => '2025-06-18', 'Mcp-Session-Id' => $session,
-        ])->assertOk()->json('result.tools'), 'name');
+        foreach (['/api/v1/mcp', '/api/v1/mcp?toolsets=all'] as $path) {
+            $tools = array_column($this->postJson($path, ['jsonrpc' => '2.0', 'id' => 2, 'method' => 'tools/list', 'params' => new \stdClass], [
+                'Mcp-Protocol-Version' => '2025-06-18', 'Mcp-Session-Id' => $session,
+            ])->assertOk()->json('result.tools'), 'name');
 
-        $this->assertNotSame([], $tools);
-        $this->assertSame([], array_values(array_diff($tools, $available)));
+            $this->assertNotSame([], $tools);
+            // toolsets.* only change what a session lists; they are not operations.
+            $this->assertSame([], array_values(array_diff($tools, $available, [AgentMcpToolsets::LIST, AgentMcpToolsets::ENABLE, AgentMcpToolsets::DISABLE])), $path);
+        }
     }
 }

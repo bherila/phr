@@ -10,6 +10,10 @@ return [
     'mcp_max_body_bytes' => (int) env('AGENT_API_MCP_MAX_BODY_BYTES', 262_144),
     'mcp_max_response_body_bytes' => (int) env('AGENT_API_MCP_MAX_RESPONSE_BODY_BYTES', 1_048_576),
     'mcp_session_ttl_seconds' => (int) env('AGENT_API_MCP_SESSION_TTL_SECONDS', 1800),
+    // What MCP tools/list shows: 'toolsets' lists a core set plus the toolsets a
+    // session enables (App\Services\Mcp\AgentMcpToolsets); 'all' lists every
+    // authorized tool, as `?toolsets=all` does for one connection.
+    'mcp_tool_listing' => env('AGENT_API_MCP_TOOL_LISTING', 'toolsets'),
     'mcp_allowed_origins' => array_values(array_filter(array_map(
         'trim',
         explode(',', (string) env('AGENT_API_MCP_ALLOWED_ORIGINS', '')),

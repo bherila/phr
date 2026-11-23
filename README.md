@@ -198,14 +198,23 @@ prompt discovery is filtered to the connection's granted OAuth scopes, and every
 still enforces patient access through the underlying REST route. Because PHR content is
 health information, connect only a client and account you trust.
 
+To keep context small, `tools/list` starts with a core set of tools; the client calls
+`toolsets.list` and `toolsets.enable` to list more, and PHR sends
+`notifications/tools/list_changed`. Every authorized tool can be called by name whether
+or not it is listed. A client that does not refresh its tool list on that notification
+can connect to `https://phr.bherila.net/api/v1/mcp?toolsets=all` (keep
+`--oauth-resource` without the query) to list every authorized tool. See
+[docs/agent-api-security.md](docs/agent-api-security.md#mcp-toolsets).
+
 ### ChatGPT
 
 ChatGPT connects through a plugin package rather than a CLI command. Build it with
 `pnpm chatgpt-plugin`, which writes `build/phr-chatgpt-plugin.zip`, and upload that
 under Plugins in ChatGPT (developer mode, or a workspace admin on team plans). The
 package in [`integrations/chatgpt-plugin`](integrations/chatgpt-plugin) holds no server
-code: `mcp.json` points ChatGPT at the endpoint above with OAuth dynamic client
-registration and a narrower default scope set, and a skill teaches the safe
+code: `mcp.json` points ChatGPT at the endpoint above with `?toolsets=all` (ChatGPT
+keeps the tool list it read when connecting), OAuth dynamic client registration and a
+narrower default scope set, and a skill teaches the safe
 read-before-write workflow. `tests/Feature/ChatGptPluginTest.php` fails if the skill
 names a tool or resource type the default scopes do not expose.
 

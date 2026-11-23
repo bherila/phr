@@ -1277,7 +1277,11 @@ final class AgentMcpReadAdapterTest extends TestCase
             $headers['Mcp-Session-Id'] = $session;
         }
 
-        return $this->postJson('/api/v1/mcp', $message, $headers);
+        // These tests read definitions of tools outside the core, so they list every
+        // authorized tool; a tools/call never depends on what is listed.
+        $path = ($message['method'] ?? null) === 'tools/list' ? '/api/v1/mcp?toolsets=all' : '/api/v1/mcp';
+
+        return $this->postJson($path, $message, $headers);
     }
 
     private function user(string $email): User

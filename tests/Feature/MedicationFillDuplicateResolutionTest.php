@@ -312,7 +312,11 @@ final class MedicationFillDuplicateResolutionTest extends TestCase
             $headers['Mcp-Session-Id'] = $this->session;
         }
 
-        return $this->postJson('/api/v1/mcp', $message, $headers)->assertOk();
+        // These tests read definitions of tools outside the core, so they list every
+        // authorized tool; a tools/call never depends on what is listed.
+        $path = $message['method'] === 'tools/list' ? '/api/v1/mcp?toolsets=all' : '/api/v1/mcp';
+
+        return $this->postJson($path, $message, $headers)->assertOk();
     }
 
     private function document(): PhrDocument
