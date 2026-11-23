@@ -410,6 +410,7 @@ final class AgentApiClinicalWriteTest extends TestCase
             'allergies' => ['data_schema' => 'AllergyUpsertData', 'request_schema' => 'AllergyUpsertRequest'],
             'lab-results' => ['data_schema' => 'LabResultUpsertData', 'request_schema' => 'LabResultUpsertRequest'],
             'vitals' => ['data_schema' => 'VitalUpsertData', 'request_schema' => 'VitalUpsertRequest'],
+            'episodes' => ['data_schema' => 'EpisodeUpsertData', 'request_schema' => 'EpisodeUpsertRequest'],
         ];
         foreach ($expectedSchemas as $resource => $contractNames) {
             $operation = AgentClinicalResourceCatalog::upsertOperationId($resource);
@@ -493,6 +494,11 @@ final class AgentApiClinicalWriteTest extends TestCase
                 'vital_name' => 'Synthetic heart rate',
                 'vital_date' => '2026-01-10',
                 'vital_value' => '72 beats/min',
+            ],
+            'episodes' => [
+                'title' => 'Synthetic pneumonia episode',
+                'kind' => 'illness',
+                'started_at' => '2025-11-03',
             ],
         ];
 

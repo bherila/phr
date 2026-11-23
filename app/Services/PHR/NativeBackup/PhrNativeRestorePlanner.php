@@ -31,6 +31,8 @@ final class PhrNativeRestorePlanner
         'phr_office_visit_medications' => [['medication_id']],
         'phr_office_visit_procedures' => [['procedure_id']],
         'phr_document_relations' => [['document_id']],
+        // An encounter is grouped under an episode once (#415).
+        'phr_episode_encounters' => [['episode_id', 'office_visit_id']],
         'phr_ehi_sources' => [['patient_id', 'label']],
         'phr_ehi_packages' => [['patient_id', 'manifest_digest']],
         'phr_ehi_blobs' => [['patient_id', 'sha256']],

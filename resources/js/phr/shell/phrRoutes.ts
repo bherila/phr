@@ -10,7 +10,8 @@
  *   or `review`, everything waiting for the patient's review.
  * - `/phr/patient/{id}/{page}/{recordId}`: that page with a record's detail open.
  * - `/phr/patient/{id}/{page}/{kind}/{recordId}`: a detail the page hosts that is not its own
- *   record type, e.g. `/office-visits/procedure/7` or `/vitals/trend/weight`.
+ *   record type, e.g. `/office-visits/procedure/7`, `/office-visits/episode/3` or
+ *   `/vitals/trend/weight`.
  * - `/phr/patient/{id}/office-visits/{visitId}/imaging/{studyId}`: a visit's linked imaging
  *   study, shown in place of the visit with a link back to it.
  *
@@ -47,6 +48,7 @@ export type PhrDetailId =
   | 'condition-detail'
   | 'procedure-detail'
   | 'immunization-detail'
+  | 'episode-detail'
   | 'allergy-detail'
   | 'document-viewer'
   | 'access-grant-detail'
@@ -127,6 +129,7 @@ export const PHR_DETAIL_ROUTES: Record<PhrDetailId, DetailRoute> = {
   'condition-detail': { home: 'conditions', presentation: 'panel' },
   'procedure-detail': { home: 'procedures', presentation: 'panel' },
   'immunization-detail': { home: 'immunizations', presentation: 'panel' },
+  'episode-detail': { home: 'office-visits', presentation: 'panel' },
   'allergy-detail': { home: 'allergies', presentation: 'panel' },
   'document-viewer': { home: 'documents', presentation: 'page' },
   'access-grant-detail': { home: 'access', presentation: 'panel' },
@@ -134,10 +137,11 @@ export const PHR_DETAIL_ROUTES: Record<PhrDetailId, DetailRoute> = {
 
 /**
  * Details a page shows although they are not its own record type, keyed by the path segment
- * that names them. The Visits timeline lists procedures and immunizations; Vitals opens trends.
+ * that names them. The Visits timeline lists procedures and immunizations, and opens the
+ * episodes of care a visit is grouped under; Vitals opens trends.
  */
 const HOSTED_DETAILS: Partial<Record<PhrPageId, Record<string, PhrDetailId>>> = {
-  'office-visits': { procedure: 'procedure-detail', immunization: 'immunization-detail' },
+  'office-visits': { procedure: 'procedure-detail', immunization: 'immunization-detail', episode: 'episode-detail' },
   vitals: { trend: 'vitals-trend' },
 }
 

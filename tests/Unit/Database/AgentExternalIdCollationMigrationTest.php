@@ -81,7 +81,10 @@ final class AgentExternalIdCollationMigrationTest extends TestCase
     /** @return list<object> migrations that create a table keyed on external_id with the binary collation */
     private function laterMigrations(): array
     {
-        return [require database_path('migrations/2026_11_01_000000_create_phr_medication_fills_table.php')];
+        return [
+            require database_path('migrations/2026_11_01_000000_create_phr_medication_fills_table.php'),
+            require database_path('migrations/2026_11_23_200000_create_phr_episodes.php'),
+        ];
     }
 
     private function migration(): object

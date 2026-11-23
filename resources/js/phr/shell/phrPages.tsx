@@ -107,6 +107,7 @@ export const PHR_DETAILS: Record<PhrDetailId, PhrDetailMeta> = {
   'condition-detail': { label: 'Condition', component: lazy(() => import('@/phr/conditions/ConditionDetail')) },
   'procedure-detail': { label: 'Procedure', component: lazy(() => import('@/phr/procedures/ProcedureDetail')) },
   'immunization-detail': { label: 'Immunization', component: lazy(() => import('@/phr/immunizations/ImmunizationDetail')) },
+  'episode-detail': { label: 'Episode', component: lazy(() => import('@/phr/office-visits/EpisodeDetail')) },
   'allergy-detail': { label: 'Allergy', component: lazy(() => import('@/phr/allergies/AllergyDetail')) },
   'document-viewer': { label: 'Document', component: lazy(() => import('@/phr/documents/DocumentViewer')) },
   'access-grant-detail': { label: 'Access Grant', component: lazy(() => import('@/phr/access/AccessGrantDetail')) },

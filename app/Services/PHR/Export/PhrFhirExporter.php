@@ -6,6 +6,7 @@ use App\Models\PhrAllergy;
 use App\Models\PhrCondition;
 use App\Models\PhrDicomStudy;
 use App\Models\PhrDocument;
+use App\Models\PhrEpisode;
 use App\Models\PhrImmunization;
 use App\Models\PhrLabResult;
 use App\Models\PhrMedication;
@@ -24,6 +25,7 @@ use App\Support\PHR\PhrEncounterVocabulary;
 use App\Support\PHR\PhrLabReferenceRangeNotation;
 use App\Support\PHR\PhrMedicationCategory;
 use App\Support\PHR\PhrVisitParticipants;
+use App\Support\PHR\Validation\EpisodeDataRules;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 use Throwable;
@@ -56,6 +58,9 @@ class PhrFhirExporter
     /** @var array<string, array<int, int>> link type => record id => the exported visit it was made in */
     private array $encounterLinks = [];
 
+    /** @var array<int, list<int>> exported visit id => the exported episodes it is grouped under */
+    private array $episodeEncounters = [];
+
     /**
      * @param  array<string, mixed>  $data
      */
@@ -64,6 +69,7 @@ class PhrFhirExporter
         /** @var PhrPatient $patient */
         $patient = $data['patient'];
         $this->encounterLinks = is_array($data['encounter_links'] ?? null) ? $data['encounter_links'] : [];
+        $this->episodeEncounters = is_array($data['episode_encounters'] ?? null) ? $data['episode_encounters'] : [];
         $entries = [$this->entry($this->patientResource($patient))];
 
         foreach ($data['lab_results'] as $lab) {
@@ -93,6 +99,9 @@ class PhrFhirExporter
         foreach ($data['office_visits'] as $visit) {
             $entries[] = $this->entry($this->encounterResource($visit));
             $entries[] = $this->entry($this->clinicalImpressionResource($visit));
+        }
+        foreach ($data['episodes'] ?? [] as $episode) {
+            $entries[] = $this->entry($this->episodeOfCareResource($episode));
         }
         foreach ($data['portal_messages'] as $message) {
             $entries[] = $this->entry($this->portalMessageResource($message));
@@ -546,7 +555,61 @@ class PhrFhirExporter
             'hospitalization' => $hospitalization === [] ? null : $hospitalization,
             'location' => $visit->location ? [['location' => ['display' => $visit->location]]] : null,
             'serviceProvider' => $visit->facility_name ? ['display' => $visit->facility_name] : null,
+            'episodeOfCare' => array_map(
+                static fn (int $episodeId): array => ['reference' => 'EpisodeOfCare/phr-episode-'.$episodeId],
+                $this->episodeEncounters[(int) $visit->id] ?? [],
+            ),
         ];
+    }
+
+    /**
+     * An episode of care (#415). R4 has no field for a title or a reason, so they go in the
+     * narrative. diagnosis is left out (no condition is linked to an episode) and so is
+     * managingOrganization (PHR keeps no organization records).
+     *
+     * @return array<string, mixed>
+     */
+    private function episodeOfCareResource(PhrEpisode $episode): array
+    {
+        $narrative = implode('', array_filter([
+            '<div xmlns="http://www.w3.org/1999/xhtml"><p>'.e($episode->title).'</p>',
+            $episode->reason !== null && trim($episode->reason) !== '' ? '<p>'.e($episode->reason).'</p>' : null,
+            '</div>',
+        ]));
+        $kind = $episode->kind !== null ? (EpisodeDataRules::KINDS[$episode->kind] ?? null) : null;
+
+        return [
+            'resourceType' => 'EpisodeOfCare',
+            'id' => 'phr-episode-'.$episode->id,
+            'text' => ['status' => 'generated', 'div' => $narrative],
+            'status' => $this->episodeStatus($episode),
+            'type' => $kind === null ? null : [$this->textCode($kind, $episode->kind, 'urn:phr:episode-kind')],
+            'patient' => $this->patientReference($episode->patient_id),
+            'period' => array_filter([
+                'start' => $this->episodeMoment($episode->started_at),
+                'end' => $this->episodeMoment($episode->ended_at),
+            ]) ?: null,
+        ];
+    }
+
+    /** The stored FHIR status, else what the dates say: finished once it ended, active before. */
+    private function episodeStatus(PhrEpisode $episode): string
+    {
+        if (in_array($episode->status, EpisodeDataRules::STATUSES, true)) {
+            return (string) $episode->status;
+        }
+
+        return $episode->ended_at !== null ? 'finished' : 'active';
+    }
+
+    /** A moment PHR stored without a time of day goes out as its date. */
+    private function episodeMoment(?Carbon $moment): ?string
+    {
+        if ($moment === null) {
+            return null;
+        }
+
+        return $moment->format('H:i:s') === '00:00:00' ? $moment->toDateString() : $moment->toIso8601String();
     }
 
     /**

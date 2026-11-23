@@ -228,6 +228,21 @@ final class AgentMcpToolCatalog
                 new WriteSafety(note: 'A repeated unlink returns outcome unchanged.'),
                 effect: Effect::Destructive,
             ),
+            $this->write(
+                'episodes.link_encounter',
+                'Group an encounter under an episode',
+                'Group one office visit (encounter) under an episode of care, for example an earlier admission and the stay it led to. Write the episode first with episodes.upsert. An encounter may belong to more than one episode. Only evidence is written: neither record\'s version nor its review status changes. clinical.get of the episode lists its encounter_ids.',
+                [$writes, 'episodesLinkEncounter'],
+                new WriteSafety(note: 'A repeated link returns outcome unchanged.'),
+            ),
+            $this->write(
+                'episodes.unlink_encounter',
+                'Take an encounter out of an episode',
+                'Remove an office visit (encounter) from an episode of care. Nothing else changes; a visit not in this episode answers outcome unchanged.',
+                [$writes, 'episodesUnlinkEncounter'],
+                new WriteSafety(note: 'A repeated unlink returns outcome unchanged.'),
+                effect: Effect::Destructive,
+            ),
             $this->read('imports.list', 'List imports', 'List bounded import-job status for an accessible patient.', [$reads, 'importsList']),
             $this->read('imports.get', 'Get import', 'Inspect one import job and its proposed structured records.', [$reads, 'importsGet']),
             $this->write(

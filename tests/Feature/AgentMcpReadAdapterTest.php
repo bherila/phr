@@ -240,12 +240,12 @@ final class AgentMcpReadAdapterTest extends TestCase
             $this->assertContains($name, $toolNames);
         }
         $this->assertCount(
-            71 + (count(AgentClinicalResourceCatalog::writableIds()) * 2),
+            73 + (count(AgentClinicalResourceCatalog::writableIds()) * 2),
             $toolNames,
         );
         $writeTools = [
             'patients.create', 'documents.upload', 'documents.create_text', 'documents.upload_access_create', 'documents.upload_finalize', 'documents.upload_cancel', 'eobs.import', 'medication_fills.resolve_duplicate', 'imports.create', 'imports.review', 'imports.retry',
-            'medication_fills.answer_eob_link', 'office_visits.link_record', 'office_visits.unlink_record', 'health_logs.create', 'health_log_entries.append', 'respiratory_events.ingest',
+            'medication_fills.answer_eob_link', 'office_visits.link_record', 'office_visits.unlink_record', 'episodes.link_encounter', 'episodes.unlink_encounter', 'health_logs.create', 'health_log_entries.append', 'respiratory_events.ingest',
             'dicom_uploads.open', 'dicom_uploads.upload_file', 'dicom_uploads.finalize', 'dicom_uploads.cancel',
             'reconciliations.apply',
             'exports.create', 'native_backups.create',
@@ -263,7 +263,7 @@ final class AgentMcpReadAdapterTest extends TestCase
                 str_ends_with((string) $tool['name'], '.upsert')
                     || str_ends_with((string) $tool['name'], '.update')
                     || str_ends_with((string) $tool['name'], '.retract')
-                    || in_array($tool['name'], ['imports.review', 'imports.retry', 'medication_fills.resolve_duplicate', 'office_visits.unlink_record', 'documents.upload_cancel', 'dicom_uploads.finalize', 'dicom_uploads.cancel', 'reconciliations.apply'], true),
+                    || in_array($tool['name'], ['imports.review', 'imports.retry', 'medication_fills.resolve_duplicate', 'office_visits.unlink_record', 'episodes.unlink_encounter', 'documents.upload_cancel', 'dicom_uploads.finalize', 'dicom_uploads.cancel', 'reconciliations.apply'], true),
                 $tool['annotations']['destructiveHint'] ?? null,
             );
             // These operations are not safe to replay after an unknown outcome:

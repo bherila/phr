@@ -32,6 +32,7 @@ describe('parsePhrLocation and phrViewUrl', () => {
     ['/phr/patient/12/imaging/3', patient('imaging', { detail: { module: 'imaging-study-detail', id: '3' } })],
     ['/phr/patient/12/vitals/trend/blood%20pressure', patient('vitals', { detail: { module: 'vitals-trend', id: 'blood pressure' } })],
     ['/phr/patient/12/office-visits/procedure/7', patient('office-visits', { detail: { module: 'procedure-detail', id: '7' } })],
+    ['/phr/patient/12/office-visits/episode/3', patient('office-visits', { detail: { module: 'episode-detail', id: '3' } })],
     ['/phr/patient/12/office-visits/4/imaging/3', patient('office-visits', {
       parent: { module: 'office-visit-detail', id: '4' },
       detail: { module: 'imaging-study-detail', id: '3' },

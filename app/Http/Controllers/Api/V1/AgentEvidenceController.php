@@ -472,6 +472,7 @@ final class AgentEvidenceController extends Controller
                 'medication-fills' => 'medication-fill',
                 'conditions' => 'condition', 'allergies' => 'allergy',
                 'lab-results' => 'lab-result', 'vitals' => 'vital',
+                'episodes' => 'episode',
                 default => abort(500, 'Clinical search catalog is inconsistent.'),
             };
             // A raw query builder bypasses both the soft-delete scope and the

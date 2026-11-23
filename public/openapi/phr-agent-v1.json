@@ -2243,6 +2243,218 @@
                 }
             }
         },
+        "/patients/{patient}/episodes/{episode}/encounters": {
+            "post": {
+                "operationId": "episodes.link_encounter",
+                "summary": "Group an encounter under an episode of care",
+                "description": "Groups one office visit (encounter) under an episode. An encounter may belong to more than one episode. A link is evidence: neither record's version nor its review status changes. A rejected episode or visit cannot be linked (409).",
+                "security": [
+                    {
+                        "oauth2": [
+                            "clinical:read",
+                            "clinical:write"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/EpisodeEncounterLinkRequest"
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    },
+                    {
+                        "name": "episode",
+                        "in": "path",
+                        "required": true,
+                        "description": "The ID of the episode.",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Linked, or already linked",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/EpisodeEncounterLinkResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/Conflict"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            }
+        },
+        "/patients/{patient}/episodes/{episode}/encounters/{visit}": {
+            "delete": {
+                "operationId": "episodes.unlink_encounter",
+                "summary": "Take an encounter out of an episode of care",
+                "description": "Removes an office visit (encounter) from an episode. Nothing else changes. A visit that is not in this episode answers outcome unchanged.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "clinical:read",
+                            "clinical:write"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    },
+                    {
+                        "name": "episode",
+                        "in": "path",
+                        "required": true,
+                        "description": "The ID of the episode.",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    },
+                    {
+                        "name": "visit",
+                        "in": "path",
+                        "required": true,
+                        "description": "The ID of the office visit (encounter).",
+                        "schema": {
+                            "type": "integer",
+                            "minimum": 1
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Unlinked, or was not linked",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/EpisodeEncounterLinkResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            }
+        },
+        "/patients/{patient}/episodes": {
+            "put": {
+                "operationId": "episodes.upsert",
+                "summary": "Idempotently create or update an episode of care",
+                "description": "An episode groups the encounters of one story, for example an earlier admission and the stay it led to. Stable external IDs are namespaced to the authenticated OAuth client. A changed existing record requires its current opaque version. Group visits under it with episodes.link_encounter; reads list them as encounter_ids.",
+                "security": [
+                    {
+                        "oauth2": [
+                            "clinical:write"
+                        ]
+                    },
+                    {
+                        "apiToken": []
+                    }
+                ],
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/EpisodeUpsertRequest"
+                            }
+                        }
+                    }
+                },
+                "parameters": [
+                    {
+                        "$ref": "#/components/parameters/PatientId"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Existing record updated or desired state already present",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ClinicalUpsertResponse"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Record created",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ClinicalUpsertResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "$ref": "#/components/responses/Unauthenticated"
+                    },
+                    "403": {
+                        "$ref": "#/components/responses/InsufficientScope"
+                    },
+                    "404": {
+                        "$ref": "#/components/responses/NotFound"
+                    },
+                    "409": {
+                        "$ref": "#/components/responses/Conflict"
+                    },
+                    "422": {
+                        "$ref": "#/components/responses/InvalidRequest"
+                    },
+                    "429": {
+                        "$ref": "#/components/responses/RateLimited"
+                    }
+                }
+            }
+        },
         "/patients/{patient}/evidence-links": {
             "get": {
                 "operationId": "evidence.links",
@@ -5826,6 +6038,7 @@
                         "allergies",
                         "lab-results",
                         "vitals",
+                        "episodes",
                         "health-logs"
                     ]
                 }
@@ -5845,7 +6058,8 @@
                         "conditions",
                         "allergies",
                         "lab-results",
-                        "vitals"
+                        "vitals",
+                        "episodes"
                     ]
                 }
             },
@@ -5901,7 +6115,7 @@
                 "schema": {
                     "type": "array",
                     "minItems": 1,
-                    "maxItems": 11,
+                    "maxItems": 12,
                     "uniqueItems": true,
                     "items": {
                         "type": "string",
@@ -5915,6 +6129,7 @@
                             "allergies",
                             "lab-results",
                             "vitals",
+                            "episodes",
                             "health-logs",
                             "documents"
                         ]
@@ -6565,6 +6780,7 @@
                             "allergies",
                             "lab-results",
                             "vitals",
+                            "episodes",
                             "health-logs",
                             "documents"
                         ]
@@ -6802,6 +7018,13 @@
                         },
                         "additionalProperties": false,
                         "description": "On office-visits reads: how many standing records of each type are linked to this visit. Read them with office_visits.get_stay."
+                    },
+                    "encounter_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        },
+                        "description": "On episodes reads: the office visits (encounters) grouped under this episode, earliest first, while they stand. Derived from the links; not part of the episode's version."
                     }
                 },
                 "additionalProperties": true
@@ -7088,7 +7311,8 @@
                             "conditions",
                             "allergies",
                             "lab-results",
-                            "vitals"
+                            "vitals",
+                            "episodes"
                         ]
                     },
                     "patient_id": {
@@ -10918,6 +11142,149 @@
                     "lines"
                 ],
                 "additionalProperties": false
+            },
+            "EpisodeEncounterLinkRequest": {
+                "type": "object",
+                "required": [
+                    "office_visit_id"
+                ],
+                "properties": {
+                    "office_visit_id": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "The patient-scoped ID of the office visit (encounter) to group under the episode."
+                    }
+                },
+                "additionalProperties": false
+            },
+            "EpisodeEncounterLinkResponse": {
+                "type": "object",
+                "required": [
+                    "resource_type",
+                    "patient_id",
+                    "outcome",
+                    "data"
+                ],
+                "properties": {
+                    "resource_type": {
+                        "const": "episode_encounter_link"
+                    },
+                    "patient_id": {
+                        "type": "integer"
+                    },
+                    "outcome": {
+                        "type": "string",
+                        "enum": [
+                            "linked",
+                            "unlinked",
+                            "unchanged"
+                        ]
+                    },
+                    "data": {
+                        "type": "object",
+                        "required": [
+                            "episode_id",
+                            "office_visit_id"
+                        ],
+                        "properties": {
+                            "episode_id": {
+                                "type": "integer"
+                            },
+                            "office_visit_id": {
+                                "type": "integer"
+                            }
+                        },
+                        "additionalProperties": false
+                    }
+                },
+                "additionalProperties": false
+            },
+            "EpisodeUpsertData": {
+                "type": "object",
+                "required": [
+                    "title"
+                ],
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "maxLength": 255,
+                        "description": "A short name for the episode, for example \"Community-acquired pneumonia\"."
+                    },
+                    "kind": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "enum": [
+                            "illness",
+                            "hospitalization",
+                            "treatment",
+                            "rehabilitation",
+                            "pregnancy",
+                            "other",
+                            null
+                        ],
+                        "description": "What the episode is about: illness, hospitalization, treatment (a course of treatment), rehabilitation, pregnancy or other."
+                    },
+                    "status": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "enum": [
+                            "planned",
+                            "waitlist",
+                            "active",
+                            "onhold",
+                            "finished",
+                            "cancelled",
+                            null
+                        ],
+                        "description": "FHIR EpisodeOfCare.status. Without one, an export says finished once ended_at is set and active before."
+                    },
+                    "started_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "ended_at": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "format": "date-time"
+                    },
+                    "reason": {
+                        "type": [
+                            "string",
+                            "null"
+                        ],
+                        "maxLength": 10000,
+                        "description": "Why these encounters belong together, in words."
+                    }
+                },
+                "additionalProperties": false
+            },
+            "EpisodeUpsertRequest": {
+                "allOf": [
+                    {
+                        "$ref": "#/components/schemas/ClinicalUpsertMetadata"
+                    },
+                    {
+                        "type": "object",
+                        "required": [
+                            "data"
+                        ],
+                        "properties": {
+                            "data": {
+                                "$ref": "#/components/schemas/EpisodeUpsertData"
+                            }
+                        }
+                    }
+                ],
+                "unevaluatedProperties": false
             },
             "Error": {
                 "type": "object",

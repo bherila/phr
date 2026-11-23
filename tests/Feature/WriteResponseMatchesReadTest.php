@@ -61,6 +61,7 @@ final class WriteResponseMatchesReadTest extends TestCase
         'agent-api.v1.eobs.update' => 'AgentApiEobWriteTest pins that its data is exactly what eobs.get reads',
         'agent-api.v1.medication-fills.answer-eob-link' => 'returns the answer recorded, not a record; FillEobLinkerTest pins it',
         'agent-api.v1.office-visits.link-record' => 'returns the link outcome, not a record; PhrEncounterLinksTest reads the link back as encounter_id',
+        'agent-api.v1.episodes.link-encounter' => 'returns the link outcome, not a record; PhrEpisodesTest reads the link back as encounter_ids',
         'agent-api.v1.medication-fills.resolve-duplicate' => 'returns the decision (outcome, merged_into_fill_id); a merged fill is retracted and leaves every read. MedicationFillDuplicateResolutionTest pins it',
         'phr.patients.medication-fills.resolve-duplicate' => 'returns the decision and the fill as the browser reads it; MedicationFillDuplicateResolutionTest pins it',
         'phr.patients.medication-fills.eob-link' => 'returns the decision and the fill as the browser reads it; FillEobLinkerTest pins it',
@@ -148,6 +149,7 @@ final class WriteResponseMatchesReadTest extends TestCase
             'procedures' => ['phr.patients.procedures.store', 'phr.patients.procedures.update', 'procedure', ['name' => 'Synthetic procedure'], ['outcome' => 'Synthetic outcome']],
             'immunizations' => ['phr.patients.immunizations.store', 'phr.patients.immunizations.update', 'immunization', ['vaccine_name' => 'Synthetic vaccine'], ['site' => 'Left deltoid']],
             'allergies' => ['phr.patients.allergies.store', 'phr.patients.allergies.update', 'allergy', ['substance' => 'Synthetic substance'], ['reaction' => 'Synthetic hives']],
+            'episodes' => ['phr.patients.episodes.store', 'phr.patients.episodes.update', 'episode', ['title' => 'Synthetic episode'], ['reason' => 'Synthetic reason']],
             'documents' => ['phr.patients.documents.store', 'phr.patients.documents.update', 'document', ['document_type' => 'other'], ['summary' => 'Synthetic summary']],
             'health logs' => ['phr.patients.health-logs.store', 'phr.patients.health-logs.update', 'health_log', ['name' => 'Synthetic log', 'kind' => 'custom'], ['description' => 'Synthetic description']],
             'health log entries' => ['phr.patients.health-logs.entries.store', 'phr.patients.health-logs.entries.update', 'entry', ['occurred_at' => '2026-03-01T08:30:00Z'], ['notes' => 'Synthetic entry note']],
@@ -215,6 +217,7 @@ final class WriteResponseMatchesReadTest extends TestCase
             'allergies' => [['substance' => 'Synthetic substance'], ['reaction' => 'Synthetic hives']],
             'lab-results' => [['analyte' => 'Synthetic analyte'], ['value' => '14.1']],
             'vitals' => [['vital_name' => 'Heart Rate'], ['vital_value' => '72']],
+            'episodes' => [['title' => 'Synthetic episode'], ['reason' => 'Synthetic reason']],
         ];
         foreach ($clinical as $resource => [$create, $update]) {
             $cases["{$resource} upsert"] = [

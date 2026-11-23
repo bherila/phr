@@ -21,6 +21,7 @@ use App\Models\PhrPatientUserAccess;
 use App\Models\PhrSinusEnrollment;
 use App\Models\User;
 use App\Services\PHR\Encounters\PhrEncounterLinks;
+use App\Services\PHR\Encounters\PhrEpisodeLinks;
 use App\Services\PHR\Fills\FillEobLinker;
 use App\Services\PHR\Fills\FillEobLinkPlanner;
 use App\Services\PHR\NativeBackup\NativeRestoreException;
@@ -1351,6 +1352,7 @@ final class PhrNativeRestoreTest extends TestCase
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['encounter_links'],
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['visit_participants'],
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['document_relations'],
+            ...PhrNativeTableCompatibility::LATER_GENERATIONS['episodes'],
         ]);
         DB::table('phr_patients')->where('id', $patient->id)->delete();
 
@@ -1393,6 +1395,7 @@ final class PhrNativeRestoreTest extends TestCase
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['encounter_links'],
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['visit_participants'],
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['document_relations'],
+            ...PhrNativeTableCompatibility::LATER_GENERATIONS['episodes'],
         ]);
         $this->mutateTableRecords($archivePath, 'phr_immunizations', static function (array $record): array {
             foreach (PhrNativeLifecycleCompatibility::TABLE_COLUMNS['phr_immunizations'] as $column) {
@@ -1592,7 +1595,7 @@ final class PhrNativeRestoreTest extends TestCase
         $current = $this->archiveCopy($patient, (int) $owner->id);
         $older = $this->archiveCopy($patient, (int) $owner->id);
         // An archive from before the link tables also predates every later generation.
-        $this->removeTables($older, [...PhrNativeTableCompatibility::LATER_GENERATIONS['encounter_links'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['visit_participants'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['document_relations']]);
+        $this->removeTables($older, [...PhrNativeTableCompatibility::LATER_GENERATIONS['encounter_links'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['visit_participants'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['document_relations'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['episodes']]);
 
         // The lab moved to a visit made after the backup: restoring the archived link would
         // put it on two encounters, so it is a conflict.
@@ -1631,6 +1634,49 @@ final class PhrNativeRestoreTest extends TestCase
         @unlink($older);
     }
 
+    public function test_episodes_survive_a_round_trip_and_an_archive_written_before_them_restores_with_none(): void
+    {
+        $owner = User::factory()->create(['user_role' => 'user']);
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        $now = now();
+        $earlier = DB::table('phr_office_visits')->insertGetId(['patient_id' => $patient->id, 'user_id' => $owner->id, 'visit_type' => 'Synthetic hospital admission', 'facility_name' => 'Other Community Hospital', 'visit_date' => '2025-11-03', 'encounter_class' => 'IMP', 'review_status' => PhrReviewStatus::CONFIRMED, 'created_at' => $now, 'updated_at' => $now]);
+        $current = DB::table('phr_office_visits')->insertGetId(['patient_id' => $patient->id, 'user_id' => $owner->id, 'visit_type' => 'Synthetic hospital admission', 'facility_name' => 'Example General Hospital', 'visit_date' => '2026-02-09', 'encounter_class' => 'IMP', 'review_status' => PhrReviewStatus::CONFIRMED, 'created_at' => $now, 'updated_at' => $now]);
+        $episode = DB::table('phr_episodes')->insertGetId(['patient_id' => $patient->id, 'user_id' => $owner->id, 'import_source' => 'agent-client:synthetic', 'external_id' => 'synthetic-episode-pneumonia', 'title' => 'Community-acquired pneumonia', 'kind' => 'illness', 'started_at' => '2025-11-03 00:00:00', 'review_status' => PhrReviewStatus::PENDING, 'created_at' => $now, 'updated_at' => $now]);
+        $links = app(PhrEpisodeLinks::class);
+        $links->link((int) $patient->id, $episode, $earlier);
+        $links->link((int) $patient->id, $episode, $current);
+
+        $archive = $this->archiveCopy($patient, (int) $owner->id);
+        $older = $this->archiveCopy($patient, (int) $owner->id);
+        $this->removeTables($older, PhrNativeTableCompatibility::LATER_GENERATIONS['episodes']);
+
+        DB::table('phr_patients')->where('id', $patient->id)->delete();
+        $attempt = $this->readyAttempt($archive, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $attempt->status, (string) $attempt->failure_category);
+        $this->assertSame(['create' => 2, 'skip' => 0, 'block' => 0], $attempt->plan_counts_json['tables']['phr_episode_encounters']);
+        app(PhrNativeRestoreService::class)->apply($attempt->refresh(), (int) $owner->id);
+        $target = (int) $attempt->refresh()->target_patient_root_id;
+        $restored = DB::table('phr_episodes')->where('patient_id', $target)->sole();
+        $this->assertSame(['Community-acquired pneumonia', 'illness', PhrReviewStatus::PENDING, 'synthetic-episode-pneumonia'], [$restored->title, $restored->kind, $restored->review_status, $restored->external_id]);
+        $visits = DB::table('phr_office_visits')->where('patient_id', $target)->orderBy('visit_date')->pluck('id')->map(static fn (mixed $id): int => (int) $id)->all();
+        $this->assertSame([(int) $restored->id => $visits], $links->encounterIds($target, [(int) $restored->id]));
+        $this->assertSame([], $this->foreignKeyViolations());
+
+        // One downloaded before episodes existed restores the visits and no episode.
+        DB::table('phr_patients')->where('id', $target)->delete();
+        $olderAttempt = $this->readyAttempt($older, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $olderAttempt->status, (string) $olderAttempt->failure_category);
+        $this->assertSame(['create' => 0, 'skip' => 0, 'block' => 0], $olderAttempt->plan_counts_json['tables']['phr_episodes']);
+        app(PhrNativeRestoreService::class)->apply($olderAttempt->refresh(), (int) $owner->id);
+        $olderTarget = (int) $olderAttempt->refresh()->target_patient_root_id;
+        $this->assertSame(2, DB::table('phr_office_visits')->where('patient_id', $olderTarget)->count());
+        foreach (PhrNativeTableCompatibility::LATER_GENERATIONS['episodes'] as $table) {
+            $this->assertSame(0, DB::table($table)->where('patient_id', $olderTarget)->count(), $table);
+        }
+        @unlink($archive);
+        @unlink($older);
+    }
+
     public function test_a_visits_care_team_survives_a_round_trip_and_an_archive_written_before_it_restores_with_none(): void
     {
         $owner = User::factory()->create(['user_role' => 'user']);
@@ -1650,7 +1696,7 @@ final class PhrNativeRestoreTest extends TestCase
         $current = $this->archiveCopy($patient, (int) $owner->id);
         $older = $this->archiveCopy($patient, (int) $owner->id);
         // An archive downloaded before #412 has neither the table nor the visit's digest of it.
-        $this->removeTables($older, [...PhrNativeTableCompatibility::LATER_GENERATIONS['visit_participants'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['document_relations']]);
+        $this->removeTables($older, [...PhrNativeTableCompatibility::LATER_GENERATIONS['visit_participants'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['document_relations'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['episodes']]);
         $this->mutateTableRecords($older, 'phr_office_visits', static function (array $record): array {
             unset($record['attributes']['participants_digest']);
 
@@ -1810,6 +1856,7 @@ final class PhrNativeRestoreTest extends TestCase
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['encounter_links'],
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['visit_participants'],
             ...PhrNativeTableCompatibility::LATER_GENERATIONS['document_relations'],
+            ...PhrNativeTableCompatibility::LATER_GENERATIONS['episodes'],
         ]);
         DB::table('phr_patients')->where('id', $patient->id)->delete();
 
@@ -1905,7 +1952,7 @@ final class PhrNativeRestoreTest extends TestCase
 
         $current = $this->archiveCopy($patient, (int) $owner->id);
         $older = $this->archiveCopy($patient, (int) $owner->id);
-        $this->removeTables($older, [...PhrNativeTableCompatibility::LATER_GENERATIONS['medication_fill_evidence'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['eob_corrections'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['encounter_links'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['visit_participants'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['document_relations']]);
+        $this->removeTables($older, [...PhrNativeTableCompatibility::LATER_GENERATIONS['medication_fill_evidence'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['eob_corrections'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['encounter_links'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['visit_participants'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['document_relations'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['episodes']]);
         // An EOB archived before it had a review status has no such attribute, and was confirmed.
         $this->mutateTableRecords($older, 'phr_eobs', static function (array $record): array {
             unset($record['attributes']['review_status'], $record['attributes']['lines_digest']);
@@ -2004,7 +2051,7 @@ final class PhrNativeRestoreTest extends TestCase
         $current = $this->archiveCopy($patient, (int) $owner->id);
         $older = $this->archiveCopy($patient, (int) $owner->id);
         // An archive written before #409: no relation table, no note columns.
-        $this->removeTables($older, PhrNativeTableCompatibility::LATER_GENERATIONS['document_relations']);
+        $this->removeTables($older, [...PhrNativeTableCompatibility::LATER_GENERATIONS['document_relations'], ...PhrNativeTableCompatibility::LATER_GENERATIONS['episodes']]);
         $this->mutateTableRecords($older, 'phr_documents', static function (array $record): array {
             foreach (['loinc_code', 'source_type_label', 'author_name', 'author_role', 'cosigner_name', 'authored_at', 'signed_at', 'doc_status', 'patient_signature_status', 'patient_signed_at'] as $column) {
                 unset($record['attributes'][$column]);

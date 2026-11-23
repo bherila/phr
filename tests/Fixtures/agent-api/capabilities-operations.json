@@ -223,6 +223,22 @@
             "clinical:write"
         ]
     },
+    "episodes.link_encounter": {
+        "available": true,
+        "scope": "clinical:write",
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ]
+    },
+    "episodes.unlink_encounter": {
+        "available": true,
+        "scope": "clinical:write",
+        "scopes": [
+            "clinical:read",
+            "clinical:write"
+        ]
+    },
     "imports.list": {
         "available": true,
         "scope": "imports:read"
@@ -328,6 +344,10 @@
         "scope": "clinical:write"
     },
     "vitals.upsert": {
+        "available": true,
+        "scope": "clinical:write"
+    },
+    "episodes.upsert": {
         "available": true,
         "scope": "clinical:write"
     },

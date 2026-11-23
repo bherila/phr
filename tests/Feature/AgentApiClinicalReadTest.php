@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\AgentApiAudit;
 use App\Models\PhrAllergy;
 use App\Models\PhrCondition;
+use App\Models\PhrEpisode;
 use App\Models\PhrHealthLog;
 use App\Models\PhrHealthLogEntry;
 use App\Models\PhrImmunization;
@@ -388,6 +389,14 @@ class AgentApiClinicalReadTest extends TestCase
                 'vital_name' => 'Synthetic vital',
                 'import_source' => 'synthetic-import',
                 'external_id' => 'synthetic-vital',
+                'source_document_id' => $documentId,
+            ]),
+            'episodes' => PhrEpisode::query()->create([
+                'patient_id' => $patient->id,
+                'user_id' => $actor->id,
+                'title' => 'Synthetic episode',
+                'import_source' => 'synthetic-import',
+                'external_id' => 'synthetic-episode',
                 'source_document_id' => $documentId,
             ]),
             'health-logs' => PhrHealthLog::query()->create([

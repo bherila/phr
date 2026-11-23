@@ -15,6 +15,7 @@ use App\Models\PhrEhiProposal;
 use App\Models\PhrEhiSource;
 use App\Models\PhrEhiUpload;
 use App\Models\PhrEob;
+use App\Models\PhrEpisode;
 use App\Models\PhrHealthLog;
 use App\Models\PhrImmunization;
 use App\Models\PhrLabResult;
@@ -35,6 +36,7 @@ use App\Support\PHR\DisplayPreferences;
 use App\Support\PHR\PhrMedicationCategory;
 use App\Support\PHR\PhrRecordLifecycle;
 use App\Support\PHR\PhrReviewStatus;
+use App\Support\PHR\Validation\EpisodeDataRules;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Builder;
@@ -276,6 +278,13 @@ final readonly class PhrReviewQueueService
                 [$page, PhrReviewStatus::PENDING],
             )->groupBy('patient_id');
         }
+        // Episodes of care (#415) have no page of their own: they wait with the visits they group.
+        $episodes = PhrEpisode::query()->whereIn('patient_id', $patientIds)->where('review_status', PhrReviewStatus::PENDING);
+        PhrRecordLifecycle::scopeLive($episodes);
+        $parts[] = $episodes->toBase()->selectRaw(
+            'patient_id, ? as section, count(*) as records, count(*) as pending, max(updated_at) as last_updated',
+            ['episodes'],
+        )->groupBy('patient_id');
         foreach (['health-log' => PhrHealthLog::class, 'imaging' => PhrDicomStudy::class] as $page => $model) {
             $parts[] = $model::query()->whereIn('patient_id', $patientIds)->toBase()
                 ->selectRaw('patient_id, ? as section, count(*) as records, 0 as pending, max(updated_at) as last_updated', [$page])
@@ -286,8 +295,14 @@ final readonly class PhrReviewQueueService
             $union->unionAll($part);
         }
 
+        $pendingEpisodes = [];
         foreach ($union->get() as $row) {
             $patientId = (int) $row->patient_id;
+            if ((string) $row->section === 'episodes') {
+                $pendingEpisodes[$patientId] = (int) $row->pending;
+
+                continue;
+            }
             $tally['sections'][$patientId][(string) $row->section] = ['pending' => (int) $row->pending, 'records' => (int) $row->records];
             if (isset(self::CLINICAL[(string) $row->section])) {
                 $tally['clinical_pending'][$patientId] = ($tally['clinical_pending'][$patientId] ?? 0) + (int) $row->pending;
@@ -298,6 +313,12 @@ final readonly class PhrReviewQueueService
                     $tally['updated'][$patientId] = $updated;
                 }
             }
+        }
+
+        foreach ($pendingEpisodes as $patientId => $pending) {
+            $tally['sections'][$patientId]['office-visits'] ??= ['pending' => 0, 'records' => 0];
+            $tally['sections'][$patientId]['office-visits']['pending'] += $pending;
+            $tally['clinical_pending'][$patientId] = ($tally['clinical_pending'][$patientId] ?? 0) + $pending;
         }
 
         // Agent-written EOBs waiting for review count with the documents they came from.
@@ -372,6 +393,15 @@ final readonly class PhrReviewQueueService
         }
         if ($eobs->count() > self::ITEM_LIMIT) {
             $rows[] = ['eobs', null];
+        }
+        $episodeQuery = PhrEpisode::query()->where('patient_id', $patient->id)->where('review_status', PhrReviewStatus::PENDING);
+        PhrRecordLifecycle::scopeLive($episodeQuery);
+        $episodes = $episodeQuery->orderByDesc('updated_at')->orderByDesc('id')->limit(self::ITEM_LIMIT + 1)->get();
+        foreach ($episodes->take(self::ITEM_LIMIT) as $episode) {
+            $rows[] = ['episodes', $episode];
+        }
+        if ($episodes->count() > self::ITEM_LIMIT) {
+            $rows[] = ['episodes', null];
         }
 
         $documentIds = array_values(array_unique(array_filter(array_map(
@@ -486,9 +516,15 @@ final readonly class PhrReviewQueueService
             'type' => 'record',
             'key' => "record:{$page}:{$record->getKey()}",
             'id' => (int) $record->getKey(),
-            'section' => $page === 'eobs' ? 'documents' : $page,
+            'section' => match ($page) {
+                'eobs' => 'documents',
+                // An episode groups visits and opens beside them on the Visits page.
+                'episodes' => 'office-visits',
+                default => $page,
+            },
             'review_segment' => self::REVIEW_SEGMENTS[$page] ?? $page,
             ...($page === 'eobs' ? ['open_path' => '/phr/patient/'.$patient->id.'/eobs/'.$record->getKey()] : []),
+            ...($page === 'episodes' ? ['open_path' => '/phr/patient/'.$patient->id.'/office-visits/episode/'.$record->getKey()] : []),
             'title' => $title,
             'detail' => $detail,
             // Why a person should look closely, beyond the record being new.
@@ -721,6 +757,10 @@ final readonly class PhrReviewQueueService
             'documents' => [
                 (string) ($a('title') ?: $a('original_filename') ?: 'Document'),
                 $this->join([$a('document_type') ? Str::headline((string) $a('document_type')) : null, $this->date($a('observed_at'))]),
+            ],
+            'episodes' => [
+                (string) ($a('title') ?: 'Episode'),
+                $this->join(['Episode', EpisodeDataRules::KINDS[(string) $a('kind')] ?? null, $this->date($a('started_at')), $a('ended_at') ? 'to '.$this->date($a('ended_at')) : null]),
             ],
             default => [Str::headline($page), null],
         };

@@ -391,6 +391,24 @@ final readonly class AgentMcpWriteTools
     }
 
     /** @return array<string, mixed> */
+    public function episodesLinkEncounter(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $episode_id,
+        #[Schema(minimum: 1)] int $visit_id,
+    ): array {
+        return $this->api->episodeLinkEncounter($patient_id, $episode_id, $visit_id)->toArray();
+    }
+
+    /** @return array<string, mixed> */
+    public function episodesUnlinkEncounter(
+        #[Schema(minimum: 1)] int $patient_id,
+        #[Schema(minimum: 1)] int $episode_id,
+        #[Schema(minimum: 1)] int $visit_id,
+    ): array {
+        return $this->api->episodeUnlinkEncounter($patient_id, $episode_id, $visit_id)->toArray();
+    }
+
+    /** @return array<string, mixed> */
     public function eobsImport(
         #[Schema(minimum: 1)] int $patient_id,
         #[Schema(minimum: 1)] int $document_id,
