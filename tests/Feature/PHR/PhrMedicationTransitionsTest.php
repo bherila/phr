@@ -139,7 +139,9 @@ final class PhrMedicationTransitionsTest extends TestCase
             [...$row, 'home_medication_id' => $otherMedication->id, 'action' => 'held'],
         ] as $index => $invalid) {
             try {
-                DB::table('phr_medication_transitions')->insert($invalid);
+                // A savepoint, so PostgreSQL's aborted statement does not poison the test's
+                // surrounding transaction for the count that follows.
+                DB::transaction(static fn () => DB::table('phr_medication_transitions')->insert($invalid));
                 $this->fail("Row {$index} should have been refused by the database.");
             } catch (QueryException) {
                 $this->assertSame(1, DB::table('phr_medication_transitions')->count());
