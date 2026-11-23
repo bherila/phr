@@ -10,6 +10,9 @@ final class AgentEvidenceCursor
     private const array TARGET_TYPES = [
         'allergy', 'condition', 'document', 'eob', 'eob-line', 'immunization',
         'lab-result', 'medication', 'medication-fill', 'office-visit', 'procedure', 'vital',
+        // Every target type AgentEvidenceController emits must be listed, or the
+        // next-page cursor it hands out is refused (phr#437).
+        'episode', 'medication-transition',
     ];
 
     /** @return array{target_type: string, target_id: int}|null */
