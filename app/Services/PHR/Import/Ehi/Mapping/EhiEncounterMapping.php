@@ -64,6 +64,11 @@ use Illuminate\Database\UniqueConstraintViolationException;
  * APPT_STATUS_C_NAME. EhiTargetDigest ignores the new columns while they are null, so
  * proposals previewed before the migration still apply.
  *
+ * The care team (#412) is not mapped either: an inpatient treatment-team table stays
+ * unmapped evidence, retained with its package, until a mapping is verified
+ * against the package's own dictionary. VISIT_PROV_ID_PROV_NAME stays provider_name, and
+ * a visit's participants are written only by a person, an agent or a standard import.
+ *
  * Reconciliation matches the lab mapping: a link or this source's own identity
  * corroborates or proposes an explicit update; a source-ID bridge rule links evidence,
  * or names a conflict for a person; a same-date visit from elsewhere is a possible

@@ -58,6 +58,8 @@ final class PhrNativeTableCompatibility
             'phr_office_visit_medications',
             'phr_office_visit_procedures',
         ],
+        // A visit's care team (phr#412). Archives downloaded before it existed have none.
+        'visit_participants' => ['phr_office_visit_participants'],
     ];
 
     /**

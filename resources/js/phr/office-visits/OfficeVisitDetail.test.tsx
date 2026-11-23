@@ -145,6 +145,34 @@ describe('OfficeVisitDetail', () => {
     expect(await screen.findByText('No records are linked to this visit.')).toBeInTheDocument()
   })
 
+  it('shows a stay\'s care team with roles, specialties, primary and inactive members', async () => {
+    const member = (id: number, fields: Record<string, unknown>) => ({
+      id, external_id: null, credentials: null, role_code: 'PART', role_label: null, specialty: null,
+      is_primary: false, period_start: null, period_end: null, ...fields,
+    })
+    const stay = {
+      ...VISIT,
+      provider_name: 'Alex Attending, MD',
+      participants: [
+        member(1, { name: 'Alex Attending', credentials: 'MD', role_code: 'ATND', is_primary: true }),
+        member(2, { name: 'Robin Nurse', credentials: 'RN', role_label: 'Nurse', is_primary: true }),
+        member(3, { name: 'Casey Consultant', credentials: 'MD', role_code: 'CON', specialty: 'Nephrology' }),
+        member(4, { name: 'Taylor Tech', role_label: 'Technician', period_end: '2026-02-10 07:00:00' }),
+      ],
+    }
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ office_visit: stay, can_manage: false }))
+
+    render(<OfficeVisitDetail patientId={42} recordId="18" onDrill={jest.fn()} />)
+
+    expect(await screen.findByRole('heading', { name: 'Care team' })).toBeInTheDocument()
+    expect(screen.getAllByText('Alex Attending, MD')).toHaveLength(2)
+    expect(screen.getByText('Attending')).toBeInTheDocument()
+    expect(screen.getByText('Robin Nurse, RN')).toBeInTheDocument()
+    expect(screen.getByText('Consultant · Nephrology')).toBeInTheDocument()
+    expect(screen.getAllByText('Primary')).toHaveLength(2)
+    expect(screen.getByText('Inactive')).toBeInTheDocument()
+  })
+
   it('leaves out encounter facts an office visit does not state', async () => {
     jest.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ office_visit: VISIT, can_manage: false }))
 
@@ -152,6 +180,7 @@ describe('OfficeVisitDetail', () => {
 
     expect(await screen.findByRole('heading', { name: 'Related services' })).toBeInTheDocument()
     expect(screen.queryByText('Encounter class')).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Care team' })).not.toBeInTheDocument()
     expect(screen.queryByText('Discharged to')).not.toBeInTheDocument()
   })
 })

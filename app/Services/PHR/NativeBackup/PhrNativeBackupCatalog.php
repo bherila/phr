@@ -126,6 +126,13 @@ final class PhrNativeBackupCatalog
             'phr_lab_results' => ['patient_column' => 'patient_id', 'relationships' => $clinical()],
             'phr_patient_vitals' => ['patient_column' => 'patient_id', 'relationships' => $clinical()],
             'phr_office_visits' => ['patient_column' => 'patient_id', 'relationships' => $clinical()],
+            // A visit's care team (#412), restored after the visit it belongs to.
+            'phr_office_visit_participants' => [
+                'patient_column' => 'patient_id',
+                'relationships' => [
+                    'office_visit_id' => self::record('phr_office_visits', false),
+                ],
+            ],
             'phr_office_visit_eobs' => [
                 'patient_column' => 'patient_id',
                 'relationships' => [

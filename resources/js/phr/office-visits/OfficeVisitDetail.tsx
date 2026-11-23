@@ -10,6 +10,7 @@ import { type PhrReviewDecision, ReviewActions } from '@/phr/clinical/review'
 import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { encounterFacts } from '@/phr/office-visits/encounterLabels'
+import OfficeVisitCareTeam from '@/phr/office-visits/OfficeVisitCareTeam'
 import OfficeVisitLinkedRecords from '@/phr/office-visits/OfficeVisitLinkedRecords'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
@@ -218,6 +219,7 @@ export default function OfficeVisitDetail({ patientId, recordId, onDrill }: Offi
               {renderCodeList('CPT codes', visit.cpt_codes)}
             </div>
           </section>
+          <OfficeVisitCareTeam participants={visit.participants} />
           <EncounterEobLinks
             key={`${patientId}-${recordId}`}
             patientId={patientId}

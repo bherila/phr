@@ -54,6 +54,10 @@ final class AgentClinicalReadController extends Controller
             // One query for the page's evidence rather than one per fill.
             $query->with(['medication:id,name', 'evidence']);
         }
+        if ($resource === 'office-visits') {
+            // The page's care teams in one query.
+            $query->with('participants');
+        }
 
         $limit = (int) ($validated['limit'] ?? 25);
         $page = $query

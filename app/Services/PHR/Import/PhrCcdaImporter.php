@@ -9,6 +9,7 @@ use App\Models\PhrPatient;
 use App\Models\PhrPatientVital;
 use App\Models\PhrProcedure;
 use App\Services\PHR\Encounters\PhrEncounterLinks;
+use App\Support\PHR\PhrVisitParticipants;
 use DOMDocument;
 use DOMElement;
 use DOMXPath;
@@ -323,6 +324,9 @@ class PhrCcdaImporter
                         foreach ($header as $field => $value) {
                             if (($record[$field] ?? null) === null) {
                                 $record[$field] = $value;
+                            } elseif ($field === 'participants' && is_array($value)) {
+                                // Both name the care team: the activity's performers, then the header's participants.
+                                $record[$field] = PhrVisitParticipants::merge($record[$field], $value);
                             }
                         }
                         $header = null;

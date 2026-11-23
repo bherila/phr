@@ -15,6 +15,7 @@ use App\Models\PhrPatientVital;
 use App\Models\PhrPortalMessage;
 use App\Models\PhrProcedure;
 use App\Support\PHR\PhrEncounterVocabulary;
+use App\Support\PHR\PhrVisitParticipants;
 use Illuminate\Database\Eloquent\Model;
 use InvalidArgumentException;
 
@@ -258,7 +259,7 @@ class PhrRecordAttributeMapper
     }
 
     /**
-     * The coded encounter fields (#410) a record names. A record that does not name
+     * The coded encounter fields (#410) and care team (#412) a record names. A record that does not name
      * one leaves it out, so a source that never states them (a narrative table, a
      * document a person transcribed) does not clear what another write set. A code
      * outside its vocabulary is not stored; the text beside it is.
@@ -277,6 +278,8 @@ class PhrRecordAttributeMapper
             'discharge_disposition' => static fn (mixed $value): ?string => PhrEncounterVocabulary::dischargeDispositionCode($value),
             'discharge_disposition_text' => static fn (mixed $value): ?string => ValueCoercion::string($value),
             'encounter_diagnoses' => static fn (mixed $value): ?array => self::encounterDiagnoses($value),
+            // The care team (#412), replacing the visit's when the source names one.
+            'participants' => static fn (mixed $value): array => PhrVisitParticipants::normalize($value),
         ];
 
         $attributes = [];

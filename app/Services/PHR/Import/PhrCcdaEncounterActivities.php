@@ -3,7 +3,9 @@
 namespace App\Services\PHR\Import;
 
 use App\Support\PHR\PhrEncounterVocabulary;
+use App\Support\PHR\PhrVisitParticipants;
 use DOMElement;
+use DOMText;
 
 /**
  * Encounters section: one visit per Encounter Activity. Only encounters that
@@ -14,6 +16,13 @@ use DOMElement;
  * single-encounter document (a discharge summary, a visit note) describes. It is read
  * by header(): its location, its discharge disposition and its class. An Encounter
  * Activity with the same id is the same visit, and the importer reads the two as one.
+ *
+ * The care team (#412): an activity's performers, each with the role its
+ * sdtc:functionCode states (a v3 ParticipationType code, or a ParticipationFunction one
+ * that means the same), PPRF beside it for a primary member, its sdtc:specialty and its
+ * time; the header's encounterParticipants, by their typeCode. Credentials are the
+ * name's suffixes. A performer with no function code is PART, and its name is the
+ * visit's provider as before.
  */
 final class PhrCcdaEncounterActivities extends PhrCcdaSectionReader
 {
@@ -35,6 +44,9 @@ final class PhrCcdaEncounterActivities extends PhrCcdaSectionReader
         'chief_complaint' => ['reason', 'reason for visit', 'chief complaint'],
         'assessment' => ['assessment'],
     ];
+
+    /** An encompassingEncounter participant's typeCode as a v3 ParticipationType role. */
+    private const array HEADER_ROLES = ['ADM' => 'ADM', 'ATND' => 'ATND', 'CON' => 'CON', 'DIS' => 'DIS', 'REF' => 'PART'];
 
     /** Diagnosis code systems by OID, as the code system URIs a visit stores. */
     private const array DIAGNOSIS_SYSTEMS = [
@@ -172,13 +184,28 @@ final class PhrCcdaEncounterActivities extends PhrCcdaSectionReader
             }
         }
         $facility = $this->xml->path($encounter, 'location', 'healthCareFacility');
+        $participants = [];
+        foreach ($this->xml->children($encounter, 'encounterParticipant') as $participant) {
+            $typeCode = strtoupper((string) $this->xml->attribute($participant, 'typeCode'));
+            $member = $this->member($this->xml->child($participant, 'assignedEntity'), $this->xml->child($participant, 'time'), [
+                'role_code' => self::HEADER_ROLES[$typeCode] ?? PhrVisitParticipants::OTHER,
+                'is_primary' => false,
+                'role_label' => $typeCode === 'REF' ? 'Referrer' : null,
+            ]);
+            if ($member !== null) {
+                $participants[] = $member;
+            }
+        }
+        $participants = PhrVisitParticipants::normalize($participants);
 
         return [
             'visit_date' => $started,
             'visit_started_at' => $this->xml->hasTime($started) ? $started : null,
             'visit_ended_at' => $this->xml->hasTime($ended) ? $ended : null,
             'visit_type' => $type,
-            'provider_name' => $this->xml->nameText($this->xml->path($responsible, 'assignedPerson', 'name')),
+            'provider_name' => PhrVisitParticipants::providerName($participants)
+                ?? $this->xml->nameText($this->xml->path($responsible, 'assignedPerson', 'name')),
+            'participants' => $participants === [] ? null : $participants,
             'facility_name' => $this->xml->nameText($this->xml->path($facility, 'serviceProviderOrganization', 'name')),
             'location' => $this->xml->nameText($this->xml->path($facility, 'location', 'name'))
                 ?? $this->xml->codeName($this->xml->child($facility, 'code')),
@@ -208,13 +235,19 @@ final class PhrCcdaEncounterActivities extends PhrCcdaSectionReader
         $place = $this->xml->nameText($this->xml->child($location, 'name'));
         $organization = $this->xml->nameText($this->xml->path($performer, 'representedOrganization', 'name'));
         $indication = $this->xml->related($encounter, 'observation', self::INDICATION)[0] ?? null;
+        $participants = $this->performers($encounter);
+        foreach ($this->xml->children($encounter, 'performer') as $each) {
+            $organization ??= $this->xml->nameText($this->xml->path($each, 'assignedEntity', 'representedOrganization', 'name'));
+        }
 
         return [
             'visit_date' => $started,
             'visit_started_at' => $this->xml->hasTime($started) ? $started : null,
             'visit_ended_at' => $this->xml->hasTime($ended) ? $ended : null,
             'visit_type' => $type,
-            'provider_name' => $this->xml->nameText($this->xml->path($performer, 'assignedPerson', 'name')),
+            'provider_name' => PhrVisitParticipants::providerName($participants)
+                ?? $this->xml->nameText($this->xml->path($performer, 'assignedPerson', 'name')),
+            'participants' => $participants === [] ? null : $participants,
             'provider_specialty' => $this->xml->codeName($this->xml->child($performer, 'code')),
             // The service location, else the performing organization. With both, the
             // location is the unit within that organization.
@@ -228,6 +261,117 @@ final class PhrCcdaEncounterActivities extends PhrCcdaSectionReader
             ...$this->dischargeDisposition($this->xml->child($encounter, 'dischargeDispositionCode')),
             'external_id' => $this->externalId($encounter, [$started, $type]),
         ];
+    }
+
+    /**
+     * The activity's performers as its care team, in document order.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function performers(DOMElement $encounter): array
+    {
+        $members = [];
+        foreach ($this->xml->children($encounter, 'performer') as $performer) {
+            $function = $this->xml->child($performer, 'functionCode');
+            $codes = [];
+            foreach ([$function, ...$this->xml->children($function, 'translation')] as $code) {
+                $value = strtoupper((string) $this->xml->attribute($code, 'code'));
+                $system = $this->xml->attribute($code, 'codeSystem');
+                if ($system === PhrVisitParticipants::PARTICIPATION_TYPE_OID || $system === null) {
+                    $codes[] = $value;
+                } elseif ($system === PhrVisitParticipants::PARTICIPATION_FUNCTION_OID && isset(PhrVisitParticipants::FUNCTION_ROLES[$value])) {
+                    $codes[] = PhrVisitParticipants::FUNCTION_ROLES[$value];
+                }
+            }
+            $label = $this->xml->edText($this->xml->child($function, 'originalText'));
+            if ($label === null && $this->xml->attribute($function, 'codeSystem') !== PhrVisitParticipants::PARTICIPATION_TYPE_OID) {
+                $label = $this->xml->attribute($function, 'displayName');
+            }
+            $member = $this->member($this->xml->child($performer, 'assignedEntity'), $this->xml->child($performer, 'time'), [
+                ...PhrVisitParticipants::role($codes, $label),
+                'role_label' => $label,
+            ]);
+            if ($member !== null) {
+                $members[] = $member;
+            }
+        }
+
+        return PhrVisitParticipants::normalize($members);
+    }
+
+    /**
+     * One care team member: the assigned person's name (its suffixes as credentials),
+     * their specialty (sdtc:specialty, else the assigned entity's code) and the time
+     * they took part. An entity with no person is an organization, not a member.
+     *
+     * @param  array<string, mixed>  $role
+     * @return array<string, mixed>|null
+     */
+    private function member(?DOMElement $entity, ?DOMElement $time, array $role): ?array
+    {
+        [$name, $credentials] = $this->personName($this->xml->path($entity, 'assignedPerson', 'name'));
+        if ($name === null) {
+            return null;
+        }
+        [$start, $end] = $this->xml->period($time);
+
+        return [
+            ...$role,
+            'external_id' => $this->memberId($entity),
+            'name' => $name,
+            'credentials' => $credentials,
+            'specialty' => $this->conceptText($this->xml->child($entity, 'specialty')) ?? $this->xml->codeName($this->xml->child($entity, 'code')),
+            'period_start' => $start,
+            'period_end' => $end,
+        ];
+    }
+
+    /** The assigned entity's first id that names someone, as `root^extension`. */
+    private function memberId(?DOMElement $entity): ?string
+    {
+        foreach ($this->xml->children($entity, 'id') as $id) {
+            $root = $this->xml->attribute($id, 'root');
+            if ($root !== null) {
+                $extension = $this->xml->attribute($id, 'extension');
+
+                return $extension === null ? $root : $root.'^'.$extension;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * A PN as the name a person goes by and the credentials its suffixes state. A name
+     * written as plain text is the name alone.
+     *
+     * @return array{0: string|null, 1: string|null}
+     */
+    private function personName(?DOMElement $name): array
+    {
+        if ($name === null) {
+            return [null, null];
+        }
+        $parts = [];
+        $suffixes = [];
+        foreach ($name->childNodes as $child) {
+            if ($child instanceof DOMElement) {
+                $text = $this->xml->edText($child);
+                if ($text === null) {
+                    continue;
+                }
+                if ($child->localName === 'suffix') {
+                    $suffixes[] = $text;
+                } elseif ($child->localName !== 'validTime') {
+                    $parts[] = $text;
+                }
+            } elseif ($child instanceof DOMText && trim($child->data) !== '') {
+                $parts[] = trim($child->data);
+            }
+        }
+        $text = trim(implode(' ', $parts));
+
+        return [$text === '' ? null : $text, $suffixes === [] ? null : implode(', ', $suffixes)];
     }
 
     /**

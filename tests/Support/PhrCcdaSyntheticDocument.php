@@ -147,7 +147,8 @@ final class PhrCcdaSyntheticDocument
                     'visit_started_at' => null,
                     'visit_date' => null,
                     'visit_type' => 'Synthetic visit',
-                    'provider_name' => null,
+                    // What a stored visit keeps in sync with its care team's primary attending.
+                    'provider_name' => 'Synthetic Attending, MD',
                     'chief_complaint' => 'Synthetic complaint',
                     'assessment' => 'Synthetic assessment',
                     // An Encounter Activity with every part the exporter writes.
@@ -162,6 +163,11 @@ final class PhrCcdaSyntheticDocument
                         ['name' => 'Synthetic named diagnosis'],
                     ],
                     'icd10_codes' => null,
+                    // Its care team: Encounter Activity performers.
+                    'participants' => [
+                        ['name' => 'Synthetic Attending', 'credentials' => 'MD', 'role_code' => 'ATND', 'role_label' => 'Attending Physician', 'is_primary' => true, 'period_start' => '2026-01-01 08:00:00'],
+                        ['name' => 'Synthetic Consultant', 'credentials' => 'MD', 'role_code' => 'CON', 'specialty' => 'Synthetic specialty', 'period_start' => '2026-01-01 09:00:00', 'period_end' => '2026-01-01 17:00:00'],
+                    ],
                 ]]),
             ];
 

@@ -2,10 +2,13 @@
 
 namespace App\Models;
 
+use App\Support\PHR\PhrVisitParticipants;
 use App\Traits\SerializesDatesAsLocal;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 
@@ -49,6 +52,8 @@ use Illuminate\Support\Carbon;
  * @property string|null $admit_source_text
  * @property string|null $discharge_disposition
  * @property string|null $discharge_disposition_text
+ * @property string|null $participants_digest
+ * @property-read Collection<int, PhrOfficeVisitParticipant> $participants
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -99,6 +104,14 @@ class PhrOfficeVisit extends Model
     ];
 
     /**
+     * The care team a fill() was given, written once the visit is saved. Null when the
+     * fill named no team, or named the one the visit already has.
+     *
+     * @var list<array<string, mixed>>|null
+     */
+    private ?array $pendingParticipants = null;
+
+    /**
      * Coded encounter columns added after the EHI encounter context (#410). See
      * PhrEncounterVocabulary for their values.
      */
@@ -127,6 +140,15 @@ class PhrOfficeVisit extends Model
      */
     public function fill(array $attributes): static
     {
+        // The care team (#412) is not a column: `participants` replaces the visit's whole
+        // list. Its digest is, so a changed team is a change to the visit, and an
+        // unchanged one is not.
+        $participants = null;
+        if (array_key_exists('participants', $attributes)) {
+            $participants = PhrVisitParticipants::normalize($attributes['participants']);
+            unset($attributes['participants']);
+        }
+
         parent::fill($attributes);
 
         foreach (self::DATE_PROVENANCE as $column => $provenance) {
@@ -139,7 +161,43 @@ class PhrOfficeVisit extends Model
             }
         }
 
+        if ($participants !== null) {
+            $this->setAttribute('participants_digest', PhrVisitParticipants::digest($participants));
+            $this->pendingParticipants = $this->isDirty('participants_digest') || ! $this->exists ? $participants : null;
+            // provider_name stays the denormalised primary attending, so search, the PDF
+            // summary and the narrative exports keep naming them. A writer that names a
+            // provider itself keeps it; a team with no attending leaves it as it is.
+            $provider = PhrVisitParticipants::providerName($participants);
+            $named = $attributes['provider_name'] ?? null;
+            if ($provider !== null && (! is_string($named) || trim($named) === '')) {
+                $this->setAttribute('provider_name', mb_substr($provider, 0, 255));
+            }
+        }
+
         return $this;
+    }
+
+    protected static function booted(): void
+    {
+        static::saved(static function (self $visit): void {
+            $participants = $visit->pendingParticipants;
+            if ($participants === null) {
+                return;
+            }
+            $visit->pendingParticipants = null;
+            $visit->participants()->delete();
+            if ($participants !== []) {
+                $now = $visit->freshTimestampString();
+                PhrOfficeVisitParticipant::query()->insert(array_map(static fn (array $member): array => [
+                    ...$member,
+                    'patient_id' => $visit->patient_id,
+                    'office_visit_id' => $visit->id,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ], $participants));
+            }
+            $visit->unsetRelation('participants');
+        });
     }
 
     /**
@@ -191,6 +249,16 @@ class PhrOfficeVisit extends Model
     public function sourceDocument(): BelongsTo
     {
         return $this->belongsTo(PhrDocument::class, 'source_document_id');
+    }
+
+    /**
+     * The care team, in the source's order.
+     *
+     * @return HasMany<PhrOfficeVisitParticipant, $this>
+     */
+    public function participants(): HasMany
+    {
+        return $this->hasMany(PhrOfficeVisitParticipant::class, 'office_visit_id')->orderBy('id');
     }
 
     /** @return BelongsToMany<PhrEob, $this> */

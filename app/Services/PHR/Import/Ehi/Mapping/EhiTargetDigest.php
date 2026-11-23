@@ -14,10 +14,10 @@ use Illuminate\Database\Eloquent\Model;
  * read the patient's records once and yield drafts for a long time afterwards, so each
  * draft carries the digest of what it read rather than the service reading it later.
  *
- * A visit's coded encounter columns (#410) count only once they hold a value. A
- * proposal previewed before they existed digested a row without them, and adding
- * null columns changes nothing that row says, so it must not turn every pending
- * proposal stale. Setting one is a write and does change the digest.
+ * A visit's coded encounter columns (#410) and its care team digest (#412) count only
+ * once they hold a value. A proposal previewed before they existed digested a row
+ * without them, and adding null columns changes nothing that row says, so it must not
+ * turn every pending proposal stale. Setting one is a write and does change the digest.
  */
 final class EhiTargetDigest
 {
@@ -25,7 +25,7 @@ final class EhiTargetDigest
     {
         $attributes = $record->getAttributes();
         if ($record instanceof PhrOfficeVisit) {
-            foreach (PhrOfficeVisit::ENCOUNTER_CORE as $column) {
+            foreach ([...PhrOfficeVisit::ENCOUNTER_CORE, 'participants_digest'] as $column) {
                 if (array_key_exists($column, $attributes) && $attributes[$column] === null) {
                     unset($attributes[$column]);
                 }

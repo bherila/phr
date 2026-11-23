@@ -55,15 +55,25 @@ its `sdtc:dischargeDispositionCode` (a NUBC status as the FHIR disposition of th
 meaning, with the source's words) and its diagnoses by name. With both a service location
 and a performing organization, the location is the unit and the organization the facility.
 
+Its performers are the visit's care team: each assigned person, with the name's suffixes
+as credentials, the role its `sdtc:functionCode` states (an HL7 v3 ParticipationType code,
+or the ParticipationFunction attending, admitting or discharging physician code; `PPRF`
+beside another code marks a primary member), the code's original text as the role's label,
+`sdtc:specialty` (else the assigned entity's code) as the specialty and `time` as the
+period. A performer with no function code is a participant (`PART`). The visit's provider
+is the primary attending, else the first performer as before.
+
 ## The document's own encounter
 
 A single-encounter document (a discharge summary, a visit note) names its encounter in
 the header, `componentOf/encompassingEncounter`. It is a visit: its class, period,
 responsible party (else attending), `healthCareFacility` location as the unit and service
 provider organization as the facility, admission referral source text and discharge
-disposition. An Encounter Activity with the same id is the same visit: the activity's own
-fields stand and the header fills only what it leaves unsaid, so the stay is never imported
-twice.
+disposition. Its `encounterParticipant`s are the care team, each in the role its
+`typeCode` names (ADM, ATND, CON, DIS; a referrer is a participant). An Encounter Activity
+with the same id is the same visit: the activity's own fields stand and the header fills
+only what it leaves unsaid, so the stay is never imported twice; the header's participants
+join the activity's performers.
 
 The lab results, vitals, procedures and medications read from such a document are linked
 to that visit (#411; `PhrEncounterLinks`). Three limits keep the link honest: a CCD

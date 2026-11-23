@@ -90,6 +90,8 @@ final class PhrNativeLifecycleCompatibility
             'admit_source_text',
             'discharge_disposition',
             'discharge_disposition_text',
+            // The digest of the visit's care team (#412); null for a visit with none.
+            'participants_digest',
         ],
         // Which source-ID bridge justified a link (#213 M3); older links name none.
         'phr_ehi_record_links' => ['bridge_version', 'bridge_rule'],

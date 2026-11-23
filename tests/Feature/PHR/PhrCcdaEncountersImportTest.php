@@ -59,7 +59,7 @@ final class PhrCcdaEncountersImportTest extends PhrCcdaSectionImportTestCase
 
     protected static function exportedRecord(): array
     {
-        return ['visit_type' => 'Synthetic visit', 'visit_date' => null, 'provider_name' => null];
+        return ['visit_type' => 'Synthetic visit', 'visit_date' => null, 'provider_name' => 'Synthetic Attending, MD'];
     }
 
     protected static function narrativeAdoption(): array

@@ -5,6 +5,7 @@ namespace App\Support\PHR\Validation;
 use App\Contracts\PHR\ClinicalDataRules;
 use App\Services\PHR\Import\Ehi\Mapping\Encounter\EhiEncounterCategory;
 use App\Support\PHR\PhrEncounterVocabulary;
+use App\Support\PHR\PhrVisitParticipants;
 use Illuminate\Validation\Rule;
 
 final class OfficeVisitDataRules implements ClinicalDataRules
@@ -70,6 +71,17 @@ final class OfficeVisitDataRules implements ClinicalDataRules
             'encounter_diagnoses.*.qualifier' => ['nullable', 'string', 'max:255'],
             'encounter_diagnoses.*.annotation' => ['nullable', 'string', 'max:10000'],
             'encounter_diagnoses.*.comments' => ['nullable', 'string', 'max:10000'],
+            'participants' => ['nullable', 'array', 'max:'.PhrVisitParticipants::MAX_MEMBERS],
+            'participants.*' => ['array:'.implode(',', array_keys(PhrVisitParticipants::FIELDS))],
+            'participants.*.name' => ['required', 'string', 'max:255'],
+            'participants.*.external_id' => ['nullable', 'string', 'max:255'],
+            'participants.*.credentials' => ['nullable', 'string', 'max:100'],
+            'participants.*.role_code' => ['nullable', 'string', Rule::in(array_keys(PhrVisitParticipants::ROLES))],
+            'participants.*.role_label' => ['nullable', 'string', 'max:255'],
+            'participants.*.specialty' => ['nullable', 'string', 'max:255'],
+            'participants.*.is_primary' => ['nullable', 'boolean'],
+            'participants.*.period_start' => ['nullable', 'date'],
+            'participants.*.period_end' => ['nullable', 'date'],
         ];
     }
 
@@ -114,6 +126,22 @@ final class OfficeVisitDataRules implements ClinicalDataRules
                     'qualifier' => ClinicalJsonSchema::nullableString(maxLength: 255),
                     'annotation' => ClinicalJsonSchema::nullableString(maxLength: 10000),
                     'comments' => ClinicalJsonSchema::nullableString(maxLength: 10000),
+                ], ['name']),
+            ],
+            'participants' => [
+                'type' => ['array', 'null'],
+                'maxItems' => PhrVisitParticipants::MAX_MEMBERS,
+                'description' => 'The care team for this encounter, in the source\'s order. Sending it replaces the whole team; null or an empty list clears it; leaving it out keeps the team as it is. provider_name follows the primary attending unless provider_name is sent too. Members are reviewed with their visit.',
+                'items' => ClinicalJsonSchema::object([
+                    'name' => ['type' => 'string', 'maxLength' => 255, 'description' => 'The person\'s name, without credentials.'],
+                    'credentials' => ClinicalJsonSchema::nullableString(maxLength: 100) + ['description' => 'For example MD, RN or RRT.'],
+                    'role_code' => self::nullableEnum(array_keys(PhrVisitParticipants::ROLES), 'HL7 v3 ParticipationType: ATND attending, CON consultant, ADM admitting, DIS discharging, PPRF primary performer, SPRF secondary performer, PART anyone else (the default), with role_label naming the role.'),
+                    'role_label' => ClinicalJsonSchema::nullableString(maxLength: 255) + ['description' => 'The role as the source worded it, for example Respiratory Therapist.'],
+                    'specialty' => ClinicalJsonSchema::nullableString(maxLength: 255),
+                    'is_primary' => ['type' => ['boolean', 'null'], 'description' => 'Whether the member is primary in their role, for example the primary nurse.'],
+                    'period_start' => ClinicalJsonSchema::nullableString('date-time'),
+                    'period_end' => ClinicalJsonSchema::nullableString('date-time') + ['description' => 'When the member left the team; a member who left is kept, as inactive.'],
+                    'external_id' => ClinicalJsonSchema::nullableString(maxLength: 255) + ['description' => 'The source\'s identifier for the member, if it has one.'],
                 ], ['name']),
             ],
         ]);

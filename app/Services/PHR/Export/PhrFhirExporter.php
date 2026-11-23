@@ -18,6 +18,7 @@ use App\Models\PhrPortalMessage;
 use App\Models\PhrProcedure;
 use App\Support\PHR\PhrEncounterVocabulary;
 use App\Support\PHR\PhrLabReferenceRangeNotation;
+use App\Support\PHR\PhrVisitParticipants;
 use Illuminate\Support\Carbon;
 
 class PhrFhirExporter
@@ -399,6 +400,8 @@ class PhrFhirExporter
     private function encounterResource(PhrOfficeVisit $visit): array
     {
         $diagnoses = $this->encounterDiagnoses($visit);
+        $participants = $this->encounterParticipants($visit);
+        $contained = [...array_column($diagnoses, 'condition'), ...array_merge(...array_column($participants, 'contained'))];
         $hospitalization = array_filter([
             'admitSource' => $this->vocabularyConcept(PhrEncounterVocabulary::ADMIT_SOURCE_SYSTEM, PhrEncounterVocabulary::ADMIT_SOURCES, $visit->admit_source, $visit->admit_source_text),
             'dischargeDisposition' => $this->vocabularyConcept(PhrEncounterVocabulary::DISCHARGE_DISPOSITION_SYSTEM, PhrEncounterVocabulary::DISCHARGE_DISPOSITIONS, $visit->discharge_disposition, $visit->discharge_disposition_text),
@@ -407,7 +410,7 @@ class PhrFhirExporter
         return [
             'resourceType' => 'Encounter',
             'id' => 'phr-visit-'.$visit->id,
-            'contained' => $diagnoses === [] ? null : array_column($diagnoses, 'condition'),
+            'contained' => $contained === [] ? null : $contained,
             'status' => $this->encounterState($visit),
             'class' => $this->encounterClass($visit->encounter_class),
             'subject' => $this->patientReference($visit->patient_id),
@@ -417,7 +420,9 @@ class PhrFhirExporter
                 'start' => $this->visitMoment($visit->startZoneIsUnrecorded(), $visit->visit_started_at ?? $visit->visit_date),
                 'end' => $this->visitMoment($visit->endZoneIsUnrecorded(), $visit->visit_ended_at),
             ],
-            'participant' => $visit->provider_name ? [['individual' => ['display' => $visit->provider_name]]] : null,
+            'participant' => $participants !== []
+                ? array_column($participants, 'participant')
+                : ($visit->provider_name ? [['individual' => ['display' => $visit->provider_name]]] : null),
             'reasonCode' => $visit->chief_complaint ? [$this->textCode($visit->chief_complaint)] : null,
             'diagnosis' => $diagnoses === [] ? null : array_column($diagnoses, 'diagnosis'),
             'hospitalization' => $hospitalization === [] ? null : $hospitalization,
@@ -497,6 +502,77 @@ class PhrFhirExporter
         }
 
         return $diagnoses;
+    }
+
+    /**
+     * Each member of the visit's care team (#412) as an Encounter.participant, in the
+     * visit's order, and the contained resources that name them: a Practitioner with the
+     * member's name and credentials (as a name suffix), and, for a member with a
+     * specialty, a PractitionerRole holding it. The participant's type is the member's
+     * ParticipationType code with the source's label as its text, and PPRF beside it for
+     * a member who is primary in another role.
+     *
+     * @return list<array{participant: array<string, mixed>, contained: list<array<string, mixed>>}>
+     */
+    private function encounterParticipants(PhrOfficeVisit $visit): array
+    {
+        $participants = [];
+        foreach ($visit->participants as $position => $participant) {
+            $member = $participant->toMember();
+            $id = 'participant-'.($position + 1);
+            $display = PhrVisitParticipants::display($member);
+            $contained = [[
+                'resourceType' => 'Practitioner',
+                'id' => $id,
+                'name' => [[
+                    'text' => $member['name'],
+                    'suffix' => $member['credentials'] === null ? null : [$member['credentials']],
+                ]],
+            ]];
+            $individual = '#'.$id;
+            if ($member['specialty'] !== null) {
+                $contained[] = [
+                    'resourceType' => 'PractitionerRole',
+                    'id' => $id.'-role',
+                    'practitioner' => ['reference' => '#'.$id, 'display' => $display],
+                    'specialty' => [['text' => $member['specialty']]],
+                ];
+                $individual = '#'.$id.'-role';
+            }
+            $codings = [$this->participationCoding($member['role_code'])];
+            if ($member['is_primary'] && $member['role_code'] !== PhrVisitParticipants::PRIMARY) {
+                $codings[] = $this->participationCoding(PhrVisitParticipants::PRIMARY);
+            }
+            $participants[] = [
+                'participant' => [
+                    'type' => [['coding' => $codings, 'text' => $member['role_label']]],
+                    'period' => [
+                        'start' => $this->participantMoment($participant->period_start),
+                        'end' => $this->participantMoment($participant->period_end),
+                    ],
+                    'individual' => ['reference' => $individual, 'display' => $display],
+                ],
+                'contained' => $contained,
+            ];
+        }
+
+        return $participants;
+    }
+
+    /** @return array{system: string, code: string, display: string} */
+    private function participationCoding(string $code): array
+    {
+        return ['system' => PhrVisitParticipants::PARTICIPATION_TYPE_SYSTEM, 'code' => $code, 'display' => PhrVisitParticipants::ROLES[$code] ?? PhrVisitParticipants::ROLES[PhrVisitParticipants::OTHER]];
+    }
+
+    /** A member's start or end: a date when it was stated as one (midnight), else a time. */
+    private function participantMoment(?Carbon $moment): ?string
+    {
+        if ($moment === null) {
+            return null;
+        }
+
+        return $moment->equalTo($moment->copy()->startOfDay()) ? $moment->toDateString() : $this->fhirDateTime($moment);
     }
 
     /**

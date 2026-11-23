@@ -4729,7 +4729,7 @@
             "put": {
                 "operationId": "office_visits.upsert",
                 "summary": "Idempotently create or update an office visit",
-                "description": "Stable external IDs are namespaced to the authenticated OAuth client. A changed existing record requires its current opaque version; an already-applied retry remains safe with a stale version. A visit carries its coded encounter facts: encounter_class (HL7 v3 ActCode, IMP for an inpatient stay), encounter_state (FHIR Encounter.status, in-progress while a stay is under way), the unit in location, admit_source and discharge_disposition with the source's words beside each, encounter_category, and encounter_diagnoses, which stay on the visit and are not conditions. encounter_status is the source's own appointment status text and is not written here.",
+                "description": "Stable external IDs are namespaced to the authenticated OAuth client. A changed existing record requires its current opaque version; an already-applied retry remains safe with a stale version. A visit carries its coded encounter facts: encounter_class (HL7 v3 ActCode, IMP for an inpatient stay), encounter_state (FHIR Encounter.status, in-progress while a stay is under way), the unit in location, admit_source and discharge_disposition with the source's words beside each, encounter_category, and encounter_diagnoses, which stay on the visit and are not conditions. encounter_status is the source's own appointment status text and is not written here. participants is the stay's care team (HL7 v3 ParticipationType role_code with role_label, credentials, specialty, is_primary, period): sending it replaces the whole team, and provider_name follows its primary attending unless provider_name is sent too.",
                 "security": [
                     {
                         "oauth2": [
@@ -13546,6 +13546,98 @@
                                         "null"
                                     ],
                                     "maxLength": 10000
+                                }
+                            },
+                            "required": [
+                                "name"
+                            ],
+                            "additionalProperties": false
+                        }
+                    },
+                    "participants": {
+                        "type": [
+                            "array",
+                            "null"
+                        ],
+                        "maxItems": 100,
+                        "description": "The care team for this encounter, in the source's order. Sending it replaces the whole team; null or an empty list clears it; leaving it out keeps the team as it is. provider_name follows the primary attending unless provider_name is sent too. Members are reviewed with their visit.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {
+                                    "type": "string",
+                                    "maxLength": 255,
+                                    "description": "The person's name, without credentials."
+                                },
+                                "credentials": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "maxLength": 100,
+                                    "description": "For example MD, RN or RRT."
+                                },
+                                "role_code": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "enum": [
+                                        "ATND",
+                                        "CON",
+                                        "ADM",
+                                        "DIS",
+                                        "PPRF",
+                                        "SPRF",
+                                        "PART",
+                                        null
+                                    ],
+                                    "description": "HL7 v3 ParticipationType: ATND attending, CON consultant, ADM admitting, DIS discharging, PPRF primary performer, SPRF secondary performer, PART anyone else (the default), with role_label naming the role."
+                                },
+                                "role_label": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "maxLength": 255,
+                                    "description": "The role as the source worded it, for example Respiratory Therapist."
+                                },
+                                "specialty": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "maxLength": 255
+                                },
+                                "is_primary": {
+                                    "type": [
+                                        "boolean",
+                                        "null"
+                                    ],
+                                    "description": "Whether the member is primary in their role, for example the primary nurse."
+                                },
+                                "period_start": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "format": "date-time"
+                                },
+                                "period_end": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "format": "date-time",
+                                    "description": "When the member left the team; a member who left is kept, as inactive."
+                                },
+                                "external_id": {
+                                    "type": [
+                                        "string",
+                                        "null"
+                                    ],
+                                    "maxLength": 255,
+                                    "description": "The source's identifier for the member, if it has one."
                                 }
                             },
                             "required": [
