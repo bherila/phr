@@ -218,12 +218,14 @@ final class AgentApiReadDao
         ?string $dateFrom = null,
         ?string $dateTo = null,
         ?string $tag = null,
+        ?string $reviewStatus = null,
     ): AgentApiPayload {
         return $this->page("patients/{$patientId}/documents", [
             'limit' => $limit, 'cursor' => $cursor,
             'updated_after' => $updatedAfter, 'updated_before' => $updatedBefore,
             'document_type' => $documentType, 'source' => $source,
             'date_from' => $dateFrom, 'date_to' => $dateTo, 'tag' => $tag,
+            'review_status' => $reviewStatus,
         ]);
     }
 

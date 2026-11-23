@@ -6,6 +6,7 @@ use App\GenAiProcessor\Models\GenAiImportJob;
 use App\Models\PhrDocument;
 use App\Models\PhrPatient;
 use App\Services\PHR\DataHub\PhrPatientArtifactWriteGuard;
+use App\Support\PHR\PhrReviewStatus;
 use App\Support\Storage\PhrStorageKey;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -128,6 +129,9 @@ class PhrDocumentImporter
                     'import_source' => 'genai',
                     'external_id' => 'genai-job-'.$job->id,
                     'imported_at' => now(),
+                    // Every field here is what the AI read; the document itself
+                    // waits for a person, as an agent's upload does.
+                    'review_status' => PhrReviewStatus::PENDING,
                 ]);
             } catch (\Throwable $exception) {
                 $this->deleteUnpublishedDocument($storagePath);
@@ -138,13 +142,20 @@ class PhrDocumentImporter
     }
 
     /**
+     * A person accepting the AI proposal in the browser reviewed what it changes,
+     * so the document keeps its review status. An agent accepting it (imports.review,
+     * possibly with its own replacement payload) is not a person's review: with
+     * `$reopenReviewOnChange`, a change to the document's content returns it to
+     * `pending_review`, as an agent's documents.update does. Linking the job alone
+     * is not a change.
+     *
      * @param  array<string, mixed>  $payload
      */
-    public function updateDocumentFromGenAiResult(PhrDocument $document, GenAiImportJob $job, array $payload): PhrDocument
+    public function updateDocumentFromGenAiResult(PhrDocument $document, GenAiImportJob $job, array $payload, bool $reopenReviewOnChange = false): PhrDocument
     {
         $payload = $this->documentPayload($payload);
 
-        $document->update([
+        $document->fill([
             'genai_job_id' => $job->id,
             'title' => ValueCoercion::string($payload['title'] ?? null) ?? $document->title,
             'document_type' => ValueCoercion::normalizeDocumentType($payload['document_type'] ?? $document->document_type),
@@ -153,13 +164,21 @@ class PhrDocumentImporter
             'summary' => ValueCoercion::string($payload['summary'] ?? null) ?? $document->summary,
             'tags' => ValueCoercion::tags($payload['tags'] ?? null) ?? $document->tags,
         ]);
+        if ($reopenReviewOnChange && $document->isDirty(['title', 'document_type', 'observed_at', 'extracted_text', 'summary', 'tags'])) {
+            $document->setAttribute('review_status', PhrReviewStatus::PENDING);
+        }
+        $document->save();
 
         return $document->refresh();
     }
 
     /**
+     * With a `review_status` option (an unreviewed import's pending_review), a new
+     * document lands in it and an existing one the payload changes returns to it;
+     * an existing one the payload leaves as it is keeps the review it has.
+     *
      * @param  array<string, mixed>  $payload
-     * @param  array{import_source?: string, source?: string, external_id?: string|null, genai_job_id?: int|null, source_document_id?: int|null}  $options
+     * @param  array{import_source?: string, source?: string, external_id?: string|null, genai_job_id?: int|null, source_document_id?: int|null, review_status?: string}  $options
      */
     public function createOrUpdateDocument(PhrPatient $patient, int $actorUserId, array $payload, array $options): PhrDocument
     {
@@ -201,7 +220,12 @@ class PhrDocumentImporter
             'imported_at' => now(),
         ];
 
-        return $this->upserter->upsert(PhrDocument::class, $attributes);
+        $review = $options['review_status'] ?? null;
+        if ($review !== null) {
+            $attributes['review_status'] = $review;
+        }
+
+        return $this->upserter->upsert(PhrDocument::class, $attributes, $review);
     }
 
     /**

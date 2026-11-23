@@ -1679,6 +1679,54 @@ final class PhrNativeRestoreTest extends TestCase
         @unlink($older);
     }
 
+    public function test_a_document_review_status_survives_a_round_trip_and_an_older_archive_restores_documents_as_confirmed(): void
+    {
+        $owner = User::factory()->create(['user_role' => 'user']);
+        $patient = $this->patientWithOwnerGrant((int) $owner->id);
+        foreach ([PhrReviewStatus::PENDING => 'Synthetic pending note', PhrReviewStatus::REJECTED => 'Synthetic rejected note', PhrReviewStatus::CONFIRMED => 'Synthetic confirmed note'] as $status => $title) {
+            PhrDocument::query()->create(['patient_id' => $patient->id, 'user_id' => $owner->id, 'title' => $title, 'document_type' => 'office_visit_note', 'storage_disk' => PhrDocument::STORAGE_DISK, 'byte_size' => 0, 'source' => 'agent_upload', 'review_status' => $status]);
+        }
+
+        $current = $this->archiveCopy($patient, (int) $owner->id);
+        $older = $this->archiveCopy($patient, (int) $owner->id);
+        // A document archived before documents had a review status has no such attribute,
+        // with a content hash over the smaller set, and was confirmed.
+        $this->mutateTableRecords($older, 'phr_documents', static function (array $record): array {
+            unset($record['attributes']['review_status']);
+
+            return $record;
+        });
+
+        // Unchanged since that older backup, a confirmed document is recognised, not a conflict;
+        // a document that has since gone to review differs from the confirmed one archived.
+        $unchanged = $this->readyAttempt($older, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $unchanged->status, (string) $unchanged->failure_category);
+        $this->assertSame(1, $unchanged->plan_counts_json['tables']['phr_documents']['skip']);
+        DB::table('phr_patients')->where('id', $patient->id)->delete();
+
+        $attempt = $this->readyAttempt($current, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $attempt->status, (string) $attempt->failure_category);
+        app(PhrNativeRestoreService::class)->apply($attempt->refresh());
+        $target = $attempt->refresh()->target_patient_root_id;
+        $this->assertSame(
+            ['Synthetic confirmed note' => PhrReviewStatus::CONFIRMED, 'Synthetic pending note' => PhrReviewStatus::PENDING, 'Synthetic rejected note' => PhrReviewStatus::REJECTED],
+            DB::table('phr_documents')->where('patient_id', $target)->orderBy('title')->pluck('review_status', 'title')->all(),
+        );
+
+        DB::table('phr_patients')->where('id', $target)->delete();
+        $olderAttempt = $this->readyAttempt($older, (int) $owner->id);
+        $this->assertSame(PhrNativeRestoreAttempt::STATUS_PREVIEW_READY, $olderAttempt->status, (string) $olderAttempt->failure_category);
+        app(PhrNativeRestoreService::class)->apply($olderAttempt->refresh());
+        $this->assertSame(
+            [PhrReviewStatus::CONFIRMED],
+            DB::table('phr_documents')->where('patient_id', $olderAttempt->refresh()->target_patient_root_id)->distinct()->pluck('review_status')->all(),
+            'every document of an archive written before the review status restores confirmed',
+        );
+        $this->assertSame(3, DB::table('phr_documents')->where('patient_id', $olderAttempt->target_patient_root_id)->count());
+        @unlink($current);
+        @unlink($older);
+    }
+
     public function test_only_a_whole_later_table_generation_may_be_absent(): void
     {
         $owner = $this->createUser();

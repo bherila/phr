@@ -92,6 +92,8 @@ final class AgentApiSignedDocumentUploadTest extends TestCase
         $this->assertSame('insurance', $document->document_type);
         $this->assertSame(['eob'], $document->tags);
         $this->assertSame('agent_upload', $document->source);
+        // What an agent uploads waits for the person's review before any export carries it.
+        $this->assertSame('pending_review', $document->review_status);
         $this->assertSame('agent-client:'.$this->client->id, $document->import_source);
         Storage::disk(PhrDocument::STORAGE_DISK)->assertExists((string) $document->storage_path);
         $this->assertSame(self::PDF, Storage::disk(PhrDocument::STORAGE_DISK)->get((string) $document->storage_path));

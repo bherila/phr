@@ -32,6 +32,9 @@ connection was not granted that permission, not that the data is absent.
   `documents.download_access.create` only when the user needs the file itself.
 - `documents.update` edits a document's title, `document_type`, `observed_at`,
   summary or tags with the `version` from `documents.get`.
+- A document you upload or edit waits in `pending_review` until the person
+  approves it in PHR; only a confirmed document is exported. `documents.list`
+  filters by `review_status`.
 
 ## Writing records
 

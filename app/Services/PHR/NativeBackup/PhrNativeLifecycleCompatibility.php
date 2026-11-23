@@ -52,6 +52,8 @@ final class PhrNativeLifecycleCompatibility
         ],
         // The review status an agent-written EOB waits in (#268). Older EOBs were all confirmed.
         'phr_eobs' => ['review_status', 'lines_digest', 'correction_revision'],
+        // The review status a machine-written document waits in (#408). Older documents were all confirmed.
+        'phr_documents' => ['review_status'],
         // Whether each lab reference bound is inclusive (#259); null is "not stated".
         // EHI lab provenance (#213 M3): null on every result an older archive holds.
         'phr_lab_results' => [
@@ -103,7 +105,10 @@ final class PhrNativeLifecycleCompatibility
      *
      * @var array<string, array<string, string|int>>
      */
-    private const array LEGACY_VALUES = ['phr_eobs' => ['review_status' => 'confirmed', 'correction_revision' => 0]];
+    private const array LEGACY_VALUES = [
+        'phr_eobs' => ['review_status' => 'confirmed', 'correction_revision' => 0],
+        'phr_documents' => ['review_status' => 'confirmed'],
+    ];
 
     /** @var array<string, list<string>> */
     private static array $columnsByTable = [];

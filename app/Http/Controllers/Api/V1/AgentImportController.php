@@ -150,6 +150,7 @@ final class AgentImportController extends Controller
                 $import,
                 $result,
                 $request->payload(),
+                byAgent: true,
             )
             : $this->reviews->reject($resolved, $import, $result);
 

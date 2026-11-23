@@ -20,6 +20,7 @@ use App\Support\AgentApi\AgentApiUpdateWindow;
 use App\Support\AgentApi\AgentClinicalRecordVersion;
 use App\Support\AgentApi\AgentTextWindow;
 use App\Support\PHR\PhrDocumentTags;
+use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -54,11 +55,12 @@ final class AgentDocumentController extends Controller
             'date_from' => ['sometimes', 'date'],
             'date_to' => ['sometimes', 'date', 'after_or_equal:date_from'],
             'tag' => ['sometimes', 'string', 'max:100'],
+            'review_status' => ['sometimes', Rule::in(PhrReviewStatus::ALL)],
         ]);
         $patientId = $this->patientId($request, $patient);
         $query = PhrDocument::query()->where('patient_id', $patientId)->with('genAiJob:id,status');
         $this->applyUpdateWindow($query, $validated);
-        foreach (['document_type', 'source'] as $filter) {
+        foreach (['document_type', 'source', 'review_status'] as $filter) {
             if (isset($validated[$filter])) {
                 $query->where($filter, $validated[$filter]);
             }
@@ -219,9 +221,13 @@ final class AgentDocumentController extends Controller
                 throw new ConflictHttpException('The document changed; fetch it and retry with its current version.');
             }
             $record->fill($changes);
+            // An exact no-op preserves the existing review state.
             if (! $record->isDirty()) {
                 return [$record, 'unchanged', $current];
             }
+            // Any effective agent change reopens human review, as it does for a
+            // clinical record: confirmation is a person's decision in the browser.
+            $record->setAttribute('review_status', PhrReviewStatus::PENDING);
             $record->save();
             $record->refresh();
 
@@ -353,6 +359,8 @@ final class AgentDocumentController extends Controller
             'mime_type' => $document->mime_type, 'byte_size' => $document->byte_size,
             'summary' => $document->summary, 'source' => $document->source,
             'tags' => $document->tags ?? [], 'import_source' => $document->import_source,
+            // Only a confirmed document leaves PHR in a clinical export.
+            'review_status' => $document->review_status,
             'external_id' => AgentApiExternalId::withoutDocumentHash($document->external_id),
             'imported_at' => $document->imported_at?->toIso8601String(),
             'processing_state' => $this->processingState($document),

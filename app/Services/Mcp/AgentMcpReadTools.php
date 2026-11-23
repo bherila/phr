@@ -293,10 +293,11 @@ final class AgentMcpReadTools
         #[Schema(format: 'date')] ?string $date_from = null,
         #[Schema(format: 'date')] ?string $date_to = null,
         #[Schema(maxLength: 100)] ?string $tag = null,
+        #[Schema(maxLength: 50)] ?string $review_status = null,
     ): array {
         return $this->api->documents(
             $patient_id, $limit, $cursor, $updated_after, $updated_before,
-            $document_type, $source, $date_from, $date_to, $tag,
+            $document_type, $source, $date_from, $date_to, $tag, $review_status,
         )->toArray();
     }
 

@@ -652,7 +652,7 @@
             "description": "Get document metadata without returning file contents.",
             "inputSchema": "sha256:7eecf0b777c43a0bdb4a47345c08961d5d8dccb031f6176203dd69cef6374640",
             "name": "documents.get",
-            "outputSchema": "sha256:d57d0417ac5da0c982ae42eea0b144d88b3a1e414f688c6103f85de120cac86a",
+            "outputSchema": "sha256:513304a3cb1e52ffe10be14f02d7f0291fd35508a655b091cf23537e81661885",
             "title": "Get document"
         },
         "documents.list": {
@@ -662,10 +662,10 @@
                 "idempotentHint": true,
                 "openWorldHint": false
             },
-            "description": "List document metadata without returning file contents.",
-            "inputSchema": "sha256:6aae754ef229ff7fded2cbcdd32a75e5becd2c571a2a6bb345c1e06525c2cba4",
+            "description": "List document metadata without returning file contents. review_status filters by review: a document you upload or edit waits in pending_review until the person approves it in PHR.",
+            "inputSchema": "sha256:e4af3643816d91a59e3394a8ba836f883d0e139633bc094318153ec60fbed7be",
             "name": "documents.list",
-            "outputSchema": "sha256:51b18b95987ae7be71acd6bbaa2a4617622a574957920d990a97de3ded2fbd28",
+            "outputSchema": "sha256:40ae83d068fcd4860a691d8875bbd21e6fe17c6db522702717b5fc91c4366827",
             "title": "List documents"
         },
         "documents.update": {
@@ -675,10 +675,10 @@
                 "idempotentHint": true,
                 "openWorldHint": false
             },
-            "description": "Edit a document's title, document_type, observed_at, summary or tags by its ID and current version (read it with documents_get). data holds only the fields to change; null clears title, observed_at or summary, and tags replaces the list. The file and its import identity never change. A stale version is refused; read the document again.",
+            "description": "Edit a document's title, document_type, observed_at, summary or tags by its ID and current version (read it with documents_get). data holds only the fields to change; null clears title, observed_at or summary, and tags replaces the list. The file and its import identity never change. A stale version is refused; read the document again. Every effective change returns the document to pending_review for the person to approve.",
             "inputSchema": "sha256:613773f31c5812eb0672a7fcd153f04981ffc1cf0024123993908c07b1d1f037",
             "name": "documents.update",
-            "outputSchema": "sha256:877163287ca6487fa67767142964d6a5545c9cd044cbfdf54a5b7f9fd92a9be9",
+            "outputSchema": "sha256:a9d3561221193aa42b452618d45b7966e899841359264a25198ccf74e964a374",
             "title": "Update document metadata"
         },
         "documents.upload": {
@@ -688,10 +688,10 @@
                 "idempotentHint": true,
                 "openWorldHint": false
             },
-            "description": "Idempotently upload a small document through the versioned REST API. Use the multipart REST endpoint for larger files.",
+            "description": "Idempotently upload a small document through the versioned REST API. Use the multipart REST endpoint for larger files. The document waits in pending_review until the person approves it in PHR.",
             "inputSchema": "sha256:c191587fdac812a56868863ce4a851dc848802e6fa6e7ffb652bc639553385a6",
             "name": "documents.upload",
-            "outputSchema": "sha256:df3fd452cfa21db5145a4cca35682be1a5e1822ea3bd7f386f8d3a6108389957",
+            "outputSchema": "sha256:815985b7373bb6731297b163ad5c135452241bc4eeac94ac6ce3432ce577cf00",
             "title": "Upload document"
         },
         "documents.upload_access_create": {

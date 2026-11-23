@@ -19,15 +19,21 @@ final readonly class PhrImportReviewService
         private PhrStructuredDataImporter $importer,
     ) {}
 
-    /** @param array<string, mixed>|null $payload */
+    /**
+     * `$byAgent` says an agent accepted (imports.review), not a person in the browser:
+     * a document the proposal changes then waits for that person's review.
+     *
+     * @param  array<string, mixed>|null  $payload
+     */
     public function accept(
         PhrPatient $patient,
         int $actorUserId,
         int $jobId,
         int $resultId,
         ?array $payload = null,
+        bool $byAgent = false,
     ): ImportReviewResult {
-        return $this->artifactWriteGuard->run((int) $patient->id, function (PhrPatient $lockedPatient) use ($actorUserId, $jobId, $payload, $resultId): ImportReviewResult {
+        return $this->artifactWriteGuard->run((int) $patient->id, function (PhrPatient $lockedPatient) use ($actorUserId, $jobId, $payload, $resultId, $byAgent): ImportReviewResult {
             $target = $this->jobs->lockReviewTarget($lockedPatient, $jobId, $resultId);
             if ($target->result->status === 'imported') {
                 return new ImportReviewResult($target->result, new PhrImportResult, ImportReviewResult::UNCHANGED);
@@ -44,6 +50,7 @@ final readonly class PhrImportReviewService
                 $actorUserId,
                 $target->job,
                 $payload ?? $target->result->getResultArray(),
+                $byAgent,
             );
             $target->result->markImported();
             $this->finishJobWhenReviewed($target->job);
@@ -76,6 +83,7 @@ final readonly class PhrImportReviewService
         int $actorUserId,
         GenAiImportJob $job,
         array $payload,
+        bool $byAgent,
     ): PhrImportResult {
         $context = $job->getContextArray();
         if ($job->job_type === 'phr_document') {
@@ -84,7 +92,7 @@ final readonly class PhrImportReviewService
                 $document = PhrDocument::query()
                     ->where('patient_id', $patient->id)
                     ->findOrFail($sourceDocumentId);
-                $document = $this->importer->updateDocumentFromGenAiResult($document, $job, $payload);
+                $document = $this->importer->updateDocumentFromGenAiResult($document, $job, $payload, reopenReviewOnChange: $byAgent);
                 $import = new PhrImportResult(updated: 1, documents: 1);
             } else {
                 $document = $this->importer->storeGenAiDocument($patient, $actorUserId, $job, $payload);

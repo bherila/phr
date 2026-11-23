@@ -142,6 +142,11 @@ final class AgentApiDocumentUpdateTest extends TestCase
         $this->assertSame('updated', $updated['structuredContent']['outcome']);
         $this->assertSame('discharge_summary', $updated['structuredContent']['data']['document_type']);
         $this->assertNull($updated['structuredContent']['data']['observed_at']);
+        $this->assertSame('pending_review', $updated['structuredContent']['data']['review_status'], 'an agent edit waits for the person');
+        $pending = $this->tool('documents.list', ['patient_id' => $this->patient->id, 'review_status' => 'pending_review']);
+        $this->assertFalse($pending['isError'] ?? false, json_encode($pending));
+        $this->assertSame([$uploaded['id']], array_column($pending['structuredContent']['data'], 'id'));
+        $this->assertSame([], $this->tool('documents.list', ['patient_id' => $this->patient->id, 'review_status' => 'confirmed'])['structuredContent']['data']);
 
         $stale = $this->tool('documents.update', [
             'patient_id' => $this->patient->id, 'document_id' => $uploaded['id'], 'expected_version' => $version,

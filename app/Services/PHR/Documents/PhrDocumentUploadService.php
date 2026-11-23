@@ -106,6 +106,7 @@ final readonly class PhrDocumentUploadService
                         'import_source' => $data->importSource,
                         'external_id' => $data->externalId,
                         'imported_at' => now(),
+                        'review_status' => $data->reviewStatus,
                     ]);
 
                     return new DocumentUploadResult($document, DocumentUploadResult::CREATED);

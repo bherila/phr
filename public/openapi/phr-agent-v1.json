@@ -1285,7 +1285,7 @@
             "patch": {
                 "operationId": "documents.update",
                 "summary": "Edit a document's title, type, date, summary or tags",
-                "description": "Read the document first and supply its current version (documents.get). data holds only the fields to change; a null title, observed_at or summary clears it, and tags replaces the list. The file, its source and its import identity never change. A stale or unknown version is rejected with 409 before anything is applied. Requires documents:read as well as documents:write.",
+                "description": "Read the document first and supply its current version (documents.get). data holds only the fields to change; a null title, observed_at or summary clears it, and tags replaces the list. The file, its source and its import identity never change. A stale or unknown version is rejected with 409 before anything is applied, and every effective change resets review_status to pending_review. Requires documents:read as well as documents:write.",
                 "security": [
                     {
                         "oauth2": [
@@ -1404,6 +1404,19 @@
                             "type": "string",
                             "maxLength": 100
                         }
+                    },
+                    {
+                        "name": "review_status",
+                        "in": "query",
+                        "description": "Exact review status. A document an agent uploads or edits waits in pending_review until a person approves it; only a confirmed document is exported.",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "pending_review",
+                                "confirmed",
+                                "rejected"
+                            ]
+                        }
                     }
                 ],
                 "responses": {
@@ -1437,7 +1450,7 @@
             "post": {
                 "operationId": "documents.upload",
                 "summary": "Idempotently upload a patient document",
-                "description": "The external identifier is namespaced to the OAuth client. Exact retries do not rewrite bytes, while changed bytes for the same identifier and same-client content-hash duplicates conflict.",
+                "description": "The external identifier is namespaced to the OAuth client. Exact retries do not rewrite bytes, while changed bytes for the same identifier and same-client content-hash duplicates conflict. The document lands in pending_review: only a person approving it in PHR lets it into a clinical export.",
                 "security": [
                     {
                         "oauth2": [
@@ -5644,7 +5657,7 @@
             "ReviewStatus": {
                 "name": "review_status",
                 "in": "query",
-                "description": "Matches the durable review_status field (pending_review, confirmed, rejected) across agent-reviewed clinical resources; condition/allergy verification_status remains a separate clinical field.",
+                "description": "Matches the durable review_status field (pending_review, confirmed, rejected) across agent-reviewed clinical resources and documents; condition/allergy verification_status remains a separate clinical field.",
                 "schema": {
                     "type": "string",
                     "maxLength": 50
@@ -7427,6 +7440,7 @@
                     "source",
                     "tags",
                     "import_source",
+                    "review_status",
                     "external_id",
                     "imported_at",
                     "processing_state",
@@ -7502,6 +7516,15 @@
                             "string",
                             "null"
                         ]
+                    },
+                    "review_status": {
+                        "type": "string",
+                        "enum": [
+                            "pending_review",
+                            "confirmed",
+                            "rejected"
+                        ],
+                        "description": "A document an agent uploads or edits, an AI reads or a standards import writes waits in pending_review until a person approves it; only a confirmed document is exported."
                     },
                     "external_id": {
                         "type": [

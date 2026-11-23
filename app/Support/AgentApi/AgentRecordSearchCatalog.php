@@ -115,10 +115,10 @@ final class AgentRecordSearchCatalog
             'model' => PhrDocument::class,
             'event' => ['observed_at', 'created_at'],
             'summary' => ['title', 'original_filename', 'document_type'], 'q' => ['title', 'summary'], 'provider' => [], 'facility' => [],
-            'codes' => [], 'code_arrays' => [], 'sources' => ['source', 'import_source'], 'review' => [], 'source_document' => false,
+            'codes' => [], 'code_arrays' => [], 'sources' => ['source', 'import_source'], 'review' => ['review_status'], 'source_document' => false,
             'columns' => [
                 'id', 'patient_id', 'title', 'original_filename', 'document_type', 'observed_at', 'source', 'import_source',
-                'created_at', 'updated_at', 'deleted_at', 'retracted_at',
+                'review_status', 'created_at', 'updated_at', 'deleted_at', 'retracted_at',
             ],
             'scope' => AgentApiScopes::DOCUMENTS_READ,
         ],
