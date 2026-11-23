@@ -85,6 +85,14 @@ link whose already-present record is linked under another identity is a conflict
 are the `encounter_links` generation: an archive written before them restores with no
 links.
 
+## Episodes of care
+
+`phr_episodes` (#415) holds episodes of care, clinical records with the same import
+identity, review status and lifecycle columns as the others. `phr_episode_encounters`
+groups visits under them; it follows both `phr_episodes` and `phr_office_visits` in
+catalog order and is unique on the pair. Together they are the `episodes` generation,
+after `document_relations`: an archive written before them restores with no episodes.
+
 ## Archives older than a table
 
 A document's addendum or amendment link (#409) is a row of `phr_document_relations`,
@@ -149,7 +157,8 @@ table set to equal the catalog, except that a table generation added after v1 sh
 (`PhrNativeTableCompatibility::LATER_GENERATIONS`: today `ehi_tables`, the six EHI
 preservation tables, then `ehi_evidence`, the seven evidence and review tables, and later
 ones through `encounter_links`, the five encounter link tables, `visit_participants`, a
-visit's care team, and `document_relations`, the document addendum links of #409) may be
+visit's care team, `document_relations`, the document addendum links of #409, and
+`episodes`, the episode and episode-encounter tables) may be
 wholly absent, in which case it reads as empty. Generations are ordered: an archive may
 lack a generation only if it also lacks every later one, so pre-EHI and M1-era archives
 restore. Part of a generation, a later generation without an earlier one, a missing

@@ -41,7 +41,7 @@ final readonly class PhrPreloadPlan
 
     /** Other record types a page hosts, at /{page}/{kind}/{id} (HOSTED_DETAILS). */
     private const array HOSTED_DETAILS = [
-        'office-visits' => ['procedure' => 'procedure-detail', 'immunization' => 'immunization-detail'],
+        'office-visits' => ['procedure' => 'procedure-detail', 'immunization' => 'immunization-detail', 'episode' => 'episode-detail'],
         'vitals' => ['trend' => 'vitals-trend'],
     ];
 
@@ -162,6 +162,7 @@ final readonly class PhrPreloadPlan
             'condition-detail' => ["{$base}/conditions/{$id}"],
             'procedure-detail' => ["{$base}/procedures/{$id}"],
             'immunization-detail' => ["{$base}/immunizations/{$id}"],
+            'episode-detail' => ["{$base}/episodes/{$id}"],
             'allergy-detail' => ["{$base}/allergies/{$id}"],
             'document-viewer' => ["{$base}/documents/{$id}"],
             default => [],

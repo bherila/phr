@@ -6,6 +6,7 @@ use App\Contracts\PHR\ClinicalDataRules;
 use App\Contracts\PHR\ClinicalWriteExtension;
 use App\Http\Resources\PHR\AllergyResource;
 use App\Http\Resources\PHR\ConditionResource;
+use App\Http\Resources\PHR\EpisodeResource;
 use App\Http\Resources\PHR\HealthLogResource;
 use App\Http\Resources\PHR\ImmunizationResource;
 use App\Http\Resources\PHR\LabResultResource;
@@ -16,6 +17,7 @@ use App\Http\Resources\PHR\ProcedureResource;
 use App\Http\Resources\PHR\VitalResource;
 use App\Models\PhrAllergy;
 use App\Models\PhrCondition;
+use App\Models\PhrEpisode;
 use App\Models\PhrHealthLog;
 use App\Models\PhrImmunization;
 use App\Models\PhrLabResult;
@@ -27,6 +29,7 @@ use App\Models\PhrProcedure;
 use App\Services\PHR\Fills\MedicationFillWriteExtension;
 use App\Support\PHR\Validation\AllergyDataRules;
 use App\Support\PHR\Validation\ConditionDataRules;
+use App\Support\PHR\Validation\EpisodeDataRules;
 use App\Support\PHR\Validation\ImmunizationDataRules;
 use App\Support\PHR\Validation\LabResultDataRules;
 use App\Support\PHR\Validation\MedicationDataRules;
@@ -112,6 +115,13 @@ final class AgentClinicalResourceCatalog
             'resource' => VitalResource::class,
             'provenance' => true,
             'write_rules' => VitalDataRules::class,
+        ],
+        // Episodes of care (#415): encounters that belong to one story.
+        'episodes' => [
+            'model' => PhrEpisode::class,
+            'resource' => EpisodeResource::class,
+            'provenance' => true,
+            'write_rules' => EpisodeDataRules::class,
         ],
         'health-logs' => [
             'model' => PhrHealthLog::class,

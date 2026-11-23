@@ -5,6 +5,7 @@ namespace App\Support\AgentApi;
 use App\Models\PhrAllergy;
 use App\Models\PhrCondition;
 use App\Models\PhrDocument;
+use App\Models\PhrEpisode;
 use App\Models\PhrHealthLog;
 use App\Models\PhrImmunization;
 use App\Models\PhrLabResult;
@@ -101,6 +102,12 @@ final class AgentRecordSearchCatalog
             'summary' => ['vital_name'], 'q' => ['vital_name', 'notes'], 'provider' => [], 'facility' => [], 'codes' => [], 'code_arrays' => [],
             'sources' => ['source', 'import_source'], 'review' => ['review_status'], 'source_document' => true,
         ],
+        'episodes' => [
+            'model' => PhrEpisode::class,
+            'event' => ['started_at', 'created_at'],
+            'summary' => ['title'], 'q' => ['title', 'reason'], 'provider' => [], 'facility' => [], 'codes' => [], 'code_arrays' => [],
+            'sources' => ['import_source'], 'review' => ['review_status'], 'source_document' => true,
+        ],
         'health-logs' => [
             'model' => PhrHealthLog::class,
             'event' => ['created_at'],
@@ -128,7 +135,7 @@ final class AgentRecordSearchCatalog
      * How many types a request may name: all of them. records.search,
      * timeline.list and changes.list (REST and MCP) declare this bound.
      */
-    public const int RESOURCE_TYPE_COUNT = 11;
+    public const int RESOURCE_TYPE_COUNT = 12;
 
     /** @return list<string> */
     public static function ids(): array

@@ -993,3 +993,46 @@ export const PhrAllergyFormSchema = z.object({
 })
 
 export type PhrAllergyFormData = z.infer<typeof PhrAllergyFormSchema>
+
+/** A visit grouped under an episode of care, as the episode's reads summarize it (#415). */
+export const PhrEpisodeEncounterSchema = z.object({
+  id: z.number(),
+  visit_date: nullableString,
+  visit_started_at: nullableString,
+  visit_ended_at: nullableString,
+  visit_type: nullableString,
+  encounter_class: nullableString,
+  facility_name: nullableString,
+  review_status: PhrReviewStatusSchema.optional(),
+})
+
+export type PhrEpisodeEncounter = z.infer<typeof PhrEpisodeEncounterSchema>
+
+/** An episode of care: encounters that belong to one story (#415). */
+export const PhrEpisodeSchema = z.object({
+  id: z.number(),
+  patient_id: z.number(),
+  title: z.string(),
+  kind: nullableString,
+  status: nullableString,
+  started_at: nullableString,
+  ended_at: nullableString,
+  reason: nullableString,
+  import_source: nullableString.optional(),
+  review_status: PhrReviewStatusSchema.optional(),
+  created_at: nullableString,
+  updated_at: nullableString,
+})
+
+export type PhrEpisode = z.infer<typeof PhrEpisodeSchema>
+
+export const PhrEpisodeResponseSchema = z.object({
+  episode: PhrEpisodeSchema,
+  encounters: z.array(PhrEpisodeEncounterSchema).default([]),
+  can_manage: z.boolean().default(false),
+})
+
+export const PhrEpisodesResponseSchema = z.object({
+  episodes: z.array(PhrEpisodeSchema.extend({ encounters: z.array(PhrEpisodeEncounterSchema).default([]) })),
+  can_manage: z.boolean().default(false),
+})

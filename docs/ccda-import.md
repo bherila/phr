@@ -104,6 +104,13 @@ procedure the document dates more than a day outside the encounter's period is n
 (the import warns with a count); and a record already linked to another encounter keeps
 it. A link is evidence: it changes neither record's version nor its review status.
 
+## Episodes of care
+
+C-CDA has no structure for an episode of care (#415): a CCD may mention one only in its
+narrative, which is evidence, not structure. C-CDA import never creates an episode, and an
+episode is grouped from its visits by a person or an agent (`episodes.upsert`,
+`episodes.link_encounter`).
+
 ## Hospital medication lists
 
 Admission Medications (42346-7), Medications Administered (29549-3) and Hospital

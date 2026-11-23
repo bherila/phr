@@ -11,6 +11,7 @@ import { recordReviewDecision } from '@/phr/clinical/reviewDecision'
 import { reviewStatusBadge } from '@/phr/clinical/ui'
 import { encounterFacts } from '@/phr/office-visits/encounterLabels'
 import OfficeVisitCareTeam from '@/phr/office-visits/OfficeVisitCareTeam'
+import OfficeVisitEpisodes from '@/phr/office-visits/OfficeVisitEpisodes'
 import OfficeVisitLinkedRecords from '@/phr/office-visits/OfficeVisitLinkedRecords'
 import { errorMessage, fetchPhrDetail } from '@/phr/shared'
 import { PhrRecordNotFound } from '@/phr/shell/PhrRecordNotFound'
@@ -263,6 +264,7 @@ export default function OfficeVisitDetail({ patientId, recordId, onDrill }: Offi
               </ul>
             )}
           </section>
+          <OfficeVisitEpisodes patientId={patientId} visitId={recordId} onDrill={onDrill} />
           <OfficeVisitLinkedRecords records={visit.linked_records} />
           <section className="rounded-lg border border-border bg-card p-4">
             <div>

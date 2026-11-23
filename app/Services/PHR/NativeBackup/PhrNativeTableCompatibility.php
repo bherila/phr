@@ -62,6 +62,8 @@ final class PhrNativeTableCompatibility
         'visit_participants' => ['phr_office_visit_participants'],
         // Document addenda and amendments (phr#409). Archives written before it have none.
         'document_relations' => ['phr_document_relations'],
+        // Episodes of care and the encounters grouped under them (#415).
+        'episodes' => ['phr_episodes', 'phr_episode_encounters'],
     ];
 
     /**

@@ -207,6 +207,16 @@ final class PhrNativeBackupCatalog
                     'procedure_id' => self::record('phr_procedures', false),
                 ],
             ],
+            // Episodes of care (#415), then the visits grouped under them: the link
+            // follows both the episode and the visit in restore order.
+            'phr_episodes' => ['patient_column' => 'patient_id', 'relationships' => $clinical()],
+            'phr_episode_encounters' => [
+                'patient_column' => 'patient_id',
+                'relationships' => [
+                    'episode_id' => self::record('phr_episodes', false),
+                    'office_visit_id' => self::record('phr_office_visits', false),
+                ],
+            ],
             'phr_immunizations' => ['patient_column' => 'patient_id', 'relationships' => $clinical()],
             'phr_allergies' => ['patient_column' => 'patient_id', 'relationships' => $clinical()],
             'phr_portal_messages' => ['patient_column' => 'patient_id', 'relationships' => $clinical()],

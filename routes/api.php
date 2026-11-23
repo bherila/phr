@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\V1\AgentDocumentController;
 use App\Http\Controllers\Api\V1\AgentDocumentUploadController;
 use App\Http\Controllers\Api\V1\AgentEncounterController;
 use App\Http\Controllers\Api\V1\AgentEobController;
+use App\Http\Controllers\Api\V1\AgentEpisodeController;
 use App\Http\Controllers\Api\V1\AgentEvidenceController;
 use App\Http\Controllers\Api\V1\AgentExportController;
 use App\Http\Controllers\Api\V1\AgentFillDuplicateController;
@@ -37,6 +38,7 @@ use App\Http\Controllers\PHR\DICOM\DicomFileController as PHRDicomFileController
 use App\Http\Controllers\PHR\DICOM\DicomStudyController as PHRDicomStudyController;
 use App\Http\Controllers\PHR\DICOM\DicomUploadController as PHRDicomUploadController;
 use App\Http\Controllers\PHR\DICOM\DicomVolumeCacheController as PHRDicomVolumeCacheController;
+use App\Http\Controllers\PHR\EpisodeController as PHREpisodeController;
 use App\Http\Controllers\PHR\HealthLogController as PHRHealthLogController;
 use App\Http\Controllers\PHR\HealthLogEntryController as PHRHealthLogEntryController;
 use App\Http\Controllers\PHR\ImmunizationController as PHRImmunizationController;
@@ -235,6 +237,12 @@ Route::prefix('v1')->name('agent-api.v1.')->group(function (): void {
             ->middleware('throttle:agent-api');
         Route::operation('office_visits.get_stay', [AgentEncounterController::class, 'stay'])
             ->whereNumber(['patient', 'visit'])->middleware('throttle:agent-api');
+
+        // The encounters grouped under an episode of care (#415).
+        Route::operation('episodes.link_encounter', [AgentEpisodeController::class, 'link'])
+            ->whereNumber(['patient', 'episode'])->middleware('throttle:agent-api');
+        Route::operation('episodes.unlink_encounter', [AgentEpisodeController::class, 'unlink'])
+            ->whereNumber(['patient', 'episode', 'visit'])->middleware('throttle:agent-api');
 
         Route::operation('imports.list', [AgentImportController::class, 'index'])
             ->whereNumber('patient')->middleware('throttle:agent-api');
@@ -478,6 +486,12 @@ Route::middleware(['web', 'auth'])
         Route::patch('/patients/{patient}/office-visits/{visit}', [PHROfficeVisitController::class, 'update'])->whereNumber(['patient', 'visit'])->name('patients.office-visits.update');
         Route::delete('/patients/{patient}/office-visits/{visit}', [PHROfficeVisitController::class, 'destroy'])->whereNumber(['patient', 'visit'])->name('patients.office-visits.destroy');
         Route::patch('/patients/{patient}/office-visits/{visit}/review', [PHROfficeVisitController::class, 'review'])->whereNumber(['patient', 'visit'])->name('patients.office-visits.review');
+        Route::get('/patients/{patient}/episodes', [PHREpisodeController::class, 'index'])->whereNumber('patient')->name('patients.episodes.index');
+        Route::post('/patients/{patient}/episodes', [PHREpisodeController::class, 'store'])->whereNumber('patient')->name('patients.episodes.store');
+        Route::get('/patients/{patient}/episodes/{episode}', [PHREpisodeController::class, 'show'])->whereNumber(['patient', 'episode'])->name('patients.episodes.show');
+        Route::patch('/patients/{patient}/episodes/{episode}', [PHREpisodeController::class, 'update'])->whereNumber(['patient', 'episode'])->name('patients.episodes.update');
+        Route::delete('/patients/{patient}/episodes/{episode}', [PHREpisodeController::class, 'destroy'])->whereNumber(['patient', 'episode'])->name('patients.episodes.destroy');
+        Route::patch('/patients/{patient}/episodes/{episode}/review', [PHREpisodeController::class, 'review'])->whereNumber(['patient', 'episode'])->name('patients.episodes.review');
         Route::get('/patients/{patient}/medications', [PHRMedicationController::class, 'index'])->whereNumber('patient')->name('patients.medications.index');
         Route::post('/patients/{patient}/medications', [PHRMedicationController::class, 'store'])->whereNumber('patient')->name('patients.medications.store');
         Route::get('/patients/{patient}/medications/{medication}', [PHRMedicationController::class, 'show'])->whereNumber(['patient', 'medication'])->name('patients.medications.show');

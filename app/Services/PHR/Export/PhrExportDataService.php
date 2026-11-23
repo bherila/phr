@@ -7,6 +7,7 @@ use App\Models\PhrCondition;
 use App\Models\PhrDicomFile;
 use App\Models\PhrDicomStudy;
 use App\Models\PhrDocument;
+use App\Models\PhrEpisode;
 use App\Models\PhrImmunization;
 use App\Models\PhrLabResult;
 use App\Models\PhrMedication;
@@ -18,6 +19,7 @@ use App\Models\PhrPatientVital;
 use App\Models\PhrPortalMessage;
 use App\Models\PhrProcedure;
 use App\Services\PHR\Encounters\PhrEncounterLinks;
+use App\Services\PHR\Encounters\PhrEpisodeLinks;
 use App\Support\PHR\PhrReviewStatus;
 use Illuminate\Database\Eloquent\Collection;
 
@@ -61,6 +63,8 @@ class PhrExportDataService
      *     allergies: Collection<int, PhrAllergy>,
      *     office_visits: Collection<int, PhrOfficeVisit>,
      *     encounter_links: array<string, array<int, int>>,
+     *     episodes: Collection<int, PhrEpisode>,
+     *     episode_encounters: array<int, list<int>>,
      *     portal_messages: Collection<int, PhrPortalMessage>,
      *     negative_assertions: Collection<int, PhrNegativeAssertion>,
      *     dicom_studies: Collection<int, PhrDicomStudy>,
@@ -73,6 +77,7 @@ class PhrExportDataService
         $patientId = (int) $patient->id;
         $documents = PhrDocument::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->with('relatesTo')->orderByDesc('created_at')->orderByDesc('id')->get();
         $visits = PhrOfficeVisit::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->with('participants')->orderByDesc('visit_started_at')->orderByDesc('visit_date')->orderByDesc('id')->get();
+        $episodes = PhrEpisode::query()->where('patient_id', $patientId)->where('review_status', PhrReviewStatus::CONFIRMED)->whereNull('retracted_at')->orderByDesc('started_at')->orderByDesc('id')->get();
 
         return self::withoutDanglingDocuments([
             'patient' => $patient,
@@ -88,6 +93,10 @@ class PhrExportDataService
             // Only links to a visit this export carries: a reference to one it leaves out
             // (pending, rejected, retracted) would dangle, so it is dropped (#411).
             'encounter_links' => app(PhrEncounterLinks::class)->linksToVisits($patientId, $visits->modelKeys()),
+            // Episodes of care (#415), and for each exported visit the exported episodes it is
+            // grouped under. A link to an episode or a visit the export leaves out is dropped.
+            'episodes' => $episodes,
+            'episode_encounters' => app(PhrEpisodeLinks::class)->linksBetween($patientId, $episodes->modelKeys(), $visits->modelKeys()),
             'portal_messages' => PhrPortalMessage::query()->where('patient_id', $patientId)->orderByDesc('message_at')->orderByDesc('id')->get(),
             'negative_assertions' => PhrNegativeAssertion::query()->where('patient_id', $patientId)->orderBy('assertion_type')->orderBy('scope')->orderByDesc('observed_on')->orderByDesc('id')->get(),
             'dicom_studies' => PhrDicomStudy::query()->where('patient_id', $patientId)->withCount(['series', 'instances'])->orderByDesc('study_date')->orderByDesc('id')->get(),

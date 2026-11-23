@@ -196,6 +196,11 @@ engine cannot resolve the ActStatus value sets of Encounter Diagnosis, Problem O
 and Indication or the ProblemType value set; `PhrCcdaEncounterEntriesTest` checks those
 codes.
 
+Episodes of care (#415) are not exported: C-CDA has no equivalent. FHIR export writes
+them as `EpisodeOfCare`, with `Encounter.episodeOfCare` on each exported visit grouped
+under a confirmed episode; FHIR import does not read `EpisodeOfCare` (few sources emit it),
+and an imported `Encounter.episodeOfCare` stays in the visit's source.
+
 ## Validation gate
 
 Run:
