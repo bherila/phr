@@ -164,6 +164,35 @@ describe('OfficeVisitDetail', () => {
     expect(screen.queryByText('No records are linked to this visit.')).not.toBeInTheDocument()
   })
 
+  it('shows the home and order regimens of a change that keeps the drug and changes its dose', async () => {
+    const regimen = { route: 'oral', frequency: 'every 6 hours', as_needed: true, rate: null }
+    const home = { id: 3, name: 'acetaminophen', category: 'community', dose: '500', dose_unit: 'mg', ...regimen, as_needed_reason: 'pain' }
+    const order = { id: 7, name: 'acetaminophen', category: 'inpatient', dose: '650', dose_unit: 'mg', ...regimen, as_needed_reason: 'temp > 38.0 C' }
+    const discharge = { id: 8, name: 'acetaminophen', category: 'discharge', dose: '500', dose_unit: 'mg', ...regimen, as_needed_reason: 'pain' }
+    const heparin = { id: 9, name: 'heparin', category: 'inpatient', dose: '1000', dose_unit: 'U', route: 'IV', frequency: null, as_needed: false, as_needed_reason: null, rate: '18 mL/h' }
+    const heparinHome = { ...heparin, id: 4, category: 'community', rate: '12 mL/h' }
+    const stay = {
+      ...VISIT,
+      medication_transitions: [
+        { id: 21, phase: 'admission', action: 'changed', review_status: 'confirmed', home_medication: home, order_medication: order },
+        { id: 22, phase: 'discharge', action: 'continued', review_status: 'confirmed', home_medication: home, order_medication: discharge },
+        { id: 23, phase: 'admission', action: 'changed', review_status: 'confirmed', home_medication: heparinHome, order_medication: heparin },
+      ],
+    }
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ office_visit: stay, can_manage: false }))
+
+    render(<OfficeVisitDetail patientId={42} recordId="18" onDrill={jest.fn()} />)
+
+    const row = (await screen.findByText('acetaminophen')).closest('li') as HTMLElement
+    expect(row).toHaveTextContent('Admission: changed · Discharge: continued')
+    expect(row).toHaveTextContent('Home500 mg · oral · every 6 hours, as needed for pain')
+    expect(row).toHaveTextContent('Admission order650 mg · oral · every 6 hours, as needed for temp > 38.0 C')
+    expect(row).toHaveTextContent('Discharge500 mg · oral · every 6 hours, as needed for pain')
+    const infusion = screen.getByText('heparin').closest('li') as HTMLElement
+    expect(infusion).toHaveTextContent('Home1000 U · IV · at 12 mL/h')
+    expect(infusion).toHaveTextContent('Admission order1000 U · IV · at 18 mL/h')
+  })
+
   it('says when no records are linked to a visit', async () => {
     jest.spyOn(globalThis, 'fetch').mockResolvedValue(jsonResponse({ office_visit: VISIT, can_manage: false }))
 

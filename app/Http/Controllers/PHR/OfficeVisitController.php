@@ -144,7 +144,7 @@ class OfficeVisitController extends Controller
             'medicationTransitions' => static fn (HasMany $transitions) => $transitions
                 ->whereNull('retracted_at')
                 ->where('review_status', '!=', PhrReviewStatus::REJECTED)
-                ->with(['homeMedication:id,name,dose,dose_unit,route,frequency,category', 'orderMedication:id,name,dose,dose_unit,route,frequency,category'])
+                ->with(['homeMedication:id,name,dose,dose_unit,route,frequency,as_needed,as_needed_reason,rate,category', 'orderMedication:id,name,dose,dose_unit,route,frequency,as_needed,as_needed_reason,rate,category'])
                 ->orderBy('id')
                 ->limit(OfficeVisitResource::LINKED_PREVIEW_LIMIT),
         ]);

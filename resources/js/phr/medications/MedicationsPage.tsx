@@ -30,8 +30,8 @@ import {
   medicationPayload,
   medicationStatusLabel,
 } from './medicationForm'
+import { medicationDoseText, medicationRegimenText, medicationScheduleText } from './medicationRegimen'
 import {
-  asNeededText,
   initialMedicationCategory,
   initialMedicationStatus,
   matchesMedicationCategory,
@@ -56,18 +56,6 @@ const EMPTY_TEXT: Record<MedicationStatusFilter, string> = {
 
 const HEAD = 'px-3 py-2.5 font-medium'
 const CELL = 'px-3 py-2.5'
-
-function doseText(medication: PhrMedication): string {
-  return displayUnits([medication.dose, medication.dose_unit].filter(Boolean).join(' '))
-}
-
-function scheduleText(medication: PhrMedication): string | null {
-  return [medication.frequency, asNeededText(medication), medication.rate ? `at ${medication.rate}` : null].filter(Boolean).join(', ') || null
-}
-
-function regimen(medication: PhrMedication): string {
-  return [doseText(medication), medication.route, scheduleText(medication)].filter(Boolean).join(' · ')
-}
 
 /** Where the list's filters are kept in the address, so a reload or a shared link lands on them. */
 function listQuery(status: MedicationStatusFilter, list: MedicationCategoryFilter): string {
@@ -169,7 +157,7 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
                 <span className="ml-2 inline-block rounded-full border border-border px-2 align-middle text-xs font-normal text-muted-foreground">{medicationCategoryLabel(medication)}</span>
               )}
             </div>
-            <div className={cn('mt-0.5 text-xs text-muted-foreground empty:hidden', RECORD_ONLY_BELOW_WIDE)}>{regimen(medication)}</div>
+            <div className={cn('mt-0.5 text-xs text-muted-foreground empty:hidden', RECORD_ONLY_BELOW_WIDE)}>{medicationRegimenText(medication)}</div>
             {(showsEnded || lastFillOf(medication)) && (
               <div className={cn('mt-0.5 text-xs text-muted-foreground', RECORD_ONLY_BELOW_MEDIUM)}>
                 {[showsEnded ? medicationStatusLabel(medication.status) : null, lastFillOf(medication) ? `Last fill ${formatDate(lastFillOf(medication)!.lastFilledOn)}` : null].filter(Boolean).join(' · ')}
@@ -180,8 +168,8 @@ export default function MedicationsPage({ patientId, onDrill, openRecord }: PhrL
       ),
     },
     { id: 'route', header: 'Route', showFrom: 'wide', headerClassName: HEAD, className: cn(CELL, 'text-muted-foreground'), cell: (medication) => medication.route ?? '—' },
-    { id: 'dose', header: 'Dose', showFrom: 'wide', headerClassName: HEAD, className: CELL, cell: (medication) => <span className="inline-block min-w-22">{doseText(medication) || '—'}</span> },
-    { id: 'schedule', header: 'Schedule', showFrom: 'wide', headerClassName: cn(HEAD, 'w-[22%]'), className: cn(CELL, 'text-muted-foreground'), cell: (medication) => scheduleText(medication) ?? '—' },
+    { id: 'dose', header: 'Dose', showFrom: 'wide', headerClassName: HEAD, className: CELL, cell: (medication) => <span className="inline-block min-w-22">{medicationDoseText(medication) || '—'}</span> },
+    { id: 'schedule', header: 'Schedule', showFrom: 'wide', headerClassName: cn(HEAD, 'w-[22%]'), className: cn(CELL, 'text-muted-foreground'), cell: (medication) => medicationScheduleText(medication) ?? '—' },
     { id: 'started', header: 'Started', fit: true, showFrom: 'medium', headerClassName: HEAD, className: cn(CELL, 'tabular-nums'), cell: (medication) => formatDate(medication.started_on) || '—' },
     ...(showsEnded
       ? [{ id: 'ended', header: 'Ended', fit: true, showFrom: 'medium', headerClassName: HEAD, className: cn(CELL, 'tabular-nums'), cell: (medication) => formatDate(medication.ended_on) || '—' } satisfies RecordColumn<PhrMedication>]

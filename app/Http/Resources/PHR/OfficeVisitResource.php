@@ -137,9 +137,10 @@ class OfficeVisitResource extends JsonResource
     }
 
     /**
-     * A medication a transition names, as the visit page lists it.
+     * A medication a transition names, as the visit page lists it: enough of its regimen to
+     * show what a continued or changed order kept or changed (#439).
      *
-     * @return array{id: int, name: string, dose: string|null, dose_unit: string|null, route: string|null, frequency: string|null, category: string|null}|null
+     * @return array{id: int, name: string, dose: string|null, dose_unit: string|null, route: string|null, frequency: string|null, as_needed: bool|null, as_needed_reason: string|null, rate: string|null, category: string|null}|null
      */
     private function medicationSummary(?PhrMedication $medication): ?array
     {
@@ -150,6 +151,9 @@ class OfficeVisitResource extends JsonResource
             'dose_unit' => $medication->dose_unit,
             'route' => $medication->route,
             'frequency' => $medication->frequency,
+            'as_needed' => $medication->as_needed,
+            'as_needed_reason' => $medication->as_needed_reason,
+            'rate' => $medication->rate,
             'category' => $medication->category,
         ];
     }

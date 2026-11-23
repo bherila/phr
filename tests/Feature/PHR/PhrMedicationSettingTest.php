@@ -20,6 +20,7 @@ use DOMXPath;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
+use Laravel\Passport\Client;
 use Laravel\Passport\Passport;
 use Smalot\PdfParser\Parser;
 use Tests\Concerns\ConfiguresPassportKeys;
@@ -319,6 +320,79 @@ final class PhrMedicationSettingTest extends TestCase
         $this->assertSame('completed', $statuses['synthetic this morning']);
     }
 
+    public function test_moving_an_order_s_end_date_in_the_browser_drops_an_end_time_that_no_longer_falls_on_it(): void
+    {
+        $patient = $this->patient(); // now is 2026-02-13 12:00
+        $order = $this->timedOrder($patient, 'synthetic browser order');
+        $url = "/api/phr/patients/{$patient->id}/medications/{$order->id}";
+
+        // An edit that leaves the end date as it is keeps the time beside it.
+        $this->actingAs($patient->owner)->patchJson($url, ['ended_on' => '2026-02-15', 'frequency' => 'every 8 hours'])
+            ->assertOk()->assertJsonPath('medication.status', 'active');
+        $this->assertSame('2026-02-15 18:00:00', $order->refresh()->ended_at?->toDateTimeString());
+
+        // The form sends only the date: moved to yesterday, the order has ended (#435).
+        $this->actingAs($patient->owner)->patchJson($url, ['ended_on' => '2026-02-12', 'started_on' => '2026-02-11'])
+            ->assertOk()->assertJsonPath('medication.status', 'completed');
+        $this->assertSame([null, null, '2026-02-12', '2026-02-11'], [$order->refresh()->ended_at, $order->started_at, $order->ended_on?->toDateString(), $order->started_on?->toDateString()]);
+        $exported = $this->exportedRequest($patient, 'synthetic browser order');
+        $this->assertSame('completed', $exported['status']);
+        $this->assertSame(['start' => '2026-02-11', 'end' => '2026-02-12'], $exported['dosageInstruction'][0]['timing']['repeat']['boundsPeriod']);
+
+        // Taking the end date away takes its time with it: the order is running again.
+        $this->actingAs($patient->owner)->patchJson($url, ['ended_on' => '2026-02-15', 'ended_at' => '2026-02-15 18:00:00'])->assertOk();
+        $this->actingAs($patient->owner)->patchJson($url, ['ended_on' => null])
+            ->assertOk()->assertJsonPath('medication.status', 'active');
+        $this->assertNull($order->refresh()->ended_at);
+    }
+
+    public function test_moving_an_order_s_end_date_through_the_agent_api_drops_an_end_time_that_no_longer_falls_on_it(): void
+    {
+        $patient = $this->patient(); // now is 2026-02-13 12:00
+        $client = Client::query()->create([
+            'name' => 'Synthetic Medication Writer', 'secret' => null, 'provider' => 'users',
+            'redirect_uris' => ['https://client.example.test/callback'], 'grant_types' => ['authorization_code', 'refresh_token'], 'revoked' => false,
+        ]);
+        Passport::actingAs($patient->owner, [AgentApiScopes::CLINICAL_READ, AgentApiScopes::CLINICAL_WRITE], 'api', $client);
+
+        // medications.update, on a record the agent did not create.
+        $imported = $this->timedOrder($patient, 'synthetic imported order');
+        $version = (string) $this->getJson("/api/v1/patients/{$patient->id}/medications/{$imported->id}")->assertOk()->json('data.version');
+        $this->patchJson("/api/v1/patients/{$patient->id}/medications/{$imported->id}", ['expected_version' => $version, 'data' => ['ended_on' => '2026-02-12']])
+            ->assertOk()->assertJsonPath('outcome', 'updated')->assertJsonPath('data.status', 'completed');
+        $this->assertNull($imported->refresh()->ended_at);
+
+        // medications.upsert, on its own record.
+        $payload = ['external_id' => 'synthetic-order-1', 'source_document_id' => null, 'expected_version' => null, 'data' => [
+            'name' => 'synthetic agent order', 'category' => 'inpatient', 'status' => 'active',
+            'started_on' => '2026-02-10', 'started_at' => '2026-02-10 09:00:00', 'ended_on' => '2026-02-15', 'ended_at' => '2026-02-15 18:00:00',
+        ]];
+        $created = $this->putJson("/api/v1/patients/{$patient->id}/medications", $payload)->assertCreated()->assertJsonPath('data.status', 'active')->json();
+        $this->putJson("/api/v1/patients/{$patient->id}/medications", [
+            'external_id' => 'synthetic-order-1', 'source_document_id' => null, 'expected_version' => $created['version'],
+            'data' => ['name' => 'synthetic agent order', 'ended_on' => '2026-02-12'],
+        ])->assertOk()->assertJsonPath('outcome', 'updated')->assertJsonPath('data.status', 'completed');
+        $upserted = PhrMedication::query()->where('external_id', 'synthetic-order-1')->sole();
+        $this->assertNull($upserted->ended_at);
+        $this->assertSame('2026-02-10 09:00:00', $upserted->started_at?->toDateTimeString(), 'the start was not moved');
+        PhrMedication::query()->where('patient_id', $patient->id)->update(['review_status' => PhrReviewStatus::CONFIRMED]); // as a reviewer would
+        $this->assertSame('completed', $this->exportedRequest($patient, 'synthetic imported order')['status']);
+        $this->assertSame('completed', $this->exportedRequest($patient, 'synthetic agent order')['status']);
+    }
+
+    public function test_an_end_time_is_kept_while_it_falls_on_the_new_end_date_and_a_time_stated_with_the_date_is_kept_as_stated(): void
+    {
+        $patient = $this->patient(); // now is 2026-02-13 12:00
+        $undated = $this->timedOrder($patient, 'synthetic undated end', ['ended_on' => null]);
+        $undated->update(['ended_on' => '2026-02-15']);
+        $this->assertSame('2026-02-15 18:00:00', $undated->refresh()->ended_at?->toDateTimeString());
+        $this->assertSame('active', $undated->status);
+
+        $restated = $this->timedOrder($patient, 'synthetic restated end');
+        $restated->update(['ended_on' => '2026-02-13', 'ended_at' => '2026-02-13 15:00:00']);
+        $this->assertSame(['2026-02-13 15:00:00', 'active'], [$restated->refresh()->ended_at?->toDateTimeString(), $restated->status]);
+    }
+
     public function test_a_request_s_text_only_dosage_is_kept_and_round_trips_through_export(): void
     {
         $patient = $this->patient();
@@ -565,6 +639,32 @@ final class PhrMedicationSettingTest extends TestCase
         $medication = $this->medication($patient, $category, $name);
 
         return [$medication->as_needed, $medication->as_needed_reason];
+    }
+
+    /**
+     * An imported hospital order with times beside its dates, ending in two days' time.
+     *
+     * @param  array<string, mixed>  $overrides
+     */
+    private function timedOrder(PhrPatient $patient, string $name, array $overrides = []): PhrMedication
+    {
+        return PhrMedication::query()->create([
+            'patient_id' => $patient->id, 'user_id' => $patient->owner_user_id, 'import_source' => 'synthetic-fhir', 'external_id' => $name,
+            'name' => $name, 'category' => 'inpatient', 'status' => 'active', 'review_status' => PhrReviewStatus::CONFIRMED,
+            'started_on' => '2026-02-10', 'started_at' => '2026-02-10 09:00:00', 'ended_on' => '2026-02-15', 'ended_at' => '2026-02-15 18:00:00',
+            ...$overrides,
+        ]);
+    }
+
+    /** @return array<string, mixed> the exported MedicationRequest with this name */
+    private function exportedRequest(PhrPatient $patient, string $name): array
+    {
+        foreach ($this->fhirExport($patient)['entry'] as $entry) {
+            if (($entry['resource']['resourceType'] ?? null) === 'MedicationRequest' && $entry['resource']['medicationCodeableConcept']['text'] === $name) {
+                return $entry['resource'];
+            }
+        }
+        $this->fail("No MedicationRequest named {$name} was exported.");
     }
 
     /** @return array<string, mixed> */

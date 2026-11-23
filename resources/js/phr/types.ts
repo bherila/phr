@@ -675,6 +675,9 @@ const PhrMedicationTransitionMedicationSchema = z.object({
   dose_unit: nullableString.optional(),
   route: nullableString.optional(),
   frequency: nullableString.optional(),
+  as_needed: z.boolean().nullable().optional(),
+  as_needed_reason: nullableString.optional(),
+  rate: nullableString.optional(),
   category: nullableString.optional(),
 })
 

@@ -95,6 +95,38 @@ class PhrMedication extends Model
         'review_flags',
     ];
 
+    /** Each date and the time that may stand beside it: the time is the same moment, more precisely. */
+    private const array TIMES = ['started_on' => 'started_at', 'ended_on' => 'ended_at'];
+
+    protected static function booted(): void
+    {
+        static::saving(static function (PhrMedication $medication): void {
+            foreach (self::TIMES as $date => $time) {
+                $medication->dropTimeOffItsDate($date, $time);
+            }
+        });
+    }
+
+    /**
+     * A write that moves a date without stating its time, as the browser form does and as an
+     * agent may, leaves the stored time standing for the old date. Read first by status() and
+     * the exports, it would undo the edit: an order moved to end yesterday would run until its
+     * old evening (#435). So the time goes with the date unless it still falls on the new one;
+     * a time written in the same save is the writer's and is kept as stated. Done here, on the
+     * model, so that every write path is covered.
+     */
+    private function dropTimeOffItsDate(string $date, string $time): void
+    {
+        if (! $this->isDirty($date) || $this->isDirty($time)) {
+            return;
+        }
+        $moment = $this->getAttribute($time);
+        $day = $this->getAttribute($date);
+        if ($moment instanceof Carbon && ! ($day instanceof Carbon && $moment->isSameDay($day))) {
+            $this->setAttribute($time, null);
+        }
+    }
+
     protected function casts(): array
     {
         return [

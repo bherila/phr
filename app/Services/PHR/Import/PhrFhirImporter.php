@@ -150,8 +150,8 @@ class PhrFhirImporter
      * records they name exist. Two forms are read, and nothing else: PHR's own extension
      * (PhrFhirExporter::TRANSITION_EXTENSION) on an order or a home medication, and a
      * MedicationRequest's priorPrescription or basedOn naming a MedicationRequest that is
-     * a home medication. The second reads as continued when the two state the same drug,
-     * dose, route and frequency and as changed otherwise, at admission for an inpatient
+     * a home medication. The second reads as continued when the two state the same regimen
+     * (sameRegimen()) and as changed otherwise, at admission for an inpatient
      * order and at discharge for a discharge one, in the stay its encounter names. A
      * transition is never inferred from similar names, and one naming a record that is not
      * in the bundle (or not imported) is skipped and counted, not guessed at. Each lands
@@ -284,20 +284,25 @@ class PhrFhirImporter
         return $stated;
     }
 
-    /** Whether two medications state the same drug (its RxNorm code, else its name), dose, route and frequency. */
+    /**
+     * Whether two medications state the same drug (its RxNorm code, else its name), dose,
+     * route, frequency and rate, and are both as needed for the same reason or both not
+     * (a dosage that does not say is not as needed).
+     */
     private function sameRegimen(PhrMedication $home, PhrMedication $order): bool
     {
         $normal = static fn (mixed $value): string => mb_strtolower(trim((string) preg_replace('/\s+/', ' ', is_scalar($value) ? (string) $value : '')));
         $drug = static fn (PhrMedication $medication): string => $medication->rxnorm_code !== null && $medication->rxnorm_code !== ''
             ? 'rxnorm:'.$medication->rxnorm_code
             : 'name:'.$normal($medication->name);
-        foreach (['dose', 'dose_unit', 'route', 'frequency'] as $field) {
+        $asNeeded = static fn (PhrMedication $medication): ?string => $medication->as_needed === true ? $normal($medication->as_needed_reason) : null;
+        foreach (['dose', 'dose_unit', 'route', 'frequency', 'rate'] as $field) {
             if ($normal($home->getAttribute($field)) !== $normal($order->getAttribute($field))) {
                 return false;
             }
         }
 
-        return $drug($home) === $drug($order);
+        return $asNeeded($home) === $asNeeded($order) && $drug($home) === $drug($order);
     }
 
     private function transitionExternalId(string $id): string
